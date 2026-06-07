@@ -363,6 +363,10 @@ so only a small allowlisted set of actions is available.
 Assign a [super key](SUPERKEYS.md) to this button. Select one from the Super
 Keys tab, then click **Map**.
 
+Use **Open Super Keys…** to create or edit reusable super keys. Right-click a
+saved super key in the selector to open the Super Keys dialog with that super
+key selected.
+
 Super keys have two modes:
 
 - **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
@@ -376,6 +380,9 @@ Super keys have two modes:
 
 Trigger temporary macro recording slots, play temporary slots, cancel macro
 playback, or play a saved macro.
+
+Right-click a saved macro in the selector's Macro Library to open it in the
+macro editor.
 
 ### Macro Controls
 

@@ -1,4 +1,5 @@
 # ruff: noqa: I001
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -1019,10 +1020,12 @@ def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
     assert results == [None]
 
 
-def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough():
+def test_analog_key_selector_default_tab_and_special_has_no_passthrough(temp_config_dir):
     from gi.repository import Gtk
 
+    from keymasq.common.models import AnalogControlConfig
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import AnalogControlManager
 
     def collect_buttons(widget):
         buttons = []
@@ -1034,27 +1037,19 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
             child = child.get_next_sibling()
         return buttons
 
-    def collect_labels(widget):
-        labels = []
-        child = widget.get_first_child()
-        while child is not None:
-            if isinstance(child, Gtk.Label):
-                labels.append(child)
-            labels.extend(collect_labels(child))
-            child = child.get_next_sibling()
-        return labels
-
+    # New users have no saved controls, so the dialog opens on the Presets tab
+    # with a link through to the full Analog Controls manager.
     dialog = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
+    assert dialog.stack.get_visible_child_name() == "analog_presets"
+    presets_tab = dialog.stack.get_child_by_name("analog_presets")
+    assert presets_tab is not None
+    presets_labels = {button.get_label() for button in collect_buttons(presets_tab)}
+    assert "Open Analog Controls…" in presets_labels
 
-    assert dialog.stack.get_visible_child_name() == "analog_control"
-    analog_tab = dialog.stack.get_child_by_name("analog_control")
-    assert analog_tab is not None
-    hint = next(
-        label
-        for label in collect_labels(analog_tab)
-        if label.get_text() == "Select one or multiple analog controls"
-    )
-    assert "dim-label" in hint.get_css_classes()
+    # Once a control exists, the dialog opens on the picker instead.
+    AnalogControlManager().save_analog_control(AnalogControlConfig(name="My Stick"))
+    populated = KeySelectorDialog(Gtk.Box(), "Left Stick", source_type="analog")
+    assert populated.stack.get_visible_child_name() == "analog_control"
 
     special_tab = dialog._build_special_tab()
     button_labels = {button.get_label() for button in collect_buttons(special_tab)}
@@ -1062,6 +1057,46 @@ def test_analog_key_selector_opens_controls_first_and_special_has_no_passthrough
     assert "Clear Mapping" in button_labels
     assert "Suppress" in button_labels
     assert "Passthrough" not in button_labels
+
+
+def test_analog_key_selector_preset_uses_suffixed_name_for_storage_collision(
+    temp_config_dir,
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+    from keymasq.gui.widgets import key_selector_dialog as dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.analog_controls import (
+        AnalogControlManager,
+        analog_control_presets,
+    )
+
+    monkeypatch.setattr(dialog_module, "notify_session_reload_async", lambda: None)
+
+    manager = AnalogControlManager()
+    manager.save_analog_control(AnalogControlConfig(name="Mouse_Move"))
+
+    results: list[MappingAction] = []
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Left Stick",
+        source_type="analog",
+        analog_input_type="stick",
+    )
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+    preset = next(
+        preset
+        for preset in analog_control_presets("stick")
+        if preset.preset_id == "mouse_move"
+    )
+
+    dialog._on_analog_preset_clicked(Gtk.Button(), preset)
+
+    assert results[0].action_type == ActionType.ANALOG_CONTROL
+    assert results[0].analog_control_names == ["Mouse Move 2"]
+    assert AnalogControlManager().get_analog_control("Mouse Move 2") is not None
 
 
 def test_key_selector_dialog_repeat_uses_special_toggle_buttons_and_inline_rapidfire():
@@ -1178,6 +1213,16 @@ def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkey
     from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
     from keymasq.session.superkeys import SuperkeyManager
 
+    def collect_buttons(widget):
+        buttons = []
+        child = widget.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Button):
+                buttons.append(child)
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
     superkeys_dir = temp_config_dir / "superkeys"
     monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     SuperkeyManager().save_superkey(
@@ -1201,6 +1246,11 @@ def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkey
 
     assert dialog.stack.get_visible_child_name() == "superkey"
     assert dialog._superkey_names == ["volume_rocker"]
+    superkey_tab = dialog.stack.get_child_by_name("superkey")
+    assert superkey_tab is not None
+    button_labels = {button.get_label() for button in collect_buttons(superkey_tab)}
+    assert "Open Super Keys…" in button_labels
+    assert "Refresh" not in button_labels
     assert dialog.map_btn.get_visible() is True
     assert dialog.map_btn.get_sensitive() is True
 
@@ -1209,6 +1259,140 @@ def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkey
     assert len(results) == 1
     assert results[0].action_type == ActionType.SUPERKEY
     assert results[0].superkey_name == "volume_rocker"
+
+
+def test_key_selector_superkey_right_click_opens_manager_for_superkey(
+    temp_config_dir,
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import SuperkeyConfig
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.superkeys import SuperkeyManager
+
+    SuperkeyManager().save_superkey(SuperkeyConfig(name="volume_rocker"))
+    dialog = KeySelectorDialog(Gtk.Window(), "Back")
+    opened: list[str | None] = []
+    monkeypatch.setattr(dialog, "_open_superkey_manager", opened.append)
+
+    dialog._on_superkey_row_right_pressed(
+        Gtk.GestureClick(),
+        1,
+        0.0,
+        0.0,
+        "volume_rocker",
+    )
+
+    assert opened == ["volume_rocker"]
+
+
+def test_key_selector_open_superkey_manager_uses_root_profile_manager(
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    captured: dict[str, object] = {}
+    parent = Gtk.Box()
+    root = Gtk.Window()
+    profile_manager = object()
+    root.profile_manager = profile_manager
+    parent.main_window = root
+
+    class DummySuperkeyDialog:
+        def __init__(self, root, profile_manager_arg):
+            captured["root"] = root
+            captured["profile_manager"] = profile_manager_arg
+            captured["signals"] = []
+
+        def connect(self, signal_name, callback):
+            captured["signals"].append(signal_name)
+            captured[signal_name] = callback
+
+        def present(self, root):
+            captured["present_root"] = root
+
+        def select_superkey_by_name(self, name):
+            captured["selected_name"] = name
+
+    monkeypatch.setattr(superkey_dialog_module, "SuperkeyDialog", DummySuperkeyDialog)
+
+    dialog = KeySelectorDialog(parent, "Back")
+    monkeypatch.setattr(dialog, "get_root", lambda: root)
+
+    dialog._open_superkey_manager("volume_rocker")
+
+    assert captured["root"] is root
+    assert captured["profile_manager"] is profile_manager
+    assert captured["present_root"] is root
+    assert captured["signals"] == ["superkey-saved", "superkey-deleted"]
+    assert captured["selected_name"] == "volume_rocker"
+
+
+def test_key_selector_macro_right_click_opens_macro_editor(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Back")
+    opened: list[str] = []
+    monkeypatch.setattr(dialog, "_open_macro_editor", opened.append)
+
+    dialog._on_macro_row_right_pressed(
+        Gtk.GestureClick(),
+        1,
+        0.0,
+        0.0,
+        "demo_macro",
+    )
+
+    assert opened == ["demo_macro"]
+
+
+def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatch):
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    captured: dict[str, object] = {}
+    callbacks: list[Callable[[object], object]] = []
+    parent = Gtk.Window()
+
+    class DummyMacroEditorDialog:
+        def __init__(self, root, macro_name):
+            captured["root"] = root
+            captured["macro_name"] = macro_name
+
+        def connect(self, signal_name, callback):
+            captured["signal_name"] = signal_name
+            callbacks.append(callback)
+
+        def present(self, root):
+            captured["present_root"] = root
+
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "MacroEditorDialog",
+        DummyMacroEditorDialog,
+    )
+
+    dialog = KeySelectorDialog(parent, "Back")
+    monkeypatch.setattr(dialog, "get_root", lambda: parent)
+    reloaded: list[bool] = []
+    monkeypatch.setattr(dialog, "_load_macro_list", lambda: reloaded.append(True) or False)
+
+    dialog._open_macro_editor("demo_macro")
+    callbacks[0](captured["root"])
+
+    assert captured["root"] is parent
+    assert captured["macro_name"] == "demo_macro"
+    assert captured["present_root"] is parent
+    assert captured["signal_name"] == "closed"
+    assert reloaded == [True]
 
 
 def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():

@@ -1257,8 +1257,18 @@ class TestDialogConstruction:
 
         dialog = SuperkeyDialog(Gtk.Window())
 
+        def row_for(name: str):
+            idx = 0
+            while row := dialog.list_box.get_row_at_index(idx):
+                if getattr(row, "_superkey_name", None) == name:
+                    return row
+                idx += 1
+            raise AssertionError(f"missing row {name}")
+
         dialog.select_superkey_by_name("Beta")
 
+        beta_row = row_for("Beta")
+        assert dialog.list_box.get_selected_row() is beta_row
         assert dialog._current_config is not None
         assert dialog._current_config.name == "Beta"
         assert dialog.name_entry.get_text() == "Beta"

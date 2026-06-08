@@ -260,8 +260,8 @@ target = "key_2"
 always_grab_all = true
 
 [devices."abcd:ef01".mapping.key_f13]
-action = "exec"
-cmd = "playerctl play-pause"
+action = "mpris"
+command = "play_pause"
 ```
 
 `activation_macro` and `deactivation_macro` are optional stored macro names.

@@ -312,6 +312,17 @@ def test_combo_inspector_mapping_action_payload_keeps_unknown_actions_visible() 
     assert action.target == "future-target"
 
 
+def test_combo_inspector_mapping_action_payload_preserves_mpris_command() -> None:
+    from keymasq.common.models import ActionType
+    from keymasq.gui.widgets.combo_inspector_window import _mapping_action_from_payload
+
+    action = _mapping_action_from_payload({"action": "mpris", "command": "stop"})
+
+    assert action is not None
+    assert action.action_type == ActionType.MPRIS
+    assert action.mpris_command == "stop"
+
+
 def test_combo_inspector_mapping_action_payload_preserves_profile_deactivation() -> None:
     from keymasq.gui.widgets.combo_inspector_window import _mapping_action_from_payload
 

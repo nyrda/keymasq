@@ -105,6 +105,209 @@ def test_list_macros_cli_json_prints_response(
     assert payload == {"status": "ok", "macros": [{"name": "combo"}]}
 
 
+def test_mpris_cli_sends_session_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.mpris_cli("play-pause")
+
+    assert sent == [{"command": "mpris", "mpris_command": "play_pause"}]
+
+
+def test_mpris_cli_json_prints_session_response(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok", "command": "next", "mpris": {"started": True}}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.mpris_cli("next", json_output=True)
+
+    assert sent == [{"command": "mpris", "mpris_command": "next"}]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"status": "ok", "command": "next", "mpris": {"started": True}}
+
+
+def test_mpris_cli_rejects_unknown_command(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.mpris_cli("shuffle")
+
+    assert excinfo.value.code == 1
+    assert "unknown MPRIS command" in capsys.readouterr().out
+
+
+def test_mpris_status_cli_prints_controller_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        commands,
+        "_session_request",
+        lambda payload: {
+            "status": "ok",
+            "mpris": {
+                "started": True,
+                "players": [
+                    {
+                        "service": "org.mpris.MediaPlayer2.firefox.instance_1_20",
+                        "owner": ":1.20",
+                        "playback_status": "Playing",
+                        "playing": True,
+                        "can_play": True,
+                        "can_go_next": False,
+                        "can_go_previous": False,
+                        "track": {
+                            "title": "Browser Video",
+                            "artists": ["Example Channel"],
+                            "album": None,
+                        },
+                    },
+                    {
+                        "service": "org.mpris.MediaPlayer2.spotify",
+                        "owner": ":1.10",
+                        "playback_status": "Playing",
+                        "playing": True,
+                        "can_play": True,
+                        "can_go_next": True,
+                        "can_go_previous": True,
+                        "track": {
+                            "title": "Song Title",
+                            "artists": ["Artist Name"],
+                            "album": "Album Name",
+                        },
+                    }
+                ],
+                "player_order": [":1.20", ":1.10"],
+                "started_order": [":1.20", ":1.10"],
+                "inactive_order": [],
+            },
+        },
+    )
+
+    commands.mpris_status_cli()
+
+    out = capsys.readouterr().out
+    assert "MPRIS: started" not in out
+    assert "1. Firefox: Playing, active=yes" in out
+    assert "current: Example Channel - Browser Video" in out
+    assert "2. Spotify: Playing, active=yes" in out
+    assert "current: Artist Name - Song Title (Album Name)" in out
+    assert "play=yes, next=yes, previous=yes" in out
+    assert "targets:" in out
+    assert "play: 2. Spotify" in out
+    assert "play-pause: pause 1. Firefox, 2. Spotify" in out
+    assert "next: 2. Spotify" in out
+    assert "previous: 2. Spotify" in out
+    assert "routing order:" not in out
+    assert "detected:" not in out
+    assert "started:" not in out
+    assert "inactive:" not in out
+    assert ":1.10" not in out
+    assert ":1.20" not in out
+
+
+def test_mpris_status_cli_prints_resume_targets_when_nothing_is_playing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        commands,
+        "_session_request",
+        lambda payload: {
+            "status": "ok",
+            "mpris": {
+                "started": True,
+                "players": [
+                    {
+                        "service": "org.mpris.MediaPlayer2.firefox.instance_1_20",
+                        "owner": ":1.20",
+                        "playback_status": "Paused",
+                        "playing": False,
+                        "can_play": True,
+                        "can_go_next": False,
+                        "can_go_previous": False,
+                    },
+                    {
+                        "service": "org.mpris.MediaPlayer2.spotify",
+                        "owner": ":1.10",
+                        "playback_status": "Paused",
+                        "playing": False,
+                        "can_play": True,
+                        "can_go_next": True,
+                        "can_go_previous": True,
+                    },
+                ],
+                "player_order": [":1.20", ":1.10"],
+                "started_order": [":1.20", ":1.10"],
+                "inactive_order": [":1.20", ":1.10"],
+            },
+        },
+    )
+
+    commands.mpris_status_cli()
+
+    out = capsys.readouterr().out
+    assert "play: 2. Spotify" in out
+    assert "play-pause: play 2. Spotify" in out
+    assert "next: 2. Spotify" in out
+    assert "previous: 2. Spotify" in out
+
+
+def test_mpris_status_cli_prints_not_started_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        commands,
+        "_session_request",
+        lambda payload: {"status": "ok", "mpris": {"started": False, "players": []}},
+    )
+
+    commands.mpris_status_cli()
+
+    out = capsys.readouterr().out
+    assert "MPRIS: not started" in out
+    assert "players: none" in out
+
+
+def test_mpris_status_cli_json_prints_mpris_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok", "mpris": {"started": True, "players": []}}
+
+    monkeypatch.setattr(
+        commands,
+        "_session_request",
+        _session_request,
+    )
+
+    commands.mpris_status_cli(json_output=True)
+
+    assert sent == [{"command": "mpris", "mpris_command": "status"}]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"status": "ok", "mpris": {"started": True, "players": []}}
+
+
 def test_list_profiles_cli_prints_devices_without_profiles(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

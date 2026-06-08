@@ -689,6 +689,7 @@ def _mapping_action_from_payload(value: object) -> MappingAction | None:
         compositor_id=_optional_text(action_data.get("compositor")),
         compositor_dispatcher=_optional_text(action_data.get("dispatcher")),
         compositor_args=_optional_text(action_data.get("args")),
+        mpris_command=_optional_text(action_data.get("command")),
         move_x=_int_value(action_data.get("x"), 0),
         move_y=_int_value(action_data.get("y"), 0),
         axis_value=_int_value(action_data.get("value"), 0),

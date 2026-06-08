@@ -1362,6 +1362,44 @@ class TestComboActionDispatch:
         ) in manager.output_state.mouse_uinput.writes
 
     @pytest.mark.asyncio
+    async def test_mpris_combo_action_tracks_release_lifecycle(self) -> None:
+        events: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
+            events.append((event_type, data))
+
+        manager = DeviceManager(broadcast_callback=broadcast)
+        binding = dm.RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_m")
+
+        await cdm.start_combo_action(
+            manager,
+            "media-stop",
+            dm.MappingAction(action_type=ActionType.MPRIS, mpris_command="stop"),
+            binding,
+            (binding,),
+            deps=combo_runtime_deps(),
+        )
+        await asyncio.sleep(0)
+
+        assert "media-stop" in manager.combo_state.active_actions
+        assert events == [
+            (
+                CommandType.ACTION_TRIGGER,
+                {
+                    "action_type": "mpris",
+                    "command": "stop",
+                    "source_device": "1234:5678",
+                    "source_button": "combo:media-stop",
+                    "trigger_id": "1234:5678:combo:media-stop",
+                },
+            )
+        ]
+
+        await cdm.stop_combo_action(manager, "media-stop", deps=combo_runtime_deps())
+
+        assert "media-stop" not in manager.combo_state.active_actions
+
+    @pytest.mark.asyncio
     async def test_start_combo_action_mouse_move_abs_uses_cursor_position_setter(self) -> None:
         manager = DeviceManager()
         manager.output_state.mouse_uinput = FakeUInput()

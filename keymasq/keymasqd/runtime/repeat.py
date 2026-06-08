@@ -47,6 +47,7 @@ _SPECIAL_REPEAT_ACTION_TYPES = frozenset(
     {
         ActionType.EXEC,
         ActionType.COMPOSITOR_DISPATCH,
+        ActionType.MPRIS,
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
         ActionType.CANCEL_MACRO_PLAYBACK,

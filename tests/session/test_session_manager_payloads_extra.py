@@ -56,6 +56,10 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
                 compositor_dispatcher="workspace",
                 compositor_args="2",
             ),
+            "mpris": MappingAction(
+                action_type=ActionType.MPRIS,
+                mpris_command="play_pause",
+            ),
             "macro": MappingAction(
                 action_type=ActionType.MACRO,
                 macro_name="paste",
@@ -116,6 +120,7 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
         "dispatcher": "workspace",
         "args": "2",
     }
+    assert mapping["mpris"] == {"action": "mpris", "command": "play_pause"}
     macro_mapping = cast(dict[str, object], mapping["macro"])
     assert macro_mapping["macro_name"] == "paste"
     assert macro_mapping["macro_loop_count"] == 3

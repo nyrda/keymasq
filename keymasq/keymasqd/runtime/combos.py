@@ -878,6 +878,7 @@ def _combo_action_needs_release(action: MappingAction) -> bool:
     return action.action_type in {
         ActionType.EXEC,
         ActionType.COMPOSITOR_DISPATCH,
+        ActionType.MPRIS,
         ActionType.START_MACRO_RECORDING,
         ActionType.STOP_MACRO_RECORDING,
         ActionType.PLAY_MACRO_SLOT,

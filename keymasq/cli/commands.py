@@ -3,6 +3,7 @@ import socket
 import sys
 from typing import cast
 
+from keymasq.common.models import parse_mpris_command
 from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
 
@@ -78,6 +79,207 @@ def _names(value: object) -> str:
         return "passthrough"
     names = [str(name) for name in value if str(name)]
     return ", ".join(names) if names else "passthrough"
+
+
+def _cli_mpris_command(command: str) -> str:
+    normalized = parse_mpris_command(command)
+    if normalized is None:
+        print(f"Error: unknown MPRIS command: {command}")
+        sys.exit(1)
+    return normalized
+
+
+def _mpris_payload(result: JsonObject) -> JsonObject:
+    raw_mpris = result.get("mpris")
+    return cast(JsonObject, raw_mpris) if isinstance(raw_mpris, dict) else {}
+
+
+def _capability_text(value: object) -> str:
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return "unknown"
+
+
+def _mpris_service_label(service: object) -> str:
+    raw = str(service or "").strip()
+    prefix = "org.mpris.MediaPlayer2."
+    if raw.startswith(prefix):
+        raw = raw.removeprefix(prefix)
+    raw = raw.split(".instance_", 1)[0].split(".", 1)[0]
+    raw = raw.strip("_-. ")
+    if not raw:
+        return "Unknown"
+    lower = raw.lower()
+    special_labels = {
+        "mpv": "mpv",
+        "vlc": "VLC",
+    }
+    if lower in special_labels:
+        return special_labels[lower]
+    return raw.replace("_", " ").replace("-", " ").title()
+
+
+def _mpris_track_text(player: JsonObject) -> str:
+    raw_track = player.get("track")
+    track = cast(JsonObject, raw_track) if isinstance(raw_track, dict) else {}
+    title = str(track.get("title") or "").strip()
+    album = str(track.get("album") or "").strip()
+    raw_artists = track.get("artists")
+    artists = (
+        [str(artist).strip() for artist in cast(list[object], raw_artists)]
+        if isinstance(raw_artists, list)
+        else []
+    )
+    artists = [artist for artist in artists if artist]
+    if title and artists:
+        text = f"{', '.join(artists)} - {title}"
+    elif title:
+        text = title
+    elif artists:
+        text = ", ".join(artists)
+    else:
+        return "unknown"
+    return f"{text} ({album})" if album else text
+
+
+def _ordered_mpris_players(players: list[object], order: object) -> list[JsonObject]:
+    player_objects = [cast(JsonObject, player) for player in players if isinstance(player, dict)]
+    by_owner = {str(player.get("owner") or ""): player for player in player_objects}
+    ordered: list[JsonObject] = []
+    seen: set[str] = set()
+    if isinstance(order, list):
+        for raw_owner in order:
+            owner = str(raw_owner or "")
+            player = by_owner.get(owner)
+            if player is not None:
+                ordered.append(player)
+                seen.add(owner)
+    ordered.extend(
+        sorted(
+            (player for player in player_objects if str(player.get("owner") or "") not in seen),
+            key=lambda player: _mpris_service_label(player.get("service")),
+        )
+    )
+    return ordered
+
+
+def _mpris_player_supports(player: JsonObject, capability: str) -> bool:
+    return player.get(capability) is not False
+
+
+def _latest_mpris_player_for(
+    mpris: JsonObject,
+    players: list[JsonObject],
+    *,
+    capability: str,
+    prefer_started: bool = False,
+    require_not_playing: bool = False,
+) -> JsonObject | None:
+    by_owner = {str(player.get("owner") or ""): player for player in players}
+    orders = [mpris.get("player_order")]
+    if prefer_started:
+        orders.insert(0, mpris.get("started_order"))
+
+    seen: set[str] = set()
+    for order in orders:
+        if not isinstance(order, list):
+            continue
+        for raw_owner in reversed(order):
+            owner = str(raw_owner or "")
+            if owner in seen:
+                continue
+            seen.add(owner)
+            player = by_owner.get(owner)
+            if player is None:
+                continue
+            if require_not_playing and bool(player.get("playing")):
+                continue
+            if not _mpris_player_supports(player, capability):
+                continue
+            return player
+    return None
+
+
+def _mpris_player_label(player: JsonObject | None, labels_by_owner: dict[str, str]) -> str:
+    if player is None:
+        return "none"
+    owner = str(player.get("owner") or "")
+    return labels_by_owner.get(owner) or _mpris_service_label(player.get("service"))
+
+
+def _print_mpris_targets(
+    mpris: JsonObject,
+    players: list[JsonObject],
+    labels_by_owner: dict[str, str],
+) -> None:
+    if not players:
+        return
+
+    playing_labels = [
+        _mpris_player_label(player, labels_by_owner)
+        for player in players
+        if bool(player.get("playing"))
+    ]
+    play_target = _latest_mpris_player_for(
+        mpris,
+        players,
+        capability="can_play",
+        prefer_started=True,
+    )
+    play_pause_target = _latest_mpris_player_for(
+        mpris,
+        players,
+        capability="can_play",
+        prefer_started=True,
+        require_not_playing=True,
+    )
+    next_target = _latest_mpris_player_for(mpris, players, capability="can_go_next")
+    previous_target = _latest_mpris_player_for(mpris, players, capability="can_go_previous")
+
+    print("targets:")
+    print(f"  play: {_mpris_player_label(play_target, labels_by_owner)}")
+    if playing_labels:
+        print(f"  play-pause: pause {', '.join(playing_labels)}")
+    else:
+        print(f"  play-pause: play {_mpris_player_label(play_pause_target, labels_by_owner)}")
+    print(f"  next: {_mpris_player_label(next_target, labels_by_owner)}")
+    print(f"  previous: {_mpris_player_label(previous_target, labels_by_owner)}")
+
+
+def _print_mpris_status(mpris: JsonObject) -> None:
+    if not bool(mpris.get("started")):
+        print("MPRIS: not started")
+
+    players_raw = mpris.get("players")
+    players = cast(list[object], players_raw) if isinstance(players_raw, list) else []
+    ordered_players = _ordered_mpris_players(players, mpris.get("player_order"))
+    labels_by_owner: dict[str, str] = {}
+
+    if not ordered_players:
+        print("players: none")
+    else:
+        print("players:")
+        for index, player in enumerate(ordered_players, start=1):
+            label = _mpris_service_label(player.get("service"))
+            owner = str(player.get("owner") or "")
+            if owner:
+                labels_by_owner[owner] = f"{index}. {label}"
+            playback = str(player.get("playback_status") or "Stopped")
+            active = "yes" if bool(player.get("playing")) else "no"
+            print(f"  {index}. {label}: {playback}, active={active}")
+            track = _mpris_track_text(player)
+            if track != "unknown" or bool(player.get("playing")):
+                print(f"    current: {track}")
+            print(
+                "    can: "
+                f"play={_capability_text(player.get('can_play'))}, "
+                f"next={_capability_text(player.get('can_go_next'))}, "
+                f"previous={_capability_text(player.get('can_go_previous'))}"
+            )
+
+    _print_mpris_targets(mpris, ordered_players, labels_by_owner)
 
 
 def _device_label(hardware_id: str, device: JsonObject) -> str:
@@ -172,6 +374,36 @@ def list_macros_cli(*, json_output: bool = False) -> None:
         duration_ms = int(macro.get("duration_us", 0) or 0) // 1000
         event_count = int(macro.get("event_count", 0) or 0)
         print(f"{name}\t{duration_ms}ms\t{event_count} events")
+
+
+def mpris_cli(command: str, *, json_output: bool = False) -> None:
+    normalized = _cli_mpris_command(command)
+    result = _request_or_error({"command": "mpris", "mpris_command": normalized})
+    if _handled_json_or_error(result, json_output):
+        return
+    print(f"MPRIS: {normalized}")
+
+
+def mpris_status_cli(*, json_output: bool = False) -> None:
+    result = _request_or_error({"command": "mpris", "mpris_command": "status"})
+    if json_output:
+        mpris = _mpris_payload(result)
+        payload = {
+            "status": result.get("status", "error"),
+            "mpris": mpris,
+        }
+        if result.get("status") != "ok":
+            payload["message"] = _message(result, "Session unavailable")
+        _print_json(payload)
+        if result.get("status") != "ok":
+            sys.exit(1)
+        return
+
+    if result.get("status") != "ok":
+        print(f"Error: {_message(result, 'Session unavailable')}")
+        sys.exit(1)
+
+    _print_mpris_status(_mpris_payload(result))
 
 
 def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) -> None:

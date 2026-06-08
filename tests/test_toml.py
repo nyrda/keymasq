@@ -80,6 +80,15 @@ def test_mapping_action_toml_round_trips_repeat_and_keys_fields() -> None:
     assert keyed["keys"] == ["key_a", "key_b"]
 
 
+def test_mapping_action_toml_round_trips_mpris_command() -> None:
+    action = _parse_mapping_action_toml({"action": "mpris", "command": "play-pause"})
+    emitted = mapping_action_to_toml(action, rapidfire_warning_context="test config")
+
+    assert action.action_type == ActionType.MPRIS
+    assert action.mpris_command == "play_pause"
+    assert emitted == {"action": "mpris", "command": "play_pause"}
+
+
 @pytest.mark.parametrize("action_type", MACRO_RECORDING_SLOT_ACTION_TYPES)
 def test_mapping_action_toml_round_trips_macro_recording_slot_actions(
     action_type: ActionType,

@@ -14,6 +14,8 @@ from keymasq.common.gamepad_axes import gamepad_axis_max_value
 
 log = logging.getLogger("keymasq.gui.widgets.input_picker_shared")
 
+RAW_TRANSPORT_KEY_GROUP_TITLES = frozenset({"Playback"})
+
 GAMEPAD_BUTTONS: dict[str, str] = {
     "A": "btn_south",
     "B": "btn_east",
@@ -47,6 +49,7 @@ def build_keyboard_tab(
     keyboard_layout: list[list[str]],
     key_to_evdev: Mapping[str, str | None],
     key_widths: Mapping[str, float],
+    system_key_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]] | None = None,
 ) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -72,6 +75,17 @@ def build_keyboard_tab(
             row_box.append(btn)
 
         box.append(row_box)
+
+    if system_key_groups:
+        system_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        system_box.set_halign(Gtk.Align.CENTER)
+        system_box.set_margin_top(18)
+        for _title, buttons in system_key_groups:
+            for label, evdev_id, icon_name in buttons:
+                btn = _create_system_key_button(label, evdev_id, icon_name)
+                btn.connect("clicked", owner._on_keyboard_clicked, evdev_id)
+                system_box.append(btn)
+        box.append(system_box)
 
     scrolled.set_child(box)
     return scrolled
@@ -180,6 +194,7 @@ def build_media_tab(
     owner,
     *,
     media_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]],
+    mpris_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]] | None = None,
 ) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -192,31 +207,80 @@ def build_media_tab(
     outer.set_halign(Gtk.Align.CENTER)
     outer.set_valign(Gtk.Align.CENTER)
 
-    for title, buttons in media_groups:
-        section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        section.set_halign(Gtk.Align.CENTER)
-
-        title_label = Gtk.Label(label=title)
-        title_label.add_css_class("button-section-title")
-        title_label.set_halign(Gtk.Align.START)
-        section.append(title_label)
-
-        grid = Gtk.Grid()
-        grid.set_column_spacing(6)
-        grid.set_row_spacing(6)
-        grid.set_column_homogeneous(True)
-        grid.set_halign(Gtk.Align.CENTER)
-
-        for index, (label, evdev_id, icon_name) in enumerate(buttons):
-            btn = _create_media_key_button(label, evdev_id, icon_name)
-            btn.connect("clicked", owner._on_keyboard_clicked, evdev_id)
-            grid.attach(btn, index % 4, index // 4, 1, 1)
-
-        section.append(grid)
+    for title, buttons in mpris_groups or ():
+        section = _build_media_button_section(
+            title,
+            buttons,
+            owner._on_mpris_clicked,
+        )
         outer.append(section)
+
+    visible_media_groups = [
+        (title, buttons)
+        for title, buttons in media_groups
+        if title not in RAW_TRANSPORT_KEY_GROUP_TITLES
+    ]
+    raw_transport_groups = [
+        (title, buttons)
+        for title, buttons in media_groups
+        if title in RAW_TRANSPORT_KEY_GROUP_TITLES
+    ]
+
+    for title, buttons in visible_media_groups:
+        section = _build_media_button_section(
+            title,
+            buttons,
+            owner._on_keyboard_clicked,
+        )
+        outer.append(section)
+
+    if raw_transport_groups:
+        raw_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        raw_box.set_halign(Gtk.Align.CENTER)
+        for title, buttons in raw_transport_groups:
+            section = _build_media_button_section(
+                title,
+                buttons,
+                owner._on_keyboard_clicked,
+            )
+            raw_box.append(section)
+
+        raw_expander = Gtk.Expander(label="Raw Transport Keys")
+        raw_expander.set_expanded(False)
+        raw_expander.set_child(raw_box)
+        raw_expander.set_halign(Gtk.Align.CENTER)
+        outer.append(raw_expander)
 
     scrolled.set_child(outer)
     return scrolled
+
+
+def _build_media_button_section(
+    title: str,
+    buttons: Sequence[tuple[str, str, str]],
+    callback,
+) -> Gtk.Box:
+    section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    section.set_halign(Gtk.Align.CENTER)
+
+    title_label = Gtk.Label(label=title)
+    title_label.add_css_class("button-section-title")
+    title_label.set_halign(Gtk.Align.START)
+    section.append(title_label)
+
+    grid = Gtk.Grid()
+    grid.set_column_spacing(6)
+    grid.set_row_spacing(6)
+    grid.set_column_homogeneous(True)
+    grid.set_halign(Gtk.Align.CENTER)
+
+    for index, (label, action_id, icon_name) in enumerate(buttons):
+        btn = _create_media_key_button(label, action_id, icon_name)
+        btn.connect("clicked", callback, action_id)
+        grid.attach(btn, index % 4, index // 4, 1, 1)
+
+    section.append(grid)
+    return section
 
 
 def _create_media_key_button(label: str, evdev_id: str, icon_name: str) -> Gtk.Button:
@@ -244,6 +308,21 @@ def _create_media_key_button(label: str, evdev_id: str, icon_name: str) -> Gtk.B
 
     btn.set_child(box)
     btn.set_size_request(112, 58)
+    btn._evdev_name = evdev_id
+    return btn
+
+
+def _create_system_key_button(label: str, evdev_id: str, icon_name: str) -> Gtk.Button:
+    btn = Gtk.Button()
+    btn.add_css_class("key-button")
+    btn.add_css_class("system-key-button")
+    btn.set_tooltip_text(f"{label} ({evdev_id})")
+
+    icon = Gtk.Image.new_from_icon_name(icon_name)
+    icon.add_css_class("media-key-icon")
+    icon.set_pixel_size(16)
+    btn.set_child(icon)
+    btn.set_size_request(36, 34)
     btn._evdev_name = evdev_id
     return btn
 

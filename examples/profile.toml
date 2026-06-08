@@ -44,8 +44,8 @@ tap_enabled = true
 tap_hold_ms = 10
 
 [devices."046d:c548".mapping.btn_middle]
-action = "exec"
-cmd = "playerctl play-pause"
+action = "mpris"
+command = "play_pause"
 
 [devices."046d:c548".mapping.btn_extra]
 action = "suppress"

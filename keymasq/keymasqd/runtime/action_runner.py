@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol, TypedDict
@@ -8,6 +9,7 @@ from keymasq.common.models import (
     ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
+    normalize_mpris_command,
     profile_deactivation_policy_to_dict,
 )
 from keymasq.common.types import JsonObject, SyntheticInputEvent
@@ -63,6 +65,7 @@ type ResolveCodeFn = Callable[[str], int | None]
 type CancelMacroPlayback = Callable[[], Awaitable[JsonObject]]
 
 _SyntheticInputEvent = SyntheticInputEvent
+log = logging.getLogger("keymasqd.runtime.action_runner")
 
 
 class SuperkeyExecutor(Protocol):
@@ -227,6 +230,13 @@ def build_action_trigger_payload(
             "compositor": action.compositor_id or "",
             "dispatcher": action.compositor_dispatcher or "",
             "args": action.compositor_args or "",
+            **base_payload,
+        }
+
+    if action.action_type == ActionType.MPRIS:
+        return {
+            "action_type": "mpris",
+            "command": normalize_mpris_command(action.mpris_command),
             **base_payload,
         }
 
@@ -488,6 +498,7 @@ async def execute_action(
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
+        ActionType.MPRIS,
     }:
         if int(event.value) == 1:
             _dispatch_trigger_action(
@@ -625,14 +636,33 @@ def _dispatch_trigger_action(
         source_button=event_name,
         trigger_id=source_trigger_id(device_runtime.hardware_id, event_name),
     )
-    if device_runtime.broadcast_callback is None or payload is None:
+    if payload is None:
+        log.debug(
+            "Cannot dispatch %s action %s: no session payload",
+            action.action_type.value,
+            event_name,
+        )
         return False
+    if device_runtime.broadcast_callback is None:
+        log.warning(
+            "Cannot dispatch %s action %s: no session connection",
+            action.action_type.value,
+            event_name,
+        )
+        return False
+    log.debug(
+        "Dispatching %s action %s to session: %s",
+        action.action_type.value,
+        event_name,
+        payload,
+    )
     task = deps.fire_and_observe_fn(
         device_runtime.broadcast_callback(CommandType.ACTION_TRIGGER, payload),
         label,
     )
     register_action_task(execution_handle, task)
     return True
+
 
 async def _execute_repeat_action(
     device_runtime: ActionRuntime,

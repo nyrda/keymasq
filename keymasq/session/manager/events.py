@@ -146,6 +146,12 @@ async def handle_event(
                 runtime_compositor.handle_compositor_dispatch_trigger(manager, data),
                 name="compositor_dispatch",
             )
+        elif action_type_str == "mpris":
+            create_event_task(
+                manager,
+                handle_mpris_trigger(manager, data),
+                name="mpris",
+            )
         elif action_type_str == "macro":
             create_event_task(
                 manager,
@@ -622,6 +628,17 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
         return
 
     await action_handler.execute_command(cmd)
+
+
+async def handle_mpris_trigger(manager: "SessionManager", data: JsonObject) -> None:
+    command = data.get("command")
+    log.debug(
+        "Handling MPRIS action command=%s source=%s:%s",
+        command,
+        data.get("source_device"),
+        data.get("source_button"),
+    )
+    await manager.mpris_controller.handle_command(command)
 
 
 def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject) -> None:

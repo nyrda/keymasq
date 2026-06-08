@@ -313,16 +313,21 @@ KEY_WIDTHS = {
 
 F_EXTRA = ["F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
 
-MEDIA_KEY_GROUPS = [
+MPRIS_MEDIA_GROUPS = [
     (
-        "Audio",
+        "Player Controls",
         [
-            ("Mute", "key_mute", "audio-volume-muted-symbolic"),
-            ("Vol Down", "key_volumedown", "audio-volume-low-symbolic"),
-            ("Vol Up", "key_volumeup", "audio-volume-high-symbolic"),
-            ("Mic Mute", "key_micmute", "microphone-sensitivity-muted-symbolic"),
+            ("Previous", "previous", "media-skip-backward-symbolic"),
+            ("Play/Pause", "play_pause", "media-playback-start-symbolic"),
+            ("Next", "next", "media-skip-forward-symbolic"),
+            ("Stop", "stop", "media-playback-stop-symbolic"),
+            ("Play", "play", "media-playback-start-symbolic"),
+            ("Pause", "pause", "media-playback-pause-symbolic"),
         ],
-    ),
+    )
+]
+
+MEDIA_KEY_GROUPS = [
     (
         "Playback",
         [
@@ -335,9 +340,33 @@ MEDIA_KEY_GROUPS = [
         ],
     ),
 ]
+SYSTEM_KEY_GROUPS = [
+    (
+        "System Keys",
+        [
+            ("Vol Down", "key_volumedown", "audio-volume-low-symbolic"),
+            ("Vol Up", "key_volumeup", "audio-volume-high-symbolic"),
+            ("Mute", "key_mute", "audio-volume-muted-symbolic"),
+            ("Mic Mute", "key_micmute", "microphone-sensitivity-muted-symbolic"),
+            ("Bright Down", "key_brightnessdown", "display-brightness-symbolic"),
+            ("Bright Up", "key_brightnessup", "display-brightness-symbolic"),
+        ],
+    )
+]
 MEDIA_KEY_TARGETS = {
     evdev_id for _title, buttons in MEDIA_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
 }
+SYSTEM_KEY_TARGETS = {
+    evdev_id for _title, buttons in SYSTEM_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
+}
+
+
+def _keyboard_target_allows_rapidfire(evdev_name: str) -> bool:
+    return evdev_name not in MEDIA_KEY_TARGETS
+
+
+def _keyboard_target_allows_tap(evdev_name: str) -> bool:
+    return evdev_name not in MEDIA_KEY_TARGETS
 
 ACTION_DOC_LINKS = {
     "analog_control": ("analog-controls", "Analog Controls"),
@@ -1270,6 +1299,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             keyboard_layout=KEYBOARD_LAYOUT,
             key_to_evdev=KEY_TO_EVDEV,
             key_widths=KEY_WIDTHS,
+            system_key_groups=SYSTEM_KEY_GROUPS,
         )
         scrolled.set_vexpand(True)
         outer.append(scrolled)
@@ -1358,14 +1388,16 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self._emit_keyboard_mapping(evdev_name)
 
     def _emit_keyboard_mapping(self, evdev_name: str) -> None:
+        use_rapidfire = _keyboard_target_allows_rapidfire(evdev_name)
+        use_tap = _keyboard_target_allows_tap(evdev_name)
         action = MappingAction(
             action_type=ActionType.KEYBOARD,
             target=evdev_name,
-            rapidfire_enabled=self._rapidfire_enabled,
-            rapidfire_hold_ms=int(self.hold_spin.get_value()),
-            rapidfire_wait_ms=int(self.wait_spin.get_value()),
-            tap_enabled=self._tap_enabled,
-            tap_hold_ms=int(self.tap_spin.get_value()),
+            rapidfire_enabled=self._rapidfire_enabled if use_rapidfire else False,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()) if use_rapidfire else 20,
+            rapidfire_wait_ms=int(self.wait_spin.get_value()) if use_rapidfire else 20,
+            tap_enabled=self._tap_enabled if use_tap else False,
+            tap_hold_ms=int(self.tap_spin.get_value()) if use_tap else 150,
         )
         self.emit("key-selected", action)
         self.close()
@@ -1418,7 +1450,11 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
 
     def _build_media_tab(self) -> Gtk.Widget:
-        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
+        return build_shared_media_tab(
+            self,
+            media_groups=MEDIA_KEY_GROUPS,
+            mpris_groups=MPRIS_MEDIA_GROUPS,
+        )
 
     def _build_mouse_tab(self) -> Gtk.Widget:
         box = build_shared_mouse_tab(self)
@@ -1708,6 +1744,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         is_profile = child_name == "profile"
         is_exec = child_name == "exec"
         is_gamepad = child_name == "gamepad"
+        is_media = child_name == "media"
         is_compositor_action = child_name in self._compositor_action_page_ids
         has_options = self._allow_rapidfire or self._allow_tap
         # Repeat carries its own rapidfire controls in the Special tab, so the
@@ -1720,6 +1757,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             or is_profile
             or is_exec
             or is_compositor_action
+            or is_media
         )
         self.options_box.set_sensitive(show_options)
         self.options_box.set_visible(show_options)
@@ -1872,15 +1910,23 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
         self.emit("key-selected", action)
         self.close()
 
+    def _on_mpris_clicked(self, btn, command: str) -> None:
+        self._warn_and_clear_unsupported_rapidfire(ActionType.MPRIS)
+        action = MappingAction(action_type=ActionType.MPRIS, mpris_command=command)
+        self.emit("key-selected", action)
+        self.close()
+
     def _on_keyboard_clicked(self, btn, evdev_name: str):
+        use_rapidfire = _keyboard_target_allows_rapidfire(evdev_name)
+        use_tap = _keyboard_target_allows_tap(evdev_name)
         action = MappingAction(
             action_type=ActionType.KEYBOARD,
             target=evdev_name,
-            rapidfire_enabled=self._rapidfire_enabled,
-            rapidfire_hold_ms=int(self.hold_spin.get_value()),
-            rapidfire_wait_ms=int(self.wait_spin.get_value()),
-            tap_enabled=self._tap_enabled,
-            tap_hold_ms=int(self.tap_spin.get_value()),
+            rapidfire_enabled=self._rapidfire_enabled if use_rapidfire else False,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()) if use_rapidfire else 20,
+            rapidfire_wait_ms=int(self.wait_spin.get_value()) if use_rapidfire else 20,
+            tap_enabled=self._tap_enabled if use_tap else False,
+            tap_hold_ms=int(self.tap_spin.get_value()) if use_tap else 150,
         )
         self.emit("key-selected", action)
         self.close()
@@ -3242,6 +3288,7 @@ class KeySelectorDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             ActionType.CANCEL_MACRO_PLAYBACK: "macro",
             ActionType.EMERGENCY_RESET: "macro",
             ActionType.EXEC: "special",
+            ActionType.MPRIS: "media",
             ActionType.KEYBOARD: (
                 "media" if self._current_action.target in MEDIA_KEY_TARGETS else "keyboard"
             ),
@@ -3497,9 +3544,11 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self.wait_ms_label.set_visible(rf_active)
 
     def _on_tab_changed(self, stack, param):
-        is_exec = self.stack.get_visible_child_name() == "exec"
+        child_name = self.stack.get_visible_child_name()
+        is_exec = child_name == "exec"
+        is_media = child_name == "media"
         if self.rapidfire_check:
-            self.options_box.set_visible(not is_exec)
+            self.options_box.set_visible(not (is_exec or is_media))
         self._update_actions_docs_button()
 
     def _active_actions_docs_link(self) -> tuple[str, str] | None:
@@ -3688,17 +3737,29 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             self.emit("action-selected", action)
             self.close()
 
+    def _on_mpris_clicked(self, btn, command: str):
+        self._warn_and_clear_unsupported_rapidfire(ActionType.MPRIS)
+        action = SuperkeyAction(
+            action_type=ActionType.MPRIS,
+            mpris_command=command,
+        )
+        self.emit("action-selected", action)
+        self.close()
+
     def _on_clear_clicked(self, btn):
         self.emit("action-selected", None)
         self.close()
 
     def _on_keyboard_clicked(self, btn, evdev_name: str):
+        use_rapidfire = bool(
+            self.rapidfire_check and _keyboard_target_allows_rapidfire(evdev_name)
+        )
         action = SuperkeyAction(
             action_type=ActionType.KEYBOARD,
             target=evdev_name,
-            rapidfire_enabled=self._rapidfire_enabled if self.rapidfire_check else False,
-            rapidfire_hold_ms=int(self.hold_spin.get_value()) if self.rapidfire_check else 20,
-            rapidfire_wait_ms=int(self.wait_spin.get_value()) if self.rapidfire_check else 20,
+            rapidfire_enabled=self._rapidfire_enabled if use_rapidfire else False,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()) if use_rapidfire else 20,
+            rapidfire_wait_ms=int(self.wait_spin.get_value()) if use_rapidfire else 20,
         )
         self.emit("action-selected", action)
         self.close()
@@ -3759,6 +3820,7 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             ActionType.GAMEPAD_AXIS: "gamepad",
             ActionType.MACRO: "macro",
             ActionType.EXEC: "exec",
+            ActionType.MPRIS: "media",
         }
         name = tab_map.get(self._current_action.action_type)
         if name:
@@ -3785,13 +3847,18 @@ class SuperkeyActionDialog(Adw.Dialog, _GamepadAxisControlsMixin):
             keyboard_layout=KEYBOARD_LAYOUT,
             key_to_evdev=KEY_TO_EVDEV,
             key_widths=KEY_WIDTHS,
+            system_key_groups=SYSTEM_KEY_GROUPS,
         )
 
     def _build_navigation_tab(self) -> Gtk.Widget:
         return build_shared_navigation_tab(self, f_extra=F_EXTRA)
 
     def _build_media_tab(self) -> Gtk.Widget:
-        return build_shared_media_tab(self, media_groups=MEDIA_KEY_GROUPS)
+        return build_shared_media_tab(
+            self,
+            media_groups=MEDIA_KEY_GROUPS,
+            mpris_groups=MPRIS_MEDIA_GROUPS,
+        )
 
     def _build_mouse_tab(self) -> Gtk.Widget:
         return build_shared_mouse_tab(self)

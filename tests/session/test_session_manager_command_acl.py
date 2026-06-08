@@ -206,10 +206,10 @@ async def test_handle_session_request_get_active_window_falls_back_to_cached_win
 
 
 @pytest.mark.asyncio
-async def test_get_status_omits_acl_gated_profile_and_window_sections() -> None:
+async def test_get_status_omits_acl_gated_profile_window_and_mpris_sections() -> None:
     manager = SessionManager()
     manager.security_policy = SecurityPolicy(
-        session_command_acl={"client": ["!get_active_profiles", "!get_active_window"]},
+        session_command_acl={"client": ["!get_active_profiles", "!get_active_window", "!mpris"]},
         daemon_command_acl={"session": []},
     )
     manager.profile_state.active_profile_names = ["Gaming"]
@@ -238,6 +238,7 @@ async def test_get_status_omits_acl_gated_profile_and_window_sections() -> None:
     assert "active_profiles" not in result
     assert "devices" not in result
     assert "window" not in result
+    assert "mpris" not in result
 
 
 @pytest.mark.asyncio

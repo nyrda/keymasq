@@ -42,6 +42,7 @@ from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.client import KeymasqdClient
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.hardware import HardwareManager
+from keymasq.session.mpris import MprisController, MprisDBusError
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.settings import load_global_settings
 from keymasq.session.superkeys import SuperkeyManager
@@ -154,6 +155,7 @@ class SessionManager:
         runtime_recording.load_recording_settings_from_disk(self)
         self.security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
         self.dbus = SessionDBus()
+        self.mpris_controller = MprisController(self.dbus)
 
         self.action_handler = ActionHandler()
 
@@ -183,6 +185,10 @@ class SessionManager:
         log.info("Starting keymasq-session")
 
         await self._start_session_server()
+        try:
+            await self.mpris_controller.start()
+        except MprisDBusError:
+            log.debug("MPRIS controller startup deferred", exc_info=True)
 
         self.connect_task = asyncio.create_task(self.connect_loop())
         self._start_config_watcher()
@@ -239,6 +245,7 @@ class SessionManager:
             self.recording_state.settings_save_task = None
 
         await runtime_compositor.stop_window_listener(self)
+        await self.mpris_controller.stop()
         await self.dbus.disconnect()
 
         if self.session_server:

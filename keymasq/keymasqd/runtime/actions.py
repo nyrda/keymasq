@@ -14,6 +14,7 @@ from keymasq.common.models import (
     normalize_analog_control_features,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
+    normalize_mpris_command,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
@@ -111,6 +112,7 @@ def parse_action(
     compositor_id = action_data.get("compositor")
     compositor_dispatcher = action_data.get("dispatcher")
     compositor_args = action_data.get("args")
+    mpris_command = action_data.get("command")
     (
         rapidfire_enabled,
         rapidfire_hold_ms,
@@ -164,6 +166,7 @@ def parse_action(
         compositor_id=optional_str(compositor_id),
         compositor_dispatcher=optional_str(compositor_dispatcher),
         compositor_args=optional_str(compositor_args),
+        mpris_command=normalize_mpris_command(mpris_command),
         move_x=int_value(action_data.get("x"), 0),
         move_y=int_value(action_data.get("y"), 0),
         axis_value=axis_value,
@@ -610,6 +613,7 @@ def parse_superkey_action(
         compositor_id=optional_str(action.get("compositor")),
         compositor_dispatcher=optional_str(action.get("dispatcher")),
         compositor_args=optional_str(action.get("args")),
+        mpris_command=normalize_mpris_command(action.get("command")),
         move_x=int_value(action.get("x"), 0),
         move_y=int_value(action.get("y"), 0),
         axis_value=axis_value,

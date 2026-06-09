@@ -156,6 +156,25 @@ def main() -> None:
     macros_delete_parser.add_argument("name", help="Macro name")
     _add_json_output(macros_delete_parser)
 
+    mpris_parser = subparsers.add_parser(
+        "mpris",
+        help="MPRIS media player controls",
+        epilog=f"Full reference: {_docs_url()}",
+    )
+    mpris_sub = mpris_parser.add_subparsers(dest="mpris_command", required=True)
+    for command, help_text in (
+        ("play-pause", "Pause all playing players or resume the latest started player"),
+        ("play", "Play the latest started player"),
+        ("pause", "Pause all playing players"),
+        ("next", "Skip on the latest capable player"),
+        ("previous", "Go back on the latest capable player"),
+        ("stop", "Stop all playing players"),
+    ):
+        command_parser = mpris_sub.add_parser(command, help=help_text)
+        _add_json_output(command_parser)
+    mpris_status_parser = mpris_sub.add_parser("status", help="Show tracked MPRIS players")
+    _add_json_output(mpris_status_parser)
+
     diagnostics_parser = subparsers.add_parser("diagnostics", help="Toggle keymasqd diagnostics")
     diagnostics_parser.add_argument("state", choices=["on", "off"], help="Enable or disable")
     diagnostics_parser.add_argument(
@@ -247,6 +266,11 @@ def main() -> None:
             commands.cancel_macro_cli(json_output=json_output)
         elif args.macros_command == "delete":
             commands.delete_macro_cli(args.name, json_output=json_output)
+    elif args.command == "mpris":
+        if args.mpris_command == "status":
+            commands.mpris_status_cli(json_output=json_output)
+        else:
+            commands.mpris_cli(args.mpris_command, json_output=json_output)
     elif args.command == "diagnostics":
         commands.set_diagnostics_cli(
             args.state == "on",

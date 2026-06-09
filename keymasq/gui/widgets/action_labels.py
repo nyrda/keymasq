@@ -3,8 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from keymasq.common.gamepad_axes import gamepad_axis_range
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.models import ActionType, MappingAction, normalize_mpris_command
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
+
+MPRIS_COMMAND_LABELS = {
+    "play_pause": "Play/Pause",
+    "pause": "Pause",
+    "play": "Play",
+    "next": "Next",
+    "previous": "Previous",
+    "stop": "Stop",
+}
 
 
 def _resolved_label(
@@ -50,6 +59,8 @@ def describe_mapping_action_compact(
         dispatcher = action.compositor_dispatcher or "dispatch"
         args = str(action.compositor_args or "").strip()
         parts.append(f"🪟 {dispatcher}{f' {args}' if args else ''}")
+    elif action.action_type == ActionType.MPRIS:
+        parts.append(f"▶ media {_mpris_command_label(action)}")
     elif action.action_type == ActionType.SUPERKEY:
         parts.append(f"🌟S: {action.superkey_name or '?'}")
     elif action.action_type == ActionType.ANALOG_CONTROL:
@@ -140,6 +151,8 @@ def describe_mapping_action_verbose(
         return f"Exec → {action.cmd or '?'}"
     if action.action_type == ActionType.REPEAT:
         return "Repeat Last Action"
+    if action.action_type == ActionType.MPRIS:
+        return f"Media Control → {_mpris_command_label(action)}"
 
     compositor_action = describe_compositor_action(action)
     if compositor_action is not None:
@@ -193,6 +206,11 @@ def _analog_control_action_label(action: MappingAction) -> str:
     if len(names) == 1:
         return names[0]
     return f"{len(names)} controls"
+
+
+def _mpris_command_label(action: MappingAction) -> str:
+    command = normalize_mpris_command(action.mpris_command)
+    return MPRIS_COMMAND_LABELS.get(command, command.replace("_", " ").title())
 
 
 def _profile_lifetime_suffix(action: MappingAction) -> str:

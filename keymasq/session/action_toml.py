@@ -9,6 +9,7 @@ from keymasq.common.models import (
     MappingAction,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
+    normalize_mpris_command,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     parse_rapidfire_fields,
@@ -161,6 +162,12 @@ def mapping_action_from_toml(
             compositor_args=str(action_data.get("args", "") or ""),
         )
 
+    if action_type == ActionType.MPRIS:
+        return MappingAction(
+            action_type=action_type,
+            mpris_command=normalize_mpris_command(action_data.get("command")),
+        )
+
     if rapidfire_fields is None:
         rapidfire_fields = _rapidfire_from_toml(
             action_data,
@@ -279,6 +286,8 @@ def mapping_action_to_toml(
             action_data["compositor"] = action.compositor_id
         action_data["dispatcher"] = action.compositor_dispatcher or ""
         action_data["args"] = action.compositor_args or ""
+    if action.action_type == ActionType.MPRIS:
+        action_data["command"] = normalize_mpris_command(action.mpris_command)
     if action.action_type == ActionType.REPEAT:
         action_data["repeat_categories"] = list(action.repeat_categories or [])
     (

@@ -12,6 +12,7 @@ from keymasq.common.models import (
     SuperkeyMode,
     combo_effective_superkey_config,
     normalize_analog_control_features,
+    normalize_mpris_command,
     profile_deactivation_policy_to_dict,
     superkey_action_to_mapping_action,
 )
@@ -127,6 +128,10 @@ def _add_compositor_dispatch_fields(
     return True
 
 
+def _add_mpris_action_fields(data: dict[str, object], action: MappingAction) -> None:
+    data["command"] = normalize_mpris_command(action.mpris_command)
+
+
 def _add_recording_action_fields(data: dict[str, object], action: MappingAction) -> None:
     if action.action_type in _RECORDING_SLOT_ACTION_TYPES:
         data["recording_slot"] = int(action.macro_recording_slot)
@@ -211,6 +216,8 @@ def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
         )
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
         _add_compositor_dispatch_fields(data, action)
+    if action.action_type == ActionType.MPRIS:
+        _add_mpris_action_fields(data, action)
     if action.action_type == ActionType.REPEAT:
         data["repeat_categories"] = list(action.repeat_categories or [])
     if action.action_type in _RECORDING_ACTION_TYPES:
@@ -346,6 +353,10 @@ def action_signature_payload(
         _add_compositor_dispatch_fields(data, action)
         return data
 
+    if action.action_type == ActionType.MPRIS:
+        _add_mpris_action_fields(data, action)
+        return data
+
     if action.action_type in _RECORDING_ACTION_TYPES:
         _add_recording_action_fields(data, action)
         return data
@@ -445,6 +456,8 @@ def profile_to_mapping(
                 action_data["exec_ref"] = exec_ref
         elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
             _add_compositor_dispatch_fields(action_data, action)
+        elif action.action_type == ActionType.MPRIS:
+            _add_mpris_action_fields(action_data, action)
         elif action.action_type == ActionType.REPEAT:
             _add_repeat_action_fields(action_data, action)
         elif action.action_type in _RECORDING_ACTION_TYPES:
@@ -569,6 +582,10 @@ def combo_action_to_payload(
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
         if not _add_compositor_dispatch_fields(action_data, action, trim_dispatcher=True):
             return None
+        return action_data
+
+    if action.action_type == ActionType.MPRIS:
+        _add_mpris_action_fields(action_data, action)
         return action_data
 
     if action.action_type in _RECORDING_ACTION_TYPES:
@@ -1017,6 +1034,10 @@ def serialize_overload_action(
 
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
         _add_compositor_dispatch_fields(action_data, action)
+        return action_data
+
+    if action.action_type == ActionType.MPRIS:
+        _add_mpris_action_fields(action_data, action)
         return action_data
 
     if action.action_type in _RECORDING_ACTION_TYPES:

@@ -174,6 +174,8 @@ def test_cli_main_does_not_define_command_wrappers() -> None:
         "delete_macro_cli",
         "list_macros_cli",
         "list_profiles_cli",
+        "mpris_cli",
+        "mpris_status_cli",
         "play_adhoc_cli",
         "play_macro_cli",
         "set_diagnostics_cli",
@@ -217,6 +219,38 @@ def test_cli_main_status_routes_json_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(commands, "status_cli", _status_cli)
     monkeypatch.setattr(sys, "argv", ["keymasq", "status", "--json"])
+
+    cli_main.main()
+    assert calls == [True]
+
+
+def test_cli_main_mpris_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
+
+    calls: list[tuple[str, bool]] = []
+
+    def _mpris_cli(command: str, *, json_output: bool) -> None:
+        calls.append((command, json_output))
+
+    monkeypatch.setattr(commands, "mpris_cli", _mpris_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "mpris", "play-pause", "--json"])
+
+    cli_main.main()
+    assert calls == [("play-pause", True)]
+
+
+def test_cli_main_mpris_status_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.cli import __main__ as cli_main
+    from keymasq.cli import commands
+
+    calls: list[bool] = []
+
+    def _mpris_status_cli(*, json_output: bool) -> None:
+        calls.append(json_output)
+
+    monkeypatch.setattr(commands, "mpris_status_cli", _mpris_status_cli)
+    monkeypatch.setattr(sys, "argv", ["keymasq", "--json", "mpris", "status"])
 
     cli_main.main()
     assert calls == [True]

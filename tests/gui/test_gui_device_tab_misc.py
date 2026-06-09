@@ -1433,6 +1433,191 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_media_tab_hides_options_and_raw_keys_ignore_them():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.rapidfire_check.set_active(True)
+    dialog.hold_spin.set_value(40)
+    dialog.wait_spin.set_value(25)
+    dialog.stack.set_visible_child_name("media")
+
+    assert dialog.options_box.get_visible() is False
+
+    dialog._on_keyboard_clicked(None, "key_playpause")
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.KEYBOARD
+    assert results[0].target == "key_playpause"
+    assert results[0].rapidfire_enabled is False
+    assert results[0].tap_enabled is False
+
+    tap_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    tap_results: list[MappingAction] = []
+    tap_dialog.connect("key-selected", lambda _dialog, action: tap_results.append(action))
+
+    tap_dialog.tap_check.set_active(True)
+    tap_dialog.tap_spin.set_value(70)
+    tap_dialog.stack.set_visible_child_name("media")
+
+    assert tap_dialog.options_box.get_visible() is False
+
+    tap_dialog._on_keyboard_clicked(None, "key_pause")
+
+    assert len(tap_results) == 1
+    assert tap_results[0].target == "key_pause"
+    assert tap_results[0].rapidfire_enabled is False
+    assert tap_results[0].tap_enabled is False
+
+
+def test_key_selector_dialog_system_keys_use_keyboard_options():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.rapidfire_check.set_active(True)
+    dialog.hold_spin.set_value(40)
+    dialog.wait_spin.set_value(25)
+    dialog._on_keyboard_clicked(None, "key_volumeup")
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.KEYBOARD
+    assert results[0].target == "key_volumeup"
+    assert results[0].rapidfire_enabled is True
+    assert results[0].rapidfire_hold_ms == 40
+    assert results[0].rapidfire_wait_ms == 25
+    assert results[0].tap_enabled is False
+
+    mute_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    mute_results: list[MappingAction] = []
+    mute_dialog.connect("key-selected", lambda _dialog, action: mute_results.append(action))
+
+    mute_dialog.rapidfire_check.set_active(True)
+    mute_dialog.hold_spin.set_value(45)
+    mute_dialog.wait_spin.set_value(30)
+    mute_dialog._on_keyboard_clicked(None, "key_mute")
+
+    assert len(mute_results) == 1
+    assert mute_results[0].target == "key_mute"
+    assert mute_results[0].rapidfire_enabled is True
+    assert mute_results[0].rapidfire_hold_ms == 45
+    assert mute_results[0].rapidfire_wait_ms == 30
+    assert mute_results[0].tap_enabled is False
+
+    tap_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    tap_results: list[MappingAction] = []
+    tap_dialog.connect("key-selected", lambda _dialog, action: tap_results.append(action))
+
+    tap_dialog.tap_check.set_active(True)
+    tap_dialog.tap_spin.set_value(80)
+    tap_dialog._on_keyboard_clicked(None, "key_micmute")
+
+    assert len(tap_results) == 1
+    assert tap_results[0].target == "key_micmute"
+    assert tap_results[0].rapidfire_enabled is False
+    assert tap_results[0].tap_enabled is True
+    assert tap_results[0].tap_hold_ms == 80
+
+
+def test_key_selector_dialog_map_code_media_keys_ignore_options():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+
+    dialog.rapidfire_check.set_active(True)
+    dialog.hold_spin.set_value(40)
+    dialog.wait_spin.set_value(25)
+    dialog.kb_code_entry.set_text("key_playpause")
+
+    dialog._on_map_code_clicked(None)
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.KEYBOARD
+    assert results[0].target == "key_playpause"
+    assert results[0].rapidfire_enabled is False
+    assert results[0].rapidfire_hold_ms == 20
+    assert results[0].rapidfire_wait_ms == 20
+    assert results[0].tap_enabled is False
+    assert results[0].tap_hold_ms == 150
+
+    tap_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    tap_results: list[MappingAction] = []
+    tap_dialog.connect("key-selected", lambda _dialog, action: tap_results.append(action))
+
+    tap_dialog.tap_check.set_active(True)
+    tap_dialog.tap_spin.set_value(70)
+    tap_dialog.kb_code_entry.set_text("key_pause")
+
+    tap_dialog._on_map_code_clicked(None)
+
+    assert len(tap_results) == 1
+    assert tap_results[0].target == "key_pause"
+    assert tap_results[0].rapidfire_enabled is False
+    assert tap_results[0].rapidfire_hold_ms == 20
+    assert tap_results[0].rapidfire_wait_ms == 20
+    assert tap_results[0].tap_enabled is False
+    assert tap_results[0].tap_hold_ms == 150
+
+    system_dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    system_results: list[MappingAction] = []
+    system_dialog.connect("key-selected", lambda _dialog, action: system_results.append(action))
+
+    system_dialog.rapidfire_check.set_active(True)
+    system_dialog.hold_spin.set_value(40)
+    system_dialog.wait_spin.set_value(25)
+    system_dialog.kb_code_entry.set_text("key_brightnessup")
+
+    system_dialog._on_map_code_clicked(None)
+
+    assert len(system_results) == 1
+    assert system_results[0].target == "key_brightnessup"
+    assert system_results[0].rapidfire_enabled is True
+    assert system_results[0].rapidfire_hold_ms == 40
+    assert system_results[0].rapidfire_wait_ms == 25
+
+
+def test_superkey_action_dialog_media_tab_hides_rapidfire_and_raw_keys_ignore_it():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, SuperkeyAction
+    from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+
+    dialog = SuperkeyActionDialog(Gtk.Box(), "hold")
+    assert dialog.rapidfire_check is not None
+    results: list[SuperkeyAction] = []
+    dialog.connect("action-selected", lambda _dialog, action: results.append(action))
+
+    dialog.rapidfire_check.set_active(True)
+    dialog.hold_spin.set_value(40)
+    dialog.wait_spin.set_value(25)
+    dialog.stack.set_visible_child_name("media")
+
+    assert dialog.options_box.get_visible() is False
+
+    dialog._on_keyboard_clicked(None, "key_playpause")
+
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.KEYBOARD
+    assert results[0].target == "key_playpause"
+    assert results[0].rapidfire_enabled is False
+
+
 def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
     from gi.repository import Gtk
 
@@ -2844,6 +3029,68 @@ def test_shared_navigation_picker_builds_dropdown():
     assert isinstance(owner.f_dropdown, Gtk.DropDown)
 
 
+def test_shared_keyboard_picker_builds_system_key_row():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.input_picker_shared import build_keyboard_tab
+    from keymasq.gui.widgets.key_selector_dialog import SYSTEM_KEY_GROUPS
+
+    class _Owner:
+        def __init__(self) -> None:
+            self.clicked: list[str] = []
+
+        def _create_key_button(
+            self,
+            label: str,
+            evdev: str,
+            width: float = 1,
+            large: bool = False,
+            protected: bool = False,
+        ) -> Gtk.Button:
+            button = Gtk.Button(label=label)
+            button._evdev_name = evdev
+            return button
+
+        def _on_keyboard_clicked(self, _btn, evdev_id: str) -> None:
+            self.clicked.append(evdev_id)
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    owner = _Owner()
+    widget = build_keyboard_tab(
+        owner,
+        keyboard_layout=[["Esc"]],
+        key_to_evdev={"Esc": "key_esc"},
+        key_widths={},
+        system_key_groups=SYSTEM_KEY_GROUPS,
+    )
+
+    assert isinstance(widget, Gtk.ScrolledWindow)
+    buttons = collect_buttons(widget)
+    system_buttons = [
+        button
+        for button in buttons
+        if getattr(button, "_evdev_name", "") in {"key_volumeup", "key_brightnessdown"}
+    ]
+    assert len(system_buttons) == 2
+    assert system_buttons[0].get_size_request() == (36, 34)
+    assert system_buttons[0].get_label() is None
+    assert "key_volumeup" in (system_buttons[0].get_tooltip_text() or "")
+
+    system_buttons[0].emit("clicked")
+    system_buttons[1].emit("clicked")
+
+    assert owner.clicked == ["key_volumeup", "key_brightnessdown"]
+
+
 def test_shared_media_picker_builds_icon_buttons():
     from gi.repository import Gtk
 
@@ -2867,17 +3114,96 @@ def test_shared_media_picker_builds_icon_buttons():
             child = child.get_next_sibling()
         return buttons
 
+    def collect_expanders(widget: Gtk.Widget) -> list[Gtk.Expander]:
+        expanders: list[Gtk.Expander] = []
+        if isinstance(widget, Gtk.Expander):
+            expanders.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            expanders.extend(collect_expanders(child))
+            child = child.get_next_sibling()
+        return expanders
+
     owner = _Owner()
     widget = build_media_tab(owner, media_groups=MEDIA_KEY_GROUPS)
 
     assert isinstance(widget, Gtk.ScrolledWindow)
+    expanders = collect_expanders(widget)
+    assert len(expanders) == 1
+    assert expanders[0].get_label() == "Raw Transport Keys"
+    assert expanders[0].get_expanded() is False
+
+    raw_child = expanders[0].get_child()
+    assert raw_child is not None
+    raw_buttons = collect_buttons(raw_child)
+    assert len(raw_buttons) == 6
+    assert isinstance(raw_buttons[0].get_child(), Gtk.Box)
+    raw_buttons[2].emit("clicked")
+
+    assert owner.clicked == ["key_nextsong"]
+
+
+def test_shared_media_picker_can_put_mpris_controls_first():
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.input_picker_shared import build_media_tab
+    from keymasq.gui.widgets.key_selector_dialog import MEDIA_KEY_GROUPS, MPRIS_MEDIA_GROUPS
+
+    class _Owner:
+        def __init__(self) -> None:
+            self.mpris_clicked: list[str] = []
+            self.media_key_clicked: list[str] = []
+
+        def _on_mpris_clicked(self, _btn, command: str) -> None:
+            self.mpris_clicked.append(command)
+
+        def _on_keyboard_clicked(self, _btn, evdev_id: str) -> None:
+            self.media_key_clicked.append(evdev_id)
+
+    def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
+        buttons: list[Gtk.Button] = []
+        if isinstance(widget, Gtk.Button):
+            buttons.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            buttons.extend(collect_buttons(child))
+            child = child.get_next_sibling()
+        return buttons
+
+    def collect_expanders(widget: Gtk.Widget) -> list[Gtk.Expander]:
+        expanders: list[Gtk.Expander] = []
+        if isinstance(widget, Gtk.Expander):
+            expanders.append(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            expanders.extend(collect_expanders(child))
+            child = child.get_next_sibling()
+        return expanders
+
+    owner = _Owner()
+    widget = build_media_tab(
+        owner,
+        media_groups=MEDIA_KEY_GROUPS,
+        mpris_groups=MPRIS_MEDIA_GROUPS,
+    )
+
     buttons = collect_buttons(widget)
-    assert len(buttons) == 10
-    assert isinstance(buttons[0].get_child(), Gtk.Box)
+    assert len(buttons) == 6
 
-    buttons[2].emit("clicked")
+    expanders = collect_expanders(widget)
+    assert len(expanders) == 1
+    assert expanders[0].get_label() == "Raw Transport Keys"
+    assert expanders[0].get_expanded() is False
+    raw_child = expanders[0].get_child()
+    assert raw_child is not None
+    raw_buttons = collect_buttons(raw_child)
+    assert len(raw_buttons) == 6
 
-    assert owner.clicked == ["key_volumeup"]
+    buttons[1].emit("clicked")
+    raw_buttons[2].emit("clicked")
+
+    assert owner.mpris_clicked == ["play_pause"]
+    assert owner.media_key_clicked == ["key_nextsong"]
 
 
 def test_shared_gamepad_picker_buttons_use_shared_metadata():

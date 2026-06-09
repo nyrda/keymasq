@@ -137,6 +137,35 @@ keymasq profiles toggle <profile_name>
 | `disable <name>` | Disable a profile |
 | `toggle <name>` | Toggle profile enabled state |
 
+### mpris
+
+Control tracked MPRIS media players with Keymasq's media policy.
+
+```bash
+keymasq mpris play-pause
+keymasq mpris play
+keymasq mpris pause
+keymasq mpris next
+keymasq mpris previous
+keymasq mpris stop
+keymasq mpris status
+keymasq mpris status --json
+```
+
+| Subcommand | Description |
+|---|---|
+| `play-pause` | Pause all playing players, or play the latest started inactive player when nothing is playing |
+| `play` | Play the latest user-started player, falling back to the latest detected player |
+| `pause` | Pause all currently playing players |
+| `next` | Send Next to the latest detected player that supports it |
+| `previous` | Send Previous to the latest detected player that supports it |
+| `stop` | Stop all currently playing players |
+| `status` | Show tracked players, playback state, current metadata, capabilities, and action targets |
+
+`mpris status --json` prints the same MPRIS tracking snapshot Keymasq uses for
+actions. It includes raw player IDs for debugging, plus playback state, current
+track metadata when the player exposes it, capabilities, and routing order.
+
 ### macros
 
 Control macro playback.

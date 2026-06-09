@@ -232,6 +232,7 @@ async def test_start_wires_runtime_tasks_and_stops_on_shutdown(
 ) -> None:
     manager = SessionManager()
     added_signals = []
+    mpris_controller = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
 
     async def start_session_server() -> None:
         asyncio.get_running_loop().call_soon(manager._shutdown_event.set)
@@ -257,6 +258,7 @@ async def test_start_wires_runtime_tasks_and_stops_on_shutdown(
     manager._start_session_server = AsyncMock(side_effect=start_session_server)  # type: ignore[method-assign]
     manager.connect_loop = connect_loop  # type: ignore[method-assign]
     manager._start_config_watcher = Mock()  # type: ignore[method-assign]
+    manager.mpris_controller = mpris_controller  # type: ignore[assignment]
     manager.stop = AsyncMock()  # type: ignore[method-assign]
 
     await manager.start()
@@ -264,6 +266,7 @@ async def test_start_wires_runtime_tasks_and_stops_on_shutdown(
     assert manager.running is True
     assert len(added_signals) == 3
     manager._start_session_server.assert_awaited_once()  # type: ignore[attr-defined]
+    mpris_controller.start.assert_awaited_once()
     manager._start_config_watcher.assert_called_once()  # type: ignore[attr-defined]
     manager.stop.assert_awaited_once()  # type: ignore[attr-defined]
     assert manager.connect_task is not None

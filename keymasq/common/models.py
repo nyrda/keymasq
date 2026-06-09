@@ -36,7 +36,49 @@ class ActionType(Enum):
     PROFILE_ENABLE = "profile_enable"
     PROFILE_DISABLE = "profile_disable"
     PROFILE_TOGGLE = "profile_toggle"
+    MPRIS = "mpris"
     REPEAT = "repeat"
+
+
+MPRIS_COMMAND_PLAY_PAUSE = "play_pause"
+MPRIS_COMMAND_PAUSE = "pause"
+MPRIS_COMMAND_PLAY = "play"
+MPRIS_COMMAND_NEXT = "next"
+MPRIS_COMMAND_PREVIOUS = "previous"
+MPRIS_COMMAND_STOP = "stop"
+MPRIS_COMMANDS = frozenset(
+    {
+        MPRIS_COMMAND_PLAY_PAUSE,
+        MPRIS_COMMAND_PAUSE,
+        MPRIS_COMMAND_PLAY,
+        MPRIS_COMMAND_NEXT,
+        MPRIS_COMMAND_PREVIOUS,
+        MPRIS_COMMAND_STOP,
+    }
+)
+DEFAULT_MPRIS_COMMAND = MPRIS_COMMAND_PLAY_PAUSE
+_MPRIS_COMMAND_ALIASES = {
+    "playpause": MPRIS_COMMAND_PLAY_PAUSE,
+    "play-pause": MPRIS_COMMAND_PLAY_PAUSE,
+    "play/pause": MPRIS_COMMAND_PLAY_PAUSE,
+    "toggle": MPRIS_COMMAND_PLAY_PAUSE,
+    "prev": MPRIS_COMMAND_PREVIOUS,
+}
+
+
+def parse_mpris_command(value: object) -> str | None:
+    command = str(value or "").strip().lower().replace("-", "_")
+    command = _MPRIS_COMMAND_ALIASES.get(command, command)
+    if command in MPRIS_COMMANDS:
+        return command
+    return None
+
+
+def normalize_mpris_command(value: object) -> str:
+    command = parse_mpris_command(value)
+    if command is not None:
+        return command
+    return DEFAULT_MPRIS_COMMAND
 
 
 REPEAT_CATEGORY_KEYBOARD = "keyboard"
@@ -91,6 +133,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.PROFILE_ENABLE,
         ActionType.PROFILE_DISABLE,
         ActionType.PROFILE_TOGGLE,
+        ActionType.MPRIS,
     }
 )
 
@@ -443,6 +486,7 @@ class MappingAction:
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
     compositor_args: str | None = None
+    mpris_command: str | None = None
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
@@ -492,6 +536,10 @@ class MappingAction:
             self.action_type,
             self.profile_deactivation,
         )
+        if self.action_type == ActionType.MPRIS:
+            self.mpris_command = normalize_mpris_command(self.mpris_command)
+        else:
+            self.mpris_command = None
         if self.action_type in {
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
@@ -757,6 +805,7 @@ class SuperkeyAction:
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
     compositor_args: str | None = None
+    mpris_command: str | None = None
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
@@ -787,6 +836,10 @@ class SuperkeyAction:
             self.action_type,
             self.profile_deactivation,
         )
+        if self.action_type == ActionType.MPRIS:
+            self.mpris_command = normalize_mpris_command(self.mpris_command)
+        else:
+            self.mpris_command = None
         if self.action_type in {
             ActionType.START_MACRO_RECORDING,
             ActionType.STOP_MACRO_RECORDING,
@@ -821,6 +874,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "compositor_id",
     "compositor_dispatcher",
     "compositor_args",
+    "mpris_command",
     "move_x",
     "move_y",
     "axis_value",

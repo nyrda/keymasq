@@ -9,11 +9,11 @@ Use one key as a small volume rocker:
 | Hold | Keep turning volume down |
 | Tap + hold | Keep turning volume up |
 
-Use the **rapidfire media-key** setup first. It is simpler and does not need
+Use the **rapidfire system-key** setup first. It is simpler and does not need
 macros. Use the **PipeWire command macro** setup when you want Keymasq to call
 `wpctl` directly instead of sending `key_volumeup` and `key_volumedown`.
 
-## Option A: Media Keys With Rapidfire
+## Option A: System Keys With Rapidfire
 
 Open **Super Keys**, create a new superkey, and choose **Pattern** mode.
 

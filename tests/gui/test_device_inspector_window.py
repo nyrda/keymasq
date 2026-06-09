@@ -259,6 +259,17 @@ def _snapshot():
     }
 
 
+def test_device_inspector_mapping_action_payload_preserves_mpris_command() -> None:
+    from keymasq.common.models import ActionType
+    from keymasq.gui.widgets.device_inspector_window import _mapping_action_from_payload
+
+    action = _mapping_action_from_payload({"action": "mpris", "command": "previous"})
+
+    assert action is not None
+    assert action.action_type == ActionType.MPRIS
+    assert action.mpris_command == "previous"
+
+
 def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     monkeypatch,
 ):

@@ -197,6 +197,7 @@ def _mapping_action_from_payload(action: object) -> MappingAction | None:
         compositor_id=_text(action.get("compositor")) or None,
         compositor_dispatcher=_text(action.get("dispatcher")) or None,
         compositor_args=_text(action.get("args")) or None,
+        mpris_command=_text(action.get("command")) or None,
         move_x=move_x if move_x is not None else 0,
         move_y=move_y if move_y is not None else 0,
         axis_value=axis_value if axis_value is not None else 0,

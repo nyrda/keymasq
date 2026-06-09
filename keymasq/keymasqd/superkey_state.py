@@ -17,6 +17,7 @@ from keymasq.common.models import (
     SuperkeyMode,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
+    normalize_mpris_command,
     normalize_profile_deactivation_policy,
     superkey_action_shared_kwargs,
 )
@@ -73,6 +74,7 @@ class SuperkeyActionData:
     compositor_id: str | None = None
     compositor_dispatcher: str | None = None
     compositor_args: str | None = None
+    mpris_command: str | None = None
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
@@ -97,6 +99,10 @@ class SuperkeyActionData:
             ActionType(self.action_type),
             self.profile_deactivation,
         )
+        if self.action_type == ActionType.MPRIS.value:
+            self.mpris_command = normalize_mpris_command(self.mpris_command)
+        else:
+            self.mpris_command = None
         if self.action_type not in {
             ActionType.START_MACRO_RECORDING.value,
             ActionType.STOP_MACRO_RECORDING.value,

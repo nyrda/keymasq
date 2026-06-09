@@ -94,10 +94,36 @@ razer-cli --device 'Razer DeathAdder V2' --dpi 1600
 ratbagctl 'Logitech G502 HERO Gaming Mouse' dpi set 1600
 ```
 
+On PipeWire systems, `wpctl` is useful for exact audio commands such as fixed
+volume steps or explicit mute toggles:
+
+```sh
+# volume down
+wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+
+# volume up, clamped to 100%
+wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
+
+# toggle sound mute
+wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+
+# toggle mic mute
+wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+```
+
 ## Keyboard
 
 Pick a keyboard key from the visual layout (up to F12). The mapped button
 will send that key press instead of its original input.
+
+The Keyboard tab also includes a compact **System Keys** row:
+
+- Volume Up, Volume Down, and Mute
+- Microphone Mute
+- Brightness Up and Brightness Down
+
+These are regular keyboard actions, so the shared Keyboard-tab options apply
+when you enable them.
 
 You can also use **Capture Key** to press any key on your keyboard and have
 Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
@@ -122,20 +148,50 @@ convenience for finding these keys faster.
 
 ## Media
 
-Quick access to common media keys:
+Quick access to player controls and raw transport keys:
 
-- Volume Up, Volume Down, and Mute
-- Microphone Mute
+### Player Controls
+
+Keymasq tracks MPRIS media players and applies one consistent playback policy
+across applications. Two notions of "most recent" drive that policy:
+
+- **the player you most recently started** — the player whose playback you last
+  began, and
+- **the most recently detected player** — the most recent player Keymasq saw
+  appear on the bus.
+
+The `play`, `next`, and `previous` commands skip any player that reports it
+can't honor the request, so a player that can't change tracks won't swallow a
+`next`.
+
+Supported commands:
+
+| Command | Behavior |
+| --- | --- |
+| `play_pause` | If any players are playing, pause all of them. Otherwise resume the player you most recently started, falling back to the most recently detected player that can play. |
+| `pause` | Pause every currently playing player. |
+| `play` | Resume the player you most recently started, falling back to the most recently detected player that can play. |
+| `next` | Skip forward on the most recently detected player that can change tracks. |
+| `previous` | Skip back on the most recently detected player that can change tracks. |
+| `stop` | Stop every currently playing player. |
+
+Pausing and stopping are intentionally **cross-application**: because browsers
+and many other apps register as MPRIS players, `play_pause`, `pause`, and `stop`
+act on every matching player at once, not just one. Track controls (`next` /
+`previous`) target the most recently detected capable player, which may not be
+the same player that `play` or `play_pause` would resume.
+
+### Raw Transport Keys
+
+The Media tab also offers standard playback key actions:
+
 - Play/Pause, Play, Pause, Stop
 - Previous Track and Next Track
 
-These are the same as Keyboard actions — the Media tab only sends standard
-Linux input key codes such as `key_volumeup`, `key_micmute`, and
-`key_playpause`. Keymasq does not talk to MPRIS, `wpctl`, PulseAudio, PipeWire,
-or a media player directly here. Your desktop environment or focused
-application decides what those key events do.
+Playback media keys remain useful when you want to emit standard
+Linux input key codes such as `key_playpause`, `key_play`, or `key_nextsong`.
 
-![Media tab — audio and playback media key actions](assets/screenshots/key_selector_media.png)
+![Media tab — MPRIS controls and raw transport key actions](assets/screenshots/key_selector_media.png)
 
 ## Mouse
 

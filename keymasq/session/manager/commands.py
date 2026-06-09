@@ -7,6 +7,7 @@ from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
+    parse_mpris_command,
 )
 from keymasq.common.security import PeerCredentials, SecurityPolicy, command_allowed
 from keymasq.common.settings import GlobalSettings
@@ -15,6 +16,7 @@ from keymasq.common.virtual_devices import (
     MIN_VIRTUAL_GAMEPADS,
     clamp_virtual_gamepad_count,
 )
+from keymasq.session.mpris import MprisDBusError
 from keymasq.session.settings import save_global_settings, save_virtual_gamepad_count
 
 from . import combo_inspector as runtime_combo_inspector
@@ -416,6 +418,38 @@ async def _handle_compositor_commands(
     if command == "get_cursor_position":
         return await runtime_compositor.get_cursor_position_payload(manager)
 
+    if command == "mpris":
+        requested_command = request.get("mpris_command", request.get("action"))
+        raw_command = str_value(requested_command, "").strip()
+        if raw_command.lower().replace("-", "_") == "status":
+            return {
+                "status": "ok",
+                "command": "status",
+                "mpris": manager.mpris_controller.status_snapshot(),
+            }
+        mpris_command = parse_mpris_command(requested_command)
+        if mpris_command is None:
+            message = (
+                f"unknown MPRIS command: {raw_command}"
+                if raw_command
+                else "missing mpris_command"
+            )
+            return {"status": "error", "message": message}
+        try:
+            await manager.mpris_controller.handle_command(mpris_command, raise_on_error=True)
+        except MprisDBusError as exc:
+            return {
+                "status": "error",
+                "command": mpris_command,
+                "message": str(exc),
+                "mpris": manager.mpris_controller.status_snapshot(),
+            }
+        return {
+            "status": "ok",
+            "command": mpris_command,
+            "mpris": manager.mpris_controller.status_snapshot(),
+        }
+
     if command == "get_status":
         unlock_status = await runtime_recording.resolve_unlock_status_async(manager, peer.uid)
         macro_recording_status = await runtime_recording.resolve_macro_recording_status_async(
@@ -452,6 +486,8 @@ async def _handle_compositor_commands(
             ),
             **runtime_recording.serialize_macro_recording_state(macro_recording_status),
         }
+        if command_allowed("mpris", policy.session_command_acl, client_class):
+            status_payload["mpris"] = manager.mpris_controller.status_snapshot()
         if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
             status_payload["active_profiles"] = profile_payload["active_profiles"]
             status_payload["devices"] = profile_payload["devices"]

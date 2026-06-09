@@ -444,6 +444,18 @@ def test_superkey_action_roundtrip_strips_unsupported_rapidfire() -> None:
     assert round_tripped.rapidfire_wait_ms == 20
 
 
+def test_superkey_action_roundtrip_preserves_mpris_command() -> None:
+    action = MappingAction(action_type=ActionType.MPRIS, mpris_command="prev")
+
+    superkey_action = mapping_action_to_superkey_action(action)
+    round_tripped = superkey_action_to_mapping_action(superkey_action)
+
+    assert superkey_action.action_type == ActionType.MPRIS
+    assert superkey_action.mpris_command == "previous"
+    assert round_tripped.action_type == ActionType.MPRIS
+    assert round_tripped.mpris_command == "previous"
+
+
 def test_superkey_manager_round_trips_extended_pattern_actions(
     temp_config_dir,
     monkeypatch,

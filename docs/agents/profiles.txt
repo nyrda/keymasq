@@ -94,9 +94,13 @@ target = "btn_x"
 # optional strict output route:
 # output_id = "virtual-gamepad-2" # or configured hardware gamepad ID
 
+# control tracked MPRIS media players
+action = "mpris"
+command = "play_pause"
+
 # run shell command in the user's session
 action = "exec"
-cmd = "playerctl play-pause"
+cmd = "notify-send keymasq"
 
 # move cursor
 action = "mouse_move_rel" # or "mouse_move_abs"

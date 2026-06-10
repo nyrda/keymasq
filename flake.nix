@@ -34,6 +34,8 @@
               pkgs.lib.hasPrefix "build/" rel
               || pkgs.lib.hasPrefix "dist/" rel
               || pkgs.lib.hasPrefix "pkg/" rel
+              || rel == "docs/assets/screenshots"
+              || pkgs.lib.hasPrefix "docs/assets/screenshots/" rel
               || pkgs.lib.hasPrefix ".venv/" rel
               || pkgs.lib.hasPrefix ".pytest_cache/" rel
               || pkgs.lib.hasPrefix ".ruff_cache/" rel
@@ -166,10 +168,26 @@
           keymasqPackage = packagesFor.x86_64-linux.default;
           keymasqModule = self.nixosModules.default;
         };
+      docshotVm =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+        in
+        import ./nix/docshot-vm.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.default;
+          keymasqModule = self.nixosModules.default;
+        };
     in
     {
       packages = lib.recursiveUpdate packagesFor {
-        x86_64-linux.listener-vm-tools = listenerVmMatrix.listenerVmTools;
+        x86_64-linux = {
+          listener-vm-tools = listenerVmMatrix.listenerVmTools;
+          docshot-tools = docshotVm.docshotTools;
+          docshots = docshotVm.docshots;
+          docshots-light = docshotVm.docshotsLight;
+          docshots-all = docshotVm.docshotsAll;
+        };
       };
 
       apps = forAllSystems (system: {
@@ -181,7 +199,10 @@
 
       checks = {
         x86_64-linux =
-          listenerVmMatrix.checks // pytestVmChecks.checks // daemonSessionIntegrationChecks.checks;
+          listenerVmMatrix.checks
+          // pytestVmChecks.checks
+          // daemonSessionIntegrationChecks.checks
+          // docshotVm.checks;
       };
 
       nixosModules.default = { config, lib, pkgs, ... }:

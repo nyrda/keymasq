@@ -88,6 +88,7 @@ plugins:
 #   - DEPENDENCIES.md
 #   - LISTENER_VM_TESTS.md
 #   - PACKAGING.md
+#   - SCREENSHOTS.md
 #   - WAYLAND_PROTOCOL_TRACKERS.md
 # They stay in the repo; just not linked from nav.
 nav:

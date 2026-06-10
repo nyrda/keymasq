@@ -35,6 +35,8 @@ Remap any button from the device tab: click it in the grid and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
 including rapidfire and tap (see [Actions](ACTIONS.md)).
 
+![Gamepad device tab with buttons and analog controls](assets/screenshots/keymasq_gamepad_device.png)
+
 ### Axis Output
 
 You can map any key or button to a gamepad axis value — useful for binding
@@ -43,6 +45,8 @@ value while the source is held and returns to neutral on release.
 
 Triggers are analog axes, not buttons. Gamepad button mappings do not
 produce trigger output — use axis mappings instead.
+
+![Gamepad action selector with buttons, triggers, and sticks](assets/screenshots/key_selector_gamepad.png)
 
 ## Analog Controls
 
@@ -88,6 +92,8 @@ Area, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
 Right Click, Trigger Scroll Up, or Trigger Scroll Down. The preset is saved as a
 normal analog control, mapped to the input, and the dialog closes. Reopen the
 input later to fine-tune it or pick others.
+
+![Analog presets tab for a gamepad stick](assets/screenshots/keymasq_gamepad_analog_presets.png)
 
 **From saved controls:** On the **Analog Controls** tab, select one or more
 saved configs by name. Right-click a config (or use **Open Analog Controls…**)
@@ -155,20 +161,27 @@ right and the cursor moves right, release and it returns to the origin.
 
 #### Digital Actions
 
-Fires keyboard, mouse, or other actions when the analog input crosses a
-threshold range. Useful for turning a stick into WASD or a trigger into a
+Fires keyboard, mouse, or other actions when the analog input enters an
+activation range. Useful for turning a stick into WASD or a trigger into a
 button press.
 
 Each threshold defines:
 - **Axis** — `x` or `y` (sticks) or `x` (axes)
-- **Trigger range** — the value range that activates the action
-- **Release range** — a wider range around the trigger for hysteresis (so
-  the action doesn't flicker at the boundary)
+- **Activation Min / Activation Max (%)** — the input range that presses
+  the action
+- **Hysteresis (%)** — how far the input must move back out of the
+  activation range before the action releases, which prevents flicker at the
+  boundary
+- **Advanced → Release Min / Release Max (%)** — the exact release range,
+  for cases where you need to tune the hysteresis bounds directly
 - **Actions** — one or more actions to fire (keyboard, mouse, gamepad, etc.)
 
-Stick and 1D axis thresholds use values from `-1.0` to `1.0`. Positive ranges
-cover one direction; negative ranges cover the opposite direction. Multiple
-thresholds can overlap — they are evaluated independently.
+Stick and 1D axis thresholds are shown as percentages from `-100%` to
+`100%`. Positive ranges cover one direction; negative ranges cover the
+opposite direction. Multiple thresholds can overlap — they are evaluated
+independently. The saved TOML uses normalized `-1.0` to `1.0` values; see
+[Analog Controls Config Format](ANALOG_CONTROLS.md) for the field-level
+reference.
 
 **Templates** (stick only):
 - **WASD** — maps stick to W/A/S/D keys
@@ -178,6 +191,8 @@ thresholds can overlap — they are evaluated independently.
 
 Templates append thresholds to the existing list and are fully editable
 after applying.
+
+![Digital action range editor with the WASD template applied](assets/screenshots/keymasq_analog_control_wasd_thresholds.png)
 
 #### Analog Output
 
@@ -228,6 +243,8 @@ Open **Analog Controls** from the GUI main menu. The dialog has two panels:
   (sticks / axes). Use **+** to create or **Delete** to remove.
 - **Right panel**: edit the selected config's name, description, input
   type, mode, and mode-specific settings.
+
+![Analog Controls manager dialog](assets/screenshots/keymasq_analog_controls_manager.png)
 
 Use **Save** to apply changes. If you switch selection or close the dialog
 with unsaved edits, Keymasq asks whether to save, discard, or keep editing.

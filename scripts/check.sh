@@ -3,11 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/check.sh [--vm] [auto|keymasqd|session|gui|full]
+Usage: ./scripts/check.sh [--vm] [auto|keymasqd|session|gui|docshots|full]
 
 Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
 Defaults to auto, which selects the category from pending and untracked changes
-under keymasq/ and tests/.
+under keymasq/, tests/, and nix/docshots/.
 EOF
 }
 
@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     --vm)
       BACKEND="vm"
       ;;
-    auto|keymasqd|session|keymasq-session|gui|full)
+  auto|keymasqd|session|keymasq-session|gui|docshots|full)
       CATEGORY="$1"
       ;;
     -h|--help)
@@ -44,8 +44,8 @@ resolve_auto_category() {
   local -a changed_paths=()
   local -a untracked_paths=()
 
-  mapfile -t changed_paths < <(git diff --name-only HEAD -- keymasq tests)
-  mapfile -t untracked_paths < <(git ls-files --others --exclude-standard -- keymasq tests)
+  mapfile -t changed_paths < <(git diff --name-only HEAD -- keymasq tests nix/docshots)
+  mapfile -t untracked_paths < <(git ls-files --others --exclude-standard -- keymasq tests nix/docshots)
 
   for path in "${changed_paths[@]}" "${untracked_paths[@]}"; do
     [[ -n "$path" ]] || continue
@@ -69,6 +69,13 @@ resolve_auto_category() {
         if [[ -z "$selected" ]]; then
           selected="gui"
         elif [[ "$selected" != "gui" ]]; then
+          selected="full"
+        fi
+        ;;
+      nix/docshots/*)
+        if [[ -z "$selected" ]]; then
+          selected="docshots"
+        elif [[ "$selected" != "docshots" ]]; then
           selected="full"
         fi
         ;;
@@ -110,6 +117,9 @@ case "$CATEGORY" in
     PYTEST_MARK_EXPR="gui"
     ;;
   full)
+    PYTEST_MARK_EXPR=""
+    ;;
+  docshots)
     PYTEST_MARK_EXPR=""
     ;;
 esac
@@ -279,7 +289,7 @@ run_pytest_vm() {
   fi
 }
 
-if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keymasq tests'"; then
+if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keymasq tests nix/docshots'"; then
   exit 1
 fi
 
@@ -291,6 +301,10 @@ if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
   if ! run_compact_check "stylelint" "cd '$ROOT_DIR' && nix develop '.#ci-gui' -c bash -lc 'stylelint \"keymasq/gui/**/*.css\"'"; then
     exit 1
   fi
+fi
+
+if [[ "$CATEGORY" == "docshots" ]]; then
+  exit 0
 fi
 
 if [[ "$BACKEND" == "vm" ]]; then

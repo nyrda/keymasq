@@ -1,0 +1,294 @@
+# Keymasq documentation screenshot manifest.
+#
+# The docshot VM renders dark screenshots by default. It can render light
+# screenshots on demand:
+# - dark:  docs/assets/screenshots/<name>.png
+# - light: docs/assets/screenshots/light/<name>.png
+#
+# `target` is resolved by nix/docshots/gui_driver.py.  The names intentionally
+# match existing checked-in screenshots so docs links do not need per-shot
+# metadata.
+
+[settings]
+dark_output_dir = "docs/assets/screenshots"
+light_output_dir = "docs/assets/screenshots/light"
+default_mode = "dark"
+window_width = 760
+window_height = 1000
+selector_width = 1100
+selector_height = 900
+settle_ms = 700
+
+[[shot]]
+name = "keymasq_welcome"
+target = "welcome"
+window_width = 840
+window_height = 460
+
+[[shot]]
+name = "keymasq_add_device"
+target = "add_device_dialog"
+
+[[shot]]
+name = "keymasq_device_fresh"
+target = "device_fresh"
+
+[[shot]]
+name = "keymasq_profile"
+target = "profile_device"
+device = "1532:00b4"
+profile = "Desktop"
+
+[[shot]]
+name = "keymasq_gamepad_device"
+target = "profile_device"
+device = "045e:02a1"
+profile = "Desktop"
+window_width = 840
+window_height = 1040
+
+[[shot]]
+name = "keymasq_map_capslock"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "keyboard"
+
+[[shot]]
+name = "keymasq_capslock_remapped"
+target = "device_button"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+crop_padding = 4
+
+[[shot]]
+name = "keymasq_capslock_bound"
+target = "device_button"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_leftalt"
+crop_padding = 4
+
+[[shot]]
+name = "keymasq_macro_bound"
+target = "device_button"
+device = "1532:00b4"
+profile = "Macro Demo"
+source = "extra_9"
+crop_padding = 4
+
+[[shot]]
+name = "keymasq_macros"
+target = "macro_manager"
+
+[[shot]]
+name = "keymasq_macro_recording_settings"
+target = "record_macro_dialog"
+
+[[shot]]
+name = "keymasq_save_macro_dialog"
+target = "save_macro_dialog"
+
+[[shot]]
+name = "keymasq_edit_macro_1"
+target = "macro_editor"
+macro = "volume_up"
+
+[[shot]]
+name = "keymasq_type_macro_creation"
+target = "type_macro_dialog"
+
+[[shot]]
+name = "keymasq_map_macro_1"
+target = "key_selector"
+device = "1532:00b4"
+profile = "Macro Demo"
+source = "extra_9"
+selector_tab = "macro"
+
+[[shot]]
+name = "key_selector_macro"
+target = "key_selector"
+device = "1532:00b4"
+profile = "Macro Demo"
+source = "extra_9"
+selector_tab = "macro"
+
+[[shot]]
+name = "keymasq_macro_edit_loop_modes"
+target = "macro_editor_loop_menu"
+macro = "volume_up"
+
+[[shot]]
+name = "macro_edit_wait_wait_random_markers"
+target = "macro_editor"
+macro = "timing_tools_demo"
+
+[[shot]]
+name = "macro_edit_timing_tools"
+target = "macro_editor_timing_tools"
+macro = "timing_tools_demo"
+window_width = 1220
+window_height = 1080
+crop = [0, 0, 732, 864]
+
+[[shot]]
+name = "key_selector_special"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "special"
+
+[[shot]]
+name = "key_selector_keyboard"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "keyboard"
+
+[[shot]]
+name = "key_selector_navigation"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "navigation"
+
+[[shot]]
+name = "key_selector_media"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "media"
+
+[[shot]]
+name = "key_selector_mouse"
+target = "key_selector"
+device = "1532:00b4"
+profile = "Desktop"
+source = "extra_10"
+selector_tab = "mouse"
+
+[[shot]]
+name = "key_selector_gamepad"
+target = "key_selector"
+device = "045e:02a1"
+profile = "Desktop"
+source = "btn_south"
+selector_tab = "gamepad"
+
+[[shot]]
+name = "keymasq_gamepad_analog_presets"
+target = "key_selector"
+device = "045e:02a1"
+profile = "Desktop"
+source = "left_stick"
+selector_tab = "analog_presets"
+dialog_height = 460
+
+[[shot]]
+name = "key_selector_hyprland"
+target = "key_selector"
+device = "1532:00b4"
+profile = "Desktop"
+source = "extra_1"
+selector_tab = "hyprland"
+compositor = "hyprland"
+
+[[shot]]
+name = "key_selector_superkeys"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_leftalt"
+selector_tab = "superkey"
+
+[[shot]]
+name = "key_selector_profile"
+target = "key_selector"
+device = "35ef:0021"
+profile = "Desktop"
+source = "key_capslock"
+selector_tab = "profile"
+
+[[shot]]
+name = "keymasq_superkey_selected"
+target = "superkey_dialog"
+superkey = "wpctl_volume_rocker"
+
+[[shot]]
+name = "keymasq_analog_controls_manager"
+target = "analog_controls_manager"
+analog_control = "Mouse Area"
+window_width = 1040
+window_height = 980
+dialog_height = 760
+
+[[shot]]
+name = "keymasq_analog_control_wasd_thresholds"
+target = "analog_controls_manager"
+analog_control = "WASD"
+expand_threshold = 0
+expand_row_title = "Advanced"
+window_width = 1040
+window_height = 1100
+dialog_height = 900
+
+[[shot]]
+name = "keymasq_combos_tab_example"
+target = "combos_tab"
+profile = "Desktop"
+
+[[shot]]
+name = "keymasq_add_combo_dialog"
+target = "combo_editor"
+profile = "Desktop"
+
+[[shot]]
+name = "keymasq_combo_select_action_dialog"
+target = "combo_action_selector"
+profile = "Desktop"
+selector_tab = "hyprland"
+compositor = "hyprland"
+
+[[shot]]
+name = "gnome-setup-logout-required"
+target = "gnome_setup_dialog"
+gnome_state = "shell_not_rescanned"
+
+[[shot]]
+name = "gnome-setup-enable-bridge-required"
+target = "gnome_setup_dialog"
+gnome_state = "bridge_disabled"
+
+[[shot]]
+name = "examples/timing_tools"
+target = "macro_editor_timing_tools"
+macro = "timing_tools_demo"
+window_width = 1220
+window_height = 1080
+
+[[shot]]
+name = "examples/macro_editor_volume_up"
+target = "macro_editor"
+macro = "volume_up"
+
+[[shot]]
+name = "examples/superkey_volume_rocker_actions"
+target = "superkey_dialog"
+superkey = "wpctl_volume_rocker"
+crop_widget = "actions_group"
+crop_padding = 16
+
+[[shot]]
+name = "examples/superkey_volume_rocker_timings"
+target = "superkey_dialog"
+superkey = "wpctl_volume_rocker"
+crop_widget = "timing_group"
+crop_padding = 16
+scroll_crop_widget = true

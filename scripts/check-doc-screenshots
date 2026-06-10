@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+modes="${DOCSHOT_MODES:-dark}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --all)
+      modes="dark,light"
+      shift
+      ;;
+    --modes)
+      modes="${2:?--modes requires a value}"
+      shift 2
+      ;;
+    --modes=*)
+      modes="${1#--modes=}"
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: scripts/check-doc-screenshots [--modes dark|light|dark,light] [--all]
+
+Defaults to dark-only screenshots. Use --all for dark and light screenshots.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+normalized_modes="${modes//[[:space:]]/}"
+case "$normalized_modes" in
+  dark)
+    package_attr="docshots"
+    ;;
+  light)
+    package_attr="docshots-light"
+    ;;
+  dark,light|light,dark)
+    package_attr="docshots-all"
+    ;;
+  *)
+    echo "unsupported docshot modes: $modes" >&2
+    exit 2
+    ;;
+esac
+
+result_path="$(nix build --print-out-paths "path:$repo_root#$package_attr")"
+generated="$result_path/screenshots"
+
+if [[ "$normalized_modes" == *dark* && ! -d "$generated/dark" ]]; then
+  echo "docshot output is missing dark directory under $generated" >&2
+  exit 1
+fi
+if [[ "$normalized_modes" == *light* && ! -d "$generated/light" ]]; then
+  echo "docshot output is missing light directory under $generated" >&2
+  exit 1
+fi
+
+if [[ "$normalized_modes" == *dark* ]]; then
+  diff -ru --exclude light "$generated/dark" docs/assets/screenshots
+fi
+if [[ "$normalized_modes" == *light* ]]; then
+  diff -ru "$generated/light" docs/assets/screenshots/light
+fi

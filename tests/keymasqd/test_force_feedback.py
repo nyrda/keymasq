@@ -209,6 +209,39 @@ def test_global_force_feedback_events_forward_without_translation() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> None:
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    runtime = _InlineAsyncioRuntime()
+    proxy = PassthroughForceFeedbackProxy(
+        uinput,
+        physical,
+        label="test",
+        asyncio_mod=runtime,  # type: ignore[arg-type]
+    )
+    uinput.uploads[100] = _Upload(effect_id=7)
+    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    runtime.to_thread_calls.clear()
+
+    proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40))
+    proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
+
+    assert physical.writes == []
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert runtime.to_thread_calls == [
+        "_write_physical_ff_sync",
+        "_write_physical_ff_sync",
+    ]
+    assert physical.writes == [
+        (evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40),
+        (evdev.ecodes.EV_FF, 23, 1),
+    ]
+
+
 def test_passthrough_ff_capability_helpers() -> None:
     caps = {
         evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],

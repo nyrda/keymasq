@@ -538,6 +538,15 @@ async def process_event(
         evdev_mod=evdev_mod,
         log=deps.log,
     )
+    if event.type in _PASSTHROUGH_ECHO_EVENT_TYPES:
+        _record_diagnostics(
+            device_runtime,
+            "passthrough_echo_suppressed",
+            started_ns,
+            time_mod=time_mod,
+        )
+        return
+
     suppressed_hardware_ids = _inspector_suppressed_hardware_ids(device_runtime)
     if suppressed_hardware_ids and _is_inspector_escape_press(
         event,
@@ -684,15 +693,6 @@ async def process_event(
                 time_mod=time_mod,
             )
             return
-
-    if event.type in _PASSTHROUGH_ECHO_EVENT_TYPES:
-        _record_diagnostics(
-            device_runtime,
-            "passthrough_echo_suppressed",
-            started_ns,
-            time_mod=time_mod,
-        )
-        return
 
     if event.type not in (evdev_mod.ecodes.EV_KEY, evdev_mod.ecodes.EV_REL):
         runtime_outputs.passthrough(

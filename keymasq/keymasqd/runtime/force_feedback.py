@@ -175,6 +175,7 @@ class PassthroughForceFeedbackProxy:
         self._effects: dict[int, EffectMapping] = {}
         self._request_queue: asyncio.Queue[_WorkerRequest] | None = None
         self._worker_task: asyncio.Task[None] | None = None
+        self._write_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def effect_mappings(self) -> Mapping[int, EffectMapping]:
@@ -204,6 +205,7 @@ class PassthroughForceFeedbackProxy:
     async def stop_and_wait(self) -> None:
         worker_task = self._stop_reader()
         if worker_task is None or worker_task.done():
+            await self._wait_for_write_tasks()
             return
         try:
             await worker_task
@@ -211,6 +213,7 @@ class PassthroughForceFeedbackProxy:
             return
         except Exception:
             self.log.exception("Failed while waiting for force-feedback worker %s", self.label)
+        await self._wait_for_write_tasks()
 
     def _stop_reader(self) -> asyncio.Task[None] | None:
         if not self._running:
@@ -264,7 +267,7 @@ class PassthroughForceFeedbackProxy:
             return
 
         if event_code in (evdev.ecodes.FF_GAIN, evdev.ecodes.FF_AUTOCENTER):
-            self._write_physical_ff(event_code, event_value)
+            self._schedule_physical_ff(event_code, event_value)
             return
 
         mapping = self._effects.get(event_code)
@@ -275,7 +278,7 @@ class PassthroughForceFeedbackProxy:
                 self.label,
             )
             return
-        self._write_physical_ff(mapping.physical_id, event_value)
+        self._schedule_physical_ff(mapping.physical_id, event_value)
 
     async def _request_worker(self, queue: asyncio.Queue[_WorkerRequest]) -> None:
         while True:
@@ -434,7 +437,41 @@ class PassthroughForceFeedbackProxy:
             return
         self._effects[virtual_id] = previous_mapping
 
-    def _write_physical_ff(self, code: int, value: int) -> None:
+    async def _wait_for_write_tasks(self) -> None:
+        tasks = set(self._write_tasks)
+        if not tasks:
+            return
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _schedule_physical_ff(self, code: int, value: int) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_physical_ff_sync(code, value)
+            return
+        coro = self._write_physical_ff(code, value)
+        try:
+            task = self.asyncio_mod.create_task(coro)
+        except RuntimeError:
+            coro.close()
+            self._write_physical_ff_sync(code, value)
+            return
+        self._write_tasks.add(task)
+        task.add_done_callback(self._log_write_result)
+
+    def _log_write_result(self, task: asyncio.Task[None]) -> None:
+        self._write_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            self.log.exception("Force-feedback write task failed for %s", self.label)
+
+    async def _write_physical_ff(self, code: int, value: int) -> None:
+        await self.asyncio_mod.to_thread(self._write_physical_ff_sync, code, value)
+
+    def _write_physical_ff_sync(self, code: int, value: int) -> None:
         try:
             self.physical_device.write(evdev.ecodes.EV_FF, int(code), int(value))
         except OSError as exc:

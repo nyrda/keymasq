@@ -536,6 +536,7 @@ class TestGrabbedDeviceHelpers:
             "passthrough_echo_suppressed",
             "passthrough_echo_suppressed",
         ]
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_generated_gamepad_output_defers_syn_inside_passthrough_frame(

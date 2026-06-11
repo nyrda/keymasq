@@ -275,7 +275,8 @@ class LearnAnalogFlow:
         privilege_status: Gtk.Label,
     ) -> bool:
         if (
-            expected_hardware_id is None
+            self._capture_active_hardware_id is None
+            or expected_hardware_id is None
             or self._capture_active_hardware_id != expected_hardware_id
             or self._capture_generation != expected_generation
         ):

@@ -295,6 +295,15 @@ mouse, and movement events.
 You can:
 
 - Add or delete individual events.
+- Mass-delete events: toggle **Erase** in the toolbar, then drag across a lane.
+  Events touched by the band light up red and are deleted on release — touching
+  any part of a press/release pair deletes the whole pair, and sweeping the ≈
+  lane also erases recorded mouse movement in the span. A pair that fully spans
+  the band (held down before it, released after it) is left alone. Right-drag
+  instead to ripple delete: the band sweeps all lanes at once and the deleted
+  time span is collapsed, pulling later events left; spanning pairs survive the
+  ripple and are shortened by the collapsed amount. **Undo All** restores the
+  macro to its loaded state if you delete too much.
 - Move events forward or backward in time.
 - Change which key or button an event uses.
 - Insert wait controls.

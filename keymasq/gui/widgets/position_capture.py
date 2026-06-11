@@ -1,150 +1,263 @@
-# pyright: reportAttributeAccessIssue=false, reportUnknownLambdaType=false
-from __future__ import annotations
-
 from collections.abc import Callable
+from dataclasses import dataclass
+from math import isfinite
+from typing import Protocol, cast
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
-from keymasq.gui.widgets.key_selector.compat import session_request_async
+from keymasq.gui.session_client import session_request_async
+
+PositionCallback = Callable[[int, int], bool | None]
+StatusCallback = Callable[[Gtk.Label | None, str, bool], None]
 
 
-class PositionCaptureMixin:
-    """Mouse-position capture behavior for dialog hosts.
+class CapturedPoint(Protocol):
+    x: int
+    y: int
 
-    Hosts must initialize these attributes before calling any capture method:
-    `_capture_request_id: int`, `_capture_timeout_id: int`,
-    `_capture_pending: bool`, `_capture_apply: Callable[[int, int], None] | None`,
-    `_capture_status_label: Gtk.Label | None`, `_capture_button: Gtk.Button | None`,
-    `_slurp_available: bool`, and `_slurp_capture`, an object exposing
-    `capture_point(callback)`.
 
-    When `_slurp_available` is false, the host must also provide
-    `mouse_move_capture_delay_spin: Gtk.SpinButton`. The mixin updates GTK
-    button/label state directly and calls `session_request_async` with the
-    `get_cursor_position` command for delayed fallback capture.
-    """
+class SlurpCapture(Protocol):
+    def capture_point(self, callback: Callable[[CapturedPoint | None], None]) -> None: ...
 
-    def _capture_compositor_position(
+
+@dataclass(frozen=True, slots=True)
+class PositionCaptureMessages:
+    click_prompt: str = "Click to capture position..."
+    delay_prompt: str = "Move cursor now... capturing in {delay:.1f}s"
+    reading: str = "Reading cursor position..."
+    failed: str = "Capture cancelled or failed"
+    unknown_command: str = "Please restart Keymasq Session, then try again"
+    slurp_success: str | Callable[[int, int], str] = "Captured: {x}, {y}"
+    response_success: str | Callable[[int, int], str] = "Captured"
+
+
+def default_set_capture_status(
+    status_label: Gtk.Label | None,
+    text: str,
+    error: bool,
+) -> None:
+    _ = error
+    if status_label is not None:
+        status_label.set_text(text)
+
+
+class PositionCaptureController:
+    def __init__(
         self,
-        button: Gtk.Button,
-        status_label: Gtk.Label,
-        callback: Callable[[int, int], None],
+        *,
+        slurp_capture: SlurpCapture,
+        slurp_available: bool,
+        set_status: StatusCallback = default_set_capture_status,
+        request_async: Callable[..., None] = session_request_async,
+        on_state_changed: Callable[[], None] | None = None,
+        messages: PositionCaptureMessages | None = None,
     ) -> None:
-        self._begin_position_capture(
-            button,
-            status_label,
-            callback,
-        )
+        self._slurp_capture = slurp_capture
+        self._slurp_available = slurp_available
+        self._set_status = set_status
+        self._request_async = request_async
+        self._on_state_changed = on_state_changed
+        self._messages = messages or PositionCaptureMessages()
+        self.timeout_id = 0
+        self.pending = False
+        self.request_id = 0
+        self.apply: PositionCallback | None = None
+        self.status_label: Gtk.Label | None = None
+        self.button: Gtk.Button | None = None
+        self.delay_seconds = 2.0
 
-    def _begin_position_capture(
+    @property
+    def slurp_available(self) -> bool:
+        return self._slurp_available
+
+    def begin(
         self,
+        *,
         button: Gtk.Button | None,
         status_label: Gtk.Label | None,
-        apply_position: Callable[[int, int], None],
+        delay_seconds: float,
+        apply_position: PositionCallback,
+        messages: PositionCaptureMessages | None = None,
     ) -> None:
-        self._cancel_capture_position("")
-        self._capture_request_id += 1
-        request_id = self._capture_request_id
-        self._capture_button = button
-        self._capture_status_label = status_label
-        self._capture_apply = apply_position
+        active_messages = messages or self._messages
+        self.cancel("")
+        self.request_id += 1
+        request_id = self.request_id
+        self.button = button
+        self.status_label = status_label
+        self.apply = apply_position
 
         if self._slurp_available:
-            self._capture_pending = True
-            if button is not None:
-                button.set_sensitive(False)
-            if status_label is not None:
-                status_label.set_text("Click to capture position...")
-            self._slurp_capture.capture_point(
-                lambda result, expected_id=request_id: self._on_slurp_capture_result(
-                    expected_id, result
-                )
-            )
-        else:
-            self._capture_delay_seconds = float(self.mouse_move_capture_delay_spin.get_value())
-            self._capture_pending = True
-            if button is not None:
-                button.set_sensitive(False)
-            if status_label is not None:
-                status_label.set_text(
-                    f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
-                )
-            self._capture_timeout_id = GLib.timeout_add(
-                int(self._capture_delay_seconds * 1000),
-                lambda expected_id=request_id: self._capture_position_after_delay(expected_id),
-            )
+            self.pending = True
+            self._set_button_sensitive(False)
+            self._set_status(status_label, active_messages.click_prompt, False)
+            self._notify_state_changed()
 
-    def _on_slurp_capture_result(self, request_id: int, result) -> None:
-        if request_id != self._capture_request_id:
+            def on_point(result: CapturedPoint | None, expected_id: int = request_id) -> None:
+                self.on_slurp_result(expected_id, result, active_messages)
+
+            self._slurp_capture.capture_point(on_point)
             return
-        self._capture_pending = False
-        if self._capture_button is not None:
-            self._capture_button.set_sensitive(True)
+
+        self.delay_seconds = self._validated_delay_seconds(delay_seconds)
+        self.pending = True
+        self._set_button_sensitive(False)
+        self._set_status(
+            status_label,
+            active_messages.delay_prompt.format(delay=self.delay_seconds),
+            False,
+        )
+        self._notify_state_changed()
+        self.timeout_id = GLib.timeout_add(
+            int(self.delay_seconds * 1000),
+            lambda expected_id=request_id: self.capture_after_delay(
+                expected_id,
+                active_messages,
+            ),
+        )
+
+    def on_slurp_result(
+        self,
+        request_id: int,
+        result: CapturedPoint | None,
+        messages: PositionCaptureMessages | None = None,
+    ) -> None:
+        active_messages = messages or self._messages
+        if request_id != self.request_id:
+            return
+        self.pending = False
+        self._set_button_sensitive(True)
+        self._notify_state_changed()
 
         if result is None:
-            if self._capture_status_label is not None:
-                self._capture_status_label.set_text("Capture cancelled or failed")
+            self._set_status(self.status_label, active_messages.failed, True)
             return
 
-        if self._capture_apply is not None:
-            self._capture_apply(int(result.x), int(result.y))
-        if self._capture_status_label is not None:
-            self._capture_status_label.set_text(f"Captured: {result.x}, {result.y}")
+        x = int(result.x)
+        y = int(result.y)
+        if self.apply is not None and self.apply(x, y) is False:
+            return
+        self._set_status(
+            self.status_label,
+            self._success_text(active_messages.slurp_success, x, y),
+            False,
+        )
 
-    def _capture_position_after_delay(self, request_id: int) -> bool:
-        self._capture_timeout_id = 0
-        if request_id != self._capture_request_id or not self._capture_pending:
+    def capture_after_delay(
+        self,
+        request_id: int,
+        messages: PositionCaptureMessages | None = None,
+    ) -> bool:
+        active_messages = messages or self._messages
+        self.timeout_id = 0
+        if request_id != self.request_id or not self.pending:
             return False
-        if self._capture_status_label is not None:
-            self._capture_status_label.set_text("Reading cursor position...")
-        session_request_async(
+        self._set_status(self.status_label, active_messages.reading, False)
+
+        def on_cursor_response(
+            response: dict | None,
+            expected_id: int = request_id,
+        ) -> bool:
+            return self.on_response(expected_id, response, active_messages)
+
+        self._request_async(
             {"command": "get_cursor_position"},
-            lambda response, expected_id=request_id: self._on_capture_position_response(
-                expected_id, response
-            ),
+            cast(Callable[[dict | None], bool], on_cursor_response),
             timeout=5.0,
         )
         return False
 
-    def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
-        if request_id != self._capture_request_id:
+    def on_response(
+        self,
+        request_id: int,
+        response: dict | None,
+        messages: PositionCaptureMessages | None = None,
+    ) -> bool:
+        active_messages = messages or self._messages
+        if request_id != self.request_id:
             return False
-        self._capture_pending = False
-        if self._capture_button is not None:
-            self._capture_button.set_sensitive(True)
+        self.pending = False
+        self._set_button_sensitive(True)
+        self._notify_state_changed()
 
         if not response or response.get("status") != "ok":
             message = (
-                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
+                (response or {}).get("message")
+                or (response or {}).get("error")
+                or "Capture failed"
             )
             if "Unknown command: get_cursor_position" in message:
-                message = "Please restart Keymasq Session, then try again"
-            if self._capture_status_label is not None:
-                self._capture_status_label.set_text(message)
+                message = active_messages.unknown_command
+            self._set_status(self.status_label, str(message), True)
             return False
 
-        x = int(response.get("x", 0))
-        y = int(response.get("y", 0))
-        if self._capture_apply is not None:
-            self._capture_apply(x, y)
-        if self._capture_status_label is not None:
-            self._capture_status_label.set_text("Captured")
+        if "x" not in response or "y" not in response:
+            self._set_status(
+                self.status_label,
+                "Capture failed: missing cursor coordinates",
+                True,
+            )
+            return False
+
+        try:
+            x = int(response["x"])
+            y = int(response["y"])
+        except (TypeError, ValueError):
+            self._set_status(
+                self.status_label,
+                "Capture failed: invalid cursor coordinates",
+                True,
+            )
+            return False
+        if self.apply is not None and self.apply(x, y) is False:
+            return False
+        self._set_status(
+            self.status_label,
+            self._success_text(active_messages.response_success, x, y),
+            False,
+        )
         return False
 
-    def _cancel_capture_position(self, status_text: str) -> None:
-        self._capture_request_id += 1
-        if self._capture_timeout_id:
-            GLib.source_remove(self._capture_timeout_id)
-            self._capture_timeout_id = 0
-        self._capture_pending = False
-        if self._capture_button is not None:
-            self._capture_button.set_sensitive(True)
-        if self._capture_status_label is not None:
-            self._capture_status_label.set_text(status_text)
-        self._capture_apply = None
-        self._capture_button = None
-        self._capture_status_label = None
+    def cancel(self, status_text: str) -> None:
+        self.request_id += 1
+        if self.timeout_id:
+            GLib.source_remove(self.timeout_id)
+            self.timeout_id = 0
+        self.pending = False
+        self._set_button_sensitive(True)
+        self._set_status(self.status_label, status_text, False)
+        self.apply = None
+        self.button = None
+        self.status_label = None
+        self._notify_state_changed()
+
+    def _set_button_sensitive(self, sensitive: bool) -> None:
+        if self.button is not None:
+            self.button.set_sensitive(sensitive)
+
+    def _validated_delay_seconds(self, delay_seconds: float) -> float:
+        value = float(delay_seconds)
+        if not isfinite(value) or value < 0.0 or value > 3600.0:
+            raise ValueError("position capture delay must be finite and between 0 and 3600 seconds")
+        return value
+
+    def _notify_state_changed(self) -> None:
+        if self._on_state_changed is not None:
+            self._on_state_changed()
+
+    def _success_text(
+        self,
+        template: str | Callable[[int, int], str],
+        x: int,
+        y: int,
+    ) -> str:
+        if callable(template):
+            return template(x, y)
+        return template.format(x=x, y=y)

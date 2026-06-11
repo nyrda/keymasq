@@ -1369,96 +1369,62 @@ class MacroEditorPanelsMixin:
             self._move_capture_delay_spin.set_sensitive(enabled and not self._move_capture_pending)
         self._move_capture_btn.set_sensitive(enabled and not self._move_capture_pending)
 
-    def _on_capture_start_position_clicked(self, btn: Gtk.Button) -> None:
-        self._cancel_capture_start_position("")
-        self._capture_request_id += 1
-        request_id = self._capture_request_id
+    def _sync_start_position_capture_legacy_state(self) -> None:
+        self._capture_timeout_id = self._start_position_capture.timeout_id
+        self._capture_pending = self._start_position_capture.pending
+        self._capture_request_id = self._start_position_capture.request_id
+        self._capture_delay_seconds = self._start_position_capture.delay_seconds
+        if hasattr(self, "_macro_capture_btn"):
+            self._update_macro_move_start_controls()
 
-        if self._slurp_available:
-            self._capture_pending = True
-            self._macro_capture_btn.set_sensitive(False)
-            self._macro_capture_status.set_text("Click to capture position...")
-            self._slurp_capture.capture_point(
-                lambda result, expected_id=request_id: self._on_slurp_capture_result(
-                    expected_id, result
-                )
-            )
-        else:
-            self._capture_delay_seconds = float(self._macro_capture_delay_spin.get_value())
-            self._capture_pending = True
-            self._macro_capture_btn.set_sensitive(False)
-            self._macro_capture_status.set_text(
-                f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
-            )
-            self._capture_timeout_id = GLib.timeout_add(
-                int(self._capture_delay_seconds * 1000),
-                lambda expected_id=request_id: self._capture_start_position_after_delay(
-                    expected_id
-                ),
-            )
+    def _sync_selected_move_capture_legacy_state(self) -> None:
+        self._move_capture_timeout_id = self._selected_move_capture.timeout_id
+        self._move_capture_pending = self._selected_move_capture.pending
+        self._move_capture_request_id = self._selected_move_capture.request_id
+        self._capture_delay_seconds = self._selected_move_capture.delay_seconds
+        if hasattr(self, "_move_capture_btn"):
+            self._update_selected_move_capture_controls()
+
+    def _on_capture_start_position_clicked(self, btn: Gtk.Button) -> None:
+        self._start_position_capture.begin(
+            button=self._macro_capture_btn,
+            status_label=self._macro_capture_status,
+            delay_seconds=float(self._macro_capture_delay_spin.get_value()),
+            apply_position=self._apply_start_capture_position,
+        )
+        self._sync_start_position_capture_legacy_state()
 
     def _on_capture_selected_move_clicked(self, btn: Gtk.Button) -> None:
         selected_obj = self._timeline._selected
         if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "abs":
             return
-        self._cancel_capture_selected_move("")
-        self._move_capture_request_id += 1
-        request_id = self._move_capture_request_id
+        self._selected_move_capture.begin(
+            button=self._move_capture_btn,
+            status_label=self._move_capture_status,
+            delay_seconds=float(self._move_capture_delay_spin.get_value()),
+            apply_position=lambda x, y, move=selected_obj: (
+                self._apply_selected_move_capture_position(move, x, y)
+            ),
+        )
+        self._sync_selected_move_capture_legacy_state()
 
-        if self._slurp_available:
-            self._move_capture_pending = True
-            self._update_selected_move_capture_controls(selected_obj)
-            self._move_capture_status.set_text("Click to capture position...")
-            self._slurp_capture.capture_point(
-                lambda result, move=selected_obj, expected_id=request_id: (
-                    self._on_move_slurp_capture_result(expected_id, move, result)
-                )
-            )
-        else:
-            self._capture_delay_seconds = float(self._move_capture_delay_spin.get_value())
-            self._move_capture_pending = True
-            self._update_selected_move_capture_controls(selected_obj)
-            self._move_capture_status.set_text(
-                f"Move cursor now... capturing in {self._capture_delay_seconds:.1f}s"
-            )
-            self._move_capture_timeout_id = GLib.timeout_add(
-                int(self._capture_delay_seconds * 1000),
-                lambda move=selected_obj, expected_id=request_id: (
-                    self._capture_selected_move_after_delay(expected_id, move)
-                ),
-            )
-
-    def _on_slurp_capture_result(self, request_id: int, result) -> None:
-        if request_id != self._capture_request_id:
-            return
-        self._capture_pending = False
-        self._update_macro_move_start_controls()
-
-        if result is None:
-            self._macro_capture_status.set_text("Capture cancelled or failed")
-            return
-
-        self._macro_start_x_spin.set_value(result.x)
-        self._macro_start_y_spin.set_value(result.y)
+    def _apply_start_capture_position(self, x: int, y: int) -> None:
+        self._macro_start_x_spin.set_value(x)
+        self._macro_start_y_spin.set_value(y)
         self._macro_move_to_start_check.set_active(True)
-        self._macro_capture_status.set_text(f"Captured: {result.x}, {result.y}")
 
-    def _on_move_slurp_capture_result(self, request_id: int, move: EditableMove, result) -> None:
-        if request_id != self._move_capture_request_id:
-            return
-        self._move_capture_pending = False
-        self._update_selected_move_capture_controls()
-
-        if result is None:
-            self._move_capture_status.set_text("Capture cancelled or failed")
-            return
-
+    def _apply_selected_move_capture_position(
+        self,
+        move: EditableMove,
+        x: int,
+        y: int,
+    ) -> bool:
         if move.mode != "abs" or move not in self._synthetic_moves:
             self._move_capture_status.set_text("Capture target no longer available")
-            return
+            return False
 
-        move.x = int(result.x)
-        move.y = int(result.y)
+        move.x = int(x)
+        move.y = int(y)
         if self._timeline._selected is move:
             self._updating_props = True
             try:
@@ -1468,62 +1434,42 @@ class MacroEditorPanelsMixin:
                 self._updating_props = False
             self._on_selection_changed(move)
         self._timeline.queue_draw()
-        self._move_capture_status.set_text(f"Captured: {result.x}, {result.y}")
+        return True
+
+    def _on_slurp_capture_result(self, request_id: int, result) -> None:
+        self._start_position_capture.on_slurp_result(request_id, result)
+        self._sync_start_position_capture_legacy_state()
+
+    def _on_move_slurp_capture_result(self, request_id: int, move: EditableMove, result) -> None:
+        if self._selected_move_capture.apply is None:
+            self._selected_move_capture.apply = lambda x, y: (
+                self._apply_selected_move_capture_position(move, x, y)
+            )
+        self._selected_move_capture.on_slurp_result(request_id, result)
+        self._sync_selected_move_capture_legacy_state()
 
     def _capture_start_position_after_delay(self, request_id: int) -> bool:
-        self._capture_timeout_id = 0
-        if request_id != self._capture_request_id or not self._capture_pending:
-            return False
-        self._macro_capture_status.set_text("Reading cursor position...")
-        self._session_request_async(
-            {"command": "get_cursor_position"},
-            lambda response, expected_id=request_id: self._on_capture_start_position_response(
-                expected_id, response
-            ),
-            timeout=5.0,
-        )
-        return False
+        result = self._start_position_capture.capture_after_delay(request_id)
+        self._sync_start_position_capture_legacy_state()
+        return result
 
     def _capture_selected_move_after_delay(self, request_id: int, move: EditableMove) -> bool:
-        self._move_capture_timeout_id = 0
-        if request_id != self._move_capture_request_id or not self._move_capture_pending:
-            return False
-        self._move_capture_status.set_text("Reading cursor position...")
-        self._session_request_async(
-            {"command": "get_cursor_position"},
-            lambda response, expected_move=move, expected_id=request_id: (
-                self._on_capture_selected_move_response(expected_id, expected_move, response)
-            ),
-            timeout=5.0,
-        )
-        return False
+        if self._selected_move_capture.apply is None:
+            self._selected_move_capture.apply = lambda x, y: (
+                self._apply_selected_move_capture_position(move, x, y)
+            )
+        result = self._selected_move_capture.capture_after_delay(request_id)
+        self._sync_selected_move_capture_legacy_state()
+        return result
 
     def _on_capture_start_position_response(
         self,
         request_id: int,
         response: dict | None,
     ) -> bool:
-        if request_id != self._capture_request_id:
-            return False
-        self._capture_pending = False
-        self._update_macro_move_start_controls()
-
-        if not response or response.get("status") != "ok":
-            message = (
-                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
-            )
-            if "Unknown command: get_cursor_position" in message:
-                message = "Please restart Keymasq Session, then try again"
-            self._macro_capture_status.set_text(message)
-            return False
-
-        x = int(response.get("x", 0))
-        y = int(response.get("y", 0))
-        self._macro_start_x_spin.set_value(x)
-        self._macro_start_y_spin.set_value(y)
-        self._macro_move_to_start_check.set_active(True)
-        self._macro_capture_status.set_text("Captured")
-        return False
+        result = self._start_position_capture.on_response(request_id, response)
+        self._sync_start_position_capture_legacy_state()
+        return result
 
     def _on_capture_selected_move_response(
         self,
@@ -1531,59 +1477,21 @@ class MacroEditorPanelsMixin:
         move: EditableMove,
         response: dict | None,
     ) -> bool:
-        if request_id != self._move_capture_request_id:
-            return False
-        self._move_capture_pending = False
-        self._update_selected_move_capture_controls()
-
-        if not response or response.get("status") != "ok":
-            message = (
-                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
+        if self._selected_move_capture.apply is None:
+            self._selected_move_capture.apply = lambda x, y: (
+                self._apply_selected_move_capture_position(move, x, y)
             )
-            if "Unknown command: get_cursor_position" in message:
-                message = "Please restart Keymasq Session, then try again"
-            self._move_capture_status.set_text(message)
-            return False
-
-        if move.mode != "abs" or move not in self._synthetic_moves:
-            self._move_capture_status.set_text("Capture target no longer available")
-            return False
-
-        move.x = int(response.get("x", 0))
-        move.y = int(response.get("y", 0))
-        if self._timeline._selected is move:
-            self._updating_props = True
-            try:
-                self._move_x_spin.set_value(move.x)
-                self._move_y_spin.set_value(move.y)
-            finally:
-                self._updating_props = False
-            self._on_selection_changed(move)
-        self._timeline.queue_draw()
-        self._move_capture_status.set_text("Captured")
-        return False
+        result = self._selected_move_capture.on_response(request_id, response)
+        self._sync_selected_move_capture_legacy_state()
+        return result
 
     def _cancel_capture_start_position(self, status_text: str) -> None:
-        self._capture_request_id += 1
-        if self._capture_timeout_id:
-            GLib.source_remove(self._capture_timeout_id)
-            self._capture_timeout_id = 0
-        self._capture_pending = False
-        if hasattr(self, "_macro_capture_status"):
-            self._macro_capture_status.set_text(status_text)
-        if hasattr(self, "_macro_capture_btn"):
-            self._update_macro_move_start_controls()
+        self._start_position_capture.cancel(status_text)
+        self._sync_start_position_capture_legacy_state()
 
     def _cancel_capture_selected_move(self, status_text: str) -> None:
-        self._move_capture_request_id += 1
-        if self._move_capture_timeout_id:
-            GLib.source_remove(self._move_capture_timeout_id)
-            self._move_capture_timeout_id = 0
-        self._move_capture_pending = False
-        if hasattr(self, "_move_capture_status"):
-            self._move_capture_status.set_text(status_text)
-        if hasattr(self, "_move_capture_btn"):
-            self._update_selected_move_capture_controls()
+        self._selected_move_capture.cancel(status_text)
+        self._sync_selected_move_capture_legacy_state()
 
     # ------------------------------------------------------------------
     # Zoom

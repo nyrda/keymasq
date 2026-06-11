@@ -22,10 +22,10 @@ from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
-from keymasq.gui.widgets.position_capture import PositionCaptureMixin
+from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
 from .analog_tab import AnalogTabMixin
-from .compat import detect_compositor_sync, get_slurp_capture
+from .compat import detect_compositor_sync, get_slurp_capture, session_request_async
 from .gamepad_axis import GamepadAxisControlsMixin
 from .macro_tab import MacroTabMixin
 from .options_panel import MappingOptionsPanelMixin
@@ -40,7 +40,6 @@ class KeySelectorDialog(
     SharedInputTabsMixin,
     GamepadAxisControlsMixin,
     MappingOptionsPanelMixin,
-    PositionCaptureMixin,
     MacroTabMixin,
     ProfileTabMixin,
     SuperkeyTabMixin,
@@ -161,12 +160,18 @@ class KeySelectorDialog(
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
         self._capture_request_id: int = 0
-        self._capture_apply: Callable[[int, int], None] | None = None
+        self._capture_apply: PositionCallback | None = None
         self._capture_status_label: Gtk.Label | None = None
         self._capture_button: Gtk.Button | None = None
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(detect_compositor_sync())
         self._slurp_available = self._slurp_capture.available
+        self._position_capture = PositionCaptureController(
+            slurp_capture=self._slurp_capture,
+            slurp_available=self._slurp_available,
+            request_async=session_request_async,
+            on_state_changed=self._sync_position_capture_legacy_state,
+        )
 
         if current_action:
             self._rapidfire_enabled = current_action.rapidfire_enabled
@@ -569,6 +574,64 @@ class KeySelectorDialog(
     def _apply_mouse_move_capture_position(self, x: int, y: int) -> None:
         self.mouse_move_x_spin.set_value(int(x))
         self.mouse_move_y_spin.set_value(int(y))
+
+    def _capture_compositor_position(
+        self,
+        button: Gtk.Button,
+        status_label: Gtk.Label,
+        callback: Callable[[int, int], None],
+    ) -> None:
+        self._begin_position_capture(
+            button,
+            status_label,
+            callback,
+        )
+
+    def _sync_position_capture_legacy_state(self) -> None:
+        self._capture_timeout_id = self._position_capture.timeout_id
+        self._capture_pending = self._position_capture.pending
+        self._capture_request_id = self._position_capture.request_id
+        self._capture_apply = self._position_capture.apply
+        self._capture_status_label = self._position_capture.status_label
+        self._capture_button = self._position_capture.button
+        self._capture_delay_seconds = self._position_capture.delay_seconds
+
+    def _begin_position_capture(
+        self,
+        button: Gtk.Button | None,
+        status_label: Gtk.Label | None,
+        apply_position: PositionCallback,
+    ) -> None:
+        delay_seconds = (
+            float(self.mouse_move_capture_delay_spin.get_value())
+            if hasattr(self, "mouse_move_capture_delay_spin")
+            else self._capture_delay_seconds
+        )
+        self._position_capture.begin(
+            button=button,
+            status_label=status_label,
+            delay_seconds=delay_seconds,
+            apply_position=apply_position,
+        )
+        self._sync_position_capture_legacy_state()
+
+    def _on_slurp_capture_result(self, request_id: int, result) -> None:
+        self._position_capture.on_slurp_result(request_id, result)
+        self._sync_position_capture_legacy_state()
+
+    def _capture_position_after_delay(self, request_id: int) -> bool:
+        result = self._position_capture.capture_after_delay(request_id)
+        self._sync_position_capture_legacy_state()
+        return result
+
+    def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
+        result = self._position_capture.on_response(request_id, response)
+        self._sync_position_capture_legacy_state()
+        return result
+
+    def _cancel_capture_position(self, status_text: str) -> None:
+        self._position_capture.cancel(status_text)
+        self._sync_position_capture_legacy_state()
 
     def _on_map_clicked(self, btn) -> None:
         child_name = self.stack.get_visible_child_name()

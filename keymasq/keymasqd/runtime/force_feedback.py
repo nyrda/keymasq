@@ -1,0 +1,454 @@
+import asyncio
+import ctypes
+import errno
+import logging
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Final, Literal, Protocol, cast
+
+import evdev
+
+from keymasq.keymasqd.runtime.adapters import ASYNCIO_RUNTIME, AsyncioRuntimeAdapter
+
+log = logging.getLogger("keymasqd.force_feedback")
+_UINPUT_BEGIN_UPLOAD: Final[str] = "_uinput_begin_upload"
+_UINPUT_BEGIN_ERASE: Final[str] = "_uinput_begin_erase"
+_WORKER_UPLOAD: Final[Literal["upload"]] = "upload"
+_WORKER_ERASE: Final[Literal["erase"]] = "erase"
+type _WorkerRequest = tuple[Literal["upload", "erase"], int] | None
+
+
+class InputEventLike(Protocol):
+    type: int
+    code: int
+    value: int
+
+
+class ForceFeedbackTarget(Protocol):
+    path: str
+    ff_effects_count: int
+
+    def upload_effect(self, effect: object) -> int: ...
+
+    def erase_effect(self, ff_id: int) -> None: ...
+
+    def write(self, event_type: int, code: int, value: int) -> None: ...
+
+
+class ForceFeedbackUInput(Protocol):
+    fd: int
+
+    def read(self) -> Iterable[InputEventLike]: ...
+
+    def end_upload(self, upload: object) -> None: ...
+
+    def end_erase(self, erase: object) -> None: ...
+
+
+class _RequestWithRetval(Protocol):
+    retval: int
+
+
+class _EffectLike(Protocol):
+    id: int
+
+
+class _UploadLike(Protocol):
+    effect: _EffectLike
+
+
+class _EraseLike(Protocol):
+    effect_id: int
+
+
+@dataclass(frozen=True)
+class EffectMapping:
+    physical_id: int
+
+
+def passthrough_ff_max_effects(
+    caps: Mapping[int, Sequence[object]],
+    physical_device: object,
+) -> int:
+    if not caps.get(int(evdev.ecodes.EV_FF)):
+        return 0
+    return max(0, int(cast(ForceFeedbackTarget, physical_device).ff_effects_count))
+
+
+def disable_force_feedback(
+    caps: dict[int, Sequence[object]],
+) -> None:
+    caps.pop(int(evdev.ecodes.EV_FF), None)
+
+
+def _negative_errno(exc: BaseException, default_errno: int = errno.EIO) -> int:
+    if isinstance(exc, OSError) and isinstance(exc.errno, int) and exc.errno > 0:
+        return -int(exc.errno)
+    return -int(default_errno)
+
+
+def _uinput_fd(uinput: ForceFeedbackUInput) -> int:
+    fd = getattr(uinput, "fd", None)
+    if isinstance(fd, int):
+        return fd
+    fileno = cast(Callable[[], int] | None, getattr(uinput, "fileno", None))
+    if callable(fileno):
+        return int(fileno())
+    raise TypeError("uinput object has no fd")
+
+
+def _uinput_dll(uinput: ForceFeedbackUInput) -> object:
+    dll = getattr(uinput, "dll", None)
+    if dll is None:
+        raise TypeError("uinput object has no evdev dll")
+    return dll
+
+
+def _begin_upload(uinput: ForceFeedbackUInput, request_id: int) -> object:
+    # evdev 1.9.x public begin_upload writes the request id to a non-field
+    # effect_id attribute, leaving UInputUpload.request_id as 0.
+    upload = evdev.ff.UInputUpload()
+    upload.request_id = int(request_id)
+    begin = cast(Callable[[int, object], int], getattr(_uinput_dll(uinput), _UINPUT_BEGIN_UPLOAD))
+    ret = int(begin(_uinput_fd(uinput), ctypes.byref(upload)))
+    if ret:
+        raise OSError(errno.EIO, f"UI_BEGIN_FF_UPLOAD failed: {ret}")
+    return upload
+
+
+def _end_upload(uinput: ForceFeedbackUInput, upload: object) -> None:
+    uinput.end_upload(upload)
+
+
+def _begin_erase(uinput: ForceFeedbackUInput, request_id: int) -> object:
+    # See _begin_upload: evdev 1.9.x public begin_erase also writes the wrong
+    # request field before issuing the ioctl.
+    erase = evdev.ff.UInputErase()
+    erase.request_id = int(request_id)
+    begin = cast(Callable[[int, object], int], getattr(_uinput_dll(uinput), _UINPUT_BEGIN_ERASE))
+    ret = int(begin(_uinput_fd(uinput), ctypes.byref(erase)))
+    if ret:
+        raise OSError(errno.EIO, f"UI_BEGIN_FF_ERASE failed: {ret}")
+    return erase
+
+
+def _end_erase(uinput: ForceFeedbackUInput, erase: object) -> None:
+    uinput.end_erase(erase)
+
+
+def _set_retval(request: object, retval: int) -> None:
+    try:
+        cast(_RequestWithRetval, request).retval = int(retval)
+    except (AttributeError, TypeError):
+        return
+
+
+def _effect_id(effect: object) -> int:
+    return int(cast(_EffectLike, effect).id)
+
+
+def _set_effect_id(effect: object, effect_id: int) -> None:
+    cast(_EffectLike, effect).id = int(effect_id)
+
+
+def _erase_effect_id(erase: object) -> int:
+    return int(cast(_EraseLike, erase).effect_id)
+
+
+class PassthroughForceFeedbackProxy:
+    def __init__(
+        self,
+        uinput: ForceFeedbackUInput,
+        physical_device: ForceFeedbackTarget,
+        *,
+        label: str,
+        asyncio_mod: AsyncioRuntimeAdapter = ASYNCIO_RUNTIME,
+        logger: logging.Logger = log,
+    ) -> None:
+        self.uinput = uinput
+        self.physical_device = physical_device
+        self.label = label
+        self.asyncio_mod = asyncio_mod
+        self.log = logger
+        self._fd: int | None = None
+        self._running = False
+        self._effects: dict[int, EffectMapping] = {}
+        self._request_queue: asyncio.Queue[_WorkerRequest] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
+
+    @property
+    def effect_mappings(self) -> Mapping[int, EffectMapping]:
+        return dict(self._effects)
+
+    def start(self) -> None:
+        if self._running:
+            return
+        fd = _uinput_fd(self.uinput)
+        queue: asyncio.Queue[_WorkerRequest] = asyncio.Queue()
+        worker_task = self.asyncio_mod.create_task(self._request_worker(queue))
+        worker_task.add_done_callback(self._log_worker_result)
+        loop = self.asyncio_mod.get_running_loop()
+        try:
+            loop.add_reader(fd, self._on_readable)
+        except Exception:
+            worker_task.cancel()
+            raise
+        self._request_queue = queue
+        self._worker_task = worker_task
+        self._fd = fd
+        self._running = True
+
+    def stop(self) -> None:
+        self._stop_reader()
+
+    async def stop_and_wait(self) -> None:
+        worker_task = self._stop_reader()
+        if worker_task is None or worker_task.done():
+            return
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            self.log.exception("Failed while waiting for force-feedback worker %s", self.label)
+
+    def _stop_reader(self) -> asyncio.Task[None] | None:
+        if not self._running:
+            return self._worker_task
+        fd = self._fd
+        self._running = False
+        self._fd = None
+        queue = self._request_queue
+        worker_task = self._worker_task
+        self._request_queue = None
+        self._worker_task = None
+        if queue is not None and worker_task is not None and not worker_task.done():
+            queue.put_nowait(None)
+        if fd is None:
+            return worker_task
+        try:
+            self.asyncio_mod.get_running_loop().remove_reader(fd)
+        except RuntimeError:
+            self.log.debug("No running loop while stopping force-feedback proxy %s", self.label)
+        except Exception:
+            self.log.exception("Failed to stop force-feedback proxy %s", self.label)
+        return worker_task
+
+    def _on_readable(self) -> None:
+        try:
+            for event in self.uinput.read():
+                self.handle_event(event)
+        except BlockingIOError:
+            return
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR):
+                return
+            self.log.warning("Force-feedback read failed for %s: %s", self.label, exc)
+            self.stop()
+        except Exception:
+            self.log.exception("Unexpected force-feedback read failure for %s", self.label)
+            self.stop()
+
+    def handle_event(self, event: InputEventLike) -> None:
+        event_type = int(event.type)
+        event_code = int(event.code)
+        event_value = int(event.value)
+        if event_type == evdev.ecodes.EV_UINPUT:
+            if event_code == evdev.ecodes.UI_FF_UPLOAD:
+                self._queue_request(_WORKER_UPLOAD, event_value)
+            elif event_code == evdev.ecodes.UI_FF_ERASE:
+                self._queue_request(_WORKER_ERASE, event_value)
+            return
+
+        if event_type != evdev.ecodes.EV_FF:
+            return
+
+        if event_code in (evdev.ecodes.FF_GAIN, evdev.ecodes.FF_AUTOCENTER):
+            self._write_physical_ff(event_code, event_value)
+            return
+
+        mapping = self._effects.get(event_code)
+        if mapping is None:
+            self.log.debug(
+                "Dropping force-feedback play for unknown virtual effect %s on %s",
+                event_code,
+                self.label,
+            )
+            return
+        self._write_physical_ff(mapping.physical_id, event_value)
+
+    async def _request_worker(self, queue: asyncio.Queue[_WorkerRequest]) -> None:
+        while True:
+            request = await queue.get()
+            if request is None:
+                return
+            kind, request_id = request
+            try:
+                if kind == _WORKER_UPLOAD:
+                    await self.asyncio_mod.to_thread(self._handle_upload, request_id)
+                elif kind == _WORKER_ERASE:
+                    await self.asyncio_mod.to_thread(self._handle_erase, request_id)
+            except Exception:
+                self.log.exception(
+                    "Unexpected force-feedback request failure for %s kind=%s",
+                    self.label,
+                    kind,
+                )
+
+    def _log_worker_result(self, task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            self.log.exception("Force-feedback worker failed for %s", self.label)
+
+    def _queue_request(self, kind: Literal["upload", "erase"], request_id: int) -> None:
+        queue = self._request_queue
+        if self._running and queue is not None:
+            queue.put_nowait((kind, int(request_id)))
+            return
+        if kind == _WORKER_UPLOAD:
+            self._handle_upload(request_id)
+        else:
+            self._handle_erase(request_id)
+
+    def _handle_upload(self, request_id: int) -> None:
+        upload: object | None = None
+        retval = 0
+        virtual_id: int | None = None
+        previous_mapping: EffectMapping | None = None
+        physical_id: int | None = None
+        published_mapping = False
+        try:
+            upload = _begin_upload(self.uinput, request_id)
+            effect = cast(_UploadLike, upload).effect
+            virtual_id = _effect_id(effect)
+            previous_mapping = self._effects.get(virtual_id)
+            physical_upload_id = (
+                previous_mapping.physical_id if previous_mapping is not None else -1
+            )
+            _set_effect_id(effect, physical_upload_id)
+            try:
+                physical_id = int(self.physical_device.upload_effect(effect))
+            finally:
+                _set_effect_id(effect, virtual_id)
+            self._effects[virtual_id] = EffectMapping(physical_id=physical_id)
+            published_mapping = True
+        except Exception as exc:  # noqa: BLE001 - request must be acked on upload failure.
+            retval = _negative_errno(exc)
+            self.log.warning(
+                "Failed to proxy force-feedback upload for %s: %s",
+                self.label,
+                exc,
+            )
+        finally:
+            if upload is not None:
+                _set_retval(upload, retval)
+                try:
+                    _end_upload(self.uinput, upload)
+                except Exception:
+                    self._restore_upload_mapping(
+                        virtual_id,
+                        previous_mapping=previous_mapping,
+                        published_mapping=published_mapping,
+                    )
+                    self._rollback_uploaded_effect(
+                        physical_id,
+                        previous_mapping=previous_mapping,
+                    )
+                    self.log.exception(
+                        "Failed to finish force-feedback upload request for %s",
+                        self.label,
+                    )
+                    return
+
+    def _handle_erase(self, request_id: int) -> None:
+        erase: object | None = None
+        retval = 0
+        virtual_id: int | None = None
+        try:
+            erase = _begin_erase(self.uinput, request_id)
+            virtual_id = _erase_effect_id(erase)
+            mapping = self._effects.get(virtual_id)
+            if mapping is None:
+                raise OSError(errno.EINVAL, "unknown force-feedback effect")
+            self.physical_device.erase_effect(mapping.physical_id)
+            self._effects.pop(virtual_id, None)
+        except Exception as exc:  # noqa: BLE001 - request must be acked on erase failure.
+            retval = _negative_errno(exc, default_errno=errno.EINVAL)
+            self.log.warning(
+                "Failed to proxy force-feedback erase for %s virtual_id=%s: %s",
+                self.label,
+                virtual_id,
+                exc,
+            )
+        finally:
+            if erase is not None:
+                _set_retval(erase, retval)
+                try:
+                    _end_erase(self.uinput, erase)
+                except Exception:
+                    self.log.exception(
+                        "Failed to finish force-feedback erase request for %s",
+                        self.label,
+                    )
+
+    def _rollback_uploaded_effect(
+        self,
+        physical_id: int | None,
+        *,
+        previous_mapping: EffectMapping | None,
+    ) -> None:
+        if physical_id is None:
+            return
+        if previous_mapping is not None and physical_id == previous_mapping.physical_id:
+            return
+        try:
+            self.physical_device.erase_effect(physical_id)
+        except OSError as exc:
+            self.log.warning(
+                "Failed to roll back force-feedback upload for %s physical_id=%s: %s",
+                self.label,
+                physical_id,
+                exc,
+            )
+        except Exception:
+            self.log.exception(
+                "Unexpected failure rolling back force-feedback upload for %s physical_id=%s",
+                self.label,
+                physical_id,
+            )
+
+    def _restore_upload_mapping(
+        self,
+        virtual_id: int | None,
+        *,
+        previous_mapping: EffectMapping | None,
+        published_mapping: bool,
+    ) -> None:
+        if not published_mapping or virtual_id is None:
+            return
+        if previous_mapping is None:
+            self._effects.pop(virtual_id, None)
+            return
+        self._effects[virtual_id] = previous_mapping
+
+    def _write_physical_ff(self, code: int, value: int) -> None:
+        try:
+            self.physical_device.write(evdev.ecodes.EV_FF, int(code), int(value))
+        except OSError as exc:
+            self.log.warning(
+                "Failed to proxy force-feedback event for %s code=%s value=%s: %s",
+                self.label,
+                code,
+                value,
+                exc,
+            )
+        except Exception:
+            self.log.exception(
+                "Unexpected failure proxying force-feedback event for %s code=%s value=%s",
+                self.label,
+                code,
+                value,
+            )

@@ -37,6 +37,16 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     runtime_is_running,
 )
 
+_PASSTHROUGH_ECHO_EVENT_TYPES = frozenset(
+    int(code)
+    for code in (
+        getattr(evdev.ecodes, "EV_FF", None),
+        getattr(evdev.ecodes, "EV_LED", None),
+        getattr(evdev.ecodes, "EV_SND", None),
+    )
+    if isinstance(code, int)
+)
+
 
 def _fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
     task = asyncio.ensure_future(coro)
@@ -674,6 +684,15 @@ async def process_event(
                 time_mod=time_mod,
             )
             return
+
+    if event.type in _PASSTHROUGH_ECHO_EVENT_TYPES:
+        _record_diagnostics(
+            device_runtime,
+            "passthrough_echo_suppressed",
+            started_ns,
+            time_mod=time_mod,
+        )
+        return
 
     if event.type not in (evdev_mod.ecodes.EV_KEY, evdev_mod.ecodes.EV_REL):
         runtime_outputs.passthrough(

@@ -593,6 +593,8 @@ class SuperkeyMacroTabMixin:
     def _on_superkey_macro_selected(self, list_box, row) -> None:
         if row and hasattr(row, "_macro_name"):
             self._superkey_selected_macro = row._macro_name
+        else:
+            self._superkey_selected_macro = None
         self._superkey_macro_map_btn.set_sensitive(bool(self._superkey_selected_macro))
 
     def _on_superkey_macro_map_clicked(self, btn) -> None:

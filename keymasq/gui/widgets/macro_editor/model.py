@@ -275,6 +275,10 @@ def parse_events(
             )
         elif ev["type"] == ev_rel:
             rel_events.append(_with_editor_order(ev, original_order))
+        elif ev["type"] == evdev.ecodes.EV_SYN:
+            # Sync events carry no timeline meaning; recorder and playback
+            # both drop them, so discard instead of keeping as passthrough.
+            continue
         else:
             passthrough_events.append(_with_editor_order(ev, original_order))
 

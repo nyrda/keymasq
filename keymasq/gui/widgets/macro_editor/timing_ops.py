@@ -119,9 +119,12 @@ def map_time(mapping: dict[int, int], t_us: int) -> int:
     if not keys:
         return t_us
     if t_us <= keys[0]:
-        return int(mapping[keys[0]])
+        # Before the remapped region nothing has moved; keep the position.
+        return t_us
     if t_us >= keys[-1]:
-        return int(mapping[keys[-1]])
+        # After the remapped region: move rigidly with the region's end so
+        # trailing offsets and event ordering survive the remap.
+        return t_us + int(mapping[keys[-1]]) - keys[-1]
 
     # Piecewise linear interpolation between nearest mapped anchors.
     for index in range(1, len(keys)):

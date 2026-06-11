@@ -532,3 +532,98 @@ def test_timing_shift_timeline_for_gap_respects_scopes() -> None:
     assert shifted.t_us == 2500
     assert passthrough_events[0]["t_us"] == 1000
     assert passthrough_events[1]["t_us"] == 1500
+
+
+def test_parse_discards_ev_syn_events() -> None:
+    raw = [
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 10,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_SYN,
+            "code": evdev.ecodes.SYN_REPORT,
+            "value": 0,
+            "t_us": 15,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 20,
+        },
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+
+    assert len(editable) == 1
+    assert passthrough == []
+
+    rebuilt = reconstruct_events(
+        editable, rel_events, passthrough, synthetic_moves, control_events
+    )
+    assert all(int(ev["type"]) != evdev.ecodes.EV_SYN for ev in rebuilt)
+
+
+def test_timing_map_time_keeps_out_of_range_timestamps_relative() -> None:
+    # 2x stretch between anchors 1000 and 2000.
+    mapping = {1000: 1000, 2000: 3000}
+
+    # Inside the region: interpolated.
+    assert timing_ops.map_time(mapping, 1500) == 2000
+    # Before the region: unchanged, not snapped onto the first anchor.
+    assert timing_ops.map_time(mapping, 400) == 400
+    # After the region: moves rigidly with the region's end instead of
+    # collapsing onto the last anchor.
+    assert timing_ops.map_time(mapping, 2600) == 3600
+    # Empty mapping leaves timestamps alone.
+    assert timing_ops.map_time({}, 123) == 123
+
+
+def test_timing_scale_excluding_passthrough_keeps_outlier_offsets() -> None:
+    keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=1000,
+        release_t_us=2000,
+    )
+    passthrough_before = {
+        "device_type": "keyboard",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.KEY_B,
+        "value": 1,
+        "t_us": 500,
+    }
+    passthrough_after = {
+        "device_type": "keyboard",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.KEY_C,
+        "value": 0,
+        "t_us": 2500,
+    }
+    events = [keyboard]
+    passthrough_events = [passthrough_before, passthrough_after]
+
+    mapping = timing_ops.build_time_mapping_with_gap_limits(
+        events,
+        [],
+        passthrough_events,
+        [],
+        [],
+        scale=2.0,
+        include_passthrough=False,
+    )
+    timing_ops.apply_time_map(events, [], passthrough_events, [], [], mapping)
+
+    assert keyboard.press_t_us == 1000
+    assert keyboard.release_t_us == 3000
+    # Passthrough timestamps outside the anchor range keep their offsets
+    # relative to the remapped content instead of snapping onto its edges.
+    assert passthrough_before["t_us"] == 500
+    assert passthrough_after["t_us"] == 3500

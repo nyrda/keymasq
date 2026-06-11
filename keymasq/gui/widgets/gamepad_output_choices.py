@@ -1,14 +1,20 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Protocol
 
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.virtual_devices import (
     is_virtual_gamepad_output_id,
     virtual_gamepad_output_id,
 )
+from keymasq.session.hardware import HardwareManager
 from keymasq.session.settings import load_virtual_gamepad_count
 
 log = logging.getLogger("keymasq.gui.widgets.gamepad_output_choices")
+
+
+class _HardwareManagerLike(Protocol):
+    def list_hardware(self) -> Sequence[object]: ...
 
 
 def virtual_gamepad_count() -> int:
@@ -105,3 +111,28 @@ def gamepad_output_choices_for(
     ):
         choices.append((selected_id, _format_current_virtual_output_choice(selected_id)))
     return choices
+
+
+def load_gamepad_output_hardware_configs(
+    hardware_manager_factory: Callable[[], _HardwareManagerLike] = HardwareManager,
+) -> list[object]:
+    try:
+        manager = hardware_manager_factory()
+        return list(manager.list_hardware())
+    except (OSError, RuntimeError) as exc:
+        log.debug("Unable to load hardware configs for gamepad outputs: %s", exc)
+        return []
+
+
+def gamepad_output_choices(
+    selected_id: str | None,
+    *,
+    count: int | None = None,
+    hardware_configs: Sequence[object] | None = None,
+    hardware_manager_factory: Callable[[], _HardwareManagerLike] = HardwareManager,
+) -> list[tuple[str | None, str]]:
+    if count is None:
+        count = virtual_gamepad_count()
+    if hardware_configs is None:
+        hardware_configs = load_gamepad_output_hardware_configs(hardware_manager_factory)
+    return gamepad_output_choices_for(selected_id, count, hardware_configs)

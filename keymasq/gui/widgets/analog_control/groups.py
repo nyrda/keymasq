@@ -417,8 +417,6 @@ def build_gamepad_output_group(host: AnalogControlGroupHost) -> GamepadOutputGro
 
     gamepad_output_target_row = Adw.ActionRow(title="Output")
     dropdown = Gtk.DropDown()
-    if dropdown is None:
-        raise RuntimeError("failed to create gamepad output dropdown")
     dropdown.set_valign(Gtk.Align.CENTER)
     dropdown.connect(
         "notify::selected",

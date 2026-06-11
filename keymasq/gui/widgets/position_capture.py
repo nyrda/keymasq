@@ -206,8 +206,16 @@ class PositionCaptureController:
             )
             return False
 
-        x = int(response["x"])
-        y = int(response["y"])
+        try:
+            x = int(response["x"])
+            y = int(response["y"])
+        except (TypeError, ValueError):
+            self._set_status(
+                self.status_label,
+                "Capture failed: invalid cursor coordinates",
+                True,
+            )
+            return False
         if self.apply is not None and self.apply(x, y) is False:
             return False
         self._set_status(

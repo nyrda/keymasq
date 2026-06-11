@@ -151,12 +151,19 @@ class SplitAxisDesyncController:
     def __init__(self) -> None:
         self.axis: str | None = None
         self.clear_id = 0
-        self.modifier_active = False
+        self._active_modifier_keys: set[int] = set()
+
+    @property
+    def modifier_active(self) -> bool:
+        return bool(self._active_modifier_keys)
 
     def set_modifier_key(self, keyval: int, active: bool) -> bool:
         if keyval not in SPLIT_DESYNC_KEYS:
             return False
-        self.modifier_active = active
+        if active:
+            self._active_modifier_keys.add(keyval)
+        else:
+            self._active_modifier_keys.discard(keyval)
         return True
 
     def add_click_controller(self, row: Adw.SpinRow, axis: str) -> None:

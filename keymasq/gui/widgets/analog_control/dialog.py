@@ -159,7 +159,7 @@ class AnalogControlDialog(Adw.Dialog):
     def _on_key_pressed(self, _controller, keyval, _keycode, _state) -> bool:
         if keyval in SPLIT_DESYNC_KEYS:
             self._split_desync_controller.set_modifier_key(keyval, True)
-            self._split_mouse_speed_modifier_active = True
+            self._sync_split_desync_legacy_state()
         if keyval in (Gdk.KEY_f, Gdk.KEY_F) and _state & Gdk.ModifierType.CONTROL_MASK:
             self._show_search()
             return True
@@ -174,7 +174,7 @@ class AnalogControlDialog(Adw.Dialog):
     def _on_key_released(self, _controller, keyval, _keycode, _state) -> None:
         if keyval in SPLIT_DESYNC_KEYS:
             self._split_desync_controller.set_modifier_key(keyval, False)
-            self._split_mouse_speed_modifier_active = False
+            self._sync_split_desync_legacy_state()
 
     def do_close_attempt(self) -> None:
         self._request_close()
@@ -600,7 +600,10 @@ class AnalogControlDialog(Adw.Dialog):
         target_box = self._gamepad_output_target_box
         if target_box is None:
             return
-        while child := target_box.get_first_child():
+        while True:
+            child = target_box.get_first_child()
+            if child is None:
+                break
             target_box.remove(child)
         self._gamepad_output_target_buttons.clear()
         self._gamepad_output_target_items = [
@@ -816,8 +819,10 @@ class AnalogControlDialog(Adw.Dialog):
             finally:
                 self._syncing_mouse_speed = False
         if self._split_mouse_speed_desync_axis == axis:
-            if self._split_mouse_speed_desync_clear_id:
-                GLib.source_remove(self._split_mouse_speed_desync_clear_id)
+            clear_id = self._split_mouse_speed_desync_clear_id
+            self._split_mouse_speed_desync_clear_id = 0
+            if clear_id:
+                GLib.source_remove(clear_id)
             self._clear_split_mouse_speed_desync(axis)
         self._remember_split_mouse_speeds()
 
@@ -841,8 +846,10 @@ class AnalogControlDialog(Adw.Dialog):
             finally:
                 self._syncing_area_radius = False
         if self._split_mouse_speed_desync_axis == axis:
-            if self._split_mouse_speed_desync_clear_id:
-                GLib.source_remove(self._split_mouse_speed_desync_clear_id)
+            clear_id = self._split_mouse_speed_desync_clear_id
+            self._split_mouse_speed_desync_clear_id = 0
+            if clear_id:
+                GLib.source_remove(clear_id)
             self._clear_split_mouse_speed_desync(axis)
         self._remember_area_radii()
 

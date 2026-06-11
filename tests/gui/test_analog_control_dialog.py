@@ -879,6 +879,7 @@ def test_stick_mouse_movement_held_modifier_desyncs_equal_split_speeds(
     temp_config_dir,
 ) -> None:
     gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
     from gi.repository import Gdk, Gtk
 
     from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
@@ -888,6 +889,28 @@ def test_stick_mouse_movement_held_modifier_desyncs_equal_split_speeds(
     assert dialog._on_key_pressed(None, Gdk.KEY_Control_L, 0, 0) is False
     dialog.speed_y_row.set_value(700)
     dialog._on_key_released(None, Gdk.KEY_Control_L, 0, 0)
+
+    assert dialog.speed_x_row.get_value() == 900
+    assert dialog.speed_y_row.get_value() == 700
+
+
+def test_stick_mouse_movement_tracks_multiple_held_desync_modifiers(
+    temp_config_dir,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+
+    assert dialog._on_key_pressed(None, Gdk.KEY_Control_L, 0, 0) is False
+    assert dialog._on_key_pressed(None, Gdk.KEY_Shift_L, 0, 0) is False
+    dialog._on_key_released(None, Gdk.KEY_Control_L, 0, 0)
+
+    dialog.speed_y_row.set_value(700)
+    dialog._on_key_released(None, Gdk.KEY_Shift_L, 0, 0)
 
     assert dialog.speed_x_row.get_value() == 900
     assert dialog.speed_y_row.get_value() == 700

@@ -4,7 +4,7 @@ import os
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from types import SimpleNamespace
-from typing import Final, cast
+from typing import Final, NotRequired, TypedDict, cast
 
 import evdev
 
@@ -23,6 +23,7 @@ from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
+from keymasq.keymasqd.runtime import force_feedback as runtime_force_feedback
 from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
 from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
 from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
@@ -58,6 +59,18 @@ ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 DEFAULT_UINPUT_VERSION = 0x0001
 DEFAULT_UINPUT_BUSTYPE = 0x0003
+
+
+class _PassthroughUInputKwargs(TypedDict):
+    events: dict[int, Sequence[int]]
+    name: str
+    vendor: NotRequired[int]
+    product: NotRequired[int]
+    version: NotRequired[int]
+    bustype: NotRequired[int]
+    input_props: NotRequired[Sequence[int]]
+    max_effects: NotRequired[int]
+
 
 __all__ = [
     "ASYNCIO_RUNTIME",
@@ -170,6 +183,81 @@ def _passthrough_input_props(device: _ManagedInputDevice) -> Sequence[int] | Non
         return None
 
 
+def _copy_passthrough_capabilities(
+    device: _ManagedInputDevice,
+) -> tuple[dict[int, Sequence[object]], int]:
+    caps: dict[int, Sequence[object]] = {
+        int(event_type): list(codes)
+        for event_type, codes in device.capabilities().items()
+    }
+    caps.pop(evdev.ecodes.EV_SYN, None)
+    ff_max_effects = runtime_force_feedback.passthrough_ff_max_effects(caps, device)
+    if ff_max_effects <= 0:
+        runtime_force_feedback.disable_force_feedback(caps)
+    return caps, ff_max_effects
+
+
+def _passthrough_uinput_kwargs(
+    *,
+    caps: dict[int, Sequence[object]],
+    passthrough_name: str,
+    passthrough_vendor: int | None,
+    passthrough_product: int | None,
+    passthrough_version: int | None,
+    passthrough_bustype: int | None,
+    passthrough_input_props: Sequence[int] | None,
+    ff_max_effects: int,
+) -> _PassthroughUInputKwargs:
+    events = {
+        int(event_type): list(codes)
+        for event_type, codes in caps.items()
+    }
+    kwargs: _PassthroughUInputKwargs = {
+        "events": cast(dict[int, Sequence[int]], events),
+        "name": passthrough_name,
+    }
+    if passthrough_vendor is not None and passthrough_product is not None:
+        kwargs["vendor"] = passthrough_vendor
+        kwargs["product"] = passthrough_product
+    if passthrough_version is not None and passthrough_bustype is not None:
+        kwargs["version"] = passthrough_version
+        kwargs["bustype"] = passthrough_bustype
+    if passthrough_input_props is not None:
+        kwargs["input_props"] = passthrough_input_props
+    kwargs["max_effects"] = ff_max_effects
+    return kwargs
+
+
+def _close_passthrough_uinput(
+    uinput: object | None,
+    *,
+    context: str,
+    close_error_log_level: int = logging.DEBUG,
+) -> None:
+    if uinput is None:
+        return
+    try:
+        close = getattr(uinput, "close", None)
+        if callable(close):
+            close()
+    except OSError as exc:
+        if close_error_log_level <= logging.DEBUG:
+            log.debug("Failed to close passthrough uinput during %s", context, exc_info=True)
+        else:
+            log.log(
+                close_error_log_level,
+                "Failed to close passthrough uinput during %s: %s",
+                context,
+                exc,
+            )
+    except Exception:
+        log.exception("Unexpected failure closing passthrough uinput during %s", context)
+    try:
+        runtime_outputs.unregister_passthrough_frame_output(uinput)
+    except Exception:
+        log.exception("Failed to unregister passthrough output during %s", context)
+
+
 class GrabbedDevice:
     def __init__(
         self,
@@ -222,6 +310,9 @@ class GrabbedDevice:
         self.event_code_to_button: dict[tuple[int, int], str] = {}
         self.device: _ManagedInputDevice | None = None
         self.uinput: evdev.UInput | None = None
+        self.force_feedback_proxy: (
+            runtime_force_feedback.PassthroughForceFeedbackProxy | None
+        ) = None
         self.update_button_map(button_map, button_codes, button_values)
         self.analog_inputs: dict[str, object] = {}
         self.analog_axis_bindings: dict[tuple[int, int], tuple[str, str]] = {}
@@ -374,18 +465,10 @@ class GrabbedDevice:
         )
 
     async def _cleanup_failed_grab(self) -> None:
+        await self._stop_force_feedback_proxy()
         uinput = self.uinput
         if uinput is not None:
-            try:
-                uinput.close()
-            except OSError:
-                log.debug("Failed to close uinput after failed grab", exc_info=True)
-            except Exception:
-                log.exception("Unexpected failure closing uinput after failed grab")
-            try:
-                runtime_outputs.unregister_passthrough_frame_output(uinput)
-            except Exception:
-                log.exception("Failed to unregister passthrough output after failed grab")
+            _close_passthrough_uinput(uinput, context="failed grab")
         self.uinput = None
 
         device = self.device
@@ -414,8 +497,7 @@ class GrabbedDevice:
 
         try:
             self._refresh_analog_axis_ranges()
-            caps = self.device.capabilities()
-            caps.pop(evdev.ecodes.EV_SYN, None)
+            caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
             is_gamepad_passthrough = _is_gamepad_passthrough(
                 self.device_type,
                 self.device_types,
@@ -449,37 +531,39 @@ class GrabbedDevice:
                 passthrough_input_props = _passthrough_input_props(self.device)
 
             if passthrough_vendor is None or passthrough_product is None:
-                self.uinput = evdev.UInput(
-                    events=cast(dict[int, Sequence[int]], caps),
-                    name=passthrough_name,
-                )
-            elif passthrough_version is not None and passthrough_bustype is not None:
-                if passthrough_input_props is None:
-                    self.uinput = evdev.UInput(
-                        events=cast(dict[int, Sequence[int]], caps),
-                        name=passthrough_name,
-                        vendor=passthrough_vendor,
-                        product=passthrough_product,
-                        version=passthrough_version,
-                        bustype=passthrough_bustype,
+                passthrough_version = None
+                passthrough_bustype = None
+                passthrough_input_props = None
+
+            def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
+                return evdev.UInput(
+                    **_passthrough_uinput_kwargs(
+                        caps=caps,
+                        passthrough_name=passthrough_name,
+                        passthrough_vendor=passthrough_vendor,
+                        passthrough_product=passthrough_product,
+                        passthrough_version=passthrough_version,
+                        passthrough_bustype=passthrough_bustype,
+                        passthrough_input_props=passthrough_input_props,
+                        ff_max_effects=max_effects,
                     )
-                else:
-                    self.uinput = evdev.UInput(
-                        events=cast(dict[int, Sequence[int]], caps),
-                        name=passthrough_name,
-                        vendor=passthrough_vendor,
-                        product=passthrough_product,
-                        version=passthrough_version,
-                        bustype=passthrough_bustype,
-                        input_props=passthrough_input_props,
-                    )
-            else:
-                self.uinput = evdev.UInput(
-                    events=cast(dict[int, Sequence[int]], caps),
-                    name=passthrough_name,
-                    vendor=passthrough_vendor,
-                    product=passthrough_product,
                 )
+
+            self.uinput = make_passthrough_uinput(ff_max_effects)
+            if ff_max_effects > 0:
+                try:
+                    self._start_force_feedback_proxy()
+                except Exception:  # noqa: BLE001 - retry without advertised FF support.
+                    log.warning(
+                        "Disabling passthrough force feedback for %s after proxy start failure",
+                        self.path,
+                        exc_info=True,
+                    )
+                    _close_passthrough_uinput(self.uinput, context="force-feedback retry")
+                    self.uinput = None
+                    runtime_force_feedback.disable_force_feedback(caps)
+                    ff_max_effects = 0
+                    self.uinput = make_passthrough_uinput(ff_max_effects)
 
             await runtime_grab.wait_for_active_keys_to_clear(
                 self,
@@ -544,6 +628,8 @@ class GrabbedDevice:
                 except (TimeoutError, asyncio.CancelledError):
                     pass
 
+        await self._stop_force_feedback_proxy()
+
         if self.device:
             try:
                 self.device.ungrab()
@@ -559,17 +645,11 @@ class GrabbedDevice:
                 log.exception("Unexpected failure closing input device %s", self.path)
 
         if self.uinput:
-            try:
-                self.uinput.close()
-            except OSError as exc:
-                log.warning("Failed to close passthrough uinput for %s: %s", self.path, exc)
-            except Exception:
-                log.exception("Unexpected failure closing passthrough uinput for %s", self.path)
-            finally:
-                try:
-                    runtime_outputs.unregister_passthrough_frame_output(self.uinput)
-                except Exception:
-                    log.exception("Failed to unregister passthrough output for %s", self.path)
+            _close_passthrough_uinput(
+                self.uinput,
+                context=f"release {self.path}",
+                close_error_log_level=logging.WARNING,
+            )
 
         self.device = None
         self.uinput = None
@@ -583,6 +663,31 @@ class GrabbedDevice:
                 log.exception("Unexpected failure restoring hidden source for %s", self.path)
 
         log.info("Released %s", self.path)
+
+    def _start_force_feedback_proxy(self) -> None:
+        if self.uinput is None or self.device is None:
+            return
+        proxy = runtime_force_feedback.PassthroughForceFeedbackProxy(
+            cast(runtime_force_feedback.ForceFeedbackUInput, self.uinput),
+            cast(runtime_force_feedback.ForceFeedbackTarget, self.device),
+            label=f"{self.hardware_id}:{self.interface_id or self.path}",
+        )
+        proxy.start()
+        self.force_feedback_proxy = proxy
+
+    async def _stop_force_feedback_proxy(self) -> None:
+        proxy = self.force_feedback_proxy
+        self.force_feedback_proxy = None
+        if proxy is None:
+            return
+        stop_and_wait = cast(
+            Callable[[], Awaitable[None]] | None,
+            getattr(proxy, "stop_and_wait", None),
+        )
+        if callable(stop_and_wait):
+            await stop_and_wait()
+            return
+        proxy.stop()
 
     def release_tracked_outputs(self) -> None:
         runtime_outputs.release_all_keys(

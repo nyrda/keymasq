@@ -508,6 +508,37 @@ class TestGrabbedDeviceHelpers:
         assert not gdo.passthrough_frame_open(passthrough)
 
     @pytest.mark.asyncio
+    async def test_pass_to_all_feedback_events_are_not_passthrough(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _CountingUInput()
+        diagnostics: list[tuple[str, float]] = []
+        device = make_grabbed_device(
+            monkeypatch,
+            diagnostics_recorder=lambda label, duration_us: diagnostics.append(
+                (label, duration_us)
+            ),
+        )
+        device.uinput = passthrough  # type: ignore[assignment]
+        deps = gde.build_event_processing_deps(log=logging.getLogger("test"))
+
+        for event_type in (evdev.ecodes.EV_FF, evdev.ecodes.EV_LED, evdev.ecodes.EV_SND):
+            await gde.process_event(
+                device,
+                evdev.InputEvent(0, 0, int(event_type), 0, 1),
+                deps=deps,
+            )
+
+        assert passthrough.writes == []
+        assert [label for label, _duration_us in diagnostics] == [
+            "passthrough_echo_suppressed",
+            "passthrough_echo_suppressed",
+            "passthrough_echo_suppressed",
+        ]
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_generated_gamepad_output_defers_syn_inside_passthrough_frame(
         self,
         monkeypatch: pytest.MonkeyPatch,

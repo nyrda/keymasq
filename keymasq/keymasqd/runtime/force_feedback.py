@@ -210,7 +210,8 @@ class PassthroughForceFeedbackProxy:
         try:
             await worker_task
         except asyncio.CancelledError:
-            return
+            await self._wait_for_write_tasks()
+            raise
         except Exception:
             self.log.exception("Failed while waiting for force-feedback worker %s", self.label)
         await self._wait_for_write_tasks()

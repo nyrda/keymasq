@@ -364,6 +364,40 @@ async def test_stop_and_wait_drains_inflight_worker_before_returning() -> None:
     assert proxy.effect_mappings[7].physical_id == 23
 
 
+@pytest.mark.asyncio
+async def test_stop_and_wait_propagates_worker_cancellation_after_write_tasks() -> None:
+    proxy = PassthroughForceFeedbackProxy(
+        _FakeUInput(),
+        _FakePhysicalDevice(),
+        label="test",
+    )
+    worker_task = asyncio.create_task(asyncio.sleep(60))
+    write_done = asyncio.Event()
+    release_write = asyncio.Event()
+
+    async def pending_write() -> None:
+        await release_write.wait()
+        write_done.set()
+
+    write_task = asyncio.create_task(pending_write())
+    proxy._worker_task = worker_task
+    proxy._write_tasks.add(write_task)
+
+    stop_task = asyncio.create_task(proxy.stop_and_wait())
+    await asyncio.sleep(0)
+    worker_task.cancel()
+    await asyncio.sleep(0)
+
+    assert stop_task.done() is False
+    assert write_done.is_set() is False
+
+    release_write.set()
+    with pytest.raises(asyncio.CancelledError):
+        await stop_task
+
+    assert write_done.is_set()
+
+
 def test_read_eintr_does_not_stop_proxy() -> None:
     class _EintrUInput(_FakeUInput):
         def read(self):

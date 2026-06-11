@@ -52,6 +52,7 @@ from keymasq.gui.widgets.macro_editor.panels import (  # noqa: F401
     _set_entry_text_if_needed,
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+from keymasq.gui.widgets.position_capture import PositionCaptureController
 from keymasq.session.compositor import detect_compositor_sync
 
 __all__ = [
@@ -136,6 +137,18 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(detect_compositor_sync())
         self._slurp_available = self._slurp_capture.available
+        self._start_position_capture = PositionCaptureController(
+            slurp_capture=self._slurp_capture,
+            slurp_available=self._slurp_available,
+            request_async=session_request_async,
+            on_state_changed=self._sync_start_position_capture_legacy_state,
+        )
+        self._selected_move_capture = PositionCaptureController(
+            slurp_capture=self._slurp_capture,
+            slurp_available=self._slurp_available,
+            request_async=session_request_async,
+            on_state_changed=self._sync_selected_move_capture_legacy_state,
+        )
         self._timing_scale_spin: Gtk.SpinButton | None = None
         self._timing_min_gap_spin: Gtk.SpinButton | None = None
         self._timing_max_gap_spin: Gtk.SpinButton | None = None

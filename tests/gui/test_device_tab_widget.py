@@ -6,6 +6,23 @@ import pytest
 gi = pytest.importorskip("gi")
 
 
+def _make_add_inputs_flow(device, on_complete=None, parent=None):
+    from keymasq.gui.widgets.device_tab.add_inputs_flow import AddInputsFlow
+
+    if parent is None:
+        parent = SimpleNamespace(
+            _recording_unlock_required=False,
+            _recording_unlocked=False,
+            _recording_refresh_owner=False,
+        )
+    return AddInputsFlow(
+        parent,
+        lambda _payload, callback: callback({"status": "ok"}),
+        device,
+        on_complete or (lambda _result: None),
+    )
+
+
 class TestDeviceTabWidget:
     def test_device_tab_creation(self):
         from gi.repository import Gtk
@@ -1165,14 +1182,6 @@ class TestDeviceTabWidget:
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
-
-        class _HardwareManager:
-            def __init__(self) -> None:
-                self.saved: list[HardwareConfig] = []
-
-            def save_hardware(self, device: HardwareConfig) -> None:
-                self.saved.append(device)
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1188,32 +1197,30 @@ class TestDeviceTabWidget:
             ],
         )
 
-        hardware_manager = _HardwareManager()
-        tab = DeviceTab(
-            device=device,
-            profile_manager=None,
-            hardware_manager=hardware_manager,
-            demo_mode=True,
-        )
         status = Gtk.Label()
         dialog = Adw.Dialog()
         finished: list[str] = []
-        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
-        stopped: list[str] = []
-        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["key_added_1"]
+        flow = _make_add_inputs_flow(
+            device,
+            lambda result: (
+                device.buttons.extend(result.buttons),
+                device.evdev_devices.extend(result.evdev_devices),
+                finished.append("finished"),
+            ),
+        )
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["key_added_1"]
 
-        assert tab._on_add_keys_capture_read(None, status, dialog) is False
+        assert flow._on_capture_read(None, status, dialog) is False
         assert status.get_text() == ""
 
         duplicate = {"status": "ok", "captured": {"evdev": "key_a", "source": "kbd"}}
-        assert tab._on_add_keys_capture_read(duplicate, status, dialog) is False
+        assert flow._on_capture_read(duplicate, status, dialog) is False
         assert "already exists" in status.get_text()
 
         unsupported = {"status": "ok", "captured": {"evdev": "abs_x", "source": "kbd"}}
-        assert tab._on_add_keys_capture_read(unsupported, status, dialog) is False
+        assert flow._on_capture_read(unsupported, status, dialog) is False
         assert "Unsupported input" in status.get_text()
 
         captured = {
@@ -1224,14 +1231,13 @@ class TestDeviceTabWidget:
                 "stable_path": "/dev/input/by-id/test-mouse",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
         assert finished == ["finished"]
-        assert stopped == []
-        assert tab.device.buttons[-1].id == "btn_side"
-        assert tab.device.buttons[-1].type == "mouse"
-        assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-mouse"
-        assert tab.device.evdev_devices[-1].device_type == DeviceType.MOUSE
+        assert device.buttons[-1].id == "btn_side"
+        assert device.buttons[-1].type == "mouse"
+        assert device.evdev_devices[-1].path == "/dev/input/by-id/test-mouse"
+        assert device.evdev_devices[-1].device_type == DeviceType.MOUSE
         assert status.get_text() == "Captured btn_side (0 remaining)"
 
     def test_device_tab_add_inputs_dialog_requires_unlock_before_capture(self, temp_config_dir):
@@ -1315,11 +1321,10 @@ class TestDeviceTabWidget:
     def test_device_tab_finish_add_keys_reloads_session_runtime(
         self, temp_config_dir, monkeypatch
     ):
-        from gi.repository import Adw
-
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets import device_tab as device_tab_module
         from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.gui.widgets.device_tab.add_inputs_flow import AddInputsResult
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -1350,19 +1355,14 @@ class TestDeviceTabWidget:
         )
         reloaded: list[bool] = []
         tab._reload_ui = lambda: reloaded.append(True)  # type: ignore[method-assign]
-        stopped: list[bool] = []
-        tab._stop_add_keys_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
-        dialog = Adw.Dialog()
-        closed: list[bool] = []
-        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
 
-        tab._finish_add_keys(dialog)
+        added = ButtonDefinition(id="btn_side", label="Back", evdev="btn_side")
+        tab._on_add_inputs_complete(AddInputsResult(buttons=[added], evdev_devices=[]))
 
-        assert stopped == [True]
         assert hardware_manager.saved == [device]
         assert reload_requests == [{"command": "reload"}]
-        assert closed == [True]
         assert reloaded == [True]
+        assert device.buttons[-1] == added
 
     def test_device_tab_add_keys_capture_read_accepts_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk
@@ -1370,7 +1370,6 @@ class TestDeviceTabWidget:
         import evdev
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1380,14 +1379,16 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         status = Gtk.Label()
         dialog = Adw.Dialog()
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["added_1"]
         finished: list[str] = []
-        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
+        flow = _make_add_inputs_flow(
+            device,
+            lambda result: (device.buttons.extend(result.buttons), finished.append("finished")),
+        )
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["added_1"]
 
         captured = {
             "status": "ok",
@@ -1399,16 +1400,16 @@ class TestDeviceTabWidget:
                 "source": "mouse",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
         assert finished == ["finished"]
-        assert len(tab.device.buttons) == 2
-        assert tab.device.buttons[-1].id == "wheel_down"
-        assert tab.device.buttons[-1].label == "Scroll Down"
-        assert tab.device.buttons[-1].evdev == "rel_wheel"
-        assert tab.device.buttons[-1].evdev_code == evdev.ecodes.REL_WHEEL
-        assert tab.device.buttons[-1].evdev_value == -1
-        assert tab.device.buttons[-1].type == "wheel"
+        assert len(device.buttons) == 2
+        assert device.buttons[-1].id == "wheel_down"
+        assert device.buttons[-1].label == "Scroll Down"
+        assert device.buttons[-1].evdev == "rel_wheel"
+        assert device.buttons[-1].evdev_code == evdev.ecodes.REL_WHEEL
+        assert device.buttons[-1].evdev_value == -1
+        assert device.buttons[-1].type == "wheel"
         assert status.get_text() == "Captured Scroll Down (0 remaining)"
 
     def test_device_tab_add_keys_allows_opposite_wheel_direction(self, temp_config_dir):
@@ -1417,7 +1418,6 @@ class TestDeviceTabWidget:
         import evdev
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1435,14 +1435,16 @@ class TestDeviceTabWidget:
             ],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         status = Gtk.Label()
         dialog = Adw.Dialog()
         finished: list[str] = []
-        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["added_1"]
+        flow = _make_add_inputs_flow(
+            device,
+            lambda result: (device.buttons.extend(result.buttons), finished.append("finished")),
+        )
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["added_1"]
 
         captured = {
             "status": "ok",
@@ -1454,10 +1456,10 @@ class TestDeviceTabWidget:
                 "source": "mouse",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
         assert finished == ["finished"]
-        assert [button.id for button in tab.device.buttons] == ["wheel_up", "wheel_down"]
+        assert [button.id for button in device.buttons] == ["wheel_up", "wheel_down"]
 
     def test_device_tab_add_keys_rejects_duplicate_wheel_direction(self, temp_config_dir):
         from gi.repository import Adw, Gtk
@@ -1465,7 +1467,6 @@ class TestDeviceTabWidget:
         import evdev
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1483,12 +1484,12 @@ class TestDeviceTabWidget:
             ],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         status = Gtk.Label()
         dialog = Adw.Dialog()
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["added_1"]
+        flow = _make_add_inputs_flow(device)
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["added_1"]
 
         captured = {
             "status": "ok",
@@ -1500,16 +1501,15 @@ class TestDeviceTabWidget:
                 "source": "mouse",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
-        assert len(tab.device.buttons) == 1
+        assert len(device.buttons) == 1
         assert "already exists" in status.get_text()
 
     def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1523,19 +1523,19 @@ class TestDeviceTabWidget:
             ],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         status = Gtk.Label()
         dialog = Adw.Dialog()
         stopped: list[str] = []
         closed: list[str] = []
-        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
         dialog.close = lambda: closed.append("closed")  # type: ignore[method-assign]
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["key_added_1"]
+        flow = _make_add_inputs_flow(device)
+        flow.stop_capture = lambda: stopped.append("stopped")  # type: ignore[method-assign]
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["key_added_1"]
 
         duplicate_esc = {"status": "ok", "captured": {"evdev": "key_esc", "source": "kbd"}}
-        assert tab._on_add_keys_capture_read(duplicate_esc, status, dialog) is False
+        assert flow._on_capture_read(duplicate_esc, status, dialog) is False
 
         assert stopped == ["stopped"]
         assert closed == ["closed"]
@@ -1545,14 +1545,6 @@ class TestDeviceTabWidget:
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
-
-        class _HardwareManager:
-            def __init__(self) -> None:
-                self.saved: list[HardwareConfig] = []
-
-            def save_hardware(self, device: HardwareConfig) -> None:
-                self.saved.append(device)
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1562,19 +1554,20 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
         )
 
-        tab = DeviceTab(
-            device=device,
-            profile_manager=None,
-            hardware_manager=_HardwareManager(),
-            demo_mode=True,
-        )
         status = Gtk.Label()
         dialog = Adw.Dialog()
         finished: list[str] = []
-        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["input_added_1"]
+        flow = _make_add_inputs_flow(
+            device,
+            lambda result: (
+                device.buttons.extend(result.buttons),
+                device.evdev_devices.extend(result.evdev_devices),
+                finished.append("finished"),
+            ),
+        )
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["input_added_1"]
 
         captured = {
             "status": "ok",
@@ -1584,13 +1577,13 @@ class TestDeviceTabWidget:
                 "stable_path": "/dev/input/by-id/test-kbd",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
         assert finished == ["finished"]
-        assert tab.device.buttons[-1].id == "key_space"
-        assert tab.device.buttons[-1].type == "key"
-        assert tab.device.evdev_devices[-1].path == "/dev/input/by-id/test-kbd"
-        assert tab.device.evdev_devices[-1].device_type == DeviceType.KEYBOARD
+        assert device.buttons[-1].id == "key_space"
+        assert device.buttons[-1].type == "key"
+        assert device.evdev_devices[-1].path == "/dev/input/by-id/test-kbd"
+        assert device.evdev_devices[-1].device_type == DeviceType.KEYBOARD
         assert status.get_text() == "Captured key_space (0 remaining)"
 
     def test_device_tab_add_inputs_escape_closes_dialog_and_stops_capture(self, temp_config_dir):
@@ -1598,7 +1591,6 @@ class TestDeviceTabWidget:
         from gi.repository import Adw, Gdk, Gtk
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1608,15 +1600,15 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         dialog = Adw.Dialog()
         closed: list[str] = []
         stopped: list[str] = []
         dialog.close = lambda: closed.append("closed")  # type: ignore[method-assign]
-        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
+        flow = _make_add_inputs_flow(device)
+        flow.stop_capture = lambda: stopped.append("stopped")  # type: ignore[method-assign]
 
         assert (
-            tab._on_add_inputs_key_pressed(
+            flow._on_key_pressed(
                 Gtk.EventControllerKey(),
                 Gdk.KEY_Escape,
                 0,
@@ -1636,7 +1628,6 @@ class TestDeviceTabWidget:
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1646,7 +1637,6 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
         )
 
-        tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         root = Gtk.Window()
         added: list[object] = []
         removed: list[object] = []
@@ -1664,35 +1654,27 @@ class TestDeviceTabWidget:
 
         root.add_controller = add_controller  # type: ignore[method-assign]
         root.remove_controller = remove_controller  # type: ignore[method-assign]
-        tab.get_root = lambda: root  # type: ignore[method-assign]
         dialog = Adw.Dialog()
         stopped: list[str] = []
-        tab._stop_add_keys_capture = lambda: stopped.append("stopped")
+        flow = _make_add_inputs_flow(device, parent=root)
+        flow.stop_capture = lambda: stopped.append("stopped")  # type: ignore[method-assign]
 
-        tab._install_add_inputs_escape_controller(dialog)
-        tab._add_inputs_dialog = dialog
-        controller = tab._add_inputs_escape_controller
+        flow._install_escape_controller(dialog)
+        flow._dialog = dialog
+        controller = flow._escape_controller
 
-        tab._on_add_inputs_dialog_closed(dialog)
+        flow._on_dialog_closed(dialog)
 
         assert controller is not None
         assert added == [controller]
         assert removed == [controller]
         assert stopped == ["stopped"]
-        assert tab._add_inputs_dialog is None
+        assert flow._dialog is None
 
     def test_gamepad_device_tab_add_buttons_capture_sets_gamepad_type(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
-
-        class _HardwareManager:
-            def __init__(self) -> None:
-                self.saved: list[HardwareConfig] = []
-
-            def save_hardware(self, device: HardwareConfig) -> None:
-                self.saved.append(device)
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1715,19 +1697,16 @@ class TestDeviceTabWidget:
             ],
         )
 
-        tab = DeviceTab(
-            device=device,
-            profile_manager=None,
-            hardware_manager=_HardwareManager(),
-            demo_mode=True,
-        )
         status = Gtk.Label()
         dialog = Adw.Dialog()
         finished: list[str] = []
-        tab._finish_add_keys = lambda parent_dialog: finished.append("finished")
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["btn_added_1"]
+        flow = _make_add_inputs_flow(
+            device,
+            lambda result: (device.buttons.extend(result.buttons), finished.append("finished")),
+        )
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["btn_added_1"]
 
         captured = {
             "status": "ok",
@@ -1738,13 +1717,13 @@ class TestDeviceTabWidget:
                 "stable_path": "/dev/input/by-id/test-gamepad",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
         assert finished == ["finished"]
-        assert tab.device.buttons[-1].id == "btn_tr"
-        assert tab.device.buttons[-1].type == "gamepad"
-        assert tab.device.buttons[-1].evdev_code == 311
-        assert tab.device.evdev_devices == [
+        assert device.buttons[-1].id == "btn_tr"
+        assert device.buttons[-1].type == "gamepad"
+        assert device.buttons[-1].evdev_code == 311
+        assert device.evdev_devices == [
             EvdevDevice(
                 path="/dev/input/event0",
                 device_type=DeviceType.GAMEPAD,
@@ -1757,11 +1736,6 @@ class TestDeviceTabWidget:
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
-
-        class _HardwareManager:
-            def save_hardware(self, device: HardwareConfig) -> None:
-                return
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1785,17 +1759,12 @@ class TestDeviceTabWidget:
             ],
         )
 
-        tab = DeviceTab(
-            device=device,
-            profile_manager=None,
-            hardware_manager=_HardwareManager(),
-            demo_mode=True,
-        )
         status = Gtk.Label()
         dialog = Adw.Dialog()
-        tab._add_keys_capturing = True
-        tab._capture_active_hardware_id = "1234:5678"
-        tab._add_keys_pending_ids = ["btn_added_1"]
+        flow = _make_add_inputs_flow(device)
+        flow._capturing = True
+        flow._capture_active_hardware_id = "1234:5678"
+        flow._pending_ids = ["btn_added_1"]
 
         captured = {
             "status": "ok",
@@ -1806,7 +1775,7 @@ class TestDeviceTabWidget:
                 "stable_path": "/dev/input/by-id/test-gamepad",
             },
         }
-        assert tab._on_add_keys_capture_read(captured, status, dialog) is False
+        assert flow._on_capture_read(captured, status, dialog) is False
 
-        assert len(tab.device.buttons) == 1
+        assert len(device.buttons) == 1
         assert "already exists" in status.get_text()

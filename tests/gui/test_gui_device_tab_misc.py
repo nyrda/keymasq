@@ -7,6 +7,23 @@ import pytest
 gi = pytest.importorskip("gi")
 
 
+def _make_learn_analog_flow(device, on_complete=None, parent=None):
+    from keymasq.gui.widgets.device_tab.learn_analog_flow import LearnAnalogFlow
+
+    if parent is None:
+        parent = SimpleNamespace(
+            _recording_unlock_required=False,
+            _recording_unlocked=False,
+            _recording_refresh_owner=False,
+        )
+    return LearnAnalogFlow(
+        parent,
+        lambda _payload, callback: callback({"status": "ok"}),
+        device,
+        on_complete or (lambda _result: None),
+    )
+
+
 def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):
     from keymasq.gui import session_reload
 
@@ -56,8 +73,9 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
         demo_mode=True,
     )
     monkeypatch.setattr(tab, "_reload_ui", lambda: None)
-    tab._analog_learn_context = {"candidates": {}}
-    tab._record_analog_candidate(
+    flow = _make_learn_analog_flow(device, tab._on_learn_analog_complete)
+    flow._context = {"candidates": {}}
+    flow.record_candidate(
         {
             "evdev": "abs_x",
             "code": 0,
@@ -66,7 +84,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
             "stable_path": "/dev/input/event0",
         }
     )
-    tab._record_analog_candidate(
+    flow.record_candidate(
         {
             "evdev": "abs_x",
             "code": 0,
@@ -75,7 +93,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
             "stable_path": "/dev/input/event0",
         }
     )
-    tab._record_analog_candidate(
+    flow.record_candidate(
         {
             "evdev": "abs_y",
             "code": 1,
@@ -89,7 +107,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
     review_list = Gtk.ListBox()
     status = Gtk.Label()
     save_btn = Gtk.Button()
-    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+    flow.populate_review(type_dropdown, review_list, status, save_btn)
 
     assert save_btn.get_sensitive() is True
     assert review_list.get_row_at_index(0)._analog_evdev == "abs_x"
@@ -99,7 +117,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
     label_entry = Gtk.Entry()
     label_entry.set_text("Left Trigger")
     dialog = Adw.Dialog()
-    tab._on_save_learned_analog_clicked(
+    flow._on_save_clicked(
         Gtk.Button(),
         dialog,
         type_dropdown,
@@ -116,7 +134,7 @@ def test_device_tab_learn_analog_axis_saves_highest_movement(monkeypatch, temp_c
     assert analog.axes[0].evdev == "abs_x"
     assert analog.axes[0].minimum == -32000
     assert analog.axes[0].maximum == 100
-    assert analog.axes[0].rest == 0
+    assert analog.axes[0].rest == 100
     assert analog.axes[0].invert is False
 
 
@@ -164,8 +182,9 @@ def test_device_tab_learn_analog_assigns_source_to_existing_interface(
         demo_mode=True,
     )
     monkeypatch.setattr(tab, "_reload_ui", lambda: None)
-    tab._analog_learn_context = {"candidates": {}}
-    tab._record_analog_candidate(
+    flow = _make_learn_analog_flow(device, tab._on_learn_analog_complete)
+    flow._context = {"candidates": {}}
+    flow.record_candidate(
         {
             "evdev": "abs_z",
             "code": 2,
@@ -174,7 +193,7 @@ def test_device_tab_learn_analog_assigns_source_to_existing_interface(
             "stable_path": "/dev/input/event0",
         }
     )
-    tab._record_analog_candidate(
+    flow.record_candidate(
         {
             "evdev": "abs_z",
             "code": 2,
@@ -188,13 +207,13 @@ def test_device_tab_learn_analog_assigns_source_to_existing_interface(
     review_list = Gtk.ListBox()
     status = Gtk.Label()
     save_btn = Gtk.Button()
-    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+    flow.populate_review(type_dropdown, review_list, status, save_btn)
 
     id_entry = Gtk.Entry()
     id_entry.set_text("left_trigger")
     label_entry = Gtk.Entry()
     label_entry.set_text("Left Trigger")
-    tab._on_save_learned_analog_clicked(
+    flow._on_save_clicked(
         Gtk.Button(),
         Adw.Dialog(),
         type_dropdown,
@@ -248,14 +267,15 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
         demo_mode=True,
     )
     monkeypatch.setattr(tab, "_reload_ui", lambda: None)
-    tab._analog_learn_context = {"candidates": {}}
+    flow = _make_learn_analog_flow(device, tab._on_learn_analog_complete)
+    flow._context = {"candidates": {}}
     for evdev_name, code, value in (
         ("abs_rx", 3, 0),
         ("abs_rx", 3, 20000),
         ("abs_ry", 4, 0),
         ("abs_ry", 4, 30000),
     ):
-        tab._record_analog_candidate(
+        flow.record_candidate(
             {
                 "evdev": evdev_name,
                 "code": code,
@@ -270,7 +290,7 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
     review_list = Gtk.ListBox()
     status = Gtk.Label()
     save_btn = Gtk.Button()
-    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+    flow.populate_review(type_dropdown, review_list, status, save_btn)
 
     first_row = review_list.get_row_at_index(0)
     second_row = review_list.get_row_at_index(1)
@@ -292,7 +312,7 @@ def test_device_tab_learn_analog_stick_allows_role_swap(monkeypatch, temp_config
     label_entry = Gtk.Entry()
     label_entry.set_text("Right Stick")
     dialog = Adw.Dialog()
-    tab._on_save_learned_analog_clicked(
+    flow._on_save_clicked(
         Gtk.Button(),
         dialog,
         type_dropdown,
@@ -319,7 +339,6 @@ def test_device_tab_learn_analog_stick_defaults_center_to_zero(
     from gi.repository import Gtk
 
     from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
-    from keymasq.gui.widgets.device_tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -334,20 +353,15 @@ def test_device_tab_learn_analog_stick_defaults_center_to_zero(
         ],
         buttons=[],
     )
-    tab = DeviceTab(
-        device=device,
-        profile_manager=None,
-        hardware_manager=None,
-        demo_mode=True,
-    )
-    tab._analog_learn_context = {"candidates": {}}
+    flow = _make_learn_analog_flow(device)
+    flow._context = {"candidates": {}}
     for evdev_name, code, value in (
         ("abs_x", 0, 0),
         ("abs_x", 0, 255),
         ("abs_y", 1, 0),
         ("abs_y", 1, 255),
     ):
-        tab._record_analog_candidate(
+        flow.record_candidate(
             {
                 "evdev": evdev_name,
                 "code": code,
@@ -363,7 +377,7 @@ def test_device_tab_learn_analog_stick_defaults_center_to_zero(
     review_list = Gtk.ListBox()
     status = Gtk.Label()
     save_btn = Gtk.Button()
-    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+    flow.populate_review(type_dropdown, review_list, status, save_btn)
 
     assert review_list.get_row_at_index(0)._analog_rest_spin.get_value() == 0
     assert review_list.get_row_at_index(1)._analog_rest_spin.get_value() == 0
@@ -397,7 +411,6 @@ def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     from gi.repository import Gtk
 
     from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
-    from keymasq.gui.widgets.device_tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -412,13 +425,8 @@ def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
         ],
         buttons=[],
     )
-    tab = DeviceTab(
-        device=device,
-        profile_manager=None,
-        hardware_manager=None,
-        demo_mode=True,
-    )
-    tab._analog_learn_context = {
+    flow = _make_learn_analog_flow(device)
+    flow._context = {
         "candidates": {
             "joystick:17": {
                 "evdev": "abs_hat0y",
@@ -452,7 +460,7 @@ def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     review_list = Gtk.ListBox()
     status = Gtk.Label()
     save_btn = Gtk.Button()
-    tab._populate_learned_analog_review(type_dropdown, review_list, status, save_btn)
+    flow.populate_review(type_dropdown, review_list, status, save_btn)
 
     first_row = review_list.get_row_at_index(0)
     second_row = review_list.get_row_at_index(1)

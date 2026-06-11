@@ -38,8 +38,9 @@ from keymasq.gui.widgets.analog_curve_graph import (
 from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
-    gamepad_output_choices_for,
+    gamepad_output_choices,
     gamepad_output_unavailable_message,
+    load_gamepad_output_hardware_configs,
     virtual_gamepad_count,
 )
 from keymasq.gui.widgets.superkey_dialog import ActionListDialog
@@ -1538,11 +1539,7 @@ class AnalogControlDialog(Adw.Dialog):
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         count = virtual_gamepad_count()
-        try:
-            hardware_configs = list(HardwareManager().list_hardware())
-        except (OSError, RuntimeError) as exc:
-            log.debug("Unable to load hardware configs for gamepad outputs: %s", exc)
-            hardware_configs = []
+        hardware_configs = load_gamepad_output_hardware_configs(HardwareManager)
         self._hardware_output_configs = {
             str(getattr(config, "hardware_id", "") or ""): config
             for config in hardware_configs
@@ -1552,10 +1549,10 @@ class AnalogControlDialog(Adw.Dialog):
             if self._selected_gamepad_output_id == SAME_DEVICE_OUTPUT_ID
             else self._selected_gamepad_output_id
         )
-        return [(SAME_DEVICE_OUTPUT_ID, "Default (same device)")] + gamepad_output_choices_for(
+        return [(SAME_DEVICE_OUTPUT_ID, "Default (same device)")] + gamepad_output_choices(
             helper_selected_id,
-            count,
-            hardware_configs,
+            count=count,
+            hardware_configs=hardware_configs,
         )
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:

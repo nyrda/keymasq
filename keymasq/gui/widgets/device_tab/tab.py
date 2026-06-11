@@ -916,9 +916,14 @@ class DeviceTab(ProfileManagedTab):
         ).present()
 
     def _on_add_inputs_complete(self, result: AddInputsResult) -> None:
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot save added inputs for device %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return
         self.device.buttons.extend(result.buttons)
         self.device.evdev_devices.extend(result.evdev_devices)
-        assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
         _session_request_async({"command": "reload"}, self._ignore_session_response)
         self._reload_ui()
@@ -932,9 +937,14 @@ class DeviceTab(ProfileManagedTab):
         ).present()
 
     def _on_learn_analog_complete(self, result: LearnAnalogResult) -> None:
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot save learned analog input for device %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return
         self.device.analog_inputs.append(result.analog)
         self._ensure_analog_evdev_interface(result.source, result.stable_path)
-        assert self.hardware_manager is not None
         self.hardware_manager.save_hardware(self.device)
         _session_request_async({"command": "reload"}, self._ignore_session_response)
         self._reload_ui()

@@ -48,6 +48,7 @@ class LearnAnalogFlow:
         self._poll_inflight = False
         self._capturing = False
         self._capture_active_hardware_id: str | None = None
+        self._capture_generation = 0
         self._context: dict[str, object] = {}
 
     def present(self) -> None:
@@ -232,7 +233,10 @@ class LearnAnalogFlow:
             return
 
         _ = dialog, id_entry, label_entry
-        self._capture_active_hardware_id = self.hardware_config.hardware_id
+        capture_hardware_id = self.hardware_config.hardware_id
+        self._capture_active_hardware_id = capture_hardware_id
+        self._capture_generation += 1
+        capture_generation = self._capture_generation
         self._context["candidates"] = {}
         review_list.set_visible(False)
         save_btn.set_sensitive(False)
@@ -244,13 +248,15 @@ class LearnAnalogFlow:
         self._session_request_async(
             {
                 "command": "begin_capture",
-                "hardware_id": self._capture_active_hardware_id,
+                "hardware_id": capture_hardware_id,
                 "evdev_paths": [device.path for device in self.hardware_config.evdev_devices],
                 "mode": "analog",
                 "end_on_disconnect": True,
             },
             lambda result: self._on_capture_begun(
                 result,
+                capture_hardware_id,
+                capture_generation,
                 status,
                 start_btn,
                 unlock_btn,
@@ -261,11 +267,23 @@ class LearnAnalogFlow:
     def _on_capture_begun(
         self,
         result: JsonDict | None,
+        expected_hardware_id: str | None,
+        expected_generation: int,
         status: Gtk.Label,
         start_btn: Gtk.Button,
         unlock_btn: Gtk.Button,
         privilege_status: Gtk.Label,
     ) -> bool:
+        if (
+            expected_hardware_id is None
+            or self._capture_active_hardware_id != expected_hardware_id
+            or self._capture_generation != expected_generation
+        ):
+            return False
+        result_hardware_id = (result or {}).get("hardware_id")
+        if result_hardware_id is not None and str(result_hardware_id) != expected_hardware_id:
+            return False
+
         if not result or result.get("status") != "ok":
             _set_capture_status(status, (result or {}).get("message", "Capture failed"))
             self.stop_capture()
@@ -285,13 +303,17 @@ class LearnAnalogFlow:
     def _poll_capture(self) -> bool:
         if not self._capturing:
             return False
+        hardware_id = self._capture_active_hardware_id
+        if hardware_id is None:
+            self._capturing = False
+            return False
         if self._poll_inflight:
             return True
         self._poll_inflight = True
         self._session_request_async(
             {
                 "command": "capture_read",
-                "hardware_id": self._capture_active_hardware_id,
+                "hardware_id": hardware_id,
             },
             self._on_capture_read,
         )
@@ -556,6 +578,8 @@ class LearnAnalogFlow:
         axes: list[AnalogAxisDefinition] = []
         source: str | None = None
         stable_path: str | None = None
+        roles: list[str] = []
+        has_stick_rows = False
         index = 0
         while row := review_list.get_row_at_index(index):
             code = int(row._analog_code)
@@ -576,6 +600,8 @@ class LearnAnalogFlow:
                 if isinstance(role_dropdown, Gtk.DropDown)
                 else str(row._analog_role)
             )
+            roles.append(role)
+            has_stick_rows = has_stick_rows or isinstance(role_dropdown, Gtk.DropDown)
             axes.append(
                 AnalogAxisDefinition(
                     role=role,
@@ -591,8 +617,15 @@ class LearnAnalogFlow:
         if not axes:
             _set_capture_status(status, "No learned analog axes to save.")
             return
-        if analog_type == "stick" and sorted(axis.role for axis in axes) != ["x", "y"]:
-            _set_capture_status(status, "Stick needs exactly one X axis and one Y axis.")
+        if analog_type == "stick":
+            if sorted(roles) != ["x", "y"]:
+                _set_capture_status(status, "Stick needs exactly one X axis and one Y axis.")
+                return
+            if any(axis.center is None for axis in axes):
+                _set_capture_status(status, "Stick axes need a center value.")
+                return
+        elif has_stick_rows:
+            _set_capture_status(status, "Generic axis capture cannot use stick roles.")
             return
 
         self._on_complete(

@@ -102,12 +102,8 @@ def get_effective_mapping_for_button(
         mapping = layer.mappings.get(button_id)
         if mapping is None:
             continue
-        if mapping.action_type == ActionType.PASSTHROUGH:
-            winner_profile_name = profile_name
-            winner_mapping = mapping
-        else:
-            winner_profile_name = profile_name
-            winner_mapping = mapping
+        winner_profile_name = profile_name
+        winner_mapping = mapping
 
     return winner_profile_name, winner_mapping
 

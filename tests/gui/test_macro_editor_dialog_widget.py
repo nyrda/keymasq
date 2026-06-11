@@ -253,6 +253,47 @@ def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch
     assert dialog._stats_label.get_label() == "0.020s · 2 events"
 
 
+def test_macro_editor_gamepad_axis_event_is_editable_and_serialized(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    event = EditableEvent(
+        device_type="gamepad",
+        ev_type=evdev.ecodes.EV_ABS,
+        code=evdev.ecodes.ABS_X,
+        press_t_us=1000,
+        release_t_us=1001,
+        value=321,
+        output_id="virtual-gamepad-2",
+    )
+    dialog._events = [event]
+    dialog._duration_us = 1001
+    dialog._timeline._selected = event
+
+    dialog._on_selection_changed(event)
+    dialog._press_spin.set_value(5)
+    dialog._on_press_changed(dialog._press_spin)
+    dialog._move_x_spin.set_value(123)
+    dialog._on_move_x_changed(dialog._move_x_spin)
+
+    assert event.press_t_us == 5000
+    assert event.release_t_us == 5001
+    assert event.value == 123
+    assert dialog._prop_title.get_label() == "Left Stick X"
+    assert dialog._move_x_label.get_label() == "Value:"
+    assert dialog._move_y_spin.get_visible() is False
+    assert dialog._change_key_btn.get_label() == "Change Axis..."
+    assert dialog._stats_label.get_label() == "0.005s · 1 events"
+    assert dialog._build_macro_payload("axis_macro")["events"] == [
+        {
+            "device_type": "gamepad",
+            "type": evdev.ecodes.EV_ABS,
+            "code": evdev.ecodes.ABS_X,
+            "value": 123,
+            "t_us": 5000,
+            "output_id": "virtual-gamepad-2",
+        }
+    ]
+
+
 def test_macro_editor_insert_wait_adds_control_without_rewriting_timeline(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     event = EditableEvent(
@@ -864,6 +905,86 @@ def test_macro_editor_trim_and_gap_helpers_keep_selection_consistent(monkeypatch
     assert dialog._timeline._selected is kept
 
 
+def test_macro_editor_add_move_selects_zeroed_event_for_editing(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._duration_us = 2_000_000
+
+    dialog._on_add_move_rel(None)
+
+    rel_move = dialog._synthetic_moves[0]
+    assert rel_move.mode == "rel"
+    assert rel_move.t_us == 1_000_000
+    assert rel_move.x == 0
+    assert rel_move.y == 0
+    assert dialog._timeline._selected is rel_move
+    assert dialog._revealer.get_reveal_child() is True
+    assert dialog._move_x_spin.get_value_as_int() == 0
+    assert dialog._move_y_spin.get_value_as_int() == 0
+
+    dialog._insert_move_event("abs", default_t_us=250_000)
+
+    abs_move = dialog._synthetic_moves[0]
+    assert abs_move.mode == "abs"
+    assert abs_move.t_us == 250_000
+    assert abs_move.x == 0
+    assert abs_move.y == 0
+    assert dialog._timeline._selected is abs_move
+    assert dialog._move_capture_row.get_visible() is True
+
+
+def test_macro_editor_add_key_dialog_starts_on_requested_device_type(monkeypatch) -> None:
+    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+
+    captured_actions: list[MappingAction] = []
+    captured_times: list[int] = []
+
+    class DummyDialog:
+        def __init__(self, _parent, _label, current_action=None, **_kwargs):
+            captured_actions.append(current_action)
+
+        def connect(self, _signal_name, _callback, default_t_us):
+            captured_times.append(default_t_us)
+
+        def present(self, _parent):
+            pass
+
+    monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
+
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._duration_us = 2_000_000
+
+    dialog._present_add_key_dialog()
+    dialog._present_add_key_dialog(default_t_us=250_000, device_type="gamepad")
+
+    assert [action.action_type for action in captured_actions] == [
+        ActionType.KEYBOARD,
+        ActionType.GAMEPAD,
+    ]
+    assert captured_times == [1_000_000, 250_000]
+
+
+def test_macro_editor_inserts_gamepad_axis_action(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS,
+        target="abs_ry",
+        axis_value=-12000,
+        output_id="virtual-gamepad-3",
+    )
+
+    dialog._on_key_selected_for_insert(Gtk.Box(), action, 250_000)
+
+    event = dialog._events[0]
+    assert event.device_type == "gamepad"
+    assert event.ev_type == evdev.ecodes.EV_ABS
+    assert event.code == evdev.ecodes.ABS_RY
+    assert event.value == -12000
+    assert event.press_t_us == 250_000
+    assert event.release_t_us == 250_001
+    assert event.output_id == "virtual-gamepad-3"
+    assert dialog._timeline._selected is event
+
+
 def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     keyboard = EditableEvent(
@@ -1053,3 +1174,329 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
         timeline._time_to_x(compositor.t_us),
         timeline._wave_y + timeline.TRACK_HEIGHT - 14,
     ) is compositor
+
+
+def _build_erase_mode_dialog(monkeypatch):
+    dialog = _build_macro_dialog(monkeypatch)
+    keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=50_000,
+        release_t_us=150_000,
+    )
+    later_keyboard = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_B,
+        press_t_us=300_000,
+        release_t_us=400_000,
+    )
+    mouse = EditableEvent(
+        device_type="mouse",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.BTN_LEFT,
+        press_t_us=60_000,
+        release_t_us=140_000,
+    )
+    keyboard_passthrough = {
+        "device_type": "keyboard",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.KEY_C,
+        "value": 1,
+        "t_us": 160_000,
+    }
+    movement_passthrough = {
+        "device_type": "mouse",
+        "type": evdev.ecodes.EV_REL,
+        "code": evdev.ecodes.REL_Y,
+        "value": -3,
+        "t_us": 110_000,
+    }
+    move = EditableMove(mode="rel", t_us=100_000, x=8, y=-6)
+    wait = EditableControl(mode="wait", t_us=120_000, duration_us=40_000)
+    dialog._events = [keyboard, mouse, later_keyboard]
+    dialog._passthrough_events = [keyboard_passthrough, movement_passthrough]
+    dialog._synthetic_moves = [move]
+    dialog._control_events = [wait]
+    dialog._rel_events = [
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": 4,
+            "t_us": 105_000,
+        },
+        {
+            "device_type": "mouse",
+            "type": evdev.ecodes.EV_REL,
+            "code": evdev.ecodes.REL_X,
+            "value": -2,
+            "t_us": 400_000,
+        },
+    ]
+    dialog._duration_us = 450_000
+    dialog._timeline._recompute_lanes()
+    dialog._erase_btn.set_active(True)
+    return dialog, keyboard, later_keyboard, mouse, keyboard_passthrough, movement_passthrough
+
+
+def test_macro_editor_erase_drag_deletes_band_touched_events_in_start_track(
+    monkeypatch,
+) -> None:
+    (
+        dialog,
+        keyboard,
+        later_keyboard,
+        mouse,
+        keyboard_passthrough,
+        movement_passthrough,
+    ) = _build_erase_mode_dialog(monkeypatch)
+    assert dialog._erase_mode is True
+    timeline = dialog._timeline
+
+    # Band covers only the release edge of `keyboard` plus the raw marker at
+    # 160ms; it must delete the whole press/release pair, leave the later
+    # keyboard event alone, and never touch the mouse track.
+    x_start = timeline._time_to_x(keyboard.release_t_us) - 2.0
+    x_end = timeline._time_to_x(170_000)
+    timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
+
+    assert timeline._erase_track == "keyboard"
+    assert keyboard in timeline._erase_pending
+    assert keyboard_passthrough in timeline._erase_pending
+    assert later_keyboard not in timeline._erase_pending
+    assert mouse not in timeline._erase_pending
+
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
+
+    assert keyboard not in dialog._events
+    assert later_keyboard in dialog._events
+    assert mouse in dialog._events
+    assert keyboard_passthrough not in dialog._passthrough_events
+    assert movement_passthrough in dialog._passthrough_events
+    assert len(dialog._rel_events) == 2
+    assert timeline._erase_track is None
+    assert timeline._erase_pending == []
+
+
+def test_macro_editor_erase_drag_on_movement_track_deletes_rel_in_span(monkeypatch) -> None:
+    dialog, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+
+    x_start = timeline._time_to_x(90_000)
+    x_end = timeline._time_to_x(170_000)
+    timeline._on_drag_begin(None, x_start, timeline._wave_y + 5)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
+
+    assert dialog._synthetic_moves == []
+    assert dialog._control_events == []
+    assert all(
+        _passthrough_track(ev) != "movement" for ev in dialog._passthrough_events
+    )
+    # Recorded EV_REL movement inside the span is erased; movement outside and
+    # the keyboard/mouse lanes stay untouched.
+    assert [int(ev["t_us"]) for ev in dialog._rel_events] == [400_000]
+    assert len(dialog._events) == 3
+
+
+def test_macro_editor_erase_drag_on_mouse_lane_deletes_clicks_only(monkeypatch) -> None:
+    dialog, keyboard, later_keyboard, mouse, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+
+    x_start = timeline._time_to_x(mouse.press_t_us) - 2.0
+    x_end = timeline._time_to_x(mouse.release_t_us) + 2.0
+    timeline._on_drag_begin(None, x_start, timeline._m_y + 12)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
+
+    assert mouse not in dialog._events
+    assert keyboard in dialog._events
+    assert later_keyboard in dialog._events
+    assert len(dialog._rel_events) == 2
+
+
+def test_macro_editor_right_drag_ripple_deletes_span_and_collapses(monkeypatch) -> None:
+    (
+        dialog,
+        keyboard,
+        later_keyboard,
+        mouse,
+        keyboard_passthrough,
+        movement_passthrough,
+    ) = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+
+    x_start = timeline._time_to_x(90_000)
+    x_end = timeline._time_to_x(170_000)
+    timeline._on_right_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_right_drag_update(None, x_end - x_start, 0.0)
+
+    assert timeline._erase_track == "all"
+    assert keyboard in timeline._erase_pending
+    assert mouse in timeline._erase_pending
+    assert keyboard_passthrough in timeline._erase_pending
+    assert movement_passthrough in timeline._erase_pending
+    assert later_keyboard not in timeline._erase_pending
+
+    timeline._on_right_drag_end(None, x_end - x_start, 0.0)
+
+    # Everything in the 90-170ms span is gone across all lanes, and the span
+    # itself is collapsed: later events are pulled 80ms left.
+    assert dialog._events == [later_keyboard]
+    assert later_keyboard.press_t_us == 220_000
+    assert later_keyboard.release_t_us == 320_000
+    assert dialog._passthrough_events == []
+    assert dialog._synthetic_moves == []
+    assert dialog._control_events == []
+    assert [int(ev["t_us"]) for ev in dialog._rel_events] == [320_000]
+    assert dialog._duration_us == 320_000
+    assert timeline._erase_track is None
+
+
+def test_macro_editor_erase_band_skips_events_spanning_the_range(monkeypatch) -> None:
+    dialog, keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+    spanning = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_LEFTSHIFT,
+        press_t_us=10_000,
+        release_t_us=440_000,
+    )
+    dialog._events.append(spanning)
+    timeline._recompute_lanes()
+
+    # Band 40-160ms encloses `keyboard` (50-150ms) but is itself enclosed by
+    # the held shift (10-440ms): the shift must survive the sweep.
+    x_start = timeline._time_to_x(40_000)
+    x_end = timeline._time_to_x(160_000)
+    timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
+
+    assert keyboard in timeline._erase_pending
+    assert spanning not in timeline._erase_pending
+
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
+
+    assert keyboard not in dialog._events
+    assert spanning in dialog._events
+    assert spanning.press_t_us == 10_000
+    assert spanning.release_t_us == 440_000
+
+
+def test_macro_editor_ripple_shortens_spanning_events_instead_of_deleting(
+    monkeypatch,
+) -> None:
+    dialog, keyboard, later_keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+    spanning = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_LEFTSHIFT,
+        press_t_us=10_000,
+        release_t_us=440_000,
+    )
+    dialog._events.append(spanning)
+    timeline._recompute_lanes()
+
+    x_start = timeline._time_to_x(90_000)
+    x_end = timeline._time_to_x(170_000)
+    timeline._on_right_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_right_drag_update(None, x_end - x_start, 0.0)
+
+    assert keyboard in timeline._erase_pending
+    assert spanning not in timeline._erase_pending
+
+    timeline._on_right_drag_end(None, x_end - x_start, 0.0)
+
+    # The held shift keeps its press and is shortened by the collapsed 80ms;
+    # later events shift left as usual.
+    assert dialog._events == [spanning, later_keyboard]
+    assert spanning.press_t_us == 10_000
+    assert spanning.release_t_us == 360_000
+    assert later_keyboard.press_t_us == 220_000
+    assert later_keyboard.release_t_us == 320_000
+
+
+def test_macro_editor_erase_mode_right_press_defers_context_menu(monkeypatch) -> None:
+    dialog, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+
+    # The press-time handler must not open the menu while erase mode owns the
+    # right button; a plain right-click reopens it from the drag-end fallback.
+    timeline._on_right_click(object(), 1, 50.0, timeline._kb_y + 5.0)
+    assert timeline._context_menu_x is None
+
+    # Outside erase mode the ripple drag never arms.
+    dialog._erase_btn.set_active(False)
+    timeline._on_right_drag_begin(None, 40.0, timeline._kb_y + 5.0)
+    assert timeline._erase_track is None
+
+
+def test_macro_editor_erase_mode_click_still_selects_and_never_moves(monkeypatch) -> None:
+    dialog, keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+    dialog._drag_locked = False
+
+    # A press without crossing the drag threshold behaves as a plain click.
+    x_press = timeline._time_to_x(keyboard.press_t_us) + 2.0
+    timeline._on_drag_begin(None, x_press, timeline._kb_y + 12)
+    timeline._on_drag_update(None, 1.0, 0.0)
+    timeline._on_drag_end(None, 1.0, 0.0)
+    assert timeline._selected is keyboard
+    assert keyboard in dialog._events
+
+    # A short drag fully inside the event's rect never moves it (even with
+    # move-drag unlocked) and spares it via the spanning rule.
+    press_before = keyboard.press_t_us
+    timeline._on_drag_begin(None, x_press, timeline._kb_y + 12)
+    timeline._on_drag_update(None, 6.0, 0.0)
+    assert keyboard.press_t_us == press_before
+    timeline._on_drag_end(None, 6.0, 0.0)
+    assert keyboard in dialog._events
+
+    # Dragging from inside the event past its release edge erases it.
+    offset = timeline._time_to_x(keyboard.release_t_us) + 4.0 - x_press
+    timeline._on_drag_begin(None, x_press, timeline._kb_y + 12)
+    timeline._on_drag_update(None, offset, 0.0)
+    timeline._on_drag_end(None, offset, 0.0)
+    assert keyboard not in dialog._events
+
+
+def test_macro_editor_erase_band_draws_with_pending_highlights(monkeypatch) -> None:
+    import cairo
+
+    dialog, keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+
+    x_start = timeline._time_to_x(keyboard.press_t_us) - 4.0
+    x_end = timeline._time_to_x(keyboard.release_t_us) + 4.0
+    timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
+
+    state = timeline._build_render_state()
+    assert state._erase_band is not None
+    assert state._erase_band[0] == "keyboard"
+    assert id(keyboard) in state._erase_pending_ids
+
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1200, 520)
+    context = cairo.Context(surface)
+    timeline._draw(None, context, 1200, 520, None)
+
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
+
+
+def test_macro_editor_erase_toggle_updates_mode_and_styling(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    assert dialog._erase_mode is False
+
+    dialog._erase_btn.set_active(True)
+    assert dialog._erase_mode is True
+    assert dialog._erase_btn.has_css_class("destructive-action")
+
+    dialog._erase_btn.set_active(False)
+    assert dialog._erase_mode is False
+    assert not dialog._erase_btn.has_css_class("destructive-action")

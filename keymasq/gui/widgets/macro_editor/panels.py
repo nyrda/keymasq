@@ -596,6 +596,7 @@ class MacroEditorPanelsMixin:
         self._name_entry = Gtk.Entry()
         self._name_entry.set_text(self._macro_name)
         self._name_entry.set_hexpand(True)
+        self._name_entry.connect("changed", lambda _entry: self._sync_close_guard())
         row.append(self._name_entry)
         outer.append(row)
 
@@ -710,6 +711,10 @@ class MacroEditorPanelsMixin:
             label="Block physical mouse movement during playback"
         )
         self._macro_block_mouse_check.set_active(self._macro_block_mouse_movement)
+        self._macro_block_mouse_check.connect(
+            "toggled",
+            self._on_macro_block_mouse_toggled,
+        )
         outer.append(self._macro_block_mouse_check)
 
         self._update_loop_controls()
@@ -958,6 +963,7 @@ class MacroEditorPanelsMixin:
         self._update_canvas_width()
         self._timeline.queue_draw()
         self._on_selection_changed(ev)
+        self._sync_close_guard()
 
     def _refresh_after_passthrough_timing_change(self, ev: MacroEvent) -> None:
         self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
@@ -966,6 +972,7 @@ class MacroEditorPanelsMixin:
         self._update_canvas_width()
         self._timeline.queue_draw()
         self._on_selection_changed(ev)
+        self._sync_close_guard()
 
     def _on_press_changed(self, spin) -> None:
         if self._updating_props:
@@ -984,6 +991,7 @@ class MacroEditorPanelsMixin:
             self._on_selection_changed(selected_obj)
             self._update_stats()
             self._timeline.queue_draw()
+            self._sync_close_guard()
             return
         if isinstance(selected_obj, dict):
             selected_obj["t_us"] = max(0, new_t)
@@ -1193,6 +1201,7 @@ class MacroEditorPanelsMixin:
             ev.release_t_us = ev.press_t_us + 50000
         self._on_selection_changed(ev)
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_move_x_changed(self, spin) -> None:
         if self._updating_props:
@@ -1208,10 +1217,12 @@ class MacroEditorPanelsMixin:
             )
             self._on_selection_changed(selected_obj)
             self._timeline.queue_draw()
+            self._sync_close_guard()
             return
         selected_obj.x = int(spin.get_value())
         self._on_selection_changed(selected_obj)
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_move_y_changed(self, spin) -> None:
         if self._updating_props:
@@ -1222,6 +1233,7 @@ class MacroEditorPanelsMixin:
         selected_obj.y = int(spin.get_value())
         self._on_selection_changed(selected_obj)
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _refresh_after_control_change(self, control: EditableControl) -> None:
         self._control_events.sort(key=lambda c: c.t_us)
@@ -1230,6 +1242,7 @@ class MacroEditorPanelsMixin:
         self._update_canvas_width()
         self._timeline.queue_draw()
         self._on_selection_changed(control)
+        self._sync_close_guard()
 
     def _update_timeout_clamp_hint(self, timeout_ms: int) -> None:
         max_timeout = max(1, int(self._macro_exec_timeout_max_ms))
@@ -1277,6 +1290,7 @@ class MacroEditorPanelsMixin:
             # The full control refresh path toggles row visibility, which drops focus
             # from the Gtk.Entry and makes typing impossible.
             selected_obj.command = entry.get_text()
+            self._sync_close_guard()
 
     def _on_control_timeout_changed(self, spin: Gtk.SpinButton) -> None:
         if self._updating_props:
@@ -1326,12 +1340,15 @@ class MacroEditorPanelsMixin:
     def _on_macro_loop_mode_changed(self, combo: Gtk.DropDown, _pspec=None) -> None:
         self._macro_loop_mode = _get_dropdown_selected_id(combo, _LOOP_MODE_OPTIONS, "none")
         self._update_loop_controls()
+        self._sync_close_guard()
 
     def _on_macro_loop_count_changed(self, spin: Gtk.SpinButton) -> None:
         self._macro_loop_count = max(1, int(spin.get_value()))
+        self._sync_close_guard()
 
     def _on_macro_loop_stop_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_loop_stop_behavior = "finish_run" if check.get_active() else "cancel_run"
+        self._sync_close_guard()
 
     def _update_loop_controls(self) -> None:
         is_count = self._macro_loop_mode == "count"
@@ -1343,10 +1360,16 @@ class MacroEditorPanelsMixin:
     def _on_macro_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_move_to_start = check.get_active()
         self._update_macro_move_start_controls()
+        self._sync_close_guard()
 
     def _on_macro_start_pos_changed(self, spin: Gtk.SpinButton) -> None:
         self._macro_start_x = int(self._macro_start_x_spin.get_value())
         self._macro_start_y = int(self._macro_start_y_spin.get_value())
+        self._sync_close_guard()
+
+    def _on_macro_block_mouse_toggled(self, check: Gtk.CheckButton) -> None:
+        self._macro_block_mouse_movement = check.get_active()
+        self._sync_close_guard()
 
     def _update_macro_move_start_controls(self) -> None:
         enabled = self._macro_move_to_start
@@ -1419,6 +1442,7 @@ class MacroEditorPanelsMixin:
         self._macro_start_x_spin.set_value(x)
         self._macro_start_y_spin.set_value(y)
         self._macro_move_to_start_check.set_active(True)
+        self._sync_close_guard()
 
     def _apply_selected_move_capture_position(
         self,
@@ -1441,6 +1465,7 @@ class MacroEditorPanelsMixin:
                 self._updating_props = False
             self._on_selection_changed(move)
         self._timeline.queue_draw()
+        self._sync_close_guard()
         return True
 
     def _on_slurp_capture_result(self, request_id: int, result) -> None:
@@ -1532,6 +1557,7 @@ class MacroEditorPanelsMixin:
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_zoom_in(self, btn) -> None:
         self._zoom_timeline(1.25)

@@ -788,6 +788,143 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
     assert apply_btn.get_sensitive() is True
 
 
+def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    result = {
+        "macro": {
+            "name": "demo_macro",
+            "revision": 2,
+            "events": [],
+            "duration_us": 0,
+        },
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    assert dialog.get_can_close() is True
+
+    dialog._request_close()
+
+    assert alerts == []
+    assert closed == [True]
+
+
+def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    result = {
+        "macro": {
+            "name": "demo_macro",
+            "revision": 2,
+            "events": [],
+            "duration_us": 0,
+        },
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+
+    dialog._name_entry.set_text("changed_macro")
+    assert dialog.get_can_close() is False
+
+    dialog._request_close()
+    assert closed == []
+    assert len(alerts) == 1
+    assert alerts[0][1] is dialog
+
+    dialog._on_unsaved_close_response(alerts[0][0], "cancel")
+    assert closed == []
+
+    dialog._request_close()
+    assert len(alerts) == 2
+
+    dialog._on_unsaved_close_response(alerts[1][0], "discard")
+    assert closed == [True]
+    assert dialog.get_can_close() is True
+
+
+def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    requests: list[dict] = []
+    reloads: list[bool] = []
+
+    def fake_session_request(payload):
+        requests.append(payload)
+        saved_macro = dict(payload["macro"])
+        saved_macro["revision"] = 3
+        return {"status": "ok", "macro": saved_macro}
+
+    def fake_run_gui_task(worker, callback, *, on_start=None, on_done=None) -> None:
+        if on_start is not None:
+            on_start()
+        callback(GuiTaskResult(value=worker()))
+        if on_done is not None:
+            on_done()
+
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+    monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "notify_session_reload_async",
+        lambda: reloads.append(True),
+    )
+
+    result = {
+        "macro": {
+            "name": "demo_macro",
+            "revision": 2,
+            "events": [],
+            "duration_us": 0,
+            "block_mouse_movement": False,
+        },
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+
+    dialog._macro_block_mouse_check.set_active(True)
+    assert dialog.get_can_close() is False
+
+    dialog._request_close()
+    assert len(alerts) == 1
+
+    dialog._on_unsaved_close_response(alerts[0][0], "save")
+
+    assert requests[0]["command"] == "update_macro"
+    assert requests[0]["name"] == "demo_macro"
+    assert requests[0]["expected_revision"] == 2
+    assert requests[0]["macro"]["block_mouse_movement"] is True
+    assert dialog._macro_data["revision"] == 3
+    assert reloads == [True]
+    assert closed == [True]
+    assert dialog.get_can_close() is True
+
+
 def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     dialog._macro_name = "original"

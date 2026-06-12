@@ -37,9 +37,12 @@ class SaveMacroDialog(Adw.Dialog):
         main_box.set_margin_bottom(12)
         main_box.set_margin_start(12)
         main_box.set_margin_end(12)
+        main_box.set_vexpand(True)
 
         frame = Gtk.Frame()
+        frame.set_vexpand(True)
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        inner.set_vexpand(True)
 
         title = f"Save Slot {self._recording_slot}" if self._recording_slot else "Save Macro"
         title_label = Gtk.Label(label=title)
@@ -55,6 +58,11 @@ class SaveMacroDialog(Adw.Dialog):
         content.set_margin_bottom(12)
         content.set_margin_start(16)
         content.set_margin_end(16)
+        # When unlock hides the warning, keep the footer anchored in the
+        # already-allocated taller dialog instead of letting the frame collapse.
+        content.set_vexpand(True)
+        self._content_box = content
+        self._layout_frame = frame
 
         name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         name_row.set_valign(Gtk.Align.CENTER)

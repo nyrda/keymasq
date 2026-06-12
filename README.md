@@ -28,7 +28,7 @@ and scripted workflows.
 - Repeat Last Action for replaying your most recent input from any key or button
 - Superkeys for one-button multi-role or multi-output behavior
 - Combos for single-device, cross-device, and multi-step chords or sequences
-- Global hotkeys that work in any app, on Wayland and X11
+- Global hotkeys via combos that work in any app, on Wayland and X11
 - Analog controls for controller sticks, triggers, wheels, and axes
 - Virtual keyboard, mouse, and gamepad output
 
@@ -72,9 +72,9 @@ sensitivity, response curve — and reuse it across profiles.*
 
 Keymasq works on X11 and on major Wayland desktops, including GNOME, KDE
 Plasma, Hyprland, Niri, COSMIC, and wlroots-based compositors such as Sway.
-Mappings run at the input layer, so they work as global hotkeys in every
-app — including on Wayland, where applications often can't register global
-shortcuts themselves.
+Mappings run at the input layer, below the compositor, and combos work as
+global hotkeys in every app — including on Wayland, where applications often
+can't register global shortcuts themselves.
 
 Window-aware profiles, pointer capture, and compositor actions depend on what
 your desktop session exposes to Keymasq. GNOME requires the Keymasq GNOME

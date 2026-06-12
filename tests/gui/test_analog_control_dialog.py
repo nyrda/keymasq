@@ -308,6 +308,8 @@ def test_axis_analog_output_both_direction_exposes_invert_toggle(temp_config_dir
     dialog.gamepad_output_direction_both_btn.set_active(True)
     dialog.gamepad_output_invert_x_btn.set_active(True)
 
+    # For 1D both-direction output, the single visible X toggle stores the combined
+    # invert flag, not the stick-style per-axis X flag.
     assert dialog.gamepad_output_invert_row.get_title() == "Invert Output Axis"
     assert dialog.gamepad_output_invert_row.get_visible() is True
     assert dialog.gamepad_output_invert_x_btn.get_visible() is True

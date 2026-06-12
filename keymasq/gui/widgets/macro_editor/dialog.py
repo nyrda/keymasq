@@ -172,6 +172,8 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._initial_state_loaded = False
         self._macro_exists = False
         self._close_warning_dialog: Adw.AlertDialog | None = None
+        self._save_in_flight = False
+        self._footer_action_buttons: list[Gtk.Button] = []
 
         # Suppress property-panel spin callbacks during programmatic updates
         self._updating_props = False
@@ -296,6 +298,8 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             self._sync_macro_settings_controls()
             self._initial_macro_data = self._current_macro_payload()
             self._refresh_loaded_macro_state()
+        else:
+            self._initial_macro_data = self._current_macro_payload()
         self._initial_state_loaded = True
         self._sync_close_guard()
         return False
@@ -323,8 +327,8 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
     def _has_pending_changes(self) -> bool:
         if not self._initial_state_loaded:
             return False
-        if not self._macro_exists and not self._initial_macro_data:
-            return True
+        if not self._initial_macro_data:
+            return False
         current = self._macro_payload_for_dirty_compare(self._current_macro_payload())
         initial = self._macro_payload_for_dirty_compare(self._initial_macro_data)
         return current != initial
@@ -332,7 +336,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
     def _sync_close_guard(self) -> None:
         if not hasattr(self, "_name_entry"):
             return
-        self.set_can_close(not self._has_pending_changes())
+        self.set_can_close(not self._save_in_flight and not self._has_pending_changes())
 
     def _apply_macro_state(self, macro: dict) -> None:
         self._macro_data = copy.deepcopy(macro)
@@ -759,6 +763,9 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._save_current_macro(btn, close_after_save=False)
 
     def _save_current_macro(self, btn: Gtk.Button | None, *, close_after_save: bool) -> None:
+        if self._save_in_flight:
+            return
+
         new_name = self._name_entry.get_text().strip()
         if not self._validate_name_for_save(new_name):
             return
@@ -778,19 +785,37 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             )
 
         def on_save_start() -> None:
-            if btn is not None:
-                btn.set_sensitive(False)
+            self._set_save_controls_sensitive(False, extra_button=btn)
 
         def on_save_done() -> None:
-            if btn is not None:
-                btn.set_sensitive(True)
+            self._finish_save_request(extra_button=btn)
 
+        self._save_in_flight = True
+        self._sync_close_guard()
         run_gui_task(
             save_request,
             on_save_finished,
             on_start=on_save_start,
             on_done=on_save_done,
         )
+
+    def _set_save_controls_sensitive(
+        self,
+        sensitive: bool,
+        *,
+        extra_button: Gtk.Button | None = None,
+    ) -> None:
+        for button in self._footer_action_buttons:
+            button.set_sensitive(sensitive)
+        if extra_button is not None and not any(
+            button is extra_button for button in self._footer_action_buttons
+        ):
+            extra_button.set_sensitive(sensitive)
+
+    def _finish_save_request(self, *, extra_button: Gtk.Button | None = None) -> None:
+        self._save_in_flight = False
+        self._set_save_controls_sensitive(True, extra_button=extra_button)
+        self._sync_close_guard()
 
     def _save_macro_request(
         self,
@@ -836,16 +861,40 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         *,
         close_after_save: bool,
     ) -> bool:
-        payload = result.value if result.ok and isinstance(result.value, dict) else {}
-        if payload.get("status") != "ok":
-            self._show_name_conflict(requested_name)
-            return False
+        try:
+            payload = result.value if result.ok and isinstance(result.value, dict) else {}
+            if payload.get("status") != "ok":
+                if self._is_name_conflict_response(payload, requested_name):
+                    self._show_name_conflict(requested_name)
+                else:
+                    self._show_save_error(self._save_error_message(result, payload))
+                return False
 
-        self._apply_saved_macro_state(payload, requested_name, requested_payload)
-        notify_session_reload_async()
-        if close_after_save:
-            self._force_close_without_warning()
-        return False
+            self._apply_saved_macro_state(payload, requested_name, requested_payload)
+            notify_session_reload_async()
+            if close_after_save:
+                self._force_close_without_warning()
+            return False
+        finally:
+            self._finish_save_request()
+
+    def _is_name_conflict_response(self, payload: JsonDict, requested_name: str) -> bool:
+        status = str(payload.get("status", "") or "")
+        if status in {"name-conflict", "name_conflict"}:
+            return True
+        message = str(payload.get("message", "") or "")
+        return status == "error" and message == f"Macro '{requested_name}' already exists"
+
+    def _save_error_message(
+        self,
+        result: GuiTaskResult[JsonDict | None],
+        payload: JsonDict,
+    ) -> str:
+        if isinstance(payload.get("message"), str) and payload["message"].strip():
+            return str(payload["message"])
+        if result.error is not None:
+            return str(result.error).strip() or result.error.__class__.__name__
+        return "Failed to save macro"
 
     def _apply_saved_macro_state(
         self,
@@ -1026,6 +1075,15 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         d.set_heading("Name Conflict")
         d.set_body(f"A macro named '{name}' already exists. Choose a different name.")
         d.add_response("ok", "OK")
+        d.present(self._parent)
+
+    def _show_save_error(self, message: str) -> None:
+        d = Adw.AlertDialog()
+        d.set_heading("Unable To Save Macro")
+        d.set_body(message)
+        d.add_response("ok", "OK")
+        d.set_default_response("ok")
+        d.set_close_response("ok")
         d.present(self._parent)
 
     def _build_macro_payload(self, name: str) -> dict:

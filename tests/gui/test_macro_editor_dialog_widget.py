@@ -818,6 +818,33 @@ def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
     assert closed == [True]
 
 
+def test_macro_editor_failed_load_closes_without_unsaved_warning(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    result = {
+        "timeout_max": 30000,
+        "macro": None,
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    assert dialog.get_can_close() is True
+    assert dialog._initial_macro_data == dialog._current_macro_payload()
+
+    dialog._request_close()
+
+    assert alerts == []
+    assert closed == [True]
+
+
 def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:
     from keymasq.gui.session_client import GuiTaskResult
 
@@ -858,6 +885,130 @@ def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:
     dialog._on_unsaved_close_response(alerts[1][0], "discard")
     assert closed == [True]
     assert dialog.get_can_close() is True
+
+
+def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
+    monkeypatch,
+) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    alerts: list[tuple[str | None, str | None, object]] = []
+
+    def fake_present(alert, parent) -> None:
+        alerts.append((alert.get_heading(), alert.get_body(), parent))
+
+    monkeypatch.setattr(macro_editor_dialog_module.Adw.AlertDialog, "present", fake_present)
+
+    conflict = GuiTaskResult(
+        value={"status": "error", "message": "Macro 'demo_macro' already exists"}
+    )
+    assert (
+        dialog._on_save_finished(
+            conflict,
+            "demo_macro",
+            dialog._current_macro_payload(),
+            close_after_save=False,
+        )
+        is False
+    )
+
+    generic = GuiTaskResult(value={"status": "error", "message": "Revision conflict"})
+    assert (
+        dialog._on_save_finished(
+            generic,
+            "demo_macro",
+            dialog._current_macro_payload(),
+            close_after_save=False,
+        )
+        is False
+    )
+
+    worker_error = GuiTaskResult[dict](error=RuntimeError("worker failed"))
+    assert (
+        dialog._on_save_finished(
+            worker_error,
+            "demo_macro",
+            dialog._current_macro_payload(),
+            close_after_save=False,
+        )
+        is False
+    )
+
+    assert alerts == [
+        (
+            "Name Conflict",
+            "A macro named 'demo_macro' already exists. Choose a different name.",
+            dialog._parent,
+        ),
+        ("Unable To Save Macro", "Revision conflict", dialog._parent),
+        ("Unable To Save Macro", "worker failed", dialog._parent),
+    ]
+
+
+def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
+    monkeypatch,
+) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._macro_name = "demo_macro"
+    dialog._macro_exists = True
+    dialog._macro_data = {"name": "demo_macro", "revision": 2}
+
+    scheduled: list[
+        tuple[
+            Callable[[], dict | None],
+            Callable[[macro_editor_dialog_module.GuiTaskResult[dict | None]], bool | None],
+            Callable[[], None] | None,
+        ]
+    ] = []
+    requests: list[dict] = []
+
+    def fake_session_request(payload):
+        requests.append(payload)
+        return {"status": "ok", "macro": {**payload["macro"], "revision": 3}}
+
+    def fake_run_gui_task(worker, callback, *, on_start=None, on_done=None) -> None:
+        if on_start is not None:
+            on_start()
+        scheduled.append((worker, callback, on_done))
+
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+    monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
+    monkeypatch.setattr(macro_editor_dialog_module, "notify_session_reload_async", lambda: None)
+
+    apply_btn = dialog._footer_action_buttons[2]
+    save_btn = dialog._footer_action_buttons[3]
+
+    dialog._on_apply(apply_btn)
+
+    assert dialog._save_in_flight is True
+    assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
+        False,
+        False,
+        False,
+        False,
+    ]
+    assert dialog.get_can_close() is False
+
+    dialog._on_save(save_btn)
+    dialog._on_unsaved_close_response(macro_editor_dialog_module.Adw.AlertDialog(), "save")
+
+    assert len(scheduled) == 1
+    assert requests == []
+
+    worker, callback, on_done = scheduled[0]
+    assert callback(macro_editor_dialog_module.GuiTaskResult(value=worker())) is False
+    if on_done is not None:
+        on_done()
+
+    assert requests[0]["command"] == "update_macro"
+    assert dialog._save_in_flight is False
+    assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
+        True,
+        True,
+        True,
+        True,
+    ]
 
 
 def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) -> None:

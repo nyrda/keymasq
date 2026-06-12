@@ -746,6 +746,7 @@ class MacroEditorPanelsMixin:
         save_btn.connect("clicked", self._on_save)
         footer.append(save_btn)
 
+        self._footer_action_buttons = [cancel_btn, copy_btn, apply_btn, save_btn]
         return footer
 
     # ------------------------------------------------------------------

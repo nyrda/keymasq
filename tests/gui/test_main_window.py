@@ -896,6 +896,87 @@ class TestMainWindow:
         assert window.combo_tab._active_profile_names == ["Gaming"]
         assert window.combo_tab.status_label.get_text() == "active"
 
+    def test_main_window_device_runtime_status_updates_tab_title_and_header(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.common.models import (
+            ButtonDefinition,
+            DeviceType,
+            EvdevDevice,
+            HardwareConfig,
+        )
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
+        monkeypatch.setattr(window_module, "register_session_event_callback", lambda *args: None)
+        monkeypatch.setattr(window_module, "unregister_session_event_callback", lambda *args: None)
+        monkeypatch.setattr(window_module.GLib, "timeout_add", lambda *args: 0)
+        monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda *args: 0)
+
+        window = MainWindow(demo_mode=False)
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Pad One",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/pad-event-joystick",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_south", label="South", evdev="btn_south")],
+        )
+
+        window._add_device_tab(device)
+        tab = window._child_for_hardware_id(device.hardware_id)
+        page = window._page_for_hardware_id(device.hardware_id)
+        assert tab is not None
+        assert page is not None
+
+        window._apply_profile_runtime_state(
+            {
+                "status": "ok",
+                "active_profiles": [],
+                "devices": {
+                    device.hardware_id: {
+                        "profiles": [],
+                        "device_status": {
+                            "state": "grabbed",
+                            "configured_count": 1,
+                            "connected_count": 1,
+                            "requested_count": 1,
+                            "grabbed_count": 1,
+                            "runtime_ready": True,
+                            "interfaces": [
+                                {
+                                    "id": "gamepad",
+                                    "configured_path": "/dev/input/by-id/pad-event-joystick",
+                                    "type": "gamepad",
+                                    "connected": True,
+                                    "requested": True,
+                                    "grabbed": True,
+                                    "current_path": "/dev/input/event10",
+                                    "stable_path": "/dev/input/by-id/pad-event-joystick",
+                                }
+                            ],
+                        },
+                    }
+                },
+            }
+        )
+
+        assert page.get_title() == "🟢 Pad One"
+        assert tab._device_status_label.get_text() == "Grabbed"
+        assert "1 interface · 1 connected · 1 grabbed" in tab._header_caption_label.get_text()
+        assert "1/1" not in tab._header_caption_label.get_text()
+        tooltip = tab._header_caption_label.get_tooltip_text() or ""
+        assert "connected, grabbed" in tooltip
+
     def test_main_window_profiles_changed_event_reloads_profile_models(
         self,
         temp_config_dir,

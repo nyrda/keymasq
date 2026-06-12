@@ -812,15 +812,105 @@ class DocshotRunner:
         assert self.window is not None
         profiles = [profile for profile in self.runtime_profiles if profile]
         devices: Json = {}
-        for hardware_id in self.window._device_pages:
-            devices[hardware_id] = {"profiles": profiles}
+        for hardware_id, page in self.window._device_pages.items():
+            child = page.get_child()
+            hardware = getattr(child, "device", None)
+            if not isinstance(hardware, HardwareConfig):
+                hardware = self.window.hardware_manager.get_hardware(hardware_id)
+            mapping_count, always_grab_all = self._docshot_profile_device_state(
+                hardware_id,
+                profiles,
+            )
+            devices[hardware_id] = {
+                "profiles": profiles,
+                "mapping_count": mapping_count,
+                "always_grab_all": always_grab_all,
+                "device_status": self._docshot_device_status(
+                    hardware,
+                    mapping_count=mapping_count,
+                    always_grab_all=always_grab_all,
+                ),
+            }
         return {
+            "status": "ok",
             "active_profiles": profiles,
             "devices": devices,
             "window": {
                 "class": "keymasq-docshot",
                 "title": "keymasq documentation fixture",
             },
+        }
+
+    def _docshot_profile_device_state(
+        self,
+        hardware_id: str,
+        profiles: list[str],
+    ) -> tuple[int, bool]:
+        assert self.window is not None
+        mapping_count = 0
+        always_grab_all = False
+        for profile_name in profiles:
+            profile = self.window.profile_manager.get_profile(profile_name)
+            if profile is None:
+                continue
+            layer = profile.config.get_layer(hardware_id)
+            if layer is None:
+                continue
+            mapping_count += sum(
+                1
+                for mapping in layer.mappings.values()
+                if mapping.action_type != ActionType.PASSTHROUGH
+            )
+            always_grab_all = always_grab_all or layer.always_grab_all
+        return mapping_count, always_grab_all
+
+    def _docshot_device_status(
+        self,
+        hardware: HardwareConfig | None,
+        *,
+        mapping_count: int,
+        always_grab_all: bool,
+    ) -> Json:
+        configured = list(hardware.evdev_devices) if hardware is not None else []
+        configured_count = len(configured)
+        should_grab = mapping_count > 0 or always_grab_all
+        connected_count = configured_count
+        requested_count = configured_count if should_grab else 0
+        grabbed_count = configured_count if should_grab else 0
+        state = "grabbed" if should_grab else "connected"
+        if configured_count <= 0:
+            state = "unknown"
+            connected_count = 0
+            requested_count = 0
+            grabbed_count = 0
+
+        return {
+            "state": state,
+            "configured_count": configured_count,
+            "connected_count": connected_count,
+            "requested_count": requested_count,
+            "grabbed_count": grabbed_count,
+            "interfaces": [
+                self._docshot_interface_status(interface, grabbed=should_grab)
+                for interface in configured
+            ],
+            "runtime_ready": True,
+            "grab_status": {},
+        }
+
+    def _docshot_interface_status(self, interface: object, *, grabbed: bool) -> Json:
+        device_type = getattr(interface, "device_type", "")
+        device_type_value = getattr(device_type, "value", device_type or "")
+        path = str(getattr(interface, "path", "") or "")
+        return {
+            "id": str(getattr(interface, "id", "") or ""),
+            "configured_path": path,
+            "type": str(device_type_value),
+            "connected": True,
+            "requested": grabbed,
+            "grabbed": grabbed,
+            "current_path": path,
+            "stable_path": path,
         }
 
     def _install_runtime_overrides(self) -> None:
@@ -877,7 +967,7 @@ class DocshotRunner:
         if target == "welcome":
             return []
         if target == "device_fresh":
-            return ["Fresh Device"]
+            return ["Default"]
         return [str(shot.get("profile", "Desktop") or "Desktop")]
 
     def _prepare_next(self) -> bool:
@@ -1191,8 +1281,8 @@ class DocshotRunner:
 
     def _prepare_device_fresh(self, shot: Json) -> None:
         self._select_device_profile(
-            {"device": str(shot.get("device", "35ef:0021")), "profile": "Fresh Device"},
-            default_profile="Fresh Device",
+            {"device": str(shot.get("device", "35ef:0021")), "profile": "Default"},
+            default_profile="Default",
         )
 
     def _prepare_profile_device(self, shot: Json) -> None:

@@ -468,6 +468,114 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
     assert "window" not in result
 
 
+def test_build_active_profiles_payload_includes_device_interface_status() -> None:
+    from keymasq.common.models import (
+        ActionType,
+        ButtonDefinition,
+        DeviceType,
+        EvdevDevice,
+        HardwareConfig,
+        MappingAction,
+    )
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    hardware = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/by-id/pad-event-joystick",
+                device_type=DeviceType.GAMEPAD,
+                id="gamepad",
+            ),
+            EvdevDevice(
+                path="/dev/input/by-id/pad-event-kbd",
+                device_type=DeviceType.KEYBOARD,
+                id="kbd",
+            ),
+        ],
+        buttons=[
+            ButtonDefinition(
+                id="btn_south",
+                label="South",
+                evdev="btn_south",
+                source="gamepad",
+            )
+        ],
+    )
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_south": MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_space",
+            )
+        },
+    )
+    manager.connected = True
+    manager.hardware.get_hardware = lambda _hardware_id: hardware  # type: ignore[assignment]
+    manager.profile_state.active_profile_names = ["Desktop"]
+    manager.profile_state.resolved_devices = {hardware_id: resolved}
+    manager.profile_state.device_runtime_status = {
+        "status": "ok",
+        "interfaces": [
+            {
+                "hardware_id": hardware_id,
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "stable_path": "/dev/input/by-id/pad-event-joystick",
+                "path": "/dev/input/event10",
+                "interface_id": "gamepad",
+            }
+        ],
+        "grabbed_interfaces": [
+            {
+                "hardware_id": hardware_id,
+                "interface_id": "gamepad",
+                "stable_path": "/dev/input/by-id/pad-event-joystick",
+                "path": "/dev/input/by-id/pad-event-joystick",
+                "resolved_path": "/dev/input/event10",
+            }
+        ],
+    }
+
+    payload = session_profiles_module.build_active_profiles_payload(manager)
+
+    devices = cast(dict[str, dict[str, object]], payload["devices"])
+    device_status = cast(dict[str, object], devices[hardware_id]["device_status"])
+    assert device_status["state"] == "grabbed"
+    assert device_status["configured_count"] == 2
+    assert device_status["connected_count"] == 1
+    assert device_status["requested_count"] == 1
+    assert device_status["grabbed_count"] == 1
+    assert device_status["interfaces"] == [
+        {
+            "id": "gamepad",
+            "configured_path": "/dev/input/by-id/pad-event-joystick",
+            "type": "gamepad",
+            "connected": True,
+            "requested": True,
+            "grabbed": True,
+            "current_path": "/dev/input/event10",
+            "stable_path": "/dev/input/by-id/pad-event-joystick",
+        },
+        {
+            "id": "kbd",
+            "configured_path": "/dev/input/by-id/pad-event-kbd",
+            "type": "keyboard",
+            "connected": False,
+            "requested": False,
+            "grabbed": False,
+            "current_path": "",
+            "stable_path": "",
+        },
+    ]
+
+
 @pytest.mark.asyncio
 async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> None:
     from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction

@@ -135,6 +135,7 @@ async def _handle_profile_commands(
     policy: SecurityPolicy,
 ) -> JsonObject | None:
     if command == "get_active_profiles":
+        await runtime_profiles.refresh_device_runtime_status(manager)
         return runtime_profiles.build_active_profiles_payload(manager)
 
     if command == "get_combo_inspector_snapshot":
@@ -458,6 +459,8 @@ async def _handle_compositor_commands(
         compositor_status = await runtime_compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
+        if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
+            await runtime_profiles.refresh_device_runtime_status(manager)
         profile_payload = runtime_profiles.build_active_profiles_payload(manager)
         status_payload: JsonObject = {
             "status": "ok",

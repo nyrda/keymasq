@@ -674,10 +674,10 @@ def _seed_profiles(config_dir: Path) -> None:
     _write_toml(profiles_dir / "navigation.toml", navigation)
 
     _write_toml(
-        profiles_dir / "Fresh_Device.toml",
+        profiles_dir / "Default.toml",
         {
             "profile": {
-                "name": "Fresh Device",
+                "name": "Default",
                 "enabled": True,
                 "is_permanent": True,
                 "priority": 1,
@@ -686,8 +686,18 @@ def _seed_profiles(config_dir: Path) -> None:
             },
             "devices": {
                 "35ef:0021": {"always_grab_all": False, "mapping": {}},
-                "1532:00b4": {"always_grab_all": False, "mapping": {}},
-                "045e:02a1": {"always_grab_all": False, "mapping": {}},
+                "1532:00b4": {
+                    "always_grab_all": False,
+                    "mapping": {
+                        "extra_10": _action("exec", cmd="grimblast --freeze copy area"),
+                    },
+                },
+                "045e:02a1": {
+                    "always_grab_all": False,
+                    "mapping": {
+                        "btn_south": _action("keyboard", target="key_space"),
+                    },
+                },
             },
         },
     )

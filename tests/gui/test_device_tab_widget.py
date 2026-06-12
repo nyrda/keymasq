@@ -226,6 +226,88 @@ class TestDeviceTabWidget:
         tab._update_header_caption()
         assert tab._header_caption_label.get_text() == expected_caption
 
+    def test_live_header_caption_lists_interface_state_and_mappings(self, temp_config_dir):
+        from keymasq.common.models import (
+            ActionType,
+            ButtonDefinition,
+            DeviceProfileLayer,
+            DeviceType,
+            EvdevDevice,
+            HardwareConfig,
+            MappingAction,
+            ProfileConfig,
+        )
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.session.profiles import ProfileManager
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(
+            ProfileConfig(
+                name="Gaming",
+                enabled=True,
+                device_layers={
+                    "1234:5678": DeviceProfileLayer(
+                        hardware_id="1234:5678",
+                        mappings={
+                            "btn_back": MappingAction(
+                                action_type=ActionType.KEYBOARD,
+                                target="key_1",
+                            ),
+                            "btn_forward": MappingAction(
+                                action_type=ActionType.KEYBOARD,
+                                target="key_2",
+                            ),
+                        },
+                    )
+                },
+            )
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event10",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                ),
+                EvdevDevice(
+                    path="/dev/input/event11",
+                    device_type=DeviceType.MOUSE,
+                    id="extra",
+                ),
+            ],
+            buttons=[
+                ButtonDefinition(id="btn_back", label="Back", evdev="btn_side"),
+                ButtonDefinition(id="btn_forward", label="Forward", evdev="btn_extra"),
+            ],
+        )
+
+        tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=False)
+        tab.apply_active_profile_response(
+            {
+                "status": "ok",
+                "devices": {
+                    device.hardware_id: {
+                        "device_status": {
+                            "state": "partial",
+                            "configured_count": 2,
+                            "connected_count": 2,
+                            "grabbed_count": 1,
+                            "runtime_ready": True,
+                        }
+                    }
+                },
+            }
+        )
+
+        assert (
+            tab._header_caption_label.get_text()
+            == "1234:5678 | 2 interfaces · 2 connected · 1 grabbed · 2 mappings"
+        )
+        assert "1/2" not in tab._header_caption_label.get_text()
+
     def test_keyboard_left_layout_does_not_request_seventh_column(self):
         from gi.repository import Gtk
 

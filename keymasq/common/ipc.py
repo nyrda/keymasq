@@ -11,6 +11,7 @@ class CommandType(Enum):
     SET_MAPPING = "set_mapping"
     SET_COMBOS = "set_combos"
     LIST_DEVICES = "list_devices"
+    DEVICE_RUNTIME_STATUS = "device_runtime_status"
     PING = "ping"
     DEVICE_EVENT = "device_event"
     ACTION_TRIGGER = "action_trigger"

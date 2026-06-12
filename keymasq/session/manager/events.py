@@ -658,26 +658,61 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
 
     device_name = device_name_for_hardware(manager, hardware_id)
     if state == "waiting":
+        status = {
+            "state": "waiting",
+            "path": str(data.get("path", "") or ""),
+            "active_keys": active_keys,
+            "waited_s": data.get("waited_s", 0),
+        }
+        changed = manager.profile_state.grab_status.get(hardware_id) != status
+        manager.profile_state.grab_status[hardware_id] = status
         if hardware_id in manager.profile_state.grab_waiting_devices:
+            if changed:
+                _broadcast_profiles_changed(manager)
             return
         manager.profile_state.grab_waiting_devices.add(hardware_id)
         manager.send_notification(
             "Keymasq: Grab Pending",
             f"{device_name}: waiting for keys to be released ({summary}).",
         )
+        _broadcast_profiles_changed(manager)
         return
 
     if state == "ready":
+        had_status = hardware_id in manager.profile_state.grab_status
+        manager.profile_state.grab_status.pop(hardware_id, None)
+        was_waiting = hardware_id in manager.profile_state.grab_waiting_devices
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
+        if had_status or was_waiting:
+            _broadcast_profiles_changed(manager)
         return
 
     if state == "timed_out":
+        manager.profile_state.grab_status[hardware_id] = {
+            "state": "timed_out",
+            "path": str(data.get("path", "") or ""),
+            "active_keys": active_keys,
+            "waited_s": data.get("waited_s", 0),
+        }
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
         manager.send_notification(
             "Keymasq: Grab Timed Out",
             f"{device_name}: keys stayed down too long ({summary}). Retrying automatically.",
         )
         runtime_profiles.schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
+        _broadcast_profiles_changed(manager)
+
+
+def _broadcast_profiles_changed(manager: "SessionManager") -> None:
+    if not manager.session_clients:
+        return
+    manager.broadcast_to_session_clients(
+        {
+            "event": "profiles_changed",
+            "runtime_only": True,
+            **runtime_profiles.build_active_profiles_payload(manager),
+        }
+    )
 
 
 def handle_macro_playback_cancelled_event(

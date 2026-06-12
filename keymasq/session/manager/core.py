@@ -828,6 +828,8 @@ class SessionManager:
         self.profile_state.grabbed_devices.clear()
         self.profile_state.grabbed_interfaces.clear()
         self.profile_state.grab_waiting_devices.clear()
+        self.profile_state.grab_status.clear()
+        self.profile_state.device_runtime_status.clear()
         for task in list(self.profile_state.grab_retry_tasks.values()):
             if not task.done():
                 task.cancel()

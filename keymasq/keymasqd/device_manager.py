@@ -1214,6 +1214,52 @@ class DeviceManager:
     async def list_devices(self) -> JsonObject:
         return await asyncio.to_thread(self._list_devices_sync)
 
+    async def device_runtime_status(self) -> JsonObject:
+        async with self._op_lock:
+            live_interfaces = [
+                {
+                    "hardware_id": info.hardware_id,
+                    "vendor_id": info.vendor_id,
+                    "product_id": info.product_id,
+                    "stable_path": info.stable_path,
+                    "path": info.path,
+                    "interface_id": info.interface_id,
+                }
+                for info in sorted(
+                    self.topology_state.live_snapshot.values(),
+                    key=lambda item: (item.hardware_id, item.interface_id, item.stable_path),
+                )
+            ]
+            grabbed_interfaces: list[JsonObject] = []
+            for hardware_id, devices in sorted(self.grabbed_devices.items()):
+                for device in devices:
+                    device_type = getattr(device, "device_type", "")
+                    device_type_text = getattr(device_type, "value", str(device_type or ""))
+                    grabbed_interfaces.append(
+                        {
+                            "hardware_id": str(hardware_id or ""),
+                            "interface_id": str(getattr(device, "interface_id", "") or ""),
+                            "path": str(getattr(device, "path", "") or ""),
+                            "resolved_path": str(
+                                getattr(device, "resolved_event_path", "") or ""
+                            ),
+                            "stable_path": str(getattr(device, "stable_path", "") or ""),
+                            "device_type": device_type_text,
+                        }
+                    )
+            grabbed_interfaces.sort(
+                key=lambda item: (
+                    str(item.get("hardware_id", "")),
+                    str(item.get("interface_id", "")),
+                    str(item.get("stable_path", "")),
+                )
+            )
+        return {
+            "status": "ok",
+            "interfaces": live_interfaces,
+            "grabbed_interfaces": grabbed_interfaces,
+        }
+
     def _list_devices_sync(self) -> JsonObject:
         clear_device_path_cache()
         devices: list[JsonObject] = []

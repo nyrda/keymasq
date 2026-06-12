@@ -87,6 +87,8 @@ class ProfileRuntimeState:
     grabbed_devices: set[str] = field(default_factory=set)
     grabbed_interfaces: dict[str, dict[str, str]] = field(default_factory=dict)
     grab_waiting_devices: set[str] = field(default_factory=set)
+    grab_status: dict[str, JsonObject] = field(default_factory=dict)
+    device_runtime_status: JsonObject = field(default_factory=dict)
     grab_retry_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     topology_refresh_task: asyncio.Task[None] | None = None
     last_sent_grab_signatures: dict[str, str] = field(default_factory=dict)

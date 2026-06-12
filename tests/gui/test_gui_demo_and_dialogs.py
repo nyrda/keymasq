@@ -672,6 +672,41 @@ class TestSaveMacroDialog:
         assert requests[0]["command"] == "save_recording"
         assert requests[0]["pending_save_token"] == "pending-1"
 
+    def test_save_macro_dialog_keeps_footer_anchored_after_unlock(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        class Parent(Gtk.Window):
+            _recording_unlock_required = True
+            _recording_unlocked = False
+            _recording_refresh_owner = False
+
+        parent = Parent()
+        dialog = SaveMacroDialog(
+            parent,
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "pending_save_token": "pending-1",
+            },
+        )
+
+        assert dialog._locked_notice.get_visible() is True
+        assert dialog._layout_frame.get_vexpand() is True
+        assert dialog._content_box.get_vexpand() is True
+
+        parent._recording_unlocked = True
+        parent._recording_refresh_owner = True
+        dialog._on_unlock_success()
+
+        assert dialog._locked_notice.get_visible() is False
+        assert dialog._layout_frame.get_vexpand() is True
+        assert dialog._content_box.get_vexpand() is True
+
     def test_save_macro_dialog_failed_save_allows_retry(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

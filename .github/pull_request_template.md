@@ -1,16 +1,17 @@
 ## Summary
 
-- describe the change
-- describe the reason for the change
+-
+-
 
 ## Testing
 
-- [ ] `python -m pytest tests/ -v`
-- [ ] `ruff check keymasq tests`
-- [ ] `basedpyright`
+- [ ] `./scripts/check.sh`
+- [ ] Integration tests: `./scripts/integration.sh <suite>` / not run:
+- [ ] Screenshot check: `scripts/check-doc-screenshots` / not applicable:
+- [ ] Other testing:
 
 ## Notes
 
 - packaging impact:
 - service or security impact:
-- GUI screenshots, if applicable:
+- GUI impact:

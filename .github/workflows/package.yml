@@ -650,7 +650,7 @@ jobs:
 
       - name: Generate artifact attestations
         if: ${{ github.event.repository.private == false }}
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest@v4
         with:
           subject-path: |
             dist/*.deb
@@ -700,7 +700,9 @@ jobs:
       }}
     runs-on: ubuntu-24.04
     permissions:
+      attestations: write
       contents: write
+      id-token: write
 
     steps:
       - name: Download source tarball
@@ -732,6 +734,16 @@ jobs:
         run: |
           cd dist
           sha256sum ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
+
+      - name: Generate prerelease artifact attestations
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/SHA256SUMS
 
       - name: Create GitHub prerelease
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0

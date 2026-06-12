@@ -1201,6 +1201,49 @@ def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> Non
     assert manager.profile_state.grab_waiting_devices == {"1234:5678"}
 
 
+def test_handle_device_grab_status_ready_reapplies_waiting_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.session_clients.add(object())  # type: ignore[arg-type]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    created_tasks = []
+
+    def create_event_task(_manager, coro, **kwargs):
+        coro.close()
+        created_tasks.append(kwargs)
+        return Mock()
+
+    monkeypatch.setattr(session_events_module, "create_event_task", create_event_task)
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    hardware_id = "1234:5678"
+    event = {"hardware_id": hardware_id, "state": "ready"}
+    manager.profile_state.grab_waiting_devices.add(hardware_id)
+    manager.profile_state.grab_status[hardware_id] = {
+        "state": "waiting",
+        "path": "/dev/input/event4",
+    }
+
+    session_events_module.handle_device_grab_status_event(manager, event)
+
+    assert hardware_id not in manager.profile_state.grab_waiting_devices
+    assert hardware_id not in manager.profile_state.grab_status
+    assert created_tasks == [{"name": "grab_ready"}]
+    reevaluate_profiles.assert_called_once_with(manager, reason=f"grab ready for {hardware_id}")
+    profiles_event = {
+        "event": "profiles_changed",
+        "runtime_only": True,
+        **session_profiles_module.build_active_profiles_payload(manager),
+    }
+    manager.broadcast_to_session_clients.assert_has_calls(  # type: ignore[attr-defined]
+        [
+            call({"event": "device_grab_status", **event}),
+            call(profiles_event),
+        ]
+    )
+
+
 def test_handle_device_grab_status_timeout_notifies_and_schedules_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

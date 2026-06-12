@@ -897,6 +897,9 @@ async def apply_resolved_device_profile(
 
     if not resolved.has_effective_mapping and not inspector_active:
         cancel_grab_retry(manager, hardware_id)
+        manager.profile_state.grab_waiting_devices.discard(hardware_id)
+        manager.profile_state.grab_status.pop(hardware_id, None)
+        manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
         if hardware_id in manager.profile_state.grabbed_devices:
             await deactivate_profile(
                 manager,
@@ -904,8 +907,6 @@ async def apply_resolved_device_profile(
                 immediate=True,
                 generation=generation,
             )
-        elif hardware_id not in manager.profile_state.last_sent_grab_signatures:
-            manager.profile_state.grab_waiting_devices.discard(hardware_id)
         return
 
     new_interfaces = (

@@ -684,6 +684,14 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
         was_waiting = hardware_id in manager.profile_state.grab_waiting_devices
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
         if had_status or was_waiting:
+            create_event_task(
+                manager,
+                runtime_profiles.reevaluate_profiles(
+                    manager,
+                    reason=f"grab ready for {hardware_id}",
+                ),
+                name="grab_ready",
+            )
             _broadcast_profiles_changed(manager)
         return
 

@@ -1244,7 +1244,11 @@ def _write_gamepad_axes(
             _clear_tracked_abs_state(device_runtime, target_bucket, axis_code)
         else:
             track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
-    syn_if_passthrough_frame_closed(target_uinput, writer)
+    syn_if_passthrough_frame_closed(
+        target_uinput,
+        writer,
+        device_runtime=device_runtime,
+    )
     device_runtime.state.analog_gamepad_outputs[state_key] = AnalogGamepadOutputState(
         output_id=_resolved_gamepad_output_id(device_runtime, config),
         reset_axes=(
@@ -1385,7 +1389,11 @@ def _write_recorded_gamepad_reset(
     for axis_code, value in output.reset_axes:
         writer.write(deps.evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
         _clear_tracked_abs_state(device_runtime, target_bucket, int(axis_code))
-    syn_if_passthrough_frame_closed(target_uinput, writer)
+    syn_if_passthrough_frame_closed(
+        target_uinput,
+        writer,
+        device_runtime=device_runtime,
+    )
 
 
 def _clear_tracked_abs_state(

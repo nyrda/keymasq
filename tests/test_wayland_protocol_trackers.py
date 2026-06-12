@@ -14,6 +14,7 @@ from keymasq.session.wayland_protocols import client_transport as transport_modu
 from keymasq.session.wayland_protocols import cosmic_toplevel_info_client as cosmic_client_module
 from keymasq.session.wayland_protocols import registry_probe
 from keymasq.session.wayland_protocols import wlr_foreign_toplevel_client as wlr_client_module
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
     ExtForeignToplevelListTracker,
 )
@@ -106,6 +107,11 @@ def _encode_array(values: list[int]) -> bytes:
     return struct.pack("<I", len(raw)) + raw + (b"\x00" * (padded - len(raw)))
 
 
+def test_protocol_trackers_alias_active_window_tracker() -> None:
+    assert ExtForeignToplevelListTracker is ActiveWindowTracker
+    assert WlrForeignToplevelManagerTracker is ActiveWindowTracker
+
+
 def test_wayland_transport_run_closes_socket_on_eof() -> None:
     client = transport_module.WaylandClientTransport()
     fake_socket = _FakeWaylandSocket()
@@ -180,7 +186,7 @@ def test_ext_tracker_emits_on_uint_state_activation() -> None:
 
 
 def test_wlr_tracker_emits_on_uint_state_activation() -> None:
-    tracker = WlrForeignToplevelManagerTracker()
+    tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
     tracker.add_toplevel("x")
     tracker.update_app_id("x", "Alacritty")
     tracker.update_title("x", "shell")
@@ -192,7 +198,7 @@ def test_wlr_tracker_emits_on_uint_state_activation() -> None:
 
 
 def test_wlr_tracker_switches_focus_between_handles() -> None:
-    tracker = WlrForeignToplevelManagerTracker()
+    tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
     tracker.add_toplevel("a")
     tracker.add_toplevel("b")
     tracker.update_app_id("a", "a-app")
@@ -428,7 +434,7 @@ def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
         clients = (
             ExtForeignToplevelListWaylandClient(ExtForeignToplevelListTracker()),
             wlr_client_module.WlrForeignToplevelWaylandClient(
-                WlrForeignToplevelManagerTracker()
+                WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
             ),
             cosmic_client_module.CosmicToplevelInfoWaylandClient(
                 ExtForeignToplevelListTracker()
@@ -545,7 +551,7 @@ def test_ext_wayland_client_stop_logs_unexpected_destroy_failure(
 
 
 def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
-    tracker = WlrForeignToplevelManagerTracker()
+    tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
     client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
@@ -584,7 +590,7 @@ def test_wlr_wayland_client_dispatches_manager_and_toplevel_events() -> None:
 
 
 def test_wlr_wayland_client_stop_removes_tracker_handles() -> None:
-    tracker = WlrForeignToplevelManagerTracker()
+    tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
     client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
@@ -612,7 +618,7 @@ def test_wlr_wayland_client_stop_removes_tracker_handles() -> None:
 def test_wlr_wayland_client_stop_logs_unexpected_destroy_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    tracker = WlrForeignToplevelManagerTracker()
+    tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
     client = wlr_client_module.WlrForeignToplevelWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
@@ -829,7 +835,7 @@ def test_wayland_clients_require_display_environment(monkeypatch) -> None:
     async def start_clients() -> None:
         ext = ExtForeignToplevelListWaylandClient(ExtForeignToplevelListTracker())
         wlr = wlr_client_module.WlrForeignToplevelWaylandClient(
-            WlrForeignToplevelManagerTracker()
+            WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
         )
         cosmic = cosmic_client_module.CosmicToplevelInfoWaylandClient(
             ExtForeignToplevelListTracker()
@@ -886,7 +892,7 @@ def test_wayland_clients_close_socket_when_start_fails_missing_global() -> None:
         )
         await run_client(
             wlr_client_module.WlrForeignToplevelWaylandClient(
-                WlrForeignToplevelManagerTracker()
+                WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
             ),
             "zwlr_foreign_toplevel_manager_v1 is unavailable",
             "wlr-missing-global",
@@ -992,7 +998,7 @@ def test_wlr_wayland_client_start_and_run_against_minimal_socket() -> None:
                 await writer.wait_closed()
 
             server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-            tracker = WlrForeignToplevelManagerTracker()
+            tracker = WlrForeignToplevelManagerTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
             client = wlr_client_module.WlrForeignToplevelWaylandClient(
                 tracker,
                 socket_path=str(socket_path),

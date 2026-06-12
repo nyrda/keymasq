@@ -15,7 +15,7 @@ def parent_constrained_dialog_width(
 ) -> int:
     root = parent.get_root()
     width_source = root if isinstance(root, Gtk.Widget) else parent
-    allocated_width = width_source.get_allocated_width()
+    allocated_width = width_source.get_width()
     if allocated_width <= 0:
         return preferred_width
     max_width = max(min_width, allocated_width - _ADW_FLOATING_SHEET_WIDTH_OVERHEAD)

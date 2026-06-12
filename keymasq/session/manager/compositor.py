@@ -3,6 +3,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_str
 from keymasq.session.compositor import (
     detect_compositor,
     get_compositor_capabilities,
@@ -14,7 +15,7 @@ from keymasq.session.compositor import (
 from keymasq.session.listeners.gnome import GnomeListener
 
 from . import profiles as runtime_profiles
-from .common import JsonObject, json_list, merge_support_details, str_value
+from .common import JsonObject, json_list, merge_support_details
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -195,8 +196,8 @@ def normalize_window_info_from_dict(
     window_info: JsonObject,
 ) -> dict[str, str | list[str]]:
     return normalize_window_info(
-        str_value(window_info.get("class"), ""),
-        str_value(window_info.get("title"), ""),
+        coerce_str(window_info.get("class"), ""),
+        coerce_str(window_info.get("title"), ""),
         [str(tag) for tag in json_list(window_info.get("tags")) if str(tag or "").strip()],
     )
 
@@ -520,9 +521,9 @@ async def handle_compositor_dispatch_trigger(
 ) -> None:
     ok, message = await run_compositor_dispatch(
         manager,
-        str_value(data.get("compositor"), "").strip(),
-        str_value(data.get("dispatcher"), "").strip(),
-        str_value(data.get("args"), "").strip(),
+        coerce_str(data.get("compositor"), "").strip(),
+        coerce_str(data.get("dispatcher"), "").strip(),
+        coerce_str(data.get("args"), "").strip(),
     )
     if not ok and message:
         log.warning("%s", message)

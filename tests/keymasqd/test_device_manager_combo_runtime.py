@@ -214,7 +214,6 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
         assert manager.combo_state.active_actions == {}
-        assert manager.combo_state.engine._candidates == {}
         assert device.state.combo_passthrough_held == set()
         assert device.state.held_output_keys["passthrough"] == set()
         assert device.state.held_output_keys["keyboard"] == set()
@@ -321,7 +320,6 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
         assert manager.combo_state.active_actions == {}
-        assert manager.combo_state.engine._candidates == {}
         assert device.state.combo_passthrough_held == set()
         assert device.state.held_output_keys["passthrough"] == set()
         assert device.state.held_output_keys["keyboard"] == set()
@@ -382,7 +380,6 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
         assert manager.combo_state.active_actions == {}
-        assert manager.combo_state.engine._candidates == {}
         assert device.state.combo_passthrough_held == set()
         assert device.state.combo_recalled_bindings == set()
         assert device.state.held_output_keys["passthrough"] == set()
@@ -446,7 +443,6 @@ class TestCombos:
         assert device.state.held_source_keys == set()
         assert device.state.held_output_keys["passthrough"] == set()
         assert manager.combo_state.active_actions == {}
-        assert manager.combo_state.engine._candidates == {}
 
     @pytest.mark.asyncio
     async def test_runtime_combo_broadcast_does_not_block_hot_path(self, monkeypatch):

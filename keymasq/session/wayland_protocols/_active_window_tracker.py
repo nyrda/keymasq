@@ -12,7 +12,7 @@ class _WindowState:
 
 
 class ActiveWindowTracker:
-    def __init__(self, activated_state: int) -> None:
+    def __init__(self, activated_state: int = 2) -> None:
         self._activated_state = int(activated_state)
         self._windows: dict[str, _WindowState] = {}
         self._active_handle: str | None = None

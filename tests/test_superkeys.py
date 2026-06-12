@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,7 +18,11 @@ from keymasq.common.models import (
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
-from keymasq.keymasqd.runtime.actions import parse_superkey_action, parse_superkey_config
+from keymasq.keymasqd.runtime.actions import (
+    parse_action,
+    parse_superkey_action,
+    parse_superkey_config,
+)
 from keymasq.session.manager.payloads import (
     clear_combo_exec_refs,
     combo_action_signature_payload,
@@ -32,31 +37,14 @@ from keymasq.session.superkeys import SuperkeyManager
 def _parse_manager() -> object:
     return SimpleNamespace(
         _json_object=lambda value: value if isinstance(value, dict) else None,
-        _optional_str=lambda value: None if value is None else str(value),
-        _int_or_none=lambda value: None if value is None else int(value),
-        _float_value=lambda value, default: default if value is None else float(value),
     )
 
 
-def _ignore_superkey_action(*_args: object, **_kwargs: object) -> None:
-    return None
-
-
-def _parse_runtime_superkey_payload(
-    payload: object,
-    *,
-    superkey_action_parser=_ignore_superkey_action,
-):
+def _parse_runtime_superkey_payload(payload: object):
     return parse_superkey_config(
         _parse_manager(),
         payload,
         json_object=lambda value: value if isinstance(value, dict) else None,
-        str_value=lambda value, default="": default if value is None else str(value),
-        optional_str=lambda value: None if value is None else str(value),
-        int_value=lambda value, default=0: default if value is None else int(value),
-        int_or_none=lambda value: None if value is None else int(value),
-        float_value=lambda value, default=0.0: default if value is None else float(value),
-        parse_superkey_action=superkey_action_parser,
     )
 
 
@@ -68,14 +56,20 @@ def _pattern_superkey(name: str, target: str = "key_a") -> SuperkeyConfig:
     )
 
 
-def test_superkey_manager_requires_explicit_mode(
-    temp_config_dir,
+@pytest.fixture
+def superkeys_dir(
+    temp_config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+) -> Path:
+    path = temp_config_dir / "superkeys"
+    path.mkdir()
+    monkeypatch.setattr(paths, "SUPERKEYS_DIR", path)
+    return path
 
+
+def test_superkey_manager_requires_explicit_mode(
+    superkeys_dir: Path,
+) -> None:
     (superkeys_dir / "invalid.toml").write_text(
         """
 name = "invalid"
@@ -94,13 +88,10 @@ tap = [{ action = "keyboard", target = "key_a" }]
 
 
 def test_superkey_manager_logs_unexpected_load_failure(
-    temp_config_dir,
+    superkeys_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     (superkeys_dir / "broken.toml").write_text(
         'name = "broken"\nmode = "pattern"\n',
         encoding="utf-8",
@@ -120,13 +111,8 @@ def test_superkey_manager_logs_unexpected_load_failure(
 
 
 def test_superkey_manager_rejects_single_table_pattern_slots(
-    temp_config_dir,
-    monkeypatch: pytest.MonkeyPatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     (superkeys_dir / "invalid.toml").write_text(
         """
 name = "invalid"
@@ -146,11 +132,7 @@ target = "key_a"
     assert config is None
 
 
-def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypatch) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
+def test_superkey_manager_round_trips_pattern_bundles(superkeys_dir: Path) -> None:
     manager = SuperkeyManager()
     config = SuperkeyConfig(
         name="bundle",
@@ -177,13 +159,8 @@ def test_superkey_manager_round_trips_pattern_bundles(temp_config_dir, monkeypat
 
 
 def test_superkey_manager_rejects_sanitized_storage_collision(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     manager = SuperkeyManager()
     manager.save_superkey(_pattern_superkey("A B", "key_a"))
 
@@ -198,13 +175,8 @@ def test_superkey_manager_rejects_sanitized_storage_collision(
 
 
 def test_superkey_manager_rejects_rename_to_sanitized_storage_collision(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     manager = SuperkeyManager()
     manager.save_superkey(_pattern_superkey("A B", "key_a"))
     manager.save_superkey(_pattern_superkey("Other", "key_b"))
@@ -221,13 +193,8 @@ def test_superkey_manager_rejects_rename_to_sanitized_storage_collision(
 
 
 def test_superkey_manager_same_storage_path_rename_does_not_delete_file(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     manager = SuperkeyManager()
     manager.save_superkey(_pattern_superkey("Work/Mode", "key_a"))
 
@@ -241,13 +208,8 @@ def test_superkey_manager_same_storage_path_rename_does_not_delete_file(
 
 
 def test_superkey_manager_rename_to_same_name_keeps_active_config(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     manager = SuperkeyManager()
     manager.save_superkey(_pattern_superkey("Work", "key_a"))
 
@@ -260,12 +222,8 @@ def test_superkey_manager_rename_to_same_name_keeps_active_config(
 
 
 def test_superkey_manager_delete_removes_loaded_noncanonical_path(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     legacy_path = superkeys_dir / "legacy.toml"
     legacy_path.write_text(
         """
@@ -288,12 +246,8 @@ target = "key_a"
 
 
 def test_superkey_manager_save_preserves_loaded_noncanonical_path(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     legacy_path = superkeys_dir / "legacy.toml"
     canonical_path = superkeys_dir / "work_mode.toml"
     legacy_path.write_text(
@@ -323,12 +277,8 @@ target = "key_a"
 
 
 def test_superkey_manager_rename_preserves_loaded_noncanonical_path(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     legacy_path = superkeys_dir / "legacy.toml"
     legacy_path.write_text(
         """
@@ -354,12 +304,8 @@ target = "key_a"
 
 
 def test_superkey_manager_restore_preserves_snapshot_storage_paths(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     legacy_path = superkeys_dir / "legacy.toml"
     legacy_path.write_text(
         """
@@ -456,14 +402,130 @@ def test_superkey_action_roundtrip_preserves_mpris_command() -> None:
     assert round_tripped.mpris_command == "previous"
 
 
-def test_superkey_manager_round_trips_extended_pattern_actions(
-    temp_config_dir,
-    monkeypatch,
-) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
+def test_superkey_action_parser_does_not_default_non_mpris_command() -> None:
+    parsed = parse_superkey_action(
+        _parse_manager(),
+        {"action": "keyboard", "target": "key_a"},
+        json_object=lambda value: value if isinstance(value, dict) else None,
+    )
 
+    assert parsed is not None
+    assert parsed.action_type == ActionType.KEYBOARD.value
+    assert parsed.mpris_command is None
+
+
+def test_runtime_action_payload_shared_fields_match_superkey_parser() -> None:
+    action_payloads = [
+        {
+            "action": "macro",
+            "macro_name": "demo",
+            "macro_replay_mouse_movement": False,
+            "macro_replay_mouse_clicks": False,
+            "macro_speed": "1.25",
+            "macro_loop_mode": "hold",
+            "macro_loop_count": "3",
+            "macro_loop_stop_behavior": "cancel_run",
+            "macro_move_to_start": True,
+            "macro_start_x": "10",
+            "macro_start_y": "20",
+            "macro_block_mouse_movement": True,
+        },
+        {
+            "action": "profile_enable",
+            "profile_name": "Nav",
+            "deactivation": {"after_actions": 2},
+        },
+        {
+            "action": "compositor_dispatch",
+            "compositor": "hyprland",
+            "dispatcher": "workspace",
+            "args": "2",
+        },
+        {
+            "action": "mpris",
+            "command": "prev",
+        },
+        {
+            "action": "mouse_move_rel",
+            "x": "12",
+            "y": "-7",
+            "rapidfire_enabled": True,
+            "rapidfire_hold_ms": "30",
+            "rapidfire_wait_ms": "40",
+        },
+        {
+            "action": "gamepad_axis",
+            "target": "abs_z",
+            "value": "999",
+            "output_id": "virtual-gamepad-2",
+            "rapidfire_enabled": True,
+            "rapidfire_hold_ms": 30,
+            "rapidfire_wait_ms": 40,
+        },
+        {
+            "action": "play_macro_slot",
+            "recording_slot": "2",
+        },
+        {
+            "action": "exec",
+            "cmd": "echo hi",
+            "exec_ref": "4",
+        },
+    ]
+    parsed = _parse_runtime_superkey_payload(
+        {
+            "name": "shared-runtime-fields",
+            "mode": "pattern",
+            "tap_actions": action_payloads,
+        }
+    )
+    shared_fields = (
+        "target",
+        "output_id",
+        "cmd",
+        "exec_ref",
+        "macro_name",
+        "macro_replay_mouse_movement",
+        "macro_replay_mouse_clicks",
+        "macro_speed",
+        "macro_loop_mode",
+        "macro_loop_count",
+        "macro_loop_stop_behavior",
+        "macro_move_to_start",
+        "macro_start_x",
+        "macro_start_y",
+        "macro_block_mouse_movement",
+        "macro_recording_slot",
+        "profile_name",
+        "profile_deactivation",
+        "compositor_id",
+        "compositor_dispatcher",
+        "compositor_args",
+        "mpris_command",
+        "move_x",
+        "move_y",
+        "axis_value",
+        "rapidfire_enabled",
+        "rapidfire_hold_ms",
+        "rapidfire_wait_ms",
+    )
+
+    assert len(parsed.tap_actions) == len(action_payloads)
+    for payload, superkey_action in zip(
+        action_payloads,
+        parsed.tap_actions,
+        strict=True,
+    ):
+        mapping_action = parse_action(_parse_manager(), payload)
+
+        assert superkey_action.action_type == mapping_action.action_type.value
+        for field in shared_fields:
+            assert getattr(superkey_action, field) == getattr(mapping_action, field)
+
+
+def test_superkey_manager_round_trips_extended_pattern_actions(
+    superkeys_dir: Path,
+) -> None:
     manager = SuperkeyManager()
     config = SuperkeyConfig(
         name="extended-pattern",
@@ -503,13 +565,8 @@ def test_superkey_manager_round_trips_extended_pattern_actions(
 
 
 def test_superkey_profile_action_deactivation_policy_round_trips(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
     manager = SuperkeyManager()
     manager.save_superkey(
         SuperkeyConfig(
@@ -543,11 +600,7 @@ def test_superkey_profile_action_deactivation_policy_round_trips(
     )
 
 
-def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypatch) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
+def test_superkey_manager_round_trips_overload_actions(superkeys_dir: Path) -> None:
     manager = SuperkeyManager()
     config = SuperkeyConfig(
         name="overload",
@@ -573,11 +626,7 @@ def test_superkey_manager_round_trips_overload_actions(temp_config_dir, monkeypa
     assert reloaded.overload_actions[2].cmd == "notify-send overload"
 
 
-def test_superkey_manager_round_trips_split_overload_actions(temp_config_dir, monkeypatch) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
+def test_superkey_manager_round_trips_split_overload_actions(superkeys_dir: Path) -> None:
     manager = SuperkeyManager()
     config = SuperkeyConfig(
         name="split-overload",
@@ -607,13 +656,9 @@ def test_superkey_manager_round_trips_split_overload_actions(temp_config_dir, mo
 
 
 def test_superkey_manager_warns_and_strips_manual_unsupported_rapidfire(
-    temp_config_dir,
-    monkeypatch,
+    superkeys_dir: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
     (superkeys_dir / "warn.toml").write_text(
         """
 name = "warn"
@@ -829,7 +874,6 @@ def test_superkey_runtime_payload_rejects_nested_pattern_superkey() -> None:
                 "mode": "pattern",
                 "tap_actions": [{"action": "superkey", "superkey_name": "other"}],
             },
-            superkey_action_parser=parse_superkey_action,
         )
 
 
@@ -855,14 +899,7 @@ def test_superkey_runtime_payload_rejects_repeat_overload_superkey() -> None:
         )
 
 
-def test_superkey_manager_rejects_nested_overload_superkeys(
-    temp_config_dir,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
+def test_superkey_manager_rejects_nested_overload_superkeys() -> None:
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
         SuperkeyConfig(
             name="bad_overload",
@@ -873,14 +910,7 @@ def test_superkey_manager_rejects_nested_overload_superkeys(
         )
 
 
-def test_superkey_manager_rejects_repeat_overload_superkeys(
-    temp_config_dir,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    superkeys_dir = temp_config_dir / "superkeys"
-    superkeys_dir.mkdir()
-    monkeypatch.setattr(paths, "SUPERKEYS_DIR", superkeys_dir)
-
+def test_superkey_manager_rejects_repeat_overload_superkeys() -> None:
     with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
         SuperkeyConfig(
             name="bad_overload",

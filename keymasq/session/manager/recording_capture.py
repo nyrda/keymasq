@@ -2,11 +2,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.session.profiles import ResolvedDeviceProfile
 
 from . import profiles as runtime_profiles
-from .common import JsonObject, json_list, json_object, str_value
+from .common import JsonObject, json_list, json_object
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -106,7 +107,7 @@ async def capture_begin_for_paths(
         await _end_capture(manager, hardware_id)
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
-    token = str_value(result_data.get("token"), "")
+    token = coerce_str(result_data.get("token"), "")
     if not token:
         await _end_capture(manager, hardware_id)
         return {"status": "error", "message": "Missing capture token"}
@@ -294,9 +295,9 @@ async def capture_combo(
             continue
         events.append(
             {
-                "evdev": str_value(event.get("evdev"), ""),
-                "hardware_id": str_value(event.get("hardware_id"), ""),
-                "source": str_value(event.get("source"), ""),
+                "evdev": coerce_str(event.get("evdev"), ""),
+                "hardware_id": coerce_str(event.get("hardware_id"), ""),
+                "source": coerce_str(event.get("source"), ""),
             }
         )
 
@@ -314,7 +315,7 @@ def _hardware_evdev_paths(manager: "SessionManager", hardware_id: str) -> list[s
     return [
         path
         for device in getattr(hardware, "evdev_devices", [])
-        if (path := str_value(getattr(device, "path", ""), ""))
+        if (path := coerce_str(getattr(device, "path", ""), ""))
     ]
 
 
@@ -326,10 +327,10 @@ def _hardware_evdev_interfaces(
         return []
     interfaces: list[JsonObject] = []
     for device in getattr(hardware, "evdev_devices", []):
-        device_id = str_value(getattr(device, "id", ""), "")
+        device_id = coerce_str(getattr(device, "id", ""), "")
         if not device_id:
             continue
-        path = str_value(getattr(device, "path", ""), "")
+        path = coerce_str(getattr(device, "path", ""), "")
         if not path:
             continue
         interfaces.append(
@@ -337,7 +338,7 @@ def _hardware_evdev_interfaces(
                 "id": device_id,
                 "path": path,
                 "type": getattr(getattr(device, "device_type", None), "value", "other"),
-                "phys": str_value(getattr(device, "phys", ""), ""),
+                "phys": coerce_str(getattr(device, "phys", ""), ""),
                 "capabilities": list(getattr(device, "capabilities", []) or []),
             }
         )
@@ -351,14 +352,14 @@ def _evdev_interfaces_for_paths(
 ) -> list[JsonObject]:
     configured_by_path: dict[str, list[JsonObject]] = {}
     for interface in _hardware_evdev_interfaces(manager, hardware_id):
-        path = str_value(interface.get("path"), "")
+        path = coerce_str(interface.get("path"), "")
         if not path:
             continue
         configured_by_path.setdefault(path, []).append(interface)
 
     interfaces: list[JsonObject] = []
     for path in evdev_paths:
-        normalized_path = str_value(path, "")
+        normalized_path = coerce_str(path, "")
         if not normalized_path:
             continue
         configured = configured_by_path.get(normalized_path, [])

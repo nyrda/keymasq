@@ -82,12 +82,6 @@ def isolate_keymasq_config_paths(
         if hasattr(session_manager_core, name):
             monkeypatch.setattr(session_manager_core, name, value)
 
-    monkeypatch.setattr(
-        session_manager_core.SessionManager,
-        "RECORDING_SETTINGS_PATH",
-        config_dir / "recording_settings.toml",
-    )
-
     return config_dir
 
 

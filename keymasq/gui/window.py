@@ -36,7 +36,6 @@ from keymasq.gui.session_client import (
     run_gui_task,
     session_request,
     session_request_async,
-    session_request_with_hooks,
     unregister_session_event_callback,
 )
 from keymasq.gui.widgets.combo_tab import ComboTab
@@ -2075,7 +2074,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._unlock_refresh_inflight = True
 
-        session_request_with_hooks(
+        session_request_async(
             {
                 "command": "refresh_recording_unlock",
                 "lease_id": self._recording_refresh_lease_id,
@@ -2120,7 +2119,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         log.debug("Requesting recording refresh lease from session")
         self._lease_claim_inflight = True
-        session_request_with_hooks(
+        session_request_async(
             {"command": "claim_recording_unlock_refresh"},
             self._on_claim_recording_refresh_lease_finished,
             timeout=3.0,

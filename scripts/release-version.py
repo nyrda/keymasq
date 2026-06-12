@@ -6,7 +6,6 @@ import argparse
 import importlib.util
 import re
 import sys
-import tomllib
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from pathlib import Path
@@ -36,15 +35,6 @@ def _release_date() -> str:
 def _debian_timestamp(release_date: str) -> str:
     timestamp = datetime.strptime(release_date, "%Y-%m-%d").replace(tzinfo=UTC)
     return format_datetime(timestamp)
-
-
-def _current_version(root: Path) -> str:
-    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    project = pyproject["project"]
-    version = project["version"]
-    if not isinstance(version, str):
-        raise TypeError("project.version must be a string")
-    return version
 
 
 def _build_rules(root: Path, version: str, release_date: str) -> list[RewriteRule]:

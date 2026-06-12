@@ -17,64 +17,65 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 )
 
 log = logging.getLogger("keymasqd.devices")
-_PASSTHROUGH_FRAME_OUTPUTS: dict[int, object] = {}
 
 
-def _output_id(uinput_dev: object | None) -> int | None:
+def mark_passthrough_frame_open(
+    device_runtime: ActionRuntime,
+    uinput_dev: object | None,
+) -> None:
     if uinput_dev is None:
-        return None
-    return id(uinput_dev)
-
-
-def mark_passthrough_frame_open(uinput_dev: object | None) -> None:
-    output_id = _output_id(uinput_dev)
-    if output_id is None:
         return
-    _PASSTHROUGH_FRAME_OUTPUTS[output_id] = uinput_dev
+    device_runtime.state.passthrough_frame_output = uinput_dev
 
 
-def mark_passthrough_frame_closed(uinput_dev: object | None) -> None:
-    output_id = _output_id(uinput_dev)
-    if output_id is None:
+def mark_passthrough_frame_closed(
+    device_runtime: ActionRuntime,
+    uinput_dev: object | None,
+) -> None:
+    if uinput_dev is None:
         return
-    if _PASSTHROUGH_FRAME_OUTPUTS.get(output_id) is uinput_dev:
-        _PASSTHROUGH_FRAME_OUTPUTS.pop(output_id, None)
+    if device_runtime.state.passthrough_frame_output is uinput_dev:
+        device_runtime.state.passthrough_frame_output = None
 
 
-def unregister_passthrough_frame_output(uinput_dev: object | None) -> None:
-    mark_passthrough_frame_closed(uinput_dev)
-
-
-def passthrough_frame_open(uinput_dev: object | None) -> bool:
-    output_id = _output_id(uinput_dev)
-    if output_id is None:
+def passthrough_frame_open(
+    device_runtime: ActionRuntime,
+    uinput_dev: object | None,
+) -> bool:
+    if uinput_dev is None:
         return False
-    return _PASSTHROUGH_FRAME_OUTPUTS.get(output_id) is uinput_dev
+    return device_runtime.state.passthrough_frame_output is uinput_dev
 
 
 def syn_if_passthrough_frame_closed(
     uinput_dev: object | None,
     writer: WritableUInput,
     *,
+    device_runtime: ActionRuntime | None = None,
     force: bool = False,
 ) -> None:
-    if force or not passthrough_frame_open(uinput_dev):
+    if (
+        force
+        or device_runtime is None
+        or not passthrough_frame_open(device_runtime, uinput_dev)
+    ):
         writer.syn()
 
 
 def flush_passthrough_frame(
+    device_runtime: ActionRuntime,
     uinput_dev: object | None,
     *,
     uinput_writer: UInputWriter,
 ) -> None:
-    if not passthrough_frame_open(uinput_dev):
+    if not passthrough_frame_open(device_runtime, uinput_dev):
         return
     writer = uinput_writer(uinput_dev)
     if writer is None:
-        mark_passthrough_frame_closed(uinput_dev)
+        mark_passthrough_frame_closed(device_runtime, uinput_dev)
         return
     writer.syn()
-    mark_passthrough_frame_closed(uinput_dev)
+    mark_passthrough_frame_closed(device_runtime, uinput_dev)
 
 
 def bucket_for_uinput(
@@ -199,7 +200,11 @@ def write_abs_axis(
         return
     writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), int(value))
     if defer_syn_to_passthrough_frame:
-        syn_if_passthrough_frame_closed(uinput_dev, writer)
+        syn_if_passthrough_frame_closed(
+            uinput_dev,
+            writer,
+            device_runtime=device_runtime,
+        )
     else:
         writer.syn()
     track_abs_state(device_runtime, int(axis_code), int(value), bucket=bucket)
@@ -223,7 +228,11 @@ def write_key(
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     if sync:
         if defer_syn_to_passthrough_frame:
-            syn_if_passthrough_frame_closed(uinput_dev, writer)
+            syn_if_passthrough_frame_closed(
+                uinput_dev,
+                writer,
+                device_runtime=device_runtime,
+            )
         else:
             writer.syn()
     track_key_state(device_runtime, uinput_dev, int(code), int(value), bucket=bucket)
@@ -287,7 +296,7 @@ def passthrough(
             defer_syn_to_passthrough_frame=False,
         )
         if not sync:
-            mark_passthrough_frame_open(device_runtime.uinput)
+            mark_passthrough_frame_open(device_runtime, device_runtime.uinput)
         return
     uinput = device_runtime.uinput
     writer = uinput_writer(uinput)
@@ -297,7 +306,7 @@ def passthrough(
     if sync:
         writer.syn()
     else:
-        mark_passthrough_frame_open(uinput)
+        mark_passthrough_frame_open(device_runtime, uinput)
 
 
 def ensure_abs_axis_released(

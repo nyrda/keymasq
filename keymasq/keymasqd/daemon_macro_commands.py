@@ -1,23 +1,14 @@
 import asyncio
 import logging
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, cast
 
+from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
-    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-    normalize_macro_loop_stop_behavior,
-    normalize_macro_recording_slot,
-)
-from keymasq.keymasqd.daemon_helpers import (
-    JsonObject,
-    JsonObjectList,
-    float_like,
-    int_like,
-    str_value,
-)
+from keymasq.common.models import normalize_macro_recording_slot
+from keymasq.common.types import JsonObject, JsonObjectList
+from keymasq.keymasqd.runtime import macros as runtime_macros
 
 type MacroEvent = dict[str, object]
 type ActionTransform = Callable[[JsonObject], JsonObject]
@@ -34,50 +25,10 @@ SUPERKEY_ACTION_KEYS = (
 log = logging.getLogger("keymasqd.macros")
 
 
-@dataclass(frozen=True)
-class MacroRuntimeOptions:
-    loop_mode: str = "none"
-    loop_count: int = 1
-    loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
-    move_to_start: bool = False
-    start_x: int = 0
-    start_y: int = 0
-    block_mouse_movement: bool = False
-
-
-@dataclass(frozen=True)
-class MacroPlaybackOptions:
-    macro_events: JsonObjectList
-    macro_name: str = ""
-    replay_mouse_movement: bool = True
-    replay_mouse_clicks: bool = True
-    speed: float = 1.0
-    runtime_options: MacroRuntimeOptions = field(default_factory=MacroRuntimeOptions)
-    source_device: str = ""
-    source_button: str = ""
-    trigger_value: int = 1
-    load_stored_macro: bool = True
-
-
 class _MacroCommandDeviceManager(Protocol):
     async def play_macro(
         self,
-        macro_events: JsonObjectList,
-        macro_name: str = "",
-        replay_mouse_movement: bool = True,
-        replay_mouse_clicks: bool = True,
-        speed: float = 1.0,
-        loop_mode: str = "none",
-        loop_count: int = 1,
-        loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-        move_to_start: bool = False,
-        start_x: int = 0,
-        start_y: int = 0,
-        block_mouse_movement: bool = False,
-        source_device: str = "",
-        source_button: str = "",
-        trigger_value: int = 1,
-        load_stored_macro: bool = True,
+        playback_options: runtime_macros.MacroPlaybackOptions,
     ) -> JsonObject: ...
 
     async def cancel_macro_playback(self) -> JsonObject: ...
@@ -161,7 +112,7 @@ async def handle_macro_command(
         return {"macros": macros}
 
     if command_type == CommandType.MACRO_GET:
-        name = str_value(data.get("name", ""))
+        name = coerce_str(data.get("name", ""))
         macro = await asyncio.to_thread(daemon.macro_store.get, name)
         return {"macro": macro}
 
@@ -176,12 +127,14 @@ async def handle_macro_command(
         return {"macro": macro}
 
     if command_type == CommandType.MACRO_UPDATE:
-        name = str_value(data.get("name", ""))
+        name = coerce_str(data.get("name", ""))
         raw_payload = data.get("macro", {})
         if not isinstance(raw_payload, dict):
             raise ValueError("macro payload must be an object")
         expected_revision = data.get("expected_revision")
-        revision = int_like(expected_revision, 0) if expected_revision is not None else None
+        revision = (
+            coerce_int(expected_revision, 0) if expected_revision is not None else None
+        )
         macro = await asyncio.to_thread(
             daemon.macro_store.update,
             name,
@@ -191,17 +144,21 @@ async def handle_macro_command(
         return {"macro": macro}
 
     if command_type == CommandType.MACRO_RENAME:
-        old_name = str_value(data.get("old_name", ""))
-        new_name = str_value(data.get("new_name", ""))
+        old_name = coerce_str(data.get("old_name", ""))
+        new_name = coerce_str(data.get("new_name", ""))
         expected_revision = data.get("expected_revision")
-        revision = int_like(expected_revision, 0) if expected_revision is not None else None
+        revision = (
+            coerce_int(expected_revision, 0) if expected_revision is not None else None
+        )
         macro = await asyncio.to_thread(daemon.macro_store.rename, old_name, new_name, revision)
         return {"macro": macro}
 
     if command_type == CommandType.MACRO_DELETE:
-        name = str_value(data.get("name", ""))
+        name = coerce_str(data.get("name", ""))
         expected_revision = data.get("expected_revision")
-        revision = int_like(expected_revision, 0) if expected_revision is not None else None
+        revision = (
+            coerce_int(expected_revision, 0) if expected_revision is not None else None
+        )
         await asyncio.to_thread(daemon.macro_store.delete, name, revision)
         return {"status": "ok"}
 
@@ -213,7 +170,7 @@ async def handle_macro_command(
         return {"recordings": recordings}
 
     if command_type == CommandType.MACRO_DELETE_RECORDING:
-        recording_id = str_value(data.get("pending_recording_id", ""))
+        recording_id = coerce_str(data.get("pending_recording_id", ""))
         await daemon.recording_manager.discard_pending_recording(recording_id)
         return {"status": "ok"}
 
@@ -230,8 +187,8 @@ async def handle_macro_command(
         return await daemon.device_manager.emergency_reset()
 
     if command_type == CommandType.MACRO_EXEC_COMPLETE:
-        wait_id = str_value(data.get("wait_id", ""))
-        returncode = int_like(data.get("returncode", 0), 0)
+        wait_id = coerce_str(data.get("wait_id", ""))
+        returncode = coerce_int(data.get("returncode", 0), 0)
         return daemon.device_manager.complete_macro_exec_wait(wait_id, returncode)
 
     return None
@@ -241,10 +198,10 @@ async def save_pending_recording(
     daemon: _MacroCommandDaemon,
     data: JsonObject,
 ) -> JsonObject:
-    recording_id = str_value(data.get("pending_recording_id", ""))
+    recording_id = coerce_str(data.get("pending_recording_id", ""))
     if not recording_id:
         raise ValueError("pending_recording_id required")
-    if not str_value(data.get("name", "")):
+    if not coerce_str(data.get("name", "")):
         raise ValueError("name required")
     snapshot = cast(
         _PendingRecording,
@@ -270,7 +227,7 @@ def _save_pending_recording_sync(
     data: JsonObject,
     snapshot: _PendingRecording,
 ) -> JsonObject:
-    name = str_value(data.get("name", ""))
+    name = coerce_str(data.get("name", ""))
     if not name:
         raise ValueError("name required")
 
@@ -280,10 +237,10 @@ def _save_pending_recording_sync(
         "duration_us": int(snapshot.duration_ms) * 1000,
         "device_types": list(snapshot.device_types),
         "event_count": int(snapshot.event_count),
-        "move_to_start": bool(data.get("move_to_start", False)),
-        "start_x": int_like(data.get("start_x", 0), 0),
-        "start_y": int_like(data.get("start_y", 0), 0),
-        "block_mouse_movement": bool(data.get("block_mouse_movement", False)),
+        "move_to_start": coerce_bool(data.get("move_to_start"), False),
+        "start_x": coerce_int(data.get("start_x", 0), 0),
+        "start_y": coerce_int(data.get("start_y", 0), 0),
+        "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
     }
     macro = daemon.macro_store.create_from_events(
         payload,
@@ -295,7 +252,7 @@ def _save_pending_recording_sync(
 
 async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
     macro_events = cast(JsonObjectList, data.get("macro_events", []))
-    macro_name = str_value(data.get("macro_name", ""))
+    macro_name = coerce_str(data.get("macro_name", ""))
     stored_macro: JsonObject | None = None
 
     if macro_name and not macro_events:
@@ -305,17 +262,15 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
             macro_name,
         )
 
-    return await _play_macro_with_options(
-        daemon,
+    return await daemon.device_manager.play_macro(
         _macro_playback_options(data, macro_events, macro_name, stored_macro=stored_macro),
     )
 
 
 async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
-    name = str_value(data.get("name", ""))
+    name = coerce_str(data.get("name", ""))
     stored_macro = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, name)
-    return await _play_macro_with_options(
-        daemon,
+    return await daemon.device_manager.play_macro(
         _macro_playback_options(data, [], name, stored_macro=stored_macro),
     )
 
@@ -324,7 +279,7 @@ async def play_pending_recording(
     daemon: _MacroCommandDaemon,
     data: JsonObject,
 ) -> JsonObject:
-    recording_id = str_value(data.get("pending_recording_id", ""))
+    recording_id = coerce_str(data.get("pending_recording_id", ""))
     if not recording_id:
         raise ValueError("pending_recording_id required")
     snapshot = cast(
@@ -333,11 +288,10 @@ async def play_pending_recording(
     )
     try:
         macro_events = await asyncio.to_thread(lambda: list(snapshot.iter_events()))
-        macro_name = str_value(data.get("macro_name", ""))
+        macro_name = coerce_str(data.get("macro_name", ""))
         if not macro_name:
             macro_name = recording_id
-        return await _play_macro_with_options(
-            daemon,
+        return await daemon.device_manager.play_macro(
             _macro_playback_options(
                 data,
                 macro_events,
@@ -350,31 +304,6 @@ async def play_pending_recording(
             recording_id,
             saved=False,
         )
-
-
-async def _play_macro_with_options(
-    daemon: _MacroCommandDaemon,
-    options: MacroPlaybackOptions,
-) -> JsonObject:
-    runtime_options = options.runtime_options
-    return await daemon.device_manager.play_macro(
-        macro_events=options.macro_events,
-        macro_name=options.macro_name,
-        replay_mouse_movement=options.replay_mouse_movement,
-        replay_mouse_clicks=options.replay_mouse_clicks,
-        speed=options.speed,
-        loop_mode=runtime_options.loop_mode,
-        loop_count=runtime_options.loop_count,
-        loop_stop_behavior=runtime_options.loop_stop_behavior,
-        move_to_start=runtime_options.move_to_start,
-        start_x=runtime_options.start_x,
-        start_y=runtime_options.start_y,
-        block_mouse_movement=runtime_options.block_mouse_movement,
-        source_device=options.source_device,
-        source_button=options.source_button,
-        trigger_value=options.trigger_value,
-        load_stored_macro=options.load_stored_macro,
-    )
 
 
 async def load_macro_definitions(
@@ -422,35 +351,14 @@ def _load_macro_meta_sync(macro_store: _MacroDefinitionStore, name: str) -> Json
 def _macro_runtime_options(
     payload: JsonObject,
     *,
-    defaults: MacroRuntimeOptions | None = None,
+    defaults: JsonObject | None = None,
     lenient: bool = True,
-) -> MacroRuntimeOptions:
-    if defaults is None:
-        defaults = MacroRuntimeOptions()
-    int_value = int_like if lenient else _strict_int_like
-    return MacroRuntimeOptions(
-        loop_mode=str_value(payload.get("loop_mode", defaults.loop_mode), defaults.loop_mode)
-        or defaults.loop_mode,
-        loop_count=int_value(payload.get("loop_count", defaults.loop_count), defaults.loop_count),
-        loop_stop_behavior=normalize_macro_loop_stop_behavior(
-            payload.get("loop_stop_behavior", defaults.loop_stop_behavior)
-        ),
-        move_to_start=bool(payload.get("move_to_start", defaults.move_to_start)),
-        start_x=int_value(payload.get("start_x", defaults.start_x), defaults.start_x),
-        start_y=int_value(payload.get("start_y", defaults.start_y), defaults.start_y),
-        block_mouse_movement=bool(
-            payload.get("block_mouse_movement", defaults.block_mouse_movement)
-        ),
+) -> JsonObject:
+    return runtime_macros.macro_runtime_options(
+        payload,
+        defaults=defaults,
+        lenient=lenient,
     )
-
-
-def _strict_int_like(value: object, default: int = 0) -> int:
-    """Convert value to int, returning default when value is None or "".
-
-    Unlike coercion.int_value, this treats empty strings like missing JSON/form fields;
-    otherwise it returns int(value) or lets conversion errors propagate.
-    """
-    return default if value in {None, ""} else int(cast(int | float | str, value))
 
 
 def _macro_playback_options(
@@ -460,19 +368,13 @@ def _macro_playback_options(
     *,
     stored_macro: JsonObject | None = None,
     load_stored_macro: bool = True,
-) -> MacroPlaybackOptions:
+) -> runtime_macros.MacroPlaybackOptions:
     defaults = _macro_runtime_options(stored_macro) if stored_macro is not None else None
-    runtime_options = _macro_runtime_options(data, defaults=defaults)
-    return MacroPlaybackOptions(
+    return runtime_macros.macro_playback_options_from_mapping(
+        data,
+        defaults=defaults,
         macro_events=macro_events,
         macro_name=macro_name,
-        replay_mouse_movement=bool(data.get("replay_mouse_movement", True)),
-        replay_mouse_clicks=bool(data.get("replay_mouse_clicks", True)),
-        speed=float_like(data.get("speed", 1.0), 1.0),
-        runtime_options=runtime_options,
-        source_device=str_value(data.get("source_device", "")),
-        source_button=str_value(data.get("source_button", "")),
-        trigger_value=int_like(data.get("trigger_value", 1), 1),
         load_stored_macro=load_stored_macro,
     )
 
@@ -480,13 +382,8 @@ def _macro_playback_options(
 def apply_macro_definition(action_data: JsonObject, macro: JsonObject) -> JsonObject:
     updated: JsonObject = dict(action_data)
     runtime_options = _macro_runtime_options(macro, lenient=False)
-    updated["macro_loop_mode"] = runtime_options.loop_mode
-    updated["macro_loop_count"] = runtime_options.loop_count
-    updated["macro_loop_stop_behavior"] = runtime_options.loop_stop_behavior
-    updated["macro_move_to_start"] = runtime_options.move_to_start
-    updated["macro_start_x"] = runtime_options.start_x
-    updated["macro_start_y"] = runtime_options.start_y
-    updated["macro_block_mouse_movement"] = runtime_options.block_mouse_movement
+    for option_name, value in runtime_options.items():
+        updated[f"macro_{option_name}"] = value
     return updated
 
 

@@ -2,11 +2,11 @@ import asyncio
 import logging
 import re
 import secrets
-import sys
 from datetime import datetime
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
@@ -18,10 +18,8 @@ from keymasq.common.security import PeerCredentials
 
 from .common import (
     JsonObject,
-    int_value,
     json_list,
     json_object,
-    str_value,
 )
 from .recording_device_selection import recording_device_id
 from .state import PendingSave, PendingSlot
@@ -38,9 +36,7 @@ MACRO_RECORDING_DISABLED_MESSAGE = (
 
 
 def _monotonic() -> float:
-    facade = sys.modules.get("keymasq.session.manager.recording")
-    clock = getattr(facade, "monotonic", monotonic) if facade is not None else monotonic
-    return float(clock())
+    return float(monotonic())
 
 
 def normalize_pending_macro_recording_slot(value: object, *, default: int = 1) -> int:
@@ -185,9 +181,15 @@ def _set_active_recording_owner(
 
     owner = manager.unlock_state.refresh_owner
     if owner is not None:
-        state.active_owner_writer_id = int_value(owner.get("writer_id"), 0) or None
-        state.active_owner_pid = int_value(owner.get("pid"), 0) or None
-        state.active_owner_uid = int_value(owner.get("uid"), 0) or None
+        state.active_owner_writer_id = (
+            coerce_int(
+                owner.get("writer_id"),
+                0,
+            )
+            or None
+        )
+        state.active_owner_pid = coerce_int(owner.get("pid"), 0) or None
+        state.active_owner_uid = coerce_int(owner.get("uid"), 0) or None
         return
 
     state.active_owner_writer_id = None
@@ -281,7 +283,7 @@ async def delete_pending_macro_slot(
 
     pending_slot = manager.recording_state.pending_slots.get(slot)
     pending_data = pending_slot.data if pending_slot is not None else {}
-    pending_recording_id = str_value(pending_data.get("pending_recording_id"), "")
+    pending_recording_id = coerce_str(pending_data.get("pending_recording_id"), "")
     if pending_recording_id:
         try:
             result = await manager.client.send_command(
@@ -305,10 +307,10 @@ async def store_pending_macro_save(
     recording_slot: int,
 ) -> str:
     slot = normalize_pending_macro_recording_slot(recording_slot, default=1)
-    pending_recording_id = str_value(recording_data.get("pending_recording_id"), "")
+    pending_recording_id = coerce_str(recording_data.get("pending_recording_id"), "")
     existing = manager.recording_state.pending_slots.get(slot)
     if existing is not None:
-        existing_id = str_value(existing.data.get("pending_recording_id"), "")
+        existing_id = coerce_str(existing.data.get("pending_recording_id"), "")
         if pending_recording_id and existing_id == pending_recording_id:
             token = existing.token
             existing.data.update(recording_data)
@@ -356,13 +358,13 @@ def replace_pending_macro_slots_from_daemon(
         if data is None:
             continue
         slot = normalize_macro_recording_slot(data.get("recording_slot"))
-        pending_recording_id = str_value(data.get("pending_recording_id"), "")
+        pending_recording_id = coerce_str(data.get("pending_recording_id"), "")
         if not slot or not pending_recording_id:
             continue
 
         existing = old_slots.get(slot)
         existing_data = existing.data if existing is not None else {}
-        existing_id = str_value(existing_data.get("pending_recording_id"), "")
+        existing_id = coerce_str(existing_data.get("pending_recording_id"), "")
         same_pending_recording = existing_id == pending_recording_id
         merged: JsonObject = {}
         if same_pending_recording:
@@ -370,7 +372,7 @@ def replace_pending_macro_slots_from_daemon(
         merged.update(data)
         token = ""
         if same_pending_recording and existing is not None:
-            token = existing.token or str_value(
+            token = existing.token or coerce_str(
                 merged.get("pending_save_token"),
                 "",
             )
@@ -462,8 +464,7 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
             "status": "error",
             "error_code": "macro_recording_slot_required",
             "message": (
-                "Macro slot playback requires a slot from 1 to "
-                f"{MAX_MACRO_RECORDING_SLOTS}."
+                f"Macro slot playback requires a slot from 1 to {MAX_MACRO_RECORDING_SLOTS}."
             ),
         }
 
@@ -492,7 +493,7 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
 
     pending_slot_state = manager.recording_state.pending_slots.get(pending_slot)
     pending_data = pending_slot_state.data if pending_slot_state is not None else {}
-    pending_recording_id = str_value(pending_data.get("pending_recording_id"), "")
+    pending_recording_id = coerce_str(pending_data.get("pending_recording_id"), "")
     if not pending_recording_id:
         return {
             "status": "error",
@@ -509,13 +510,13 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
         "loop_mode": "none",
         "loop_count": 1,
         "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-        "move_to_start": bool(pending_data.get("move_to_start", False)),
-        "start_x": int_value(pending_data.get("start_x"), 0),
-        "start_y": int_value(pending_data.get("start_y"), 0),
-        "block_mouse_movement": bool(pending_data.get("block_mouse_movement", False)),
+        "move_to_start": coerce_bool(pending_data.get("move_to_start"), False),
+        "start_x": coerce_int(pending_data.get("start_x"), 0),
+        "start_y": coerce_int(pending_data.get("start_y"), 0),
+        "block_mouse_movement": coerce_bool(pending_data.get("block_mouse_movement"), False),
         "source_device": str(data.get("source_device", "") or ""),
         "source_button": str(data.get("source_button", "") or ""),
-        "trigger_value": int_value(data.get("trigger_value"), 1),
+        "trigger_value": coerce_int(data.get("trigger_value"), 1),
     }
     try:
         result = await manager.client.send_command(
@@ -565,7 +566,7 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Jso
                 )
                 or "none"
             ),
-            "loop_count": int_value(
+            "loop_count": coerce_int(
                 data.get(
                     "macro_loop_count",
                     data.get("loop_count", (macro or {}).get("loop_count")),
@@ -581,32 +582,34 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Jso
                     ),
                 )
             ),
-            "move_to_start": bool(
+            "move_to_start": coerce_bool(
                 data.get(
                     "macro_move_to_start",
                     data.get("move_to_start", (macro or {}).get("move_to_start", False)),
-                )
+                ),
+                False,
             ),
-            "start_x": int_value(
+            "start_x": coerce_int(
                 data.get("macro_start_x", data.get("start_x", (macro or {}).get("start_x"))),
                 0,
             ),
-            "start_y": int_value(
+            "start_y": coerce_int(
                 data.get("macro_start_y", data.get("start_y", (macro or {}).get("start_y"))),
                 0,
             ),
-            "block_mouse_movement": bool(
+            "block_mouse_movement": coerce_bool(
                 data.get(
                     "macro_block_mouse_movement",
                     data.get(
                         "block_mouse_movement",
                         (macro or {}).get("block_mouse_movement", False),
                     ),
-                )
+                ),
+                False,
             ),
             "source_device": str(data.get("source_device", "") or ""),
             "source_button": str(data.get("source_button", "") or ""),
-            "trigger_value": int_value(data.get("trigger_value"), 1),
+            "trigger_value": coerce_int(data.get("trigger_value"), 1),
         }
 
         result = await manager.client.send_command(
@@ -642,9 +645,9 @@ def sanitize_macro_for_policy(manager: "SessionManager", macro: JsonObject) -> J
         if event_data is None:
             continue
         item = dict(event_data)
-        action = str_value(item.get("macro_action"), "").lower()
+        action = coerce_str(item.get("macro_action"), "").lower()
         if action == "exec_sync":
-            timeout_ms = int_value(item.get("timeout_ms"), max_timeout)
+            timeout_ms = coerce_int(item.get("timeout_ms"), max_timeout)
             item["timeout_ms"] = max(1, min(timeout_ms, max_timeout))
         sanitized.append(item)
     cloned["events"] = sanitized
@@ -665,8 +668,7 @@ async def start_recording(
             "status": "error",
             "error_code": "macro_recording_slot_required",
             "message": (
-                "Macro recording requires an explicit slot from 1 to "
-                f"{MAX_MACRO_RECORDING_SLOTS}."
+                f"Macro recording requires an explicit slot from 1 to {MAX_MACRO_RECORDING_SLOTS}."
             ),
         }
 
@@ -710,9 +712,7 @@ async def start_recording(
         log.debug("Recording start using empty/uninitialized recording device cache")
     devices = list(manager.recording_state.selected_devices_cache)
     recording_ids = list(
-        dict.fromkeys(
-            current_id for d in devices if (current_id := recording_device_id(d))
-        )
+        dict.fromkeys(current_id for d in devices if (current_id := recording_device_id(d)))
     )
     log.debug(
         "recording start device selection: types=%s overrides=%r recording_ids=%s devices=%s",
@@ -816,7 +816,7 @@ async def save_recording(
 
     pending_slot = manager.recording_state.pending_slots.get(slot)
     data = pending_slot.data if pending_slot is not None else {}
-    pending_recording_id = str_value(data.get("pending_recording_id"), "")
+    pending_recording_id = coerce_str(data.get("pending_recording_id"), "")
     if not pending_recording_id:
         return {"status": "error", "message": "No pending recording"}
 
@@ -862,10 +862,10 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
         pending_slot = manager.recording_state.pending_slots[slot]
         data = pending_slot.data
         token = pending_slot.token
-        duration_ms = int_value(data.get("duration_ms"), 0)
-        duration_us = int_value(data.get("duration_us"), duration_ms * 1000)
+        duration_ms = coerce_int(data.get("duration_ms"), 0)
+        duration_us = coerce_int(data.get("duration_us"), duration_ms * 1000)
         device_types = [str(value) for value in json_list(data.get("device_types"))]
-        event_count = int_value(data.get("event_count"), 0)
+        event_count = coerce_int(data.get("event_count"), 0)
         pending = True
         playable = True
         out.append(
@@ -882,10 +882,10 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
                 "duration_ms": duration_ms,
                 "device_types": device_types,
                 "event_count": event_count,
-                "move_to_start": bool(data.get("move_to_start", False)),
-                "start_x": int_value(data.get("start_x"), 0),
-                "start_y": int_value(data.get("start_y"), 0),
-                "block_mouse_movement": bool(data.get("block_mouse_movement", False)),
+                "move_to_start": coerce_bool(data.get("move_to_start"), False),
+                "start_x": coerce_int(data.get("start_x"), 0),
+                "start_y": coerce_int(data.get("start_y"), 0),
+                "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
             }
         )
     return out

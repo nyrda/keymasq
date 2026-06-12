@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
+from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
@@ -22,18 +23,18 @@ from . import device_inspector as runtime_device_inspector
 from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import JsonObject
-from .common import int_value as _int_value
 from .common import json_list as _json_list
-from .common import str_value as _str_value
+from .constants import (
+    GRAB_RETRY_DELAY_S,
+    TOPOLOGY_REFRESH_DEBOUNCE_S,
+    TOPOLOGY_REFRESH_RETRY_S,
+)
 from .state import RuntimeProfileActivation
 
 if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
-GRAB_RETRY_DELAY_S = 5.0
-TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
-TOPOLOGY_REFRESH_RETRY_S = 1.0
 
 
 def create_event_task[TaskResult](
@@ -89,7 +90,7 @@ async def handle_event(
 
     if event_type == CommandType.ACTION_TRIGGER:
         exec_ref_raw = data.get("exec_ref")
-        exec_ref = _int_value(exec_ref_raw, -1) if exec_ref_raw is not None else None
+        exec_ref = coerce_int(exec_ref_raw, -1) if exec_ref_raw is not None else None
         if exec_ref is not None:
             binding = manager.exec_state.exec_refs.get(exec_ref)
             if binding:
@@ -246,7 +247,10 @@ async def handle_event(
                 "pending_save_token": pending_save_token,
                 "recording_slot": recording_slot,
                 "duration_ms": recording_data.get("duration_ms", 0),
-                "event_count": _int_value(recording_data.get("event_count"), 0),
+                "event_count": coerce_int(
+                    recording_data.get("event_count"),
+                    0,
+                ),
                 "device_types": recording_data.get("device_types", []),
                 "start_x": recording_data.get("start_x"),
                 "start_y": recording_data.get("start_y"),
@@ -274,8 +278,8 @@ def _notify_recording_stopped(
     recording_data: JsonObject,
 ) -> None:
     slot = normalize_macro_recording_slot(recording_slot)
-    event_count = _int_value(recording_data.get("event_count"), 0)
-    duration_ms = _int_value(recording_data.get("duration_ms"), 0)
+    event_count = coerce_int(recording_data.get("event_count"), 0)
+    duration_ms = coerce_int(recording_data.get("duration_ms"), 0)
     if duration_ms >= 1000:
         duration_text = f"{duration_ms / 1000.0:.1f}s"
     else:
@@ -603,7 +607,7 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
         policy_timeout_ms = max(1, int(manager.security_policy.macro_exec_timeout_max_ms))
         timeout_ms = max(
             1,
-            _int_value(data.get("macro_exec_timeout_ms"), policy_timeout_ms),
+            coerce_int(data.get("macro_exec_timeout_ms"), policy_timeout_ms),
         )
         timeout_ms = min(timeout_ms, policy_timeout_ms)
         returncode = await action_handler.execute_command(
@@ -714,8 +718,8 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
 
 async def on_device_connected(manager: "SessionManager", device_info: JsonObject) -> None:
     hardware_id = (
-        f"{_str_value(device_info.get('vendor_id'), '')}:"
-        f"{_str_value(device_info.get('product_id'), '')}"
+        f"{coerce_str(device_info.get('vendor_id'), '')}:"
+        f"{coerce_str(device_info.get('product_id'), '')}"
     )
     if not hardware_id or ":" not in hardware_id:
         return
@@ -734,11 +738,11 @@ async def on_device_connected(manager: "SessionManager", device_info: JsonObject
 
 
 async def on_device_disconnected(manager: "SessionManager", device_info: JsonObject) -> None:
-    hardware_id = _str_value(device_info.get("hardware_id"), "")
+    hardware_id = coerce_str(device_info.get("hardware_id"), "")
     if not hardware_id or ":" not in hardware_id:
         hardware_id = (
-            f"{_str_value(device_info.get('vendor_id'), '')}:"
-            f"{_str_value(device_info.get('product_id'), '')}"
+            f"{coerce_str(device_info.get('vendor_id'), '')}:"
+            f"{coerce_str(device_info.get('product_id'), '')}"
         )
     if not hardware_id or ":" not in hardware_id:
         return

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+
+from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
+
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.models import ActionType, ComboConfig, ComboEvent, ComboStep, MappingAction
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
@@ -182,3 +190,86 @@ def combo_search_text(combo: ComboConfig, *, profile_name: str = "") -> str:
     if combo.match_across_devices:
         parts.append("any device across devices")
     return " ".join(str(part) for part in parts if str(part or "").strip())
+
+
+def create_combo_summary_row(
+    *,
+    name: str,
+    steps: Sequence[ComboStep],
+    action: MappingAction | None,
+    subtitle: str = "",
+    read_only: bool = False,
+    tooltip: str = "",
+    step_tooltips: Sequence[str] | None = None,
+    trailing_widget: Gtk.Widget | None = None,
+) -> Gtk.ListBoxRow:
+    row = Gtk.ListBoxRow()
+    if read_only:
+        row.set_selectable(False)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    box.add_css_class("combo-row")
+    if read_only:
+        box.add_css_class("combo-row-readonly")
+
+    if subtitle:
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        name_box.set_hexpand(True)
+        name_box.set_halign(Gtk.Align.START)
+
+        name_label = _combo_row_name_label(name)
+        name_box.append(name_label)
+
+        subtitle_label = Gtk.Label(label=subtitle)
+        subtitle_label.set_halign(Gtk.Align.START)
+        subtitle_label.set_xalign(0.0)
+        subtitle_label.set_ellipsize(Pango.EllipsizeMode.END)
+        subtitle_label.add_css_class("caption")
+        subtitle_label.add_css_class("dim-label")
+        name_box.append(subtitle_label)
+        box.append(name_box)
+    else:
+        name_label = _combo_row_name_label(name)
+        name_label.set_hexpand(True)
+        box.append(name_label)
+
+    trigger_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    trigger_box.set_halign(Gtk.Align.START)
+    for index, step in enumerate(steps):
+        pill = Gtk.Label(label=combo_step_label(step))
+        pill.add_css_class("combo-step-pill")
+        if step_tooltips is not None and index < len(step_tooltips):
+            pill.set_tooltip_text(step_tooltips[index])
+        trigger_box.append(pill)
+        if index < len(steps) - 1:
+            arrow = Gtk.Label(label="\u2192")
+            arrow.add_css_class("dim-label")
+            trigger_box.append(arrow)
+    box.append(trigger_box)
+
+    action_label = Gtk.Label(label=describe_mapping_action_compact(action))
+    action_label.set_width_chars(22)
+    action_label.set_max_width_chars(22)
+    action_label.set_ellipsize(Pango.EllipsizeMode.END)
+    action_label.set_halign(Gtk.Align.END)
+    action_label.set_xalign(1.0)
+    action_label.add_css_class("dim-label")
+    action_label.add_css_class("caption")
+    box.append(action_label)
+
+    if trailing_widget is not None:
+        box.append(trailing_widget)
+
+    row.set_child(box)
+    if tooltip:
+        row.set_tooltip_text(tooltip)
+    return row
+
+
+def _combo_row_name_label(name: str) -> Gtk.Label:
+    name_label = Gtk.Label(label=name)
+    name_label.set_halign(Gtk.Align.START)
+    name_label.set_xalign(0.0)
+    name_label.set_ellipsize(Pango.EllipsizeMode.END)
+    name_label.add_css_class("heading")
+    return name_label

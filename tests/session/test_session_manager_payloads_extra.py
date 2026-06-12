@@ -229,6 +229,53 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
     }
 
 
+def test_shared_action_serializer_preserves_mode_specific_policies() -> None:
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.session.manager import payloads
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = _manager_with_superkeys()
+    exec_action = MappingAction(action_type=ActionType.EXEC, cmd="echo hi")
+    dispatch_action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_dispatcher="  workspace  ",
+        compositor_args="2",
+    )
+
+    mapping = payloads.profile_to_mapping(
+        manager,
+        ResolvedDeviceProfile(hardware_id="kbd", mappings={"exec": exec_action}),
+        "kbd",
+    )
+    exec_mapping = cast(dict[str, object], mapping["exec"])
+    combo_payload = payloads.combo_action_to_payload(
+        manager,
+        dispatch_action,
+        step_count=1,
+    )
+    combo_signature = payloads.combo_action_signature_payload(
+        manager,
+        dispatch_action,
+        step_count=1,
+    )
+
+    assert payloads.action_signature_payload(manager, exec_action, "kbd") == {
+        "action": "exec",
+        "cmd": "echo hi",
+    }
+    assert exec_mapping == {"action": "exec", "exec_ref": 1}
+    assert combo_payload == {
+        "action": "compositor_dispatch",
+        "dispatcher": "workspace",
+        "args": "2",
+    }
+    assert combo_signature == {
+        "action": "compositor_dispatch",
+        "dispatcher": "  workspace  ",
+        "args": "2",
+    }
+
+
 def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
     from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
     from keymasq.session.manager import payloads

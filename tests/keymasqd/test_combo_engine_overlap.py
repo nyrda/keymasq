@@ -204,50 +204,65 @@ def test_modifier_side_is_ignored_for_matching():
 
 
 def test_held_bindings_for_step_respects_source_specific_and_wildcard_matching():
-    engine = ComboEngine()
     held_aux = binding("key_a", hardware_id="1111:2222", source="aux")
     held_kbd = binding("key_a", hardware_id="1111:2222", source="kbd")
-    engine.prime_held_bindings({held_aux})
+    trigger = binding("key_b", hardware_id="1111:2222", source="kbd")
 
-    exact_step = RuntimeComboStep(
-        bindings=(RuntimeComboBinding("1111:2222", "key_a", "kbd"),)
-    )
-    wildcard_step = RuntimeComboStep(
-        bindings=(RuntimeComboBinding("1111:2222", "key_a", ""),)
-    )
-
-    assert engine._held_bindings_for_step(exact_step) is None
-
-    wildcard_match = engine._held_bindings_for_step(wildcard_step)
-    assert wildcard_match == {held_aux}
+    exact_binding = RuntimeComboBinding("1111:2222", "key_a", "kbd")
+    wildcard_binding = RuntimeComboBinding("1111:2222", "key_a", "")
 
     engine = ComboEngine()
-    engine.prime_held_bindings({held_kbd})
-    assert engine._held_bindings_for_step(exact_step) == {held_kbd}
+    engine.set_combos([combo("exact-source", (exact_binding, trigger))])
+    engine.prime_held_bindings({held_aux})
+    exact_aux = handle_combo_event(engine, trigger, 1, 0.0)
+    assert exact_aux.consume_current_event is False
+    assert exact_aux.action_transition is None
 
-    wildcard_match = engine._held_bindings_for_step(wildcard_step)
-    assert wildcard_match == {held_kbd}
+    engine = ComboEngine()
+    engine.set_combos([combo("wildcard-source", (wildcard_binding, trigger))])
+    engine.prime_held_bindings({held_aux})
+    wildcard_aux = handle_combo_event(engine, trigger, 1, 0.0)
+    assert wildcard_aux.consume_current_event is True
+    assert wildcard_aux.action_transition is not None
+    assert wildcard_aux.action_transition.combo_id == "wildcard-source"
+
+    engine = ComboEngine()
+    engine.set_combos([combo("exact-source", (exact_binding, trigger))])
+    engine.prime_held_bindings({held_kbd})
+    exact_kbd = handle_combo_event(engine, trigger, 1, 0.0)
+    assert exact_kbd.consume_current_event is True
+    assert exact_kbd.action_transition is not None
+    assert exact_kbd.action_transition.combo_id == "exact-source"
+
+    engine = ComboEngine()
+    engine.set_combos([combo("wildcard-source", (wildcard_binding, trigger))])
+    engine.prime_held_bindings({held_kbd})
+    wildcard_kbd = handle_combo_event(engine, trigger, 1, 0.0)
+    assert wildcard_kbd.consume_current_event is True
+    assert wildcard_kbd.action_transition is not None
+    assert wildcard_kbd.action_transition.combo_id == "wildcard-source"
 
 
 def test_held_bindings_for_step_respects_hardware_wildcard_matching():
-    engine = ComboEngine()
     held_first = binding("key_leftalt", hardware_id="1111:2222", source="kbd")
     held_second = binding("key_leftalt", hardware_id="3333:4444", source="kbd")
+    trigger = binding("key_b", hardware_id="5555:6666", source="kbd")
+
+    source_specific = RuntimeComboBinding("", "key_leftalt", "kbd")
+    source_wildcard = RuntimeComboBinding("", "key_leftalt", "")
+
+    engine = ComboEngine()
+    engine.set_combos([combo("source-specific", (source_specific, trigger))])
     engine.prime_held_bindings({held_first, held_second})
+    specific_press = handle_combo_event(engine, trigger, 1, 0.0)
+    assert specific_press.consume_current_event is True
+    assert specific_press.action_transition is not None
+    assert specific_press.action_transition.combo_id == "source-specific"
 
-    source_specific = RuntimeComboStep(
-        bindings=(RuntimeComboBinding("", "key_leftalt", "kbd"),)
-    )
-    source_wildcard = RuntimeComboStep(
-        bindings=(RuntimeComboBinding("", "key_leftalt", ""),)
-    )
-
-    source_specific_match = engine._held_bindings_for_step(source_specific)
-    assert source_specific_match is not None
-    assert len(source_specific_match) == 1
-    assert next(iter(source_specific_match)) in {held_first, held_second}
-
-    source_wildcard_match = engine._held_bindings_for_step(source_wildcard)
-    assert source_wildcard_match is not None
-    assert len(source_wildcard_match) == 1
-    assert next(iter(source_wildcard_match)) in {held_first, held_second}
+    engine = ComboEngine()
+    engine.set_combos([combo("source-wildcard", (source_wildcard, trigger))])
+    engine.prime_held_bindings({held_first, held_second})
+    wildcard_press = handle_combo_event(engine, trigger, 1, 0.0)
+    assert wildcard_press.consume_current_event is True
+    assert wildcard_press.action_transition is not None
+    assert wildcard_press.action_transition.combo_id == "source-wildcard"

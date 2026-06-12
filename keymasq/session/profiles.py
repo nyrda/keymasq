@@ -11,8 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common import paths
-from keymasq.common.coercion import int_value as _int_value
-from keymasq.common.coercion import optional_str as _optional_str
+from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.combos import normalize_combo_evdev, normalize_combo_restore_keys
 from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.models import (
@@ -45,6 +44,7 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 
 def _as_toml_list(value: object) -> list[object]:
     return cast(list[object], value) if isinstance(value, list) else []
+
 
 @dataclass
 class ProfileInfo:
@@ -247,14 +247,21 @@ class ProfileManager:
                     mappings=mappings,
                 )
 
+        activation_macro_name = coerce_str(profile.get("activation_macro"), None)
+        if activation_macro_name is not None:
+            activation_macro_name = activation_macro_name.strip() or None
+        deactivation_macro_name = coerce_str(profile.get("deactivation_macro"), None)
+        if deactivation_macro_name is not None:
+            deactivation_macro_name = deactivation_macro_name.strip() or None
+
         config = ProfileConfig(
             name=str(profile.get("name", path.stem)),
             enabled=bool(profile.get("enabled", True)),
             is_permanent=bool(profile.get("is_permanent", False)),
-            priority=_int_value(profile.get("priority"), 0),
+            priority=coerce_int(profile.get("priority"), 0),
             notify_on_activation=bool(profile.get("notify_on_activation", True)),
-            activation_macro_name=_optional_str(profile.get("activation_macro")),
-            deactivation_macro_name=_optional_str(profile.get("deactivation_macro")),
+            activation_macro_name=activation_macro_name,
+            deactivation_macro_name=deactivation_macro_name,
             window_rules=window_rules,
             device_layers=device_layers,
             combos=self._parse_combos(data.get("combos", [])),
@@ -365,12 +372,9 @@ class ProfileManager:
                 if name:
                     analog_control_names.append(name)
             if analog_control_names:
-                if (
-                    self._analog_control_manager
-                    and any(
-                        self._analog_control_manager.get_analog_control(name) is None
-                        for name in analog_control_names
-                    )
+                if self._analog_control_manager and any(
+                    self._analog_control_manager.get_analog_control(name) is None
+                    for name in analog_control_names
                 ):
                     missing = next(
                         name
@@ -441,7 +445,9 @@ class ProfileManager:
                             )
                     if events:
                         timeout_raw = step_dict.get("timeout_ms")
-                        timeout_ms = _int_value(timeout_raw, 0) if timeout_raw is not None else None
+                        timeout_ms = (
+                            coerce_int(timeout_raw, 0) if timeout_raw is not None else None
+                        )
                         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))
 
             action_data = combo_dict.get("action")
@@ -466,9 +472,7 @@ class ProfileManager:
                     restore_trigger_keys=normalize_combo_restore_keys(
                         _as_toml_list(combo_dict.get("restore_trigger_keys", []))
                     ),
-                    match_across_devices=bool(
-                        combo_dict.get("match_across_devices", False)
-                    ),
+                    match_across_devices=bool(combo_dict.get("match_across_devices", False)),
                 )
             )
         return combos
@@ -601,9 +605,7 @@ class ProfileManager:
         known_hardware_ids = set(hardware_ids or [])
         active_profiles: list[ProfileConfig] = []
         runtime_names = [
-            str(name).strip()
-            for name in (runtime_profile_names or [])
-            if str(name).strip()
+            str(name).strip() for name in (runtime_profile_names or []) if str(name).strip()
         ]
 
         for info in self.list_profiles():
@@ -859,11 +861,7 @@ class ProfileManager:
                         if combo.restore_trigger_keys
                         else {}
                     ),
-                    **(
-                        {"match_across_devices": True}
-                        if combo.match_across_devices
-                        else {}
-                    ),
+                    **({"match_across_devices": True} if combo.match_across_devices else {}),
                 }
                 for combo in config.combos
             ]

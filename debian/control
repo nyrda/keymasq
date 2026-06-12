@@ -23,13 +23,13 @@ Depends:
  acl,
  gir1.2-adw-1,
  gir1.2-gtk-4.0,
- pkexec | policykit-1 | polkitd,
+ pkexec,
  python3-dbus-next,
  python3-evdev,
  python3-gi,
  python3-gi-cairo,
  python3-tomli-w,
-  python3-uvloop,
+ python3-uvloop,
  python3-xlib,
  systemd,
  udev
@@ -37,7 +37,7 @@ Recommends:
  slurp
 Suggests:
  gnome-shell
-Description: Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
+Description: Linux input remapper with GUI profiles and macros
  Keymasq provides a privileged remapping daemon, a per-user session manager,
  and a GTK4 configuration interface for Linux input remapping.
  .

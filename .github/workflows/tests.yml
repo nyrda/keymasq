@@ -194,11 +194,8 @@ jobs:
           set -euo pipefail
           source scripts/ci-targets.sh
 
-          pytest_workers="${KEYMASQ_CI_PYTEST_WORKERS:-auto}"
           pytest_args=(-q -ra --tb=short)
-          if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
-            pytest_args+=(-n "$pytest_workers")
-          fi
+          keymasq_ci_append_pytest_workers pytest_args KEYMASQ_CI_PYTEST_WORKERS auto
 
           if [[ "$FULL_PYTEST" == "true" ]]; then
             nix develop .#ci -c pytest tests "${pytest_args[@]}" --ignore=tests/gui -m "not gui"
@@ -257,11 +254,8 @@ jobs:
             source scripts/ci-targets.sh
             keymasq_ci_validate_targets "${KEYMASQ_GUI_TEST_TARGETS[@]}"
 
-            pytest_workers="${KEYMASQ_CI_GUI_PYTEST_WORKERS:-1}"
             pytest_args=(-q -ra --tb=short -m gui)
-            if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
-              pytest_args+=(-n "$pytest_workers")
-            fi
+            keymasq_ci_append_pytest_workers pytest_args KEYMASQ_CI_GUI_PYTEST_WORKERS 1
 
             export DISPLAY=:99
             export GDK_BACKEND=x11

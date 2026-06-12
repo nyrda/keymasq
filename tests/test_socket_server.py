@@ -15,37 +15,12 @@ from keymasq.common.ipc import (
     encode_command,
 )
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
-
-
-class _BroadcastWriter:
-    def __init__(
-        self,
-        *,
-        drain_waiter: asyncio.Event | None = None,
-        drain_error: Exception | None = None,
-    ) -> None:
-        self.writes: list[bytes] = []
-        self.drain_calls = 0
-        self.closed = False
-        self.wait_closed_calls = 0
-        self._drain_waiter = drain_waiter
-        self._drain_error = drain_error
-
-    def write(self, data: bytes) -> None:
-        self.writes.append(data)
-
-    async def drain(self) -> None:
-        self.drain_calls += 1
-        if self._drain_error is not None:
-            raise self._drain_error
-        if self._drain_waiter is not None:
-            await self._drain_waiter.wait()
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        self.wait_closed_calls += 1
+from tests.async_fakes import (
+    FakeStreamWriter as _BroadcastWriter,
+)
+from tests.async_fakes import (
+    HangingStreamWriter as _HangingCloseWriter,
+)
 
 
 class _DropClientWriter(_BroadcastWriter):
@@ -61,20 +36,6 @@ class _DropClientWriter(_BroadcastWriter):
         await super().wait_closed()
         if self._on_wait_closed is not None:
             await self._on_wait_closed()
-
-
-class _HangingCloseWriter(_BroadcastWriter):
-    def __init__(self) -> None:
-        super().__init__()
-        self.abort_calls = 0
-        self.transport = self
-
-    async def wait_closed(self) -> None:
-        self.wait_closed_calls += 1
-        await asyncio.Event().wait()
-
-    def abort(self) -> None:
-        self.abort_calls += 1
 
 
 class MockCommandHandler:

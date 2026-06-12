@@ -252,10 +252,6 @@ def _close_passthrough_uinput(
             )
     except Exception:
         log.exception("Unexpected failure closing passthrough uinput during %s", context)
-    try:
-        runtime_outputs.unregister_passthrough_frame_output(uinput)
-    except Exception:
-        log.exception("Failed to unregister passthrough output during %s", context)
 
 
 class GrabbedDevice:

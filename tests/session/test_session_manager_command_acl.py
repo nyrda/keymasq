@@ -6,6 +6,7 @@ import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
 import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.security import PeerCredentials, SecurityPolicy
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager import SessionManager
@@ -69,7 +70,7 @@ async def test_sensitive_command_rejects_refresh_owner_when_unlock_expired(
         return_value={"unlocked": False, "source": "none", "expires_at": 0}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )

@@ -1,9 +1,24 @@
 # ruff: noqa: E402, I001
 import pytest
 
+from tests.gui.support import SessionIpcHarness
+
 gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _diagnostics_request_handler(payload, callback, _timeout):
+    return callback(
+        {
+            "status": "ok",
+            "data": {
+                "enabled": bool(payload["enabled"]),
+                "interval": payload["interval"],
+                "categories": payload["categories"],
+            },
+        }
+    )
 
 
 def test_diagnostics_format_helpers() -> None:
@@ -24,43 +39,18 @@ def test_diagnostics_dialog_sends_settings_and_renders_snapshot(monkeypatch) -> 
     import keymasq.gui.widgets.diagnostics_dialog as dialog_module
     from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog
 
-    sent: list[dict[str, object]] = []
-    registered: list[tuple[str, object]] = []
-    unregistered: list[tuple[str, object]] = []
-
-    def fake_request_async(payload, callback, timeout=5.0):
-        sent.append(payload)
-        return callback(
-            {
-                "status": "ok",
-                "data": {
-                    "enabled": bool(payload["enabled"]),
-                    "interval": payload["interval"],
-                    "categories": payload["categories"],
-                },
-            }
-        )
-
-    monkeypatch.setattr(dialog_module, "session_request_async", fake_request_async)
-    monkeypatch.setattr(
-        dialog_module,
-        "register_session_event_callback",
-        lambda event, callback: registered.append((event, callback)),
-    )
-    monkeypatch.setattr(
-        dialog_module,
-        "unregister_session_event_callback",
-        lambda event, callback: unregistered.append((event, callback)),
+    session = SessionIpcHarness(request_handler=_diagnostics_request_handler).install(
+        monkeypatch, dialog_module
     )
 
     dialog = DiagnosticsDialog(Gtk.Window())
-    assert registered and registered[0][0] == "diagnostics_snapshot"
+    assert session.callbacks["diagnostics_snapshot"] == [dialog._on_diagnostics_snapshot]
     assert dialog._docs_button.get_tooltip_text() == "Open Diagnostics documentation"
 
     dialog._category_checks["combo"].set_active(True)
     dialog._enable_switch.set_active(True)
 
-    assert sent[-1] == {
+    assert session.requests[-1] == {
         "command": "set_diagnostics",
         "enabled": True,
         "interval": 5.0,
@@ -93,10 +83,12 @@ def test_diagnostics_dialog_sends_settings_and_renders_snapshot(monkeypatch) -> 
     assert "OS scheduling noise" in (cells["max"].get_tooltip_text() or "")
     assert cells["max"].has_css_class("dim-label")
 
-    sent.clear()
+    session.requests.clear()
     dialog._on_closed(dialog)
-    assert unregistered == [("diagnostics_snapshot", dialog._on_diagnostics_snapshot)]
-    assert sent == [
+    assert session.unregistered == [
+        ("diagnostics_snapshot", dialog._on_diagnostics_snapshot)
+    ]
+    assert session.requests == [
         {
             "command": "set_diagnostics",
             "enabled": False,
@@ -110,24 +102,8 @@ def test_diagnostics_sort_by_priority(monkeypatch) -> None:
     import keymasq.gui.widgets.diagnostics_dialog as dialog_module
     from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog, _label_sort_key
 
-    def fake_request_async(payload, callback, timeout=5.0):
-        return callback(
-            {
-                "status": "ok",
-                "data": {
-                    "enabled": bool(payload["enabled"]),
-                    "interval": payload["interval"],
-                    "categories": payload["categories"],
-                },
-            }
-        )
-
-    monkeypatch.setattr(dialog_module, "session_request_async", fake_request_async)
-    monkeypatch.setattr(
-        dialog_module, "register_session_event_callback", lambda *a: None
-    )
-    monkeypatch.setattr(
-        dialog_module, "unregister_session_event_callback", lambda *a: None
+    SessionIpcHarness(request_handler=_diagnostics_request_handler).install(
+        monkeypatch, dialog_module
     )
 
     assert _label_sort_key("passthrough_mapped") < _label_sort_key("passthrough_fast")
@@ -162,27 +138,8 @@ def test_diagnostics_reset_clears_rows(monkeypatch) -> None:
     import keymasq.gui.widgets.diagnostics_dialog as dialog_module
     from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog
 
-    sent: list[dict[str, object]] = []
-
-    def fake_request_async(payload, callback, timeout=5.0):
-        sent.append(payload)
-        return callback(
-            {
-                "status": "ok",
-                "data": {
-                    "enabled": bool(payload["enabled"]),
-                    "interval": payload["interval"],
-                    "categories": payload["categories"],
-                },
-            }
-        )
-
-    monkeypatch.setattr(dialog_module, "session_request_async", fake_request_async)
-    monkeypatch.setattr(
-        dialog_module, "register_session_event_callback", lambda *a: None
-    )
-    monkeypatch.setattr(
-        dialog_module, "unregister_session_event_callback", lambda *a: None
+    session = SessionIpcHarness(request_handler=_diagnostics_request_handler).install(
+        monkeypatch, dialog_module
     )
 
     dialog = DiagnosticsDialog(Gtk.Window())
@@ -207,12 +164,12 @@ def test_diagnostics_reset_clears_rows(monkeypatch) -> None:
     )
     assert len(dialog._rows) == 1
 
-    sent.clear()
+    session.requests.clear()
     dialog._on_reset_clicked(dialog._reset_button)
 
     assert len(dialog._rows) == 0
     assert dialog._last_snapshot_time is None
-    assert any(s["command"] == "set_diagnostics" for s in sent)
+    assert any(s["command"] == "set_diagnostics" for s in session.requests)
 
     dialog._enabled = False
     dialog._on_closed(dialog)

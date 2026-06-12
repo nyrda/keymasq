@@ -135,13 +135,32 @@ strip_log_noise() {
     -e 's/[[:space:]]+$//'
 }
 
+run_in_repo() {
+  (
+    cd "$ROOT_DIR"
+    "$@"
+  )
+}
+
+run_default_nix() {
+  run_in_repo nix develop -c "$@"
+}
+
+run_ci_nix() {
+  run_in_repo nix develop ".#ci" -c "$@"
+}
+
+run_ci_gui_nix() {
+  run_in_repo nix develop ".#ci-gui" -c "$@"
+}
+
 run_compact_check() {
   local label="$1"
-  local command="$2"
   local raw_log="$tmp_dir/${label}.raw.log"
   local clean_log="$tmp_dir/${label}.clean.log"
+  shift
 
-  if bash -lc "$command" >"$raw_log" 2>&1; then
+  if "$@" >"$raw_log" 2>&1; then
     printf '%s: ok\n' "$label"
     return 0
   fi
@@ -194,13 +213,62 @@ extract_pytest_final_summary() {
   '
 }
 
+run_pytest_gui_host() {
+  run_ci_gui_nix bash -s -- "$@" <<'EOF'
+set -euo pipefail
+export GDK_BACKEND=x11
+
+xvfb_pid=""
+for display_num in $(seq 90 150); do
+  if [[ ! -e "/tmp/.X11-unix/X${display_num}" ]]; then
+    export DISPLAY=":${display_num}"
+    break
+  fi
+done
+
+if [[ -z "${DISPLAY:-}" ]]; then
+  echo "failed to find an unused X display" >&2
+  exit 1
+fi
+
+Xvfb "$DISPLAY" -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
+xvfb_pid=$!
+trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT
+
+for _ in $(seq 1 50); do
+  if [[ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]]; then
+    break
+  fi
+  if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+    echo "Xvfb exited before accepting connections" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+
+if [[ ! -S "/tmp/.X11-unix/X${DISPLAY#:}" ]]; then
+  echo "timed out waiting for Xvfb on $DISPLAY" >&2
+  exit 1
+fi
+
+pytest "$@"
+EOF
+}
+
+run_pytest_host_command() {
+  if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
+    run_pytest_gui_host "$@"
+  else
+    run_ci_nix pytest "$@"
+  fi
+}
+
 run_pytest_host() {
-  local pytest_args="tests -q -ra --tb=short"
   local pytest_workers="${KEYMASQ_PYTEST_WORKERS:-}"
-  local command=""
   local raw_log="$tmp_dir/pytest-host.raw.log"
   local clean_log="$tmp_dir/pytest-host.clean.log"
   local summary_log="$tmp_dir/pytest-host.summary.log"
+  local -a pytest_args=(tests -q -ra --tb=short)
 
   if [[ -z "$pytest_workers" ]]; then
     pytest_workers="$(nproc 2>/dev/null || echo 1)"
@@ -210,36 +278,19 @@ run_pytest_host() {
   fi
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
-    pytest_args="$pytest_args -m $PYTEST_MARK_EXPR"
+    pytest_args+=(-m "$PYTEST_MARK_EXPR")
   fi
 
   if [[ "$CATEGORY" == "keymasqd" || "$CATEGORY" == "session" ]]; then
-    pytest_args="$pytest_args --ignore=tests/gui"
+    pytest_args+=(--ignore=tests/gui)
   fi
 
   if [[ "$pytest_workers" != "0" && "$pytest_workers" != "1" ]]; then
-    pytest_args="$pytest_args -n $pytest_workers"
-  fi
-
-  if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
-    command="
-      cd '$ROOT_DIR' && nix develop '.#ci-gui' -c bash <<'EOF'
-set -euo pipefail
-export DISPLAY=:99
-export GDK_BACKEND=x11
-Xvfb :99 -screen 0 1280x1024x24 >/tmp/keymasq-xvfb.log 2>&1 &
-xvfb_pid=\$!
-trap 'kill \"\$xvfb_pid\" 2>/dev/null || true' EXIT
-sleep 1
-pytest ${pytest_args}
-EOF
-    "
-  else
-    command="cd '$ROOT_DIR' && nix develop '.#ci' -c bash -lc 'pytest ${pytest_args}'"
+    pytest_args+=(-n "$pytest_workers")
   fi
 
   echo "pytest (${CATEGORY}):"
-  if bash -lc "$command" >"$raw_log" 2>&1; then
+  if run_pytest_host_command "${pytest_args[@]}" >"$raw_log" 2>&1; then
     strip_log_noise <"$raw_log" >"$clean_log"
     if extract_pytest_final_summary <"$clean_log" >"$summary_log"; then
       printf 'pytest: ok - '
@@ -261,15 +312,14 @@ run_pytest_vm() {
   local raw_log="$tmp_dir/pytest-vm.raw.log"
   local clean_log="$tmp_dir/pytest-vm.clean.log"
   local report_log="$tmp_dir/pytest-vm.report.log"
-  local command="cd '$ROOT_DIR' && "
+  local -a command=(nix run "${flake_ref}#checks.x86_64-linux.pytest-vm.driver" -- --keep-machine-state)
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
-    command+="KEYMASQ_PYTEST_MARK_EXPR='$PYTEST_MARK_EXPR' "
+    command=(env "KEYMASQ_PYTEST_MARK_EXPR=$PYTEST_MARK_EXPR" "${command[@]}")
   fi
-  command+="nix run '$flake_ref#checks.x86_64-linux.pytest-vm.driver' -- --keep-machine-state"
 
   echo "pytest (${CATEGORY}, vm):"
-  if bash -lc "$command" >"$raw_log" 2>&1; then
+  if run_in_repo "${command[@]}" >"$raw_log" 2>&1; then
     :
   else
     strip_log_noise <"$raw_log" >"$clean_log"
@@ -289,16 +339,16 @@ run_pytest_vm() {
   fi
 }
 
-if ! run_compact_check "ruff" "cd '$ROOT_DIR' && nix develop -c bash -lc 'ruff check keymasq tests nix/docshots'"; then
+if ! run_compact_check "ruff" run_default_nix ruff check keymasq tests nix/docshots; then
   exit 1
 fi
 
-if ! run_compact_check "basedpyright" "cd '$ROOT_DIR' && nix develop -c bash -lc 'basedpyright'"; then
+if ! run_compact_check "basedpyright" run_default_nix basedpyright; then
   exit 1
 fi
 
 if [[ "$CATEGORY" == "gui" || "$CATEGORY" == "full" ]]; then
-  if ! run_compact_check "stylelint" "cd '$ROOT_DIR' && nix develop '.#ci-gui' -c bash -lc 'stylelint \"keymasq/gui/**/*.css\"'"; then
+  if ! run_compact_check "stylelint" run_ci_gui_nix stylelint "keymasq/gui/**/*.css"; then
     exit 1
   fi
 fi

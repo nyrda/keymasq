@@ -6,9 +6,8 @@ import os
 from pathlib import Path
 
 import keymasq.session.gnome_shell as gnome_shell
-from keymasq.common.coercion import int_value as _int_value
+from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.coercion import json_object as _json_object
-from keymasq.common.coercion import str_value as _str_value
 from keymasq.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keymasq.common.security import get_peer_credentials
 from keymasq.common.types import JsonObject
@@ -268,140 +267,120 @@ class GnomeListener(WindowListener):
         details = await cls.get_support_details(dbus)
         return bool(details["supported"])
 
+    @staticmethod
+    def _support_details(
+        gnome_bridge_state: str,
+        *,
+        session_detected: bool = True,
+        extension_installed: bool = True,
+        extension_enabled: bool = False,
+        extensions_globally_disabled: bool = False,
+        supported: bool = False,
+        gnome_bridge_action: str = "",
+        warning: str = "",
+    ) -> dict[str, bool | str]:
+        return {
+            "session_detected": session_detected,
+            "extension_installed": extension_installed,
+            "extension_enabled": extension_enabled,
+            "extensions_globally_disabled": extensions_globally_disabled,
+            "supported": supported,
+            "gnome_bridge_state": gnome_bridge_state,
+            "gnome_bridge_action": gnome_bridge_action,
+            "warning": warning,
+        }
+
     @classmethod
     async def get_support_details(cls, dbus: SessionDBus | None = None) -> dict[str, bool | str]:
         if not await cls.probe_session(dbus):
-            return {
-                "session_detected": False,
-                "extension_installed": False,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_NOT_GNOME,
-                "gnome_bridge_action": "",
-                "warning": "",
-            }
+            return cls._support_details(
+                cls._BRIDGE_STATE_NOT_GNOME,
+                session_detected=False,
+                extension_installed=False,
+            )
 
         installed = cls._bridge_extension_available()
         if not installed:
-            return {
-                "session_detected": True,
-                "extension_installed": False,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_MISSING_FILES,
-                "gnome_bridge_action": "reinstall",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_MISSING_FILES,
+                extension_installed=False,
+                gnome_bridge_action="reinstall",
+                warning=(
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
                     "installed. Reinstall Keymasq or follow the GNOME setup guide to install "
                     "'gnome-bridge@keymasq.tools'."
                 ),
-            }
+            )
 
         visible = await cls._bridge_extension_visible_to_shell(dbus)
         if visible is None:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
-                "gnome_bridge_action": "refresh",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                gnome_bridge_action="refresh",
+                warning=(
                     "GNOME Shell detected, but Keymasq could not query the GNOME Shell "
                     "extension service over DBus. Refresh GNOME support once Shell is ready."
                 ),
-            }
+            )
         if visible is False:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_NOT_RESCANNED,
-                "gnome_bridge_action": "logout",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_SHELL_NOT_RESCANNED,
+                gnome_bridge_action="logout",
+                warning=(
                     "GNOME Shell detected, and the Keymasq GNOME bridge extension files are "
                     "installed, but GNOME Shell does not see the extension yet. Log out and "
                     "back in so GNOME Shell rescans installed extensions."
                 ),
-            }
+            )
 
         extensions_disabled = await cls._user_extensions_globally_disabled(dbus)
         if extensions_disabled is None:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
-                "gnome_bridge_action": "refresh",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                gnome_bridge_action="refresh",
+                warning=(
                     "GNOME Shell detected, but Keymasq could not read GNOME Shell extension "
                     "settings over DBus. Refresh GNOME support once Shell is ready."
                 ),
-            }
+            )
         if extensions_disabled is True:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": True,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_EXTENSIONS_DISABLED,
-                "gnome_bridge_action": "enable_extensions",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_EXTENSIONS_DISABLED,
+                extensions_globally_disabled=True,
+                gnome_bridge_action="enable_extensions",
+                warning=(
                     "GNOME Shell detected, but GNOME extensions are globally disabled for this "
                     "session. Re-enable shell extensions before enabling the Keymasq GNOME "
                     "bridge."
                 ),
-            }
+            )
 
         enabled = await cls._bridge_extension_enabled(dbus)
         if enabled is None:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
-                "gnome_bridge_action": "refresh",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_SHELL_DBUS_UNAVAILABLE,
+                gnome_bridge_action="refresh",
+                warning=(
                     "GNOME Shell detected, but Keymasq could not read the bridge extension "
                     "state over DBus. Refresh GNOME support once Shell is ready."
                 ),
-            }
+            )
         if enabled is False:
-            return {
-                "session_detected": True,
-                "extension_installed": True,
-                "extension_enabled": False,
-                "extensions_globally_disabled": False,
-                "supported": False,
-                "gnome_bridge_state": cls._BRIDGE_STATE_BRIDGE_DISABLED,
-                "gnome_bridge_action": "enable_bridge",
-                "warning": (
+            return cls._support_details(
+                cls._BRIDGE_STATE_BRIDGE_DISABLED,
+                gnome_bridge_action="enable_bridge",
+                warning=(
                     "GNOME Shell detected, but the Keymasq GNOME bridge extension is not "
                     "enabled. Enable 'gnome-bridge@keymasq.tools' so Keymasq can use window-aware "
                     "profiles, GNOME window actions, and native pointer positioning."
                 ),
-            }
+            )
 
-        return {
-            "session_detected": True,
-            "extension_installed": True,
-            "extension_enabled": True,
-            "extensions_globally_disabled": False,
-            "supported": True,
-            "gnome_bridge_state": cls._BRIDGE_STATE_READY,
-            "gnome_bridge_action": "",
-            "warning": "",
-        }
+        return cls._support_details(
+            cls._BRIDGE_STATE_READY,
+            extension_enabled=True,
+            supported=True,
+        )
 
     @classmethod
     async def _probe_shell_owner(cls, dbus: SessionDBus | None = None) -> bool:
@@ -573,9 +552,9 @@ class GnomeListener(WindowListener):
                 log.exception("Unexpected failure while closing GNOME bridge client writer")
 
     async def _handle_bridge_message(self, payload: JsonObject) -> None:
-        msg_type = _str_value(payload.get("type"), "")
+        msg_type = coerce_str(payload.get("type"), "")
         if msg_type == "hello":
-            protocol = _int_value(payload.get("protocol"), 0)
+            protocol = coerce_int(payload.get("protocol"), 0)
             self._bridge_protocol = protocol
             self._bridge_protocol_compatible = protocol == self._BRIDGE_PROTOCOL_VERSION
             if self._bridge_protocol_compatible:
@@ -608,7 +587,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "pointer":
-            request_id = _int_value(payload.get("request_id"), 0)
+            request_id = coerce_int(payload.get("request_id"), 0)
             future = self._pending_pointer.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -616,7 +595,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "pointer_set_result":
-            request_id = _int_value(payload.get("request_id"), 0)
+            request_id = coerce_int(payload.get("request_id"), 0)
             future = self._pending_pointer_set.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -624,7 +603,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "activated":
-            request_id = _int_value(payload.get("request_id"), 0)
+            request_id = coerce_int(payload.get("request_id"), 0)
             future = self._pending_activate.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -636,7 +615,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "active_window":
-            request_id = _int_value(payload.get("request_id"), 0)
+            request_id = coerce_int(payload.get("request_id"), 0)
             future = self._pending_window.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -644,7 +623,7 @@ class GnomeListener(WindowListener):
             return
 
         if msg_type == "dispatch_result":
-            request_id = _int_value(payload.get("request_id"), 0)
+            request_id = coerce_int(payload.get("request_id"), 0)
             future = self._pending_dispatch.pop(request_id, None)
             if future is None or future.done():
                 return
@@ -663,8 +642,8 @@ class GnomeListener(WindowListener):
         await self.callback(window_class, window_title, [])
 
     def _window_info_from_payload(self, payload: JsonObject) -> tuple[str, str]:
-        window_class = _str_value(payload.get("app_id") or payload.get("wm_class"), "")
-        window_title = _str_value(payload.get("title"), "")
+        window_class = coerce_str(payload.get("app_id") or payload.get("wm_class"), "")
+        window_title = coerce_str(payload.get("title"), "")
         return window_class, window_title
 
     def _validate_dispatch(self, dispatcher: str, args: str) -> tuple[bool, str]:
@@ -746,7 +725,7 @@ class GnomeListener(WindowListener):
         request_payload = dict(payload)
         request_payload["request_id"] = request_id
         future: asyncio.Future[JsonObject | None] = asyncio.get_running_loop().create_future()
-        msg_type = _str_value(request_payload.get("type"), "")
+        msg_type = coerce_str(request_payload.get("type"), "")
         pending_requests = self._pending_bridge_requests_for(msg_type)
         if pending_requests is None:
             return None
@@ -826,7 +805,7 @@ class GnomeListener(WindowListener):
         )
         if result is None:
             return False, "GNOME bridge not connected"
-        return bool(result.get("ok")), _str_value(result.get("message"), "")
+        return bool(result.get("ok")), coerce_str(result.get("message"), "")
 
     async def get_cursor_position(self) -> tuple[int, int] | None:
         if self._writer is None:
@@ -839,8 +818,8 @@ class GnomeListener(WindowListener):
         result = await self._send_request({"type": "get_pointer"}, timeout=0.6)
         if result is None:
             return None
-        x = _int_value(result.get("x"), 0)
-        y = _int_value(result.get("y"), 0)
+        x = coerce_int(result.get("x"), 0)
+        y = coerce_int(result.get("y"), 0)
         return x, y
 
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
@@ -860,7 +839,7 @@ class GnomeListener(WindowListener):
         )
         if result is None:
             return False, "GNOME bridge not connected"
-        return bool(result.get("ok")), _str_value(result.get("message"), "")
+        return bool(result.get("ok")), coerce_str(result.get("message"), "")
 
     async def health_check(self) -> bool:
         if not self.running:

@@ -84,32 +84,28 @@ class Response:
 HEADER_FORMAT = "!I"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 MAX_PAYLOAD_SIZE = 16 * 1024 * 1024  # 16 MiB
+_NO_PAYLOAD = object()
 
 
-def encode_command(cmd: Command) -> bytes:
-    payload = {
-        "command": cmd.command.value,
-        "data": cmd.data,
-        "request_id": cmd.request_id,
-    }
+def _encode_frame(payload: dict[str, Any]) -> bytes:
     json_bytes = json.dumps(payload).encode("utf-8")
     header = struct.pack(HEADER_FORMAT, len(json_bytes))
     return header + json_bytes
 
 
-def decode_command(data: bytes) -> tuple[Command | None, bytes]:
+def _decode_frame_payload(data: bytes) -> tuple[Any, bytes]:
     if len(data) < HEADER_SIZE:
-        return None, data
+        return _NO_PAYLOAD, data
 
     payload_len = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])[0]
     if payload_len > MAX_PAYLOAD_SIZE:
         total_len = HEADER_SIZE + payload_len
-        return None, data[total_len:] if len(data) >= total_len else b""
+        return _NO_PAYLOAD, data[total_len:] if len(data) >= total_len else b""
 
     total_len = HEADER_SIZE + payload_len
 
     if len(data) < total_len:
-        return None, data
+        return _NO_PAYLOAD, data
 
     json_bytes = data[HEADER_SIZE:total_len]
     remaining = data[total_len:]
@@ -118,6 +114,24 @@ def decode_command(data: bytes) -> tuple[Command | None, bytes]:
         payload_text = json_bytes.decode("utf-8")
         payload = json.loads(payload_text)
     except (UnicodeDecodeError, json.JSONDecodeError):
+        return _NO_PAYLOAD, remaining
+    if not isinstance(payload, dict):
+        return _NO_PAYLOAD, remaining
+    return payload, remaining
+
+
+def encode_command(cmd: Command) -> bytes:
+    payload = {
+        "command": cmd.command.value,
+        "data": cmd.data,
+        "request_id": cmd.request_id,
+    }
+    return _encode_frame(payload)
+
+
+def decode_command(data: bytes) -> tuple[Command | None, bytes]:
+    payload, remaining = _decode_frame_payload(data)
+    if payload is _NO_PAYLOAD:
         return None, remaining
 
     try:
@@ -138,32 +152,12 @@ def encode_response(resp: Response) -> bytes:
         "error": resp.error,
         "request_id": resp.request_id,
     }
-    json_bytes = json.dumps(payload).encode("utf-8")
-    header = struct.pack(HEADER_FORMAT, len(json_bytes))
-    return header + json_bytes
+    return _encode_frame(payload)
 
 
 def decode_response(data: bytes) -> tuple[Response | None, bytes]:
-    if len(data) < HEADER_SIZE:
-        return None, data
-
-    payload_len = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])[0]
-    if payload_len > MAX_PAYLOAD_SIZE:
-        total_len = HEADER_SIZE + payload_len
-        return None, data[total_len:] if len(data) >= total_len else b""
-
-    total_len = HEADER_SIZE + payload_len
-
-    if len(data) < total_len:
-        return None, data
-
-    json_bytes = data[HEADER_SIZE:total_len]
-    remaining = data[total_len:]
-
-    try:
-        payload_text = json_bytes.decode("utf-8")
-        payload = json.loads(payload_text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    payload, remaining = _decode_frame_payload(data)
+    if payload is _NO_PAYLOAD:
         return None, remaining
 
     try:

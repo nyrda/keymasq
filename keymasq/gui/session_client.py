@@ -291,8 +291,25 @@ def session_request_async(
     payload: JsonDict,
     callback: Callable[[JsonDict | None], bool | None],
     timeout: float = 5.0,
+    *,
+    on_start: Callable[[], None] | None = None,
+    on_done: Callable[[], None] | None = None,
 ) -> None:
-    session_request_with_hooks(payload, callback, timeout=timeout)
+    def _request() -> JsonDict | None:
+        return session_request(payload, timeout=timeout)
+
+    def _on_result(result: GuiTaskResult[JsonDict | None]) -> bool | None:
+        if result.ok:
+            return callback(result.value)
+        error = result.error or RuntimeError("GUI task failed without an exception")
+        return callback(_gui_task_error_payload(error))
+
+    run_gui_task(
+        _request,
+        _on_result,
+        on_start=on_start,
+        on_done=on_done,
+    )
 
 
 def run_gui_task[T](
@@ -327,38 +344,6 @@ def run_gui_task[T](
         GLib.idle_add(_dispatch)
 
     threading.Thread(target=_worker, daemon=True).start()
-
-
-def session_request_with_hooks(
-    payload: JsonDict,
-    callback: Callable[[JsonDict | None], bool | None],
-    *,
-    timeout: float = 5.0,
-    on_start: Callable[[], None] | None = None,
-    on_done: Callable[[], None] | None = None,
-) -> None:
-    def _request() -> JsonDict | None:
-        return session_request(payload, timeout=timeout)
-
-    def _on_done(result: GuiTaskResult[JsonDict | None]) -> bool | None:
-        if result.ok:
-            return callback(result.value)
-        error = result.error or RuntimeError("GUI task failed without an exception")
-        return callback(_gui_task_error_payload(error))
-
-    run_gui_task(
-        _request,
-        _on_done,
-        on_start=on_start,
-        on_done=on_done,
-    )
-
-
-def get_active_window_async(
-    callback: Callable[[JsonDict | None], bool | None],
-    timeout: float = 5.0,
-) -> None:
-    session_request_async({"command": "get_active_window"}, callback, timeout=timeout)
 
 
 def register_session_event_callback(

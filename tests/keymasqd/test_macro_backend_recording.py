@@ -471,6 +471,37 @@ async def test_recording_manager_prefers_selected_passthrough_over_grabbed_raw(
     assert result["event_count"] == 0
 
 
+def test_recording_plan_falls_back_for_empty_primary_device_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recording_module, "resolve_stable_path", lambda path: path)
+
+    extra_devices, grabbed_source_keys = recording_module._build_recording_plan(
+        [
+            {
+                "open_path": "",
+                "path": "/dev/input/event0",
+                "stable_path": "/dev/input/by-id/raw-kbd",
+                "recording_kind": "",
+                "kind": "physical",
+                "grabbed_by_keymasq": True,
+            },
+            {
+                "open_path": "",
+                "path": "/dev/input/event10",
+                "recording_kind": "",
+                "kind": "keymasq_passthrough",
+                "source_stable_path": "/dev/input/by-id/raw-kbd",
+            },
+        ]
+    )
+
+    assert [recording_module._recording_device_path(device) for device in extra_devices] == [
+        "/dev/input/event10"
+    ]
+    assert grabbed_source_keys == set()
+
+
 @pytest.mark.asyncio
 async def test_recording_manager_keeps_unrelated_grabbed_raw_when_passthrough_selected(
     monkeypatch: pytest.MonkeyPatch,

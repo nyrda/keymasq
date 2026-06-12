@@ -29,6 +29,51 @@ from tests.keymasqd.device_manager_support import (
 
 class TestEventLoopRecovery:
     @pytest.mark.asyncio
+    async def test_event_processing_dependencies_are_reused_per_loop(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        events = [
+            SimpleNamespace(type=evdev.ecodes.EV_SYN, code=0, value=0),
+            SimpleNamespace(type=evdev.ecodes.EV_SYN, code=0, value=0),
+        ]
+
+        class _FakeInputDevice:
+            async def async_read_loop(self):
+                for event in events:
+                    yield event
+
+        original_build_event_processing_deps = gde.build_event_processing_deps
+        built_deps: list[gde.EventProcessingDeps] = []
+        processed_deps: list[gde.EventProcessingDeps] = []
+
+        def fake_build_event_processing_deps(
+            *,
+            log: logging.Logger,
+        ) -> gde.EventProcessingDeps:
+            deps = original_build_event_processing_deps(log=log)
+            built_deps.append(deps)
+            return deps
+
+        async def fake_process_event(
+            _device,
+            _event,
+            *,
+            deps: gde.EventProcessingDeps,
+        ) -> None:
+            processed_deps.append(deps)
+
+        monkeypatch.setattr(gde, "build_event_processing_deps", fake_build_event_processing_deps)
+        monkeypatch.setattr(gde, "process_event", fake_process_event)
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+
+        await gde.event_loop(device, asyncio_mod=gdm.ASYNCIO_RUNTIME, log=gdm.log)
+
+        assert len(built_deps) == 1
+        assert processed_deps == [built_deps[0], built_deps[0]]
+
+    @pytest.mark.asyncio
     async def test_event_processing_error_releases_held_output_before_backoff(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -677,11 +722,6 @@ class TestDeviceManagerHelpers:
         string_action = adm.parse_action(
             manager,
             "key_a",
-            str_value=dm._str_value,
-            optional_str=dm._optional_str,
-            int_value=dm._int_value,
-            int_or_none=dm._int_or_none,
-            float_value=dm._float_value,
         )
         dispatch_action = adm.parse_action(
             manager,
@@ -691,11 +731,6 @@ class TestDeviceManagerHelpers:
                 "dispatcher": "workspace",
                 "args": "2",
             },
-            str_value=dm._str_value,
-            optional_str=dm._optional_str,
-            int_value=dm._int_value,
-            int_or_none=dm._int_or_none,
-            float_value=dm._float_value,
         )
         repeat_action = adm.parse_action(
             manager,
@@ -706,11 +741,6 @@ class TestDeviceManagerHelpers:
                 "rapidfire_hold_ms": 30,
                 "rapidfire_wait_ms": 40,
             },
-            str_value=dm._str_value,
-            optional_str=dm._optional_str,
-            int_value=dm._int_value,
-            int_or_none=dm._int_or_none,
-            float_value=dm._float_value,
         )
 
         assert string_action.action_type == ActionType.KEYBOARD
@@ -968,11 +998,6 @@ class TestDeviceManagerHelpers:
                     "rapidfire_hold_ms": 40,
                     "rapidfire_wait_ms": 60,
                 },
-                str_value=dm._str_value,
-                optional_str=dm._optional_str,
-                int_value=dm._int_value,
-                int_or_none=dm._int_or_none,
-                float_value=dm._float_value,
             )
 
         assert action.action_type == ActionType.EXEC

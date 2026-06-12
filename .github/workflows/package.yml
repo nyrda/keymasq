@@ -5,6 +5,7 @@ on:
     tags: ["v*"]
     paths:
       - ".github/workflows/package.yml"
+      - ".github/actions/test-rpm/**"
       - "CHANGELOG.md"
       - "LICENSE"
       - "PKGBUILD"
@@ -424,50 +425,6 @@ jobs:
           path: dist/*fc${{ matrix.fedora_release }}*.rpm
           if-no-files-found: error
 
-  test-rpm-fedora:
-    needs:
-      - version-metadata
-      - build-rpm-fedora
-    if: needs.version-metadata.outputs.is_stable_release != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        fedora_release: [43, 44]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
-
-      - name: Download Fedora RPM
-        if: ${{ !env.ACT }}
-        uses: actions/download-artifact@v8
-        with:
-          name: rpm-fedora-fc${{ matrix.fedora_release }}-package
-          path: dist/rpm
-
-      - name: Prepare Fedora RPM for local act run
-        if: ${{ env.ACT }}
-        run: |
-          mkdir -p dist/rpm
-          cp -f dist/*fc${{ matrix.fedora_release }}*.rpm dist/rpm/
-
-      - name: Test Fedora RPM in Fedora container
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            fedora:${{ matrix.fedora_release }} \
-            bash -lc '
-              set -euo pipefail
-              dnf install -y python3 systemd acl
-              bash packaging/rpm/ci-test-installed.sh \
-                "$(echo dist/rpm/keymasq-*fc${{ matrix.fedora_release }}*.rpm)"
-            '
-
   build-rpm-opensuse:
     needs: version-metadata
     runs-on: ubuntu-24.04
@@ -516,47 +473,6 @@ jobs:
           name: rpm-opensuse-package
           path: dist/*.opensuse.*.rpm
           if-no-files-found: error
-
-  test-rpm-opensuse:
-    needs:
-      - version-metadata
-      - build-rpm-opensuse
-    if: needs.version-metadata.outputs.is_stable_release != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
-
-      - name: Download openSUSE RPM
-        if: ${{ !env.ACT }}
-        uses: actions/download-artifact@v8
-        with:
-          name: rpm-opensuse-package
-          path: dist/rpm
-
-      - name: Prepare openSUSE RPM for local act run
-        if: ${{ env.ACT }}
-        run: |
-          mkdir -p dist/rpm
-          cp -f dist/*.opensuse.*.rpm dist/rpm/
-
-      - name: Test openSUSE RPM in openSUSE container
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            opensuse/tumbleweed:latest \
-            bash -lc '
-              set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install python3 systemd acl
-              bash packaging/rpm/ci-test-installed.sh \
-                "$(echo dist/rpm/keymasq-*.opensuse.*.rpm)"
-            '
 
   sign-rpm-packages:
     needs:
@@ -608,78 +524,73 @@ jobs:
             dist/rpm-signing-key.asc
           if-no-files-found: error
 
-  test-rpm-fedora-signed:
+  test-rpm:
+    name: Test RPM (${{ matrix.display_name }})
     needs:
       - version-metadata
+      - build-rpm-fedora
+      - build-rpm-opensuse
       - sign-rpm-packages
-    if: needs.sign-rpm-packages.result == 'success' && github.actor != 'nektos/act'
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        (
+          (
+            needs.version-metadata.outputs.is_stable_release != 'true' &&
+            needs.build-rpm-fedora.result == 'success' &&
+            needs.build-rpm-opensuse.result == 'success'
+          ) ||
+          (
+            needs.sign-rpm-packages.result == 'success' &&
+            github.actor != 'nektos/act'
+          )
+        )
+      }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        fedora_release: [43, 44]
+        include:
+          - display_name: Fedora 43
+            artifact_name: rpm-fedora-fc43-package
+            local_artifact_glob: dist/*fc43*.rpm
+            container_image: fedora:43
+            distro: fedora
+            package_glob: dist/rpm/keymasq-*fc43*.rpm
+          - display_name: Fedora 44
+            artifact_name: rpm-fedora-fc44-package
+            local_artifact_glob: dist/*fc44*.rpm
+            container_image: fedora:44
+            distro: fedora
+            package_glob: dist/rpm/keymasq-*fc44*.rpm
+          - display_name: openSUSE
+            artifact_name: rpm-opensuse-package
+            local_artifact_glob: dist/*.opensuse.*.rpm
+            container_image: opensuse/tumbleweed:latest
+            distro: opensuse
+            package_glob: dist/rpm/keymasq-*.opensuse.*.rpm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
-      - name: Download signed RPM artifacts
-        uses: actions/download-artifact@v8
+      - name: Test RPM
+        uses: ./.github/actions/test-rpm
         with:
-          name: rpm-signed-packages
-          path: dist/rpm
-
-      - name: Test signed Fedora RPM in Fedora container
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            fedora:${{ matrix.fedora_release }} \
-            bash -lc '
-              set -euo pipefail
-              dnf install -y python3 systemd acl
-              KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH=dist/rpm/rpm-signing-key.asc \
-                bash packaging/rpm/ci-test-installed.sh \
-                "$(echo dist/rpm/keymasq-*fc${{ matrix.fedora_release }}*.rpm)"
-            '
-
-  test-rpm-opensuse-signed:
-    needs:
-      - version-metadata
-      - sign-rpm-packages
-    if: needs.sign-rpm-packages.result == 'success' && github.actor != 'nektos/act'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
-
-      - name: Download signed RPM artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: rpm-signed-packages
-          path: dist/rpm
-
-      - name: Test signed openSUSE RPM in openSUSE container
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            opensuse/tumbleweed:latest \
-            bash -lc '
-              set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install python3 systemd acl
-              KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH=dist/rpm/rpm-signing-key.asc \
-                bash packaging/rpm/ci-test-installed.sh \
-                "$(echo dist/rpm/keymasq-*.opensuse.*.rpm)"
-            '
+          artifact-name: ${{ needs.version-metadata.outputs.is_stable_release == 'true' && 'rpm-signed-packages' || matrix.artifact_name }}
+          local-artifact-glob: ${{ matrix.local_artifact_glob }}
+          container-image: ${{ matrix.container_image }}
+          distro: ${{ matrix.distro }}
+          package-glob: ${{ matrix.package_glob }}
+          signing-public-key-path: ${{ needs.version-metadata.outputs.is_stable_release == 'true' && 'dist/rpm/rpm-signing-key.asc' || '' }}
 
   release:
     needs:
@@ -690,8 +601,7 @@ jobs:
       - build-deb
       - test-deb
       - sign-rpm-packages
-      - test-rpm-fedora-signed
-      - test-rpm-opensuse-signed
+      - test-rpm
     if: needs.version-metadata.outputs.is_stable_release == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:
@@ -756,9 +666,8 @@ jobs:
       - build-deb
       - test-deb
       - build-rpm-fedora
-      - test-rpm-fedora
       - build-rpm-opensuse
-      - test-rpm-opensuse
+      - test-rpm
     if: needs.version-metadata.outputs.is_manual_prerelease == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     permissions:

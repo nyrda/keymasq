@@ -6,6 +6,38 @@ cd "$ROOT_DIR"
 
 SYSTEM="x86_64-linux"
 
+DAEMON_SESSION_TEST_ENTRY="daemon-session|daemon-session-integration-test|daemon/session runtime integration suite|daemon-session-integration"
+LISTENER_TEST_ENTRIES=(
+  "gnome-bridge|listener-vm-gnome-bridge|GNOME Shell bridge listener preflight|"
+  "gnome|listener-vm-gnome|GNOME listener|"
+  "kde|listener-vm-kde|KDE Plasma listener|plasma"
+  "hyprland|listener-vm-hyprland|Hyprland listener|"
+  "niri|listener-vm-niri|Niri listener|"
+  "xfce|listener-vm-xfce|X11/XFCE listener|x11"
+  "cosmic|listener-vm-cosmic|COSMIC listener|"
+  "sway|listener-vm-sway|wlroots/Sway listener|wayland wlroots"
+)
+INTEGRATION_TEST_ENTRIES=(
+  "$DAEMON_SESSION_TEST_ENTRY"
+  "${LISTENER_TEST_ENTRIES[@]}"
+)
+
+print_test_entry() {
+  local entry="$1"
+  local name check_name description aliases
+  IFS='|' read -r name check_name description aliases <<< "$entry"
+  printf '  %-15s %s\n' "$name" "$description"
+}
+
+print_test_names() {
+  local entry
+  local name check_name description aliases
+  for entry in "$@"; do
+    IFS='|' read -r name check_name description aliases <<< "$entry"
+    printf '%s\n' "$name"
+  done
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/integration.sh [test ...]
@@ -13,15 +45,11 @@ Usage: ./scripts/integration.sh [test ...]
 Runs Keymasq NixOS VM integration checks through nix build.
 
 Tests:
-  daemon-session  daemon/session runtime integration suite
-  gnome-bridge    GNOME Shell bridge listener preflight
-  gnome           GNOME listener
-  kde             KDE Plasma listener
-  hyprland        Hyprland listener
-  niri            Niri listener
-  xfce            X11/XFCE listener
-  cosmic          COSMIC listener
-  sway            wlroots/Sway listener
+EOF
+  for entry in "${INTEGRATION_TEST_ENTRIES[@]}"; do
+    print_test_entry "$entry"
+  done
+  cat <<'EOF'
   listeners       all listener VM tests
   all             daemon-session plus all listener VM tests
 
@@ -42,64 +70,34 @@ EOF
 }
 
 check_name_for_test() {
-  case "$1" in
-    daemon-session|daemon-session-integration|daemon-session-integration-test)
-      printf '%s\n' "daemon-session-integration-test"
-      ;;
-    gnome-bridge|listener-vm-gnome-bridge)
-      printf '%s\n' "listener-vm-gnome-bridge"
-      ;;
-    gnome|listener-vm-gnome)
-      printf '%s\n' "listener-vm-gnome"
-      ;;
-    kde|plasma|listener-vm-kde)
-      printf '%s\n' "listener-vm-kde"
-      ;;
-    hyprland|listener-vm-hyprland)
-      printf '%s\n' "listener-vm-hyprland"
-      ;;
-    niri|listener-vm-niri)
-      printf '%s\n' "listener-vm-niri"
-      ;;
-    xfce|x11|listener-vm-xfce)
-      printf '%s\n' "listener-vm-xfce"
-      ;;
-    cosmic|listener-vm-cosmic)
-      printf '%s\n' "listener-vm-cosmic"
-      ;;
-    sway|wayland|wlroots|listener-vm-sway)
-      printf '%s\n' "listener-vm-sway"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  local requested="$1"
+  local entry
+  local name check_name description aliases alias
+
+  for entry in "${INTEGRATION_TEST_ENTRIES[@]}"; do
+    IFS='|' read -r name check_name description aliases <<< "$entry"
+    if [[ "$requested" == "$name" || "$requested" == "$check_name" ]]; then
+      printf '%s\n' "$check_name"
+      return 0
+    fi
+    for alias in $aliases; do
+      if [[ "$requested" == "$alias" ]]; then
+        printf '%s\n' "$check_name"
+        return 0
+      fi
+    done
+  done
+
+  return 1
 }
 
 expand_group() {
   case "$1" in
     listeners)
-      printf '%s\n' \
-        gnome-bridge \
-        gnome \
-        kde \
-        hyprland \
-        niri \
-        xfce \
-        cosmic \
-        sway
+      print_test_names "${LISTENER_TEST_ENTRIES[@]}"
       ;;
     all)
-      printf '%s\n' \
-        daemon-session \
-        gnome-bridge \
-        gnome \
-        kde \
-        hyprland \
-        niri \
-        xfce \
-        cosmic \
-        sway
+      print_test_names "$DAEMON_SESSION_TEST_ENTRY" "${LISTENER_TEST_ENTRIES[@]}"
       ;;
     *)
       printf '%s\n' "$1"

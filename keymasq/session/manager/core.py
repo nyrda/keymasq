@@ -49,6 +49,7 @@ from keymasq.session.superkeys import SuperkeyManager
 
 from . import commands as session_commands
 from . import compositor as runtime_compositor
+from . import constants as manager_constants
 from . import device_inspector as runtime_device_inspector
 from . import events as runtime_events
 from . import profiles as runtime_profiles
@@ -67,10 +68,10 @@ from .state import (
 
 log = logging.getLogger("keymasq-session")
 _TASK_SHUTDOWN_ERRORS = (asyncio.CancelledError, OSError, RuntimeError)
-GRAB_DEVICE_TIMEOUT_S = 330.0
-GRAB_RETRY_DELAY_S = 5.0
-TOPOLOGY_REFRESH_DEBOUNCE_S = 0.5
-TOPOLOGY_REFRESH_RETRY_S = 1.0
+GRAB_DEVICE_TIMEOUT_S = manager_constants.GRAB_DEVICE_TIMEOUT_S
+GRAB_RETRY_DELAY_S = manager_constants.GRAB_RETRY_DELAY_S
+TOPOLOGY_REFRESH_DEBOUNCE_S = manager_constants.TOPOLOGY_REFRESH_DEBOUNCE_S
+TOPOLOGY_REFRESH_RETRY_S = manager_constants.TOPOLOGY_REFRESH_RETRY_S
 CONFIG_RELOAD_DEBOUNCE_S = 0.5
 IN_ACCESS = 0x00000001
 IN_ATTRIB = 0x00000004

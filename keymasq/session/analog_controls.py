@@ -8,8 +8,7 @@ from typing import BinaryIO, cast
 import tomli_w
 
 from keymasq.common import paths
-from keymasq.common.coercion import float_value as _float_value
-from keymasq.common.coercion import int_value as _int_value
+from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.models import (
     ActionType,
@@ -48,6 +47,7 @@ def _as_toml_dict(value: object) -> TomlDict | None:
 def _toml_str(data: TomlDict, key: str, default: str | None = None) -> str | None:
     value = data.get(key, default)
     return value if isinstance(value, str) else default
+
 
 class AnalogControlManager:
     def __init__(self) -> None:
@@ -132,45 +132,57 @@ class AnalogControlManager:
             mouse_motion=AnalogMouseMotionConfig(
                 enabled=bool(mouse_data.get("enabled", False)),
                 mode=_toml_str(mouse_data, "mode", "velocity") or "velocity",
-                speed=_float_value(mouse_data.get("speed"), 900.0),
+                speed=coerce_float(mouse_data.get("speed"), 900.0),
                 speed_x=(
-                    _float_value(mouse_data.get("speed_x"), 900.0)
+                    coerce_float(mouse_data.get("speed_x"), 900.0)
                     if "speed_x" in mouse_data
                     else None
                 ),
                 speed_y=(
-                    _float_value(mouse_data.get("speed_y"), 900.0)
+                    coerce_float(mouse_data.get("speed_y"), 900.0)
                     if "speed_y" in mouse_data
                     else None
                 ),
-                area_radius_x=_float_value(mouse_data.get("area_radius_x"), 400.0),
-                area_radius_y=_float_value(mouse_data.get("area_radius_y"), 400.0),
+                area_radius_x=coerce_float(
+                    mouse_data.get("area_radius_x"),
+                    400.0,
+                ),
+                area_radius_y=coerce_float(
+                    mouse_data.get("area_radius_y"),
+                    400.0,
+                ),
                 area_start_enabled=bool(mouse_data.get("area_start_enabled", False)),
-                area_start_x=_int_value(mouse_data.get("area_start_x"), 0),
-                area_start_y=_int_value(mouse_data.get("area_start_y"), 0),
-                deadzone=_float_value(mouse_data.get("deadzone"), 0.15),
-                sensitivity=_float_value(mouse_data.get("sensitivity"), 1.0),
-                response_curve=_float_value(mouse_data.get("response_curve"), 1.0),
+                area_start_x=coerce_int(mouse_data.get("area_start_x"), 0),
+                area_start_y=coerce_int(mouse_data.get("area_start_y"), 0),
+                deadzone=coerce_float(mouse_data.get("deadzone"), 0.15),
+                sensitivity=coerce_float(mouse_data.get("sensitivity"), 1.0),
+                response_curve=coerce_float(
+                    mouse_data.get("response_curve"),
+                    1.0,
+                ),
                 direction=_toml_str(mouse_data, "direction", "right") or "right",
                 invert_x=bool(mouse_data.get("invert_x", False)),
                 invert_y=bool(mouse_data.get("invert_y", False)),
-                tick_ms=_int_value(mouse_data.get("tick_ms"), 8),
+                tick_ms=coerce_int(mouse_data.get("tick_ms"), 8),
             ),
             gamepad_output=AnalogGamepadOutputConfig(
                 enabled=bool(gamepad_data.get("enabled", False)),
                 output_id=_toml_str(gamepad_data, "output_id"),
-                deadzone=_float_value(gamepad_data.get("deadzone"), 0.0),
+                deadzone=coerce_float(gamepad_data.get("deadzone"), 0.0),
                 target=_toml_str(gamepad_data, "target", "same") or "same",
                 target_analog_id=_toml_str(gamepad_data, "target_analog_id"),
                 output_rest=(
-                    _int_value(gamepad_data.get("output_rest"), 0)
+                    coerce_int(gamepad_data.get("output_rest"), 0)
                     if gamepad_data.get("output_rest") is not None
                     else None
                 ),
                 output_direction=_toml_str(gamepad_data, "output_direction", "max") or "max",
                 output_invert=bool(gamepad_data.get("output_invert", False)),
-                sensitivity=_float_value(gamepad_data.get("sensitivity"), 1.0),
-                response_curve=_float_value(gamepad_data.get("response_curve"), 1.0),
+                sensitivity=coerce_float(gamepad_data.get("sensitivity"), 1.0),
+                response_curve=coerce_float(
+                    gamepad_data.get("response_curve"),
+                    1.0,
+                ),
             ),
             thresholds=thresholds,
         )
@@ -189,10 +201,10 @@ class AnalogControlManager:
                 actions.append(self._parse_mapping_action(action_data))
         return AnalogActionThreshold(
             axis=str(data.get("axis", "") or ""),
-            trigger_min=_float_value(data.get("trigger_min"), 0.0),
-            trigger_max=_float_value(data.get("trigger_max"), 0.0),
-            release_min=_float_value(data.get("release_min"), 0.0),
-            release_max=_float_value(data.get("release_max"), 0.0),
+            trigger_min=coerce_float(data.get("trigger_min"), 0.0),
+            trigger_max=coerce_float(data.get("trigger_max"), 0.0),
+            release_min=coerce_float(data.get("release_min"), 0.0),
+            release_max=coerce_float(data.get("release_max"), 0.0),
             actions=actions,
         )
 
@@ -262,8 +274,10 @@ class AnalogControlManager:
                 raise ValueError(f"Analog control '{config.name}' already exists")
             path = self._path_for_name(config.name)
         else:
-            path = existing_entry.path if existing_entry is not None else self._path_for_name(
-                config.name
+            path = (
+                existing_entry.path
+                if existing_entry is not None
+                else self._path_for_name(config.name)
             )
         self._ensure_storage_path_available(config.name, path, replacing_name=replacing_name)
 
@@ -333,8 +347,8 @@ class AnalogControlManager:
         write_config_atomically(path, write_config)
         if replacing_name and replacing_name != config.name:
             old_entry = self._analog_controls.get(replacing_name)
-            old_path = old_entry.path if old_entry is not None else self._path_for_name(
-                replacing_name
+            old_path = (
+                old_entry.path if old_entry is not None else self._path_for_name(replacing_name)
             )
             if old_path != path and old_path.exists():
                 old_path.unlink()

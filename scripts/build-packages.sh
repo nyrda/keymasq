@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STAGING_ROOT="$REPO_DIR/staging"
 DIST="$REPO_DIR/dist"
+SSH_OPTIONS=(-o BatchMode=yes -o ConnectTimeout=10)
 
 cd "$REPO_DIR"
 
@@ -16,32 +17,43 @@ normalize_rpm_label() {
     esac
 }
 
-resolve_rpm_target_id() {
-    local host="${RPM_BUILD_HOST:-}"
+run_rpm_target_shell() {
+    local host="$1"
+    local command="$2"
 
     if [[ -n "$host" ]]; then
-        ssh "$host" '. /etc/os-release && printf "%s\n" "$ID"'
+        ssh "${SSH_OPTIONS[@]}" "$host" "$command"
         return 0
     fi
 
-    . /etc/os-release
-    printf '%s\n' "$ID"
+    bash -euo pipefail -c "$command"
+}
+
+resolve_rpm_os_release_field() {
+    local host="$1"
+    local field="$2"
+
+    case "$field" in
+        ID|VERSION_ID) ;;
+        *)
+            echo "unsupported os-release field: $field" >&2
+            return 1
+            ;;
+    esac
+
+    run_rpm_target_shell "$host" ". /etc/os-release && printf '%s\n' \"\${$field}\""
+}
+
+resolve_rpm_target_id() {
+    resolve_rpm_os_release_field "${1:-}" ID
 }
 
 resolve_rpm_version_id() {
-    local host="${RPM_BUILD_HOST:-}"
-
-    if [[ -n "$host" ]]; then
-        ssh "$host" '. /etc/os-release && printf "%s\n" "$VERSION_ID"'
-        return 0
-    fi
-
-    . /etc/os-release
-    printf '%s\n' "$VERSION_ID"
+    resolve_rpm_os_release_field "${1:-}" VERSION_ID
 }
 
 resolve_rpm_python_sitelib() {
-    local host="${RPM_BUILD_HOST:-}"
+    local host="${1:-}"
     local macro_value=""
 
     if [[ -n "${RPM_PYTHON_SITELIB:-}" ]]; then
@@ -49,41 +61,25 @@ resolve_rpm_python_sitelib() {
         return 0
     fi
 
-    if [[ -n "$host" ]]; then
-        macro_value="$(ssh "$host" 'rpm --eval "%{python3_sitelib}" 2>/dev/null || true')"
-        if [[ -n "$macro_value" && "$macro_value" != '%{python3_sitelib}' ]]; then
-            printf '%s\n' "$macro_value"
-            return 0
-        fi
-
-        ssh "$host" 'python3 - <<'"'"'PY'"'"'
-import sysconfig
-print(sysconfig.get_path("purelib", scheme="posix_prefix", vars={"base": "/usr", "platbase": "/usr"}))
-PY'
+    macro_value="$(run_rpm_target_shell "$host" 'rpm --eval "%{python3_sitelib}" 2>/dev/null || true')"
+    if [[ -n "$macro_value" && "$macro_value" != '%{python3_sitelib}' ]]; then
+        printf '%s\n' "$macro_value"
         return 0
     fi
 
-    python3 - <<'PY'
+    run_rpm_target_shell "$host" 'python3 - <<'"'"'PY'"'"'
 import sysconfig
 print(sysconfig.get_path("purelib", scheme="posix_prefix", vars={"base": "/usr", "platbase": "/usr"}))
-PY
+PY'
 }
 
 resolve_rpm_python_prefix() {
-    local host="${RPM_BUILD_HOST:-}"
+    local host="${1:-}"
 
-    if [[ -n "$host" ]]; then
-        ssh "$host" 'python3 - <<'"'"'PY'"'"'
+    run_rpm_target_shell "$host" 'python3 - <<'"'"'PY'"'"'
 import sys
 print(f"python{sys.version_info.major}{sys.version_info.minor}")
 PY'
-        return 0
-    fi
-
-    python3 - <<'PY'
-import sys
-print(f"python{sys.version_info.major}{sys.version_info.minor}")
-PY
 }
 
 configure_opensuse_dependencies() {
@@ -197,21 +193,20 @@ copy_remote_rpm_bundle() {
     local remote_dir="$2"
     local source_tarball="$3"
 
-    ssh "$host" "mkdir -p '$remote_dir/dist' '$remote_dir/packaging/rpm' '$remote_dir/scripts'"
+    ssh "${SSH_OPTIONS[@]}" "$host" "mkdir -p '$remote_dir/dist' '$remote_dir/packaging/rpm' '$remote_dir/scripts'"
     tar -C "$REPO_DIR" -cf - \
         packaging/rpm/build-fedora-rpm.sh \
         packaging/rpm/metadata.env \
         scripts/rpm-postinstall.sh \
         scripts/rpm-preremove.sh \
         scripts/rpm-postremove.sh \
-        | ssh "$host" "tar -xf - -C '$remote_dir'"
-    scp -q "$source_tarball" "$host:$remote_dir/dist/"
+        | ssh "${SSH_OPTIONS[@]}" "$host" "tar -xf - -C '$remote_dir'"
+    scp -q "${SSH_OPTIONS[@]}" "$source_tarball" "$host:$remote_dir/dist/"
 }
 
 build_fedora_variant() {
     local host="${1:-}"
     local target_dir="$DIST/.rpm-fedora"
-    local previous_host="${RPM_BUILD_HOST:-}"
     local source_tarball="$SOURCE_TARBALL"
     local target_id=""
     local fedora_version=""
@@ -220,14 +215,8 @@ build_fedora_variant() {
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
 
-    if [[ -n "$host" ]]; then
-        export RPM_BUILD_HOST="$host"
-    else
-        unset RPM_BUILD_HOST || true
-    fi
-
-    target_id="$(resolve_rpm_target_id)"
-    fedora_version="$(resolve_rpm_version_id)"
+    target_id="$(resolve_rpm_target_id "$host")"
+    fedora_version="$(resolve_rpm_version_id "$host")"
     if [[ "$(normalize_rpm_label "$target_id")" != "fedora" ]]; then
         echo "Fedora build target must resolve to Fedora, got: $target_id" >&2
         exit 1
@@ -239,17 +228,17 @@ build_fedora_variant() {
 
     if [[ -n "$host" ]]; then
         local remote_dir=""
-        remote_dir="$(ssh "$host" 'mktemp -d /var/tmp/keymasq-fedora-rpm.XXXXXX')"
+        remote_dir="$(ssh "${SSH_OPTIONS[@]}" "$host" 'mktemp -d /var/tmp/keymasq-fedora-rpm.XXXXXX')"
         copy_remote_rpm_bundle "$host" "$remote_dir" "$source_tarball"
-        ssh "$host" "mkdir -p '$remote_dir/out' && cd '$remote_dir' && bash packaging/rpm/build-fedora-rpm.sh out dist/$(basename "$source_tarball")"
-        built_rpm="$(ssh "$host" "find '$remote_dir/out' -maxdepth 1 -name '*.rpm' -print -quit")"
+        ssh "${SSH_OPTIONS[@]}" "$host" "mkdir -p '$remote_dir/out' && cd '$remote_dir' && bash packaging/rpm/build-fedora-rpm.sh out dist/$(basename "$source_tarball")"
+        built_rpm="$(ssh "${SSH_OPTIONS[@]}" "$host" "find '$remote_dir/out' -maxdepth 1 -name '*.rpm' -print -quit")"
         if [[ -z "$built_rpm" ]]; then
-            ssh "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
+            ssh "${SSH_OPTIONS[@]}" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
             echo "Fedora build did not produce an artifact" >&2
             exit 1
         fi
-        scp -q "$host:$built_rpm" "$DIST/"
-        ssh "$host" "rm -rf '$remote_dir'"
+        scp -q "${SSH_OPTIONS[@]}" "$host:$built_rpm" "$DIST/"
+        ssh "${SSH_OPTIONS[@]}" "$host" "rm -rf '$remote_dir'"
     else
         bash packaging/rpm/build-fedora-rpm.sh "$target_dir" "$source_tarball"
         built_rpm="$(find "$target_dir" -maxdepth 1 -name '*.rpm' -print -quit)"
@@ -259,12 +248,6 @@ build_fedora_variant() {
         fi
         mv "$built_rpm" "$DIST/"
         rm -rf "$target_dir"
-    fi
-
-    if [[ -n "$previous_host" ]]; then
-        export RPM_BUILD_HOST="$previous_host"
-    else
-        unset RPM_BUILD_HOST || true
     fi
 }
 
@@ -288,7 +271,6 @@ build_opensuse_variant() {
     local host="${1:-}"
     local target_dir="$DIST/.rpm-opensuse"
     local staging_dir="$STAGING_ROOT/rpm-opensuse"
-    local previous_host="${RPM_BUILD_HOST:-}"
     local target_id=""
     local python_prefix=""
     local rpm_python_sitelib=""
@@ -298,22 +280,16 @@ build_opensuse_variant() {
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
 
-    if [[ -n "$host" ]]; then
-        export RPM_BUILD_HOST="$host"
-    else
-        unset RPM_BUILD_HOST || true
-    fi
-
     unset RPM_PYTHON_SITELIB || true
-    target_id="$(resolve_rpm_target_id)"
-    python_prefix="$(resolve_rpm_python_prefix)"
+    target_id="$(resolve_rpm_target_id "$host")"
+    python_prefix="$(resolve_rpm_python_prefix "$host")"
     if [[ "$(normalize_rpm_label "$target_id")" != "opensuse" ]]; then
         echo "openSUSE build target must resolve to openSUSE, got: $target_id" >&2
         exit 1
     fi
 
     configure_opensuse_dependencies "$python_prefix"
-    rpm_python_sitelib="$(resolve_rpm_python_sitelib)"
+    rpm_python_sitelib="$(resolve_rpm_python_sitelib "$host")"
     export RPM_PYTHON_SITELIB="$rpm_python_sitelib"
 
     stage_opensuse_tree "$staging_dir" "$rpm_python_sitelib"
@@ -335,12 +311,6 @@ build_opensuse_variant() {
     final_rpm="$(variant_rpm_name "$built_rpm" "opensuse")"
     mv "$built_rpm" "$final_rpm"
     rm -rf "$target_dir"
-
-    if [[ -n "$previous_host" ]]; then
-        export RPM_BUILD_HOST="$previous_host"
-    else
-        unset RPM_BUILD_HOST || true
-    fi
 }
 
 declare -a rpm_labels=()

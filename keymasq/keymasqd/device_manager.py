@@ -11,10 +11,12 @@ from typing import Any, Protocol, cast
 import evdev
 
 from keymasq.common import devices as common_devices
-from keymasq.common.coercion import int_or_none
+from keymasq.common.coercion import (
+    coerce_int,
+    coerce_str,
+)
 from keymasq.common.coercion import json_list as _json_list
 from keymasq.common.coercion import json_object as _json_object
-from keymasq.common.coercion import str_or_none as _optional_str
 from keymasq.common.combos import (
     EMERGENCY_CANCEL_COMBO_EVDEVS,
     is_emergency_cancel_combo_evdevs,
@@ -46,15 +48,6 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeCombo,
     RuntimeComboBinding,
     RuntimeComboStep,
-)
-from keymasq.keymasqd.daemon_helpers import (
-    float_like as _float_value,
-)
-from keymasq.keymasqd.daemon_helpers import (
-    int_like as _int_value,
-)
-from keymasq.keymasqd.daemon_helpers import (
-    str_value as _str_value,
 )
 from keymasq.keymasqd.output_helpers import emit_mouse_move, resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
@@ -116,10 +109,6 @@ class _ManagedInputDevice(Protocol):
 ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
 
 
-def _int_or_none(value: object) -> int | None:
-    return int_or_none(value, reject_bool=False)
-
-
 def _device_input(path: str) -> _ManagedInputDevice:
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
@@ -164,8 +153,8 @@ def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:
         evdev_mod=evdev,
         uinput_writer=runtime_adapters.identity_uinput_writer,
         log=log,
-        int_value_fn=_int_value,
-        str_value_fn=_str_value,
+        int_value_fn=coerce_int,
+        str_value_fn=coerce_str,
     )
 
 
@@ -613,11 +602,8 @@ class DeviceManager:
                 device_path_resolver_deps=_device_path_resolver_deps(),
                 grabbed_device_cls=GrabbedDevice,
                 get_interface_id_fn=get_interface_id,
-                str_value_fn=_str_value,
-                optional_str_fn=_optional_str,
-                int_value_fn=_int_value,
-                int_or_none_fn=_int_or_none,
-                float_value_fn=_float_value,
+                str_value_fn=coerce_str,
+                int_value_fn=coerce_int,
                 fire_and_observe_fn=_fire_and_observe,
                 errno_mod=errno,
             )
@@ -855,11 +841,6 @@ class DeviceManager:
             hardware_id,
             mapping,
             json_object_fn=_json_object,
-            str_value_fn=_str_value,
-            optional_str_fn=_optional_str,
-            int_value_fn=_int_value,
-            int_or_none_fn=_int_or_none,
-            float_value_fn=_float_value,
             log=log,
         )
         runtime_repeat.forget_exec_actions(
@@ -903,9 +884,9 @@ class DeviceManager:
                         event_dict = _json_object(event_data)
                         if event_dict is None:
                             continue
-                        hardware_id = _str_value(event_dict.get("hardware_id"), "").lower()
-                        evdev_name = _str_value(event_dict.get("evdev"), "").lower()
-                        source = _str_value(event_dict.get("source"), "").lower()
+                        hardware_id = coerce_str(event_dict.get("hardware_id"), "").lower()
+                        evdev_name = coerce_str(event_dict.get("evdev"), "").lower()
+                        source = coerce_str(event_dict.get("source"), "").lower()
                         if not evdev_name:
                             continue
                         if match_across_devices:
@@ -920,7 +901,7 @@ class DeviceManager:
                         )
                     if bindings:
                         timeout_raw = step_dict.get("timeout_ms")
-                        timeout_ms = _int_value(timeout_raw) if timeout_raw is not None else None
+                        timeout_ms = coerce_int(timeout_raw) if timeout_raw is not None else None
                         steps.append(
                             RuntimeComboStep(
                                 bindings=tuple(bindings),
@@ -933,19 +914,14 @@ class DeviceManager:
 
                 parsed.append(
                     RuntimeCombo(
-                        id=_str_value(combo_dict.get("id"), ""),
-                        name=_str_value(combo_dict.get("name"), ""),
+                        id=coerce_str(combo_dict.get("id"), ""),
+                        name=coerce_str(combo_dict.get("name"), ""),
                         steps=steps,
                         action=runtime_actions.parse_action(
                             self,
                             parsed_action_data,
-                            str_value=_str_value,
-                            optional_str=_optional_str,
-                            int_value=_int_value,
-                            int_or_none=_int_or_none,
-                            float_value=_float_value,
                         ),
-                        profile_name=_str_value(combo_dict.get("profile_name"), ""),
+                        profile_name=coerce_str(combo_dict.get("profile_name"), ""),
                         recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
                         restore_trigger_keys=normalize_combo_restore_keys(
                             _json_list(combo_dict.get("restore_trigger_keys"))
@@ -1285,8 +1261,8 @@ class DeviceManager:
                         "stable_path": stable_path,
                         "interface_id": str(interface_id or ""),
                         "name": device.name,
-                        "phys": _optional_str(getattr(device, "phys", None)),
-                        "uniq": _optional_str(getattr(device, "uniq", None)),
+                        "phys": coerce_str(getattr(device, "phys", None), None),
+                        "uniq": coerce_str(getattr(device, "uniq", None), None),
                         "vendor_id": f"{info.vendor:04x}",
                         "product_id": f"{info.product:04x}",
                         "capabilities": capabilities,
@@ -1382,43 +1358,31 @@ class DeviceManager:
 
     async def play_macro(
         self,
-        macro_events: list[JsonObject],
-        macro_name: str = "",
-        replay_mouse_movement: bool = True,
-        replay_mouse_clicks: bool = True,
-        speed: float = 1.0,
-        loop_mode: str = "none",
-        loop_count: int = 1,
-        loop_stop_behavior: str = "finish_run",
-        move_to_start: bool = False,
-        start_x: int = 0,
-        start_y: int = 0,
-        block_mouse_movement: bool = False,
-        source_device: str = "",
-        source_button: str = "",
-        trigger_value: int = 1,
+        playback_options: runtime_macros.MacroPlaybackOptions | None = None,
+        *,
         macro_event_source: runtime_macros.MacroEventSource | None = None,
-        load_stored_macro: bool = True,
+        **playback_kwargs: object,
     ) -> JsonObject:
-        if load_stored_macro and macro_event_source is None and macro_name and not macro_events:
-            macro_event_source = await self._stored_macro_event_source(macro_name)
+        if playback_options is None:
+            playback_options = runtime_macros.macro_playback_options_from_mapping(
+                playback_kwargs,
+                strict=True,
+            )
+        elif playback_kwargs:
+            raise TypeError("playback kwargs cannot be combined with playback_options")
+
+        if (
+            playback_options.load_stored_macro
+            and macro_event_source is None
+            and playback_options.macro_name
+            and not playback_options.macro_events
+        ):
+            macro_event_source = await self._stored_macro_event_source(
+                playback_options.macro_name
+            )
         return await runtime_macros.play_macro(
             self,
-            macro_events,
-            macro_name,
-            replay_mouse_movement,
-            replay_mouse_clicks,
-            speed,
-            loop_mode,
-            loop_count,
-            loop_stop_behavior,
-            move_to_start,
-            start_x,
-            start_y,
-            block_mouse_movement,
-            source_device,
-            source_button,
-            trigger_value,
+            playback_options,
             deps=_macro_runtime_deps(),
             macro_event_source=macro_event_source,
         )
@@ -1444,8 +1408,8 @@ class DeviceManager:
             return cast(Iterator[JsonObject], iter_events(macro_name))
 
         return runtime_macros.MacroEventSource(
-            event_count=_int_value(meta.get("event_count"), 0),
-            duration_us=_int_value(meta.get("duration_us"), 0),
+            event_count=coerce_int(meta.get("event_count"), 0),
+            duration_us=coerce_int(meta.get("duration_us"), 0),
             iter_events=iter_stored_events,
         )
 

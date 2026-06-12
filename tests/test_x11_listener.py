@@ -2,6 +2,8 @@ import asyncio
 import logging
 from types import SimpleNamespace
 
+import pytest
+
 from keymasq.session.listeners import x11 as x11_listener_module
 from keymasq.session.listeners.x11 import X11Listener
 
@@ -10,32 +12,60 @@ async def _cb(_window_class: str, _window_title: str, _tags: list[str]) -> None:
     return
 
 
-def test_x11_handle_event_syncs_on_active_window_property(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    (
+        "listener_state",
+        "event_window_id",
+        "event_atom",
+        "expected_handled",
+        "expected_sync",
+    ),
+    [
+        pytest.param(
+            {"_root": SimpleNamespace(id=10), "_atom_active": 99},
+            10,
+            99,
+            True,
+            True,
+            id="root-active-window-property",
+        ),
+        pytest.param(
+            {"_active_window_id": 42, "_window_watch_atoms": {7, 8}},
+            42,
+            7,
+            True,
+            False,
+            id="active-window-metadata",
+        ),
+        pytest.param(
+            {"_active_window_id": 42, "_window_watch_atoms": {7, 8}},
+            99,
+            7,
+            False,
+            False,
+            id="unrelated-window-metadata",
+        ),
+    ],
+)
+def test_x11_handle_property_notify_event_routes(
+    monkeypatch,
+    listener_state: dict[str, object],
+    event_window_id: int,
+    event_atom: int,
+    expected_handled: bool,
+    expected_sync: bool,
+) -> None:
     listener = X11Listener(_cb)
-    listener._root = SimpleNamespace(id=10)
-    listener._atom_active = 99
+    for name, value in listener_state.items():
+        setattr(listener, name, value)
 
-    called = {"sync": False}
+    sync_called = False
 
     def _sync() -> None:
-        called["sync"] = True
+        nonlocal sync_called
+        sync_called = True
 
     listener._sync_active_window_watch_unlocked = _sync
-    monkeypatch.setattr(
-        x11_listener_module,
-        "X",
-        SimpleNamespace(PropertyNotify=1),
-    )
-
-    event = SimpleNamespace(type=1, window=SimpleNamespace(id=10), atom=99)
-    assert listener._handle_x_event_unlocked(event) is True
-    assert called["sync"] is True
-
-
-def test_x11_handle_event_tracks_active_window_metadata(monkeypatch) -> None:
-    listener = X11Listener(_cb)
-    listener._active_window_id = 42
-    listener._window_watch_atoms = {7, 8}
 
     monkeypatch.setattr(
         x11_listener_module,
@@ -43,23 +73,9 @@ def test_x11_handle_event_tracks_active_window_metadata(monkeypatch) -> None:
         SimpleNamespace(PropertyNotify=1),
     )
 
-    event = SimpleNamespace(type=1, window=SimpleNamespace(id=42), atom=7)
-    assert listener._handle_x_event_unlocked(event) is True
-
-
-def test_x11_handle_event_ignores_unrelated_window_metadata(monkeypatch) -> None:
-    listener = X11Listener(_cb)
-    listener._active_window_id = 42
-    listener._window_watch_atoms = {7, 8}
-
-    monkeypatch.setattr(
-        x11_listener_module,
-        "X",
-        SimpleNamespace(PropertyNotify=1),
-    )
-
-    event = SimpleNamespace(type=1, window=SimpleNamespace(id=99), atom=7)
-    assert listener._handle_x_event_unlocked(event) is False
+    event = SimpleNamespace(type=1, window=SimpleNamespace(id=event_window_id), atom=event_atom)
+    assert listener._handle_x_event_unlocked(event) is expected_handled
+    assert sync_called is expected_sync
 
 
 def test_x11_probe_available_requires_openable_display(monkeypatch) -> None:

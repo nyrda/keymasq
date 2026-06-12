@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_device_selection as recording_device_selection_module
 from keymasq.common import config_files as config_files_module
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.manager import SessionManager
@@ -57,7 +58,11 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
         if not await asyncio.to_thread(event.wait, 1.0):
             pytest.fail(message)
 
-    monkeypatch.setattr(session_recording_module, "save_recording_settings_to_disk", fake_save)
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "save_recording_settings_to_disk",
+        fake_save,
+    )
 
     session_recording_module.update_recording_settings(
         manager,

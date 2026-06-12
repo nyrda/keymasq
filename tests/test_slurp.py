@@ -6,51 +6,7 @@ from typing import Any
 import pytest
 
 from keymasq.common.slurp import SlurpCapture, SlurpMode, SlurpResult
-
-
-class _FakeSlurpProcess:
-    def __init__(
-        self,
-        *,
-        stdout: bytes = b"",
-        stderr: bytes = b"",
-        returncode: int = 0,
-        communicate: Callable[[], Awaitable[tuple[bytes, bytes]]] | None = None,
-        wait: Callable[[], Awaitable[None]] | None = None,
-    ) -> None:
-        self.stdout = stdout
-        self.stderr = stderr
-        self.returncode = returncode
-        self.communicate_calls = 0
-        self.wait_calls = 0
-        self.terminated = False
-        self.killed = False
-        self.waited = False
-        self._communicate = communicate
-        self._wait = wait
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        self.communicate_calls += 1
-        if self._communicate:
-            return await self._communicate()
-        return self.stdout, self.stderr
-
-    def terminate(self) -> None:
-        self.terminated = True
-
-    def kill(self) -> None:
-        self.killed = True
-
-    def wait(self) -> Awaitable[None]:
-        self.wait_calls += 1
-        self.waited = True
-        if self._wait:
-            return self._wait()
-
-        async def _wait() -> None:
-            return None
-
-        return _wait()
+from tests.async_fakes import FakeProcess as _FakeSlurpProcess
 
 
 def _patch_slurp_process(

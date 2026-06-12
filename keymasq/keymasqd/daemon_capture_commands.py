@@ -3,14 +3,10 @@ import logging
 import uuid
 from typing import Protocol, cast
 
+from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
-from keymasq.keymasqd.daemon_helpers import (
-    JsonObject,
-    JsonObjectList,
-    float_like,
-    int_like,
-)
+from keymasq.common.types import JsonObject, JsonObjectList
 
 MIN_CAPTURE_TIMEOUT_S = 1.0
 MAX_CAPTURE_TIMEOUT_S = 15.0
@@ -94,7 +90,7 @@ async def handle_capture_command(
             devices,
             include_mouse_movement=bool(data.get("include_mouse_movement", False)),
             include_mouse_clicks=bool(data.get("include_mouse_clicks", False)),
-            recording_slot=int_like(data.get("recording_slot", 0), 0),
+            recording_slot=coerce_int(data.get("recording_slot", 0), 0),
         )
 
     if command_type == CommandType.STOP_RECORDING:
@@ -129,7 +125,7 @@ async def handle_capture_command(
         }
         hardware_paths = _hardware_paths(data.get("hardware_paths", {}))
         hardware_interfaces = _hardware_interfaces(data.get("hardware_interfaces", {}))
-        timeout_s = float_like(data.get("timeout_s", 15.0), 15.0)
+        timeout_s = coerce_float(data.get("timeout_s", 15.0), 15.0)
         return await capture_combo(
             daemon,
             hardware_ids,
@@ -209,7 +205,7 @@ async def capture_combo(
 
             evdev_name = str(event.get("evdev", "") or "")
             raw_value = event.get("value")
-            value = int_like(raw_value, -1) if raw_value is not None else -1
+            value = coerce_int(raw_value, -1) if raw_value is not None else -1
             is_pulse = is_combo_pulse_evdev(evdev_name)
             if not (
                 evdev_name.startswith(("key_", "btn_")) or is_pulse

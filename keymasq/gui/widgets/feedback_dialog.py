@@ -6,7 +6,6 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import gi
@@ -20,7 +19,6 @@ from keymasq import __version__
 from keymasq.gui.session_client import GuiTaskResult, run_gui_task
 
 DEFAULT_FEEDBACK_ENDPOINT = "https://feedback.keymasq.tools/api/feedback"
-OS_RELEASE_PATH = Path("/etc/os-release")
 log = logging.getLogger("keymasq.gui.widgets.feedback_dialog")
 
 
@@ -34,28 +32,13 @@ def feedback_endpoint() -> str:
     return os.environ.get("KEYMASQ_FEEDBACK_URL", DEFAULT_FEEDBACK_ENDPOINT).strip()
 
 
-def linux_distribution_name(os_release_path: Path = OS_RELEASE_PATH) -> str:
+def linux_distribution_name() -> str:
     try:
-        with os_release_path.open(encoding="utf-8") as file:
-            values = {}
-            for line in file:
-                key, value = _parse_os_release_line(line)
-                if key:
-                    values[key] = value
+        values = platform.freedesktop_os_release()
     except OSError:
         return "unknown"
 
     return values.get("PRETTY_NAME") or values.get("NAME") or values.get("ID") or "unknown"
-
-
-def _parse_os_release_line(line: str) -> tuple[str, str]:
-    key, separator, raw_value = line.strip().partition("=")
-    if not separator or not key or key.startswith("#"):
-        return "", ""
-    value = raw_value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        value = value[1:-1]
-    return key, value
 
 
 def submit_feedback(endpoint: str, payload: dict[str, Any]) -> FeedbackSubmissionResult:

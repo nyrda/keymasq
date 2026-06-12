@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
@@ -26,11 +27,8 @@ from . import profiles as runtime_profiles
 from . import recording as runtime_recording
 from .common import (
     JsonObject,
-    float_value,
-    int_value,
     json_list,
     json_object,
-    str_value,
 )
 
 if TYPE_CHECKING:
@@ -61,7 +59,7 @@ async def handle_session_request(
     peer: PeerCredentials,
     writer: asyncio.StreamWriter,
 ) -> JsonObject:
-    command = str_value(request.get("command"), "")
+    command = coerce_str(request.get("command"), "")
     policy = manager.security_policy
 
     if not command_allowed(command, policy.session_command_acl, client_class):
@@ -158,7 +156,7 @@ async def _handle_profile_commands(
         return runtime_profiles.build_profile_overview(manager)
 
     if command in {"enable_profile", "disable_profile", "toggle_profile"}:
-        profile_name = str_value(request.get("profile_name"), "")
+        profile_name = coerce_str(request.get("profile_name"), "")
         if not profile_name:
             return {"status": "error", "message": "missing profile_name"}
 
@@ -179,7 +177,7 @@ async def _handle_profile_commands(
         }
 
     if command == "release_device":
-        hardware_id = str_value(request.get("hardware_id"), "").strip()
+        hardware_id = coerce_str(request.get("hardware_id"), "").strip()
         if not hardware_id:
             return {"status": "error", "message": "missing hardware_id"}
         immediate = bool(request.get("immediate", True))
@@ -240,7 +238,7 @@ async def _handle_virtual_gamepad_commands(
         return None
 
     count = clamp_virtual_gamepad_count(
-        int_value(request.get("count"), manager.virtual_gamepad_count)
+        coerce_int(request.get("count"), manager.virtual_gamepad_count)
     )
     if manager.connected:
         response = await _send_daemon_request(
@@ -252,7 +250,7 @@ async def _handle_virtual_gamepad_commands(
             return {"status": "error", "message": response.error or "daemon rejected count"}
         if isinstance(response.data, dict):
             data = cast(JsonObject, response.data)
-            count = int_value(data.get("count"), count)
+            count = coerce_int(data.get("count"), count)
     count = save_virtual_gamepad_count(count)
     manager.virtual_gamepad_count = count
     manager.broadcast_to_session_clients(
@@ -282,7 +280,7 @@ async def _handle_device_inspector_commands(
     }:
         return None
 
-    hardware_id = str_value(request.get("hardware_id"), "").strip()
+    hardware_id = coerce_str(request.get("hardware_id"), "").strip()
     if not hardware_id:
         return {"status": "error", "message": "missing hardware_id"}
 
@@ -310,7 +308,7 @@ async def _handle_device_inspector_commands(
     return await runtime_device_inspector.disable_device_inspector_suppression(
         manager,
         hardware_id,
-        reason=str_value(request.get("reason", "manual"), "manual"),
+        reason=coerce_str(request.get("reason", "manual"), "manual"),
     )
 
 
@@ -325,7 +323,10 @@ async def _handle_settings_commands(
         return None
 
     count = clamp_virtual_gamepad_count(
-        int_value(request.get("virtual_gamepad_count"), manager.virtual_gamepad_count)
+        coerce_int(
+            request.get("virtual_gamepad_count"),
+            manager.virtual_gamepad_count,
+        )
     )
 
     if manager.connected:
@@ -348,7 +349,7 @@ async def _handle_settings_commands(
             return payload
         if isinstance(response.data, dict):
             data = cast(JsonObject, response.data)
-            count = int_value(data.get("count"), count)
+            count = coerce_int(data.get("count"), count)
 
     saved = save_global_settings(
         GlobalSettings(
@@ -393,8 +394,8 @@ async def _handle_compositor_commands(
     if command == "run_compositor_setup_action":
         return await runtime_compositor.run_compositor_setup_action(
             manager,
-            str_value(request.get("compositor"), "").strip(),
-            str_value(request.get("action"), "").strip(),
+            coerce_str(request.get("compositor"), "").strip(),
+            coerce_str(request.get("action"), "").strip(),
         )
 
     if command == "get_active_window":
@@ -403,15 +404,15 @@ async def _handle_compositor_commands(
     if command == "activate_title":
         return await runtime_compositor.activate_title(
             manager,
-            str_value(request.get("title"), "").strip(),
+            coerce_str(request.get("title"), "").strip(),
         )
 
     if command == "dispatch_compositor":
         ok, message = await runtime_compositor.run_compositor_dispatch(
             manager,
-            str_value(request.get("compositor"), "").strip(),
-            str_value(request.get("dispatcher"), "").strip(),
-            str_value(request.get("args"), "").strip(),
+            coerce_str(request.get("compositor"), "").strip(),
+            coerce_str(request.get("dispatcher"), "").strip(),
+            coerce_str(request.get("args"), "").strip(),
         )
         return {"status": "ok" if ok else "error", "message": message}
 
@@ -420,7 +421,7 @@ async def _handle_compositor_commands(
 
     if command == "mpris":
         requested_command = request.get("mpris_command", request.get("action"))
-        raw_command = str_value(requested_command, "").strip()
+        raw_command = coerce_str(requested_command, "").strip()
         if raw_command.lower().replace("-", "_") == "status":
             return {
                 "status": "ok",
@@ -430,9 +431,7 @@ async def _handle_compositor_commands(
         mpris_command = parse_mpris_command(requested_command)
         if mpris_command is None:
             message = (
-                f"unknown MPRIS command: {raw_command}"
-                if raw_command
-                else "missing mpris_command"
+                f"unknown MPRIS command: {raw_command}" if raw_command else "missing mpris_command"
             )
             return {"status": "error", "message": message}
         try:
@@ -506,7 +505,7 @@ async def _handle_recording_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "start_recording":
-        recording_slot = int_value(request.get("recording_slot"), 0)
+        recording_slot = coerce_int(request.get("recording_slot"), 0)
         if not normalize_macro_recording_slot(recording_slot):
             return {
                 "status": "error",
@@ -559,25 +558,25 @@ async def _handle_recording_commands(
         return await runtime_recording.claim_recording_unlock_refresh(manager, peer, writer)
 
     if command == "refresh_recording_unlock":
-        lease_id = str_value(request.get("lease_id"), "").strip()
+        lease_id = coerce_str(request.get("lease_id"), "").strip()
         return await runtime_recording.refresh_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "lock_recording_unlock":
-        lease_id = str_value(request.get("lease_id"), "").strip()
+        lease_id = coerce_str(request.get("lease_id"), "").strip()
         return await runtime_recording.lock_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "stop_recording":
         return await runtime_recording.stop_recording(
             manager,
             error_if_idle=True,
-            recording_slot=int_value(request.get("recording_slot"), 0),
+            recording_slot=coerce_int(request.get("recording_slot"), 0),
         )
 
     if command == "save_recording":
-        name = str_value(request.get("name"), "").strip()
+        name = coerce_str(request.get("name"), "").strip()
         if not name:
             return {"status": "error", "message": "Name required"}
-        pending_save_token = str_value(request.get("pending_save_token"), "").strip()
+        pending_save_token = coerce_str(request.get("pending_save_token"), "").strip()
         if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
             manager,
             pending_save_token,
@@ -591,10 +590,10 @@ async def _handle_recording_commands(
             manager,
             name,
             move_to_start=bool(request.get("move_to_start", False)),
-            start_x=int_value(request.get("start_x"), 0),
-            start_y=int_value(request.get("start_y"), 0),
+            start_x=coerce_int(request.get("start_x"), 0),
+            start_y=coerce_int(request.get("start_y"), 0),
             block_mouse_movement=bool(request.get("block_mouse_movement", False)),
-            recording_slot=int_value(request.get("recording_slot"), 0),
+            recording_slot=coerce_int(request.get("recording_slot"), 0),
             pending_save_token=pending_save_token,
         )
         if save_result.get("status") != "ok":
@@ -602,7 +601,7 @@ async def _handle_recording_commands(
         return {"status": "ok", "name": save_result.get("name", name)}
 
     if command == "delete_recording_slot":
-        pending_save_token = str_value(request.get("pending_save_token"), "").strip()
+        pending_save_token = coerce_str(request.get("pending_save_token"), "").strip()
         if pending_save_token and not runtime_recording.pending_macro_save_token_matches(
             manager,
             pending_save_token,
@@ -614,7 +613,7 @@ async def _handle_recording_commands(
             }
         deleted = await runtime_recording.delete_pending_macro_slot(
             manager,
-            recording_slot=int_value(request.get("recording_slot"), 0),
+            recording_slot=coerce_int(request.get("recording_slot"), 0),
             pending_save_token=pending_save_token,
         )
         if not deleted:
@@ -643,7 +642,7 @@ async def _handle_macro_commands(
         return {"status": "error", "message": result.error or "Failed to list macros"}
 
     if command == "get_macro":
-        name = str_value(request.get("name"), "")
+        name = coerce_str(request.get("name"), "")
         result = await _send_daemon_request(
             manager,
             Command(command=CommandType.MACRO_GET, data={"name": name}),
@@ -670,13 +669,13 @@ async def _handle_macro_commands(
             created = json_object(result_data.get("macro")) or {}
             await runtime_profiles.refresh_macro_bindings(manager)
             manager.broadcast_to_session_clients(
-                {"event": "macro_saved", "name": str_value(created.get("name"), "")}
+                {"event": "macro_saved", "name": coerce_str(created.get("name"), "")}
             )
             return {"status": "ok", "macro": created}
         return {"status": "error", "message": result.error or "Failed to create macro"}
 
     if command == "update_macro":
-        name = str_value(request.get("name"), "")
+        name = coerce_str(request.get("name"), "")
         macro = json_object(request.get("macro"))
         if macro is None:
             return {"status": "error", "message": "macro payload required"}
@@ -694,13 +693,13 @@ async def _handle_macro_commands(
             updated = json_object(result_data.get("macro")) or {}
             await runtime_profiles.refresh_macro_bindings(manager)
             manager.broadcast_to_session_clients(
-                {"event": "macro_saved", "name": str_value(updated.get("name"), name)}
+                {"event": "macro_saved", "name": coerce_str(updated.get("name"), name)}
             )
             return {"status": "ok", "macro": updated}
         return {"status": "error", "message": result.error or "Failed to update macro"}
 
     if command == "delete_macro":
-        name = str_value(request.get("name"), "")
+        name = coerce_str(request.get("name"), "")
         delete_payload: JsonObject = {"name": name}
         if "expected_revision" in request:
             delete_payload["expected_revision"] = request.get("expected_revision")
@@ -718,8 +717,8 @@ async def _handle_macro_commands(
 
     if command == "rename_macro":
         rename_payload: JsonObject = {
-            "old_name": str_value(request.get("old"), ""),
-            "new_name": str_value(request.get("new"), ""),
+            "old_name": coerce_str(request.get("old"), ""),
+            "new_name": coerce_str(request.get("new"), ""),
         }
         if "expected_revision" in request:
             rename_payload["expected_revision"] = request.get("expected_revision")
@@ -736,16 +735,16 @@ async def _handle_macro_commands(
         if result_data is not None:
             renamed = json_object(result_data.get("macro")) or {}
             manager.broadcast_to_session_clients(
-                {"event": "macro_deleted", "name": str_value(request.get("old"), "")}
+                {"event": "macro_deleted", "name": coerce_str(request.get("old"), "")}
             )
             manager.broadcast_to_session_clients(
-                {"event": "macro_saved", "name": str_value(renamed.get("name"), "")}
+                {"event": "macro_saved", "name": coerce_str(renamed.get("name"), "")}
             )
             return {"status": "ok", "macro": renamed}
         return {"status": "ok"}
 
     if command == "play_macro":
-        name = str_value(request.get("name"), "")
+        name = coerce_str(request.get("name"), "")
         result = await _send_daemon_request(
             manager,
             Command(
@@ -754,7 +753,7 @@ async def _handle_macro_commands(
                     "name": name,
                     "replay_mouse_movement": request.get("replay_mouse_movement", True),
                     "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
-                    "speed": float_value(request.get("speed"), 1.0),
+                    "speed": coerce_float(request.get("speed"), 1.0),
                 },
             ),
         )
@@ -766,15 +765,15 @@ async def _handle_macro_commands(
         return {"status": "error", "message": result.error or "playback failed"}
 
     if command == "type_text":
-        text = str_value(request.get("text"), "")
+        text = coerce_str(request.get("text"), "")
         try:
             events, payload = await asyncio.to_thread(
                 _compile_type_text_macro,
                 text,
-                max(0, int_value(request.get("down_ms"), 10)),
-                max(0, int_value(request.get("pause_ms"), 20)),
+                max(0, coerce_int(request.get("down_ms"), 10)),
+                max(0, coerce_int(request.get("pause_ms"), 20)),
                 bool(request.get("use_unicode_input", True)),
-                float_value(request.get("speed"), 1.0),
+                coerce_float(request.get("speed"), 1.0),
             )
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
@@ -794,7 +793,7 @@ async def _handle_macro_commands(
             events, payload = await asyncio.to_thread(
                 _compile_compact_macro,
                 tokens,
-                float_value(request.get("speed"), 1.0),
+                coerce_float(request.get("speed"), 1.0),
             )
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
@@ -862,17 +861,17 @@ async def _send_adhoc_macro_payload(
     macro = runtime_recording.sanitize_macro_for_policy(manager, {"events": macro_events})
     sanitized_events = json_list(macro.get("events"))
     adhoc_payload: JsonObject = {
-        "macro_name": str_value(payload.get("macro_name"), ""),
+        "macro_name": coerce_str(payload.get("macro_name"), ""),
         "macro_events": sanitized_events,
         "replay_mouse_movement": bool(payload.get("replay_mouse_movement", True)),
         "replay_mouse_clicks": bool(payload.get("replay_mouse_clicks", True)),
-        "speed": float_value(payload.get("speed"), 1.0),
-        "loop_mode": str_value(payload.get("loop_mode", "none"), "none") or "none",
-        "loop_count": int_value(payload.get("loop_count"), 1),
+        "speed": coerce_float(payload.get("speed"), 1.0),
+        "loop_mode": coerce_str(payload.get("loop_mode", "none"), "none") or "none",
+        "loop_count": coerce_int(payload.get("loop_count"), 1),
         "loop_stop_behavior": normalize_macro_loop_stop_behavior(payload.get("loop_stop_behavior")),
         "move_to_start": bool(payload.get("move_to_start", False)),
-        "start_x": int_value(payload.get("start_x"), 0),
-        "start_y": int_value(payload.get("start_y"), 0),
+        "start_x": coerce_int(payload.get("start_x"), 0),
+        "start_y": coerce_int(payload.get("start_y"), 0),
         "block_mouse_movement": bool(payload.get("block_mouse_movement", False)),
     }
 
@@ -909,13 +908,13 @@ async def _handle_capture_commands(
         return {"status": "ok", "devices": devices}
 
     if command == "begin_capture":
-        hardware_id = str_value(request.get("hardware_id"), "")
+        hardware_id = coerce_str(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
         evdev_paths = [
-            str_value(path, "")
+            coerce_str(path, "")
             for path in json_list(request.get("evdev_paths"))
-            if str_value(path, "")
+            if coerce_str(path, "")
         ]
         evdev_interfaces_raw = request.get("evdev_interfaces")
         evdev_interfaces = (
@@ -927,7 +926,7 @@ async def _handle_capture_commands(
             if evdev_interfaces_raw is not None
             else None
         )
-        mode = str_value(request.get("mode"), "button")
+        mode = coerce_str(request.get("mode"), "button")
         return await runtime_recording.capture_begin_for_paths(
             manager,
             hardware_id,
@@ -938,22 +937,22 @@ async def _handle_capture_commands(
         )
 
     if command == "capture_read":
-        hardware_id = str_value(request.get("hardware_id"), "")
+        hardware_id = coerce_str(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
         return await runtime_recording.capture_read(manager, hardware_id)
 
     if command == "end_capture":
-        hardware_id = str_value(request.get("hardware_id"), "")
+        hardware_id = coerce_str(request.get("hardware_id"), "")
         if not hardware_id:
             return {"error": "missing hardware_id"}
         return await runtime_recording.capture_end(manager, hardware_id)
 
     if command == "capture_combo":
-        profile_name = str_value(request.get("profile_name"), "")
+        profile_name = coerce_str(request.get("profile_name"), "")
         if not profile_name:
             return {"error": "missing profile_name"}
-        timeout_s = float_value(request.get("timeout_s"), 15.0)
+        timeout_s = coerce_float(request.get("timeout_s"), 15.0)
         return await runtime_recording.capture_combo(manager, profile_name, timeout_s)
 
     return None
@@ -964,11 +963,11 @@ async def _handle_set_diagnostics(
     request: JsonObject,
 ) -> JsonObject:
     enabled = bool(request.get("enabled", False))
-    interval = float_value(request.get("interval"), 5.0)
+    interval = coerce_float(request.get("interval"), 5.0)
     categories = [
-        str_value(category, "")
+        coerce_str(category, "")
         for category in json_list(request.get("categories"))
-        if str_value(category, "")
+        if coerce_str(category, "")
     ]
     result = await _send_daemon_request(
         manager,

@@ -1,5 +1,6 @@
 import logging
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, cast
@@ -56,6 +57,27 @@ def _parse_superkey_mode(value: object) -> SuperkeyMode:
         return SuperkeyMode(value)
     except ValueError as exc:
         raise ValueError(f"unknown superkey mode '{value}'") from exc
+
+
+def _parse_action_bundle[ActionT](
+    data: object,
+    *,
+    bundle_error: str,
+    item_error: str,
+    parse_item: Callable[[TomlDict], ActionT],
+) -> list[ActionT]:
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise ValueError(bundle_error)
+
+    actions: list[ActionT] = []
+    for item in cast(list[object], data):
+        action_data = _as_toml_dict(item)
+        if action_data is None:
+            raise ValueError(item_error)
+        actions.append(parse_item(action_data))
+    return actions
 
 
 class SuperkeyManager:
@@ -141,18 +163,12 @@ class SuperkeyManager:
         return config
 
     def _parse_superkey_action_bundle(self, data: object) -> list[SuperkeyAction]:
-        if data is None:
-            return []
-        if not isinstance(data, list):
-            raise ValueError("pattern action bundles must be TOML arrays")
-
-        actions: list[SuperkeyAction] = []
-        for item in cast(list[object], data):
-            action_data = _as_toml_dict(item)
-            if action_data is None:
-                raise ValueError("pattern action bundle items must be TOML tables")
-            actions.append(self._parse_superkey_action(action_data))
-        return actions
+        return _parse_action_bundle(
+            data,
+            bundle_error="pattern action bundles must be TOML arrays",
+            item_error="pattern action bundle items must be TOML tables",
+            parse_item=self._parse_superkey_action,
+        )
 
     def _parse_superkey_action(self, data: TomlDict | None) -> SuperkeyAction:
         if not data:
@@ -170,18 +186,12 @@ class SuperkeyManager:
             raise ValueError(f"invalid pattern superkey action type '{action_type_str}'") from exc
 
     def _parse_overload_action_bundle(self, data: object) -> list[MappingAction]:
-        if data is None:
-            return []
-        if not isinstance(data, list):
-            raise ValueError("overload actions must be a TOML array")
-
-        actions: list[MappingAction] = []
-        for item in cast(list[object], data):
-            action_data = _as_toml_dict(item)
-            if action_data is None:
-                raise ValueError("overload action items must be TOML tables")
-            actions.append(self._parse_mapping_action(action_data))
-        return actions
+        return _parse_action_bundle(
+            data,
+            bundle_error="overload actions must be a TOML array",
+            item_error="overload action items must be TOML tables",
+            parse_item=self._parse_mapping_action,
+        )
 
     def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction:
         action_type, normalized_action_data = mapping_action_type_from_toml(

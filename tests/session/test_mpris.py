@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from dbus_next.constants import MessageType
@@ -26,29 +26,15 @@ from keymasq.session.mpris import (
     MprisController,
     MprisDBusError,
 )
+from tests.session.support import (
+    FakeDBusBus,
+    FakeDBusClient,
+    dbus_error_reply,
+    dbus_reply,
+)
 
 
-def _reply(body: list[object]) -> Message:
-    return Message(
-        message_type=MessageType.METHOD_RETURN,
-        reply_serial=1,
-        body=body,
-    )
-
-
-def _error_reply(error_name: str, message: str) -> Message:
-    return Message(
-        message_type=MessageType.ERROR,
-        error_name=error_name,
-        reply_serial=1,
-        signature="s",
-        body=[message],
-    )
-
-
-class _FakeBus:
-    connected = True
-
+class _FakeBus(FakeDBusBus):
     def __init__(
         self,
         players: dict[str, tuple[str, str]],
@@ -56,21 +42,16 @@ class _FakeBus:
         metadata: dict[str, dict[str, object]] | None = None,
         method_errors: dict[tuple[str, str], Message] | None = None,
     ) -> None:
+        super().__init__()
         self.players = dict(players)
         self.capabilities = capabilities or {}
         self.metadata = metadata or {}
         self.method_errors = method_errors or {}
-        self.handlers: list[Any] = []
         self.player_calls: list[tuple[str, str]] = []
         self.match_rules: list[str] = []
 
-    def add_message_handler(self, handler) -> None:
-        self.handlers.append(handler)
-
-    def remove_message_handler(self, handler) -> None:
-        self.handlers.remove(handler)
-
     async def call(self, message: Message) -> Message:
+        self.record_call(message)
         if message.destination == DBUS_SERVICE:
             return self._handle_dbus_call(message)
         if (
@@ -82,7 +63,7 @@ class _FakeBus:
             status = self.players[service][1]
             capabilities = self.capabilities.get(service, {})
             metadata = self.metadata.get(service, {})
-            return _reply(
+            return dbus_reply(
                 [
                     {
                         PLAYBACK_STATUS_PROPERTY: Variant("s", status),
@@ -121,7 +102,7 @@ class _FakeBus:
             elif member == "Stop":
                 status = "Stopped"
             self.players[service] = (owner, status)
-            return _reply([])
+            return dbus_reply([])
         raise AssertionError(f"unexpected D-Bus call: {message}")
 
     def _service_for_destination(self, destination: str) -> str:
@@ -134,46 +115,19 @@ class _FakeBus:
 
     def _handle_dbus_call(self, message: Message) -> Message:
         if message.member == "ListNames":
-            return _reply([list(self.players)])
+            return dbus_reply([list(self.players)])
         if message.member == "GetNameOwner":
             service = str(message.body[0])
-            return _reply([self.players[service][0]])
+            return dbus_reply([self.players[service][0]])
         if message.member == "AddMatch":
             self.match_rules.append(str(message.body[0]))
-            return _reply([])
+            return dbus_reply([])
         if message.member == "RemoveMatch":
             rule = str(message.body[0])
             if rule in self.match_rules:
                 self.match_rules.remove(rule)
-            return _reply([])
+            return dbus_reply([])
         raise AssertionError(f"unexpected D-Bus daemon call: {message.member}")
-
-    def emit(self, message: Message) -> None:
-        for handler in list(self.handlers):
-            handler(message)
-
-
-class _FakeDBus:
-    def __init__(self, bus: _FakeBus) -> None:
-        self._bus = bus
-        self.disconnect_calls = 0
-
-    async def bus(self) -> _FakeBus:
-        return self._bus
-
-    async def disconnect(self) -> None:
-        self.disconnect_calls += 1
-
-
-class _FailingDBus:
-    def __init__(self) -> None:
-        self.disconnect_calls = 0
-
-    async def bus(self) -> object:
-        raise InvalidAddressError("bad session bus")
-
-    async def disconnect(self) -> None:
-        self.disconnect_calls += 1
 
 
 def _controller(
@@ -183,7 +137,7 @@ def _controller(
     method_errors: dict[tuple[str, str], Message] | None = None,
 ) -> tuple[MprisController, _FakeBus]:
     bus = _FakeBus(players, capabilities, metadata, method_errors)
-    return MprisController(_FakeDBus(bus)), bus  # type: ignore[arg-type]
+    return MprisController(FakeDBusClient(bus)), bus  # type: ignore[arg-type]
 
 
 def _metadata_variant(value: object) -> Variant:
@@ -423,7 +377,7 @@ async def test_mpris_playback_changes_do_not_promote_detected_order() -> None:
 
 @pytest.mark.asyncio
 async def test_mpris_command_handles_dbus_next_connect_errors() -> None:
-    dbus = _FailingDBus()
+    dbus = FakeDBusClient(bus_error=InvalidAddressError("bad session bus"))
     controller = MprisController(dbus)  # type: ignore[arg-type]
 
     await controller.handle_command("pause")
@@ -433,7 +387,7 @@ async def test_mpris_command_handles_dbus_next_connect_errors() -> None:
 
 @pytest.mark.asyncio
 async def test_mpris_command_can_raise_dbus_errors_for_direct_commands() -> None:
-    dbus = _FailingDBus()
+    dbus = FakeDBusClient(bus_error=InvalidAddressError("bad session bus"))
     controller = MprisController(dbus)  # type: ignore[arg-type]
 
     with pytest.raises(MprisDBusError):
@@ -447,9 +401,9 @@ async def test_mpris_direct_command_raises_when_player_method_fails() -> None:
     controller, bus = _controller(
         {"org.mpris.MediaPlayer2.alpha": (":1.10", "Playing")},
         method_errors={
-            (":1.10", "Pause"): _error_reply(
-                "org.freedesktop.DBus.Error.Failed",
+            (":1.10", "Pause"): dbus_error_reply(
                 "pause failed",
+                error_name="org.freedesktop.DBus.Error.Failed",
             )
         },
     )

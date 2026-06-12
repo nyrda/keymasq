@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.security import PeerCredentials
 from keymasq.session.manager import SessionManager
@@ -145,7 +146,7 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner(
         return_value={"unlocked": True, "source": "runtime", "expires_at": 2000}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
@@ -214,7 +215,7 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease(
         ]
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
@@ -245,7 +246,7 @@ async def test_claim_recording_unlock_refresh_blocks_reclaimed_runtime_lease(
     def resolve(_uid: int) -> dict:
         return {"unlocked": True, "source": "runtime", "expires_at": 5000}
 
-    monkeypatch.setattr(session_recording_module, "resolve_unlock_status", resolve)
+    monkeypatch.setattr(recording_unlock_module, "resolve_unlock_status", resolve)
 
     result = await session_recording_module.claim_recording_unlock_refresh(manager, peer, writer)
 
@@ -308,7 +309,7 @@ async def test_refresh_recording_unlock_skips_daemon_for_persistent_owner(
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )

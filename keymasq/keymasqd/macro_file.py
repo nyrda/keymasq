@@ -38,19 +38,19 @@ class MacroFileMeta:
     @classmethod
     def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> "MacroFileMeta":
         return cls(
-            name=name or _payload_str(payload, "name"),
-            duration_us=_payload_int(payload, "duration_us", 0),
+            name=name or macro_payload_str(payload, "name"),
+            duration_us=macro_payload_int(payload, "duration_us", 0),
             device_types=_payload_str_list(payload, "device_types"),
-            event_count=_payload_int(payload, "event_count", _event_count(payload)),
-            created_at=_payload_str(payload, "created_at", datetime.now().isoformat()),
-            revision=_payload_int(payload, "revision", 1),
+            event_count=macro_payload_int(payload, "event_count", _event_count(payload)),
+            created_at=macro_payload_str(payload, "created_at", datetime.now().isoformat()),
+            revision=macro_payload_int(payload, "revision", 1),
             move_to_start=bool(payload.get("move_to_start", False)),
-            start_x=_payload_int(payload, "start_x", 0),
-            start_y=_payload_int(payload, "start_y", 0),
+            start_x=macro_payload_int(payload, "start_x", 0),
+            start_y=macro_payload_int(payload, "start_y", 0),
             block_mouse_movement=bool(payload.get("block_mouse_movement", False)),
-            loop_mode=_payload_str(payload, "loop_mode", "none") or "none",
-            loop_count=_payload_int(payload, "loop_count", 1),
-            loop_stop_behavior=_payload_str(
+            loop_mode=macro_payload_str(payload, "loop_mode", "none") or "none",
+            loop_count=macro_payload_int(payload, "loop_count", 1),
+            loop_stop_behavior=macro_payload_str(
                 payload,
                 "loop_stop_behavior",
                 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
@@ -164,6 +164,7 @@ def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
 def _json_line(value: JsonObject) -> str:
     return json.dumps(value, separators=(",", ":")) + "\n"
 
+
 def _validate_meta_record(record: JsonObject) -> None:
     if record.get("format") != MACRO_FILE_FORMAT:
         raise ValueError("Unsupported macro file format")
@@ -171,12 +172,12 @@ def _validate_meta_record(record: JsonObject) -> None:
         raise ValueError("Unsupported macro file version")
 
 
-def _payload_str(payload: JsonObject, key: str, default: str = "") -> str:
+def macro_payload_str(payload: JsonObject, key: str, default: str = "") -> str:
     value = payload.get(key, default)
     return value if isinstance(value, str) else default
 
 
-def _payload_int(payload: JsonObject, key: str, default: int) -> int:
+def macro_payload_int(payload: JsonObject, key: str, default: int) -> int:
     value = payload.get(key, default)
     try:
         return int(cast(int | float | str, value))

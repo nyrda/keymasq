@@ -113,6 +113,20 @@ class TestProtocolEncoding:
         assert decoded is None
         assert remaining == b""
 
+    def test_decode_non_object_command_consumes_frame(self):
+        malformed = struct.pack(HEADER_FORMAT, 7) + b'["bad"]'
+        valid = encode_command(Command(command=CommandType.PING, data={}, request_id="ok"))
+
+        decoded, remaining = decode_command(malformed + valid)
+
+        assert decoded is None
+        assert remaining == valid
+
+        decoded, remaining = decode_command(remaining)
+        assert decoded is not None
+        assert decoded.request_id == "ok"
+        assert remaining == b""
+
     def test_error_response(self):
         resp = Response(
             status="error",
@@ -162,6 +176,21 @@ class TestProtocolEncoding:
         decoded, remaining = decode_response(malformed)
 
         assert decoded is None
+        assert remaining == b""
+
+    def test_decode_non_object_response_consumes_frame(self):
+        payload = b'"bad"'
+        malformed = struct.pack(HEADER_FORMAT, len(payload)) + payload
+        valid = encode_response(Response(status="ok", request_id="ok"))
+
+        decoded, remaining = decode_response(malformed + valid)
+
+        assert decoded is None
+        assert remaining == valid
+
+        decoded, remaining = decode_response(remaining)
+        assert decoded is not None
+        assert decoded.request_id == "ok"
         assert remaining == b""
 
 

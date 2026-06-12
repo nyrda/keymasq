@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.coercion import int_or_none as _int_or_none
+from keymasq.common.coercion import coerce_int
 from keymasq.common.coercion import json_object as _json_object
 from keymasq.common.slurp import get_slurp_capture
 from keymasq.common.types import JsonObject
@@ -128,13 +128,17 @@ def _move_window_to_workspace_action(focus: bool) -> NiriDispatchBuilder:
         ok, message, reference = _parse_workspace_reference(args)
         if not ok or reference is None:
             return ok, message, None
-        return True, "", {
-            "MoveWindowToWorkspace": {
-                "window_id": None,
-                "reference": reference,
-                "focus": focus,
-            }
-        }
+        return (
+            True,
+            "",
+            {
+                "MoveWindowToWorkspace": {
+                    "window_id": None,
+                    "reference": reference,
+                    "focus": focus,
+                }
+            },
+        )
 
     return _builder
 
@@ -142,9 +146,7 @@ def _move_window_to_workspace_action(focus: bool) -> NiriDispatchBuilder:
 NIRI_DISPATCH_BUILDERS: dict[str, NiriDispatchBuilder] = {
     "close-window": _focused_window_optional_id_action("CloseWindow"),
     "fullscreen-window": _focused_window_optional_id_action("FullscreenWindow"),
-    "toggle-windowed-fullscreen": _focused_window_optional_id_action(
-        "ToggleWindowedFullscreen"
-    ),
+    "toggle-windowed-fullscreen": _focused_window_optional_id_action("ToggleWindowedFullscreen"),
     "toggle-window-floating": _focused_window_optional_id_action("ToggleWindowFloating"),
     "center-window": _focused_window_optional_id_action("CenterWindow"),
     "focus-column-left-or-last": _no_arg_action("FocusColumnLeftOrLast"),
@@ -202,10 +204,14 @@ def parse_niri_focused_window_response(payload: str) -> JsonObject | None:
     if not ok:
         return None
 
-    response = _json_object(body)
-    if response is None or len(response) != 1:
+    return _extract_niri_focused_window(body)
+
+
+def _extract_niri_focused_window(response: object) -> JsonObject | None:
+    response_object = _json_object(response)
+    if response_object is None or len(response_object) != 1:
         return None
-    variant, response_body = next(iter(response.items()))
+    variant, response_body = next(iter(response_object.items()))
     if variant != "FocusedWindow":
         return None
     return _json_object(response_body)
@@ -374,7 +380,7 @@ class NiriListener(WindowListener):
             return
 
         if event_type == "WindowClosed":
-            window_id = _int_or_none(body.get("id"))
+            window_id = coerce_int(body.get("id"), None)
             if window_id is None:
                 return
             self._windows.pop(window_id, None)
@@ -384,12 +390,12 @@ class NiriListener(WindowListener):
             return
 
         if event_type == "WindowFocusChanged":
-            focused_window_id = _int_or_none(body.get("id"))
+            focused_window_id = coerce_int(body.get("id"), None)
             self._mark_window_focused(focused_window_id)
             await self._emit_current_window_if_changed()
 
     def _window_id(self, window: JsonObject) -> int | None:
-        return _int_or_none(window.get("id"))
+        return coerce_int(window.get("id"), None)
 
     def _window_info(self, window: JsonObject | None) -> tuple[str, str]:
         if window is None:
@@ -475,13 +481,7 @@ class NiriListener(WindowListener):
         )
         if not ok or response is None:
             return None
-        response_object = _json_object(response)
-        if response_object is None or len(response_object) != 1:
-            return None
-        variant, body = next(iter(response_object.items()))
-        if variant != "FocusedWindow":
-            return None
-        return _json_object(body)
+        return _extract_niri_focused_window(response)
 
     async def _request_windows(self) -> list[JsonObject] | None:
         ok, response = await self._send_cmd_request(
@@ -518,14 +518,18 @@ class NiriListener(WindowListener):
         if body_object is None:
             return action
 
-        if variant in {
-            "CloseWindow",
-            "FullscreenWindow",
-            "ToggleWindowedFullscreen",
-            "ToggleWindowFloating",
-            "CenterWindow",
-            "FocusWindow",
-        } and body_object.get("id") is None:
+        if (
+            variant
+            in {
+                "CloseWindow",
+                "FullscreenWindow",
+                "ToggleWindowedFullscreen",
+                "ToggleWindowFloating",
+                "CenterWindow",
+                "FocusWindow",
+            }
+            and body_object.get("id") is None
+        ):
             body_object["id"] = self._focused_window_id
             return action
 
@@ -587,8 +591,10 @@ class NiriListener(WindowListener):
         raw_dispatcher = str(dispatcher or "").strip()
         raw_args = str(args or "").strip()
 
-        if raw_dispatcher and not raw_args and raw_dispatcher.lower().startswith(
-            ("niri msg action ", "msg action ", "action ")
+        if (
+            raw_dispatcher
+            and not raw_args
+            and raw_dispatcher.lower().startswith(("niri msg action ", "msg action ", "action "))
         ):
             try:
                 parts = shlex.split(raw_dispatcher)

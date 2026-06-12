@@ -846,7 +846,6 @@ async def _execute_abs_axis_output(
             await stop_rapidfire_async(
                 device_runtime,
                 event_name,
-                asyncio_mod=deps.asyncio_mod,
             )
             mark_action_started(execution_handle)
         return
@@ -946,7 +945,6 @@ async def _execute_key_action(
             await stop_rapidfire_async(
                 device_runtime,
                 event_name,
-                asyncio_mod=deps.asyncio_mod,
             )
             mark_action_started(execution_handle)
         return
@@ -1069,7 +1067,6 @@ async def _execute_relative_mouse_action(
             await stop_rapidfire_async(
                 device_runtime,
                 event_name,
-                asyncio_mod=deps.asyncio_mod,
             )
             mark_action_started(execution_handle)
         return
@@ -1140,7 +1137,6 @@ async def _execute_move_action(
             await stop_rapidfire_async(
                 device_runtime,
                 event_name,
-                asyncio_mod=deps.asyncio_mod,
             )
             mark_action_started(execution_handle)
     elif action.tap_enabled:

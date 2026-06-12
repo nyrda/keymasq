@@ -345,6 +345,30 @@ async def test_refresh_then_lock_runtime_unlock_updates_owner_cache_and_file(
     assert not unlock_file.exists()
 
 
+def test_runtime_unlock_owner_denials_are_preserved(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    uid = 5555
+    owner_client = client_context(uid=uid, pid=600, connection_id=9)
+    other_client = client_context(uid=uid, pid=700, connection_id=10)
+    daemon._recording_refresh_owners[uid] = (600, 9)
+
+    with pytest.raises(
+        PermissionError,
+        match="recording_refresh_denied: caller is not active session owner",
+    ):
+        daemon._refresh_runtime_unlock(uid, 60, other_client)
+
+    with pytest.raises(
+        PermissionError,
+        match="recording_lock_denied: caller is not active session owner",
+    ):
+        daemon._lock_runtime_unlock(uid, other_client)
+
+    daemon._recording_refresh_owners.pop(uid)
+    with pytest.raises(PermissionError, match="recording_lock_denied: no active session owner"):
+        daemon._lock_runtime_unlock(uid, owner_client)
+
+
 def test_expired_unlocked_cache_entry_is_re_resolved(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     uid = 5555

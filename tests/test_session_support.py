@@ -3,7 +3,6 @@ import logging
 import runpy
 import shlex
 import sys
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,61 +12,15 @@ from keymasq.common.ipc import Command, CommandType, Response, encode_response
 from keymasq.session.action_handler import ActionHandler
 from keymasq.session.client import KeymasqdClient
 from keymasq.session.slurp import SLURP_MACRO_NAME, trigger_slurp_macro
-
-
-class _FakeWriter:
-    def __init__(self, wait_closed_error: Exception | None = None) -> None:
-        self.writes: list[bytes] = []
-        self.closed = False
-        self.wait_closed_error = wait_closed_error
-
-    def write(self, data: bytes) -> None:
-        self.writes.append(data)
-
-    async def drain(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        if self.wait_closed_error is not None:
-            raise self.wait_closed_error
-
-
-class _FakeReader:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = list(chunks)
-
-    async def read(self, _size: int) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
-
-
-class _FakeProcess:
-    def __init__(
-        self,
-        returncode: int = 0,
-        communicate: Callable[[], Awaitable[tuple[bytes, bytes]]] | None = None,
-    ) -> None:
-        self.returncode = returncode
-        self.killed = False
-        self.waited = False
-        self._communicate = communicate or self._default_communicate
-
-    async def _default_communicate(self) -> tuple[bytes, bytes]:
-        return b"", b""
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return await self._communicate()
-
-    def kill(self) -> None:
-        self.killed = True
-
-    async def wait(self) -> int:
-        self.waited = True
-        return self.returncode
+from tests.async_fakes import (
+    FakeProcess as _FakeProcess,
+)
+from tests.async_fakes import (
+    FakeStreamReader as _FakeReader,
+)
+from tests.async_fakes import (
+    FakeStreamWriter as _FakeWriter,
+)
 
 
 @pytest.mark.asyncio

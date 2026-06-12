@@ -149,10 +149,8 @@ async def execute_action_pulse(
     deps: ActionExecutionDeps,
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
     shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
-    explicit_bucket: str | None = None,
     record_repeat: bool = True,
 ) -> None:
-    del explicit_bucket
     await execute_action(
         device_runtime,
         action,

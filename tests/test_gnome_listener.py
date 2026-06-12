@@ -1,55 +1,21 @@
 import asyncio
 import logging
+from functools import partial
 from unittest.mock import AsyncMock
 
 import pytest
 
 import keymasq.session.listeners.gnome as gnome_module
 from keymasq.session.listeners.gnome import GnomeListener
+from tests.async_fakes import FakeStreamReader as _ScriptedReader
+from tests.async_fakes import FakeStreamWriter
 
 
-class _FakeWriter:
-    def __init__(self) -> None:
-        self.payloads: list[dict] = []
-        self.closed = False
-
-    def write(self, data: bytes) -> None:
-        self.payloads.append(gnome_module.json.loads(data.decode("utf-8")))
-
-    async def drain(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        return None
+def _decode_bridge_payload(data: bytes) -> object:
+    return gnome_module.json.loads(data.decode("utf-8"))
 
 
-class _EofReader:
-    async def readline(self) -> bytes:
-        return b""
-
-
-class _ScriptedReader:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = chunks
-
-    async def readline(self) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
-
-
-class _CloseFailWriter(_FakeWriter):
-    async def wait_closed(self) -> None:
-        raise RuntimeError("close bug")
-
-
-class _WriteFailWriter(_FakeWriter):
-    def write(self, data: bytes) -> None:
-        _ = data
-        raise RuntimeError("write bug")
+_FakeWriter = partial(FakeStreamWriter, payload_decoder=_decode_bridge_payload)
 
 
 _UNSET = object()
@@ -332,7 +298,7 @@ async def test_gnome_stale_bridge_reader_does_not_clear_new_connection() -> None
     listener._bridge_protocol = 1
     listener._bridge_protocol_compatible = True
 
-    await listener._bridge_read_loop(_EofReader(), stale_writer)
+    await listener._bridge_read_loop(_ScriptedReader([]), stale_writer)
 
     assert listener._writer is active_writer
     assert stale_writer.closed is True
@@ -419,12 +385,12 @@ async def test_gnome_bridge_read_loop_logs_unexpected_close_errors(
 ) -> None:
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
     listener.running = True
-    writer = _CloseFailWriter()
+    writer = _FakeWriter(wait_closed_error=RuntimeError("close bug"))
     listener._writer = writer
     listener._bridge_connected = True
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
-        await listener._bridge_read_loop(_EofReader(), writer)
+        await listener._bridge_read_loop(_ScriptedReader([]), writer)
 
     assert "Unexpected failure while closing GNOME bridge client writer" in caplog.text
     assert "close bug" in caplog.text
@@ -512,7 +478,7 @@ async def test_gnome_send_request_logs_unexpected_writer_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     listener = GnomeListener(lambda *_args: asyncio.sleep(0))
-    listener._writer = _WriteFailWriter()
+    listener._writer = _FakeWriter(write_error=RuntimeError("write bug"))
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
         assert await listener._send_request({"type": "get_active_window"}, timeout=0.1) is None

@@ -1,10 +1,11 @@
 import logging
 from typing import Literal, cast
 
-from keymasq.common.coercion import float_value as _float_value
-from keymasq.common.coercion import int_value as _int_value
+from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
+    DEFAULT_RAPIDFIRE_HOLD_MS,
+    DEFAULT_RAPIDFIRE_WAIT_MS,
     ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
@@ -12,7 +13,6 @@ from keymasq.common.models import (
     normalize_mpris_command,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
-    parse_rapidfire_fields,
     profile_deactivation_policy_to_dict,
     resolve_rapidfire_fields,
 )
@@ -39,6 +39,7 @@ PROFILE_REF_ACTION_TYPES: tuple[ActionType, ...] = (
 
 class UnknownActionTypeError(ValueError):
     pass
+
 
 def mapping_action_type_from_toml(
     action_data: TomlDict,
@@ -74,17 +75,24 @@ def _rapidfire_from_toml(
     logger: logging.Logger | None,
     warning_context: str,
 ) -> tuple[bool, int, int]:
+    rapidfire_hold_ms = coerce_int(
+        action_data.get("rapidfire_hold_ms"),
+        DEFAULT_RAPIDFIRE_HOLD_MS,
+    )
+    rapidfire_wait_ms = coerce_int(
+        action_data.get("rapidfire_wait_ms"),
+        DEFAULT_RAPIDFIRE_WAIT_MS,
+    )
     (
         rapidfire_enabled,
         rapidfire_hold_ms,
         rapidfire_wait_ms,
         unsupported_rapidfire,
-    ) = parse_rapidfire_fields(
+    ) = resolve_rapidfire_fields(
         action_type,
-        rapidfire_enabled=action_data.get("rapidfire_enabled", False),
-        rapidfire_hold_ms=action_data.get("rapidfire_hold_ms"),
-        rapidfire_wait_ms=action_data.get("rapidfire_wait_ms"),
-        int_value=_int_value,
+        rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+        rapidfire_hold_ms=rapidfire_hold_ms,
+        rapidfire_wait_ms=rapidfire_wait_ms,
     )
     if unsupported_rapidfire and logger is not None:
         logger.warning(
@@ -119,15 +127,15 @@ def mapping_action_from_toml(
             or str(action_data.get("macro_name", "") or ""),
             macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
             macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
-            macro_speed=_float_value(action_data.get("speed"), 1.0),
+            macro_speed=coerce_float(action_data.get("speed"), 1.0),
             macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
-            macro_loop_count=_int_value(action_data.get("loop_count"), 1),
+            macro_loop_count=coerce_int(action_data.get("loop_count"), 1),
             macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
                 action_data.get("loop_stop_behavior")
             ),
             macro_move_to_start=bool(action_data.get("move_to_start", False)),
-            macro_start_x=_int_value(action_data.get("start_x"), 0),
-            macro_start_y=_int_value(action_data.get("start_y"), 0),
+            macro_start_x=coerce_int(action_data.get("start_x"), 0),
+            macro_start_y=coerce_int(action_data.get("start_y"), 0),
             macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
         )
 
@@ -189,20 +197,20 @@ def mapping_action_from_toml(
     if action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         return MappingAction(
             action_type=action_type,
-            move_x=_int_value(action_data.get("x"), 0),
-            move_y=_int_value(action_data.get("y"), 0),
+            move_x=coerce_int(action_data.get("x"), 0),
+            move_y=coerce_int(action_data.get("y"), 0),
             rapidfire_enabled=rapidfire_enabled,
             rapidfire_hold_ms=rapidfire_hold_ms,
             rapidfire_wait_ms=rapidfire_wait_ms,
             tap_enabled=bool(action_data.get("tap_enabled", False)),
-            tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
+            tap_hold_ms=coerce_int(action_data.get("tap_hold_ms"), 10),
         )
 
     target = action_data.get("target")
     cmd = action_data.get("cmd")
     axis_value = 0
     if action_type == ActionType.GAMEPAD_AXIS:
-        axis_value = _int_value(
+        axis_value = coerce_int(
             action_data.get("value"),
             gamepad_axis_max_value(target),
         )
@@ -217,7 +225,7 @@ def mapping_action_from_toml(
         rapidfire_hold_ms=rapidfire_hold_ms,
         rapidfire_wait_ms=rapidfire_wait_ms,
         tap_enabled=bool(action_data.get("tap_enabled", False)),
-        tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
+        tap_hold_ms=coerce_int(action_data.get("tap_hold_ms"), 10),
     )
 
 
@@ -261,10 +269,7 @@ def mapping_action_to_toml(
         action_data["start_x"] = int(action.macro_start_x)
         action_data["start_y"] = int(action.macro_start_y)
         action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-    if (
-        action.action_type in MACRO_RECORDING_SLOT_ACTION_TYPES
-        and action.macro_recording_slot
-    ):
+    if action.action_type in MACRO_RECORDING_SLOT_ACTION_TYPES and action.macro_recording_slot:
         action_data["recording_slot"] = int(action.macro_recording_slot)
     if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         action_data["x"] = int(action.move_x)

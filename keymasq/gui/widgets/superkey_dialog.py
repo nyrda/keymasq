@@ -24,6 +24,7 @@ from keymasq.common.models import (
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.dialog_sizing import parent_constrained_dialog_width
+from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
@@ -31,17 +32,8 @@ from keymasq.session.superkeys import SuperkeyManager
 log = logging.getLogger("keymasq.gui.widgets.superkey_dialog")
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _superkeys_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/SUPERKEYS/"
+    return docs_page_url("SUPERKEYS", version=__version__)
 
 
 def _superkey_search_text(config: SuperkeyConfig | None, name: str) -> str:

@@ -1,14 +1,10 @@
 from collections.abc import Sequence
 from typing import Protocol, cast
 
+from keymasq.common.coercion import coerce_float, coerce_str
 from keymasq.common.ipc import CommandType
+from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.keymasqd import daemon_macro_commands
-from keymasq.keymasqd.daemon_helpers import (
-    JsonObject,
-    JsonObjectList,
-    float_like,
-    str_value,
-)
 
 
 class _DeviceCommandManager(Protocol):
@@ -93,7 +89,7 @@ async def handle_device_command(
 ) -> JsonObject | None:
     if command_type == CommandType.GRAB_DEVICE:
         return await daemon.device_manager.grab_device(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
             evdev_paths=cast(list[str], data["evdev_paths"]),
             button_map=cast(dict[str, str], data.get("button_map", {})),
             button_codes=cast(dict[str, int], data.get("button_codes", {})),
@@ -106,9 +102,9 @@ async def handle_device_command(
     if command_type == CommandType.RELEASE_DEVICE:
         grace_s = data.get("grace_s")
         return await daemon.device_manager.release_device(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
             immediate=bool(data.get("immediate", False)),
-            grace_s=float_like(grace_s, 0.0) if grace_s is not None else None,
+            grace_s=coerce_float(grace_s, 0.0) if grace_s is not None else None,
         )
 
     if command_type == CommandType.SET_MAPPING:
@@ -117,7 +113,7 @@ async def handle_device_command(
             cast(JsonObject, data["mapping"]),
         )
         return await daemon.device_manager.set_mapping(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
             mapping=mapping,
         )
 
@@ -133,10 +129,10 @@ async def handle_device_command(
 
     if command_type == CommandType.SET_DIAGNOSTICS:
         enabled = bool(data.get("enabled", False))
-        interval = float_like(data.get("interval", 5.0), 5.0)
+        interval = coerce_float(data.get("interval", 5.0), 5.0)
         raw_categories = data.get("categories")
         categories = (
-            [str_value(category) for category in cast(list[object], raw_categories)]
+            [coerce_str(category) for category in cast(list[object], raw_categories)]
             if isinstance(raw_categories, list)
             else None
         )
@@ -147,37 +143,37 @@ async def handle_device_command(
 
     if command_type == CommandType.TRACK_PROFILE_ACTIVATION:
         return await daemon.device_manager.track_profile_activation(
-            profile_name=str_value(data.get("profile_name", "")),
-            activation_id=str_value(data.get("activation_id", "")),
-            trigger_id=str_value(data.get("trigger_id", "")),
+            profile_name=coerce_str(data.get("profile_name", "")),
+            activation_id=coerce_str(data.get("activation_id", "")),
+            trigger_id=coerce_str(data.get("trigger_id", "")),
             deactivation=data.get("deactivation", {}),
         )
 
     if command_type == CommandType.CANCEL_PROFILE_ACTIVATION:
         return await daemon.device_manager.cancel_profile_activation(
-            profile_name=str_value(data.get("profile_name", "")),
-            activation_id=str_value(data.get("activation_id", "")),
+            profile_name=coerce_str(data.get("profile_name", "")),
+            activation_id=coerce_str(data.get("activation_id", "")),
         )
 
     if command_type == CommandType.DEVICE_INSPECTOR_START:
         return await daemon.device_manager.start_device_inspector(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
         )
 
     if command_type == CommandType.DEVICE_INSPECTOR_STOP:
         return await daemon.device_manager.stop_device_inspector(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
         )
 
     if command_type == CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION:
         return await daemon.device_manager.enable_device_inspector_suppression(
-            hardware_id=str_value(data["hardware_id"]),
+            hardware_id=coerce_str(data["hardware_id"]),
         )
 
     if command_type == CommandType.DEVICE_INSPECTOR_DISABLE_SUPPRESSION:
         return await daemon.device_manager.disable_device_inspector_suppression(
-            hardware_id=str_value(data["hardware_id"]),
-            reason=str_value(data.get("reason", "manual"), "manual"),
+            hardware_id=coerce_str(data["hardware_id"]),
+            reason=coerce_str(data.get("reason", "manual"), "manual"),
         )
 
     return None

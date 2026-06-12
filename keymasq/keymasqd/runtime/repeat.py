@@ -276,22 +276,23 @@ def _superkey_slot_action_lists(config: Any, slot: str | None) -> Iterable[Itera
 
 
 def _superkey_slot_contains_exec_action(action: MappingAction, slot: str | None) -> bool:
-    config = action.superkey_config
-    if action.action_type != ActionType.SUPERKEY or config is None:
-        return False
-    return any(
-        _is_exec_action_type(child.action_type)
-        for actions in _superkey_slot_action_lists(config, slot)
-        for child in actions
-    )
+    return _superkey_slot_contains_action_type(action, slot, _is_exec_action_type)
 
 
 def _superkey_slot_contains_profile_action(action: MappingAction, slot: str | None) -> bool:
+    return _superkey_slot_contains_action_type(action, slot, _is_profile_action_type)
+
+
+def _superkey_slot_contains_action_type(
+    action: MappingAction,
+    slot: str | None,
+    predicate: Callable[[object], bool],
+) -> bool:
     config = action.superkey_config
     if action.action_type != ActionType.SUPERKEY or config is None:
         return False
     return any(
-        _is_profile_action_type(child.action_type)
+        predicate(child.action_type)
         for actions in _superkey_slot_action_lists(config, slot)
         for child in actions
     )

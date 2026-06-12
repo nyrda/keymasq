@@ -137,10 +137,6 @@ def _by_id_device_stem(stable_path: str) -> str:
     return name
 
 
-def _looks_like_by_id_path(stable_path: str) -> bool:
-    return "/by-id/" in str(stable_path or "")
-
-
 def _fallback_interface_id_for_type(device_type: DeviceType) -> str:
     if device_type == DeviceType.GAMEPAD:
         return "gamepad"
@@ -226,11 +222,11 @@ def _logical_hardware_identity_key(
     config_key = str(config_path or "").strip()
     identity_path = stable_key
     # Preserve a durable by-id config identity when live udev only exposes eventN.
-    if not _looks_like_by_id_path(identity_path) and _looks_like_by_id_path(config_key):
+    if not is_by_id_path(identity_path) and is_by_id_path(config_key):
         identity_path = config_key
-    if input_classes_include_gamepad(normalized_types) and _looks_like_by_id_path(identity_path):
+    if input_classes_include_gamepad(normalized_types) and is_by_id_path(identity_path):
         return f"path:{identity_path}"
-    if _looks_like_by_id_path(identity_path):
+    if is_by_id_path(identity_path):
         return f"by-id:{_by_id_device_stem(identity_path)}"
     phys_key = str(phys or "").strip()
     phys_base = _strip_input_suffix(phys_key)
@@ -1165,7 +1161,7 @@ class HardwareSetupDialog(Adw.Dialog):
             except (OSError, RuntimeError, ValueError) as exc:
                 log.debug("Unable to resolve configured device path %s: %s", candidate, exc)
                 stable_path = ""
-            if stable_path and _looks_like_by_id_path(stable_path):
+            if stable_path and is_by_id_path(stable_path):
                 return stable_path
         return path
 

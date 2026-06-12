@@ -1,10 +1,10 @@
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, cast, overload
 
+from keymasq.common.coercion import coerce_int
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 
 if TYPE_CHECKING:
@@ -251,13 +251,14 @@ def parse_rapidfire_fields(
     rapidfire_enabled: object,
     rapidfire_hold_ms: object,
     rapidfire_wait_ms: object,
-    int_value: Callable[[object, int], int],
 ) -> tuple[bool, int, int, bool]:
+    parsed_hold_ms = coerce_int(rapidfire_hold_ms, DEFAULT_RAPIDFIRE_HOLD_MS)
+    parsed_wait_ms = coerce_int(rapidfire_wait_ms, DEFAULT_RAPIDFIRE_WAIT_MS)
     return resolve_rapidfire_fields(
         action_type,
         rapidfire_enabled=bool(rapidfire_enabled),
-        rapidfire_hold_ms=int_value(rapidfire_hold_ms, DEFAULT_RAPIDFIRE_HOLD_MS),
-        rapidfire_wait_ms=int_value(rapidfire_wait_ms, DEFAULT_RAPIDFIRE_WAIT_MS),
+        rapidfire_hold_ms=parsed_hold_ms,
+        rapidfire_wait_ms=parsed_wait_ms,
     )
 
 
@@ -545,9 +546,7 @@ class MappingAction:
             ActionType.STOP_MACRO_RECORDING,
             ActionType.PLAY_MACRO_SLOT,
         }:
-            self.macro_recording_slot = normalize_macro_recording_slot(
-                self.macro_recording_slot
-            )
+            self.macro_recording_slot = normalize_macro_recording_slot(self.macro_recording_slot)
         else:
             self.macro_recording_slot = 0
         if self.action_type == ActionType.REPEAT:
@@ -568,9 +567,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
     }
 )
 
-ANALOG_MOUSE_DIRECTIONS = frozenset(
-    {"left", "right", "up", "down", "horizontal", "vertical"}
-)
+ANALOG_MOUSE_DIRECTIONS = frozenset({"left", "right", "up", "down", "horizontal", "vertical"})
 ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
 SAME_DEVICE_OUTPUT_ID = "same-device"
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
@@ -717,9 +714,7 @@ class AnalogControlConfig:
     description: str | None = None
     input_type: str = "stick"
     mouse_motion: AnalogMouseMotionConfig = field(default_factory=AnalogMouseMotionConfig)
-    gamepad_output: AnalogGamepadOutputConfig = field(
-        default_factory=AnalogGamepadOutputConfig
-    )
+    gamepad_output: AnalogGamepadOutputConfig = field(default_factory=AnalogGamepadOutputConfig)
     thresholds: list[AnalogActionThreshold] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -772,9 +767,7 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
             threshold.trigger_min < threshold.release_min
             or threshold.trigger_max > threshold.release_max
         ):
-            raise ValueError(
-                f"threshold {index} activation range must be inside release range"
-            )
+            raise ValueError(f"threshold {index} activation range must be inside release range")
         for action in threshold.actions:
             if action.action_type not in ANALOG_THRESHOLD_ACTION_TYPES:
                 raise ValueError(
@@ -845,9 +838,7 @@ class SuperkeyAction:
             ActionType.STOP_MACRO_RECORDING,
             ActionType.PLAY_MACRO_SLOT,
         }:
-            self.macro_recording_slot = normalize_macro_recording_slot(
-                self.macro_recording_slot
-            )
+            self.macro_recording_slot = normalize_macro_recording_slot(self.macro_recording_slot)
         else:
             self.macro_recording_slot = 0
 
@@ -971,11 +962,7 @@ class SuperkeyConfig:
                 raise ValueError("repeat is not allowed inside overload superkeys")
 
     def has_overload_actions(self) -> bool:
-        return bool(
-            self.overload_actions
-            or self.overload_down_actions
-            or self.overload_up_actions
-        )
+        return bool(self.overload_actions or self.overload_down_actions or self.overload_up_actions)
 
     def has_any_action(self) -> bool:
         return self.has_pattern_actions() or self.has_overload_actions()

@@ -263,7 +263,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self._args_entry.set_text(preset.args)
 
     def _select_initial_preset(self) -> None:
-        selected = 0 if not self._definition.allow_custom else 0
+        selected = 0
         found = False
         for raw_index, preset in enumerate(self._definition.presets):
             if preset.dispatcher != self._dispatcher:
@@ -409,7 +409,4 @@ def describe_compositor_action_for_definitions(
             ):
                 return definition.describe_action(action)
         return None
-    for definition in definitions:
-        if action.action_type == definition.action_type:
-            return None
     return None

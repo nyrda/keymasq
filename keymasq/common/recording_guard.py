@@ -6,6 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from keymasq.common.config_files import fsync_parent_dir
 from keymasq.common.paths import RECORDING_UNLOCK_PERSISTENT_DIR, RECORDING_UNLOCK_RUNTIME_DIR
 
 log = logging.getLogger(__name__)
@@ -200,16 +201,7 @@ def write_unlock_expires_at(
 
         _validate_unlock_parent(path)
         os.replace(tmp_path, path)
-        dir_fd: int | None = None
-        try:
-            dir_fd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            except OSError:
-                pass
-        finally:
-            if dir_fd is not None:
-                os.close(dir_fd)
+        fsync_parent_dir(path)
     except Exception:
         try:
             tmp_path.unlink()

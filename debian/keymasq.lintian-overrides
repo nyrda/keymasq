@@ -1,4 +1,6 @@
-keymasq: initial-upload-closes-no-bugs
+# Keymasq handles generic evdev/uinput devices rather than a finite set of
+# hardware modaliases, so AppStream hardware discovery metadata is not useful.
+keymasq: appstream-metadata-missing-modalias-provide usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 keymasq: no-manual-page [usr/bin/keymasq]
 keymasq: no-manual-page [usr/bin/keymasq-record]
 keymasq: no-manual-page [usr/bin/keymasq-session]

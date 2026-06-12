@@ -10,17 +10,12 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.coercion import float_value_or_default as _float_value
-from keymasq.common.coercion import int_or_none as _int_or_none
-from keymasq.common.coercion import int_value_or_default as _int_value
+from keymasq.common.coercion import coerce_int
 from keymasq.common.models import (
-    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-    ActionType,
     ComboConfig,
     ComboEvent,
     ComboStep,
     MappingAction,
-    parse_profile_deactivation_policy,
 )
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
@@ -30,14 +25,15 @@ from keymasq.gui.session_client import (
     unregister_session_event_callback,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.action_payloads import mapping_action_from_payload
 from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER, SortableComboList
 from keymasq.gui.widgets.combo_presentation import (
     combo_action_label,
     combo_default_name,
     combo_key_label,
     combo_search_text,
-    combo_step_label,
     combo_trigger_label,
+    create_combo_summary_row,
 )
 
 
@@ -225,16 +221,13 @@ class ComboInspectorWindow(Adw.Window):
     def _store_snapshot(self, snapshot: ComboInspectorSnapshot) -> None:
         self._latest_snapshot_signature = snapshot.signature
         self._snapshots = [
-            existing
-            for existing in self._snapshots
-            if existing.signature != snapshot.signature
+            existing for existing in self._snapshots if existing.signature != snapshot.signature
         ]
         self._snapshots.insert(0, snapshot)
         del self._snapshots[SNAPSHOT_HISTORY_LIMIT:]
 
         selected_still_exists = any(
-            existing.signature == self._selected_snapshot_signature
-            for existing in self._snapshots
+            existing.signature == self._selected_snapshot_signature for existing in self._snapshots
         )
         if not selected_still_exists:
             self._follow_latest_snapshot = True
@@ -290,9 +283,7 @@ class ComboInspectorWindow(Adw.Window):
 
     def _snapshot_dropdown_label(self, snapshot: ComboInspectorSnapshot) -> str:
         prefix = (
-            "Now"
-            if snapshot.signature == self._latest_snapshot_signature
-            else snapshot.seen_at
+            "Now" if snapshot.signature == self._latest_snapshot_signature else snapshot.seen_at
         )
         summary = _profile_summary(snapshot.active_profiles)
         count = len(snapshot.items)
@@ -337,61 +328,17 @@ class ComboInspectorWindow(Adw.Window):
         )
 
     def _create_combo_row(self, item: ComboInspectorItem) -> Gtk.ListBoxRow:
-        row = Gtk.ListBoxRow()
-        row.set_selectable(False)
+        row = create_combo_summary_row(
+            name=item.name,
+            subtitle=f"Profile: {item.profile_name or '?'}",
+            steps=item.steps,
+            action=item.action,
+            read_only=True,
+            tooltip=_combo_tooltip(item),
+            step_tooltips=item.step_tooltips,
+        )
         row._combo_id = item.combo_id  # type: ignore[attr-defined]
         row._search_text = item.search_text  # type: ignore[attr-defined]
-
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.add_css_class("combo-row")
-        box.add_css_class("combo-row-readonly")
-
-        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        name_box.set_hexpand(True)
-        name_box.set_halign(Gtk.Align.START)
-
-        name_label = Gtk.Label(label=item.name)
-        name_label.set_halign(Gtk.Align.START)
-        name_label.set_xalign(0.0)
-        name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        name_label.add_css_class("heading")
-        name_box.append(name_label)
-
-        profile_label = Gtk.Label(label=f"Profile: {item.profile_name or '?'}")
-        profile_label.set_halign(Gtk.Align.START)
-        profile_label.set_xalign(0.0)
-        profile_label.set_ellipsize(Pango.EllipsizeMode.END)
-        profile_label.add_css_class("caption")
-        profile_label.add_css_class("dim-label")
-        name_box.append(profile_label)
-        box.append(name_box)
-
-        trigger_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        trigger_box.set_halign(Gtk.Align.START)
-        for index, step in enumerate(item.steps):
-            pill = Gtk.Label(label=combo_step_label(step))
-            pill.add_css_class("combo-step-pill")
-            if item.step_tooltips and index < len(item.step_tooltips):
-                pill.set_tooltip_text(item.step_tooltips[index])
-            trigger_box.append(pill)
-            if index < len(item.steps) - 1:
-                arrow = Gtk.Label(label="\u2192")
-                arrow.add_css_class("dim-label")
-                trigger_box.append(arrow)
-        box.append(trigger_box)
-
-        action_label = Gtk.Label(label=describe_mapping_action_compact(item.action))
-        action_label.set_width_chars(22)
-        action_label.set_max_width_chars(22)
-        action_label.set_ellipsize(Pango.EllipsizeMode.END)
-        action_label.set_halign(Gtk.Align.END)
-        action_label.set_xalign(1.0)
-        action_label.add_css_class("dim-label")
-        action_label.add_css_class("caption")
-        box.append(action_label)
-
-        row.set_child(box)
-        row.set_tooltip_text(_combo_tooltip(item))
         return row
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:
@@ -476,7 +423,7 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
             ]
             steps.append(
                 {
-                    "timeout_ms": _int_or_none(step_payload.get("timeout_ms")),
+                    "timeout_ms": coerce_int(step_payload.get("timeout_ms"), None),
                     "events": events,
                 }
             )
@@ -485,7 +432,7 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
                 "id": _text(combo_payload.get("id")),
                 "name": _text(combo_payload.get("name")),
                 "profile_name": _text(combo_payload.get("profile_name")),
-                "order": _int_value(combo_payload.get("order"), 0),
+                "order": coerce_int(combo_payload.get("order"), 0),
                 "steps": steps,
                 "action": _json_compatible(combo_payload.get("action")),
                 "recall_trigger_keys": bool(combo_payload.get("recall_trigger_keys", False)),
@@ -497,9 +444,7 @@ def _snapshot_signature(snapshot: JsonDict) -> str:
                     )
                     if str(value or "").strip()
                 ],
-                "match_across_devices": bool(
-                    combo_payload.get("match_across_devices", False)
-                ),
+                "match_across_devices": bool(combo_payload.get("match_across_devices", False)),
             }
         )
     return json.dumps(
@@ -561,7 +506,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
             search_parts.extend([evdev, hardware_id, source, device_name])
         if not events:
             continue
-        timeout_ms = _int_or_none(step_payload.get("timeout_ms"))
+        timeout_ms = coerce_int(step_payload.get("timeout_ms"), None)
         if timeout_ms is not None:
             search_parts.append(f"{timeout_ms}ms")
         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))
@@ -569,7 +514,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
     if not steps:
         return None
 
-    action = _mapping_action_from_payload(payload.get("action"))
+    action = mapping_action_from_payload(payload.get("action"))
     combo_id = _text(payload.get("id"))
     profile_name = _text(payload.get("profile_name"))
     name = _text(payload.get("name"))
@@ -597,7 +542,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
         profile_name=profile_name,
         steps=steps,
         action=action,
-        order=_int_value(payload.get("order"), 0),
+        order=coerce_int(payload.get("order"), 0),
         recall_trigger_keys=recall_trigger_keys,
         restore_trigger_keys=restore_trigger_keys,
         match_across_devices=match_across_devices,
@@ -606,7 +551,7 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
             [
                 combo_search_text(search_config, profile_name=profile_name),
                 " ".join(search_parts),
-                f"order {_int_value(payload.get('order'), 0) + 1}",
+                f"order {coerce_int(payload.get('order'), 0) + 1}",
             ]
         ),
     )
@@ -629,79 +574,6 @@ def _search_combo_config(
         recall_trigger_keys=recall_trigger_keys,
         restore_trigger_keys=restore_trigger_keys,
         match_across_devices=match_across_devices,
-    )
-
-
-def _mapping_action_from_payload(value: object) -> MappingAction | None:
-    if not isinstance(value, dict):
-        return None
-    action_data = cast(dict[str, object], value)
-    action_name = _text(action_data.get("action"), ActionType.PASSTHROUGH.value)
-    try:
-        action_type = ActionType(action_name)
-    except ValueError:
-        action_type = ActionType.PASSTHROUGH
-
-    macro_name = _text(action_data.get("macro_name"))
-    if action_type == ActionType.MACRO and not macro_name:
-        macro_name = _text(action_data.get("target"))
-    profile_name = _text(action_data.get("profile_name"))
-    if action_type in {
-        ActionType.PROFILE_ENABLE,
-        ActionType.PROFILE_DISABLE,
-        ActionType.PROFILE_TOGGLE,
-    } and not profile_name:
-        profile_name = _text(action_data.get("target"))
-    keys_value = action_data.get("keys")
-    keys = (
-        [str(key) for key in keys_value if str(key or "").strip()]
-        if isinstance(keys_value, list)
-        else None
-    )
-
-    return MappingAction(
-        action_type=action_type,
-        target=_optional_text(action_data.get("target")),
-        output_id=_optional_text(action_data.get("output_id")),
-        keys=keys,
-        cmd=_optional_text(action_data.get("cmd")),
-        superkey_name=_optional_text(action_data.get("superkey_name")),
-        analog_control_names=[
-            str(name)
-            for name in cast(list[object], action_data.get("analog_control_names") or [])
-            if str(name or "").strip()
-        ],
-        macro_name=macro_name or None,
-        macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
-        macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
-        macro_speed=_float_value(action_data.get("speed"), 1.0),
-        macro_loop_mode=_text(action_data.get("loop_mode"), "none") or "none",
-        macro_loop_count=_int_value(action_data.get("loop_count"), 1),
-        macro_loop_stop_behavior=(
-            _text(action_data.get("loop_stop_behavior"), DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
-            or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
-        ),
-        macro_move_to_start=bool(action_data.get("move_to_start", False)),
-        macro_start_x=_int_value(action_data.get("start_x"), 0),
-        macro_start_y=_int_value(action_data.get("start_y"), 0),
-        macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
-        profile_name=profile_name or None,
-        compositor_id=_optional_text(action_data.get("compositor")),
-        compositor_dispatcher=_optional_text(action_data.get("dispatcher")),
-        compositor_args=_optional_text(action_data.get("args")),
-        mpris_command=_optional_text(action_data.get("command")),
-        move_x=_int_value(action_data.get("x"), 0),
-        move_y=_int_value(action_data.get("y"), 0),
-        axis_value=_int_value(action_data.get("value"), 0),
-        rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
-        rapidfire_hold_ms=_int_value(action_data.get("rapidfire_hold_ms"), 0),
-        rapidfire_wait_ms=_int_value(action_data.get("rapidfire_wait_ms"), 0),
-        tap_enabled=bool(action_data.get("tap_enabled", False)),
-        tap_hold_ms=_int_value(action_data.get("tap_hold_ms"), 10),
-        source_profile_name=_optional_text(action_data.get("source_profile_name")),
-        profile_deactivation=parse_profile_deactivation_policy(
-            action_data.get("deactivation")
-        ),
     )
 
 
@@ -765,8 +637,3 @@ def _text(value: object, default: str = "") -> str:
     if value is None:
         return default
     return str(value)
-
-
-def _optional_text(value: object) -> str | None:
-    text = _text(value).strip()
-    return text or None

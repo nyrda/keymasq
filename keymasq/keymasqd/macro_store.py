@@ -18,6 +18,8 @@ from keymasq.keymasqd.macro_file import (
     iter_macro_events,
     load_macro,
     macro_payload_from_events,
+    macro_payload_int,
+    macro_payload_str,
     read_macro_meta,
     write_macro,
 )
@@ -28,19 +30,6 @@ _PROCESS_MUTATION_LOCK = threading.Lock()
 log = logging.getLogger("keymasqd.macros")
 type MacroEvent = dict[str, object]
 type MacroPayload = dict[str, object]
-
-
-def _payload_str(payload: MacroPayload, key: str, default: str = "") -> str:
-    value = payload.get(key, default)
-    return value if isinstance(value, str) else default
-
-
-def _payload_int(payload: MacroPayload, key: str, default: int) -> int:
-    value = payload.get(key, default)
-    try:
-        return int(cast(int | float | str, value))
-    except (TypeError, ValueError):
-        return default
 
 
 def _payload_list(payload: MacroPayload, key: str) -> list[object]:
@@ -173,7 +162,7 @@ class MacroStore:
             raise PermissionError(f"Cannot modify internal macro '{name}'")
         with self._mutation_guard():
             current = self.get(name)
-            current_revision = _payload_int(current, "revision", 1)
+            current_revision = macro_payload_int(current, "revision", 1)
             _raise_revision_conflict(expected_revision, current_revision)
 
             data: MacroPayload = dict(current)
@@ -206,7 +195,7 @@ class MacroStore:
         new_path = self._macro_path(safe_new)
         with self._mutation_guard():
             current = self.get(old_name)
-            current_revision = _payload_int(current, "revision", 1)
+            current_revision = macro_payload_int(current, "revision", 1)
             _raise_revision_conflict(expected_revision, current_revision)
             if new_path.exists():
                 raise FileExistsError(f"Macro '{safe_new}' already exists")
@@ -232,7 +221,7 @@ class MacroStore:
             raise PermissionError(f"Cannot delete internal macro '{name}'")
         with self._mutation_guard():
             current = self.get_meta(name)
-            current_revision = _payload_int(current, "revision", 1)
+            current_revision = macro_payload_int(current, "revision", 1)
             _raise_revision_conflict(expected_revision, current_revision)
             self._macro_path(name).unlink(missing_ok=True)
 
@@ -244,7 +233,7 @@ class MacroStore:
         return_full: bool,
     ) -> MacroPayload:
         self.ensure()
-        raw_name = _payload_str(payload, "name")
+        raw_name = macro_payload_str(payload, "name")
         if raw_name.startswith(INTERNAL_MACRO_PREFIX):
             raise ValueError(f"Macro names starting with {INTERNAL_MACRO_PREFIX} are reserved")
         name = self._sanitize_name(raw_name)
@@ -257,8 +246,8 @@ class MacroStore:
 
         data = dict(payload)
         data["name"] = name
-        data["created_at"] = _payload_str(payload, "created_at", datetime.now().isoformat())
-        data["revision"] = _payload_int(payload, "revision", 1)
+        data["created_at"] = macro_payload_str(payload, "created_at", datetime.now().isoformat())
+        data["revision"] = macro_payload_int(payload, "revision", 1)
 
         meta = MacroFileMeta.from_payload(data, name=name)
         write_macro(path, meta, events, overwrite=False)

@@ -1,5 +1,6 @@
 import json
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING, Literal, cast
 
 from keymasq.common.models import (
@@ -63,6 +64,15 @@ _PROFILE_ACTION_TYPES = frozenset(
 )
 
 
+class _ActionPayloadPurpose(Enum):
+    INSPECTOR = "inspector"
+    SIGNATURE = "signature"
+    COMBO_SIGNATURE = "combo_signature"
+    DEVICE = "device"
+    COMBO = "combo"
+    OVERLOAD = "overload"
+
+
 def _new_action_payload(action: MappingAction) -> dict[str, object]:
     data: dict[str, object] = {"action": action.action_type.value}
     if action.source_profile_name:
@@ -73,6 +83,67 @@ def _new_action_payload(action: MappingAction) -> dict[str, object]:
 def _set_optional_string(data: dict[str, object], key: str, value: object) -> None:
     if value is not None and str(value):
         data[key] = str(value)
+
+
+def _require_action_manager(manager: "SessionManager | None") -> "SessionManager":
+    if manager is None:
+        raise ValueError("action payload purpose requires a session manager")
+    return manager
+
+
+def _signature_purpose(purpose: _ActionPayloadPurpose) -> bool:
+    return purpose in (
+        _ActionPayloadPurpose.SIGNATURE,
+        _ActionPayloadPurpose.COMBO_SIGNATURE,
+    )
+
+
+def _add_inspector_base_fields(data: dict[str, object], action: MappingAction) -> None:
+    _set_optional_string(data, "target", action.target)
+    _set_optional_string(data, "output_id", action.output_id)
+    if action.keys:
+        data["keys"] = list(action.keys)
+    _set_optional_string(data, "cmd", action.cmd)
+    _set_optional_string(data, "superkey_name", action.superkey_name)
+    if action.analog_control_names:
+        data["analog_control_names"] = list(action.analog_control_names)
+    elif action.analog_control_name:
+        data["analog_control_name"] = action.analog_control_name
+
+
+def _add_inspector_target_action_fields(
+    data: dict[str, object],
+    action: MappingAction,
+) -> None:
+    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+        data["x"] = int(action.move_x)
+        data["y"] = int(action.move_y)
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        data["value"] = int(action.axis_value)
+
+
+def _add_inspector_macro_fields(data: dict[str, object], action: MappingAction) -> None:
+    data["target"] = action.macro_name or ""
+    data["replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
+    data["replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
+    data["speed"] = float(action.macro_speed)
+    data["loop_mode"] = action.macro_loop_mode
+    data["loop_count"] = int(action.macro_loop_count)
+    data["loop_stop_behavior"] = action.macro_loop_stop_behavior
+    data["move_to_start"] = bool(action.macro_move_to_start)
+    data["start_x"] = int(action.macro_start_x)
+    data["start_y"] = int(action.macro_start_y)
+    data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+
+
+def _finish_action_payload(
+    data: dict[str, object],
+    action: MappingAction,
+    purpose: _ActionPayloadPurpose,
+) -> dict[str, object]:
+    if purpose == _ActionPayloadPurpose.INSPECTOR:
+        _add_rapidfire_and_tap_fields(data, action)
+    return data
 
 
 def _add_target_action_fields(
@@ -175,54 +246,220 @@ def _add_macro_payload_fields(
     return True
 
 
-def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
-    if action is None:
-        return None
-
+def _serialize_action_payload(
+    manager: "SessionManager | None",
+    action: MappingAction,
+    *,
+    purpose: _ActionPayloadPurpose,
+    hardware_id: str = "",
+    step_count: int = 0,
+    track_combo_refs: bool = False,
+) -> dict[str, object] | None:
     data = _new_action_payload(action)
-    _set_optional_string(data, "target", action.target)
-    _set_optional_string(data, "output_id", action.output_id)
-    if action.keys:
-        data["keys"] = list(action.keys)
-    _set_optional_string(data, "cmd", action.cmd)
-    _set_optional_string(data, "superkey_name", action.superkey_name)
-    if action.analog_control_names:
-        data["analog_control_names"] = list(action.analog_control_names)
-    elif action.analog_control_name:
-        data["analog_control_name"] = action.analog_control_name
-    if action.action_type == ActionType.MACRO:
-        data["target"] = action.macro_name or ""
-        data["replay_mouse_movement"] = bool(action.macro_replay_mouse_movement)
-        data["replay_mouse_clicks"] = bool(action.macro_replay_mouse_clicks)
-        data["speed"] = float(action.macro_speed)
-        data["loop_mode"] = action.macro_loop_mode
-        data["loop_count"] = int(action.macro_loop_count)
-        data["loop_stop_behavior"] = action.macro_loop_stop_behavior
-        data["move_to_start"] = bool(action.macro_move_to_start)
-        data["start_x"] = int(action.macro_start_x)
-        data["start_y"] = int(action.macro_start_y)
-        data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
-        data["x"] = int(action.move_x)
-        data["y"] = int(action.move_y)
-    if action.action_type == ActionType.GAMEPAD_AXIS:
-        data["value"] = int(action.axis_value)
+    if purpose == _ActionPayloadPurpose.INSPECTOR:
+        _add_inspector_base_fields(data, action)
+
+    if action.action_type in _TARGET_ACTION_TYPES:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            _add_inspector_target_action_fields(data, action)
+        else:
+            _add_target_action_fields(
+                data,
+                action,
+                empty_target=_signature_purpose(purpose),
+            )
+        return _finish_action_payload(data, action, purpose)
+
+    if action.action_type == ActionType.REPEAT:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            data["repeat_categories"] = list(action.repeat_categories or [])
+        else:
+            _add_repeat_action_fields(data, action)
+        return _finish_action_payload(data, action, purpose)
+
+    if action.action_type == ActionType.EXEC:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            return _finish_action_payload(data, action, purpose)
+        if _signature_purpose(purpose):
+            data["cmd"] = action.cmd or ""
+            if purpose == _ActionPayloadPurpose.COMBO_SIGNATURE and not str(
+                data.get("cmd", "") or ""
+            ):
+                return None
+            return data
+        if purpose == _ActionPayloadPurpose.COMBO:
+            if not action.cmd:
+                return None
+            data["exec_ref"] = _allocate_exec_ref(
+                _require_action_manager(manager),
+                action.cmd,
+                owner="combo",
+            )
+            return data
+        if action.cmd:
+            owner: Literal["device", "combo"] = "device"
+            exec_hardware_id = hardware_id
+            if purpose == _ActionPayloadPurpose.OVERLOAD and track_combo_refs:
+                owner = "combo"
+                exec_hardware_id = None
+            data["exec_ref"] = _allocate_exec_ref(
+                _require_action_manager(manager),
+                action.cmd,
+                owner=owner,
+                hardware_id=exec_hardware_id,
+            )
+        return data
+
+    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
+        if purpose == _ActionPayloadPurpose.COMBO:
+            if not _add_compositor_dispatch_fields(data, action, trim_dispatcher=True):
+                return None
+        else:
+            _add_compositor_dispatch_fields(data, action)
+            if purpose == _ActionPayloadPurpose.COMBO_SIGNATURE and not str(
+                data.get("dispatcher", "") or ""
+            ):
+                return None
+        return _finish_action_payload(data, action, purpose)
+
+    if action.action_type == ActionType.MPRIS:
+        _add_mpris_action_fields(data, action)
+        return _finish_action_payload(data, action, purpose)
+
+    if action.action_type in _RECORDING_ACTION_TYPES:
+        _add_recording_action_fields(data, action)
+        return _finish_action_payload(data, action, purpose)
+
     if action.action_type in _PROFILE_ACTION_TYPES:
         _add_profile_action_fields(
             data,
             action,
-            fallback_target=False,
-            include_target=True,
+            fallback_target=purpose != _ActionPayloadPurpose.INSPECTOR,
+            include_target=purpose == _ActionPayloadPurpose.INSPECTOR,
         )
-    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        _add_compositor_dispatch_fields(data, action)
-    if action.action_type == ActionType.MPRIS:
-        _add_mpris_action_fields(data, action)
-    if action.action_type == ActionType.REPEAT:
-        data["repeat_categories"] = list(action.repeat_categories or [])
-    if action.action_type in _RECORDING_ACTION_TYPES:
-        _add_recording_action_fields(data, action)
-    _add_rapidfire_and_tap_fields(data, action)
+        return _finish_action_payload(data, action, purpose)
+
+    if action.action_type == ActionType.MACRO:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            _add_inspector_macro_fields(data, action)
+            return _finish_action_payload(data, action, purpose)
+        if _signature_purpose(purpose):
+            _add_macro_payload_fields(data, action, include_empty=True)
+            if purpose == _ActionPayloadPurpose.COMBO_SIGNATURE and not str(
+                data.get("macro_name", "") or ""
+            ):
+                return None
+            return data
+        if purpose == _ActionPayloadPurpose.COMBO:
+            if _add_macro_payload_fields(data, action, include_empty=False):
+                return data
+            return None
+        _add_macro_payload_fields(data, action, include_empty=False)
+        return data
+
+    if action.action_type == ActionType.SUPERKEY:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            return _finish_action_payload(data, action, purpose)
+        runtime_manager = _require_action_manager(manager)
+        if purpose in (
+            _ActionPayloadPurpose.COMBO,
+            _ActionPayloadPurpose.COMBO_SIGNATURE,
+        ):
+            config = _resolved_combo_superkey_config(
+                runtime_manager,
+                action,
+                step_count=step_count,
+            )
+            if config is None:
+                return None
+            if purpose == _ActionPayloadPurpose.COMBO_SIGNATURE:
+                data["superkey"] = serialize_superkey_signature(
+                    runtime_manager,
+                    config,
+                    "combo",
+                )
+            else:
+                data["superkey"] = serialize_superkey(
+                    runtime_manager,
+                    config,
+                    "combo",
+                    track_combo_refs=True,
+                )
+            return data
+        if action.superkey_name:
+            superkey_config = runtime_manager.superkeys.get_superkey(action.superkey_name)
+            if superkey_config:
+                if purpose == _ActionPayloadPurpose.SIGNATURE:
+                    data["superkey"] = serialize_superkey_signature(
+                        runtime_manager,
+                        superkey_config,
+                        hardware_id,
+                    )
+                elif purpose == _ActionPayloadPurpose.DEVICE:
+                    data["superkey"] = serialize_superkey(
+                        runtime_manager,
+                        superkey_config,
+                        hardware_id,
+                    )
+        return data
+
+    if action.action_type == ActionType.ANALOG_CONTROL:
+        if purpose == _ActionPayloadPurpose.INSPECTOR:
+            return _finish_action_payload(data, action, purpose)
+        if purpose in (
+            _ActionPayloadPurpose.COMBO,
+            _ActionPayloadPurpose.COMBO_SIGNATURE,
+        ):
+            log.warning("Ignoring unsupported combo action: analog_control")
+            return None
+        if purpose == _ActionPayloadPurpose.OVERLOAD:
+            return data
+        runtime_manager = _require_action_manager(manager)
+        configs = _resolved_analog_control_configs(runtime_manager, action)
+        if len(configs) == 1:
+            if purpose == _ActionPayloadPurpose.SIGNATURE:
+                data["analog_control"] = serialize_analog_control_signature(
+                    runtime_manager,
+                    configs[0],
+                    hardware_id,
+                )
+            else:
+                data["analog_control"] = serialize_analog_control(
+                    runtime_manager,
+                    configs[0],
+                    hardware_id,
+                )
+        elif configs:
+            if purpose == _ActionPayloadPurpose.SIGNATURE:
+                data["analog_controls"] = [
+                    serialize_analog_control_signature(runtime_manager, config, hardware_id)
+                    for config in configs
+                ]
+            else:
+                data["analog_controls"] = [
+                    serialize_analog_control(runtime_manager, config, hardware_id)
+                    for config in configs
+                ]
+        return data
+
+    if action.action_type == ActionType.SUPPRESS:
+        return _finish_action_payload(data, action, purpose)
+
+    if purpose == _ActionPayloadPurpose.COMBO:
+        return None
+    return _finish_action_payload(data, action, purpose)
+
+
+def serialize_mapping_action(action: MappingAction | None) -> JsonObject | None:
+    if action is None:
+        return None
+
+    data = _serialize_action_payload(
+        None,
+        action,
+        purpose=_ActionPayloadPurpose.INSPECTOR,
+    )
+    assert data is not None
     return data
 
 
@@ -335,66 +572,13 @@ def action_signature_payload(
     action: MappingAction,
     hardware_id: str,
 ) -> dict[str, object]:
-    data = _new_action_payload(action)
-
-    if action.action_type in _TARGET_ACTION_TYPES:
-        _add_target_action_fields(data, action, empty_target=True)
-        return data
-
-    if action.action_type == ActionType.REPEAT:
-        _add_repeat_action_fields(data, action)
-        return data
-
-    if action.action_type == ActionType.EXEC:
-        data["cmd"] = action.cmd or ""
-        return data
-
-    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        _add_compositor_dispatch_fields(data, action)
-        return data
-
-    if action.action_type == ActionType.MPRIS:
-        _add_mpris_action_fields(data, action)
-        return data
-
-    if action.action_type in _RECORDING_ACTION_TYPES:
-        _add_recording_action_fields(data, action)
-        return data
-
-    if action.action_type in _PROFILE_ACTION_TYPES:
-        _add_profile_action_fields(data, action)
-        return data
-
-    if action.action_type == ActionType.MACRO:
-        _add_macro_payload_fields(data, action, include_empty=True)
-        return data
-
-    if action.action_type == ActionType.SUPERKEY:
-        if action.superkey_name:
-            superkey_config = manager.superkeys.get_superkey(action.superkey_name)
-            if superkey_config:
-                data["superkey"] = serialize_superkey_signature(
-                    manager,
-                    superkey_config,
-                    hardware_id,
-                )
-        return data
-
-    if action.action_type == ActionType.ANALOG_CONTROL:
-        configs = _resolved_analog_control_configs(manager, action)
-        if len(configs) == 1:
-            data["analog_control"] = serialize_analog_control_signature(
-                manager,
-                configs[0],
-                hardware_id,
-            )
-        elif configs:
-            data["analog_controls"] = [
-                serialize_analog_control_signature(manager, config, hardware_id)
-                for config in configs
-            ]
-        return data
-
+    data = _serialize_action_payload(
+        manager,
+        action,
+        purpose=_ActionPayloadPurpose.SIGNATURE,
+        hardware_id=hardware_id,
+    )
+    assert data is not None
     return data
 
 
@@ -404,31 +588,12 @@ def combo_action_signature_payload(
     *,
     step_count: int,
 ) -> dict[str, object] | None:
-    if action.action_type == ActionType.SUPERKEY:
-        config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
-        if config is None:
-            return None
-        data: dict[str, object] = {
-            "action": action.action_type.value,
-            "superkey": serialize_superkey_signature(manager, config, "combo"),
-        }
-        if action.source_profile_name:
-            data["source_profile_name"] = action.source_profile_name
-        return data
-
-    data = action_signature_payload(manager, action, "")
-    if data.get("action") == "superkey":
-        return None
-    if data.get("action") == "analog_control":
-        log.warning("Ignoring unsupported combo action: analog_control")
-        return None
-    if data.get("action") == "exec" and not str(data.get("cmd", "") or ""):
-        return None
-    if data.get("action") == "compositor_dispatch" and not str(data.get("dispatcher", "") or ""):
-        return None
-    if data.get("action") == "macro" and not str(data.get("macro_name", "") or ""):
-        return None
-    return data
+    return _serialize_action_payload(
+        manager,
+        action,
+        purpose=_ActionPayloadPurpose.COMBO_SIGNATURE,
+        step_count=step_count,
+    )
 
 
 def profile_to_mapping(
@@ -441,53 +606,13 @@ def profile_to_mapping(
 
     mapping: dict[str, dict[str, object]] = {}
     for button_id, action in resolved.mappings.items():
-        action_data = _new_action_payload(action)
-
-        if action.action_type in _TARGET_ACTION_TYPES:
-            _add_target_action_fields(action_data, action, empty_target=False)
-        elif action.action_type == ActionType.EXEC:
-            if action.cmd:
-                exec_ref = _allocate_exec_ref(
-                    manager,
-                    action.cmd,
-                    owner="device",
-                    hardware_id=hardware_id,
-                )
-                action_data["exec_ref"] = exec_ref
-        elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
-            _add_compositor_dispatch_fields(action_data, action)
-        elif action.action_type == ActionType.MPRIS:
-            _add_mpris_action_fields(action_data, action)
-        elif action.action_type == ActionType.REPEAT:
-            _add_repeat_action_fields(action_data, action)
-        elif action.action_type in _RECORDING_ACTION_TYPES:
-            _add_recording_action_fields(action_data, action)
-        elif action.action_type in _PROFILE_ACTION_TYPES:
-            _add_profile_action_fields(action_data, action)
-        elif action.action_type == ActionType.MACRO:
-            _add_macro_payload_fields(action_data, action, include_empty=False)
-        elif action.action_type == ActionType.SUPERKEY:
-            if action.superkey_name:
-                superkey_config = manager.superkeys.get_superkey(action.superkey_name)
-                if superkey_config:
-                    action_data["superkey"] = serialize_superkey(
-                        manager,
-                        superkey_config,
-                        hardware_id,
-                    )
-        elif action.action_type == ActionType.ANALOG_CONTROL:
-            analog_configs = _resolved_analog_control_configs(manager, action)
-            if len(analog_configs) == 1:
-                action_data["analog_control"] = serialize_analog_control(
-                    manager,
-                    analog_configs[0],
-                    hardware_id,
-                )
-            elif analog_configs:
-                action_data["analog_controls"] = [
-                    serialize_analog_control(manager, config, hardware_id)
-                    for config in analog_configs
-                ]
+        action_data = _serialize_action_payload(
+            manager,
+            action,
+            purpose=_ActionPayloadPurpose.DEVICE,
+            hardware_id=hardware_id,
+        )
+        assert action_data is not None
 
         mapping[button_id] = action_data
 
@@ -562,67 +687,13 @@ def combo_action_to_payload(
     *,
     step_count: int,
 ) -> JsonObject | None:
-    action_data = _new_action_payload(action)
-
-    if action.action_type in _TARGET_ACTION_TYPES:
-        _add_target_action_fields(action_data, action, empty_target=False)
-        return action_data
-
-    if action.action_type == ActionType.REPEAT:
-        _add_repeat_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type == ActionType.EXEC:
-        if not action.cmd:
-            return None
-        exec_ref = _allocate_exec_ref(manager, action.cmd, owner="combo")
-        action_data["exec_ref"] = exec_ref
-        return action_data
-
-    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        if not _add_compositor_dispatch_fields(action_data, action, trim_dispatcher=True):
-            return None
-        return action_data
-
-    if action.action_type == ActionType.MPRIS:
-        _add_mpris_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type in _RECORDING_ACTION_TYPES:
-        _add_recording_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type in _PROFILE_ACTION_TYPES:
-        _add_profile_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type == ActionType.MACRO:
-        if _add_macro_payload_fields(action_data, action, include_empty=False):
-            return action_data
-        return None
-
-    if action.action_type == ActionType.SUPPRESS:
-        return action_data
-
-    if action.action_type == ActionType.SUPERKEY:
-        config = _resolved_combo_superkey_config(manager, action, step_count=step_count)
-        if config is None:
-            return None
-        if action.source_profile_name:
-            action_data["source_profile_name"] = action.source_profile_name
-        action_data["superkey"] = serialize_superkey(
-            manager,
-            config,
-            "combo",
-            track_combo_refs=True,
-        )
-        return action_data
-
-    if action.action_type == ActionType.ANALOG_CONTROL:
-        log.warning("Ignoring unsupported combo action: analog_control")
-        return None
-
-    return None
+    data = _serialize_action_payload(
+        manager,
+        action,
+        purpose=_ActionPayloadPurpose.COMBO,
+        step_count=step_count,
+    )
+    return cast(JsonObject | None, data)
 
 
 def _resolved_analog_control_configs(
@@ -1011,48 +1082,15 @@ def serialize_overload_action(
         raise ValueError("nested superkeys are not allowed inside superkeys")
     if action.action_type == ActionType.ANALOG_CONTROL:
         raise ValueError("nested analog controls are not allowed inside analog controls")
-    action_data = _new_action_payload(action)
-
-    if action.action_type in _TARGET_ACTION_TYPES:
-        _add_target_action_fields(action_data, action, empty_target=False)
-        return action_data
-
-    if action.action_type == ActionType.REPEAT:
-        _add_repeat_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type == ActionType.EXEC:
-        if action.cmd:
-            exec_ref = _allocate_exec_ref(
-                manager,
-                action.cmd,
-                owner="combo" if track_combo_refs else "device",
-                hardware_id=None if track_combo_refs else hardware_id,
-            )
-            action_data["exec_ref"] = exec_ref
-        return action_data
-
-    if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        _add_compositor_dispatch_fields(action_data, action)
-        return action_data
-
-    if action.action_type == ActionType.MPRIS:
-        _add_mpris_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type in _RECORDING_ACTION_TYPES:
-        _add_recording_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type in _PROFILE_ACTION_TYPES:
-        _add_profile_action_fields(action_data, action)
-        return action_data
-
-    if action.action_type == ActionType.MACRO:
-        _add_macro_payload_fields(action_data, action, include_empty=False)
-        return action_data
-
-    return action_data
+    data = _serialize_action_payload(
+        manager,
+        action,
+        purpose=_ActionPayloadPurpose.OVERLOAD,
+        hardware_id=hardware_id,
+        track_combo_refs=track_combo_refs,
+    )
+    assert data is not None
+    return cast(JsonObject, data)
 
 
 def _allocate_exec_ref(

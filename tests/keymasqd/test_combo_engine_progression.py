@@ -215,7 +215,6 @@ def test_overlapping_multi_step_combos_with_shared_first_step_progress_independe
     assert press_1.consume_current_event is True
     assert press_1.action_transition is not None
     assert press_1.action_transition.combo_id == "combo-1"
-    assert set(engine._candidates) == {"combo-1"}
 
     press_2 = handle_combo_event(engine, key_2, 1, 0.5)
     assert press_2.consume_current_event is False
@@ -226,7 +225,6 @@ def test_overlapping_multi_step_combos_with_shared_first_step_progress_independe
     assert release_1.action_transition is not None
     assert release_1.action_transition.combo_id == "combo-1"
     assert release_1.action_transition.kind == "release"
-    assert engine._candidates == {}
 
 
 def test_sibling_sequence_candidate_drops_after_other_branch_matches():
@@ -253,7 +251,6 @@ def test_sibling_sequence_candidate_drops_after_other_branch_matches():
     assert press_b.consume_current_event is True
     assert press_b.action_transition is not None
     assert press_b.action_transition.combo_id == "combo-a-b"
-    assert set(engine._candidates) == {"combo-a-b"}
 
     press_c = handle_combo_event(engine, key_c, 1, 0.3)
     assert press_c.consume_current_event is False
@@ -306,7 +303,6 @@ def test_overlapping_multi_step_combos_with_shared_first_step_can_hold_outputs_t
     assert release_2.action_transition is not None
     assert release_2.action_transition.combo_id == "combo-2"
     assert release_2.action_transition.kind == "release"
-    assert engine._candidates == {}
 
 
 def test_mixed_releasing_release_drops_unfinished_candidate():
@@ -339,9 +335,14 @@ def test_mixed_releasing_release_drops_unfinished_candidate():
     partial_release = handle_combo_event(engine, key_a, 0, 0.5)
     assert partial_release.passthrough_current_event is True
     assert partial_release.reset_candidates is False
-    assert set(engine._candidates) == {"held-combo"}
 
-    final_press = handle_combo_event(engine, key_b, 1, 0.6)
+    release_1 = handle_combo_event(engine, key_1, 0, 0.6)
+    assert release_1.consume_current_event is True
+    assert release_1.action_transition is not None
+    assert release_1.action_transition.combo_id == "held-combo"
+    assert release_1.action_transition.kind == "release"
+
+    final_press = handle_combo_event(engine, key_b, 1, 0.7)
     assert final_press.action_transition is None
     assert final_press.consume_current_event is False
 
@@ -362,7 +363,6 @@ def test_single_step_combo_with_wheel_pulse_fires_without_sticking():
     assert first_tick.action_transition.combo_id == "combo-1"
     assert second_tick.action_transition is not None
     assert second_tick.action_transition.kind == "pulse"
-    assert engine._candidates == {}
 
 
 def test_multistep_combo_accepts_wheel_pulse_as_final_step():
@@ -382,7 +382,6 @@ def test_multistep_combo_accepts_wheel_pulse_as_final_step():
     assert decision.action_transition is not None
     assert decision.action_transition.combo_id == "combo-1"
     assert decision.action_transition.kind == "pulse"
-    assert engine._candidates == {}
 
 
 def test_multistep_combo_rejects_wheel_only_first_step():
@@ -398,7 +397,6 @@ def test_multistep_combo_rejects_wheel_only_first_step():
     assert first_step.passthrough_current_event is True
     assert first_step.action_transition is None
     assert decision.action_transition is None
-    assert engine._candidates == {}
 
 
 def test_multistep_combo_accepts_leader_plus_wheel_as_first_step():

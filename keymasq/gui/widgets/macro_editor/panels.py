@@ -100,6 +100,9 @@ class MacroEditorPanelsMixin:
         root.append(Gtk.Separator())
         root.append(self._build_property_panel())
         root.append(self._build_name_row())
+        footer_spacer = Gtk.Box()
+        footer_spacer.set_vexpand(True)
+        root.append(footer_spacer)
         root.append(self._build_footer())
 
         frame = Gtk.Frame()
@@ -728,6 +731,10 @@ class MacroEditorPanelsMixin:
         copy_btn = Gtk.Button(label="Save as Copy…")
         copy_btn.connect("clicked", self._on_save_as_copy)
         footer.append(copy_btn)
+
+        apply_btn = Gtk.Button(label="Apply")
+        apply_btn.connect("clicked", self._on_apply)
+        footer.append(apply_btn)
 
         save_btn = Gtk.Button(label="Save Changes")
         save_btn.add_css_class("suggested-action")

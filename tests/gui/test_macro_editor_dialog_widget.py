@@ -24,6 +24,7 @@ from keymasq.gui.widgets.macro_editor_dialog import (
     reconstruct_events,
 )
 from tests.gui.macro_editor_dialog_support import _build_macro_dialog
+from tests.gui.support import collect_widgets, iter_widget_children
 
 
 def _install_delayed_cursor_position_capture_harness(
@@ -705,6 +706,86 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
         "macro_action": "wait",
         "duration_us": 80_000,
     } in payload["events"]
+
+
+def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    frame = dialog.get_child()
+    assert isinstance(frame, Gtk.Frame)
+    root = frame.get_child()
+    children = list(iter_widget_children(root))
+    footer_spacer = children[-2]
+    footer = children[-1]
+
+    assert footer_spacer.get_vexpand() is True
+    assert footer.get_halign() == Gtk.Align.END
+    assert [
+        button.get_label()
+        for button in collect_widgets(footer, Gtk.Button, include_self=True)
+    ] == ["Cancel", "Save as Copy…", "Apply", "Save Changes"]
+
+
+def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._macro_name = "demo_macro"
+    dialog._macro_exists = True
+    dialog._macro_data = {"name": "demo_macro", "revision": 2, "created_at": "old"}
+    dialog._duration_us = 4000
+    dialog._events = [
+        EditableEvent(
+            device_type="keyboard",
+            ev_type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_A,
+            press_t_us=1000,
+            release_t_us=4000,
+        )
+    ]
+
+    requests: list[dict] = []
+    reloads: list[bool] = []
+    closed: list[bool] = []
+
+    def fake_session_request(payload):
+        requests.append(payload)
+        saved_macro = dict(payload["macro"])
+        saved_macro["revision"] = 3
+        return {"status": "ok", "macro": saved_macro}
+
+    def fake_run_gui_task(worker, callback, *, on_start=None, on_done=None) -> None:
+        if on_start is not None:
+            on_start()
+        callback(GuiTaskResult(value=worker()))
+        if on_done is not None:
+            on_done()
+
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+    monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "notify_session_reload_async",
+        lambda: reloads.append(True),
+    )
+    monkeypatch.setattr(
+        macro_editor_dialog_module.MacroEditorDialog,
+        "close",
+        lambda self: closed.append(True),
+    )
+
+    apply_btn = Gtk.Button(label="Apply")
+    dialog._on_apply(apply_btn)
+
+    assert requests[0]["command"] == "update_macro"
+    assert requests[0]["name"] == "demo_macro"
+    assert requests[0]["expected_revision"] == 2
+    assert dialog._macro_data["revision"] == 3
+    assert dialog._initial_macro_data["revision"] == 3
+    assert dialog._macro_name == "demo_macro"
+    assert reloads == [True]
+    assert closed == []
+    assert apply_btn.get_sensitive() is True
 
 
 def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:

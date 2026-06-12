@@ -715,7 +715,13 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
     # Save / Save as copy
     # ------------------------------------------------------------------
 
-    def _on_save(self, btn) -> None:
+    def _on_save(self, btn: Gtk.Button) -> None:
+        self._save_current_macro(btn, close_after_save=True)
+
+    def _on_apply(self, btn: Gtk.Button) -> None:
+        self._save_current_macro(btn, close_after_save=False)
+
+    def _save_current_macro(self, btn: Gtk.Button, *, close_after_save: bool) -> None:
         new_name = self._name_entry.get_text().strip()
         if not self._validate_name_for_save(new_name):
             return
@@ -727,7 +733,12 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             return self._save_macro_request(new_name, macro_payload, revision)
 
         def on_save_finished(result: GuiTaskResult[JsonDict | None]) -> bool:
-            return self._on_save_finished(result, new_name)
+            return self._on_save_finished(
+                result,
+                new_name,
+                macro_payload,
+                close_after_save=close_after_save,
+            )
 
         def on_save_start() -> None:
             btn.set_sensitive(False)
@@ -782,15 +793,38 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self,
         result: GuiTaskResult[JsonDict | None],
         requested_name: str,
+        requested_payload: dict,
+        *,
+        close_after_save: bool,
     ) -> bool:
         payload = result.value if result.ok and isinstance(result.value, dict) else {}
         if payload.get("status") != "ok":
             self._show_name_conflict(requested_name)
             return False
 
+        self._apply_saved_macro_state(payload, requested_name, requested_payload)
         notify_session_reload_async()
-        self.close()
+        if close_after_save:
+            self.close()
         return False
+
+    def _apply_saved_macro_state(
+        self,
+        save_response: JsonDict,
+        requested_name: str,
+        requested_payload: dict,
+    ) -> None:
+        saved_macro = save_response.get("macro")
+        if not isinstance(saved_macro, dict):
+            saved_macro = dict(requested_payload)
+
+        self._macro_data = copy.deepcopy(saved_macro)
+        saved_name = str(saved_macro.get("name", requested_name) or requested_name)
+        self._macro_name = saved_name
+        self._macro_exists = True
+        self._initial_macro_data = copy.deepcopy(saved_macro)
+        _set_entry_text_if_needed(self._name_entry, saved_name)
+        self.set_title(f"Edit macro ({saved_name})")
 
     def _on_save_as_copy(self, btn) -> None:
         dialog = Adw.Dialog(title="Save as Copy", content_width=360)

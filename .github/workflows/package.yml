@@ -683,7 +683,21 @@ jobs:
       - build-rpm-fedora
       - build-rpm-opensuse
       - test-rpm
-    if: needs.version-metadata.outputs.is_manual_prerelease == 'true' && github.actor != 'nektos/act'
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        github.actor != 'nektos/act' &&
+        needs.version-metadata.outputs.is_manual_prerelease == 'true' &&
+        needs.build-source-tarball.result == 'success' &&
+        needs.build-pacman-arch.result == 'success' &&
+        needs.test-pacman-arch.result == 'success' &&
+        needs.build-deb.result == 'success' &&
+        needs.test-deb.result == 'success' &&
+        needs.build-rpm-fedora.result == 'success' &&
+        needs.build-rpm-opensuse.result == 'success' &&
+        needs.test-rpm.result == 'success'
+      }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

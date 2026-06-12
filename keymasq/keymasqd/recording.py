@@ -12,8 +12,7 @@ from typing import Protocol, cast
 
 import evdev
 
-from keymasq.common.coercion import int_value_or_default as _int_value
-from keymasq.common.coercion import str_value as _str_value
+from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.devices import (
     classify_event_device_type,
     high_res_wheel_low_res_code,
@@ -408,9 +407,9 @@ class RecordingManager:
                 )
                 snapshot = RecordingSnapshot(
                     recording_id=recording_id,
-                    duration_ms=_int_value(meta.get("duration_ms", 0)),
+                    duration_ms=coerce_int(meta.get("duration_ms", 0)),
                     device_types=device_types,
-                    event_count=_int_value(meta.get("event_count", 0)),
+                    event_count=coerce_int(meta.get("event_count", 0)),
                     spool_path=event_path,
                     memory_events=(),
                     recording_slot=int(slot),
@@ -722,22 +721,22 @@ def _physical_source_key(stable_path: str) -> str:
 
 
 def _recording_device_kind(device: RecordingDevice) -> str:
-    return _str_value(
-        device.get("recording_kind", device.get("kind", "physical")),
+    return coerce_str(
+        device.get("recording_kind") or device.get("kind") or "physical",
         "physical",
     )
 
 
 def _recording_device_path(device: RecordingDevice) -> str:
-    return _str_value(device.get("open_path", device.get("path", "")), "")
+    return coerce_str(device.get("open_path") or device.get("path") or "", "")
 
 
 def _recording_device_source_key(device: RecordingDevice) -> str:
-    source_stable_path = _str_value(device.get("source_stable_path"), "")
+    source_stable_path = coerce_str(device.get("source_stable_path"), "")
     if source_stable_path:
         return _physical_source_key(source_stable_path)
 
-    stable_path = _str_value(device.get("stable_path"), "")
+    stable_path = coerce_str(device.get("stable_path"), "")
     if stable_path:
         return _physical_source_key(stable_path)
 
@@ -745,7 +744,7 @@ def _recording_device_source_key(device: RecordingDevice) -> str:
     if path:
         return _physical_source_key(resolve_stable_path(path))
 
-    return _str_value(device.get("recording_id"), "")
+    return coerce_str(device.get("recording_id"), "")
 
 
 def _build_recording_plan(

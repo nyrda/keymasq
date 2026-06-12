@@ -442,7 +442,7 @@ class TestGrabbedDeviceHelpers:
             evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, int(syn_mt_report), 0),
             deps=deps,
         )
-        assert gdo.passthrough_frame_open(passthrough)
+        assert gdo.passthrough_frame_open(device, passthrough)
         assert passthrough.syn_count == 0
 
         await gde.process_event(
@@ -457,7 +457,7 @@ class TestGrabbedDeviceHelpers:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 20),
         ]
         assert passthrough.syn_count == 0
-        assert gdo.passthrough_frame_open(passthrough)
+        assert gdo.passthrough_frame_open(device, passthrough)
 
         await gde.process_event(
             device,
@@ -466,7 +466,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert passthrough.syn_count == 1
-        assert not gdo.passthrough_frame_open(passthrough)
+        assert not gdo.passthrough_frame_open(device, passthrough)
         assert [label for label, _duration_us in diagnostics] == [
             "passthrough_other",
             "syn",
@@ -496,7 +496,7 @@ class TestGrabbedDeviceHelpers:
 
         assert passthrough.writes == [(evdev.ecodes.EV_SYN, int(syn_mt_report), 0)]
         assert passthrough.syn_count == 0
-        assert gdo.passthrough_frame_open(passthrough)
+        assert gdo.passthrough_frame_open(device, passthrough)
 
         await gde.process_event(
             device,
@@ -505,7 +505,7 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert passthrough.syn_count == 1
-        assert not gdo.passthrough_frame_open(passthrough)
+        assert not gdo.passthrough_frame_open(device, passthrough)
 
     @pytest.mark.asyncio
     async def test_pass_to_all_feedback_events_are_not_passthrough(
@@ -560,7 +560,7 @@ class TestGrabbedDeviceHelpers:
         )
         event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
 
-        gdo.mark_passthrough_frame_open(target_uinput)
+        gdo.mark_passthrough_frame_open(device, target_uinput)
         await gda.execute_action(
             device,
             action,
@@ -573,12 +573,28 @@ class TestGrabbedDeviceHelpers:
         assert target_uinput.syn_count == 0
 
         gdo.flush_passthrough_frame(
+            device,
             target_uinput,
             uinput_writer=runtime_adapters.identity_uinput_writer,
         )
 
         assert target_uinput.syn_count == 1
-        assert not gdo.passthrough_frame_open(target_uinput)
+        assert not gdo.passthrough_frame_open(device, target_uinput)
+
+    def test_passthrough_frame_state_is_scoped_to_device_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _CountingUInput()
+        first = make_grabbed_device(monkeypatch)
+        second = make_grabbed_device(monkeypatch)
+        first.uinput = passthrough  # type: ignore[assignment]
+        second.uinput = passthrough  # type: ignore[assignment]
+
+        gdo.mark_passthrough_frame_open(first, passthrough)
+
+        assert gdo.passthrough_frame_open(first, passthrough)
+        assert not gdo.passthrough_frame_open(second, passthrough)
 
     def test_device_has_mapped_buttons_matches_by_code_when_names_differ(self) -> None:
         caps = {

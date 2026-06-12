@@ -9,6 +9,30 @@ from keymasq.keymasqd import daemon_macro_commands
 from tests.keymasqd.daemon_support import client_context, macro_meta
 
 
+async def _resolve_macro_actions(macro_store, resolver_kind, actions):
+    if resolver_kind == "mapping":
+        source_ids = [f"source_{index}" for index in range(len(actions))]
+        resolved = await daemon_macro_commands.resolve_mapping_macros(
+            macro_store,
+            dict(zip(source_ids, actions, strict=True)),
+        )
+        return [cast(dict[str, object], resolved[source_id]) for source_id in source_ids]
+
+    resolved = await daemon_macro_commands.resolve_combo_macros(
+        macro_store,
+        [
+            {
+                "id": f"combo-{index}",
+                "name": f"Combo {index}",
+                "steps": [],
+                "action": action,
+            }
+            for index, action in enumerate(actions)
+        ],
+    )
+    return [cast(dict[str, object], combo["action"]) for combo in resolved]
+
+
 @pytest.mark.asyncio
 async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
@@ -193,8 +217,12 @@ async def test_mapping_and_combo_macro_resolution_match_for_nested_actions(daemo
     assert threshold_action["macro_loop_stop_behavior"] == "cancel_run"
 
 
+@pytest.mark.parametrize("resolver_kind", ["mapping", "combo"])
 @pytest.mark.asyncio
-async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_testbed):
+async def test_resolve_macros_deduplicates_macro_store_reads(
+    daemon_testbed,
+    resolver_kind,
+):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
     macro_store.get_meta.side_effect = lambda name: macro_meta(
@@ -205,26 +233,29 @@ async def test_resolve_mapping_macros_deduplicates_macro_store_reads(daemon_test
         block_mouse_movement=False,
     )
 
-    resolved = await daemon_macro_commands.resolve_mapping_macros(
+    resolved_actions = await _resolve_macro_actions(
         daemon.macro_store,
-        {
-            "btn_side": {"action": "macro", "macro_name": "combo"},
-            "btn_extra": {"action": "macro", "macro_name": "combo"},
-            "btn_middle": {"action": "macro", "macro_name": "other"},
-        }
+        resolver_kind,
+        [
+            {"action": "macro", "macro_name": "combo"},
+            {"action": "macro", "macro_name": "combo"},
+            {"action": "macro", "macro_name": "other"},
+        ],
     )
 
-    side = cast(dict[str, object], resolved["btn_side"])
-    extra = cast(dict[str, object], resolved["btn_extra"])
-    middle = cast(dict[str, object], resolved["btn_middle"])
+    side, extra, middle = resolved_actions
     assert side["macro_loop_count"] == 3
     assert extra["macro_loop_count"] == 3
     assert middle["macro_loop_count"] == 2
     assert macro_store.get_meta.call_count == 2
 
 
+@pytest.mark.parametrize("resolver_kind", ["mapping", "combo"])
 @pytest.mark.asyncio
-async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daemon_testbed):
+async def test_resolve_macros_ignores_malformed_stored_macro_values(
+    daemon_testbed,
+    resolver_kind,
+):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
     macro_store.get_meta.return_value = {
@@ -237,16 +268,17 @@ async def test_resolve_mapping_macros_ignores_malformed_stored_macro_values(daem
         "block_mouse_movement": False,
     }
 
-    resolved = await daemon_macro_commands.resolve_mapping_macros(
+    resolved_actions = await _resolve_macro_actions(
         daemon.macro_store,
-        {
-            "btn_side": {"action": "macro", "macro_name": "broken"},
-            "btn_middle": {"action": "keyboard", "target": "key_a"},
-        }
+        resolver_kind,
+        [
+            {"action": "macro", "macro_name": "broken"},
+            {"action": "keyboard", "target": "key_a"},
+        ],
     )
 
-    assert resolved["btn_side"] == {"action": "macro", "macro_name": "broken"}
-    assert resolved["btn_middle"] == {"action": "keyboard", "target": "key_a"}
+    assert resolved_actions[0] == {"action": "macro", "macro_name": "broken"}
+    assert resolved_actions[1] == {"action": "keyboard", "target": "key_a"}
 
 
 @pytest.mark.asyncio
@@ -377,87 +409,6 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
 
 
 @pytest.mark.asyncio
-async def test_resolve_combo_macros_deduplicates_macro_store_reads(daemon_testbed):
-    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-
-    macro_store.get_meta.side_effect = lambda name: macro_meta(
-        loop_count=4 if name == "combo" else 1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
-        block_mouse_movement=False,
-    )
-
-    resolved = await daemon_macro_commands.resolve_combo_macros(
-        daemon.macro_store,
-        [
-            {
-                "id": "combo-1",
-                "name": "First",
-                "steps": [],
-                "action": {"action": "macro", "macro_name": "combo"},
-            },
-            {
-                "id": "combo-2",
-                "name": "Second",
-                "steps": [],
-                "action": {"action": "macro", "macro_name": "combo"},
-            },
-            {
-                "id": "combo-3",
-                "name": "Third",
-                "steps": [],
-                "action": {"action": "macro", "macro_name": "other"},
-            },
-        ]
-    )
-
-    first = cast(dict[str, object], resolved[0]["action"])
-    second = cast(dict[str, object], resolved[1]["action"])
-    third = cast(dict[str, object], resolved[2]["action"])
-    assert first["macro_loop_count"] == 4
-    assert second["macro_loop_count"] == 4
-    assert third["macro_loop_count"] == 1
-    assert macro_store.get_meta.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_resolve_combo_macros_ignores_malformed_stored_macro_values(daemon_testbed):
-    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": "",
-        "move_to_start": True,
-        "start_x": "abc",
-        "start_y": 0,
-        "block_mouse_movement": False,
-    }
-
-    resolved = await daemon_macro_commands.resolve_combo_macros(
-        daemon.macro_store,
-        [
-            {
-                "id": "combo-1",
-                "name": "Broken",
-                "steps": [],
-                "action": {"action": "macro", "macro_name": "broken"},
-            },
-            {
-                "id": "combo-2",
-                "name": "Keyboard",
-                "steps": [],
-                "action": {"action": "keyboard", "target": "key_f5"},
-            },
-        ]
-    )
-
-    assert resolved[0]["action"] == {"action": "macro", "macro_name": "broken"}
-    assert resolved[1]["action"] == {"action": "keyboard", "target": "key_f5"}
-
-
-@pytest.mark.asyncio
 async def test_handle_command_start_recording_requires_macro_recording_opt_in(
     daemon_testbed,
     monkeypatch,
@@ -506,4 +457,28 @@ def test_macro_recording_enabled_cache_rechecks_persistent_opt_in(
 
     now_mono = 102.0
     assert daemon._macro_recording_enabled_for_uid(1000) == (False, 0, "none")
+    assert calls == [1000, 1000]
+
+
+def test_macro_recording_enabled_cache_rechecks_disabled_opt_in(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    statuses = [
+        {"unlocked": False, "source": "none", "expires_at": 0},
+        {"unlocked": True, "source": "persistent", "expires_at": 0},
+    ]
+    calls: list[int] = []
+
+    def resolve_status(uid: int) -> dict[str, bool | int | str]:
+        calls.append(uid)
+        return statuses[min(len(calls) - 1, len(statuses) - 1)]
+
+    monkeypatch.setattr(daemon_module, "resolve_macro_recording_status", resolve_status)
+    monkeypatch.setattr(daemon_module.time, "time", lambda: 1000)
+    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: 100.0)
+
+    assert daemon._macro_recording_enabled_for_uid(1000) == (False, 0, "none")
+    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
     assert calls == [1000, 1000]

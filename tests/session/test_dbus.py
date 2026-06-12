@@ -1,9 +1,7 @@
 import logging
 
 import pytest
-from dbus_next.constants import MessageType
 from dbus_next.errors import DBusError
-from dbus_next.message import Message
 
 import keymasq.session.dbus as dbus_module
 from keymasq.session.dbus import (
@@ -15,54 +13,12 @@ from keymasq.session.dbus import (
     NOTIFICATIONS_SERVICE,
     SessionDBus,
 )
-
-
-class _FakeProxy:
-    def __init__(self, interfaces: dict[str, object]) -> None:
-        self._interfaces = interfaces
-
-    def get_interface(self, interface: str) -> object:
-        return self._interfaces[interface]
-
-
-class _FakeBus:
-    def __init__(
-        self,
-        *,
-        call_replies: list[Message | None] | None = None,
-        call_error: Exception | None = None,
-        introspection_error: Exception | None = None,
-    ) -> None:
-        self.connected = True
-        self.disconnect_calls = 0
-        self.call_replies = list(call_replies or [])
-        self.call_error = call_error
-        self.introspection_error = introspection_error
-        self.introspection = object()
-        self.introspection_calls: list[tuple[str, str]] = []
-        self.proxy_requests: list[tuple[str, str, object]] = []
-        self.messages: list[Message] = []
-        self.interfaces: dict[str, object] = {}
-
-    def disconnect(self) -> None:
-        self.connected = False
-        self.disconnect_calls += 1
-
-    async def introspect(self, destination: str, path: str) -> object:
-        self.introspection_calls.append((destination, path))
-        if self.introspection_error is not None:
-            raise self.introspection_error
-        return self.introspection
-
-    def get_proxy_object(self, destination: str, path: str, introspection: object) -> _FakeProxy:
-        self.proxy_requests.append((destination, path, introspection))
-        return _FakeProxy(self.interfaces)
-
-    async def call(self, message: Message) -> Message | None:
-        self.messages.append(message)
-        if self.call_error is not None:
-            raise self.call_error
-        return self.call_replies.pop(0)
+from tests.session.support import (
+    FakeIntrospectableDBusBus,
+    dbus_error_reply,
+    dbus_reply,
+    patch_session_message_bus,
+)
 
 
 class _NameOwnerInterface:
@@ -91,40 +47,13 @@ class _SuppliedDBus:
         return self.result
 
 
-def _reply(signature: str = "", body: list[object] | None = None) -> Message:
-    return Message(
-        message_type=MessageType.METHOD_RETURN,
-        reply_serial=1,
-        signature=signature,
-        body=body or [],
-    )
-
-
-def _error_reply(message: str) -> Message:
-    return Message(
-        message_type=MessageType.ERROR,
-        error_name="org.keymasq.TestError",
-        reply_serial=1,
-        signature="s",
-        body=[message],
-    )
-
-
-def _patch_message_bus(monkeypatch: pytest.MonkeyPatch, buses: list[_FakeBus]) -> None:
-    class _MessageBusFactory:
-        async def connect(self) -> _FakeBus:
-            return buses.pop(0)
-
-    monkeypatch.setattr(dbus_module, "MessageBus", _MessageBusFactory)
-
-
 @pytest.mark.asyncio
 async def test_session_dbus_reconnects_when_cached_bus_is_disconnected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    first_bus = _FakeBus()
-    second_bus = _FakeBus()
-    _patch_message_bus(monkeypatch, [first_bus, second_bus])
+    first_bus = FakeIntrospectableDBusBus()
+    second_bus = FakeIntrospectableDBusBus()
+    patch_session_message_bus(monkeypatch, dbus_module, [first_bus, second_bus])
     dbus = SessionDBus()
 
     assert await dbus.connect() is first_bus
@@ -145,7 +74,7 @@ async def test_session_dbus_reconnects_when_cached_bus_is_disconnected(
 
 @pytest.mark.asyncio
 async def test_session_dbus_introspection_is_cached_and_disconnects_on_error() -> None:
-    bus = _FakeBus()
+    bus = FakeIntrospectableDBusBus()
     dbus = SessionDBus()
     dbus._bus = bus
 
@@ -167,7 +96,7 @@ async def test_session_dbus_introspection_is_cached_and_disconnects_on_error() -
 @pytest.mark.asyncio
 async def test_session_dbus_name_has_owner_uses_dbus_proxy_and_disconnects_on_error() -> None:
     iface = _NameOwnerInterface(result=1)
-    bus = _FakeBus()
+    bus = FakeIntrospectableDBusBus()
     bus.interfaces[DBUS_INTERFACE] = iface
     dbus = SessionDBus()
     dbus._bus = bus
@@ -176,7 +105,7 @@ async def test_session_dbus_name_has_owner_uses_dbus_proxy_and_disconnects_on_er
     assert iface.calls == ["org.example.Service"]
     assert bus.proxy_requests == [(DBUS_SERVICE, DBUS_PATH, bus.introspection)]
 
-    error_bus = _FakeBus()
+    error_bus = FakeIntrospectableDBusBus()
     error_bus.interfaces[DBUS_INTERFACE] = _NameOwnerInterface(
         error=RuntimeError("owner lookup failed")
     )
@@ -191,11 +120,11 @@ async def test_session_dbus_name_has_owner_uses_dbus_proxy_and_disconnects_on_er
 
 @pytest.mark.asyncio
 async def test_session_dbus_notify_handles_success_empty_error_and_missing_replies() -> None:
-    bus = _FakeBus(
+    bus = FakeIntrospectableDBusBus(
         call_replies=[
-            _reply("u", [42]),
-            _reply(),
-            _error_reply("notifications disabled"),
+            dbus_reply([42], signature="u"),
+            dbus_reply(),
+            dbus_error_reply("notifications disabled"),
             None,
         ]
     )
@@ -239,7 +168,7 @@ async def test_session_dbus_notify_handles_success_empty_error_and_missing_repli
 
 @pytest.mark.asyncio
 async def test_session_dbus_notify_disconnects_after_call_error() -> None:
-    bus = _FakeBus(call_error=RuntimeError("notifications offline"))
+    bus = FakeIntrospectableDBusBus(call_error=RuntimeError("notifications offline"))
     dbus = SessionDBus()
     dbus._bus = bus
 
@@ -253,8 +182,8 @@ async def test_session_dbus_notify_disconnects_after_call_error() -> None:
 async def test_temporary_session_dbus_connects_and_disconnects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bus = _FakeBus()
-    _patch_message_bus(monkeypatch, [bus])
+    bus = FakeIntrospectableDBusBus()
+    patch_session_message_bus(monkeypatch, dbus_module, [bus])
 
     async with dbus_module.temporary_session_dbus() as dbus:
         assert await dbus.bus() is bus
@@ -274,10 +203,10 @@ async def test_name_has_owner_helper_uses_supplied_or_temporary_dbus(
     failing = _SuppliedDBus(False, error=DBusError("org.example.Error", "no bus"))
     assert await dbus_module.name_has_owner("org.example.Service", failing) is False
 
-    temporary_bus = _FakeBus()
+    temporary_bus = FakeIntrospectableDBusBus()
     temporary_iface = _NameOwnerInterface(result=True)
     temporary_bus.interfaces[DBUS_INTERFACE] = temporary_iface
-    _patch_message_bus(monkeypatch, [temporary_bus])
+    patch_session_message_bus(monkeypatch, dbus_module, [temporary_bus])
 
     assert await dbus_module.name_has_owner("org.example.Temporary") is True
     assert temporary_iface.calls == ["org.example.Temporary"]

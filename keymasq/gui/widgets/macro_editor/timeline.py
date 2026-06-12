@@ -314,7 +314,7 @@ class TimelineWidget(Gtk.DrawingArea):
             y_top = self._wave_y
             track_h = self.TRACK_HEIGHT
 
-        width = self.get_allocated_width()
+        width = self.get_width()
         for ev, mx, my, size in reversed(
             self._get_passthrough_marker_layouts(
                 track,

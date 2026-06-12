@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
     ActionType,
@@ -15,16 +16,14 @@ from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
 
 from . import payloads as runtime_payloads
 from .common import JsonObject
-from .common import int_value as _int_value
 from .common import json_list as _json_list
 from .common import json_object as _json_object
+from .constants import GRAB_DEVICE_TIMEOUT_S, GRAB_RETRY_DELAY_S
 
 if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
-GRAB_DEVICE_TIMEOUT_S = 330.0
-GRAB_RETRY_DELAY_S = 5.0
 
 
 async def activate_initial_profiles(manager: "SessionManager") -> None:
@@ -124,9 +123,7 @@ def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
             if inspector_state is not None
             else set[str]()
         )
-        inspector_active = bool(
-            inspector_state is not None and hardware_id in active_hardware_ids
-        )
+        inspector_active = bool(inspector_state is not None and hardware_id in active_hardware_ids)
         inspector_suppressed = bool(
             inspector_state is not None and hardware_id in suppressed_hardware_ids
         )
@@ -780,7 +777,7 @@ async def apply_resolved_device_profile(
         if result.status == "ok":
             result_data = _json_object(result.data)
             grabbed_count = (
-                _int_value(result_data.get("grabbed_count"), 0)
+                coerce_int(result_data.get("grabbed_count"), 0)
                 if result_data is not None
                 else 0
             )
@@ -799,17 +796,12 @@ async def apply_resolved_device_profile(
                 )
                 if waiting_for_device:
                     manager.profile_state.grab_waiting_devices.add(hardware_id)
-                    manager.profile_state.last_sent_grab_signatures[hardware_id] = (
-                        grab_signature
-                    )
+                    manager.profile_state.last_sent_grab_signatures[hardware_id] = grab_signature
                 else:
                     manager.profile_state.grab_waiting_devices.discard(hardware_id)
                     manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
                 log.warning(
-                    (
-                        "keymasqd grab returned zero interfaces for %s "
-                        "(requested=%s, mappings=%d)"
-                    ),
+                    ("keymasqd grab returned zero interfaces for %s (requested=%s, mappings=%d)"),
                     hardware_id,
                     list(new_interfaces.keys()),
                     len(resolved.mappings),
@@ -904,13 +896,9 @@ def get_interfaces_to_grab(
     if resolved.always_grab_all:
         return interface_to_path
 
-    button_to_source: dict[str, str] = {
-        b.id: b.source for b in hardware_config.buttons if b.source
-    }
+    button_to_source: dict[str, str] = {b.id: b.source for b in hardware_config.buttons if b.source}
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
-    button_to_source.update(
-        {analog.id: analog.source for analog in analog_inputs if analog.source}
-    )
+    button_to_source.update({analog.id: analog.source for analog in analog_inputs if analog.source})
 
     sources_to_grab: set[str] = set()
     for button_id, action in resolved.mappings.items():
@@ -984,8 +972,7 @@ def _device_inspector_active(manager: "SessionManager", hardware_id: str) -> boo
         else set[str]()
     )
     return bool(
-        inspector_state is not None
-        and str(hardware_id or "").strip() in active_hardware_ids
+        inspector_state is not None and str(hardware_id or "").strip() in active_hardware_ids
     )
 
 
@@ -1029,21 +1016,9 @@ def build_grab_device_payload(
                             if axis.evdev_code is not None
                             else {}
                         ),
-                        **(
-                            {"minimum": int(axis.minimum)}
-                            if axis.minimum is not None
-                            else {}
-                        ),
-                        **(
-                            {"maximum": int(axis.maximum)}
-                            if axis.maximum is not None
-                            else {}
-                        ),
-                        **(
-                            {"center": int(axis.center)}
-                            if axis.center is not None
-                            else {}
-                        ),
+                        **({"minimum": int(axis.minimum)} if axis.minimum is not None else {}),
+                        **({"maximum": int(axis.maximum)} if axis.maximum is not None else {}),
+                        **({"center": int(axis.center)} if axis.center is not None else {}),
                         **({"rest": int(axis.rest)} if axis.rest is not None else {}),
                         **({"invert": True} if axis.invert else {}),
                     }
@@ -1059,9 +1034,7 @@ def build_grab_device_payload(
 def grab_device_payload_signature(payload: JsonObject) -> str:
     signature_payload = {
         "evdev_paths": sorted(str(path) for path in _json_list(payload.get("evdev_paths"))),
-        "evdev_interfaces": _signature_evdev_interfaces(
-            payload.get("evdev_interfaces")
-        ),
+        "evdev_interfaces": _signature_evdev_interfaces(payload.get("evdev_interfaces")),
         "button_map": payload.get("button_map", {}),
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),
@@ -1115,9 +1088,7 @@ async def update_grab_device_payload(
             return False
         result_data = _json_object(result.data)
         grabbed_count = (
-            _int_value(result_data.get("grabbed_count"), 0)
-            if result_data is not None
-            else 0
+            coerce_int(result_data.get("grabbed_count"), 0) if result_data is not None else 0
         )
         if grabbed_count <= 0:
             log.error("Grab config update for %s returned zero grabbed interfaces", hardware_id)

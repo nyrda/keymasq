@@ -182,7 +182,7 @@ Defined in `debian/control`:
 - `acl`
 - `gir1.2-adw-1`
 - `gir1.2-gtk-4.0`
-- `pkexec | policykit-1 | polkitd`
+- `pkexec`
 - `python3-dbus-next`
 - `python3-evdev`
 - `python3-gi`

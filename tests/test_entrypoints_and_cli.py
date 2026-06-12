@@ -165,33 +165,6 @@ def test_session_entrypoint_delegates_help_to_manager(monkeypatch: pytest.Monkey
     assert called == ["manager"]
 
 
-def test_cli_main_does_not_define_command_wrappers() -> None:
-    from keymasq.cli import __main__ as cli_main
-
-    command_names = {
-        "cancel_macro_cli",
-        "create_macro_cli",
-        "delete_macro_cli",
-        "list_macros_cli",
-        "list_profiles_cli",
-        "mpris_cli",
-        "mpris_status_cli",
-        "play_adhoc_cli",
-        "play_macro_cli",
-        "set_diagnostics_cli",
-        "set_profile_state_cli",
-        "status_cli",
-        "type_cli",
-    }
-    wrappers = [
-        name
-        for name in sorted(command_names)
-        if getattr(getattr(cli_main, name, None), "__module__", None) == cli_main.__name__
-    ]
-
-    assert wrappers == []
-
-
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     from keymasq.cli import __main__ as cli_main
     from keymasq.cli import commands

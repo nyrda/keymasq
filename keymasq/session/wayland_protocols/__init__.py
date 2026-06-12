@@ -11,6 +11,7 @@ from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WlrForeignToplevelWaylandClient,
 )
 from keymasq.session.wayland_protocols.wlr_foreign_toplevel_manager import (
+    WLR_TOPLEVEL_STATE_ACTIVATED,
     WlrForeignToplevelManagerTracker,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "ExtForeignToplevelListTracker",
     "ExtForeignToplevelListWaylandClient",
     "CosmicToplevelInfoWaylandClient",
+    "WLR_TOPLEVEL_STATE_ACTIVATED",
     "WlrForeignToplevelManagerTracker",
     "WlrForeignToplevelWaylandClient",
 ]

@@ -14,6 +14,15 @@ from keymasq.common.models import ButtonDefinition, ProfileConfig, SuperkeyConfi
 from keymasq.common.security import PeerCredentials
 from keymasq.session.manager import SessionManager
 from keymasq.session.profiles import ProfileInfo
+from tests.async_fakes import (
+    FakeStreamReader as _FakeSessionReader,
+)
+from tests.async_fakes import (
+    FakeStreamWriter as _FakeSessionWriter,
+)
+from tests.async_fakes import (
+    HangingStreamWriter as _HangingSessionWriter,
+)
 
 
 class _FakeKeymasqdClient:
@@ -31,54 +40,6 @@ class _FakeKeymasqdClient:
 
     async def send_command(self, _command: object) -> Response:
         return Response(status="ok", data={"count": 1})
-
-
-class _FakeSessionReader:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = chunks
-
-    async def read(self, _size: int) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
-
-
-class _FakeSessionWriter:
-    def __init__(self) -> None:
-        self.closed = False
-        self.wait_closed_calls = 0
-        self.writes: list[bytes] = []
-
-    def get_extra_info(self, name: str):
-        if name == "socket":
-            return object()
-        return None
-
-    def write(self, data: bytes) -> None:
-        self.writes.append(data)
-
-    async def drain(self) -> None:
-        return
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        self.wait_closed_calls += 1
-
-
-class _HangingSessionWriter(_FakeSessionWriter):
-    def __init__(self) -> None:
-        super().__init__()
-        self.abort_calls = 0
-        self.transport = self
-
-    async def wait_closed(self) -> None:
-        self.wait_closed_calls += 1
-        await asyncio.Event().wait()
-
-    def abort(self) -> None:
-        self.abort_calls += 1
 
 
 class _FakeSessionServer:

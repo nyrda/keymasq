@@ -24,8 +24,6 @@ case "$1" in
         if [ -n "${2:-}" ]; then
             if command -v deb-systemd-invoke >/dev/null 2>&1; then
                 deb-systemd-invoke try-restart keymasqd.service >/dev/null 2>&1 || true
-            elif command -v systemctl >/dev/null 2>&1; then
-                systemctl try-restart keymasqd.service >/dev/null 2>&1 || true
             fi
         fi
 

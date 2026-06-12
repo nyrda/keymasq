@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import cast
 
 from keymasq.common.asyncio_runtime import ensure_uvloop
+from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import CommandType
 from keymasq.common.paths import (
     RECORDING_UNLOCK_RUNTIME_DIR,
@@ -20,6 +21,7 @@ from keymasq.common.paths import (
     STATE_DIR,
 )
 from keymasq.common.recording_guard import (
+    UnlockStatus,
     resolve_macro_recording_status,
     resolve_unlock_status,
     runtime_unlock_path,
@@ -32,16 +34,13 @@ from keymasq.common.security import (
     load_security_policy,
     uid_allowed,
 )
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd import (
     daemon_capture_commands,
     daemon_device_commands,
     daemon_macro_commands,
 )
 from keymasq.keymasqd.capture_manager import CaptureManager
-from keymasq.keymasqd.daemon_helpers import (
-    JsonObject,
-    int_like,
-)
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
@@ -50,6 +49,10 @@ from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
 log = logging.getLogger("keymasqd")
+
+type _GuardStatusCache = dict[int, tuple[float, bool, int, str]]
+type _GuardStatusResolver = Callable[[int], UnlockStatus]
+type _GuardStateLogger = Callable[[int, bool, str, int, str], None]
 
 
 def sd_notify(state: str) -> None:
@@ -78,8 +81,8 @@ class Daemon:
         self._shutdown_event = asyncio.Event()
         self.verbosity = verbosity
         self.security_policy: SecurityPolicy | None = None
-        self._unlock_cache: dict[int, tuple[float, bool, int, str]] = {}
-        self._macro_recording_cache: dict[int, tuple[float, bool, int, str]] = {}
+        self._unlock_cache: _GuardStatusCache = {}
+        self._macro_recording_cache: _GuardStatusCache = {}
         self._unlock_cache_interval_s = 1.0
         self._unlock_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._macro_recording_state_last_logged: dict[int, tuple[bool, str]] = {}
@@ -270,12 +273,12 @@ class Daemon:
 
         if command_type == CommandType.MACRO_RECORDING_STATUS:
             fallback_uid = int(client.uid) if client is not None else os.getuid()
-            uid = int_like(data.get("uid"), fallback_uid)
+            uid = coerce_int(data.get("uid"), fallback_uid)
             return cast(JsonObject, await asyncio.to_thread(resolve_macro_recording_status, uid))
 
         if command_type == CommandType.RECORDING_UNLOCK_STATUS:
             fallback_uid = int(client.uid) if client is not None else os.getuid()
-            uid = int_like(data.get("uid"), fallback_uid)
+            uid = coerce_int(data.get("uid"), fallback_uid)
             return cast(JsonObject, await asyncio.to_thread(resolve_unlock_status, uid))
 
         macro_result = await daemon_macro_commands.handle_macro_command(
@@ -298,7 +301,7 @@ class Daemon:
             if client is None:
                 raise PermissionError("recording_refresh_denied: missing client context")
             uid = int(client.uid)
-            ttl = int_like(data.get("ttl", 60), 60)
+            ttl = coerce_int(data.get("ttl", 60), 60)
             return self._refresh_runtime_unlock(uid, ttl, client)
 
         if command_type == CommandType.LOCK_RECORDING_UNLOCK:
@@ -376,31 +379,37 @@ class Daemon:
         raise PermissionError(f"macro_recording_disabled: opt-in expired at {expires_at}")
 
     def _macro_recording_enabled_for_uid(self, uid: int) -> tuple[bool, int, str]:
+        return self._guard_status_for_uid(
+            uid,
+            self._macro_recording_cache,
+            resolve_macro_recording_status,
+            self._log_macro_recording_state_change,
+        )
+
+    def _guard_status_for_uid(
+        self,
+        uid: int,
+        cache: _GuardStatusCache,
+        resolver: _GuardStatusResolver,
+        log_state_change: _GuardStateLogger,
+    ) -> tuple[bool, int, str]:
         now_mono = time.monotonic()
         now_wall = int(time.time())
-        cached = self._macro_recording_cache.get(uid)
+        cached = cache.get(uid)
 
         if cached is not None:
-            checked_mono, enabled, expires_at, source = cached
+            checked_mono, unlocked, expires_at, source = cached
             cache_fresh = (now_mono - checked_mono) < self._unlock_cache_interval_s
-            if enabled and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
-                return enabled, expires_at, source
-            if not enabled and cache_fresh:
-                return enabled, expires_at, source
+            if unlocked and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
+                return unlocked, expires_at, source
 
-        status = resolve_macro_recording_status(uid)
-        enabled = bool(status.get("unlocked", False))
+        status = resolver(uid)
+        unlocked = bool(status.get("unlocked", False))
         expires_at = int(status.get("expires_at", 0) or 0)
         source = str(status.get("source", "none") or "none")
-        self._macro_recording_cache[uid] = (now_mono, enabled, expires_at, source)
-        self._log_macro_recording_state_change(
-            uid,
-            enabled,
-            source,
-            expires_at,
-            reason="status_probe",
-        )
-        return enabled, expires_at, source
+        cache[uid] = (now_mono, unlocked, expires_at, source)
+        log_state_change(uid, unlocked, source, expires_at, "status_probe")
+        return unlocked, expires_at, source
 
     def _log_macro_recording_state_change(
         self,
@@ -430,25 +439,12 @@ class Daemon:
         )
 
     def _recording_unlocked_for_uid(self, uid: int) -> tuple[bool, int, str]:
-        now_mono = time.monotonic()
-        now_wall = int(time.time())
-        cached = self._unlock_cache.get(uid)
-
-        if cached is not None:
-            checked_mono, unlocked, expires_at, source = cached
-            cache_fresh = (now_mono - checked_mono) < self._unlock_cache_interval_s
-            if unlocked and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
-                return unlocked, expires_at, source
-            if not unlocked and cache_fresh:
-                return unlocked, expires_at, source
-
-        status = resolve_unlock_status(uid)
-        unlocked = bool(status.get("unlocked", False))
-        expires_at = int(status.get("expires_at", 0) or 0)
-        source = str(status.get("source", "none") or "none")
-        self._unlock_cache[uid] = (now_mono, unlocked, expires_at, source)
-        self._log_unlock_state_change(uid, unlocked, source, expires_at, reason="status_probe")
-        return unlocked, expires_at, source
+        return self._guard_status_for_uid(
+            uid,
+            self._unlock_cache,
+            resolve_unlock_status,
+            self._log_unlock_state_change,
+        )
 
     def _log_unlock_state_change(
         self,
@@ -481,13 +477,32 @@ class Daemon:
         *,
         claim_if_missing: bool = True,
     ) -> None:
-        owner = self._recording_refresh_owners.get(int(client.uid))
+        self._ensure_recording_unlock_owner(
+            int(client.uid),
+            client,
+            claim_if_missing=claim_if_missing,
+            denial_message="sensitive_command_denied: caller is not active session owner",
+            log_label="Sensitive command",
+            command_type=command_type,
+        )
+
+    def _ensure_recording_unlock_owner(
+        self,
+        uid: int,
+        client: ClientContext,
+        *,
+        claim_if_missing: bool,
+        denial_message: str,
+        log_label: str,
+        missing_owner_message: str | None = None,
+        command_type: CommandType | None = None,
+    ) -> None:
+        uid = int(uid)
+        owner = self._recording_refresh_owners.get(uid)
         if owner is None:
             if not claim_if_missing:
-                raise PermissionError(
-                    "sensitive_command_denied: caller is not active session owner"
-                )
-            self._recording_refresh_owners[int(client.uid)] = (
+                raise PermissionError(missing_owner_message or denial_message)
+            self._recording_refresh_owners[uid] = (
                 int(client.pid),
                 int(client.connection_id),
             )
@@ -497,42 +512,32 @@ class Daemon:
         if owner_pid == int(client.pid) and owner_connection_id == int(client.connection_id):
             return
 
-        log.warning(
-            (
-                "Sensitive command owner mismatch uid=%s pid=%s connection=%s "
-                "owner_pid=%s owner_connection=%s command=%s"
-            ),
+        message = (
+            f"{log_label} owner mismatch uid=%s pid=%s connection=%s "
+            "owner_pid=%s owner_connection=%s"
+        )
+        args: tuple[object, ...] = (
             client.uid,
             client.pid,
             client.connection_id,
             owner_pid,
             owner_connection_id,
-            command_type.value,
         )
+        if command_type is not None:
+            message = f"{message} command=%s"
+            args = (*args, command_type.value)
 
-        raise PermissionError("sensitive_command_denied: caller is not active session owner")
+        log.warning(message, *args)
+        raise PermissionError(denial_message)
 
     def _refresh_runtime_unlock(self, uid: int, ttl: int, client: ClientContext) -> JsonObject:
-        owner = self._recording_refresh_owners.get(uid)
-        if owner is None:
-            self._recording_refresh_owners[uid] = (int(client.pid), int(client.connection_id))
-        else:
-            owner_pid, owner_connection_id = owner
-            if owner_pid != int(client.pid) or owner_connection_id != int(client.connection_id):
-                log.warning(
-                    (
-                        "Recording refresh owner mismatch uid=%s pid=%s connection=%s "
-                        "owner_pid=%s owner_connection=%s"
-                    ),
-                    client.uid,
-                    client.pid,
-                    client.connection_id,
-                    owner_pid,
-                    owner_connection_id,
-                )
-                raise PermissionError(
-                    "recording_refresh_denied: caller is not active session owner"
-                )
+        self._ensure_recording_unlock_owner(
+            uid,
+            client,
+            claim_if_missing=True,
+            denial_message="recording_refresh_denied: caller is not active session owner",
+            log_label="Recording refresh",
+        )
 
         status = resolve_unlock_status(uid)
         unlocked = bool(status.get("unlocked", False))
@@ -624,24 +629,14 @@ class Daemon:
         cleanup: bool = False,
     ) -> JsonObject:
         if not cleanup:
-            owner = self._recording_refresh_owners.get(uid)
-            if owner is None:
-                raise PermissionError("recording_lock_denied: no active session owner")
-
-            owner_pid, owner_connection_id = owner
-            if owner_pid != int(client.pid) or owner_connection_id != int(client.connection_id):
-                log.warning(
-                    (
-                        "Recording lock owner mismatch uid=%s pid=%s connection=%s "
-                        "owner_pid=%s owner_connection=%s"
-                    ),
-                    client.uid,
-                    client.pid,
-                    client.connection_id,
-                    owner_pid,
-                    owner_connection_id,
-                )
-                raise PermissionError("recording_lock_denied: caller is not active session owner")
+            self._ensure_recording_unlock_owner(
+                uid,
+                client,
+                claim_if_missing=False,
+                denial_message="recording_lock_denied: caller is not active session owner",
+                missing_owner_message="recording_lock_denied: no active session owner",
+                log_label="Recording lock",
+            )
 
         self._clear_runtime_unlock(
             uid,

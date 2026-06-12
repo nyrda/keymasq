@@ -2,10 +2,16 @@ import contextlib
 import logging
 import random
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from dataclasses import dataclass, field, fields
+from typing import Any, cast
 
+from keymasq.common.coercion import (
+    coerce_bool,
+    coerce_float,
+    coerce_int,
+    coerce_str,
+)
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
@@ -16,7 +22,10 @@ from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_f
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
 type _MacroManager = Any
+type _MacroOptionParser = Callable[[object, object, bool], object]
 type MacroEventIteratorFactory = Callable[[], Iterator[dict[str, object]]]
+_PLAYBACK_PARSER_METADATA = "parser"
+_RUNTIME_DEFAULT_METADATA = "runtime_default"
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,201 @@ class MacroEventSource:
     event_count: int
     duration_us: int
     iter_events: MacroEventIteratorFactory
+
+
+def _playback_metadata(
+    parser: _MacroOptionParser,
+    *,
+    runtime_default: bool = False,
+) -> dict[str, object]:
+    return {
+        _PLAYBACK_PARSER_METADATA: parser,
+        _RUNTIME_DEFAULT_METADATA: runtime_default,
+    }
+
+
+def _parse_runtime_text(value: object, default: object, _lenient: bool) -> str:
+    default_text = coerce_str(default, "none") or "none"
+    return coerce_str(value, default_text) or default_text
+
+
+def _parse_playback_text(value: object, default: object, _lenient: bool) -> str:
+    return coerce_str(value, coerce_str(default))
+
+
+def _parse_playback_int(value: object, default: object, lenient: bool) -> int:
+    default_int = coerce_int(default, 0)
+    if lenient:
+        return coerce_int(value, default_int)
+    if _is_missing_playback_number(value):
+        return default_int
+    if isinstance(value, bool):
+        raise ValueError("Boolean values are not accepted")
+    return int(cast(int | float | str | bytes, value))
+
+
+def _parse_playback_float(value: object, default: object, _lenient: bool) -> float:
+    default_float = coerce_float(default, 1.0)
+    return coerce_float(value, default_float)
+
+
+def _is_missing_playback_number(value: object) -> bool:
+    return value is None or (isinstance(value, str) and value == "")
+
+
+def _parse_playback_bool(value: object, default: object, lenient: bool) -> bool:
+    return coerce_bool(value, coerce_bool(default), strict=not lenient)
+
+
+def _parse_runtime_loop_stop_behavior(
+    value: object,
+    _default: object,
+    _lenient: bool,
+) -> str:
+    return normalize_macro_loop_stop_behavior(value)
+
+
+@dataclass(frozen=True)
+class MacroPlaybackOptions:
+    macro_events: list[dict[str, object]] = field(default_factory=list)
+    macro_name: str = ""
+    replay_mouse_movement: bool = field(
+        default=True,
+        metadata=_playback_metadata(_parse_playback_bool),
+    )
+    replay_mouse_clicks: bool = field(
+        default=True,
+        metadata=_playback_metadata(_parse_playback_bool),
+    )
+    speed: float = field(
+        default=1.0,
+        metadata=_playback_metadata(_parse_playback_float),
+    )
+    loop_mode: str = field(
+        default="none",
+        metadata=_playback_metadata(_parse_runtime_text, runtime_default=True),
+    )
+    loop_count: int = field(
+        default=1,
+        metadata=_playback_metadata(_parse_playback_int, runtime_default=True),
+    )
+    loop_stop_behavior: str = field(
+        default=DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+        metadata=_playback_metadata(
+            _parse_runtime_loop_stop_behavior,
+            runtime_default=True,
+        ),
+    )
+    move_to_start: bool = field(
+        default=False,
+        metadata=_playback_metadata(_parse_playback_bool, runtime_default=True),
+    )
+    start_x: int = field(
+        default=0,
+        metadata=_playback_metadata(_parse_playback_int, runtime_default=True),
+    )
+    start_y: int = field(
+        default=0,
+        metadata=_playback_metadata(_parse_playback_int, runtime_default=True),
+    )
+    block_mouse_movement: bool = field(
+        default=False,
+        metadata=_playback_metadata(_parse_playback_bool, runtime_default=True),
+    )
+    source_device: str = field(
+        default="",
+        metadata=_playback_metadata(_parse_playback_text),
+    )
+    source_button: str = field(
+        default="",
+        metadata=_playback_metadata(_parse_playback_text),
+    )
+    trigger_value: int = field(
+        default=1,
+        metadata=_playback_metadata(_parse_playback_int),
+    )
+    load_stored_macro: bool = True
+
+
+def macro_runtime_options(
+    payload: Mapping[str, object],
+    *,
+    defaults: Mapping[str, object] | None = None,
+    lenient: bool = True,
+) -> dict[str, object]:
+    return _macro_options_from_fields(
+        payload,
+        defaults=defaults,
+        lenient=lenient,
+        runtime_only=True,
+    )
+
+
+def macro_playback_options_from_mapping(
+    playback_options: Mapping[str, object],
+    *,
+    defaults: Mapping[str, object] | None = None,
+    lenient: bool = True,
+    strict: bool = False,
+    macro_events: list[dict[str, object]] | None = None,
+    macro_name: str | None = None,
+    load_stored_macro: bool | None = None,
+) -> MacroPlaybackOptions:
+    playback_fields = fields(MacroPlaybackOptions)
+    option_names = {option_field.name for option_field in playback_fields}
+    unexpected_options = sorted(set(playback_options) - option_names) if strict else []
+    if unexpected_options:
+        raise TypeError(f"unexpected playback option: {unexpected_options[0]}")
+
+    option_values = _macro_options_from_fields(
+        playback_options,
+        defaults=defaults,
+        lenient=lenient,
+        runtime_only=False,
+    )
+    for option_field in playback_fields:
+        if _playback_option_parser(option_field.metadata) is None:
+            option_name = option_field.name
+            if option_name in playback_options:
+                option_values[option_name] = playback_options[option_name]
+    if macro_events is not None:
+        option_values["macro_events"] = macro_events
+    if macro_name is not None:
+        option_values["macro_name"] = macro_name
+    if load_stored_macro is not None:
+        option_values["load_stored_macro"] = load_stored_macro
+    return MacroPlaybackOptions(**cast(Any, option_values))
+
+
+def _macro_options_from_fields(
+    payload: Mapping[str, object],
+    *,
+    defaults: Mapping[str, object] | None,
+    lenient: bool,
+    runtime_only: bool,
+) -> dict[str, object]:
+    options: dict[str, object] = {}
+    for option_field in fields(MacroPlaybackOptions):
+        parser = _playback_option_parser(option_field.metadata)
+        if parser is None:
+            continue
+        if runtime_only and not bool(option_field.metadata.get(_RUNTIME_DEFAULT_METADATA, False)):
+            continue
+
+        option_name = option_field.name
+        default = (
+            defaults.get(option_name, option_field.default)
+            if defaults is not None
+            else option_field.default
+        )
+        options[option_name] = parser(payload.get(option_name, default), default, lenient)
+    return options
+
+
+def _playback_option_parser(
+    metadata: Mapping[str, object],
+) -> _MacroOptionParser | None:
+    return cast(_MacroOptionParser | None, metadata.get(_PLAYBACK_PARSER_METADATA))
 
 
 def gamepad_abs_cleanup_codes(evdev_mod: Any) -> frozenset[int]:
@@ -66,21 +270,7 @@ def list_macro_event_source(
 
 async def play_macro(
     manager: _MacroManager,
-    macro_events: list[dict[str, object]],
-    macro_name: str,
-    replay_mouse_movement: bool,
-    replay_mouse_clicks: bool,
-    speed: float,
-    loop_mode: str,
-    loop_count: int,
-    loop_stop_behavior: str,
-    move_to_start: bool,
-    start_x: int,
-    start_y: int,
-    block_mouse_movement: bool,
-    source_device: str,
-    source_button: str,
-    trigger_value: int,
+    playback_options: MacroPlaybackOptions,
     *,
     deps: MacroRuntimeDeps,
     macro_event_source: MacroEventSource | None = None,
@@ -94,16 +284,16 @@ async def play_macro(
     ):
         return {"status": "error", "message": "No output uinput devices available"}
 
-    normalized_loop = str(loop_mode or "none").lower()
+    normalized_loop = str(playback_options.loop_mode or "none").lower()
     if normalized_loop not in {"none", "count", "hold", "toggle"}:
         normalized_loop = "none"
     normalized_loop_stop_behavior = normalize_macro_loop_stop_behavior(
-        loop_stop_behavior
+        playback_options.loop_stop_behavior
     )
-    count = max(1, int(loop_count or 1))
-    source_key = (str(source_device), str(source_button))
+    count = max(1, int(playback_options.loop_count or 1))
+    source_key = (str(playback_options.source_device), str(playback_options.source_button))
 
-    if int(trigger_value) == 0:
+    if int(playback_options.trigger_value) == 0:
         hold_instances = find_matching_macro_instances(
             manager,
             loop_mode="hold",
@@ -119,7 +309,7 @@ async def play_macro(
             return {"status": "ok", "cancelled": cancelled > 0}
         return {"status": "ok", "cancelled": False}
 
-    if int(trigger_value) != 1:
+    if int(playback_options.trigger_value) != 1:
         return {"status": "ok"}
 
     if normalized_loop == "toggle":
@@ -149,7 +339,7 @@ async def play_macro(
             return {"status": "ok", "already_running": True}
 
     event_source = macro_event_source or list_macro_event_source(
-        macro_events,
+        playback_options.macro_events,
         int_value_fn=deps.int_value_fn,
     )
     if event_source.event_count <= 0:
@@ -164,7 +354,7 @@ async def play_macro(
         "loop_mode": normalized_loop,
         "source_device": source_key[0],
         "source_button": source_key[1],
-        "macro_name": str(macro_name or ""),
+        "macro_name": str(playback_options.macro_name or ""),
         "loop_active": normalized_loop in {"hold", "toggle"},
         "loop_stop_behavior": normalized_loop_stop_behavior,
     }
@@ -173,18 +363,18 @@ async def play_macro(
         play_macro_task(
             manager,
             instance_id=instance_id,
-            macro_events=macro_events,
+            macro_events=playback_options.macro_events,
             macro_event_source=event_source,
-            macro_name=macro_name,
-            replay_mouse_movement=replay_mouse_movement,
-            replay_mouse_clicks=replay_mouse_clicks,
-            speed=max(0.01, speed),
+            macro_name=playback_options.macro_name,
+            replay_mouse_movement=playback_options.replay_mouse_movement,
+            replay_mouse_clicks=playback_options.replay_mouse_clicks,
+            speed=max(0.01, playback_options.speed),
             loop_mode=normalized_loop,
             loop_count=count,
-            move_to_start=move_to_start,
-            start_x=int(start_x),
-            start_y=int(start_y),
-            block_mouse_movement=block_mouse_movement,
+            move_to_start=playback_options.move_to_start,
+            start_x=int(playback_options.start_x),
+            start_y=int(playback_options.start_y),
+            block_mouse_movement=playback_options.block_mouse_movement,
             deps=deps,
         )
     )
@@ -397,9 +587,7 @@ async def play_macro_task(
 
                 t_us = int_value_fn(ev.get("t_us"), 0)
                 deadline = (
-                    iteration_anchor
-                    + timeline_offset_s
-                    + (t_us / speed_factor) / 1_000_000.0
+                    iteration_anchor + timeline_offset_s + (t_us / speed_factor) / 1_000_000.0
                 )
                 remaining = deadline - event_loop.time()
                 # Skip sub-500µs waits: asyncio's timer resolution can't hit
@@ -736,8 +924,7 @@ def release_macro_held_for_instance(
                 deps.log.debug("Failed to release macro-held output key", exc_info=True)
             except Exception:
                 deps.log.exception(
-                    "Unexpected failure releasing macro-held output key "
-                    "device_class=%s code=%s",
+                    "Unexpected failure releasing macro-held output key device_class=%s code=%s",
                     device_class,
                     code,
                 )
@@ -762,8 +949,7 @@ def release_macro_held_for_instance(
                 deps.log.debug("Failed to release macro-held ABS output", exc_info=True)
             except Exception:
                 deps.log.exception(
-                    "Unexpected failure releasing macro-held ABS output "
-                    "device_class=%s code=%s",
+                    "Unexpected failure releasing macro-held ABS output device_class=%s code=%s",
                     device_class,
                     code,
                 )

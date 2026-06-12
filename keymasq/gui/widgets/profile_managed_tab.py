@@ -14,10 +14,7 @@ from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttribu
 
 from keymasq import __version__
 from keymasq.common.models import ProfileConfig, ProfileState, WindowRule
-from keymasq.gui.session_client import (
-    get_active_window_async,
-    session_request_async,
-)
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.session_reload import notify_session_reload, notify_session_reload_async
 from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.wizards.profile_create import ProfileCreateDialog
@@ -770,7 +767,8 @@ class ProfileManagedTab(Gtk.Box):
             return False
         self._window_rule_capture_status.set_text("Reading active window...")
         generation = self._window_rule_capture_generation
-        get_active_window_async(
+        session_request_async(
+            {"command": "get_active_window"},
             lambda response, generation=generation: self._on_capture_window_rules_response(
                 response,
                 generation,

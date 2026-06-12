@@ -19,14 +19,12 @@ from keymasq.common.recording_guard import (
 
 log = logging.getLogger("keymasq.record")
 
-_MUTATING_COMMANDS = {
-    "unlock-runtime",
-    "lock-runtime",
-    "enable-macro-recording-runtime",
-    "enable-macro-recording-persistent",
-    "disable-macro-recording",
-    "disable-macro-recording-persistent",
-}
+
+def _keymasq_uid() -> int | None:
+    try:
+        return int(pwd.getpwnam("keymasq").pw_uid)
+    except KeyError:
+        return None
 
 
 def _exit_error(message: object) -> None:
@@ -39,17 +37,14 @@ def _require_privileged_caller() -> int:
     if uid == 0:
         return uid
 
-    try:
-        keymasq_uid = pwd.getpwnam("keymasq").pw_uid
-    except KeyError:
-        keymasq_uid = -1
+    keymasq_uid = _keymasq_uid()
 
     if uid != keymasq_uid:
         raise PermissionError("keymasq-record must run as root or keymasq user")
     return uid
 
 
-def _authorize_target_uid(target_uid: int, caller_euid: int | None) -> None:
+def _authorize_target_uid(target_uid: int, caller_euid: int) -> None:
     pkexec_uid = os.environ.get("PKEXEC_UID", "").strip()
     if caller_euid == 0 and pkexec_uid:
         try:
@@ -60,8 +55,10 @@ def _authorize_target_uid(target_uid: int, caller_euid: int | None) -> None:
             raise PermissionError("Target uid does not match authorized user")
         return
 
-    if caller_euid is None:
+    keymasq_uid = _keymasq_uid()
+    if keymasq_uid is not None and int(caller_euid) == keymasq_uid:
         return
+
     if caller_euid != 0 and int(target_uid) != int(caller_euid):
         raise PermissionError("Target uid does not match caller uid")
 

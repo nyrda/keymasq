@@ -8,8 +8,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.coercion import bool_value as _bool_value
-from keymasq.common.models import ActionType, HardwareConfig, MappingAction
+from keymasq.common.models import ActionType, HardwareConfig
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
     JsonDict,
@@ -18,6 +17,7 @@ from keymasq.gui.session_client import (
     unregister_session_event_callback,
 )
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.action_payloads import mapping_action_from_payload
 from keymasq.gui.widgets.device_control_layout import (
     device_layout_kind,
     group_pointer_controls,
@@ -160,54 +160,6 @@ def _int_or_none(value: object) -> int | None:
         return int(cast(int | float | str | bytes, value))
     except (TypeError, ValueError):
         return None
-
-def _mapping_action_from_payload(action: object) -> MappingAction | None:
-    if not isinstance(action, dict):
-        return None
-    try:
-        action_type = ActionType(_text(action.get("action"), "passthrough"))
-    except ValueError:
-        return None
-
-    analog_control_names: list[str] = []
-    raw_analog_control_names = action.get("analog_control_names", [])
-    if isinstance(raw_analog_control_names, list):
-        analog_control_names = [str(name) for name in raw_analog_control_names if str(name).strip()]
-    keys: list[str] | None = None
-    raw_keys = action.get("keys", [])
-    if isinstance(raw_keys, list):
-        keys = [str(key) for key in raw_keys if str(key).strip()]
-    move_x = _int_or_none(action.get("x"))
-    move_y = _int_or_none(action.get("y"))
-    axis_value = _int_or_none(action.get("value"))
-    rapidfire_hold_ms = _int_or_none(action.get("rapidfire_hold_ms"))
-    rapidfire_wait_ms = _int_or_none(action.get("rapidfire_wait_ms"))
-    tap_hold_ms = _int_or_none(action.get("tap_hold_ms"))
-
-    return MappingAction(
-        action_type=action_type,
-        target=_text(action.get("target")) or None,
-        output_id=_text(action.get("output_id")) or None,
-        keys=keys,
-        cmd=_text(action.get("cmd")) or None,
-        superkey_name=_text(action.get("superkey_name")) or None,
-        analog_control_names=analog_control_names,
-        macro_name=_text(action.get("macro_name"), _text(action.get("target"))) or None,
-        profile_name=_text(action.get("profile_name"), _text(action.get("target"))) or None,
-        compositor_id=_text(action.get("compositor")) or None,
-        compositor_dispatcher=_text(action.get("dispatcher")) or None,
-        compositor_args=_text(action.get("args")) or None,
-        mpris_command=_text(action.get("command")) or None,
-        move_x=move_x if move_x is not None else 0,
-        move_y=move_y if move_y is not None else 0,
-        axis_value=axis_value if axis_value is not None else 0,
-        rapidfire_enabled=_bool_value(action.get("rapidfire_enabled")),
-        rapidfire_hold_ms=rapidfire_hold_ms if rapidfire_hold_ms is not None else 20,
-        rapidfire_wait_ms=rapidfire_wait_ms if rapidfire_wait_ms is not None else 20,
-        tap_enabled=_bool_value(action.get("tap_enabled")),
-        tap_hold_ms=tap_hold_ms if tap_hold_ms is not None else 10,
-    )
-
 
 class DeviceInspectorWindow(Adw.Window):
     def __init__(self, parent: Gtk.Window, device: HardwareConfig):
@@ -1028,7 +980,7 @@ class DeviceInspectorWindow(Adw.Window):
         )
 
     def _action_label(self, action: object, control: JsonDict) -> str | None:
-        mapping = _mapping_action_from_payload(action)
+        mapping = mapping_action_from_payload(action)
         if mapping is None:
             return None
         if mapping.action_type == ActionType.PASSTHROUGH:

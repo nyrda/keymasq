@@ -24,7 +24,6 @@ from keymasq.gui.session_client import (
     run_gui_task,
     session_request,
     session_request_async,
-    session_request_with_hooks,
 )
 from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter, macro_search_text
 
@@ -293,8 +292,6 @@ class MacroManagerDialog(Adw.Dialog):
         return False
 
     def _fetch_initial_state(self) -> tuple[JsonDict | None, JsonDict | None]:
-        from keymasq.gui.session_client import session_request
-
         return (
             session_request({"command": "get_status"}) or {},
             session_request({"command": "list_macros", "include_slots": True}) or {},
@@ -451,7 +448,7 @@ class MacroManagerDialog(Adw.Dialog):
             play_btn.set_icon_name("media-playback-start-symbolic")
             play_btn.set_tooltip_text("Play")
             play_btn.add_css_class("flat")
-            play_btn.connect("clicked", self._on_play_clicked, macro_name, play_btn)
+            play_btn.connect("clicked", self._on_play_clicked, macro_name)
             btn_box.append(play_btn)
 
             edit_btn = Gtk.Button()
@@ -560,7 +557,7 @@ class MacroManagerDialog(Adw.Dialog):
         payload: JsonDict = {"command": "delete_recording_slot", "recording_slot": slot}
         if token:
             payload["pending_save_token"] = token
-        session_request_with_hooks(payload, self._on_delete_slot_finished)
+        session_request_async(payload, self._on_delete_slot_finished)
 
     def _on_delete_slot_finished(self, result: JsonDict | None) -> bool:
         if result and result.get("status") == "ok":
@@ -595,25 +592,22 @@ class MacroManagerDialog(Adw.Dialog):
     def _on_editor_closed(self, _dialog: Adw.Dialog) -> None:
         self._load_macros()
 
-    def _on_play_clicked(self, btn: Gtk.Button, name: str, play_btn: Gtk.Button) -> None:
+    def _on_play_clicked(self, play_btn: Gtk.Button, name: str) -> None:
         play_btn.set_sensitive(False)
 
         def on_play_requested(result: JsonDict | None) -> bool:
             return self._on_play_requested(result, play_btn)
 
-        session_request_with_hooks(
+        session_request_async(
             {"command": "play_macro", "name": name},
             on_play_requested,
         )
 
     def _on_play_requested(
         self,
-        result: JsonDict | None,
+        _result: JsonDict | None,
         play_btn: Gtk.Button,
     ) -> bool:
-        if not result or result.get("status") != "ok":
-            play_btn.set_sensitive(True)
-            return False
         play_btn.set_sensitive(True)
         return False
 
@@ -639,7 +633,7 @@ class MacroManagerDialog(Adw.Dialog):
 
     def _on_delete_response(self, dialog, response: str, name: str) -> None:
         if response == "delete":
-            session_request_with_hooks(
+            session_request_async(
                 {"command": "delete_macro", "name": name},
                 self._on_delete_finished,
             )
@@ -675,7 +669,7 @@ class MacroManagerDialog(Adw.Dialog):
         def on_record_done() -> None:
             btn.set_sensitive(True)
 
-        session_request_with_hooks(
+        session_request_async(
             {"command": command, "recording_slot": int(recording_slot)},
             on_record_request,
             on_done=on_record_done,
@@ -996,7 +990,7 @@ class TypeMacroDialog(Adw.Dialog):
         def on_create_done() -> None:
             self._create_btn.set_sensitive(True)
 
-        session_request_with_hooks(
+        session_request_async(
             {"command": "create_macro", "macro": data},
             self._on_create_finished,
             on_start=on_create_start,

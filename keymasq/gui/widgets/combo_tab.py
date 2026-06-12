@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import ComboConfig
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names, resolve_icon_name
@@ -17,8 +17,8 @@ from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER,
 from keymasq.gui.widgets.combo_presentation import (
     combo_default_name,
     combo_search_text,
-    combo_step_label,
     combo_trigger_label,
+    create_combo_summary_row,
 )
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.profiles import ProfileInfo, ProfileManager
@@ -185,54 +185,23 @@ class ComboTab(ProfileManagedTab):
         self._combo_list.render()
 
     def _create_combo_row(self, combo: ComboConfig) -> Gtk.ListBoxRow:
-        row = Gtk.ListBoxRow()
-        row._combo_id = combo.id  # type: ignore[attr-defined]
-        row._search_text = combo_search_text(  # type: ignore[attr-defined]
-            combo,
-            profile_name=self.selected_profile_name() or "",
-        )
-
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.add_css_class("combo-row")
-
-        name_label = Gtk.Label(label=combo.name or combo_default_name(combo))
-        name_label.set_hexpand(True)
-        name_label.set_halign(Gtk.Align.START)
-        name_label.set_xalign(0.0)
-        name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        name_label.add_css_class("heading")
-        box.append(name_label)
-
-        trigger_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        trigger_box.set_halign(Gtk.Align.START)
-        for index, step in enumerate(combo.steps):
-            pill = Gtk.Label(label=combo_step_label(step))
-            pill.add_css_class("combo-step-pill")
-            trigger_box.append(pill)
-            if index < len(combo.steps) - 1:
-                arrow = Gtk.Label(label="\u2192")
-                arrow.add_css_class("dim-label")
-                trigger_box.append(arrow)
-        box.append(trigger_box)
-
-        action_label = Gtk.Label(label=describe_mapping_action_compact(combo.action))
-        action_label.set_width_chars(22)
-        action_label.set_max_width_chars(22)
-        action_label.set_ellipsize(Pango.EllipsizeMode.END)
-        action_label.set_halign(Gtk.Align.END)
-        action_label.set_xalign(1.0)
-        action_label.add_css_class("dim-label")
-        action_label.add_css_class("caption")
-        box.append(action_label)
-
         delete_button = Gtk.Button(icon_name="user-trash-symbolic")
         delete_button.add_css_class("flat")
         delete_button.add_css_class("destructive-action")
         delete_button.set_tooltip_text("Delete combo")
         delete_button.connect("clicked", self._on_delete_combo_clicked, combo.id)
-        box.append(delete_button)
 
-        row.set_child(box)
+        row = create_combo_summary_row(
+            name=combo.name or combo_default_name(combo),
+            steps=combo.steps,
+            action=combo.action,
+            trailing_widget=delete_button,
+        )
+        row._combo_id = combo.id  # type: ignore[attr-defined]
+        row._search_text = combo_search_text(  # type: ignore[attr-defined]
+            combo,
+            profile_name=self.selected_profile_name() or "",
+        )
         return row
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:

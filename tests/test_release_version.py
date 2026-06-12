@@ -1,28 +1,14 @@
-import importlib.util
 import re
 import sys
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
+from tests.script_loader import load_script
+
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts/release-version.py"
-
-
-def _load_script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("release_version_test", SCRIPT_PATH)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    scripts_dir = str(SCRIPT_PATH.parent)
-    sys.path.insert(0, scripts_dir)
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.modules.pop(spec.name, None)
-        sys.path.remove(scripts_dir)
-    return module
+SCRIPT_MODULE = "release_version_test"
+SCRIPT_CLEANUP_MODULES = ("build_metadata_rewrite",)
 
 
 def _write_release_fixture(root: Path) -> None:
@@ -89,7 +75,11 @@ def test_release_version_refreshes_same_version_dated_metadata(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     _write_release_fixture(tmp_path)
     monkeypatch.setattr(script, "repo_root", lambda: tmp_path)
     monkeypatch.setattr(script, "_render_pacman_outputs", lambda *_args, **_kwargs: [])
@@ -121,7 +111,11 @@ def test_release_version_refreshes_same_version_dated_metadata(
 
 
 def test_rewrite_changelog_refreshes_dated_release_header(tmp_path: Path) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n## 1.2.3 - 2026-05-01\n\n- Existing release.\n",
         encoding="utf-8",
@@ -136,7 +130,11 @@ def test_rewrite_changelog_refreshes_dated_release_header(tmp_path: Path) -> Non
 
 
 def test_rewrite_changelog_stamps_undated_release_header(tmp_path: Path) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n## 1.2.3\n\n- Existing release.\n",
         encoding="utf-8",
@@ -151,7 +149,11 @@ def test_rewrite_changelog_stamps_undated_release_header(tmp_path: Path) -> None
 
 
 def test_release_version_apply_rules_limits_duplicate_matches(tmp_path: Path) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     target = tmp_path / "metadata.env"
     target.write_text('VERSION="1.0.0"\nVERSION="1.0.0"\n', encoding="utf-8")
     rule = script.RewriteRule(
@@ -172,7 +174,11 @@ def test_release_version_rejects_non_canonical_release_date(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     monkeypatch.setattr(
         sys,
         "argv",

@@ -6,7 +6,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.gui.session_client import session_request_async, session_request_with_hooks
+from keymasq.gui.session_client import session_request_async
 
 
 class SaveMacroDialog(Adw.Dialog):
@@ -398,7 +398,7 @@ class SaveMacroDialog(Adw.Dialog):
     def _submit_save(self, payload: dict) -> None:
         if self._request_inflight:
             return
-        session_request_with_hooks(
+        session_request_async(
             payload,
             self._on_save_finished,
             on_start=self._on_save_request_start,

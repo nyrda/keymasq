@@ -1,0 +1,89 @@
+name: Test RPM package
+description: Test an RPM package artifact in its target distro container.
+
+inputs:
+  artifact-name:
+    description: GitHub artifact name to download for hosted runs.
+    required: true
+  artifact-path:
+    description: Directory where RPM artifacts are staged.
+    default: dist/rpm
+  local-artifact-glob:
+    description: RPM glob copied from dist for local act runs.
+    required: true
+  container-image:
+    description: Container image used for package installation tests.
+    required: true
+  distro:
+    description: RPM distro family, either fedora or opensuse.
+    required: true
+  package-glob:
+    description: RPM glob passed to the installed-package test script.
+    required: true
+  signing-public-key-path:
+    description: Optional RPM signing public key path for signature checks.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Download RPM artifact
+      if: ${{ !env.ACT }}
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact-path }}
+
+    - name: Prepare RPM artifact for local act run
+      if: ${{ env.ACT }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "${{ inputs.artifact-path }}"
+        cp -f ${{ inputs.local-artifact-glob }} "${{ inputs.artifact-path }}/"
+
+    - name: Test RPM in container
+      shell: bash
+      env:
+        CONTAINER_IMAGE: ${{ inputs.container-image }}
+        KEYMASQ_RPM_TEST_DISTRO: ${{ inputs.distro }}
+        KEYMASQ_RPM_TEST_PACKAGE_GLOB: ${{ inputs.package-glob }}
+        KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH: ${{ inputs.signing-public-key-path }}
+      run: |
+        set -euo pipefail
+        docker run --rm \
+          -e KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH \
+          -e KEYMASQ_RPM_TEST_DISTRO \
+          -e KEYMASQ_RPM_TEST_PACKAGE_GLOB \
+          -v "$PWD:/workspace" \
+          -w /workspace \
+          "$CONTAINER_IMAGE" \
+          bash -lc '
+            set -euo pipefail
+
+            case "$KEYMASQ_RPM_TEST_DISTRO" in
+              fedora)
+                dnf install -y python3 systemd acl
+                ;;
+              opensuse)
+                zypper --non-interactive refresh
+                zypper --non-interactive install python3 systemd acl
+                ;;
+              *)
+                echo "unsupported RPM test distro: $KEYMASQ_RPM_TEST_DISTRO" >&2
+                exit 1
+                ;;
+            esac
+
+            if [[ -z "$KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH" ]]; then
+              unset KEYMASQ_RPM_SIGNING_PUBLIC_KEY_PATH
+            fi
+
+            package_paths=( $KEYMASQ_RPM_TEST_PACKAGE_GLOB )
+            if [[ ${#package_paths[@]} -ne 1 || ! -f "${package_paths[0]}" ]]; then
+              echo "expected exactly one RPM package for $KEYMASQ_RPM_TEST_PACKAGE_GLOB" >&2
+              exit 1
+            fi
+
+            bash packaging/rpm/ci-test-installed.sh "${package_paths[0]}"
+          '

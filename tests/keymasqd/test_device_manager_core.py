@@ -941,6 +941,155 @@ class TestDeviceManager:
         assert observed_paths == [[path]]
 
     @pytest.mark.asyncio
+    async def test_grab_device_reuses_combo_runtime_deps_for_callbacks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        path = "/dev/input/event2"
+        deps = object()
+        factory_calls = 0
+        observed_deps: list[object] = []
+
+        class _InputDevice:
+            name = "Pad"
+            phys = "usb-pad/input0"
+            info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]}
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+                self.event_callback = kwargs["event_callback"]
+                self.runtime_cleanup_callback = kwargs["runtime_cleanup_callback"]
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        def build_deps(**_kwargs) -> object:
+            nonlocal factory_calls
+            factory_calls += 1
+            return deps
+
+        async def on_device_event(*_args, **kwargs) -> None:
+            observed_deps.append(kwargs["deps"])
+
+        async def clear_combo_runtime_for_binding_scope(*_args, **kwargs) -> None:
+            observed_deps.append(kwargs["deps"])
+
+        manager = SimpleNamespace(
+            grabbed_devices={},
+            grab_state=SimpleNamespace(
+                desired_paths={},
+                desired_grabs={},
+                pending_hardware_release={},
+                pending_interface_release={},
+                release_grace_s=0.1,
+            ),
+            output_state=SimpleNamespace(
+                keyboard_uinput=None,
+                mouse_uinput=None,
+                gamepad_uinput=None,
+            ),
+            active_mappings={},
+            verbosity=0,
+            broadcast_callback=AsyncMock(),
+            set_cursor_position=AsyncMock(),
+            recording_manager=None,
+            play_macro=AsyncMock(),
+            emergency_reset=AsyncMock(),
+            macro_state=SimpleNamespace(mouse_rel_suppressed=False),
+            repeat_state=object(),
+            _device_input=lambda _path: _InputDevice(),
+            _detect_device_types=lambda _device: ["gamepad"],
+            _record_diagnostic=lambda *_args: None,
+            resolve_gamepad_output=lambda *_args, **_kwargs: None,
+            broadcast_device_inspector_event=lambda *_args: None,
+            device_inspector_active=lambda: False,
+            device_inspector_suppressed=lambda: False,
+            device_inspector_suppressed_hardware_ids_snapshot=lambda: set(),
+            disable_device_inspector_suppression=lambda: None,
+            record_profile_action=lambda *_args: None,
+            observe_profile_trigger_start=lambda *_args: None,
+            observe_profile_trigger_end=lambda *_args: None,
+        )
+
+        monkeypatch.setattr(ldm, "combo_runtime_deps", build_deps)
+        monkeypatch.setattr(ldm.runtime_combos, "on_device_event", on_device_event)
+        monkeypatch.setattr(
+            ldm.runtime_combos,
+            "clear_combo_runtime_for_binding_scope",
+            clear_combo_runtime_for_binding_scope,
+        )
+        monkeypatch.setattr(ldm, "grab_with_retry", AsyncMock())
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+
+        await ldm.grab_device_unlocked(
+            manager,
+            "2dc8:3106",
+            [path],
+            {"btn_south": "btn_south"},
+            {"btn_south": evdev.ecodes.BTN_SOUTH},
+            None,
+            None,
+            False,
+            evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
+            update_desired=False,
+            desired_grab_config_cls=lambda **kwargs: kwargs,
+            clear_device_path_cache_fn=lambda: None,
+            resolve_stable_path_fn=lambda value: value,
+            device_path_resolver_deps=ldm.device_path_resolver.DevicePathResolverDeps(
+                device_paths_fn=lambda: [],
+                device_input_fn=lambda _path: _InputDevice(),
+                detect_input_classes_fn=lambda _device: [],
+                primary_input_class_fn=lambda _types: DeviceType.GAMEPAD,
+            ),
+            grabbed_device_cls=_GrabbedDevice,
+            get_interface_id_fn=lambda _path: "gamepad",
+            str_value_fn=str,
+            int_value_fn=int,
+            fire_and_observe_fn=lambda coro, _label: asyncio.ensure_future(coro),
+            errno_mod=errno,
+        )
+
+        device = manager.grabbed_devices["2dc8:3106"][0]
+        await device.event_callback(
+            "2dc8:3106",
+            path,
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SOUTH,
+            1,
+        )
+        await device.event_callback(
+            "2dc8:3106",
+            path,
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SOUTH,
+            0,
+        )
+        await device.runtime_cleanup_callback("2dc8:3106", "gamepad")
+
+        assert factory_calls == 1
+        assert observed_deps == [deps, deps, deps]
+
+    @pytest.mark.asyncio
     async def test_grab_device_rolls_back_pre_registered_device_on_grab_failure(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -1,33 +1,19 @@
 import asyncio
 import logging
-import sys
 import tomllib
-from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_str
 from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.devices import normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
 
-from .common import JsonObject, json_list, json_object, str_value
+from .common import JsonObject, json_list, json_object
 
 if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
-
-
-def _facade_save_recording_settings_to_disk(
-    manager: "SessionManager",
-    settings: JsonObject | None,
-) -> None:
-    facade = sys.modules.get("keymasq.session.manager.recording")
-    save = (
-        getattr(facade, "save_recording_settings_to_disk", save_recording_settings_to_disk)
-        if facade is not None
-        else save_recording_settings_to_disk
-    )
-    cast(Callable[..., None], save)(manager, settings)
 
 
 def update_recording_settings(manager: "SessionManager", request: JsonObject) -> None:
@@ -76,7 +62,7 @@ async def flush_recording_settings_saves(manager: "SessionManager") -> None:
         while manager.recording_state.settings_pending_save is not None:
             pending = manager.recording_state.settings_pending_save
             manager.recording_state.settings_pending_save = None
-            await asyncio.to_thread(_facade_save_recording_settings_to_disk, manager, pending)
+            await asyncio.to_thread(save_recording_settings_to_disk, manager, pending)
     finally:
         manager.recording_state.settings_save_task = None
 
@@ -188,23 +174,23 @@ def update_selected_recording_devices_cache(manager: "SessionManager") -> None:
 def recording_device_types(device: JsonObject) -> list[str]:
     return normalize_input_classes(
         cast(list[str] | None, json_list(device.get("device_types")) or None),
-        str_value(device.get("device_type"), "other"),
+        coerce_str(device.get("device_type"), "other"),
     )
 
 
 def recording_device_id(device: JsonObject) -> str:
-    recording_id = str_value(device.get("recording_id"), "")
+    recording_id = coerce_str(device.get("recording_id"), "")
     if recording_id:
         return recording_id
-    stable_path = str_value(device.get("stable_path"), "")
+    stable_path = coerce_str(device.get("stable_path"), "")
     if stable_path:
         return f"physical:{stable_path}"
-    path = str_value(device.get("path"), "")
+    path = coerce_str(device.get("path"), "")
     return f"physical:{path}" if path else ""
 
 
 def recording_device_selected_by_default(device: JsonObject) -> bool:
-    return str_value(device.get("recording_kind"), "physical") in {
+    return coerce_str(device.get("recording_kind"), "physical") in {
         "keymasq_output",
         "keymasq_passthrough",
     }
@@ -242,9 +228,9 @@ async def get_devices_for_recording(
         d = json_object(raw_device)
         if d is None:
             continue
-        path = str_value(d.get("path"), "")
-        stable_path = str_value(d.get("stable_path"), path)
-        dtype = str_value(d.get("device_type"), "other")
+        path = coerce_str(d.get("path"), "")
+        stable_path = coerce_str(d.get("stable_path"), path)
+        dtype = coerce_str(d.get("device_type"), "other")
         resolved_types = recording_device_types(d)
         if not path or not set(device_types).intersection(resolved_types):
             continue
@@ -256,24 +242,24 @@ async def get_devices_for_recording(
         devices.append(
             {
                 "path": path,
-                "open_path": str_value(d.get("open_path"), path),
+                "open_path": coerce_str(d.get("open_path"), path),
                 "stable_path": stable_path,
-                "interface_id": str_value(d.get("interface_id"), ""),
-                "name": str_value(d.get("name"), path),
-                "phys": str_value(d.get("phys"), ""),
-                "uniq": str_value(d.get("uniq"), ""),
+                "interface_id": coerce_str(d.get("interface_id"), ""),
+                "name": coerce_str(d.get("name"), path),
+                "phys": coerce_str(d.get("phys"), ""),
+                "uniq": coerce_str(d.get("uniq"), ""),
                 "vendor_id": str(d.get("vendor_id", "") or ""),
                 "product_id": str(d.get("product_id", "") or ""),
                 "device_type": dtype,
                 "device_types": resolved_types,
-                "recording_id": str_value(d.get("recording_id"), f"physical:{stable_path}"),
-                "recording_kind": str_value(d.get("recording_kind"), "physical"),
+                "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),
+                "recording_kind": coerce_str(d.get("recording_kind"), "physical"),
                 "grabbed_by_keymasq": is_grabbed,
-                "source_hardware_id": str_value(d.get("source_hardware_id"), ""),
-                "source_interface_id": str_value(d.get("source_interface_id"), ""),
-                "source_stable_path": str_value(d.get("source_stable_path"), ""),
-                "source_path": str_value(d.get("source_path"), ""),
-                "keymasq_output": str_value(d.get("keymasq_output"), ""),
+                "source_hardware_id": coerce_str(d.get("source_hardware_id"), ""),
+                "source_interface_id": coerce_str(d.get("source_interface_id"), ""),
+                "source_stable_path": coerce_str(d.get("source_stable_path"), ""),
+                "source_path": coerce_str(d.get("source_path"), ""),
+                "keymasq_output": coerce_str(d.get("keymasq_output"), ""),
             }
         )
 

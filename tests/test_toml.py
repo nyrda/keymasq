@@ -45,6 +45,18 @@ def test_mapping_action_type_from_toml_supports_legacy_rapidfire_alias() -> None
     assert action_data["rapidfire_enabled"] is True
 
 
+def test_mapping_action_from_toml_parses_false_rapidfire_string_as_disabled() -> None:
+    action = _parse_mapping_action_toml(
+        {
+            "action": "keyboard",
+            "target": "key_a",
+            "rapidfire_enabled": "false",
+        }
+    )
+
+    assert action.rapidfire_enabled is False
+
+
 def test_mapping_action_type_from_toml_can_passthrough_unknown_actions() -> None:
     logger = Mock()
 

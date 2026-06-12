@@ -42,15 +42,13 @@ declare -a source_paths=(
     udev
 )
 
+declare -a tracked_source_paths=()
 for path in "${source_paths[@]}"; do
     if [[ ! -e "$REPO_DIR/$path" ]]; then
         printf 'Missing required source path: %s\n' "$path" >&2
         exit 1
     fi
-done
 
-declare -a tracked_source_paths=()
-for path in "${source_paths[@]}"; do
     mapfile -d '' -t tracked_matches < <(git -C "$REPO_DIR" ls-files -z -- "$path")
     if [[ "${#tracked_matches[@]}" -eq 0 ]]; then
         printf 'No tracked files found for source path: %s\n' "$path" >&2

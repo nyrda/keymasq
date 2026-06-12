@@ -559,31 +559,6 @@ def test_persistent_session_reader_ignores_stale_error_after_socket_swap(
     assert thread.is_alive() is False
 
 
-def test_get_active_window_async_uses_session_request_async(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[dict[str, Any], float]] = []
-
-    def _fake_session_request_async(
-        payload: dict[str, Any],
-        callback: Callable[[dict | None], bool | None],
-        timeout: float = 5.0,
-    ) -> None:
-        calls.append((payload, timeout))
-        callback({"status": "ok", "class": "steam", "title": "Library", "tags": []})
-
-    monkeypatch.setattr(gui_session_client, "session_request_async", _fake_session_request_async)
-
-    results: list[dict | None] = []
-    gui_session_client.get_active_window_async(
-        lambda response: results.append(response),
-        timeout=2.5,
-    )
-
-    assert calls == [({"command": "get_active_window"}, 2.5)]
-    assert results == [{"status": "ok", "class": "steam", "title": "Library", "tags": []}]
-
-
 def test_run_gui_task_invokes_hooks_and_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_glib(monkeypatch)
     events: list[tuple[str, Any]] = []
@@ -602,7 +577,7 @@ def test_run_gui_task_invokes_hooks_and_callback(monkeypatch: pytest.MonkeyPatch
     ]
 
 
-def test_session_request_with_hooks_uses_session_request(
+def test_session_request_async_uses_session_request_and_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_glib(monkeypatch)
@@ -614,7 +589,7 @@ def test_session_request_with_hooks_uses_session_request(
         lambda payload, timeout=5.0: {"status": "ok", "payload": payload, "timeout": timeout},
     )
 
-    gui_session_client.session_request_with_hooks(
+    gui_session_client.session_request_async(
         {"command": "reload"},
         lambda result: calls.append(("callback", result)),
         timeout=2.0,
@@ -660,7 +635,7 @@ def test_session_request_async_surfaces_worker_errors_to_callback(
     ]
 
 
-def test_session_request_with_hooks_surfaces_worker_errors_to_callback(
+def test_session_request_async_hooks_surfaces_worker_errors_to_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_glib(monkeypatch)
@@ -673,7 +648,7 @@ def test_session_request_with_hooks_surfaces_worker_errors_to_callback(
 
     monkeypatch.setattr(gui_session_client, "session_request", _raise_request)
 
-    gui_session_client.session_request_with_hooks(
+    gui_session_client.session_request_async(
         {"command": "reload"},
         lambda result: calls.append(("callback", result)) or done.set(),
         on_start=lambda: calls.append(("start", None)),

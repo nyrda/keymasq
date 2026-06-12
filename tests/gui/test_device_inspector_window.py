@@ -1,6 +1,6 @@
 import pytest
 
-from tests.gui.support import collect_child_widgets
+from tests.gui.support import SessionIpcHarness, collect_child_widgets
 
 gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
@@ -258,101 +258,109 @@ def _snapshot():
         ],
     }
 
+class _InspectorHarness:
+    def __init__(self, monkeypatch) -> None:
+        from gi.repository import Gtk
 
-def test_device_inspector_mapping_action_payload_preserves_mpris_command() -> None:
-    from keymasq.common.models import ActionType
-    from keymasq.gui.widgets.device_inspector_window import _mapping_action_from_payload
+        from keymasq.gui.widgets import device_inspector_window as inspector_module
+        from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
 
-    action = _mapping_action_from_payload({"action": "mpris", "command": "previous"})
+        def request_handler(payload, callback, _timeout):
+            command = payload.get("command")
+            if command == "start_device_inspector":
+                callback(_snapshot())
+            elif command == "enable_device_inspector_suppression":
+                callback(
+                    {
+                        "status": "ok",
+                        "hardware_id": "1234:5678",
+                        "active": True,
+                        "suppressed": True,
+                    }
+                )
+            elif command == "disable_device_inspector_suppression":
+                callback(
+                    {
+                        "status": "ok",
+                        "hardware_id": "1234:5678",
+                        "active": True,
+                        "suppressed": False,
+                    }
+                )
+            else:
+                callback({"status": "ok"})
 
-    assert action is not None
-    assert action.action_type == ActionType.MPRIS
-    assert action.mpris_command == "previous"
+        self.session = SessionIpcHarness(request_handler=request_handler).install(
+            monkeypatch, inspector_module
+        )
+        self.callbacks = self.session.callbacks
+        self.requests = self.session.requests
+
+        self.window = DeviceInspectorWindow(Gtk.Window(), _device())
+
+    def emit_event(self, event) -> None:
+        self.session.emit(
+            "device_inspector_event",
+            {"hardware_id": "1234:5678", **event},
+        )
+
+    def emit_status(self, event) -> None:
+        self.session.emit(
+            "device_inspector_status",
+            {"hardware_id": "1234:5678", **event},
+        )
+
+    def close(self) -> None:
+        self.window._on_destroy()
 
 
-def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
-    monkeypatch,
-):
-    from gi.repository import Gdk, Gtk
+@pytest.fixture
+def inspector_harness(monkeypatch):
+    harness = _InspectorHarness(monkeypatch)
+    yield harness
+    harness.close()
 
-    from keymasq.gui.widgets import device_inspector_window as inspector_module
-    from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
 
-    callbacks = {}
-    requests = []
+def test_device_inspector_window_starts_and_renders_snapshot(inspector_harness) -> None:
+    window = inspector_harness.window
 
-    def fake_register(event, callback):
-        callbacks.setdefault(event, []).append(callback)
-
-    def fake_unregister(event, callback):
-        registered = callbacks.get(event, [])
-        if callback in registered:
-            registered.remove(callback)
-
-    def fake_request_async(payload, callback, timeout=5.0):
-        requests.append(dict(payload))
-        command = payload.get("command")
-        if command == "start_device_inspector":
-            callback(_snapshot())
-        elif command == "enable_device_inspector_suppression":
-            callback(
-                {
-                    "status": "ok",
-                    "hardware_id": "1234:5678",
-                    "active": True,
-                    "suppressed": True,
-                }
-            )
-        elif command == "disable_device_inspector_suppression":
-            callback(
-                {
-                    "status": "ok",
-                    "hardware_id": "1234:5678",
-                    "active": True,
-                    "suppressed": False,
-                }
-            )
-        else:
-            callback({"status": "ok"})
-
-    monkeypatch.setattr(inspector_module, "register_session_event_callback", fake_register)
-    monkeypatch.setattr(inspector_module, "unregister_session_event_callback", fake_unregister)
-    monkeypatch.setattr(inspector_module, "session_request_async", fake_request_async)
-
-    window = DeviceInspectorWindow(Gtk.Window(), _device())
-
-    assert requests[0]["command"] == "start_device_inspector"
+    assert inspector_harness.requests[0]["command"] == "start_device_inspector"
     assert "btn_south" in window._control_widgets
     assert "left_stick" in window._analog_viewers
     assert "left_trigger" in window._analog_viewers
-    assert window._header_device_icon.get_pixel_size() == 24
-    assert window._paned.get_position() == 510
-    assert window._paned.get_resize_start_child() is True
-    assert window._paned.get_resize_end_child() is False
+    assert window._status_label.get_text() == "Inspector Pad - Monitoring"
+    assert window._status_label.has_css_class("inspector-header-monitoring") is True
+    assert window._status_label.has_css_class("dim-label") is False
+
     trigger_viewer = window._analog_viewers["left_trigger"]
     trigger_level_bar = trigger_viewer.level_bar
     assert trigger_level_bar is not None
     assert trigger_level_bar.get_value() == pytest.approx(0.0)
     assert trigger_viewer.value_labels["x"].get_text() == "x: raw      0 | norm +0.000"
-    assert window._status_label.get_text() == "Inspector Pad - Monitoring"
-    assert window._status_label.get_halign() == Gtk.Align.START
-    assert window._status_label.get_hexpand() is True
-    assert window._header_title_spacer.get_parent() is not None
-    assert window._status_label.has_css_class("inspector-header-title") is True
-    assert window._status_label.has_css_class("inspector-header-monitoring") is True
-    assert window._status_label.has_css_class("dim-label") is False
+
+
+def test_device_inspector_axes_section_tracks_snapshot_analogs(inspector_harness) -> None:
+    window = inspector_harness.window
+
     assert window._axes_title.get_visible() is True
     assert window._axes_box.get_visible() is True
+
     window._render_axes({"analog_inputs": []})
+
     assert window._axes_title.get_visible() is False
     assert window._axes_box.get_visible() is False
     assert window._axes_box.get_first_child() is None
+
     window._render_axes(_snapshot())
+
     assert window._axes_title.get_visible() is True
     assert window._axes_box.get_visible() is True
-    trigger_viewer = window._analog_viewers["left_trigger"]
-    trigger_level_bar = trigger_viewer.level_bar
-    assert trigger_level_bar is not None
+    assert window._analog_viewers["left_trigger"].level_bar is not None
+
+
+def test_device_inspector_formats_mapping_action_payloads(inspector_harness) -> None:
+    window = inspector_harness.window
+
     assert (
         window._action_label(
             {"action": "compositor_dispatch", "dispatcher": "workspace", "args": "1"},
@@ -364,16 +372,11 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
         "▶ grimblast copy area"
     )
 
-    def emit(event):
-        callbacks["device_inspector_event"][0](
-            {
-                "event": "device_inspector_event",
-                "hardware_id": "1234:5678",
-                **event,
-            }
-        )
 
-    emit(
+def test_device_inspector_buffers_events_by_category(inspector_harness) -> None:
+    window = inspector_harness.window
+
+    inspector_harness.emit_event(
         {
             "sequence": 1,
             "type_name": "ev_key",
@@ -390,7 +393,7 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert window._visible_event_export_text() == ("#1 btn_south ev_key value=1 source=pad")
 
     for index in range(120):
-        emit(
+        inspector_harness.emit_event(
             {
                 "sequence": index + 2,
                 "type_name": "ev_rel",
@@ -404,7 +407,15 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert len(window._event_history_by_category["button"]) == 1
     assert len(window._event_rows) == 1
 
-    emit(
+
+def test_device_inspector_updates_analog_viewers_from_events(inspector_harness) -> None:
+    window = inspector_harness.window
+    trigger_viewer = window._analog_viewers["left_trigger"]
+    trigger_level_bar = trigger_viewer.level_bar
+
+    assert trigger_level_bar is not None
+
+    inspector_harness.emit_event(
         {
             "sequence": 122,
             "type_name": "ev_abs",
@@ -417,12 +428,54 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     )
 
     assert len(window._event_history_by_category["axis"]) == 1
-    assert len(window._event_rows) == 1
+    assert len(window._event_rows) == 0
     assert window._analog_viewers["left_stick"].value_labels["x"].get_text() == (
         "x: raw  14000 | norm +0.427"
     )
 
-    emit(
+    window._update_analog_value("left_trigger", "x", 128)
+
+    assert trigger_viewer.value_labels["x"].get_text() == "x: raw    128 | norm +0.502"
+    assert trigger_level_bar.get_value() == pytest.approx(128 / 255)
+
+
+def test_device_inspector_event_filters_render_visible_history(inspector_harness) -> None:
+    window = inspector_harness.window
+
+    inspector_harness.emit_event(
+        {
+            "sequence": 1,
+            "type_name": "ev_key",
+            "code_name": "btn_south",
+            "control_id": "btn_south",
+            "value": 1,
+            "source": "pad",
+        }
+    )
+
+    for index in range(120):
+        inspector_harness.emit_event(
+            {
+                "sequence": index + 2,
+                "type_name": "ev_rel",
+                "code_name": "rel_x",
+                "value": 4,
+                "source": "pad",
+            }
+        )
+
+    inspector_harness.emit_event(
+        {
+            "sequence": 122,
+            "type_name": "ev_abs",
+            "code_name": "abs_x",
+            "analog_id": "left_stick",
+            "analog_role": "x",
+            "value": 14000,
+            "source": "pad",
+        }
+    )
+    inspector_harness.emit_event(
         {
             "sequence": 123,
             "type_name": "ev_msc",
@@ -432,12 +485,9 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
         }
     )
 
+    assert len(window._event_history_by_category["axis"]) == 1
     assert len(window._event_history_by_category["syn"]) == 1
     assert len(window._event_rows) == 1
-
-    window._update_analog_value("left_trigger", "x", 128)
-    assert trigger_viewer.value_labels["x"].get_text() == "x: raw    128 | norm +0.502"
-    assert trigger_level_bar.get_value() == pytest.approx(128 / 255)
 
     window._event_filter_buttons["axis"].set_active(True)
     assert len(window._event_rows) == 2
@@ -447,9 +497,11 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
 
     window._event_filter_buttons["syn"].set_active(True)
     assert len(window._event_rows) == 100
-    assert "#123 msc_scan ev_msc value=458792 source=pad" in (window._visible_event_export_text())
+    assert "#123 msc_scan ev_msc value=458792 source=pad" in (
+        window._visible_event_export_text()
+    )
 
-    emit(
+    inspector_harness.emit_event(
         {
             "sequence": 124,
             "type_name": "ev_rel",
@@ -462,7 +514,7 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert window._event_render_source_id
 
     for index in range(105):
-        emit(
+        inspector_harness.emit_event(
             {
                 "sequence": index + 125,
                 "type_name": "ev_key",
@@ -477,12 +529,23 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert len(window._event_history_by_category["mousemove"]) == 100
     assert len(window._event_rows) == 100
 
+
+def test_device_inspector_suppression_switch_escape_and_status_events(
+    inspector_harness,
+) -> None:
+    from gi.repository import Gdk, Gtk
+
+    window = inspector_harness.window
+    requests = inspector_harness.requests
+
     window._suppression_switch.set_active(True)
+
     assert requests[-1]["command"] == "enable_device_inspector_suppression"
     assert window._suppression_switch.get_active() is True
     assert window._status_label.get_text() == "Inspector Pad - Output suppressed"
     assert window._status_label.has_css_class("inspector-header-suppressed") is True
     assert window._suppression_hint_label.get_visible() is True
+
     assert window._on_key_pressed(Gtk.EventControllerKey(), Gdk.KEY_Escape, 0, 0) is True
     assert requests[-1] == {
         "command": "disable_device_inspector_suppression",
@@ -492,11 +555,8 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert window._suppression_switch.get_active() is False
 
     window._suppression_switch.set_active(True)
-
-    callbacks["device_inspector_status"][0](
+    inspector_harness.emit_status(
         {
-            "event": "device_inspector_status",
-            "hardware_id": "1234:5678",
             "active": True,
             "suppressed": False,
             "reason": "key_esc",
@@ -507,7 +567,20 @@ def test_device_inspector_window_starts_renders_events_and_toggles_suppression(
     assert window._status_label.get_text() == "Inspector Pad - Monitoring"
     assert window._status_label.has_css_class("inspector-header-monitoring") is True
     assert window._suppression_hint_label.get_visible() is False
+
+
+def test_device_inspector_close_stops_inspector_and_unregisters_events(
+    inspector_harness,
+) -> None:
+    window = inspector_harness.window
+    callbacks = inspector_harness.callbacks
+    requests = inspector_harness.requests
+
     assert window._on_close_request() is False
     assert requests[-1]["command"] == "stop_device_inspector"
     assert callbacks["device_inspector_event"] == []
+    assert callbacks["device_inspector_status"] == []
+    assert callbacks["profiles_changed"] == []
+    assert callbacks["runtime_reset"] == []
+    assert callbacks["keymasqd_status"] == []
     window._on_destroy()

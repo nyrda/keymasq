@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from unittest.mock import AsyncMock
 
@@ -6,6 +5,9 @@ import pytest
 
 import keymasq.session.listeners.hyprland as hyprland_module
 from keymasq.session.listeners.hyprland import HyprlandListener
+from tests.async_fakes import FakeStreamReader as _FakeReader
+from tests.async_fakes import FakeStreamWriter as _FakeWriter
+from tests.async_fakes import StallingStreamReader as _StallingReader
 
 
 async def _noop_callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
@@ -68,45 +70,6 @@ async def test_hyprland_active_window_logs_malformed_responses(
 
     assert "Hyprland active window response was malformed JSON" in caplog.text
     assert "Hyprland active window tags response was not a JSON object" in caplog.text
-
-
-class _FakeWriter:
-    def __init__(self) -> None:
-        self.closed = False
-        self.payloads: list[bytes] = []
-
-    def write(self, data: bytes) -> None:
-        self.payloads.append(data)
-
-    async def drain(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        return None
-
-
-class _CloseFailWriter(_FakeWriter):
-    async def wait_closed(self) -> None:
-        raise RuntimeError("close bug")
-
-
-class _FakeReader:
-    def __init__(self, responses: list[bytes]) -> None:
-        self._responses = list(responses)
-
-    async def read(self, _size: int) -> bytes:
-        if not self._responses:
-            return b""
-        return self._responses.pop(0)
-
-
-class _StallingReader:
-    async def read(self, _size: int) -> bytes:
-        await asyncio.Event().wait()
-        return b""
 
 
 @pytest.mark.asyncio
@@ -187,10 +150,10 @@ async def test_hyprland_send_cmd_logs_unexpected_close_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     listener = HyprlandListener(_noop_callback)
-    writer = _CloseFailWriter()
+    writer = _FakeWriter(wait_closed_error=RuntimeError("close bug"))
     listener.cmd_socket_path = "/tmp/hypr.sock"
 
-    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _CloseFailWriter]:
+    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
         assert path == "/tmp/hypr.sock"
         return _FakeReader([b"100,200"]), writer
 

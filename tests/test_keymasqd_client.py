@@ -5,54 +5,41 @@ import pytest
 
 from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, Response, encode_response
 from keymasq.session.client import KeymasqdClient
+from tests.async_fakes import BlockingStreamReader as _BlockingReader
+from tests.async_fakes import FakeStreamReader as _FakeReader
+from tests.async_fakes import FakeStreamWriter as _FakeWriter
 
 
-class _BlockingAsyncReader:
-    def __init__(self) -> None:
-        self._release = asyncio.Event()
+def test_fake_stream_reader_read_honors_size() -> None:
+    async def _run() -> None:
+        reader = _FakeReader([b"abcdef", b"gh"])
 
-    async def read(self, _size: int) -> bytes:
-        await self._release.wait()
-        return b""
+        assert await reader.read(2) == b"ab"
+        assert await reader.read(3) == b"cde"
+        assert await reader.read(10) == b"f"
+        assert await reader.read(10) == b"gh"
+        assert await reader.read(10) == b""
 
-    def release(self) -> None:
-        self._release.set()
-
-
-class _ChunkedAsyncReader:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = chunks
-
-    async def read(self, _size: int) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
+    asyncio.run(_run())
 
 
-class _FakeAsyncWriter:
-    def __init__(self) -> None:
-        self.closed = False
-        self.wait_closed_count = 0
+def test_fake_stream_reader_readline_splits_newlines() -> None:
+    async def _run() -> None:
+        reader = _FakeReader([b"one\ntwo\n", b"three"])
 
-    def write(self, data: bytes) -> None:
-        _ = data
+        assert await reader.readline() == b"one\n"
+        assert await reader.readline() == b"two\n"
+        assert await reader.readline() == b"three"
+        assert await reader.readline() == b""
 
-    async def drain(self) -> None:
-        return
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        self.wait_closed_count += 1
-        return
+    asyncio.run(_run())
 
 
 def test_keymasqd_client_disconnect_fails_pending_requests_immediately() -> None:
     async def _run() -> None:
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        reader = _BlockingAsyncReader()
-        writer = _FakeAsyncWriter()
+        reader = _BlockingReader()
+        writer = _FakeWriter()
         client.reader = reader
         client.writer = writer
 
@@ -81,7 +68,7 @@ def test_keymasqd_client_disconnect_fails_pending_requests_immediately() -> None
 def test_keymasqd_client_send_command_uses_custom_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _run() -> None:
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        client.writer = _FakeAsyncWriter()
+        client.writer = _FakeWriter()
         timeouts: list[float] = []
 
         async def fake_wait_for(awaitable, timeout):
@@ -106,8 +93,8 @@ def test_keymasqd_client_send_command_uses_custom_timeout(monkeypatch: pytest.Mo
 def test_keymasqd_client_disconnect_waits_for_cancelled_writer_to_close() -> None:
     async def _run() -> None:
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        client.reader = _BlockingAsyncReader()
-        writer = _FakeAsyncWriter()
+        client.reader = _BlockingReader()
+        writer = _FakeWriter()
         client.writer = writer
         client._listen_task = asyncio.create_task(client._listen_loop())
 
@@ -115,7 +102,7 @@ def test_keymasqd_client_disconnect_waits_for_cancelled_writer_to_close() -> Non
         await client.disconnect()
 
         assert writer.closed is True
-        assert writer.wait_closed_count == 1
+        assert writer.wait_closed_calls == 1
         assert client.reader is None
         assert client.writer is None
 
@@ -134,8 +121,8 @@ def test_keymasqd_client_discards_oversized_response_before_valid(
         valid = encode_response(Response(status="ok", request_id="ok", data={"done": True}))
 
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        client.reader = _ChunkedAsyncReader([oversized + valid, b""])
-        client.writer = _FakeAsyncWriter()
+        client.reader = _FakeReader([oversized + valid, b""])
+        client.writer = _FakeWriter()
         future: asyncio.Future[Response] = asyncio.get_running_loop().create_future()
         client._pending_requests["ok"] = future
 

@@ -264,6 +264,7 @@ async def event_loop(
     device = device_runtime.device
     if device is None:
         return
+    deps = build_event_processing_deps(log=log)
 
     try:
         async for event in device.async_read_loop():
@@ -273,7 +274,7 @@ async def event_loop(
                 await process_event(
                     device_runtime,
                     event,
-                    deps=build_event_processing_deps(log=log),
+                    deps=deps,
                 )
                 error_backoff = 0.01
             except Exception:
@@ -656,9 +657,11 @@ async def process_event(
         syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
         if event_code == syn_report:
             passthrough_frame_open = runtime_outputs.passthrough_frame_open(
-                device_runtime.uinput
+                device_runtime,
+                device_runtime.uinput,
             )
             runtime_outputs.flush_passthrough_frame(
+                device_runtime,
                 device_runtime.uinput,
                 uinput_writer=identity_uinput_writer,
             )
@@ -668,9 +671,15 @@ async def process_event(
             writer = identity_uinput_writer(device_runtime.uinput)
             if writer is not None:
                 writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
-                runtime_outputs.mark_passthrough_frame_open(device_runtime.uinput)
+                runtime_outputs.mark_passthrough_frame_open(
+                    device_runtime,
+                    device_runtime.uinput,
+                )
         else:
-            runtime_outputs.mark_passthrough_frame_closed(device_runtime.uinput)
+            runtime_outputs.mark_passthrough_frame_closed(
+                device_runtime,
+                device_runtime.uinput,
+            )
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
 

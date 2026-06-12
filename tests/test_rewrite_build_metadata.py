@@ -1,32 +1,17 @@
-import importlib.util
 import re
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import NoReturn
 
 import pytest
 
+from tests.script_loader import load_script
+
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts/rewrite-build-metadata.py"
 )
-SCRIPT_DIR = SCRIPT_PATH.parent
-
-
-def _load_script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("rewrite_build_metadata_test", SCRIPT_PATH)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    sys.path.insert(0, str(SCRIPT_DIR))
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.remove(str(SCRIPT_DIR))
-        sys.modules.pop("build_metadata_rewrite", None)
-        sys.modules.pop(spec.name, None)
-    return module
+SCRIPT_MODULE = "rewrite_build_metadata_test"
+SCRIPT_CLEANUP_MODULES = ("build_metadata_rewrite",)
 
 
 def _fail_build_rules(*_args: object, **_kwargs: object) -> NoReturn:
@@ -36,7 +21,11 @@ def _fail_build_rules(*_args: object, **_kwargs: object) -> NoReturn:
 def test_rewrite_build_metadata_apply_rules_limits_duplicate_matches(
     tmp_path: Path,
 ) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     target = tmp_path / "metadata.env"
     target.write_text('VERSION="1.0.0"\nVERSION="1.0.0"\n', encoding="utf-8")
     rule = script.RewriteRule(
@@ -68,7 +57,11 @@ def test_rewrite_build_metadata_rejects_malformed_versions_before_rewrite(
     option: str,
     value: str,
 ) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     monkeypatch.setattr(script, "_build_rules", _fail_build_rules)
     monkeypatch.setattr(sys, "argv", [SCRIPT_PATH.name, option, value])
 
@@ -92,14 +85,22 @@ def test_rewrite_build_metadata_accepts_ci_version_suffixes(
     validator_name: str,
     value: str,
 ) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     validator = getattr(script, validator_name)
 
     assert validator(value) == value
 
 
 def test_rewrite_build_metadata_uses_shared_metadata_rules(tmp_path: Path) -> None:
-    script = _load_script()
+    script = load_script(
+        SCRIPT_PATH,
+        SCRIPT_MODULE,
+        cleanup_modules=SCRIPT_CLEANUP_MODULES,
+    )
     (tmp_path / "keymasq").mkdir()
     (tmp_path / "debian").mkdir()
     (tmp_path / "packaging/rpm").mkdir(parents=True)

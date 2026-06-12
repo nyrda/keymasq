@@ -92,29 +92,18 @@ class DeviceCache:
     ) -> dict[str, CachedDeviceInfo]:
         devices: dict[str, CachedDeviceInfo] = {}
         for path in sorted(device_paths_fn()):
-            device: InputDeviceLike | None = None
-            try:
-                device = device_input_fn(path)
-                info = device.info
-                caps = device.capabilities()
-                devices[path] = CachedDeviceInfo(
-                    path=path,
-                    vendor_id=f"{info.vendor:04x}",
-                    product_id=f"{info.product:04x}",
-                    phys=str(getattr(device, "phys", "") or "").strip(),
-                    device_type=primary_input_class_fn(detect_input_classes_fn(device)),
-                    capabilities=_normalize_capability_names(
-                        capability_names_from_capabilities(caps)
-                    ),
-                    is_virtual=_is_keymasq_virtual_device(device),
-                )
-            except OSError as exc:
-                log.debug("Skipping device path resolver cache entry %s: %s", path, exc)
-            except Exception:
-                log.exception("Unexpected failure caching device path resolver entry %s", path)
-            finally:
-                if device is not None:
-                    close_device(device)
+            cached = _probe_cached_device_info(
+                path,
+                device_input_fn=device_input_fn,
+                detect_input_classes_fn=detect_input_classes_fn,
+                primary_input_class_fn=primary_input_class_fn,
+                skip_log_message="Skipping device path resolver cache entry %s: %s",
+                unexpected_log_message=(
+                    "Unexpected failure caching device path resolver entry %s"
+                ),
+            )
+            if cached is not None:
+                devices[path] = cached
 
         with self._lock:
             self._devices.clear()
@@ -141,6 +130,42 @@ class DevicePathResolverDeps:
 
 
 _DEFAULT_CACHE = DeviceCache()
+
+
+def _probe_cached_device_info(
+    path: str,
+    *,
+    device_input_fn: Callable[[str], InputDeviceLike],
+    detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
+    primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
+    skip_log_message: str,
+    unexpected_log_message: str,
+) -> CachedDeviceInfo | None:
+    device: InputDeviceLike | None = None
+    try:
+        device = device_input_fn(path)
+        info = device.info
+        caps = device.capabilities()
+        return CachedDeviceInfo(
+            path=path,
+            vendor_id=f"{info.vendor:04x}",
+            product_id=f"{info.product:04x}",
+            phys=str(getattr(device, "phys", "") or "").strip(),
+            device_type=primary_input_class_fn(detect_input_classes_fn(device)),
+            capabilities=_normalize_capability_names(
+                capability_names_from_capabilities(caps)
+            ),
+            is_virtual=_is_keymasq_virtual_device(device),
+        )
+    except OSError as exc:
+        log.debug(skip_log_message, path, exc)
+        return None
+    except Exception:
+        log.exception(unexpected_log_message, path)
+        return None
+    finally:
+        if device is not None:
+            close_device(device)
 
 
 def evdev_device_path_resolver_deps(
@@ -398,31 +423,16 @@ def _probe_cached_device(
     path: str,
     deps: DevicePathResolverDeps,
 ) -> CachedDeviceInfo | None:
-    device: InputDeviceLike | None = None
-    try:
-        device = deps.device_input_fn(path)
-        info = device.info
-        caps = device.capabilities()
-        return CachedDeviceInfo(
-            path=path,
-            vendor_id=f"{info.vendor:04x}",
-            product_id=f"{info.product:04x}",
-            phys=str(getattr(device, "phys", "") or "").strip(),
-            device_type=deps.primary_input_class_fn(deps.detect_input_classes_fn(device)),
-            capabilities=_normalize_capability_names(
-                capability_names_from_capabilities(caps)
-            ),
-            is_virtual=_is_keymasq_virtual_device(device),
-        )
-    except OSError as exc:
-        log.debug("Skipping device path resolver probe for %s: %s", path, exc)
-        return None
-    except Exception:
-        log.exception("Unexpected failure probing device path resolver candidate %s", path)
-        return None
-    finally:
-        if device is not None:
-            close_device(device)
+    return _probe_cached_device_info(
+        path,
+        device_input_fn=deps.device_input_fn,
+        detect_input_classes_fn=deps.detect_input_classes_fn,
+        primary_input_class_fn=deps.primary_input_class_fn,
+        skip_log_message="Skipping device path resolver probe for %s: %s",
+        unexpected_log_message=(
+            "Unexpected failure probing device path resolver candidate %s"
+        ),
+    )
 
 
 def _path_matches_resolved(

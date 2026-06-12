@@ -573,7 +573,7 @@ class TestSaveMacroDialog:
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         captured: dict[str, object] = {}
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             captured.update(payload)
             if on_start:
                 on_start()
@@ -583,8 +583,8 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = SaveMacroDialog(
@@ -621,7 +621,7 @@ class TestSaveMacroDialog:
             def present_unlock_dialog(self, on_success=None):
                 unlock_callbacks.append(on_success)
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             requests.append(payload)
             if on_start:
                 on_start()
@@ -631,8 +631,8 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         parent = Parent()
@@ -681,7 +681,7 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             if on_start:
                 on_start()
             callback({"status": "error", "message": "session unavailable"})
@@ -690,8 +690,8 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = SaveMacroDialog(
@@ -729,7 +729,7 @@ class TestSaveMacroDialog:
             def present_unlock_dialog(self, on_success=None):
                 unlock_callbacks.append(on_success)
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             if on_start:
                 on_start()
             callback(
@@ -744,8 +744,8 @@ class TestSaveMacroDialog:
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = SaveMacroDialog(
@@ -803,13 +803,13 @@ class TestSaveMacroDialog:
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         requests: list[dict[str, object]] = []
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             requests.append(dict(payload))
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = SaveMacroDialog(
@@ -862,13 +862,13 @@ class TestSaveMacroDialog:
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         requests: list[dict[str, object]] = []
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             requests.append(dict(payload))
 
         monkeypatch.setattr(
             save_macro_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = SaveMacroDialog(
@@ -1892,14 +1892,14 @@ class TestDialogConstruction:
         requests: list[dict] = []
         alerts: list[tuple[object, object]] = []
 
-        def fake_session_request_with_hooks(payload, callback, **_kwargs):
+        def fake_session_request_async(payload, callback, **_kwargs):
             requests.append(payload)
             callback({"status": "error", "message": "boom"})
 
         monkeypatch.setattr(
             macro_manager_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
         monkeypatch.setattr(
             macro_manager_dialog_module.Adw.AlertDialog,
@@ -1932,14 +1932,14 @@ class TestDialogConstruction:
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         requests: list[dict] = []
 
-        def fake_session_request_with_hooks(payload, callback, **_kwargs):
+        def fake_session_request_async(payload, callback, **_kwargs):
             requests.append(payload)
             callback({"status": "ok"})
 
         monkeypatch.setattr(
             macro_manager_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = MacroManagerDialog(Gtk.Window())
@@ -1972,9 +1972,9 @@ class TestDialogConstruction:
         from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
-        hook_requests: list[dict] = []
+        async_requests: list[dict] = []
 
-        def fake_session_request_async(payload, callback):
+        def fake_session_request_async(payload, callback, on_done=None, **_kwargs):
             if payload["command"] == "get_status":
                 callback(
                     {
@@ -1985,22 +1985,16 @@ class TestDialogConstruction:
                 )
             elif payload["command"] == "list_macros":
                 callback({"macros": [{"name": "macro"}, {"name": "macro_1"}]})
-
-        def fake_session_request_with_hooks(payload, callback, on_done=None, **_kwargs):
-            hook_requests.append(payload)
-            callback({"status": "ok"})
-            if on_done:
-                on_done()
+            else:
+                async_requests.append(payload)
+                callback({"status": "ok"})
+                if on_done:
+                    on_done()
 
         monkeypatch.setattr(
             macro_manager_dialog_module,
             "session_request_async",
             fake_session_request_async,
-        )
-        monkeypatch.setattr(
-            macro_manager_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
         )
 
         dialog = MacroManagerDialog(Gtk.Window())
@@ -2029,7 +2023,7 @@ class TestDialogConstruction:
         assert dialog._slot_dropdown.get_sensitive() is False
         dialog._on_record_new(dialog._record_btn)
 
-        assert hook_requests == [
+        assert async_requests == [
             {"command": "start_recording", "recording_slot": 1},
             {"command": "stop_recording", "recording_slot": 1},
         ]
@@ -2044,7 +2038,7 @@ class TestDialogConstruction:
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
         requests: list[dict] = []
 
-        def fake_session_request_with_hooks(payload, callback, on_done=None, **_kwargs):
+        def fake_session_request_async(payload, callback, on_done=None, **_kwargs):
             requests.append(payload)
             callback({"status": "ok"})
             if on_done:
@@ -2052,8 +2046,8 @@ class TestDialogConstruction:
 
         monkeypatch.setattr(
             macro_manager_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
 
         dialog = MacroManagerDialog(Gtk.Window())
@@ -2084,7 +2078,7 @@ class TestDialogConstruction:
         requests: list[dict] = []
         created: list[bool] = []
 
-        def fake_session_request_with_hooks(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
             requests.append(payload)
             if on_start:
                 on_start()
@@ -2094,8 +2088,8 @@ class TestDialogConstruction:
 
         monkeypatch.setattr(
             macro_manager_dialog_module,
-            "session_request_with_hooks",
-            fake_session_request_with_hooks,
+            "session_request_async",
+            fake_session_request_async,
         )
         dialog = TypeMacroDialog(Gtk.Window(), on_created=lambda: created.append(True))
 

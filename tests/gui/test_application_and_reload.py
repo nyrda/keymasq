@@ -349,15 +349,36 @@ def test_feedback_dialog_can_opt_out_of_diagnostics(monkeypatch) -> None:
     assert "devices" not in payload
 
 
-def test_feedback_distribution_name_uses_os_release_pretty_name(tmp_path) -> None:
+def test_feedback_distribution_name_uses_os_release_pretty_name(monkeypatch) -> None:
     pytest.importorskip("gi")
 
     import keymasq.gui.widgets.feedback_dialog as feedback_module
 
-    os_release = tmp_path / "os-release"
-    os_release.write_text(
-        'NAME="NixOS"\nPRETTY_NAME="NixOS 25.05 (Warbler)"\nID=nixos\n',
-        encoding="utf-8",
+    monkeypatch.setattr(
+        feedback_module.platform,
+        "freedesktop_os_release",
+        lambda: {
+            "NAME": "NixOS",
+            "PRETTY_NAME": "NixOS 25.05 (Warbler)",
+            "ID": "nixos",
+        },
     )
 
-    assert feedback_module.linux_distribution_name(os_release) == "NixOS 25.05 (Warbler)"
+    assert feedback_module.linux_distribution_name() == "NixOS 25.05 (Warbler)"
+
+
+def test_feedback_distribution_name_falls_back_to_unknown(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
+    import keymasq.gui.widgets.feedback_dialog as feedback_module
+
+    def raise_os_error() -> dict[str, str]:
+        raise OSError
+
+    monkeypatch.setattr(
+        feedback_module.platform,
+        "freedesktop_os_release",
+        raise_os_error,
+    )
+
+    assert feedback_module.linux_distribution_name() == "unknown"

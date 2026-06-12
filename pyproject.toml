@@ -57,7 +57,6 @@ test = [
 ]
 dev = [
     "basedpyright>=1.38.2",
-    "mypy>=1.0.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
@@ -113,10 +112,6 @@ executionEnvironments = [
     { root = "nix/docshots", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportPrivateUsage = "none" },
 ]
 
-[tool.mypy]
-python_version = "3.12"
-strict = true
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -129,4 +124,8 @@ markers = [
     "session: tests covering keymasq-session and compositor/session integration",
     "gui: tests covering the GTK GUI",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore:GLib\\.unix_signal_add_full is deprecated; use GLibUnix\\.signal_add_full instead:Warning:gi\\.overrides",
+    "ignore:'typing\\.no_type_check_decorator' is deprecated and slated for removal in Python 3\\.15:DeprecationWarning:dbus_next\\.service",
 ]

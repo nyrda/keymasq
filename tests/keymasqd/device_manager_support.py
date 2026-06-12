@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.models import DeviceType
-from keymasq.keymasqd import daemon_helpers
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.runtime import combos as cdm
 from keymasq.keymasqd.runtime import grabbed_device as gdm
@@ -202,8 +202,8 @@ def combo_event_runtime_kwargs() -> ComboEventRuntimeKwargs:
     return {
         "resolve_stable_path_fn": dm.resolve_stable_path,
         "get_interface_id_fn": dm.get_interface_id,
-        "int_value_fn": daemon_helpers.int_like,
-        "str_value_fn": daemon_helpers.str_value,
+        "int_value_fn": coerce_int,
+        "str_value_fn": coerce_str,
         "deps": combo_runtime_deps(),
     }
 

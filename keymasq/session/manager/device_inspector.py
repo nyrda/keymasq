@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
     AnalogAxisDefinition,
@@ -12,7 +13,7 @@ from keymasq.common.security import PeerCredentials
 from keymasq.session.profiles import ResolvedDeviceProfile
 
 from . import profiles as runtime_profiles
-from .common import JsonObject, json_object, str_value
+from .common import JsonObject, json_object
 from .payloads import serialize_mapping_action
 
 if TYPE_CHECKING:
@@ -367,10 +368,10 @@ def _serialize_interface(device: object) -> JsonObject:
     device_type = getattr(device, "device_type", "")
     device_type_value = getattr(device_type, "value", str(device_type or ""))
     return {
-        "id": str_value(getattr(device, "id", ""), ""),
-        "path": str_value(getattr(device, "path", ""), ""),
+        "id": coerce_str(getattr(device, "id", ""), ""),
+        "path": coerce_str(getattr(device, "path", ""), ""),
         "type": str(device_type_value or ""),
-        "phys": str_value(getattr(device, "phys", ""), ""),
+        "phys": coerce_str(getattr(device, "phys", ""), ""),
         "capabilities": [
             str(item)
             for item in cast(list[object], getattr(device, "capabilities", []) or [])

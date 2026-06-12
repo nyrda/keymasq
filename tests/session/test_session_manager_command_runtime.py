@@ -13,6 +13,8 @@ import keymasq.session.manager.device_inspector as session_device_inspector_modu
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.profiles as session_profiles_module
 import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
+import keymasq.session.manager.recording_unlock as recording_unlock_module
 import keymasq.session.settings as session_settings
 from keymasq.common import paths
 from keymasq.common.ipc import CommandType, Response
@@ -319,7 +321,7 @@ async def test_macro_recording_status_uses_cached_daemon_status_for_unreadable_l
     assert result == daemon_status
 
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status",
         lambda uid: {
             "unlocked": False,
@@ -371,7 +373,7 @@ async def test_recording_unlock_status_logs_unexpected_daemon_query_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("status bug"))
     fallback_status = {"unlocked": False, "source": "none", "expires_at": 0}
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status",
         lambda _uid: fallback_status,
     )
@@ -410,7 +412,7 @@ async def test_recording_unlock_status_uses_cached_daemon_status_for_unreadable_
     assert result == daemon_status
 
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status",
         lambda uid: {
             "unlocked": False,
@@ -2616,7 +2618,7 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
         return 20.0
 
     monkeypatch.setattr(session_recording_module.secrets, "token_urlsafe", fake_token_urlsafe)
-    monkeypatch.setattr(session_recording_module, "monotonic", fake_monotonic)
+    monkeypatch.setattr(recording_lifecycle_module, "monotonic", fake_monotonic)
 
     session_recording_module.replace_pending_macro_slots_from_daemon(
         manager,

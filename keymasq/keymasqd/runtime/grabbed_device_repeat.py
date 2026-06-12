@@ -107,8 +107,6 @@ def stop_rapidfire(device_runtime: ActionRuntime, event_name: str) -> None:
 async def stop_rapidfire_async(
     device_runtime: ActionRuntime,
     event_name: str,
-    *,
-    asyncio_mod: AsyncioModule,
 ) -> None:
     task = device_runtime.state.rapidfire_tasks.get(event_name)
     stop_rapidfire(device_runtime, event_name)

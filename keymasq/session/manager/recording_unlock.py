@@ -1,10 +1,9 @@
 import asyncio
 import logging
 import secrets
-import sys
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.recording_guard import (
     is_unlock_value_active,
@@ -17,7 +16,7 @@ from keymasq.common.recording_guard import (
 )
 from keymasq.common.security import PeerCredentials, SecurityPolicy
 
-from .common import JsonObject, int_value
+from .common import JsonObject
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -26,35 +25,6 @@ log = logging.getLogger("keymasq-session")
 RecordingStatus = dict[str, bool | int | str]
 resolve_unlock_status = _resolve_unlock_status
 resolve_macro_recording_status = _resolve_macro_recording_status
-
-
-def _facade_status_resolver(
-    name: str,
-    fallback: Callable[[int], RecordingStatus],
-) -> Callable[[int], RecordingStatus]:
-    facade = sys.modules.get("keymasq.session.manager.recording")
-    resolver = getattr(facade, name, fallback) if facade is not None else fallback
-    if callable(resolver):
-        return cast(Callable[[int], RecordingStatus], resolver)
-    return fallback
-
-
-async def _call_facade_resolve_unlock_status_async(
-    manager: "SessionManager",
-    uid: int,
-) -> RecordingStatus:
-    facade = sys.modules.get("keymasq.session.manager.recording")
-    resolver = (
-        getattr(facade, "resolve_unlock_status_async", None)
-        if facade is not None
-        else None
-    )
-    if resolver is not None and resolver is not resolve_unlock_status_async:
-        return await cast(
-            Callable[["SessionManager", int], Awaitable[RecordingStatus]],
-            resolver,
-        )(manager, uid)
-    return await _resolve_unlock_status_async_impl(manager, uid)
 
 
 def is_sensitive_session_command(
@@ -99,7 +69,7 @@ def has_active_gui_recording_owner(manager: "SessionManager") -> bool:
 def _status_is_active(status: RecordingStatus | None) -> bool:
     if status is None or not bool(status.get("unlocked", False)):
         return False
-    return is_unlock_value_active(int_value(status.get("expires_at"), 0))
+    return is_unlock_value_active(coerce_int(status.get("expires_at"), 0))
 
 
 def _cache_or_fallback_status(
@@ -149,8 +119,7 @@ async def _resolve_unlock_status_async_impl(
                 response.error,
             )
 
-    resolver = _facade_status_resolver("resolve_unlock_status", resolve_unlock_status)
-    status = await asyncio.to_thread(resolver, uid)
+    status = await asyncio.to_thread(resolve_unlock_status, uid)
     return _cache_or_fallback_status(manager.unlock_state.unlock_status_cache, uid, status)
 
 
@@ -189,11 +158,7 @@ async def _resolve_macro_recording_status_async_impl(
                 response.error,
             )
 
-    resolver = _facade_status_resolver(
-        "resolve_macro_recording_status",
-        resolve_macro_recording_status,
-    )
-    status = await asyncio.to_thread(resolver, uid)
+    status = await asyncio.to_thread(resolve_macro_recording_status, uid)
     return _cache_or_fallback_status(
         manager.unlock_state.macro_recording_status_cache,
         uid,
@@ -231,12 +196,8 @@ def serialize_macro_recording_state(
     enabled = bool(macro_recording_status.get("unlocked", False))
     return {
         "macro_recording_enabled": enabled,
-        "macro_recording_source": str(
-            macro_recording_status.get("source", "none") or "none"
-        ),
-        "macro_recording_expires_at": int(
-            macro_recording_status.get("expires_at", 0) or 0
-        ),
+        "macro_recording_source": str(macro_recording_status.get("source", "none") or "none"),
+        "macro_recording_expires_at": int(macro_recording_status.get("expires_at", 0) or 0),
     }
 
 
@@ -287,7 +248,7 @@ async def authorize_sensitive_session_command(
         return False
     if command == "end_capture":
         return True
-    unlock_status = await _call_facade_resolve_unlock_status_async(manager, peer.uid)
+    unlock_status = await resolve_unlock_status_async(manager, peer.uid)
     return is_active_refresh_owner_request(manager, peer, writer, unlock_status)
 
 
@@ -368,7 +329,7 @@ async def clear_recording_refresh_owner_if_writer(
     if _has_other_session_client_for_uid(manager, uid, excluding=writer):
         return
 
-    unlock_status = await _call_facade_resolve_unlock_status_async(manager, uid)
+    unlock_status = await resolve_unlock_status_async(manager, uid)
     if not bool(unlock_status.get("unlocked", False)):
         return
 
@@ -383,7 +344,7 @@ async def claim_recording_unlock_refresh(
     peer: PeerCredentials,
     writer: asyncio.StreamWriter,
 ) -> JsonObject:
-    unlock_status = await _call_facade_resolve_unlock_status_async(manager, peer.uid)
+    unlock_status = await resolve_unlock_status_async(manager, peer.uid)
     if not bool(unlock_status.get("unlocked", False)):
         return {
             "status": "error",
@@ -446,7 +407,7 @@ async def claim_recording_unlock_refresh(
                 "message": refresh_result.error or "Failed to establish capture unlock lease",
             }
 
-    unlock_status = await _call_facade_resolve_unlock_status_async(manager, peer.uid)
+    unlock_status = await resolve_unlock_status_async(manager, peer.uid)
     refresh_owner = is_active_refresh_owner_request(manager, peer, writer, unlock_status)
     return {
         "status": "ok",
@@ -522,7 +483,7 @@ async def refresh_recording_unlock(
                 "message": result.error or "Failed to refresh capture unlock",
             }
 
-    unlock_status = await _call_facade_resolve_unlock_status_async(manager, peer.uid)
+    unlock_status = await resolve_unlock_status_async(manager, peer.uid)
     if runtime_owner and str(unlock_status.get("source", "none") or "none") == "runtime":
         expires_at = int(unlock_status.get("expires_at", 0) or 0)
         consumed_until = int(

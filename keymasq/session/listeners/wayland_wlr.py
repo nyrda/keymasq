@@ -11,6 +11,7 @@ from keymasq.session.listeners.base import WindowChangeCallback
 from keymasq.session.listeners.wayland_toplevel import WaylandToplevelListener
 from keymasq.session.slurp import capture_slurp_cursor_position
 from keymasq.session.wayland_protocols import (
+    WLR_TOPLEVEL_STATE_ACTIVATED,
     WlrForeignToplevelManagerTracker,
     WlrForeignToplevelWaylandClient,
 )
@@ -33,7 +34,10 @@ class WlrootsWaylandListener(
         client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
-        super().__init__(callback, WlrForeignToplevelManagerTracker(), client, dbus=dbus)
+        tracker = WlrForeignToplevelManagerTracker(
+            activated_state=WLR_TOPLEVEL_STATE_ACTIVATED
+        )
+        super().__init__(callback, tracker, client, dbus=dbus)
 
     @property
     def name(self) -> str:

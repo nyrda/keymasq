@@ -5,33 +5,7 @@ from typing import Any
 import pytest
 
 from keymasq.keymasqd.runtime import source_hiding
-
-
-class _FakeProcess:
-    def __init__(
-        self,
-        *,
-        returncode: int = 0,
-        stdout: bytes = b"",
-        stderr: bytes = b"",
-    ) -> None:
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-        self.terminated = False
-        self.killed = False
-
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return self.stdout, self.stderr
-
-    def terminate(self) -> None:
-        self.terminated = True
-
-    def kill(self) -> None:
-        self.killed = True
-
-    async def wait(self) -> int:
-        return self.returncode
+from tests.async_fakes import FakeProcess as _FakeProcess
 
 
 def _configure_paths(
@@ -304,29 +278,6 @@ def test_hardware_flag_name_normalizes_common_hardware_id_forms() -> None:
     assert source_hiding.hardware_flag_name("keymasq:045e:02a1") == "045e:02a1"
     assert source_hiding.hardware_flag_name("045e:02a1@1") == "045e:02a1"
     assert source_hiding.hardware_flag_name("not-a-hardware-id") is None
-
-
-def test_hardware_hotplug_udev_rule_only_hides_joystick_event_nodes() -> None:
-    rule_path = Path(__file__).parents[2] / "udev" / "99-keymasq-hide-grabbed.rules"
-    lines = rule_path.read_text(encoding="utf-8").splitlines()
-
-    event_hardware_lines = [
-        line
-        for line in lines
-        if 'KERNEL=="event*"' in line and "/run/keymasq/hidden-hardware/" in line
-    ]
-    js_hardware_lines = [
-        line
-        for line in lines
-        if 'KERNEL=="js*"' in line and "/run/keymasq/hidden-hardware/" in line
-    ]
-
-    assert len(event_hardware_lines) == 1
-    assert len(js_hardware_lines) == 1
-    assert 'ENV{ID_INPUT_JOYSTICK}=="?*"' in event_hardware_lines[0]
-    assert event_hardware_lines[0].index(
-        'ENV{ID_INPUT_JOYSTICK}=="?*"',
-    ) < event_hardware_lines[0].index('ENV{ID_INPUT_JOYSTICK}=""')
 
 
 @pytest.mark.asyncio

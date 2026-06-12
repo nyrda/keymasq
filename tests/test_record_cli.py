@@ -46,6 +46,15 @@ def test_authorize_target_uid_rejects_non_root_caller_mismatch(
         record._authorize_target_uid(1001, 777)
 
 
+def test_authorize_target_uid_allows_keymasq_user_for_other_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PKEXEC_UID", raising=False)
+    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+
+    record._authorize_target_uid(1001, 777)
+
+
 def test_runtime_expires_at_rounds_up_fractional_now(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -146,7 +155,7 @@ def test_main_status_prints_json(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(
         record,
         "resolve_unlock_status",
@@ -210,7 +219,7 @@ def test_main_unlock_runtime_replaces_previous_expiry(
         "argv",
         ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "5"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(record.time, "time", lambda: 10)
 
@@ -238,7 +247,7 @@ def test_main_unlock_runtime_extends_with_requested_ttl(
         "argv",
         ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "20"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(record.time, "time", lambda: 10)
 
@@ -265,7 +274,7 @@ def test_main_unlock_runtime_ttl_zero_rejected(
         "argv",
         ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "0"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
 
     def _write(path: Path, expires_at: int, target_uid: int) -> None:
@@ -294,7 +303,7 @@ def test_main_macro_recording_runtime_ttl_zero_rejected(
         "argv",
         ["keymasq-record", "enable-macro-recording-runtime", "--uid", "1000", "--ttl", "0"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
     monkeypatch.setattr(
         record,
@@ -378,7 +387,7 @@ def test_main_lock_runtime_removes_runtime_lease(
     runtime_path = tmp_path / "runtime-lease"
     runtime_path.write_text("20\n", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["keymasq-record", "lock-runtime", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
 
     record.main()
@@ -397,7 +406,7 @@ def test_main_enable_and_disable_macro_recording_persistent(
     runtime_path = tmp_path / "macro-runtime"
     writes: list[tuple[Path, int, int]] = []
 
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(record, "persistent_macro_recording_path", lambda uid: persistent_path)
     monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
     monkeypatch.setattr(
@@ -492,7 +501,7 @@ def test_main_unexpected_error_logs_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: None)
+    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
 
     def _raise(_uid: int) -> dict[str, object]:
         raise RuntimeError("resolver broke")

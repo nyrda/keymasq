@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from functools import partial
 
 import pytest
 
@@ -8,8 +9,12 @@ from keymasq.session.listeners.niri import (
     NiriListener,
     normalize_niri_dispatcher,
     parse_niri_event,
+    parse_niri_focused_window_response,
     parse_niri_reply,
 )
+from tests.async_fakes import FakeProcess as _FakeProcess
+from tests.async_fakes import FakeStreamReader as _FakeReader
+from tests.async_fakes import FakeStreamWriter
 
 LISTENER_LAB_APP_ID = "tools.keymasq.ListenerLab"
 
@@ -18,43 +23,11 @@ async def _noop_callback(_window_class: str, _window_title: str, _tags: list[str
     return
 
 
-class _FakeWriter:
-    def __init__(self) -> None:
-        self.payloads: list[str] = []
-        self.closed = False
-
-    def write(self, data: bytes) -> None:
-        self.payloads.append(data.decode("utf-8"))
-
-    async def drain(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-    async def wait_closed(self) -> None:
-        return None
+def _decode_niri_payload(data: bytes) -> str:
+    return data.decode("utf-8")
 
 
-class _WriteFailWriter(_FakeWriter):
-    def write(self, data: bytes) -> None:
-        _ = data
-        raise RuntimeError("write bug")
-
-
-class _CloseFailWriter(_FakeWriter):
-    async def wait_closed(self) -> None:
-        raise RuntimeError("close bug")
-
-
-class _FakeReader:
-    def __init__(self, lines: list[bytes]) -> None:
-        self._lines = list(lines)
-
-    async def readline(self) -> bytes:
-        if not self._lines:
-            return b""
-        return self._lines.pop(0)
+_FakeWriter = partial(FakeStreamWriter, payload_decoder=_decode_niri_payload)
 
 
 def test_parse_niri_reply_ok() -> None:
@@ -71,6 +44,16 @@ def test_parse_niri_event_valid() -> None:
 
 def test_parse_niri_event_rejects_invalid_json() -> None:
     assert parse_niri_event("not-json") is None
+
+
+def test_parse_niri_focused_window_response_valid() -> None:
+    assert parse_niri_focused_window_response(
+        '{"Ok":{"FocusedWindow":{"id":42,"app_id":"app","title":"Title"}}}'
+    ) == {"id": 42, "app_id": "app", "title": "Title"}
+
+
+def test_parse_niri_focused_window_response_rejects_other_variants() -> None:
+    assert parse_niri_focused_window_response('{"Ok":{"Windows":[]}}') is None
 
 
 def test_workspace_dispatcher_accepts_index() -> None:
@@ -228,7 +211,9 @@ async def test_send_cmd_request_resets_dropped_command_socket_errors(
 ) -> None:
     listener = NiriListener(_noop_callback)
     listener._cmd_reader = _FakeReader([b'{"Ok":"Handled"}\n'])  # type: ignore[assignment]
-    listener._cmd_writer = _WriteFailWriter()  # type: ignore[assignment]
+    listener._cmd_writer = _FakeWriter(  # type: ignore[assignment]
+        write_error=RuntimeError("write bug"),
+    )
 
     async def fake_ensure() -> bool:
         return True
@@ -278,7 +263,9 @@ async def test_send_cmd_request_logs_unexpected_close_errors(
 ) -> None:
     listener = NiriListener(_noop_callback)
     listener._cmd_reader = _FakeReader([b"{not-json\n"])  # type: ignore[assignment]
-    listener._cmd_writer = _CloseFailWriter()  # type: ignore[assignment]
+    listener._cmd_writer = _FakeWriter(  # type: ignore[assignment]
+        wait_closed_error=RuntimeError("close bug"),
+    )
 
     async def fake_ensure() -> bool:
         return True
@@ -558,12 +545,6 @@ async def test_dispatch_uses_cached_window_id_for_focused_window_actions(monkeyp
 async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(monkeypatch) -> None:
     recorded: dict[str, object] = {}
 
-    class _FakeProcess:
-        returncode = 0
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"", b""
-
     async def _create_subprocess_exec(*cmd: object, **kwargs: object) -> _FakeProcess:
         recorded["cmd"] = cmd
         recorded["env"] = kwargs.get("env")
@@ -585,12 +566,6 @@ async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(mon
 @pytest.mark.asyncio
 async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> None:
     recorded: dict[str, object] = {}
-
-    class _FakeProcess:
-        returncode = 0
-
-        async def communicate(self) -> tuple[bytes, bytes]:
-            return b"", b""
 
     async def _create_subprocess_exec(*cmd: object, **kwargs: object) -> _FakeProcess:
         recorded["cmd"] = cmd

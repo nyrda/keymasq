@@ -196,35 +196,18 @@ def test_write_unlock_expires_at_accepts_keymasq_owned_parent_when_run_as_root(
     assert lease.read_text(encoding="utf-8") == "123\n"
 
 
-def test_write_unlock_expires_at_fsyncs_parent_directory(
+def test_write_unlock_expires_at_uses_shared_parent_directory_fsync_helper(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     lease = tmp_path / "lease"
-    dir_fd = 999
-    opened: list[Path] = []
-    fsynced: list[int] = []
-    closed: list[int] = []
-    original_open = recording_guard.os.open
+    fsynced_paths: list[Path] = []
 
-    def _open(path: str | Path, flags: int, mode: int = 0o777) -> int:
-        if Path(path) != tmp_path or flags != recording_guard.os.O_RDONLY:
-            return original_open(path, flags, mode)
-        opened.append(Path(path))
-        return dir_fd
+    def _fsync_parent_dir(path: Path) -> None:
+        fsynced_paths.append(path)
 
-    def _fsync(fd: int) -> None:
-        fsynced.append(fd)
-
-    def _close(fd: int) -> None:
-        closed.append(fd)
-
-    monkeypatch.setattr(recording_guard.os, "open", _open)
-    monkeypatch.setattr(recording_guard.os, "fsync", _fsync)
-    monkeypatch.setattr(recording_guard.os, "close", _close)
+    monkeypatch.setattr(recording_guard, "fsync_parent_dir", _fsync_parent_dir)
 
     recording_guard.write_unlock_expires_at(lease, 123)
 
     assert lease.read_text(encoding="utf-8") == "123\n"
-    assert opened == [tmp_path]
-    assert fsynced[-1] == dir_fd
-    assert closed == [dir_fd]
+    assert fsynced_paths == [lease]

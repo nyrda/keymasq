@@ -365,7 +365,6 @@ class PassthroughForceFeedbackProxy:
                         "Failed to finish force-feedback upload request for %s",
                         self.label,
                     )
-                    return
 
     def _handle_erase(self, request_id: int) -> None:
         erase: object | None = None

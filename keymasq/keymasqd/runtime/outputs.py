@@ -338,8 +338,6 @@ def _initialize_gamepad_axes(
 
 
 def create_virtual_gamepad(
-    _manager: _OutputManager,
-    output_id: str,
     index: int,
     evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
@@ -391,8 +389,6 @@ def configure_virtual_gamepads(
         if output_id in current:
             continue
         current[output_id] = create_virtual_gamepad(
-            manager,
-            output_id,
             index,
             evdev_mod,
             uinput_writer,

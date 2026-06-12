@@ -14,7 +14,34 @@ from keymasq.keymasqd import daemon as daemon_module
 from keymasq.keymasqd import daemon_capture_commands
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
+from keymasq.keymasqd.runtime import macros as runtime_macros
 from tests.keymasqd.daemon_support import macro_meta
+
+_PENDING_RECORDING_EVENTS: list[dict[str, object]] = [
+    {"type": 1, "code": 30, "value": 1, "t_us": 0}
+]
+
+
+class _PendingRecordingSnapshot:
+    def __init__(
+        self,
+        *,
+        recording_id: str = "recording-1",
+        recording_slot: int | None = None,
+        duration_ms: int = 5,
+        device_types: list[str] | None = None,
+        events: list[dict[str, object]] | None = None,
+    ) -> None:
+        self.recording_id = recording_id
+        if recording_slot is not None:
+            self.recording_slot = recording_slot
+        self.duration_ms = duration_ms
+        self.device_types = device_types if device_types is not None else ["keyboard"]
+        self._events = list(events if events is not None else _PENDING_RECORDING_EVENTS)
+        self.event_count = len(self._events)
+
+    def iter_events(self):
+        yield from self._events
 
 
 @pytest.mark.asyncio
@@ -36,22 +63,24 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     macro_store.get_meta.assert_called_once_with("combo")
     macro_store.get.assert_not_called()
     device_manager.play_macro.assert_awaited_once_with(
-        macro_events=[],
-        macro_name="combo",
-        replay_mouse_movement=False,
-        replay_mouse_clicks=True,
-        speed=2.5,
-        loop_mode="count",
-        loop_count=3,
-        loop_stop_behavior="cancel_run",
-        move_to_start=True,
-        start_x=111,
-        start_y=222,
-        block_mouse_movement=True,
-        source_device="",
-        source_button="",
-        trigger_value=1,
-        load_stored_macro=True,
+        runtime_macros.MacroPlaybackOptions(
+            macro_events=[],
+            macro_name="combo",
+            replay_mouse_movement=False,
+            replay_mouse_clicks=True,
+            speed=2.5,
+            loop_mode="count",
+            loop_count=3,
+            loop_stop_behavior="cancel_run",
+            move_to_start=True,
+            start_x=111,
+            start_y=222,
+            block_mouse_movement=True,
+            source_device="",
+            source_button="",
+            trigger_value=1,
+            load_stored_macro=True,
+        )
     )
 
 
@@ -102,22 +131,24 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
     macro_store.get_meta.assert_called_once_with("combo")
     macro_store.get.assert_not_called()
     device_manager.play_macro.assert_awaited_once_with(
-        macro_events=[],
-        macro_name="combo",
-        replay_mouse_movement=False,
-        replay_mouse_clicks=True,
-        speed=2.5,
-        loop_mode="count",
-        loop_count=3,
-        loop_stop_behavior="cancel_run",
-        move_to_start=True,
-        start_x=111,
-        start_y=222,
-        block_mouse_movement=True,
-        source_device="kbd",
-        source_button="a",
-        trigger_value=0,
-        load_stored_macro=True,
+        runtime_macros.MacroPlaybackOptions(
+            macro_events=[],
+            macro_name="combo",
+            replay_mouse_movement=False,
+            replay_mouse_clicks=True,
+            speed=2.5,
+            loop_mode="count",
+            loop_count=3,
+            loop_stop_behavior="cancel_run",
+            move_to_start=True,
+            start_x=111,
+            start_y=222,
+            block_mouse_movement=True,
+            source_device="kbd",
+            source_button="a",
+            trigger_value=0,
+            load_stored_macro=True,
+        )
     )
 
 
@@ -164,31 +195,22 @@ async def test_macro_play_request_runtime_options_override_stored_options(
     result = await daemon._handle_command(command_type, data)
 
     assert result == {"played": True}
-    call_kwargs = device_manager.play_macro.await_args.kwargs
-    assert call_kwargs["macro_name"] == "combo"
-    assert call_kwargs["loop_mode"] == "none"
-    assert call_kwargs["loop_count"] == 1
-    assert call_kwargs["loop_stop_behavior"] == "finish_run"
-    assert call_kwargs["move_to_start"] is False
-    assert call_kwargs["start_x"] == 9
-    assert call_kwargs["start_y"] == 10
-    assert call_kwargs["block_mouse_movement"] is False
+    options = device_manager.play_macro.await_args.args[0]
+    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
+    assert options.macro_name == "combo"
+    assert options.loop_mode == "none"
+    assert options.loop_count == 1
+    assert options.loop_stop_behavior == "finish_run"
+    assert options.move_to_start is False
+    assert options.start_x == 9
+    assert options.start_y == 10
+    assert options.block_mouse_movement is False
 
 
 @pytest.mark.asyncio
 async def test_macro_save_recording_claims_snapshot_and_restores_slot(daemon_testbed):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
     stored_events: list[dict[str, object]] = []
-
-    class Snapshot:
-        recording_id = "recording-1"
-        recording_slot = 2
-        duration_ms = 5
-        device_types = ["keyboard"]
-        event_count = 1
-
-        def iter_events(self):
-            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
 
     def create_from_events(payload, events, *, return_full: bool = False):
         assert payload["name"] == "saved"
@@ -197,7 +219,9 @@ async def test_macro_save_recording_claims_snapshot_and_restores_slot(daemon_tes
         stored_events.extend(events)
         return {"name": payload["name"]}
 
-    recording_manager.claim_pending_recording.return_value = Snapshot()
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot(
+        recording_slot=2
+    )
     macro_store.create_from_events.side_effect = create_from_events
 
     result = await daemon._handle_command(
@@ -219,16 +243,7 @@ async def test_macro_save_recording_claims_snapshot_and_restores_slot(daemon_tes
 async def test_macro_save_recording_releases_unslotted_snapshot_as_saved(daemon_testbed):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    class Snapshot:
-        recording_id = "recording-1"
-        duration_ms = 5
-        device_types = ["keyboard"]
-        event_count = 1
-
-        def iter_events(self):
-            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
-
-    recording_manager.claim_pending_recording.return_value = Snapshot()
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot()
     macro_store.create_from_events.return_value = {"name": "saved"}
 
     result = await daemon._handle_command(
@@ -249,16 +264,7 @@ async def test_macro_save_recording_keeps_failed_unslotted_snapshot_retryable(
 ):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    class Snapshot:
-        recording_id = "recording-1"
-        duration_ms = 5
-        device_types = ["keyboard"]
-        event_count = 1
-
-        def iter_events(self):
-            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
-
-    recording_manager.claim_pending_recording.return_value = Snapshot()
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot()
     macro_store.create_from_events.side_effect = RuntimeError("duplicate macro")
 
     with pytest.raises(RuntimeError, match="duplicate macro"):
@@ -279,16 +285,7 @@ async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
 ):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
 
-    class Snapshot:
-        recording_id = "recording-1"
-        duration_ms = 5
-        device_types = ["keyboard"]
-        event_count = 1
-
-        def iter_events(self):
-            yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
-
-    recording_manager.claim_pending_recording.return_value = Snapshot()
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot()
 
     result = await daemon._handle_command(
         CommandType.MACRO_PLAY_RECORDING,
@@ -309,16 +306,17 @@ async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
         saved=False,
     )
     device_manager.play_macro.assert_awaited_once()
-    call_kwargs = device_manager.play_macro.await_args.kwargs
-    assert call_kwargs["macro_events"] == [
+    options = device_manager.play_macro.await_args.args[0]
+    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
+    assert options.macro_events == [
         {"type": 1, "code": 30, "value": 1, "t_us": 0}
     ]
-    assert call_kwargs["macro_name"] == "recording-slot-4"
-    assert call_kwargs["speed"] == 1.5
-    assert call_kwargs["source_device"] == "kbd"
-    assert call_kwargs["source_button"] == "key_f13"
-    assert call_kwargs["trigger_value"] == 1
-    assert call_kwargs["load_stored_macro"] is False
+    assert options.macro_name == "recording-slot-4"
+    assert options.speed == 1.5
+    assert options.source_device == "kbd"
+    assert options.source_button == "key_f13"
+    assert options.trigger_value == 1
+    assert options.load_stored_macro is False
 
 
 @pytest.mark.asyncio

@@ -25,10 +25,7 @@ from keymasq.keymasqd.runtime import outputs as runtime_outputs
 log = logging.getLogger("keymasqd.devices")
 type JsonObjectFn = Callable[[object], JsonObject | None]
 type StrValueFn = Callable[..., str]
-type OptionalStrFn = Callable[..., str | None]
 type IntValueFn = Callable[..., int]
-type IntOrNoneFn = Callable[..., int | None]
-type FloatValueFn = Callable[..., float]
 type ResolveStablePathFn = Callable[[str], str]
 type GetInterfaceIdFn = Callable[[str], str | None]
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
@@ -86,10 +83,7 @@ async def grab_device_unlocked(
     grabbed_device_cls: GrabbedDeviceFactory,
     get_interface_id_fn: GetInterfaceIdFn,
     str_value_fn: StrValueFn,
-    optional_str_fn: OptionalStrFn,
     int_value_fn: IntValueFn,
-    int_or_none_fn: IntOrNoneFn,
-    float_value_fn: FloatValueFn,
     fire_and_observe_fn: FireAndObserve,
     errno_mod: runtime_adapters.ErrnoModule,
 ) -> dict[str, object]:
@@ -240,6 +234,8 @@ async def grab_device_unlocked(
             log=log,
         )
 
+    combo_deps = combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn)
+
     async def event_callback(
         callback_hardware_id: str,
         evdev_path: str,
@@ -262,7 +258,7 @@ async def grab_device_unlocked(
             get_interface_id_fn=get_interface_id_fn,
             int_value_fn=int_value_fn,
             str_value_fn=str_value_fn,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_deps,
         )
 
     async def runtime_cleanup_callback(
@@ -273,7 +269,7 @@ async def grab_device_unlocked(
             manager,
             cleanup_hardware_id,
             cleanup_source,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            deps=combo_deps,
         )
 
     async def runtime_disconnect_callback(
@@ -1057,11 +1053,6 @@ async def set_mapping(
     mapping: dict[str, object],
     *,
     json_object_fn: JsonObjectFn,
-    str_value_fn: StrValueFn,
-    optional_str_fn: OptionalStrFn,
-    int_value_fn: IntValueFn,
-    int_or_none_fn: IntOrNoneFn,
-    float_value_fn: FloatValueFn,
     log: logging.Logger,
 ) -> dict[str, object]:
     async with manager._op_lock:
@@ -1076,21 +1067,11 @@ async def set_mapping(
                 parsed_mapping[button_id] = runtime_actions.parse_action(
                     manager,
                     action_data,
-                    str_value=str_value_fn,
-                    optional_str=optional_str_fn,
-                    int_value=int_value_fn,
-                    int_or_none=int_or_none_fn,
-                    float_value=float_value_fn,
                 )
             elif action_dict is not None:
                 parsed_mapping[button_id] = runtime_actions.parse_action(
                     manager,
                     action_dict,
-                    str_value=str_value_fn,
-                    optional_str=optional_str_fn,
-                    int_value=int_value_fn,
-                    int_or_none=int_or_none_fn,
-                    float_value=float_value_fn,
                 )
 
         previous_mapping = dict(manager.active_mappings.get(hardware_id, {}))

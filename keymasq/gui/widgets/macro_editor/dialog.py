@@ -861,22 +861,19 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         *,
         close_after_save: bool,
     ) -> bool:
-        try:
-            payload = result.value if result.ok and isinstance(result.value, dict) else {}
-            if payload.get("status") != "ok":
-                if self._is_name_conflict_response(payload, requested_name):
-                    self._show_name_conflict(requested_name)
-                else:
-                    self._show_save_error(self._save_error_message(result, payload))
-                return False
-
-            self._apply_saved_macro_state(payload, requested_name, requested_payload)
-            notify_session_reload_async()
-            if close_after_save:
-                self._force_close_without_warning()
+        payload = result.value if result.ok and isinstance(result.value, dict) else {}
+        if payload.get("status") != "ok":
+            if self._is_name_conflict_response(payload, requested_name):
+                self._show_name_conflict(requested_name)
+            else:
+                self._show_save_error(self._save_error_message(result, payload))
             return False
-        finally:
-            self._finish_save_request()
+
+        self._apply_saved_macro_state(payload, requested_name, requested_payload)
+        notify_session_reload_async()
+        if close_after_save:
+            self._force_close_without_warning()
+        return False
 
     def _is_name_conflict_response(self, payload: JsonDict, requested_name: str) -> bool:
         status = str(payload.get("status", "") or "")

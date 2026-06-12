@@ -178,6 +178,8 @@ class AnalogControlManager:
                 ),
                 output_direction=_toml_str(gamepad_data, "output_direction", "max") or "max",
                 output_invert=bool(gamepad_data.get("output_invert", False)),
+                output_invert_x=bool(gamepad_data.get("output_invert_x", False)),
+                output_invert_y=bool(gamepad_data.get("output_invert_y", False)),
                 sensitivity=coerce_float(gamepad_data.get("sensitivity"), 1.0),
                 response_curve=coerce_float(
                     gamepad_data.get("response_curve"),
@@ -334,6 +336,12 @@ class AnalogControlManager:
         if config.gamepad_output.output_invert:
             gamepad_output = cast(dict[str, object], data["gamepad_output"])
             gamepad_output["output_invert"] = True
+        if config.gamepad_output.output_invert_x:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_invert_x"] = True
+        if config.gamepad_output.output_invert_y:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["output_invert_y"] = True
         if config.description:
             data["description"] = config.description
         if config.thresholds:

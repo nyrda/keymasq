@@ -451,6 +451,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.gamepad_output_direction_min_btn = handle.gamepad_output_direction_min_btn
         self.gamepad_output_direction_max_btn = handle.gamepad_output_direction_max_btn
         self.gamepad_output_direction_both_btn = handle.gamepad_output_direction_both_btn
+        self.gamepad_output_invert_row = handle.gamepad_output_invert_row
+        self.gamepad_output_invert_x_btn = handle.gamepad_output_invert_x_btn
+        self.gamepad_output_invert_y_btn = handle.gamepad_output_invert_y_btn
         self.gamepad_output_sensitivity_row = handle.gamepad_output_sensitivity_row
         self.gamepad_output_response_curve_row = handle.gamepad_output_response_curve_row
         self.gamepad_output_curve_row = handle.gamepad_output_curve_row
@@ -853,16 +856,13 @@ class AnalogControlDialog(Adw.Dialog):
             self._clear_split_mouse_speed_desync(axis)
         self._remember_area_radii()
 
-    def _on_invert_axis_toggled(self, button: Gtk.ToggleButton, axis: str) -> None:
+    def _on_invert_axis_toggled(
+        self,
+        _button: Gtk.ToggleButton,
+        _axis: str,
+    ) -> None:
         if self._syncing_invert_axes:
             return
-        other = self.invert_y_btn if axis == "x" else self.invert_x_btn
-        if not self._split_mouse_speed_desync_requested(axis):
-            self._syncing_invert_axes = True
-            try:
-                other.set_active(button.get_active())
-            finally:
-                self._syncing_invert_axes = False
         self._on_modified()
 
     def _on_gamepad_output_target_toggled(
@@ -874,6 +874,19 @@ class AnalogControlDialog(Adw.Dialog):
         _ = target, analog_id
         if not button.get_active():
             return
+        self._on_modified()
+
+    def _on_gamepad_output_direction_toggled(self, button: Gtk.ToggleButton) -> None:
+        if not button.get_active():
+            return
+        self._update_mode_visibility()
+        self._on_modified()
+
+    def _on_gamepad_output_invert_toggled(
+        self,
+        _button: Gtk.ToggleButton,
+        _axis: str,
+    ) -> None:
         self._on_modified()
 
     def _on_area_start_enabled_changed(self, *_args) -> None:
@@ -918,7 +931,9 @@ class AnalogControlDialog(Adw.Dialog):
         self.area_radius_x_row.set_visible(mouse_area_visible)
         self.area_radius_y_row.set_visible(mouse_area_visible)
         self.mouse_direction_row.set_visible(mouse_velocity_visible and is_axis)
-        self.invert_axes_row.set_visible(mouse_visible and not is_axis)
+        self.invert_axes_row.set_title("Invert Axis" if is_axis else "Invert Axes")
+        self.invert_axes_row.set_visible(mouse_visible)
+        self.invert_y_btn.set_visible(not is_axis)
         self.area_start_enabled_row.set_visible(mouse_area_visible)
         show_area_start = mouse_area_visible and self.area_start_enabled_row.get_active()
         self.area_start_position_row.set_visible(show_area_start)
@@ -930,6 +945,14 @@ class AnalogControlDialog(Adw.Dialog):
         show_output_tuning = mode == "gamepad"
         self.gamepad_output_rest_row.set_visible(show_axis_output_tuning)
         self.gamepad_output_direction_row.set_visible(show_axis_output_tuning)
+        show_output_invert = mode == "gamepad" and (
+            not is_axis or self._current_gamepad_output_direction() == "both"
+        )
+        self.gamepad_output_invert_row.set_title(
+            "Invert Output Axis" if is_axis else "Invert Output Axes"
+        )
+        self.gamepad_output_invert_row.set_visible(show_output_invert)
+        self.gamepad_output_invert_y_btn.set_visible(not is_axis)
         self.gamepad_output_sensitivity_row.set_visible(show_output_tuning)
         self.gamepad_output_response_curve_row.set_visible(show_output_tuning)
         self.gamepad_output_curve_row.set_visible(show_output_tuning)
@@ -1230,6 +1253,15 @@ class AnalogControlDialog(Adw.Dialog):
             self.gamepad_output_direction_min_btn.set_active(True)
         else:
             self.gamepad_output_direction_max_btn.set_active(True)
+        self.gamepad_output_invert_x_btn.set_active(
+            config.gamepad_output.output_invert_x
+            if config.input_type == "stick"
+            else (
+                config.gamepad_output.output_direction == "both"
+                and config.gamepad_output.output_invert
+            )
+        )
+        self.gamepad_output_invert_y_btn.set_active(config.gamepad_output.output_invert_y)
         self.gamepad_output_sensitivity_row.set_value(config.gamepad_output.sensitivity)
         self.gamepad_output_response_curve_row.set_value(config.gamepad_output.response_curve)
         self._update_mouse_curve_graph()
@@ -1565,7 +1597,7 @@ class AnalogControlDialog(Adw.Dialog):
                 response_curve=self.mouse_response_curve_row.get_value(),
                 direction=self._current_mouse_direction(),
                 invert_x=self.invert_x_btn.get_active(),
-                invert_y=self.invert_y_btn.get_active(),
+                invert_y=input_type != "axis" and self.invert_y_btn.get_active(),
                 tick_ms=(
                     self._current_config.mouse_motion.tick_ms
                     if self._current_config is not None
@@ -1590,7 +1622,21 @@ class AnalogControlDialog(Adw.Dialog):
                 ),
                 output_invert=(
                     input_type == "axis"
-                    and self.gamepad_output_direction_min_btn.get_active()
+                    and (
+                        self.gamepad_output_direction_min_btn.get_active()
+                        or (
+                            self.gamepad_output_direction_both_btn.get_active()
+                            and self.gamepad_output_invert_x_btn.get_active()
+                        )
+                    )
+                ),
+                output_invert_x=(
+                    input_type == "stick"
+                    and self.gamepad_output_invert_x_btn.get_active()
+                ),
+                output_invert_y=(
+                    input_type == "stick"
+                    and self.gamepad_output_invert_y_btn.get_active()
                 ),
                 sensitivity=self.gamepad_output_sensitivity_row.get_value(),
                 response_curve=self.gamepad_output_response_curve_row.get_value(),

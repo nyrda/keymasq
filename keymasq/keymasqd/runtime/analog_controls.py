@@ -618,6 +618,7 @@ async def _mouse_motion_loop(
                     deadzone=float(config.mouse_motion.deadzone),
                     sensitivity=float(config.mouse_motion.sensitivity),
                     response_curve=float(config.mouse_motion.response_curve),
+                    invert=bool(config.mouse_motion.invert_x),
                     dt=dt,
                 )
             else:
@@ -779,6 +780,7 @@ def _axis_motion_delta(
     sensitivity: float,
     response_curve: float,
     dt: float,
+    invert: bool = False,
 ) -> tuple[float, float]:
     if direction in {"horizontal", "vertical"}:
         scaled = _apply_signed_axis_output_curve(
@@ -795,6 +797,8 @@ def _axis_motion_delta(
             response_curve=response_curve,
         )
     distance = scaled * max(0.0, speed) * dt
+    if invert:
+        distance = -distance
     if direction == "horizontal":
         return distance, 0.0
     if direction == "vertical":
@@ -890,6 +894,14 @@ def _gamepad_output_direction(config: AnalogControlConfig) -> str:
     return "min" if config.gamepad_output.output_invert else "max"
 
 
+def _gamepad_output_stick_axis_inverted(config: AnalogControlConfig, role: str) -> bool:
+    if role == "x":
+        return bool(config.gamepad_output.output_invert_x)
+    if role == "y":
+        return bool(config.gamepad_output.output_invert_y)
+    return False
+
+
 def _emit_stick_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
     state_key: str,
@@ -901,8 +913,17 @@ def _emit_stick_gamepad_output(
     if config.gamepad_output.target == "analog":
         _emit_analog_stick_output(device_runtime, state_key, source_id, config, deps=deps)
         return
-    axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
-    if axis_codes is None:
+    target = _resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
+        return
+    axis_specs = _stick_output_axis_specs(
+        device_runtime,
+        source_id,
+        config,
+        deps=deps,
+        target=target,
+    )
+    if axis_specs is None:
         return
     axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     x = float(axis_values.get("x", 0.0))
@@ -919,11 +940,22 @@ def _emit_stick_gamepad_output(
         state_key,
         source_id,
         config,
-        (
-            (axis_codes[0], _stick_value_to_raw(x)),
-            (axis_codes[1], _stick_value_to_raw(y)),
+        tuple(
+            (
+                axis_code,
+                denormalize_axis_value(
+                    x if role == "x" else y,
+                    minimum,
+                    maximum,
+                    center=center,
+                    invert=invert,
+                ),
+            )
+            for role, axis_code, minimum, maximum, center, invert in axis_specs
         ),
+        reset_axes=_stick_output_reset_axes(axis_specs),
         deps=deps,
+        target=target,
     )
 
 
@@ -959,6 +991,7 @@ def _emit_trigger_gamepad_output(
                 if config.gamepad_output.output_rest is not None
                 else DEFAULT_TRIGGER_MIN
             ),
+            invert=config.gamepad_output.output_invert,
         )
     else:
         value = float(axis_values.get("x", 0.0))
@@ -1004,6 +1037,7 @@ def _reset_gamepad_output(
     if config.gamepad_output.target == "analog":
         _reset_analog_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
         return
+    target: object | None = None
     if config.input_type == "axis":
         axis_code = _trigger_output_axis_code(device_runtime, source_id, config, deps=deps)
         if axis_code is None:
@@ -1017,13 +1051,19 @@ def _reset_gamepad_output(
             ),
         )
     else:
-        axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
-        if axis_codes is None:
+        target = _resolve_gamepad_output_target(device_runtime, source_id, config)
+        if target is None:
             return
-        axes = (
-            (axis_codes[0], 0),
-            (axis_codes[1], 0),
+        axis_specs = _stick_output_axis_specs(
+            device_runtime,
+            source_id,
+            config,
+            deps=deps,
+            target=target,
         )
+        if axis_specs is None:
+            return
+        axes = _stick_output_reset_axes(axis_specs)
     _write_gamepad_axes(
         device_runtime,
         state_key,
@@ -1033,6 +1073,7 @@ def _reset_gamepad_output(
         reset_axes=axes,
         releasing=True,
         deps=deps,
+        target=target,
     )
 
 
@@ -1075,6 +1116,7 @@ def _emit_analog_axis_output(
             minimum,
             maximum,
             center=reset_value,
+            invert=config.gamepad_output.output_invert,
         )
     else:
         value = float(axis_values.get("x", 0.0))
@@ -1146,7 +1188,8 @@ def _emit_analog_stick_output(
                     minimum,
                     maximum,
                     center=reset_value,
-                    invert=bool(axis.get("invert", False)),
+                    invert=bool(axis.get("invert", False))
+                    ^ _gamepad_output_stick_axis_inverted(config, role),
                 ),
             )
         )
@@ -1288,11 +1331,26 @@ def _target_analog_input(
     target_analog_id = config.gamepad_output.target_analog_id
     if not target_analog_id:
         return None
+    typed_analog_inputs = _target_analog_inputs(target)
+    if typed_analog_inputs is None:
+        return None
+    raw_analog = typed_analog_inputs.get(target_analog_id)
+    analog = _typed_analog_input(raw_analog, expected_type=expected_type)
+    return analog
+
+
+def _target_analog_inputs(target: object) -> dict[str, object] | None:
     analog_inputs = getattr(target, "analog_inputs", None)
     if not isinstance(analog_inputs, dict):
         return None
-    typed_analog_inputs = cast(dict[str, object], analog_inputs)
-    raw_analog = typed_analog_inputs.get(target_analog_id)
+    return cast(dict[str, object], analog_inputs)
+
+
+def _typed_analog_input(
+    raw_analog: object,
+    *,
+    expected_type: str,
+) -> dict[str, object] | None:
     if not isinstance(raw_analog, dict):
         return None
     analog = cast(dict[str, object], raw_analog)
@@ -1412,6 +1470,131 @@ def _gamepad_output_stick_id(source_id: str, config: AnalogControlConfig) -> str
     if config.gamepad_output.target == "right":
         return "right_stick"
     return source_id
+
+
+def _stick_output_axis_specs(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+    target: object,
+) -> tuple[tuple[str, int, int, int, int, bool], ...] | None:
+    analog = _standard_stick_output_analog(device_runtime, source_id, config, target)
+    if analog is not None:
+        specs: list[tuple[str, int, int, int, int, bool]] = []
+        for role in ("x", "y"):
+            axis = _target_axis(analog, role)
+            if axis is None:
+                return None
+            axis_code = _axis_code(axis)
+            if axis_code is None:
+                return None
+            minimum, maximum = _axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
+            center = _stick_axis_center(axis, minimum, maximum)
+            invert = bool(axis.get("invert", False)) ^ _gamepad_output_stick_axis_inverted(
+                config,
+                role,
+            )
+            specs.append((role, int(axis_code), minimum, maximum, center, invert))
+        return tuple(specs)
+
+    axis_codes = _stick_output_axis_codes(device_runtime, source_id, config, deps=deps)
+    if axis_codes is None:
+        return None
+    return (
+        (
+            "x",
+            axis_codes[0],
+            DEFAULT_STICK_MIN,
+            DEFAULT_STICK_MAX,
+            0,
+            bool(config.gamepad_output.output_invert_x),
+        ),
+        (
+            "y",
+            axis_codes[1],
+            DEFAULT_STICK_MIN,
+            DEFAULT_STICK_MAX,
+            0,
+            bool(config.gamepad_output.output_invert_y),
+        ),
+    )
+
+
+def _stick_output_reset_axes(
+    axis_specs: tuple[tuple[str, int, int, int, int, bool], ...],
+) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        (axis_code, center)
+        for _role, axis_code, _min, _max, center, _invert in axis_specs
+    )
+
+
+def _standard_stick_output_analog(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    target: object,
+) -> dict[str, object] | None:
+    if bool(getattr(target, "is_virtual", False)):
+        return None
+    analog_inputs = _target_analog_inputs(target)
+    if analog_inputs is None:
+        return None
+
+    if config.gamepad_output.target == "same":
+        analog = _typed_analog_input(analog_inputs.get(source_id), expected_type="stick")
+        if analog is not None:
+            return analog
+        side = _source_stick_side(device_runtime, source_id)
+    else:
+        side = (
+            config.gamepad_output.target
+            if config.gamepad_output.target in {"left", "right"}
+            else None
+        )
+
+    direct_id = f"{side}_stick" if side in {"left", "right"} else None
+    if direct_id is not None:
+        analog = _typed_analog_input(analog_inputs.get(direct_id), expected_type="stick")
+        if analog is not None:
+            return analog
+
+    if side is None:
+        return None
+    for analog_id, raw_analog in analog_inputs.items():
+        analog = _typed_analog_input(raw_analog, expected_type="stick")
+        if analog is not None and _analog_stick_side(str(analog_id), analog) == side:
+            return analog
+    return None
+
+
+def _source_stick_side(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+) -> str | None:
+    raw_analog = device_runtime.analog_inputs.get(source_id)
+    analog = _typed_analog_input(raw_analog, expected_type="stick")
+    if analog is not None:
+        return _analog_stick_side(source_id, analog)
+    return _analog_stick_side(source_id, {})
+
+
+def _analog_stick_side(analog_id: str, analog: dict[str, object]) -> str | None:
+    label = str(analog.get("label", "") or "")
+    text = f"{analog_id} {label}".lower().replace("-", "_").replace(" ", "_")
+    if "left_stick" in text or "stick_left" in text:
+        return "left"
+    if "right_stick" in text or "stick_right" in text:
+        return "right"
+    tokens = {token for token in text.split("_") if token}
+    if "stick" in tokens:
+        if tokens & {"left", "l", "ls"}:
+            return "left"
+        if tokens & {"right", "r", "rs"}:
+            return "right"
+    return None
 
 
 def _stick_output_axis_codes(
@@ -1547,10 +1730,3 @@ def _apply_signed_axis_output_curve(
         response_curve=response_curve,
     )
     return math.copysign(scaled, value)
-
-
-def _stick_value_to_raw(value: float) -> int:
-    value = max(-1.0, min(1.0, value))
-    if value >= 0.0:
-        return min(DEFAULT_STICK_MAX, int(round(value * DEFAULT_STICK_MAX)))
-    return max(DEFAULT_STICK_MIN, int(round(value * abs(DEFAULT_STICK_MIN))))

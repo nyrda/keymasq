@@ -285,6 +285,7 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     assert dialog.gamepad_output_sensitivity_row.get_visible() is True
     assert dialog.gamepad_output_response_curve_row.get_visible() is True
     assert dialog.gamepad_output_curve_row.get_visible() is True
+    assert dialog.gamepad_output_invert_row.get_visible() is False
     assert dialog._save_current_control() is True
 
     saved = dialog.manager.get_analog_control("Axis Output")
@@ -292,6 +293,35 @@ def test_axis_analog_output_exposes_curve_controls(temp_config_dir) -> None:
     assert saved.gamepad_output.output_id == SAME_DEVICE_OUTPUT_ID
     assert saved.gamepad_output.sensitivity == 1.5
     assert saved.gamepad_output.response_curve == 0.75
+
+
+def test_axis_analog_output_both_direction_exposes_invert_toggle(temp_config_dir) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.name_entry.set_text("Axis Output Invert")
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "gamepad")
+    dialog.gamepad_output_direction_both_btn.set_active(True)
+    dialog.gamepad_output_invert_x_btn.set_active(True)
+
+    # For 1D both-direction output, the single visible X toggle stores the combined
+    # invert flag, not the stick-style per-axis X flag.
+    assert dialog.gamepad_output_invert_row.get_title() == "Invert Output Axis"
+    assert dialog.gamepad_output_invert_row.get_visible() is True
+    assert dialog.gamepad_output_invert_x_btn.get_visible() is True
+    assert dialog.gamepad_output_invert_y_btn.get_visible() is False
+    assert dialog._save_current_control() is True
+
+    saved = dialog.manager.get_analog_control("Axis Output Invert")
+    assert saved is not None
+    assert saved.gamepad_output.output_direction == "both"
+    assert saved.gamepad_output.output_invert is True
+    assert saved.gamepad_output.output_invert_x is False
+    assert saved.gamepad_output.output_invert_y is False
 
 
 def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_dir) -> None:
@@ -308,13 +338,17 @@ def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_di
     dialog.mouse_sensitivity_row.set_value(1.5)
     dialog.mouse_response_curve_row.set_value(0.75)
     dialog._mouse_direction_buttons["vertical"].set_active(True)
+    dialog.invert_x_btn.set_active(True)
 
     assert dialog.mouse_group.get_visible() is True
     assert dialog.speed_row.get_visible() is True
     assert dialog.speed_x_row.get_visible() is False
     assert dialog.speed_y_row.get_visible() is False
     assert dialog.mouse_direction_row.get_visible() is True
-    assert dialog.invert_axes_row.get_visible() is False
+    assert dialog.invert_axes_row.get_title() == "Invert Axis"
+    assert dialog.invert_axes_row.get_visible() is True
+    assert dialog.invert_x_btn.get_visible() is True
+    assert dialog.invert_y_btn.get_visible() is False
     assert dialog._save_current_control() is True
 
     saved = dialog.manager.get_analog_control("Axis Mouse")
@@ -325,6 +359,8 @@ def test_axis_mouse_movement_exposes_direction_and_curve_controls(temp_config_di
     assert saved.mouse_motion.sensitivity == 1.5
     assert saved.mouse_motion.response_curve == 0.75
     assert saved.mouse_motion.direction == "vertical"
+    assert saved.mouse_motion.invert_x is True
+    assert saved.mouse_motion.invert_y is False
 
 
 def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> None:
@@ -343,6 +379,7 @@ def test_stick_mouse_movement_exposes_split_speed_controls(temp_config_dir) -> N
     assert dialog.speed_y_row.get_visible() is True
     assert dialog.speed_y_row.get_value() == 700
     assert dialog.mouse_direction_row.get_visible() is False
+    assert dialog.invert_axes_row.get_title() == "Invert Axes"
     assert dialog.invert_axes_row.get_visible() is True
     assert dialog._save_current_control() is True
 
@@ -373,7 +410,7 @@ def test_stick_mouse_invert_axes_use_compact_toggle_row(temp_config_dir) -> None
     assert saved.mouse_motion.invert_y is True
 
 
-def test_stick_mouse_invert_axes_sync_unless_desynced(temp_config_dir) -> None:
+def test_stick_mouse_invert_axes_are_independent(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
@@ -382,14 +419,21 @@ def test_stick_mouse_invert_axes_sync_unless_desynced(temp_config_dir) -> None:
     dialog = AnalogControlDialog(Gtk.Window())
 
     dialog.invert_x_btn.set_active(True)
-    assert dialog.invert_y_btn.get_active() is True
-
-    dialog._request_split_mouse_speed_desync("y")
-    dialog.invert_y_btn.set_active(False)
     assert dialog.invert_x_btn.get_active() is True
     assert dialog.invert_y_btn.get_active() is False
 
+    dialog.invert_y_btn.set_active(True)
+    assert dialog.invert_x_btn.get_active() is True
+    assert dialog.invert_y_btn.get_active() is True
+
     dialog.invert_x_btn.set_active(False)
+    assert dialog.invert_y_btn.get_active() is True
+
+    _select_mode(dialog, "mouse_area")
+    dialog.invert_y_btn.set_active(False)
+    dialog.invert_x_btn.set_active(True)
+
+    assert dialog.invert_x_btn.get_active() is True
     assert dialog.invert_y_btn.get_active() is False
 
 
@@ -1012,18 +1056,26 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     dialog.name_entry.set_text("Route Stick")
     _select_mode(dialog, "gamepad")
     dialog._gamepad_output_target_buttons["right"].set_active(True)
+    dialog.gamepad_output_invert_x_btn.set_active(True)
+    dialog.gamepad_output_invert_y_btn.set_active(True)
     assert dialog._gamepad_output_dropdown is not None
     dialog._gamepad_output_dropdown.set_selected(2)
     dialog.gamepad_output_deadzone_row.set_value(20)
     dialog.gamepad_output_sensitivity_row.set_value(1.5)
     dialog.gamepad_output_response_curve_row.set_value(0.75)
 
+    assert dialog.gamepad_output_invert_row.get_title() == "Invert Output Axes"
+    assert dialog.gamepad_output_invert_row.get_visible() is True
+    assert dialog.gamepad_output_invert_x_btn.get_visible() is True
+    assert dialog.gamepad_output_invert_y_btn.get_visible() is True
     assert dialog._save_current_control() is True
     saved = dialog.manager.get_analog_control("Route Stick")
     assert saved is not None
     assert saved.gamepad_output.output_id == "virtual-gamepad-2"
     assert saved.gamepad_output.target == "right"
     assert saved.gamepad_output.deadzone == 0.2
+    assert saved.gamepad_output.output_invert_x is True
+    assert saved.gamepad_output.output_invert_y is True
     assert saved.gamepad_output.sensitivity == 1.5
     assert saved.gamepad_output.response_curve == 0.75
 
@@ -1034,6 +1086,8 @@ def test_gamepad_output_dropdown_preserves_saved_selection(
     assert reloaded._gamepad_output_dropdown is not None
     assert reloaded._gamepad_output_dropdown.get_selected() == 2
     assert reloaded.gamepad_output_deadzone_row.get_value() == 20
+    assert reloaded.gamepad_output_invert_x_btn.get_active() is True
+    assert reloaded.gamepad_output_invert_y_btn.get_active() is True
     assert reloaded.gamepad_output_sensitivity_row.get_value() == 1.5
     assert reloaded.gamepad_output_response_curve_row.get_value() == 0.75
 

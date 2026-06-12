@@ -83,6 +83,12 @@ def _rapidfire_from_toml(
         action_data.get("rapidfire_wait_ms"),
         DEFAULT_RAPIDFIRE_WAIT_MS,
     )
+    raw_rapidfire_enabled = action_data.get("rapidfire_enabled", False)
+    rapidfire_enabled = (
+        raw_rapidfire_enabled
+        if isinstance(raw_rapidfire_enabled, bool)
+        else str(raw_rapidfire_enabled).strip().lower() in ("true", "1", "yes")
+    )
     (
         rapidfire_enabled,
         rapidfire_hold_ms,
@@ -90,7 +96,7 @@ def _rapidfire_from_toml(
         unsupported_rapidfire,
     ) = resolve_rapidfire_fields(
         action_type,
-        rapidfire_enabled=bool(action_data.get("rapidfire_enabled", False)),
+        rapidfire_enabled=rapidfire_enabled,
         rapidfire_hold_ms=rapidfire_hold_ms,
         rapidfire_wait_ms=rapidfire_wait_ms,
     )

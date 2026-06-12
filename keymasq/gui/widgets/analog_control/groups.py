@@ -87,6 +87,14 @@ class AnalogControlGroupHost(Protocol):
         analog_id: str | None,
     ) -> None: ...
 
+    def _on_gamepad_output_direction_toggled(self, button: Gtk.ToggleButton) -> None: ...
+
+    def _on_gamepad_output_invert_toggled(
+        self,
+        button: Gtk.ToggleButton,
+        axis: str,
+    ) -> None: ...
+
     def _on_add_range_clicked(self, *args) -> None: ...
 
     def _on_template_wasd(self, *args) -> None: ...
@@ -137,6 +145,9 @@ class GamepadOutputGroupHandle:
     gamepad_output_direction_min_btn: Gtk.ToggleButton
     gamepad_output_direction_max_btn: Gtk.ToggleButton
     gamepad_output_direction_both_btn: Gtk.ToggleButton
+    gamepad_output_invert_row: Adw.ActionRow
+    gamepad_output_invert_x_btn: Gtk.ToggleButton
+    gamepad_output_invert_y_btn: Gtk.ToggleButton
     gamepad_output_sensitivity_row: Adw.SpinRow
     gamepad_output_response_curve_row: Adw.SpinRow
     gamepad_output_curve_row: Adw.ActionRow
@@ -482,14 +493,35 @@ def build_gamepad_output_group(host: AnalogControlGroupHost) -> GamepadOutputGro
     gamepad_output_direction_max_btn.set_group(gamepad_output_direction_min_btn)
     gamepad_output_direction_both_btn.set_group(gamepad_output_direction_min_btn)
     gamepad_output_direction_max_btn.set_active(True)
-    gamepad_output_direction_min_btn.connect("toggled", host._on_modified)
-    gamepad_output_direction_max_btn.connect("toggled", host._on_modified)
-    gamepad_output_direction_both_btn.connect("toggled", host._on_modified)
+    gamepad_output_direction_min_btn.connect("toggled", host._on_gamepad_output_direction_toggled)
+    gamepad_output_direction_max_btn.connect("toggled", host._on_gamepad_output_direction_toggled)
+    gamepad_output_direction_both_btn.connect("toggled", host._on_gamepad_output_direction_toggled)
     direction_buttons.append(gamepad_output_direction_min_btn)
     direction_buttons.append(gamepad_output_direction_max_btn)
     direction_buttons.append(gamepad_output_direction_both_btn)
     gamepad_output_direction_row.add_suffix(direction_buttons)
     group.add(gamepad_output_direction_row)
+
+    gamepad_output_invert_row = Adw.ActionRow(title="Invert Output Axes")
+    gamepad_output_invert_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+    gamepad_output_invert_buttons.add_css_class("linked")
+    gamepad_output_invert_buttons.set_valign(Gtk.Align.CENTER)
+    gamepad_output_invert_x_btn = Gtk.ToggleButton(label="X")
+    gamepad_output_invert_x_btn.connect(
+        "toggled",
+        host._on_gamepad_output_invert_toggled,
+        "x",
+    )
+    gamepad_output_invert_buttons.append(gamepad_output_invert_x_btn)
+    gamepad_output_invert_y_btn = Gtk.ToggleButton(label="Y")
+    gamepad_output_invert_y_btn.connect(
+        "toggled",
+        host._on_gamepad_output_invert_toggled,
+        "y",
+    )
+    gamepad_output_invert_buttons.append(gamepad_output_invert_y_btn)
+    gamepad_output_invert_row.add_suffix(gamepad_output_invert_buttons)
+    group.add(gamepad_output_invert_row)
 
     gamepad_output_sensitivity_row = host._spin_row(
         "Sensitivity",
@@ -560,6 +592,9 @@ def build_gamepad_output_group(host: AnalogControlGroupHost) -> GamepadOutputGro
         gamepad_output_direction_min_btn=gamepad_output_direction_min_btn,
         gamepad_output_direction_max_btn=gamepad_output_direction_max_btn,
         gamepad_output_direction_both_btn=gamepad_output_direction_both_btn,
+        gamepad_output_invert_row=gamepad_output_invert_row,
+        gamepad_output_invert_x_btn=gamepad_output_invert_x_btn,
+        gamepad_output_invert_y_btn=gamepad_output_invert_y_btn,
         gamepad_output_sensitivity_row=gamepad_output_sensitivity_row,
         gamepad_output_response_curve_row=gamepad_output_response_curve_row,
         gamepad_output_curve_row=gamepad_output_curve_row,

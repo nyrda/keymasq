@@ -47,8 +47,8 @@ deadzone = 0.15              # 0.0–0.95
 sensitivity = 1.0            # 0.1–2.0
 response_curve = 1.0         # 0.25–4.0
 direction = "right"          # axis only: left|right|up|down|horizontal|vertical
-invert_x = false
-invert_y = false
+invert_x = false             # stick X, or 1D axis direction
+invert_y = false             # stick only
 tick_ms = 8                  # update interval in ms
 ```
 
@@ -85,7 +85,9 @@ target = "same"              # same|left|right|analog
 target_analog_id = ""        # required when target = "analog"
 output_rest = 0              # raw value at rest (1D axis only)
 output_direction = "both"    # min|max|both (1D axis only)
-output_invert = false
+output_invert = false        # 1D axis only; inverts direction when output_direction = "both"
+output_invert_x = false      # stick output only
+output_invert_y = false      # stick output only
 sensitivity = 1.0            # 0.1–2.0
 response_curve = 1.0         # 0.25–4.0
 ```
@@ -103,11 +105,25 @@ response_curve = 1.0         # 0.25–4.0
   output deadzone/sensitivity/curve, then converts to the learned output's
   min/max/rest range.
 
+For physical hardware outputs, `same`, `left`, and `right` stick targets also
+use the target stick's hardware min/max/center values when available. Virtual
+Xbox gamepad stick targets use the standard `-32768` to `32767` range.
+
 ### Output direction (1D axis)
 
 - `min` — maps input from rest toward the axis minimum.
 - `max` — maps input from rest toward the axis maximum.
 - `both` — treats the input as signed across the full min/rest/max range.
+
+For `output_direction = "both"`, `output_invert = true` flips the signed
+output around the rest value.
+
+### Stick output inversion
+
+For stick-to-stick output, `output_invert_x` and `output_invert_y` flip each
+output axis independently after deadzone/sensitivity/curve shaping. Learned
+hardware target-axis inversion is still honored and combines with these
+per-control flags.
 
 Virtual Xbox gamepads use fixed semantic targets (left/right stick and
 trigger) and ignore `target_analog_id`.
@@ -191,6 +207,8 @@ tick_ms = 8
 
 [gamepad_output]
 enabled = false
+output_invert_x = false
+output_invert_y = false
 ```
 
 ```toml

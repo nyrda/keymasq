@@ -9,6 +9,7 @@ from .analog_restart_recovery import run as analog_restart_recovery
 from .analog_signed_axis_mouse import run as analog_signed_axis_mouse
 from .analog_signed_axis_threshold import run as analog_signed_axis_threshold
 from .analog_stick_gamepad import run as analog_stick_gamepad
+from .analog_stick_gamepad_invert import run as analog_stick_gamepad_invert
 from .analog_threshold_hysteresis import run as analog_threshold_hysteresis
 from .analog_trigger_deadzone import run as analog_trigger_deadzone
 from .cancel_macro_playback import run as cancel_macro_playback
@@ -80,6 +81,7 @@ SCENARIOS = [
     ScenarioCase("gamepad output", gamepad_output),
     ScenarioCase("gamepad axis output", gamepad_axis_output),
     ScenarioCase("analog stick to gamepad stick", analog_stick_gamepad),
+    ScenarioCase("analog stick to gamepad stick invert", analog_stick_gamepad_invert),
     ScenarioCase("analog trigger deadzone", analog_trigger_deadzone),
     ScenarioCase("analog threshold hysteresis", analog_threshold_hysteresis),
     ScenarioCase("analog signed axis threshold ranges", analog_signed_axis_threshold),

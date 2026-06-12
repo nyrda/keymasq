@@ -115,6 +115,7 @@ class ScenarioContext:
                 "Integration Analog Signed Axis Threshold",
                 "Integration Analog Signed Axis Mouse",
                 "Integration Analog Gamepad",
+                "Integration Analog Gamepad Invert",
                 MACRO_SLOT_PROFILE_NAME,
                 REPEAT_PROFILE_NAME,
             ):
@@ -343,6 +344,7 @@ class ScenarioContext:
         )
         for fixture_name in (
             "analog-stick-gamepad.toml",
+            "analog-stick-gamepad-invert.toml",
             "analog-trigger-deadzone.toml",
             "analog-threshold.toml",
             "analog-signed-axis-threshold.toml",
@@ -357,6 +359,7 @@ class ScenarioContext:
             )
         for fixture_name in (
             "analog-gamepad.toml",
+            "analog-gamepad-invert.toml",
             "analog-threshold.toml",
             "analog-signed-axis-threshold.toml",
             "analog-multi.toml",

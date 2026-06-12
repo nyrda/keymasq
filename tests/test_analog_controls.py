@@ -282,6 +282,8 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
                 output_id="virtual-gamepad-2",
                 deadzone=0.2,
                 target="right",
+                output_invert_x=True,
+                output_invert_y=True,
                 sensitivity=1.5,
                 response_curve=0.75,
             ),
@@ -294,6 +296,8 @@ def test_analog_control_gamepad_output_round_trips(temp_config_dir) -> None:
     assert loaded.gamepad_output.output_id == "virtual-gamepad-2"
     assert loaded.gamepad_output.deadzone == 0.2
     assert loaded.gamepad_output.target == "right"
+    assert loaded.gamepad_output.output_invert_x is True
+    assert loaded.gamepad_output.output_invert_y is True
     assert loaded.gamepad_output.sensitivity == 1.5
     assert loaded.gamepad_output.response_curve == 0.75
 
@@ -414,6 +418,29 @@ def test_analog_control_gamepad_output_max_direction_round_trips(
     assert loaded is not None
     assert loaded.gamepad_output.output_direction == "max"
     assert loaded.gamepad_output.output_invert is False
+
+
+def test_analog_control_gamepad_output_both_direction_invert_round_trips(
+    temp_config_dir,
+) -> None:
+    manager = AnalogControlManager()
+    manager.save_analog_control(
+        AnalogControlConfig(
+            name="Route Pedal Both",
+            input_type="axis",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True,
+                output_direction="both",
+                output_invert=True,
+            ),
+        )
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Route Pedal Both")
+
+    assert loaded is not None
+    assert loaded.gamepad_output.output_direction == "both"
+    assert loaded.gamepad_output.output_invert is True
 
 
 def test_analog_control_gamepad_axis_threshold_action_round_trips(temp_config_dir) -> None:

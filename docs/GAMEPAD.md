@@ -139,6 +139,7 @@ faster.
 - **Direction** — which way the axis moves the cursor: `left`, `right`,
   `up`, `down`, `horizontal` (both left/right), or `vertical` (both
   up/down)
+- **Invert Axis** — reverse the selected output direction
 
 **Shared settings:**
 - **Deadzone** — fraction of travel to ignore near center (0.0–0.95)
@@ -213,12 +214,17 @@ controller, or pass through with adjusted tuning.
   - `Left Trigger` / `Right Trigger` or `Left` / `Right` — forces the
     output side
   - Learned analog outputs on physical hardware are also available
+- Physical stick outputs use the target stick's hardware range and center
+  when available; virtual gamepad sticks use the standard Xbox stick range
 - **Output Deadzone** — values below this are sent as centered/released
 - **Output Rest** — raw value written when the axis is at rest (1D axes)
 - **Output Direction** — `Min`, `Max`, or `Both` (1D axes):
   - `Min` maps from rest toward the minimum endpoint
   - `Max` maps from rest toward the maximum endpoint
   - `Both` treats the input as signed across the full range
+- **Invert Output Axis** — for 1D axes using `Both`, reverse the signed
+  output around the rest value
+- **Invert Output Axes** — for stick output, flip X and/or Y independently
 - **Sensitivity** — output multiplier (0.1–2.0)
 - **Response Curve** — exponent for output shaping (0.25–4.0)
 

@@ -662,6 +662,8 @@ class AnalogGamepadOutputConfig:
     output_rest: int | None = None
     output_direction: str = ""
     output_invert: bool = False
+    output_invert_x: bool = False
+    output_invert_y: bool = False
     sensitivity: float = 1.0
     response_curve: float = 1.0
 
@@ -676,11 +678,18 @@ class AnalogGamepadOutputConfig:
             self.target_analog_id = None
         if self.output_rest is not None:
             self.output_rest = int(self.output_rest)
-        self.output_invert = bool(self.output_invert)
+        output_invert = bool(self.output_invert)
+        self.output_invert_x = bool(self.output_invert_x)
+        self.output_invert_y = bool(self.output_invert_y)
         self.output_direction = str(self.output_direction or "").lower()
         if self.output_direction not in ANALOG_GAMEPAD_OUTPUT_DIRECTIONS:
-            self.output_direction = "min" if self.output_invert else "max"
-        self.output_invert = self.output_direction == "min"
+            self.output_direction = "min" if output_invert else "max"
+        if self.output_direction == "min":
+            self.output_invert = True
+        elif self.output_direction == "max":
+            self.output_invert = False
+        else:
+            self.output_invert = output_invert
         self.sensitivity = max(
             MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY,
             min(MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY, float(self.sensitivity)),

@@ -290,6 +290,8 @@ def parse_analog_control_config(
         ),
         output_direction=coerce_str((gamepad_config or {}).get("output_direction"), ""),
         output_invert=bool((gamepad_config or {}).get("output_invert", False)),
+        output_invert_x=bool((gamepad_config or {}).get("output_invert_x", False)),
+        output_invert_y=bool((gamepad_config or {}).get("output_invert_y", False)),
         sensitivity=coerce_float((gamepad_config or {}).get("sensitivity"), 1.0),
         response_curve=coerce_float((gamepad_config or {}).get("response_curve"), 1.0),
     )

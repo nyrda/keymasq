@@ -309,6 +309,10 @@ You can:
 - Insert wait controls.
 - Insert compositor actions.
 - Use timing tools to trim, scale, or adjust gaps.
+- Click **Apply** to save without closing the editor, or **Save Changes** to
+  save and close it.
+- If you close the editor with unsaved changes, Keymasq asks whether to save,
+  discard, or keep editing.
 
 ### Event Types
 

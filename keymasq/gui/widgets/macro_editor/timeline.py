@@ -543,9 +543,11 @@ class TimelineWidget(Gtk.DrawingArea):
             # Commit the move: re-sort and refresh stats.
             self._editor._events.sort(key=lambda e: e.press_t_us)
             self._editor._update_stats()
+            self._editor._sync_close_guard()
         elif self._in_drag and self._drag_move:
             self._editor._synthetic_moves.sort(key=lambda m: m.t_us)
             self._editor._update_stats()
+            self._editor._sync_close_guard()
         elif self._in_drag and self._drag_control:
             self._editor._refresh_after_timing_edit()
         elif not self._in_drag:

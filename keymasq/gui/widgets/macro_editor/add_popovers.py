@@ -476,6 +476,7 @@ class MacroEditorAddPopoversMixin:
             self._events.sort(key=lambda e: e.press_t_us)
             self._update_stats()
             self._timeline.queue_draw()
+            self._sync_close_guard()
             popover.popdown()
 
         add.connect("clicked", on_add)

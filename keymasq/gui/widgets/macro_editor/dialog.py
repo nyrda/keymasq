@@ -169,7 +169,11 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             "compositor_dispatch_available": False,
         }
         self._initial_macro_data: dict = {}
+        self._initial_state_loaded = False
         self._macro_exists = False
+        self._close_warning_dialog: Adw.AlertDialog | None = None
+        self._save_in_flight = False
+        self._footer_action_buttons: list[Gtk.Button] = []
 
         # Suppress property-panel spin callbacks during programmatic updates
         self._updating_props = False
@@ -182,6 +186,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
 
         self._install_css()
         self._build_ui()
+        self.set_can_close(False)
         self._load_initial_state_async()
 
     def _install_css(self) -> None:
@@ -291,14 +296,47 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             self._macro_exists = True
             self._apply_macro_state(macro)
             self._sync_macro_settings_controls()
-            self._initial_macro_data = copy.deepcopy(macro)
+            self._initial_macro_data = self._current_macro_payload()
             self._refresh_loaded_macro_state()
+        else:
+            self._initial_macro_data = self._current_macro_payload()
+        self._initial_state_loaded = True
+        self._sync_close_guard()
         return False
 
     def _refresh_loaded_macro_state(self) -> None:
         self._update_stats()
         self._timeline.queue_draw()
         self._update_canvas_width()
+
+    def _current_macro_payload(self) -> dict:
+        name = (
+            self._name_entry.get_text().strip()
+            if hasattr(self, "_name_entry")
+            else self._macro_name
+        )
+        return self._build_macro_payload(name)
+
+    def _macro_payload_for_dirty_compare(self, payload: dict) -> dict:
+        data = copy.deepcopy(payload)
+        device_types = data.get("device_types")
+        if isinstance(device_types, list):
+            data["device_types"] = sorted(str(item) for item in device_types)
+        return data
+
+    def _has_pending_changes(self) -> bool:
+        if not self._initial_state_loaded:
+            return False
+        if not self._initial_macro_data:
+            return False
+        current = self._macro_payload_for_dirty_compare(self._current_macro_payload())
+        initial = self._macro_payload_for_dirty_compare(self._initial_macro_data)
+        return current != initial
+
+    def _sync_close_guard(self) -> None:
+        if not hasattr(self, "_name_entry"):
+            return
+        self.set_can_close(not self._save_in_flight and not self._has_pending_changes())
 
     def _apply_macro_state(self, macro: dict) -> None:
         self._macro_data = copy.deepcopy(macro)
@@ -487,6 +525,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._timeline.queue_draw()
         if selected_obj is not None:
             self._on_selection_changed(selected_obj)
+        self._sync_close_guard()
 
     def _build_time_mapping_with_gap_limits(
         self,
@@ -585,6 +624,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_set_total_time_clicked(self, _btn) -> None:
         if not self._timing_extend_ms_spin:
@@ -598,6 +638,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_insert_gap_clicked(self, _btn) -> None:
         if not self._insert_gap_at_spin or not self._insert_gap_ms_spin:
@@ -715,7 +756,16 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
     # Save / Save as copy
     # ------------------------------------------------------------------
 
-    def _on_save(self, btn) -> None:
+    def _on_save(self, btn: Gtk.Button) -> None:
+        self._save_current_macro(btn, close_after_save=True)
+
+    def _on_apply(self, btn: Gtk.Button) -> None:
+        self._save_current_macro(btn, close_after_save=False)
+
+    def _save_current_macro(self, btn: Gtk.Button | None, *, close_after_save: bool) -> None:
+        if self._save_in_flight:
+            return
+
         new_name = self._name_entry.get_text().strip()
         if not self._validate_name_for_save(new_name):
             return
@@ -727,20 +777,45 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             return self._save_macro_request(new_name, macro_payload, revision)
 
         def on_save_finished(result: GuiTaskResult[JsonDict | None]) -> bool:
-            return self._on_save_finished(result, new_name)
+            return self._on_save_finished(
+                result,
+                new_name,
+                macro_payload,
+                close_after_save=close_after_save,
+            )
 
         def on_save_start() -> None:
-            btn.set_sensitive(False)
+            self._set_save_controls_sensitive(False, extra_button=btn)
 
         def on_save_done() -> None:
-            btn.set_sensitive(True)
+            self._finish_save_request(extra_button=btn)
 
+        self._save_in_flight = True
+        self._sync_close_guard()
         run_gui_task(
             save_request,
             on_save_finished,
             on_start=on_save_start,
             on_done=on_save_done,
         )
+
+    def _set_save_controls_sensitive(
+        self,
+        sensitive: bool,
+        *,
+        extra_button: Gtk.Button | None = None,
+    ) -> None:
+        for button in self._footer_action_buttons:
+            button.set_sensitive(sensitive)
+        if extra_button is not None and not any(
+            button is extra_button for button in self._footer_action_buttons
+        ):
+            extra_button.set_sensitive(sensitive)
+
+    def _finish_save_request(self, *, extra_button: Gtk.Button | None = None) -> None:
+        self._save_in_flight = False
+        self._set_save_controls_sensitive(True, extra_button=extra_button)
+        self._sync_close_guard()
 
     def _save_macro_request(
         self,
@@ -782,15 +857,61 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self,
         result: GuiTaskResult[JsonDict | None],
         requested_name: str,
+        requested_payload: dict,
+        *,
+        close_after_save: bool,
     ) -> bool:
         payload = result.value if result.ok and isinstance(result.value, dict) else {}
         if payload.get("status") != "ok":
-            self._show_name_conflict(requested_name)
+            if self._is_name_conflict_response(payload, requested_name):
+                self._show_name_conflict(requested_name)
+            else:
+                self._show_save_error(self._save_error_message(result, payload))
             return False
 
+        self._apply_saved_macro_state(payload, requested_name, requested_payload)
         notify_session_reload_async()
-        self.close()
+        if close_after_save:
+            self._force_close_without_warning()
         return False
+
+    def _is_name_conflict_response(self, payload: JsonDict, requested_name: str) -> bool:
+        status = str(payload.get("status", "") or "")
+        if status in {"name-conflict", "name_conflict"}:
+            return True
+        message = str(payload.get("message", "") or "")
+        return status == "error" and message == f"Macro '{requested_name}' already exists"
+
+    def _save_error_message(
+        self,
+        result: GuiTaskResult[JsonDict | None],
+        payload: JsonDict,
+    ) -> str:
+        if isinstance(payload.get("message"), str) and payload["message"].strip():
+            return str(payload["message"])
+        if result.error is not None:
+            return str(result.error).strip() or result.error.__class__.__name__
+        return "Failed to save macro"
+
+    def _apply_saved_macro_state(
+        self,
+        save_response: JsonDict,
+        requested_name: str,
+        requested_payload: dict,
+    ) -> None:
+        saved_macro = save_response.get("macro")
+        if not isinstance(saved_macro, dict):
+            saved_macro = dict(requested_payload)
+
+        self._macro_data = copy.deepcopy(saved_macro)
+        saved_name = str(saved_macro.get("name", requested_name) or requested_name)
+        self._macro_name = saved_name
+        self._macro_exists = True
+        _set_entry_text_if_needed(self._name_entry, saved_name)
+        self.set_title(f"Edit macro ({saved_name})")
+        self._initial_state_loaded = True
+        self._initial_macro_data = self._current_macro_payload()
+        self._sync_close_guard()
 
     def _on_save_as_copy(self, btn) -> None:
         dialog = Adw.Dialog(title="Save as Copy", content_width=360)
@@ -872,7 +993,48 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         dialog.present(self._parent)
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
-        self.close()
+        self._request_close()
+
+    def do_close_attempt(self) -> None:
+        self._request_close()
+
+    def _request_close(self) -> None:
+        if not self._has_pending_changes():
+            self._force_close_without_warning()
+            return
+        self._show_unsaved_close_warning()
+
+    def _force_close_without_warning(self) -> None:
+        self._cancel_capture_start_position("")
+        self._cancel_capture_selected_move("")
+        self.set_can_close(True)
+        self.force_close()
+
+    def _show_unsaved_close_warning(self) -> None:
+        if self._close_warning_dialog is not None:
+            return
+
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unsaved Macro Changes")
+        dialog.set_body("Save your changes before closing, or discard them?")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("discard", "Discard")
+        dialog.add_response("save", "Save")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_appearance("discard", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_unsaved_close_response)
+        self._close_warning_dialog = dialog
+        dialog.present(self)
+
+    def _on_unsaved_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
+        self._close_warning_dialog = None
+        if response == "discard":
+            self._force_close_without_warning()
+            return
+        if response == "save":
+            self._save_current_macro(None, close_after_save=True)
 
     def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
         dialog.close()
@@ -910,6 +1072,15 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         d.set_heading("Name Conflict")
         d.set_body(f"A macro named '{name}' already exists. Choose a different name.")
         d.add_response("ok", "OK")
+        d.present(self._parent)
+
+    def _show_save_error(self, message: str) -> None:
+        d = Adw.AlertDialog()
+        d.set_heading("Unable To Save Macro")
+        d.set_body(message)
+        d.add_response("ok", "OK")
+        d.set_default_response("ok")
+        d.set_close_response("ok")
         d.present(self._parent)
 
     def _build_macro_payload(self, name: str) -> dict:
@@ -954,6 +1125,4 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         return data
 
     def close(self) -> None:
-        self._cancel_capture_start_position("")
-        self._cancel_capture_selected_move("")
-        super().close()
+        self._request_close()

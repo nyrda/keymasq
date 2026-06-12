@@ -3,21 +3,18 @@
 [![Tests](https://github.com/nyrda/keymasq/actions/workflows/tests.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/tests.yml)
 [![Package](https://github.com/nyrda/keymasq/actions/workflows/package.yml/badge.svg)](https://github.com/nyrda/keymasq/actions/workflows/package.yml)
 
-Keymasq is a Linux input remapper for keyboards, mice, and game controllers. It
-lets you remap your keys, buttons, clicks, wheels, and controller inputs from
-one place.
+[keymasq.tools](https://keymasq.tools/) — project website and rendered documentation.
 
-Layered profiles can switch automatically based on the app or window in focus,
-so your bindings can change with the app or game you are using. Superkeys make
-one key or button multi-role. Combos can span keyboards, mice, and controllers,
-turning cross-device chords or short input sequences into shortcuts for anything
-Keymasq can do. Macros record, edit, and replay longer input sequences.
+Keymasq is a Linux input remapper for keyboards, mice, and game controllers.
+One tool covers keys, buttons, clicks, wheels, sticks, and triggers: remap a
+single key, turn a stick into mouse movement, send a keyboard key to a virtual
+gamepad, and switch bindings automatically based on the focused app — all from
+the same layered profiles.
 
-Virtual keyboard, mouse, and gamepad output let you route input across device
-types: turn a stick into mouse movement, a keyboard key into a gamepad button,
-or build autoclicker and auto-fire setups with rapidfire. The GTK4 GUI handles
-everyday setup and configuration, while user config stays in plain TOML for hand
-editing and tooling. The CLI is available for profile control, macro playback,
+![Keymasq main window showing a mouse profile with mapped side buttons](docs/assets/screenshots/keymasq_profile.png)
+
+The GTK4 GUI handles everyday setup, configuration stays in plain TOML for
+hand editing and tooling, and the CLI covers profile control, macro playback,
 and scripted workflows.
 
 ## Features
@@ -28,14 +25,17 @@ and scripted workflows.
 - Automatic profile activation based on the focused app or window
 - Macro recording, timeline editing, playback, and looping
 - Rapidfire actions for autoclicker and auto-fire setups
+- Repeat Last Action for replaying your most recent input from any key or button
 - Superkeys for one-button multi-role or multi-output behavior
 - Combos for single-device, cross-device, and multi-step chords or sequences
+- Global hotkeys that work in any app, on Wayland and X11
 - Analog controls for controller sticks, triggers, wheels, and axes
 - Virtual keyboard, mouse, and gamepad output
 
-## Screenshot
+![Analog controls manager with response curve editor](docs/assets/screenshots/keymasq_analog_controls_manager.png)
 
-![Keymasq main profile view](docs/assets/screenshots/keymasq_profile.png)
+*Analog controls: define stick, trigger, and wheel behavior once — deadzone,
+sensitivity, response curve — and reuse it across profiles.*
 
 ## Use Cases
 
@@ -49,6 +49,7 @@ and scripted workflows.
 
 **Turn spare buttons into workflows**
 - Make Caps Lock act as Escape, a modifier, or a superkey
+- Put Repeat Last Action on a spare button to re-run whatever you did last
 - Trigger macros, commands, profile changes, or several outputs from one press
 
 **Automate repeated input**
@@ -71,6 +72,9 @@ and scripted workflows.
 
 Keymasq works on X11 and on major Wayland desktops, including GNOME, KDE
 Plasma, Hyprland, Niri, COSMIC, and wlroots-based compositors such as Sway.
+Mappings run at the input layer, so they work as global hotkeys in every
+app — including on Wayland, where applications often can't register global
+shortcuts themselves.
 
 Window-aware profiles, pointer capture, and compositor actions depend on what
 your desktop session exposes to Keymasq. GNOME requires the Keymasq GNOME
@@ -81,19 +85,20 @@ See [docs/WAYLAND.md](docs/WAYLAND.md) for compositor details and
 
 ## Quick Start
 
-Keymasq uses two services: `keymasqd` handles the hardware (it needs elevated access to
+Keymasq uses two systemd services: `keymasqd` handles the hardware (it needs elevated access to
 input devices), and `keymasq-session` handles your profiles and window tracking
 as your normal user. If either service is stopped, your devices work normally;
-Keymasq only remaps input when both services are active.
+Keymasq only remaps input when both services are active. The GUI is just for
+setup and the CLI for scripted workflows — neither needs to stay running for
+your mappings to work.
 
 ### Arch Linux
 
 ```bash
 yay -S keymasq
-sudo systemctl enable --now keymasqd
-systemctl --user enable --now keymasq-session
-keymasq
 ```
+
+Then [start the services](#start-the-services).
 
 ### Debian
 
@@ -106,10 +111,9 @@ curl -fsSL https://repo.keymasq.tools/gpg-key.asc \
 echo "deb [signed-by=/etc/apt/keyrings/keymasq.gpg arch=all] https://repo.keymasq.tools/debian stable main" \
   | sudo tee /etc/apt/sources.list.d/keymasq.list
 sudo apt update && sudo apt install keymasq
-sudo systemctl enable --now keymasqd
-systemctl --user enable --now keymasq-session
-keymasq
 ```
+
+Then [start the services](#start-the-services).
 
 ### Fedora
 
@@ -119,29 +123,30 @@ COPR is the preferred Fedora channel:
 sudo dnf install dnf-plugins-core
 sudo dnf copr enable nyrda/keymasq
 sudo dnf install keymasq
+```
+
+Then [start the services](#start-the-services).
+
+### openSUSE / NixOS
+
+See [docs/INSTALL.md](docs/INSTALL.md) for full instructions, including the
+service setup.
+
+### Start the services
+
+The commands are the same on every distro. Start the daemon, start the
+session service, then launch the GUI:
+
+```bash
 sudo systemctl enable --now keymasqd
 systemctl --user enable --now keymasq-session
 keymasq
 ```
 
-### openSUSE / NixOS
-
-See [docs/INSTALL.md](docs/INSTALL.md) for full instructions.
-
 ## Configuration
 
 Keymasq is primarily configured through the GTK4 GUI. User configuration is
-stored in `~/.config/keymasq/`:
-
-```text
-~/.config/keymasq/
-├── hardware/
-├── profiles/
-├── superkeys/
-├── analog_controls/
-├── recording_settings.toml
-└── settings.toml
-```
+stored as plain TOML in `~/.config/keymasq/`:
 
 - `hardware/` stores per-device metadata
 - `profiles/` stores global profiles with one or more device layers
@@ -180,10 +185,17 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 - Troubleshooting: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - Security model: [docs/SECURITY.md](docs/SECURITY.md)
 
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for
+guidelines and [DEVELOPMENT.md](DEVELOPMENT.md) for the Nix-based development
+environment.
+
 ## Support
 
 Found a bug or have a question?
 [Open a GitHub issue](https://github.com/nyrda/keymasq/issues).
+[SUPPORT.md](SUPPORT.md) lists what to include in a report.
 
 ## License
 

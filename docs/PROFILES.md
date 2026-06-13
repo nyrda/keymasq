@@ -309,6 +309,11 @@ In the GUI:
 - each device tab edits that device's layer inside the selected profile
 - enabling or disabling a profile affects every device layer in that profile
 - active-state displays show the active profiles contributing to that device
+- device tabs show live runtime status from keymasq-session/keymasqd: green means
+  connected and grabbed, yellow means connected but not fully grabbed, red means
+  configured but not connected, and neutral means runtime status is unavailable
+- when live runtime status is available, the device header lists the configured
+  interface count, connected count, grabbed count, and selected-profile mapping count
 - `Passthrough` removes the mapping from the selected profile so lower profiles can still apply one
 - the app remembers the last selected device or combo tab and restores it on launch
 - right-clicking the device name in a device tab lets you edit the saved display

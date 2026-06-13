@@ -72,6 +72,7 @@ class DeviceTab(ProfileManagedTab):
     ) -> None:
         self.device = device
         self.hardware_manager = hardware_manager
+        self._device_runtime_status: JsonDict = {}
         super().__init__(
             profile_manager=profile_manager,
             main_window=main_window,
@@ -86,6 +87,11 @@ class DeviceTab(ProfileManagedTab):
         self._setup_profile_selector()
         self._setup_button_grid()
         self.refresh_profiles()
+
+    def apply_active_profile_response(self, data: dict | None) -> None:
+        self._device_runtime_status = self._device_runtime_status_from_response(data or {})
+        super().apply_active_profile_response(data)
+        self._update_device_status_pill()
 
     def _selected_layer(self, create: bool = False):
         if not self._selected_profile:
@@ -155,11 +161,18 @@ class DeviceTab(ProfileManagedTab):
             if mapping.action_type != ActionType.PASSTHROUGH
         )
 
+    def _count_label(self, count: int, singular: str, plural: str | None = None) -> str:
+        label = singular if count == 1 else plural or f"{singular}s"
+        return f"{count} {label}"
+
     def _update_header_caption(self) -> None:
         mapped = self._count_mapped_buttons()
         base = self._header_caption_text()
+        status_note = self._device_status_caption_note()
+        if status_note:
+            base = f"{base} - {status_note}"
         if mapped > 0:
-            caption = f"{base} · {mapped} mapped"
+            caption = f"{base} · {self._count_label(mapped, 'mapping')}"
         else:
             caption = base
         self._header_caption_label.set_text(caption)
@@ -274,6 +287,11 @@ class DeviceTab(ProfileManagedTab):
             self.device_name_label.add_controller(name_right_click)
         name_row.append(self.device_name_label)
 
+        self._device_status_label = Gtk.Label()
+        self._device_status_label.add_css_class("status-pill")
+        self._device_status_label.set_valign(Gtk.Align.CENTER)
+        name_row.append(self._device_status_label)
+
         if not self.demo_mode:
             inspect_btn = Gtk.Button(
                 icon_name=resolve_icon_name(
@@ -315,13 +333,20 @@ class DeviceTab(ProfileManagedTab):
         self.append(header_box)
 
         self.set_focusable(True)
+        self._update_device_status_pill()
 
     def _header_hardware_tooltip(self) -> str:
         lines = [f"Hardware ID: {self.device.hardware_id}"]
-        paths = [str(device.path or "") for device in self.device.evdev_devices if device.path]
-        if paths:
+        interfaces = self._device_runtime_interfaces()
+        if interfaces:
             lines.append("Interfaces:")
-            lines.extend(paths)
+            for interface in interfaces:
+                lines.append(f"  {self._interface_tooltip_line(interface)}")
+        else:
+            paths = [str(device.path or "") for device in self.device.evdev_devices if device.path]
+            if paths:
+                lines.append("Interfaces:")
+                lines.extend(paths)
         return "\n".join(lines)
 
     def _header_caption_text(self) -> str:
@@ -329,10 +354,139 @@ class DeviceTab(ProfileManagedTab):
         analog_count = len(self.device.analog_inputs)
         if analog_count:
             parts.append(f"{analog_count} analog inputs")
+        if not self.demo_mode and self._device_runtime_ready():
+            configured_count = self._device_status_count(
+                "configured_count",
+                len(self.device.evdev_devices),
+            )
+            connected_count = self._device_status_count("connected_count", 0)
+            grabbed_count = self._device_status_count("grabbed_count", 0)
+            status_parts = [
+                self._count_label(configured_count, "interface"),
+                f"{connected_count} connected",
+                f"{grabbed_count} grabbed",
+            ]
+            return f"{self.device.model_id} | {' · '.join(status_parts)}"
         return (
-            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, "
-            f"{', '.join(parts)}"
+            f"{self.device.model_id} | {len(self.device.evdev_devices)} evdev, {', '.join(parts)}"
         )
+
+    def _device_runtime_status_from_response(self, data: dict) -> JsonDict:
+        devices = data.get("devices", {})
+        if not isinstance(devices, dict):
+            return {}
+        raw_device = devices.get(self.device.hardware_id, {})
+        if not isinstance(raw_device, dict):
+            return {}
+        raw_status = raw_device.get("device_status", {})
+        return dict(raw_status) if isinstance(raw_status, dict) else {}
+
+    def _update_device_status_pill(self) -> None:
+        if not hasattr(self, "_device_status_label"):
+            return
+        label = self._device_status_label
+        for css_class in ("status-active", "status-waiting", "status-inactive", "status-standby"):
+            label.remove_css_class(css_class)
+        text, css_class = self._device_status_pill()
+        label.set_text(text)
+        label.add_css_class(css_class)
+        label.set_tooltip_text(self._device_status_tooltip_text())
+
+    def _device_status_pill(self) -> tuple[str, str]:
+        if self.demo_mode:
+            return "Demo", "status-standby"
+        state = str(self._device_runtime_status.get("state", "unknown") or "unknown")
+        if state == "grabbed":
+            return "Grabbed", "status-active"
+        if state in {"waiting", "partial"}:
+            return "Waiting", "status-waiting"
+        if state == "connected":
+            return "Connected", "status-waiting"
+        if state == "not_connected":
+            return "Not connected", "status-inactive"
+        if state == "inspector":
+            return "Inspector", "status-waiting"
+        return "Unknown", "status-standby"
+
+    def _device_status_tooltip_text(self) -> str:
+        if self.demo_mode:
+            return "Live device status is not available in demo mode."
+        state = str(self._device_runtime_status.get("state", "unknown") or "unknown")
+        if state == "grabbed":
+            return "Connected and grabbed by keymasqd."
+        if state == "partial":
+            return "Connected, but not every requested interface is grabbed."
+        if state == "waiting":
+            return "Connected, but keymasqd is waiting to grab this device."
+        if state == "connected":
+            return "Connected. No interface is currently grabbed."
+        if state == "not_connected":
+            return "Configured device is not currently connected."
+        if state == "inspector":
+            return "Device inspector is active for this device."
+        return "Session or daemon runtime status is not available."
+
+    def _device_runtime_ready(self) -> bool:
+        return bool(self._device_runtime_status.get("runtime_ready", False))
+
+    def _device_status_count(self, key: str, default: int) -> int:
+        value = self._device_runtime_status.get(key, default)
+        try:
+            return max(0, int(cast(int | float | str, value)))
+        except (TypeError, ValueError):
+            return default
+
+    def _device_runtime_interfaces(self) -> list[JsonDict]:
+        raw_interfaces = self._device_runtime_status.get("interfaces", [])
+        if not isinstance(raw_interfaces, list):
+            return []
+        return [dict(item) for item in raw_interfaces if isinstance(item, dict)]
+
+    def _device_status_caption_note(self) -> str:
+        if self.demo_mode or not self._device_runtime_status:
+            return ""
+        state = str(self._device_runtime_status.get("state", "unknown") or "unknown")
+        if state == "waiting":
+            waiting_path = self._waiting_status_path()
+            if waiting_path:
+                return f"waiting on {waiting_path}"
+        if state == "inspector":
+            return "device inspector active"
+        return ""
+
+    def _waiting_status_path(self) -> str:
+        grab_status = self._device_runtime_status.get("grab_status", {})
+        if isinstance(grab_status, dict):
+            path = str(grab_status.get("path", "") or "").strip()
+            if path:
+                return path
+        for interface in self._device_runtime_interfaces():
+            if bool(interface.get("requested", False)) and not bool(
+                interface.get("grabbed", False)
+            ):
+                path = str(
+                    interface.get("current_path") or interface.get("configured_path") or ""
+                ).strip()
+                if path:
+                    return path
+        return ""
+
+    def _interface_tooltip_line(self, interface: JsonDict) -> str:
+        configured_path = str(interface.get("configured_path", "") or "").strip()
+        label = configured_path or str(interface.get("id", "") or "").strip() or "interface"
+        states: list[str] = []
+        if bool(interface.get("connected", False)):
+            states.append("connected")
+        else:
+            states.append("not connected")
+        if bool(interface.get("grabbed", False)):
+            states.append("grabbed")
+        elif bool(interface.get("requested", False)):
+            states.append("waiting for grab")
+        current_path = str(interface.get("current_path", "") or "").strip()
+        if current_path and current_path != configured_path:
+            return f"{label} - {', '.join(states)} ({current_path})"
+        return f"{label} - {', '.join(states)}"
 
     def _device_grab_label_text(self, device: HardwareConfig | None = None) -> str:
         device = device or self.device

@@ -56,6 +56,15 @@ log = logging.getLogger("keymasq.gui.window")
 
 _COMBO_TAB_ID = "combos"
 _DEVICE_TAB_PREFIX = "device:"
+_DEVICE_TAB_STATE_ICONS = {
+    "grabbed": "🟢",
+    "partial": "🟡",
+    "waiting": "🟡",
+    "connected": "🟡",
+    "inspector": "🟡",
+    "not_connected": "🔴",
+    "unknown": "⚪",
+}
 
 
 def _device_tab_id(hardware_id: str) -> str:
@@ -284,6 +293,35 @@ class MainWindow(Adw.ApplicationWindow):
         page.set_icon(self._icon_from_name(icon_name))
         GLib.idle_add(self._sync_tab_close_tooltips)
         return page
+
+    def _device_status_for_hardware_id(self, hardware_id: str) -> dict[str, object]:
+        devices = self._profile_runtime_state.get("devices", {})
+        if not isinstance(devices, dict):
+            return {}
+        raw_device = devices.get(hardware_id, {})
+        if not isinstance(raw_device, dict):
+            return {}
+        raw_status = raw_device.get("device_status", {})
+        return dict(raw_status) if isinstance(raw_status, dict) else {}
+
+    def _device_tab_title(self, device: HardwareConfig) -> str:
+        if self.demo_mode:
+            return device.name
+        status = self._device_status_for_hardware_id(device.hardware_id)
+        state = str(status.get("state", "unknown") or "unknown")
+        icon = _DEVICE_TAB_STATE_ICONS.get(state, "⚪")
+        return f"{icon} {device.name}"
+
+    def _sync_device_tab_title(self, hardware_id: str) -> None:
+        page = self._page_for_hardware_id(hardware_id)
+        child = page.get_child() if page is not None else None
+        if page is None or not isinstance(child, DeviceTab):
+            return
+        page.set_title(self._device_tab_title(child.device))
+
+    def _sync_device_tab_titles(self) -> None:
+        for hardware_id in list(self._device_pages):
+            self._sync_device_tab_title(hardware_id)
 
     def _walk_widget_tree(self, widget: Gtk.Widget):
         yield widget
@@ -633,7 +671,8 @@ class MainWindow(Adw.ApplicationWindow):
             self._update_status_from_keymasqd_event(connected)
         elif event_type == "profiles_changed":
             self._apply_profile_runtime_state(event)
-            self._queue_profile_reload()
+            if not bool(event.get("runtime_only", False)):
+                self._queue_profile_reload()
         elif event_type == "recording_started":
             self._close_dialogs_for_recording_start()
             self._recording_overlay.set_visible(True)
@@ -694,6 +733,7 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             self.session_status.set_label("session: 🟡")
             self.keymasqd_status.set_label("keymasqd: 🔴")
+            self._mark_device_runtime_unknown()
             self._set_connection_issue("keymasqd")
 
     def _update_status_from_session(self) -> None:
@@ -757,6 +797,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _update_status_disconnected(self) -> None:
         self.session_status.set_label("session: 🔴")
         self.keymasqd_status.set_label("keymasqd: ⚪")
+        self._mark_device_runtime_unknown()
         self._update_compositor_dispatch_state(None)
         self._set_connection_issue("session")
 
@@ -1493,13 +1534,19 @@ class MainWindow(Adw.ApplicationWindow):
                 publish_selection=False,
             )
         self._reorder_visible_pages_to_saved_order()
+        self._sync_device_tab_title(device.hardware_id)
         if persist_order:
             self._save_tab_layout()
 
     def update_device_display_name(self, hardware_id: str, name: str) -> None:
         page = self._page_for_hardware_id(hardware_id)
         if page is not None:
-            page.set_title(name)
+            child = page.get_child()
+            if isinstance(child, DeviceTab):
+                child.device.name = name
+                page.set_title(self._device_tab_title(child.device))
+            else:
+                page.set_title(name)
 
     def open_device_inspector(self, device) -> None:
         hardware_id = str(getattr(device, "hardware_id", "") or "").strip()
@@ -1650,6 +1697,41 @@ class MainWindow(Adw.ApplicationWindow):
         self._profile_runtime_state = self._normalize_profile_runtime_state(state)
         for child in self._iter_profile_tabs():
             self._apply_profile_runtime_state_to_widget(child)
+        self._sync_device_tab_titles()
+
+    def _mark_device_runtime_unknown(self) -> None:
+        devices = self._profile_runtime_state.get("devices", {})
+        if not isinstance(devices, dict):
+            return
+        updated_devices: dict[str, object] = {}
+        for hardware_id, raw_device in devices.items():
+            if not isinstance(raw_device, dict):
+                continue
+            device_payload = dict(raw_device)
+            old_status = raw_device.get("device_status", {})
+            old_status = old_status if isinstance(old_status, dict) else {}
+            device_payload["device_status"] = {
+                "state": "unknown",
+                "configured_count": self._runtime_status_int(old_status, "configured_count"),
+                "connected_count": 0,
+                "requested_count": self._runtime_status_int(old_status, "requested_count"),
+                "grabbed_count": 0,
+                "interfaces": [],
+                "runtime_ready": False,
+                "grab_status": {},
+            }
+            updated_devices[str(hardware_id)] = device_payload
+        if updated_devices:
+            self._apply_profile_runtime_state({"devices": updated_devices})
+
+    def _runtime_status_int(self, status: dict[str, object], key: str) -> int:
+        value = status.get(key, 0)
+        if not isinstance(value, int | float | str):
+            return 0
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
 
     def _on_add_device(self, button: Gtk.Button) -> None:
         if self.demo_mode:

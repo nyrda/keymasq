@@ -48,6 +48,56 @@ async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
 
 
 @pytest.mark.asyncio
+async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> None:
+    manager = DeviceManager()
+    manager.topology_state.live_snapshot = {
+        "/dev/input/by-id/pad-event-joystick": tdm.LiveInterfaceInfo(
+            hardware_id="1234:5678",
+            vendor_id="1234",
+            product_id="5678",
+            stable_path="/dev/input/by-id/pad-event-joystick",
+            path="/dev/input/event10",
+            interface_id="gamepad",
+        )
+    }
+    manager.grabbed_devices["1234:5678"] = [
+        SimpleNamespace(
+            interface_id="gamepad",
+            path="/dev/input/by-id/pad-event-joystick",
+            resolved_event_path="/dev/input/event10",
+            stable_path="/dev/input/by-id/pad-event-joystick",
+            device_type=DeviceType.GAMEPAD,
+        )
+    ]
+
+    result = await manager.device_runtime_status()
+
+    assert result == {
+        "status": "ok",
+        "interfaces": [
+            {
+                "hardware_id": "1234:5678",
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "stable_path": "/dev/input/by-id/pad-event-joystick",
+                "path": "/dev/input/event10",
+                "interface_id": "gamepad",
+            }
+        ],
+        "grabbed_interfaces": [
+            {
+                "hardware_id": "1234:5678",
+                "interface_id": "gamepad",
+                "path": "/dev/input/by-id/pad-event-joystick",
+                "resolved_path": "/dev/input/event10",
+                "stable_path": "/dev/input/by-id/pad-event-joystick",
+                "device_type": "gamepad",
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_device_inspector_suppression_status_broadcasts() -> None:
     manager = DeviceManager()
     broadcasts: list[tuple[CommandType, dict[str, object]]] = []

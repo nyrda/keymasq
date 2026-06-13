@@ -206,6 +206,7 @@ class TestCommandTypes:
         assert CommandType.SET_MAPPING.value == "set_mapping"
         assert CommandType.SET_COMBOS.value == "set_combos"
         assert CommandType.LIST_DEVICES.value == "list_devices"
+        assert CommandType.DEVICE_RUNTIME_STATUS.value == "device_runtime_status"
         assert CommandType.PING.value == "ping"
         assert CommandType.DEVICE_EVENT.value == "device_event"
         assert CommandType.ACTION_TRIGGER.value == "action_trigger"

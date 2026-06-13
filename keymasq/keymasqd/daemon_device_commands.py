@@ -32,6 +32,8 @@ class _DeviceCommandManager(Protocol):
 
     async def list_devices(self) -> JsonObject: ...
 
+    async def device_runtime_status(self) -> JsonObject: ...
+
     async def set_diagnostics(
         self,
         enabled: bool,
@@ -126,6 +128,9 @@ async def handle_device_command(
 
     if command_type == CommandType.LIST_DEVICES:
         return await daemon.device_manager.list_devices()
+
+    if command_type == CommandType.DEVICE_RUNTIME_STATUS:
+        return await daemon.device_manager.device_runtime_status()
 
     if command_type == CommandType.SET_DIAGNOSTICS:
         enabled = bool(data.get("enabled", False))

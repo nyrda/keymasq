@@ -26,6 +26,9 @@ KDE_DBUS_INTERFACE = "keymasq.kde.Listener"
 KDE_DBUS_OBJECT_PATH = "/keymasq/KDEListener"
 KDE_IGNORED_PAYLOAD_LOG_INTERVAL_SECONDS = 10.0
 KDE_DISPATCH_TIMEOUT_SECONDS = 1.5
+KDE_CURSOR_TRACKING_REQUEST_ID = "__keymasq_cursor_tracking__"
+KDE_CURSOR_TRACKING_MAX_HINT_MS = 250
+KDE_CURSOR_TRACKING_INITIAL_SAMPLE_TIMEOUT_SECONDS = 0.05
 KDE_DISPATCH_METHODS: dict[str, str] = {
     "desktop_next": "slotSwitchDesktopNext",
     "desktop_prev": "slotSwitchDesktopPrevious",
@@ -171,11 +174,19 @@ class KDEListener(WindowListener):
         self._window_script_iface = None
         self._callback_tasks: set[asyncio.Future[None]] = set()
         self._cursor_waiters: dict[str, asyncio.Future[tuple[int, int]]] = {}
+        self._cursor_tracking_sample_waiters: set[asyncio.Future[tuple[int, int]]] = set()
         self._dispatch_waiters: dict[str, asyncio.Future[tuple[bool, str]]] = {}
         self._ignored_window_payloads = 0
         self._ignored_cursor_payloads = 0
         self._last_window_payload_log_at = 0.0
         self._last_cursor_payload_log_at = 0.0
+        self._cursor_tracking_lock = asyncio.Lock()
+        self._cursor_tracking_deadline_at = 0.0
+        self._cursor_tracking_cache: tuple[int, int] | None = None
+        self._cursor_tracking_plugin_name = ""
+        self._cursor_tracking_script_path: Path | None = None
+        self._cursor_tracking_script_iface: object | None = None
+        self._cursor_tracking_stop_task: asyncio.Task[None] | None = None
 
     @property
     def name(self) -> str:
@@ -187,6 +198,10 @@ class KDEListener(WindowListener):
 
     @property
     def supports_compositor_dispatch(self) -> bool:
+        return True
+
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
         return True
 
     @classmethod
@@ -256,6 +271,12 @@ class KDEListener(WindowListener):
                 future.cancel()
             self._cursor_waiters.pop(request_id, None)
 
+        for future in list(self._cursor_tracking_sample_waiters):
+            if not future.done():
+                future.cancel()
+        self._cursor_tracking_sample_waiters.clear()
+        await self._stop_cursor_tracking_script()
+
         for request_id, future in list(self._dispatch_waiters.items()):
             if not future.done():
                 future.cancel()
@@ -299,6 +320,9 @@ class KDEListener(WindowListener):
             log.debug("KDE cursor get skipped: listener not running")
             return None
 
+        if self._cursor_tracking_active() and self._cursor_tracking_cache is not None:
+            return self._cursor_tracking_cache
+
         request_id = uuid.uuid4().hex
         loop = asyncio.get_running_loop()
         future: asyncio.Future[tuple[int, int]] = loop.create_future()
@@ -326,6 +350,47 @@ class KDEListener(WindowListener):
             return None
         finally:
             self._cursor_waiters.pop(request_id, None)
+
+    async def prepare_cursor_position_tracking(self, duration_ms: int) -> None:
+        if not self.running or self._kwin_scripting is None:
+            return
+
+        ttl_ms = max(1, min(KDE_CURSOR_TRACKING_MAX_HINT_MS, int(duration_ms)))
+        self._cursor_tracking_deadline_at = time.monotonic() + ttl_ms / 1000.0
+
+        loop = asyncio.get_running_loop()
+        sample_waiter: asyncio.Future[tuple[int, int]] | None = None
+        if self._cursor_tracking_cache is None:
+            sample_waiter = loop.create_future()
+            self._cursor_tracking_sample_waiters.add(sample_waiter)
+
+        try:
+            try:
+                async with self._cursor_tracking_lock:
+                    await self._ensure_cursor_tracking_script()
+            except asyncio.CancelledError:
+                self._schedule_cursor_tracking_stop()
+                raise
+            except (OSError, RuntimeError, TypeError, ValueError):
+                log.debug("KDE cursor tracking prepare failed", exc_info=True)
+                return
+            finally:
+                self._schedule_cursor_tracking_stop()
+
+            if sample_waiter is None:
+                return
+            try:
+                await asyncio.wait_for(
+                    sample_waiter,
+                    timeout=KDE_CURSOR_TRACKING_INITIAL_SAMPLE_TIMEOUT_SECONDS,
+                )
+            except asyncio.CancelledError:
+                raise
+            except TimeoutError:
+                pass
+        finally:
+            if sample_waiter is not None:
+                self._cursor_tracking_sample_waiters.discard(sample_waiter)
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         if not self.running or self._kwin_scripting is None:
@@ -413,6 +478,141 @@ class KDEListener(WindowListener):
                 with contextlib.suppress(OSError):
                     await asyncio.to_thread(script_path.unlink, missing_ok=True)
 
+    async def _ensure_cursor_tracking_script(self) -> None:
+        if self._cursor_tracking_script_iface is not None:
+            return
+
+        plugin_name = f"keymasq-kde-cursor-track-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        script_path: Path | None = None
+        script_iface: object | None = None
+        try:
+            script_path = await asyncio.to_thread(
+                self._write_script_file,
+                self._build_cursor_tracking_script_source(),
+            )
+            self._cursor_tracking_script_path = script_path
+            self._cursor_tracking_plugin_name = plugin_name
+
+            script_id = await self._call_load_script(str(script_path), plugin_name)
+            if script_id < 0:
+                raise _KDEEphemeralScriptLoadError(script_id)
+
+            script_iface = await self._get_script_interface(script_id)
+            self._cursor_tracking_script_iface = script_iface
+            call_run = getattr(script_iface, "call_run", None)
+            if not callable(call_run):
+                raise _KDEEphemeralScriptRunError(
+                    "KDE cursor tracking script interface is missing call_run"
+                )
+            result = call_run()
+            if not inspect.isawaitable(result):
+                raise _KDEEphemeralScriptRunError(
+                    "KDE cursor tracking script interface returned a non-awaitable run result"
+                )
+            await cast(Awaitable[object], result)
+        except asyncio.CancelledError:
+            if script_iface is not None:
+                with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+                    call_stop = getattr(script_iface, "call_stop", None)
+                    if callable(call_stop):
+                        result = call_stop()
+                        if inspect.isawaitable(result):
+                            await cast(Awaitable[object], result)
+            if self._kwin_scripting and plugin_name:
+                with contextlib.suppress(OSError, RuntimeError):
+                    await self._call_unload_script(plugin_name)
+            if script_path is not None:
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
+            self._cursor_tracking_plugin_name = ""
+            self._cursor_tracking_script_path = None
+            self._cursor_tracking_script_iface = None
+            self._cursor_tracking_cache = None
+            self._cursor_tracking_deadline_at = 0.0
+            raise
+        except Exception:
+            if script_iface is not None:
+                with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+                    call_stop = getattr(script_iface, "call_stop", None)
+                    if callable(call_stop):
+                        result = call_stop()
+                        if inspect.isawaitable(result):
+                            await cast(Awaitable[object], result)
+            if self._kwin_scripting and plugin_name:
+                with contextlib.suppress(OSError, RuntimeError):
+                    await self._call_unload_script(plugin_name)
+            if script_path is not None:
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
+            self._cursor_tracking_plugin_name = ""
+            self._cursor_tracking_script_path = None
+            self._cursor_tracking_script_iface = None
+            self._cursor_tracking_cache = None
+            self._cursor_tracking_deadline_at = 0.0
+            raise
+
+    def _cursor_tracking_active(self) -> bool:
+        return self._cursor_tracking_deadline_at > time.monotonic()
+
+    def _schedule_cursor_tracking_stop(self) -> None:
+        if self._cursor_tracking_deadline_at <= 0.0:
+            return
+        task = self._cursor_tracking_stop_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._cursor_tracking_stop_task = asyncio.create_task(
+            self._stop_cursor_tracking_after_deadline(),
+            name="keymasq-session:kde-cursor-tracking-stop",
+        )
+
+    async def _stop_cursor_tracking_after_deadline(self) -> None:
+        try:
+            while True:
+                delay = self._cursor_tracking_deadline_at - time.monotonic()
+                if delay <= 0.0:
+                    break
+                await asyncio.sleep(delay)
+            await self._stop_cursor_tracking_script(cancel_stop_task=False)
+        except asyncio.CancelledError:
+            raise
+        except (OSError, RuntimeError, TypeError, ValueError):
+            log.debug("KDE cursor tracking stop failed", exc_info=True)
+        finally:
+            if self._cursor_tracking_stop_task is asyncio.current_task():
+                self._cursor_tracking_stop_task = None
+
+    async def _stop_cursor_tracking_script(self, *, cancel_stop_task: bool = True) -> None:
+        if cancel_stop_task:
+            task = self._cursor_tracking_stop_task
+            self._cursor_tracking_stop_task = None
+            if task is not None and not task.done() and task is not asyncio.current_task():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+        script_iface = self._cursor_tracking_script_iface
+        plugin_name = self._cursor_tracking_plugin_name
+        script_path = self._cursor_tracking_script_path
+        self._cursor_tracking_script_iface = None
+        self._cursor_tracking_plugin_name = ""
+        self._cursor_tracking_script_path = None
+        self._cursor_tracking_deadline_at = 0.0
+        self._cursor_tracking_cache = None
+
+        if script_iface is not None:
+            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+                call_stop = getattr(script_iface, "call_stop", None)
+                if callable(call_stop):
+                    result = call_stop()
+                    if inspect.isawaitable(result):
+                        await cast(Awaitable[object], result)
+        if self._kwin_scripting and plugin_name:
+            with contextlib.suppress(OSError, RuntimeError):
+                await self._call_unload_script(plugin_name)
+        if script_path is not None:
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(script_path.unlink, missing_ok=True)
+
     def handle_window_payload(self, payload: str) -> None:
         parsed = parse_kde_window_payload(payload)
         if not parsed:
@@ -442,6 +642,14 @@ class KDEListener(WindowListener):
             return
 
         request_id, x, y = parsed
+        if self._cursor_tracking_active():
+            self._cursor_tracking_cache = (x, y)
+            for future in list(self._cursor_tracking_sample_waiters):
+                if not future.done():
+                    future.set_result((x, y))
+        if request_id == KDE_CURSOR_TRACKING_REQUEST_ID:
+            return
+
         future = self._cursor_waiters.get(request_id)
         if future and not future.done():
             future.set_result((x, y))
@@ -676,6 +884,36 @@ try {{
     const payload = JSON.stringify({{id: REQUEST_ID, x: p.x, y: p.y}});
     callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"cursorPosition\", payload);
 }} catch (e) {{}}
+""".strip()
+
+    def _build_cursor_tracking_script_source(self) -> str:
+        return f"""
+const DBUS_NAME = \"{self._bus.unique_name if self._bus else ""}\";
+const DBUS_PATH = \"{KDE_DBUS_OBJECT_PATH}\";
+const DBUS_IFACE = \"{KDE_DBUS_INTERFACE}\";
+const REQUEST_ID = \"{KDE_CURSOR_TRACKING_REQUEST_ID}\";
+
+function connectSignal(source, name, callback) {{
+    try {{
+        const sig = source ? source[name] : null;
+        if (sig && typeof sig.connect === "function") {{
+            sig.connect(callback);
+            return true;
+        }}
+    }} catch (e) {{}}
+    return false;
+}}
+
+function sendCursor() {{
+    try {{
+        const p = workspace.cursorPos;
+        const payload = JSON.stringify({{id: REQUEST_ID, x: p.x, y: p.y}});
+        callDBus(DBUS_NAME, DBUS_PATH, DBUS_IFACE, \"cursorPosition\", payload);
+    }} catch (e) {{}}
+}}
+
+connectSignal(workspace, "cursorPosChanged", sendCursor);
+sendCursor();
 """.strip()
 
     def _build_dispatch_script_source(self, request_id: str, method_name: str) -> str:

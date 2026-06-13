@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -10,11 +10,17 @@ from keymasq.common.models import normalize_natural_mouse_move_curve
 from keymasq.keymasqd.output_helpers import emit_mouse_move
 from keymasq.keymasqd.runtime.adapters import WritableUInput
 
-type CursorPositionGetter = Callable[[], Awaitable[tuple[int, int] | None]]
-
 _DEFAULT_TICK_HZ = 120.0
 _EDGE_FOLLOW_RETRY_S = 0.09
 _STUCK_FRAME_LIMIT = 8
+
+
+class CursorPositionGetter(Protocol):
+    def __call__(
+        self,
+        *,
+        tracking_hint_ms: int | None = None,
+    ) -> Awaitable[tuple[int, int] | None]: ...
 
 
 class _AsyncioModule(Protocol):
@@ -61,7 +67,8 @@ async def move_cursor_naturally(
 
     config = config.normalized()
     target = (int(target_x), int(target_y))
-    position = await get_cursor_position()
+    tracking_hint_ms = config.max_duration_ms
+    position = await get_cursor_position(tracking_hint_ms=tracking_hint_ms)
     if position is None:
         return {
             "status": "error",
@@ -133,7 +140,8 @@ async def move_cursor_naturally(
         emitted_frames += 1
         await asyncio_mod.sleep(tick_s)
 
-        next_position = await get_cursor_position()
+        remaining_ms = max(1, int((deadline - loop.time()) * 1000.0))
+        next_position = await get_cursor_position(tracking_hint_ms=remaining_ms)
         if next_position is None:
             return {
                 "status": "error",

@@ -1,7 +1,10 @@
 import asyncio
 
+import pytest
+
 from keymasq.session.listeners import kde as kde_listener_module
 from keymasq.session.listeners.kde import (
+    KDE_CURSOR_TRACKING_REQUEST_ID,
     KDE_DISPATCH_METHODS,
     KDEListener,
     has_kde_wayland_support,
@@ -83,6 +86,20 @@ def test_kde_cursor_script_uses_cursor_position_method() -> None:
 
     assert "workspace.cursorPos" in script
     assert '"cursorPosition"' in script
+
+
+def test_kde_cursor_tracking_script_emits_immediate_and_changed_positions() -> None:
+    listener = KDEListener(_noop_callback)
+    script = listener._build_cursor_tracking_script_source()
+
+    assert "workspace.cursorPos" in script
+    assert 'connectSignal(workspace, "cursorPosChanged"' in script
+    assert KDE_CURSOR_TRACKING_REQUEST_ID in script
+    assert '"cursorPosition"' in script
+
+
+def test_kde_advertises_realtime_cursor_position() -> None:
+    assert KDEListener(_noop_callback).supports_realtime_cursor_position is True
 
 
 def test_kde_dispatch_script_uses_workspace_method_and_reply_hook() -> None:
@@ -170,6 +187,249 @@ def test_dispatch_rejects_unsupported_dispatcher() -> None:
 
     assert ok is False
     assert message == "unsupported KDE dispatcher: unknown_action"
+
+
+async def _run_kde_cursor_cache_fallback_test(
+    monkeypatch,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None, int]:
+    listener = KDEListener(_noop_callback)
+    listener.running = True
+    listener._kwin_scripting = object()
+    listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() + 1.0
+    listener._cursor_tracking_cache = (7, 8)
+
+    cached = await listener.get_cursor_position()
+    fallback_calls = 0
+
+    async def _fallback(**_kwargs) -> tuple[int, int]:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return 9, 10
+
+    monkeypatch.setattr(listener, "_run_ephemeral_kwin_script", _fallback)
+    listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() - 1.0
+    fallback = await listener.get_cursor_position()
+
+    return cached, fallback, fallback_calls
+
+
+def test_kde_cursor_cache_is_used_only_while_tracking_is_active(monkeypatch) -> None:
+    cached, fallback, fallback_calls = asyncio.run(
+        _run_kde_cursor_cache_fallback_test(monkeypatch)
+    )
+
+    assert cached == (7, 8)
+    assert fallback == (9, 10)
+    assert fallback_calls == 1
+
+
+async def _run_kde_cursor_payload_tracking_test() -> tuple[
+    tuple[int, int] | None,
+    tuple[int, int] | None,
+    tuple[int, int],
+]:
+    listener = KDEListener(_noop_callback)
+    payload = f'{{"id":"{KDE_CURSOR_TRACKING_REQUEST_ID}","x":11,"y":12}}'
+
+    listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() - 1.0
+    listener.handle_cursor_payload(payload)
+    inactive_cache = listener._cursor_tracking_cache
+
+    loop = asyncio.get_running_loop()
+    waiter: asyncio.Future[tuple[int, int]] = loop.create_future()
+    listener._cursor_tracking_sample_waiters.add(waiter)
+    listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() + 1.0
+    listener.handle_cursor_payload(payload)
+    active_cache = listener._cursor_tracking_cache
+    waiter_result = await waiter
+
+    return inactive_cache, active_cache, waiter_result
+
+
+def test_kde_cursor_tracking_payload_is_ignored_when_not_active() -> None:
+    inactive_cache, active_cache, waiter_result = asyncio.run(
+        _run_kde_cursor_payload_tracking_test()
+    )
+
+    assert inactive_cache is None
+    assert active_cache == (11, 12)
+    assert waiter_result == (11, 12)
+
+
+async def _run_prepare_cursor_tracking_test(monkeypatch, tmp_path) -> tuple[
+    tuple[int, int] | None,
+    list[str],
+    bool,
+]:
+    listener = KDEListener(_noop_callback)
+    listener.running = True
+    listener._kwin_scripting = object()
+    script_path = tmp_path / "cursor_tracking.js"
+    calls: list[str] = []
+
+    class _ScriptIface:
+        async def call_run(self) -> None:
+            calls.append("run")
+            listener.handle_cursor_payload(
+                f'{{"id":"{KDE_CURSOR_TRACKING_REQUEST_ID}","x":13,"y":14}}'
+            )
+
+        async def call_stop(self) -> None:
+            calls.append("stop")
+
+    def _write_script_file(source: str):
+        calls.append(f"write:{KDE_CURSOR_TRACKING_REQUEST_ID in source}")
+        script_path.write_text(source)
+        return script_path
+
+    async def _load_script(_file_path: str, plugin_name: str) -> int:
+        calls.append(f"load:{plugin_name.startswith('keymasq-kde-cursor-track-')}")
+        return 42
+
+    async def _get_script_interface(_script_id: int):
+        calls.append("iface")
+        return _ScriptIface()
+
+    async def _unload_script(plugin_name: str) -> None:
+        calls.append(f"unload:{plugin_name.startswith('keymasq-kde-cursor-track-')}")
+
+    monkeypatch.setattr(listener, "_write_script_file", _write_script_file)
+    monkeypatch.setattr(listener, "_call_load_script", _load_script)
+    monkeypatch.setattr(listener, "_get_script_interface", _get_script_interface)
+    monkeypatch.setattr(listener, "_call_unload_script", _unload_script)
+
+    await listener.prepare_cursor_position_tracking(1)
+    cache = listener._cursor_tracking_cache
+    for _ in range(10):
+        if listener._cursor_tracking_script_iface is None:
+            break
+        await asyncio.sleep(0.01)
+
+    return cache, calls, script_path.exists()
+
+
+def test_prepare_cursor_tracking_loads_samples_and_unloads_after_ttl(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    cache, calls, path_exists = asyncio.run(
+        _run_prepare_cursor_tracking_test(monkeypatch, tmp_path)
+    )
+
+    assert cache == (13, 14)
+    assert calls[:4] == ["write:True", "load:True", "iface", "run"]
+    assert "stop" in calls
+    assert "unload:True" in calls
+    assert path_exists is False
+
+
+async def _run_prepare_cursor_tracking_failure_test(monkeypatch, tmp_path) -> tuple[
+    str,
+    object | None,
+    tuple[int, int] | None,
+    int,
+    bool,
+]:
+    listener = KDEListener(_noop_callback)
+    listener.running = True
+    listener._kwin_scripting = object()
+    script_path = tmp_path / "cursor_tracking_failure.js"
+
+    def _write_script_file(source: str):
+        script_path.write_text(source)
+        return script_path
+
+    async def _load_script(_file_path: str, _plugin_name: str) -> int:
+        raise RuntimeError("load failed")
+
+    monkeypatch.setattr(listener, "_write_script_file", _write_script_file)
+    monkeypatch.setattr(listener, "_call_load_script", _load_script)
+
+    await listener.prepare_cursor_position_tracking(100)
+
+    return (
+        listener._cursor_tracking_plugin_name,
+        listener._cursor_tracking_script_iface,
+        listener._cursor_tracking_cache,
+        len(listener._cursor_tracking_sample_waiters),
+        script_path.exists(),
+    )
+
+
+def test_prepare_cursor_tracking_cleans_up_on_load_error(monkeypatch, tmp_path) -> None:
+    plugin_name, script_iface, cache, waiter_count, path_exists = asyncio.run(
+        _run_prepare_cursor_tracking_failure_test(monkeypatch, tmp_path)
+    )
+
+    assert plugin_name == ""
+    assert script_iface is None
+    assert cache is None
+    assert waiter_count == 0
+    assert path_exists is False
+
+
+async def _run_prepare_cursor_tracking_cancellation_test(monkeypatch, tmp_path) -> list[str]:
+    listener = KDEListener(_noop_callback)
+    listener.running = True
+    listener._kwin_scripting = object()
+    script_path = tmp_path / "cursor_tracking_cancel.js"
+    calls: list[str] = []
+    started = asyncio.Event()
+
+    class _ScriptIface:
+        async def call_run(self) -> None:
+            calls.append("run")
+            started.set()
+            await asyncio.Future()
+
+        async def call_stop(self) -> None:
+            calls.append("stop")
+
+    def _write_script_file(source: str):
+        script_path.write_text(source)
+        return script_path
+
+    async def _load_script(_file_path: str, _plugin_name: str) -> int:
+        calls.append("load")
+        return 42
+
+    async def _get_script_interface(_script_id: int):
+        calls.append("iface")
+        return _ScriptIface()
+
+    async def _unload_script(_plugin_name: str) -> None:
+        calls.append("unload")
+
+    monkeypatch.setattr(listener, "_write_script_file", _write_script_file)
+    monkeypatch.setattr(listener, "_call_load_script", _load_script)
+    monkeypatch.setattr(listener, "_get_script_interface", _get_script_interface)
+    monkeypatch.setattr(listener, "_call_unload_script", _unload_script)
+
+    task = asyncio.create_task(listener.prepare_cursor_position_tracking(100))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    calls.append(f"iface:{listener._cursor_tracking_script_iface is None}")
+    calls.append(f"plugin:{listener._cursor_tracking_plugin_name == ''}")
+    calls.append(f"path:{script_path.exists()}")
+    return calls
+
+
+def test_prepare_cursor_tracking_cleans_up_on_cancellation(monkeypatch, tmp_path) -> None:
+    calls = asyncio.run(_run_prepare_cursor_tracking_cancellation_test(monkeypatch, tmp_path))
+
+    assert calls == [
+        "load",
+        "iface",
+        "run",
+        "stop",
+        "unload",
+        "iface:True",
+        "plugin:True",
+        "path:False",
+    ]
 
 
 def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:

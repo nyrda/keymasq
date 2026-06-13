@@ -88,7 +88,11 @@ async def handle_cursor_position_request(
     if not request_id:
         return
 
-    payload = await runtime_compositor.get_realtime_cursor_position_payload(manager)
+    tracking_hint_ms = coerce_int(data.get("tracking_hint_ms"), None)
+    payload = await runtime_compositor.get_realtime_cursor_position_payload(
+        manager,
+        tracking_hint_ms=tracking_hint_ms,
+    )
     response_data = {"request_id": request_id, **payload}
     try:
         await manager.client.send_command(

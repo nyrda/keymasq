@@ -73,6 +73,9 @@ class WindowListener(ABC):
     async def get_cursor_position(self) -> tuple[int, int] | None:
         return None
 
+    async def prepare_cursor_position_tracking(self, duration_ms: int) -> None:
+        _ = duration_ms
+
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
         _ = x, y
         return False, f"{self.name} does not implement compositor cursor positioning"

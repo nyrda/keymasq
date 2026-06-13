@@ -70,6 +70,31 @@ async def test_get_cursor_position_uses_broadcast_request_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_cursor_position_sends_tracking_hint_when_requested() -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    task = asyncio.create_task(
+        manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=123)
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    broadcast.assert_awaited_once()
+    event_type, payload = broadcast.await_args.args
+    assert event_type == CommandType.CURSOR_POSITION_REQUEST
+    assert payload["tracking_hint_ms"] == 123
+    request_id = payload["request_id"]
+
+    result = manager.handle_cursor_position_response(
+        {"request_id": request_id, "status": "ok", "x": 10, "y": 20}
+    )
+
+    assert result == {"status": "ok", "matched": True}
+    assert await task == (10, 20)
+
+
+@pytest.mark.asyncio
 async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> None:
     manager = DeviceManager()
     manager.topology_state.live_snapshot = {

@@ -51,7 +51,7 @@ class OffsetDisplayMouse(TrackingMouse):
 async def test_natural_mouse_move_reaches_target_with_relative_events() -> None:
     mouse = TrackingMouse()
 
-    async def get_position() -> tuple[int, int]:
+    async def get_position(**_kwargs: object) -> tuple[int, int]:
         return mouse.position[0], mouse.position[1]
 
     result = await move_cursor_naturally(
@@ -80,7 +80,7 @@ async def test_natural_mouse_move_reaches_target_with_relative_events() -> None:
 async def test_natural_mouse_move_follows_edge_when_axis_is_clipped() -> None:
     mouse = OffsetDisplayMouse()
 
-    async def get_position() -> tuple[int, int]:
+    async def get_position(**_kwargs: object) -> tuple[int, int]:
         return mouse.position[0], mouse.position[1]
 
     result = await move_cursor_naturally(
@@ -105,7 +105,7 @@ async def test_natural_mouse_move_follows_edge_when_axis_is_clipped() -> None:
 
 @pytest.mark.asyncio
 async def test_natural_mouse_move_reports_missing_feedback() -> None:
-    async def get_position() -> tuple[int, int] | None:
+    async def get_position(**_kwargs: object) -> tuple[int, int] | None:
         return None
 
     result = await move_cursor_naturally(
@@ -125,3 +125,33 @@ async def test_natural_mouse_move_reports_missing_feedback() -> None:
 
     assert result["status"] == "error"
     assert "Realtime cursor position" in str(result["message"])
+
+
+@pytest.mark.asyncio
+async def test_natural_mouse_move_passes_tracking_hint_to_cursor_feedback() -> None:
+    mouse = TrackingMouse()
+    hints: list[int | None] = []
+
+    async def get_position(*, tracking_hint_ms: int | None = None) -> tuple[int, int]:
+        hints.append(tracking_hint_ms)
+        return mouse.position[0], mouse.position[1]
+
+    result = await move_cursor_naturally(
+        uinput=mouse,
+        target_x=16,
+        target_y=0,
+        get_cursor_position=get_position,
+        config=NaturalMouseMoveConfig(
+            speed_px_s=8000,
+            jitter_px=0,
+            curve="linear",
+            tolerance_px=0,
+            max_duration_ms=500,
+        ),
+        asyncio_mod=FastAsyncio(),
+    )
+
+    assert result["status"] == "ok"
+    assert hints
+    assert hints[0] == 500
+    assert all(hint is not None and 1 <= hint <= 500 for hint in hints)

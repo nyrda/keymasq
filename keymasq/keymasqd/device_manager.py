@@ -1475,7 +1475,12 @@ class DeviceManager:
         )
         return {"status": "ok", "x": int(x), "y": int(y)}
 
-    async def get_cursor_position(self, timeout_s: float = 0.75) -> tuple[int, int] | None:
+    async def get_cursor_position(
+        self,
+        timeout_s: float = 0.75,
+        *,
+        tracking_hint_ms: int | None = None,
+    ) -> tuple[int, int] | None:
         if self.broadcast_callback is None:
             return None
 
@@ -1484,10 +1489,13 @@ class DeviceManager:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[JsonObject] = loop.create_future()
         self._cursor_position_waiters[request_id] = future
+        payload: JsonObject = {"request_id": request_id}
+        if tracking_hint_ms is not None:
+            payload["tracking_hint_ms"] = max(1, int(tracking_hint_ms))
 
         self._broadcast_runtime_event(
             CommandType.CURSOR_POSITION_REQUEST,
-            {"request_id": request_id},
+            payload,
         )
         try:
             result = await asyncio.wait_for(future, timeout=max(0.05, float(timeout_s)))

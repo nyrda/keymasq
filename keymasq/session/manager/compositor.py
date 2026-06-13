@@ -265,11 +265,19 @@ async def activate_title(manager: "SessionManager", title: str) -> JsonObject:
         return {"status": "error", "message": str(exc)}
 
 
-async def get_cursor_position_payload(manager: "SessionManager") -> JsonObject:
+async def get_cursor_position_payload(
+    manager: "SessionManager",
+    *,
+    tracking_hint_ms: int | None = None,
+) -> JsonObject:
     pos = None
 
     if manager.compositor_state.window_listener:
         try:
+            if tracking_hint_ms is not None:
+                await manager.compositor_state.window_listener.prepare_cursor_position_tracking(
+                    tracking_hint_ms
+                )
             pos = await manager.compositor_state.window_listener.get_cursor_position()
         except Exception:
             log.exception(
@@ -286,14 +294,18 @@ async def get_cursor_position_payload(manager: "SessionManager") -> JsonObject:
     return {"status": "ok", "x": int(pos[0]), "y": int(pos[1])}
 
 
-async def get_realtime_cursor_position_payload(manager: "SessionManager") -> JsonObject:
+async def get_realtime_cursor_position_payload(
+    manager: "SessionManager",
+    *,
+    tracking_hint_ms: int | None = None,
+) -> JsonObject:
     listener = manager.compositor_state.window_listener
     if listener is None or not listener.supports_realtime_cursor_position:
         return {
             "status": "error",
             "message": "Realtime cursor position is unavailable on this compositor",
         }
-    return await get_cursor_position_payload(manager)
+    return await get_cursor_position_payload(manager, tracking_hint_ms=tracking_hint_ms)
 
 
 async def compositor_supervisor_loop(manager: "SessionManager") -> None:

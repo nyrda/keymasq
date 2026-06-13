@@ -106,13 +106,14 @@ See [GNOME.md](GNOME.md) for setup and troubleshooting.
 
 ### KDE Plasma Wayland
 
-Keymasq talks to KWin over the session D-Bus and loads a temporary KWin
-JavaScript bridge. That bridge reports the active window back to
-`keymasq-session` and runs a limited set of supported KWin actions.
+Keymasq talks to KWin over the session D-Bus and loads a KWin JavaScript
+bridge. That bridge reports the active window back to `keymasq-session`, runs a
+limited set of supported KWin actions, and can temporarily load demand-scoped
+cursor tracking while natural mouse movement is active.
 
 KDE supports active-window tracking, window-aware profiles, pointer-position
-reads, and selected compositor actions. Absolute mouse actions use Keymasq's
-virtual mouse device.
+reads, realtime cursor feedback for natural mouse movement, and selected
+compositor actions. Absolute mouse actions use Keymasq's virtual mouse device.
 
 Supported compositor actions include switching virtual desktops, closing the
 focused window, toggling fullscreen, moving focus, moving the focused window,

@@ -233,9 +233,9 @@ the final position can still depend on how the desktop processes relative
 pointer motion.
 
 Natural movement is available only when Keymasq has realtime cursor feedback
-from the active listener, currently GNOME bridge, Hyprland, and X11. It does not
-use slurp-backed cursor capture. Configure its speed, curve, jitter, tolerance,
-and timeout from the Mouse tab or profile TOML:
+from the active listener, currently GNOME bridge, Hyprland, KDE Plasma, and X11.
+It does not use slurp-backed cursor capture. Configure its speed, curve, jitter,
+tolerance, and timeout from the Mouse tab or profile TOML:
 
 ```toml
 action = "mouse_move_natural_abs"

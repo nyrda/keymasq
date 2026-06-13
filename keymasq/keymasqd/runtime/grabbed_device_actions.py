@@ -98,6 +98,7 @@ def _build_superkey_machine(
         source_device=device_runtime.hardware_id,
         broadcast_callback=superkey_broadcast,
         cursor_position_setter=device_runtime.cursor_position_setter,
+        natural_mouse_mover=device_runtime.natural_mouse_mover,
         key_event_tracker=superkey_key_event_tracker,
         axis_event_tracker=superkey_abs_event_tracker,
         gamepad_output_resolver=device_runtime.resolve_gamepad_output,

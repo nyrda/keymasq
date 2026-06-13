@@ -102,6 +102,11 @@ def _describe_pattern_superkey_action(
         label = (
             f"{type_label('Mouse Move (abs)')}{target_separator}{action.move_x}, {action.move_y}"
         )
+    elif action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        label = (
+            f"{type_label('Mouse Move (natural)')}{target_separator}"
+            f"{action.move_x}, {action.move_y}"
+        )
     elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
         dispatcher = action.compositor_dispatcher or "dispatch"
         args = str(action.compositor_args or "").strip()

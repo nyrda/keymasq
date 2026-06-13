@@ -50,6 +50,10 @@ class WindowListener(ABC):
     def compositor_dispatch_available(self) -> bool:
         return bool(self.running and self.supports_compositor_dispatch)
 
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        return False
+
     @classmethod
     @abstractmethod
     async def probe_available(cls, dbus: "SessionDBus | None" = None) -> bool:

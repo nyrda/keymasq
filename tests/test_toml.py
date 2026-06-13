@@ -101,6 +101,36 @@ def test_mapping_action_toml_round_trips_mpris_command() -> None:
     assert emitted == {"action": "mpris", "command": "play_pause"}
 
 
+def test_mapping_action_toml_round_trips_natural_mouse_move() -> None:
+    action = _parse_mapping_action_toml(
+        {
+            "action": "mouse_move_natural_abs",
+            "x": 640,
+            "y": 480,
+            "speed": 900.0,
+            "jitter": 0.5,
+            "curve": "minimum-jerk",
+            "tolerance": 3,
+            "max_duration_ms": 2500,
+            "rapidfire_enabled": True,
+        }
+    )
+    emitted = mapping_action_to_toml(action, rapidfire_warning_context="test config")
+
+    assert action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS
+    assert action.rapidfire_enabled is False
+    assert emitted == {
+        "action": "mouse_move_natural_abs",
+        "x": 640,
+        "y": 480,
+        "speed": 900.0,
+        "jitter": 0.5,
+        "curve": "minimum_jerk",
+        "tolerance": 3,
+        "max_duration_ms": 2500,
+    }
+
+
 @pytest.mark.parametrize("action_type", MACRO_RECORDING_SLOT_ACTION_TYPES)
 def test_mapping_action_toml_round_trips_macro_recording_slot_actions(
     action_type: ActionType,

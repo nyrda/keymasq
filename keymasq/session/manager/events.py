@@ -80,6 +80,28 @@ async def cancel_event_tasks(manager: "SessionManager") -> None:
     manager.event_state.tasks.difference_update(tasks)
 
 
+async def handle_cursor_position_request(
+    manager: "SessionManager",
+    data: JsonObject,
+) -> None:
+    request_id = coerce_str(data.get("request_id"), "")
+    if not request_id:
+        return
+
+    payload = await runtime_compositor.get_realtime_cursor_position_payload(manager)
+    response_data = {"request_id": request_id, **payload}
+    try:
+        await manager.client.send_command(
+            Command(
+                command=CommandType.CURSOR_POSITION_RESPONSE,
+                data=response_data,
+            ),
+            timeout=1.0,
+        )
+    except (ConnectionError, OSError, TimeoutError):
+        log.debug("Failed to send cursor position response", exc_info=True)
+
+
 async def handle_event(
     manager: "SessionManager",
     event_type: CommandType,
@@ -87,6 +109,14 @@ async def handle_event(
 ) -> None:
     if manager.verbosity >= 1:
         log.debug("Event: %s -> %s", event_type.value, event_log_view(data))
+
+    if event_type == CommandType.CURSOR_POSITION_REQUEST:
+        create_event_task(
+            manager,
+            handle_cursor_position_request(manager, data),
+            name="cursor_position_request",
+        )
+        return
 
     if event_type == CommandType.ACTION_TRIGGER:
         exec_ref_raw = data.get("exec_ref")

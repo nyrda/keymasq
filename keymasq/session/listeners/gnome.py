@@ -822,6 +822,10 @@ class GnomeListener(WindowListener):
         y = coerce_int(result.get("y"), 0)
         return x, y
 
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        return True
+
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
         if self._writer is None or not self._bridge_connected:
             return False, "GNOME bridge not connected"

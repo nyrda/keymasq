@@ -14,6 +14,7 @@ from keymasq.common.models import (
     combo_effective_superkey_config,
     normalize_analog_control_features,
     normalize_mpris_command,
+    normalize_natural_mouse_move_curve,
     profile_deactivation_policy_to_dict,
     superkey_action_to_mapping_action,
 )
@@ -37,6 +38,7 @@ _TARGET_ACTION_TYPES = frozenset(
         ActionType.GAMEPAD_AXIS,
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
     }
 )
 _RECORDING_ACTION_TYPES = frozenset(
@@ -115,9 +117,19 @@ def _add_inspector_target_action_fields(
     data: dict[str, object],
     action: MappingAction,
 ) -> None:
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+    if action.action_type in (
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    ):
         data["x"] = int(action.move_x)
         data["y"] = int(action.move_y)
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        data["speed"] = float(action.move_speed)
+        data["jitter"] = float(action.move_jitter)
+        data["curve"] = normalize_natural_mouse_move_curve(action.move_curve)
+        data["tolerance"] = int(action.move_tolerance)
+        data["max_duration_ms"] = int(action.move_max_duration_ms)
     if action.action_type == ActionType.GAMEPAD_AXIS:
         data["value"] = int(action.axis_value)
 
@@ -157,9 +169,19 @@ def _add_target_action_fields(
         data["output_id"] = action.output_id
     if action.action_type == ActionType.GAMEPAD_AXIS:
         data["value"] = int(action.axis_value)
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+    if action.action_type in (
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    ):
         data["x"] = int(action.move_x)
         data["y"] = int(action.move_y)
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        data["speed"] = float(action.move_speed)
+        data["jitter"] = float(action.move_jitter)
+        data["curve"] = normalize_natural_mouse_move_curve(action.move_curve)
+        data["tolerance"] = int(action.move_tolerance)
+        data["max_duration_ms"] = int(action.move_max_duration_ms)
     _add_rapidfire_and_tap_fields(data, action)
 
 

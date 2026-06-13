@@ -33,6 +33,7 @@ class ActionType(Enum):
     MACRO = "macro"
     MOUSE_MOVE_REL = "mouse_move_rel"
     MOUSE_MOVE_ABS = "mouse_move_abs"
+    MOUSE_MOVE_NATURAL_ABS = "mouse_move_natural_abs"
     PROFILE_ENABLE = "profile_enable"
     PROFILE_DISABLE = "profile_disable"
     PROFILE_TOGGLE = "profile_toggle"
@@ -120,6 +121,7 @@ SUPERKEY_ACTION_TYPES = frozenset(
         ActionType.MOUSE,
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
         ActionType.GAMEPAD,
         ActionType.GAMEPAD_AXIS,
         ActionType.EXEC,
@@ -153,6 +155,19 @@ DEFAULT_RAPIDFIRE_HOLD_MS = 20
 DEFAULT_RAPIDFIRE_WAIT_MS = 20
 MIN_RAPIDFIRE_HOLD_MS = 0
 MIN_RAPIDFIRE_WAIT_MS = 1
+NATURAL_MOUSE_MOVE_CURVES = frozenset({"linear", "ease_in_out", "minimum_jerk"})
+DEFAULT_NATURAL_MOUSE_MOVE_SPEED = 1200.0
+DEFAULT_NATURAL_MOUSE_MOVE_JITTER = 0.3
+DEFAULT_NATURAL_MOUSE_MOVE_CURVE = "ease_in_out"
+DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE = 2
+DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS = 3000
+
+
+def normalize_natural_mouse_move_curve(value: object) -> str:
+    curve = str(value or "").strip().lower().replace("-", "_")
+    if curve in NATURAL_MOUSE_MOVE_CURVES:
+        return curve
+    return DEFAULT_NATURAL_MOUSE_MOVE_CURVE
 
 MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR = "finish_run"
@@ -491,8 +506,11 @@ class MappingAction:
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
-    move_speed: float = 1.0
-    move_jitter: float = 0.3
+    move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
+    move_jitter: float = DEFAULT_NATURAL_MOUSE_MOVE_JITTER
+    move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+    move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
+    move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -553,6 +571,12 @@ class MappingAction:
             self.repeat_categories = normalize_repeat_categories(self.repeat_categories)
         else:
             self.repeat_categories = None
+        if self.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+            self.move_speed = max(1.0, float(self.move_speed))
+            self.move_jitter = max(0.0, float(self.move_jitter))
+            self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
+            self.move_tolerance = max(0, int(self.move_tolerance))
+            self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
 
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
@@ -811,6 +835,11 @@ class SuperkeyAction:
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
+    move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
+    move_jitter: float = DEFAULT_NATURAL_MOUSE_MOVE_JITTER
+    move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+    move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
+    move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -850,6 +879,12 @@ class SuperkeyAction:
             self.macro_recording_slot = normalize_macro_recording_slot(self.macro_recording_slot)
         else:
             self.macro_recording_slot = 0
+        if self.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+            self.move_speed = max(1.0, float(self.move_speed))
+            self.move_jitter = max(0.0, float(self.move_jitter))
+            self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
+            self.move_tolerance = max(0, int(self.move_tolerance))
+            self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
 
 
 SUPERKEY_ACTION_SHARED_FIELDS = (
@@ -878,6 +913,11 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "move_x",
     "move_y",
     "axis_value",
+    "move_speed",
+    "move_jitter",
+    "move_curve",
+    "move_tolerance",
+    "move_max_duration_ms",
     "rapidfire_enabled",
     "rapidfire_hold_ms",
     "rapidfire_wait_ms",

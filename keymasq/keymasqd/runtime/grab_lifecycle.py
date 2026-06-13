@@ -348,6 +348,7 @@ async def grab_device_unlocked(
                     gamepad_output_resolver=gamepad_output_resolver,
                     broadcast_callback=manager.broadcast_callback,
                     cursor_position_setter=manager.set_cursor_position,
+                    natural_mouse_mover=getattr(manager, "move_cursor_natural", None),
                     recording_manager=manager.recording_manager,
                     macro_player=manager.play_macro,
                     emergency_resetter=manager.emergency_reset,

@@ -26,6 +26,34 @@ def _sent_daemon_commands(
 
 
 @pytest.mark.asyncio
+async def test_handle_cursor_position_request_sends_realtime_response() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
+    listener = SimpleNamespace(
+        supports_realtime_cursor_position=True,
+        get_cursor_position=AsyncMock(return_value=(12, 34)),
+    )
+    manager.compositor_state.window_listener = listener
+    manager.compositor_state.compositor_id = "hyprland"
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.CURSOR_POSITION_REQUEST,
+        {"request_id": "cursor-1"},
+    )
+    await asyncio.sleep(0)
+
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.CURSOR_POSITION_RESPONSE
+    assert sent.data == {
+        "request_id": "cursor-1",
+        "status": "ok",
+        "x": 12,
+        "y": 34,
+    }
+
+
+@pytest.mark.asyncio
 async def test_handle_event_dispatches_action_trigger_variants(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

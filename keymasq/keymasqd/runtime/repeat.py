@@ -87,7 +87,11 @@ def repeat_category_for_action(action: MappingAction) -> str | None:
         return REPEAT_CATEGORY_KEYBOARD
     if action_type == ActionType.MOUSE:
         return REPEAT_CATEGORY_MOUSE
-    if action_type in {ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS}:
+    if action_type in {
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    }:
         return REPEAT_CATEGORY_SPECIAL
     if action_type in {ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS}:
         return REPEAT_CATEGORY_GAMEPAD

@@ -8,6 +8,7 @@ from keymasq.common.models import (
     MappingAction,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
+    normalize_natural_mouse_move_curve,
     parse_profile_deactivation_policy,
 )
 
@@ -84,6 +85,11 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         mpris_command=_optional_text(action_data.get("command")),
         move_x=coerce_int(action_data.get("x"), 0),
         move_y=coerce_int(action_data.get("y"), 0),
+        move_speed=coerce_float(action_data.get("speed"), 1200.0),
+        move_jitter=coerce_float(action_data.get("jitter"), 0.3),
+        move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
+        move_tolerance=coerce_int(action_data.get("tolerance"), 2),
+        move_max_duration_ms=coerce_int(action_data.get("max_duration_ms"), 3000),
         axis_value=coerce_int(action_data.get("value"), 0),
         rapidfire_enabled=bool_value(action_data.get("rapidfire_enabled")),
         rapidfire_hold_ms=coerce_int(

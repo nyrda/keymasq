@@ -45,6 +45,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     ActionExecutionDeps,
     ActionRuntime,
     EvdevModule,
+    NaturalMouseMover,
 )
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 from keymasq.keymasqd.runtime.repeat import (
@@ -145,6 +146,7 @@ def _combo_action_runtime(
     trigger_name: str,
 ) -> ActionRuntimeContext:
     cursor_position_setter = getattr(manager, "set_cursor_position", None)
+    natural_mouse_mover = getattr(manager, "move_cursor_natural", None)
     macro_player = getattr(manager, "play_macro", None)
     emergency_resetter = getattr(manager, "emergency_reset", None)
     return ActionRuntimeContext(
@@ -160,6 +162,14 @@ def _combo_action_runtime(
         cursor_position_setter=(
             cast(Callable[[int, int], Awaitable[dict[str, object]]], cursor_position_setter)
             if callable(cursor_position_setter)
+            else None
+        ),
+        natural_mouse_mover=(
+            cast(
+                Callable[[int, int, float, float, str, int, int], Awaitable[dict[str, object]]],
+                natural_mouse_mover,
+            )
+            if callable(natural_mouse_mover)
             else None
         ),
         macro_player=(
@@ -750,6 +760,8 @@ async def _combo_superkey_machine(
             source_button=trigger_name,
         )
 
+    natural_mouse_mover = getattr(manager, "move_cursor_natural", None)
+
     machine = SuperkeyMachine(
         config=config,
         event_name=trigger_name,
@@ -759,6 +771,11 @@ async def _combo_superkey_machine(
         source_device=trigger_binding.hardware_id,
         broadcast_callback=combo_superkey_broadcast,
         cursor_position_setter=manager.set_cursor_position,
+        natural_mouse_mover=(
+            cast(NaturalMouseMover, natural_mouse_mover)
+            if callable(natural_mouse_mover)
+            else None
+        ),
         key_event_tracker=combo_superkey_output_tracker,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,

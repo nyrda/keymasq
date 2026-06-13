@@ -220,7 +220,11 @@ def _log_mapped_action(
             event.value,
         )
         return
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+    if action.action_type in (
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    ):
         log.debug(
             "[%s] %s (%s) -> %s x=%s y=%s value=%s",
             device_runtime.hardware_id,

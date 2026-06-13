@@ -44,6 +44,8 @@ def describe_mapping_action_compact(
         parts.append(f"⇢ {action.move_x},{action.move_y}")
     elif action.action_type == ActionType.MOUSE_MOVE_ABS:
         parts.append(f"⌖ {action.move_x},{action.move_y}")
+    elif action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        parts.append(f"⌁ {action.move_x},{action.move_y} {action.move_speed:g}px/s")
     elif action.action_type == ActionType.GAMEPAD:
         suffix = f" @{action.output_id}" if action.output_id else ""
         parts.append(f"🎮 {action.target or '?'}{suffix}")
@@ -101,6 +103,7 @@ def describe_mapping_action_compact(
         ActionType.MOUSE,
         ActionType.MOUSE_MOVE_REL,
         ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
         ActionType.GAMEPAD,
         ActionType.GAMEPAD_AXIS,
         ActionType.REPEAT,
@@ -137,6 +140,11 @@ def describe_mapping_action_verbose(
         return f"Mouse Move (rel) → {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.MOUSE_MOVE_ABS:
         return f"Mouse Move (abs) → {action.move_x}, {action.move_y}"
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        return (
+            f"Mouse Move (natural) → {action.move_x}, {action.move_y} "
+            f"@ {action.move_speed:g}px/s"
+        )
     if action.action_type == ActionType.GAMEPAD:
         suffix = f" @ {_gamepad_output_label(action.output_id)}" if action.output_id else ""
         return f"Gamepad → {_resolved_label(action.target, gamepad_label)}{suffix}"

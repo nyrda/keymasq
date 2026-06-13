@@ -45,6 +45,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     InputEventLike,
     MacroPlayer,
+    NaturalMouseMover,
 )
 from keymasq.keymasqd.runtime.mouse_actions import (
     resolve_mouse_output_target,
@@ -135,6 +136,7 @@ class ActionRuntimeContext:
     gamepad_uinput: object | None = None
     broadcast_callback: BroadcastCallback | None = None
     cursor_position_setter: CursorPositionSetter | None = None
+    natural_mouse_mover: NaturalMouseMover | None = None
     macro_player: MacroPlayer | None = None
     emergency_resetter: EmergencyResetter | None = None
     repeat_state: RepeatRuntimeState | None = None
@@ -544,7 +546,11 @@ async def execute_action(
         mark_action_started(execution_handle)
         return
 
-    if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
+    if action.action_type in (
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    ):
         await _execute_move_action(
             device_runtime,
             action,

@@ -41,6 +41,19 @@ async def emit_move_action(
     device_runtime: ActionRuntime,
     action: MappingAction,
 ) -> None:
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        natural_mouse_mover = device_runtime.natural_mouse_mover
+        if natural_mouse_mover is not None:
+            await natural_mouse_mover(
+                int(action.move_x),
+                int(action.move_y),
+                float(action.move_speed),
+                float(action.move_jitter),
+                str(action.move_curve),
+                int(action.move_tolerance),
+                int(action.move_max_duration_ms),
+            )
+        return
     if action.action_type == ActionType.MOUSE_MOVE_ABS:
         cursor_position_setter = device_runtime.cursor_position_setter
         if cursor_position_setter is not None:

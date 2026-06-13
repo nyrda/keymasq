@@ -211,12 +211,13 @@ Scroll Up or Scroll Down to emit a virtual `REL_WHEEL` pulse.
 
 ### Mouse Move
 
-Move the cursor when the key is pressed. Two modes are available:
+Move the cursor when the key is pressed. Three modes are available:
 
 | Mode | What it does |
 |---|---|
 | **Relative** | Move the cursor by a pixel offset from its current position (e.g. 100 px right, 50 px down). |
 | **Absolute** | Move the cursor to a screen position by first sending a large upper-left reset through the virtual mouse, then sending the configured X/Y offset. |
+| **Natural** | Move toward an absolute screen position by emitting normal relative mouse events over time, checking realtime cursor feedback, and correcting the route until the pointer reaches the configured tolerance or times out. |
 
 Set the X and Y values with the spin buttons, or use **Capture** to select a
 point on screen. On supported platforms (Wayland compositors with slurp),
@@ -224,11 +225,28 @@ Capture opens a crosshair overlay — click anywhere to set the coordinates.
 On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
-Absolute mouse moves are emitted by `keymasqd` through Keymasq's virtual mouse
-device as relative `REL_X`/`REL_Y` events. This keeps them visible as normal
-input to games or other windows that lock the pointer and ignore compositor
-cursor warps. Because this is not a native compositor cursor warp, the final
-position can still depend on how the desktop processes relative pointer motion.
+Absolute and Natural mouse moves are emitted by `keymasqd` through Keymasq's
+virtual mouse device as relative `REL_X`/`REL_Y` events. This keeps them visible
+as normal input to games or other windows that lock the pointer and ignore
+compositor cursor warps. Because these are not native compositor cursor warps,
+the final position can still depend on how the desktop processes relative
+pointer motion.
+
+Natural movement is available only when Keymasq has realtime cursor feedback
+from the active listener, currently GNOME bridge, Hyprland, and X11. It does not
+use slurp-backed cursor capture. Configure its speed, curve, jitter, tolerance,
+and timeout from the Mouse tab or profile TOML:
+
+```toml
+action = "mouse_move_natural_abs"
+x = 640
+y = 480
+speed = 1200.0
+curve = "ease_in_out" # linear, ease_in_out, minimum_jerk
+jitter = 0.3
+tolerance = 2
+max_duration_ms = 3000
+```
 
 For desktop automation on GNOME or Hyprland you can use the compositor action
 **Set Cursor** preset when you need the compositor to place the pointer at an

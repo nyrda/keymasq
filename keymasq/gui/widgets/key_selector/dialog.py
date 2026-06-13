@@ -155,7 +155,12 @@ class KeySelectorDialog(
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
         self._mouse_move_y: int = 0
-        self._mouse_move_mode: str = "rel"
+        self._mouse_move_mode: str = "natural"
+        self._mouse_move_speed: float = 1200.0
+        self._mouse_move_jitter: float = 0.3
+        self._mouse_move_curve: str = "ease_in_out"
+        self._mouse_move_tolerance: int = 2
+        self._mouse_move_max_duration_ms: int = 3000
         self._capture_delay_seconds: float = 2.0
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
@@ -221,11 +226,21 @@ class KeySelectorDialog(
             elif current_action.action_type in (
                 ActionType.MOUSE_MOVE_REL,
                 ActionType.MOUSE_MOVE_ABS,
+                ActionType.MOUSE_MOVE_NATURAL_ABS,
             ):
                 self._mouse_move_x = int(current_action.move_x)
                 self._mouse_move_y = int(current_action.move_y)
                 if current_action.action_type == ActionType.MOUSE_MOVE_ABS:
                     self._mouse_move_mode = "abs"
+                elif current_action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+                    self._mouse_move_mode = "natural"
+                    self._mouse_move_speed = float(current_action.move_speed)
+                    self._mouse_move_jitter = float(current_action.move_jitter)
+                    self._mouse_move_curve = str(current_action.move_curve)
+                    self._mouse_move_tolerance = int(current_action.move_tolerance)
+                    self._mouse_move_max_duration_ms = int(
+                        current_action.move_max_duration_ms
+                    )
         if not self._allow_rapidfire:
             self._rapidfire_enabled = False
         if not self._allow_tap:
@@ -538,6 +553,28 @@ class KeySelectorDialog(
     def _on_mouse_move_map_clicked(self, btn) -> None:
         x = int(self.mouse_move_x_spin.get_value())
         y = int(self.mouse_move_y_spin.get_value())
+        if self.mouse_move_natural_check.get_active():
+            self._warn_and_clear_unsupported_rapidfire(ActionType.MOUSE_MOVE_NATURAL_ABS)
+            curve_index = int(self.mouse_move_curve_dropdown.get_selected())
+            curve_values = ["linear", "ease_in_out", "minimum_jerk"]
+            curve = (
+                curve_values[curve_index]
+                if 0 <= curve_index < len(curve_values)
+                else "ease_in_out"
+            )
+            action = MappingAction(
+                action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+                move_x=x,
+                move_y=y,
+                move_speed=float(self.mouse_move_speed_spin.get_value()),
+                move_jitter=float(self.mouse_move_jitter_spin.get_value()),
+                move_curve=curve,
+                move_tolerance=int(self.mouse_move_tolerance_spin.get_value()),
+                move_max_duration_ms=int(self.mouse_move_duration_spin.get_value()),
+            )
+            self.emit("key-selected", action)
+            self.close()
+            return
         if self.mouse_move_abs_check.get_active():
             action_type = ActionType.MOUSE_MOVE_ABS
         else:
@@ -560,8 +597,12 @@ class KeySelectorDialog(
 
     def _update_mouse_move_mode_visibility(self) -> None:
         is_abs = self.mouse_move_abs_check.get_active()
-        self.mouse_move_capture_row.set_visible(is_abs)
-        if not is_abs:
+        is_natural = self.mouse_move_natural_check.get_active()
+        uses_absolute_target = is_abs or is_natural
+        self.mouse_move_capture_row.set_visible(uses_absolute_target)
+        self.mouse_move_natural_options_row.set_visible(is_natural)
+        self.mouse_move_natural_options_row_2.set_visible(is_natural)
+        if not uses_absolute_target:
             self._cancel_capture_position("")
 
     def _on_capture_position_clicked(self, btn: Gtk.Button) -> None:
@@ -675,6 +716,7 @@ class KeySelectorDialog(
             ActionType.MOUSE: "mouse",
             ActionType.MOUSE_MOVE_REL: "mouse",
             ActionType.MOUSE_MOVE_ABS: "mouse",
+            ActionType.MOUSE_MOVE_NATURAL_ABS: "mouse",
             ActionType.GAMEPAD: "gamepad",
             ActionType.GAMEPAD_AXIS: "gamepad",
             ActionType.MACRO: "macro",

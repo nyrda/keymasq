@@ -237,6 +237,10 @@ class X11Listener(WindowListener):
             _log_x_failure("X11 cursor get failed", exc)
             return None
 
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        return True
+
     async def _listen(self) -> None:
         if self._xdisplay is None:
             return

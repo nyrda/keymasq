@@ -286,6 +286,16 @@ async def get_cursor_position_payload(manager: "SessionManager") -> JsonObject:
     return {"status": "ok", "x": int(pos[0]), "y": int(pos[1])}
 
 
+async def get_realtime_cursor_position_payload(manager: "SessionManager") -> JsonObject:
+    listener = manager.compositor_state.window_listener
+    if listener is None or not listener.supports_realtime_cursor_position:
+        return {
+            "status": "error",
+            "message": "Realtime cursor position is unavailable on this compositor",
+        }
+    return await get_cursor_position_payload(manager)
+
+
 async def compositor_supervisor_loop(manager: "SessionManager") -> None:
     while manager.running:
         try:

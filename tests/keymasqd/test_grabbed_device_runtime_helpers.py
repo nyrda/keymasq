@@ -2803,6 +2803,47 @@ class TestGrabbedDeviceHelpers:
         assert mouse.writes == []
 
     @pytest.mark.asyncio
+    async def test_execute_action_natural_mouse_move_uses_natural_mover(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        natural_mouse_mover = AsyncMock(return_value={"status": "ok"})
+        mouse = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            natural_mouse_mover=natural_mouse_mover,
+            mouse_uinput=mouse,  # type: ignore[arg-type]
+        )
+
+        await gda.execute_action(
+            device,
+            dm.MappingAction(
+                action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+                move_x=10,
+                move_y=20,
+                move_speed=900.0,
+                move_jitter=0.5,
+                move_curve="minimum_jerk",
+                move_tolerance=3,
+                move_max_duration_ms=2500,
+            ),
+            SimpleNamespace(value=1),
+            "move_natural",
+            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+        )
+
+        natural_mouse_mover.assert_awaited_once_with(
+            10,
+            20,
+            900.0,
+            0.5,
+            "minimum_jerk",
+            3,
+            2500,
+        )
+        assert mouse.writes == []
+
+    @pytest.mark.asyncio
     async def test_rapidfire_mouse_move_abs_uses_cursor_position_setter(
         self,
         monkeypatch: pytest.MonkeyPatch,

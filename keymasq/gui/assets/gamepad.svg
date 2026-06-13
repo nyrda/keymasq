@@ -1,55 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="70 100 660 430" width="100%" height="100%">
 
-  <!-- Controller Elements (Drawn back-to-front to layer shapes properly) -->
+  <!-- Stylized Xbox-360-style controller, no branding.
+       Drawn back-to-front: triggers, bumpers, shell, then face details. -->
   <g fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
 
-    <!-- Front Layer: Main Shell Outer Body -->
-    <path d="M 280 170
-             C 330 170, 350 195, 400 195
-             C 450 195, 470 170, 520 170
-             C 610 170, 680 230, 670 380
-             C 660 480, 580 520, 530 480
-             C 480 440, 450 410, 400 410
-             C 350 410, 320 440, 270 480
-             C 220 520, 140 480, 130 380
-             C 120 230, 190 170, 280 170 Z"
+    <!-- Triggers (LT / RT), peeking out from behind the bumpers -->
+    <g stroke-width="6">
+      <path d="M 242 161
+               C 241 154, 241 149, 244 146
+               Q 246 143, 251 143
+               L 261 143
+               Q 266 143, 269 146
+               C 273 150, 277 153, 281 156" />
+      <path d="M 558 161
+               C 559 154, 559 149, 556 146
+               Q 554 143, 549 143
+               L 539 143
+               Q 534 143, 531 146
+               C 527 150, 523 153, 519 156" />
+    </g>
+
+    <!-- Shoulder bumpers (LB / RB), rising off the shell's top edge -->
+    <g stroke-width="6">
+      <path d="M 210 186
+               C 222 166, 244 157, 268 156
+               C 290 155, 304 160, 314 168" />
+      <path d="M 590 186
+               C 578 166, 556 157, 532 156
+               C 510 155, 496 160, 486 168" />
+    </g>
+
+    <!-- Main shell -->
+    <path d="M 400 192
+             C 370 192, 348 168, 292 167
+             C 205 166, 152 218, 138 300
+             C 127 362, 122 432, 147 472
+             C 170 509, 227 514, 263 478
+             C 297 443, 322 410, 400 410
+             C 478 410, 503 443, 537 478
+             C 573 514, 630 509, 653 472
+             C 678 432, 673 362, 662 300
+             C 648 218, 595 166, 508 167
+             C 452 168, 430 192, 400 192 Z"
           stroke-width="8" />
 
-    <!-- Left Analog Stick -->
+    <!-- Left analog stick -->
     <g stroke-width="5">
       <circle cx="260" cy="260" r="42" />
       <circle cx="260" cy="260" r="24" />
     </g>
 
-    <!-- Right Analog Stick (Inside right frame) -->
+    <!-- Right analog stick -->
     <g stroke-width="5">
       <circle cx="490" cy="365" r="42" />
       <circle cx="490" cy="365" r="24" />
     </g>
 
-    <!-- D-Pad (Inside left frame) -->
+    <!-- D-pad -->
     <g transform="translate(310, 365)" stroke-width="5">
       <circle cx="0" cy="0" r="45" />
-      <path d="M -12 -35 L -12 -12 L -35 -12 L -35 12
-               L -12 12 L -12 35 L 12 35 L 12 12
-               L 35 12 L 35 -12 L 12 -12 L 12 -35 Z" />
+      <path d="M -12 -34 L -12 -12 L -34 -12
+               Q -38 -12 -38 -8 L -38 8 Q -38 12 -34 12
+               L -12 12 L -12 34 Q -12 38 -8 38
+               L 8 38 Q 12 38 12 34 L 12 12 L 34 12
+               Q 38 12 38 8 L 38 -8 Q 38 -12 34 -12
+               L 12 -12 L 12 -34 Q 12 -38 8 -38
+               L -8 -38 Q -12 -38 -12 -34 Z" />
     </g>
 
-    <!-- Center Navigation (Start / Back / Guide) -->
+    <!-- Center navigation (Select / Guide / Start) -->
     <g stroke-width="5">
       <circle cx="400" cy="250" r="22" />
       <circle cx="400" cy="250" r="14" />
 
-      <!-- Select / Back Button & Icon -->
       <circle cx="340" cy="250" r="8" />
       <polygon points="323,250 328,246 328,254" fill="#000000" stroke="none" />
 
-      <!-- Start / Forward Button & Icon -->
       <circle cx="460" cy="250" r="8" />
       <polygon points="477,250 472,246 472,254" fill="#000000" stroke="none" />
     </g>
 
-    <!-- Face Buttons (X, Y, A, B) -->
+    <!-- Face buttons (X, Y, A, B) -->
     <g stroke-width="5">
       <circle cx="550" cy="215" r="14" /> <!-- Y -->
       <circle cx="515" cy="250" r="14" /> <!-- X -->
@@ -57,7 +88,7 @@
       <circle cx="550" cy="285" r="14" /> <!-- A -->
     </g>
 
-    <!-- Face Button Text overlay -->
+    <!-- Face button letters -->
     <g fill="#000000" stroke="none" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="16" text-anchor="middle" dominant-baseline="central">
       <text x="550" y="215" dy="1">Y</text>
       <text x="515" y="250" dy="1">X</text>

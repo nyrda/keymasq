@@ -90,6 +90,7 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
         move_tolerance=coerce_int(action_data.get("tolerance"), 2),
         move_max_duration_ms=coerce_int(action_data.get("max_duration_ms"), 3000),
+        move_stop_on_failure=bool_value(action_data.get("stop_on_failure")),
         axis_value=coerce_int(action_data.get("value"), 0),
         rapidfire_enabled=bool_value(action_data.get("rapidfire_enabled")),
         rapidfire_hold_ms=coerce_int(

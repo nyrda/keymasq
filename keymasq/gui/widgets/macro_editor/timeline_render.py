@@ -634,7 +634,9 @@ def _draw_synthetic_move_markers(cr, state: TimelineRenderState, width: int) -> 
         if x < state.LABEL_WIDTH - 4 or x > width + 4:
             continue
 
-        if move.mode == "abs":
+        if move.mode == "natural":
+            cr.set_source_rgba(0.55, 0.75, 1.00, 0.95)
+        elif move.mode == "abs":
             cr.set_source_rgba(0.30, 0.90, 1.00, 0.95)
         else:
             cr.set_source_rgba(1.00, 0.80, 0.20, 0.95)
@@ -654,7 +656,7 @@ def _draw_synthetic_move_markers(cr, state: TimelineRenderState, width: int) -> 
             cr.arc(x, base_y, radius + 2.0, 0, 6.283185307179586)
             cr.stroke()
 
-        label = "A" if move.mode == "abs" else "R"
+        label = "N" if move.mode == "natural" else "A" if move.mode == "abs" else "R"
         extents = cr.text_extents(label)
         cr.set_source_rgba(0.05, 0.05, 0.05, 1.0)
         cr.move_to(x - extents[2] / 2 - extents[0], base_y + extents[3] / 2)

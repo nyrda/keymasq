@@ -462,7 +462,7 @@ def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> Non
     dialog._timeline._selected = move
 
     dialog._on_selection_changed(move)
-    assert dialog._move_capture_row.get_visible() is True
+    assert dialog._move_capture_btn.get_visible() is True
 
     dialog._on_capture_selected_move_clicked(dialog._move_capture_btn)
     assert dialog._test_slurp.capture_callback is not None
@@ -479,6 +479,29 @@ def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> Non
     assert dialog._move_x_spin.get_value_as_int() == 640
     assert dialog._move_y_spin.get_value_as_int() == 480
     assert dialog._move_capture_status.get_text() == "Captured: 640, 480"
+
+
+def test_macro_editor_move_modify_button_only_for_natural(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
+
+    rel_move = EditableMove(mode="rel", t_us=5000, x=10, y=20)
+    dialog._timeline._selected = rel_move
+    dialog._on_selection_changed(rel_move)
+    assert dialog._change_key_btn.get_visible() is False
+    assert dialog._move_capture_btn.get_visible() is False
+
+    abs_move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
+    dialog._timeline._selected = abs_move
+    dialog._on_selection_changed(abs_move)
+    assert dialog._change_key_btn.get_visible() is False
+    assert dialog._move_capture_btn.get_visible() is True
+
+    natural_move = EditableMove(mode="natural", t_us=5000, x=10, y=20)
+    dialog._timeline._selected = natural_move
+    dialog._on_selection_changed(natural_move)
+    assert dialog._change_key_btn.get_visible() is True
+    assert dialog._change_key_btn.get_label() == "Modify Move"
+    assert dialog._move_capture_btn.get_visible() is True
 
 
 def test_macro_editor_repeated_abs_move_capture_updates_every_run(monkeypatch) -> None:
@@ -1278,7 +1301,11 @@ def test_macro_editor_add_move_selects_zeroed_event_for_editing(monkeypatch) -> 
     dialog = _build_macro_dialog(monkeypatch)
     dialog._duration_us = 2_000_000
 
-    dialog._on_add_move_rel(None)
+    dialog._on_mouse_move_selected_for_insert(
+        Gtk.Box(),
+        MappingAction(action_type=ActionType.MOUSE_MOVE_REL),
+        1_000_000,
+    )
 
     rel_move = dialog._synthetic_moves[0]
     assert rel_move.mode == "rel"
@@ -1298,7 +1325,7 @@ def test_macro_editor_add_move_selects_zeroed_event_for_editing(monkeypatch) -> 
     assert abs_move.x == 0
     assert abs_move.y == 0
     assert dialog._timeline._selected is abs_move
-    assert dialog._move_capture_row.get_visible() is True
+    assert dialog._move_capture_btn.get_visible() is True
 
 
 def test_macro_editor_add_key_dialog_starts_on_requested_device_type(monkeypatch) -> None:

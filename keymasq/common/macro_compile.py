@@ -552,7 +552,11 @@ def _parse_non_negative_int(value: str, label: str) -> int:
 def _infer_device_types(events: list[JsonObject]) -> list[str]:
     found: list[str] = []
     for event in events:
-        if str(event.get("macro_action", "") or "") in {"mouse_move_abs", "mouse_move_rel"}:
+        if str(event.get("macro_action", "") or "") in {
+            "mouse_move_abs",
+            "mouse_move_rel",
+            "mouse_move_natural_abs",
+        }:
             if "mouse" not in found:
                 found.append("mouse")
             continue

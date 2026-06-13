@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, cast, overload
 
-from keymasq.common.coercion import coerce_int
+from keymasq.common.coercion import bool_value, coerce_int
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 
 if TYPE_CHECKING:
@@ -511,6 +511,7 @@ class MappingAction:
     move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
     move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
     move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
+    move_stop_on_failure: bool = False
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -577,6 +578,7 @@ class MappingAction:
             self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
             self.move_tolerance = max(0, int(self.move_tolerance))
             self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
+            self.move_stop_on_failure = bool_value(self.move_stop_on_failure)
 
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
@@ -840,6 +842,7 @@ class SuperkeyAction:
     move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
     move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
     move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
+    move_stop_on_failure: bool = False
 
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
@@ -885,6 +888,7 @@ class SuperkeyAction:
             self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
             self.move_tolerance = max(0, int(self.move_tolerance))
             self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
+            self.move_stop_on_failure = bool_value(self.move_stop_on_failure)
 
 
 SUPERKEY_ACTION_SHARED_FIELDS = (
@@ -918,6 +922,7 @@ SUPERKEY_ACTION_SHARED_FIELDS = (
     "move_curve",
     "move_tolerance",
     "move_max_duration_ms",
+    "move_stop_on_failure",
     "rapidfire_enabled",
     "rapidfire_hold_ms",
     "rapidfire_wait_ms",

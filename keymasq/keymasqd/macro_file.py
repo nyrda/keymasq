@@ -208,4 +208,16 @@ def _duration_us(events: list[MacroEvent]) -> int:
 
 
 def _device_types(events: list[MacroEvent]) -> list[str]:
-    return sorted({str(event.get("device_type", "other")) for event in events})
+    device_types: set[str] = set()
+    for event in events:
+        if str(event.get("macro_action", "") or "") in {
+            "mouse_move_abs",
+            "mouse_move_rel",
+            "mouse_move_natural_abs",
+        }:
+            device_types.add("mouse")
+            continue
+        device_type = str(event.get("device_type", "other"))
+        if device_type != "macro":
+            device_types.add(device_type)
+    return sorted(device_types)

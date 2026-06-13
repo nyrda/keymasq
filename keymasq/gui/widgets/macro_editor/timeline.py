@@ -676,9 +676,7 @@ class TimelineWidget(Gtk.DrawingArea):
 
             def _add_click(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                rect = Gdk.Rectangle()
-                rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-                self._editor._show_add_click_popover(self, default_t_us=_t, pointing_to=rect)
+                self._editor._present_add_key_dialog(default_t_us=_t, device_type="mouse")
 
             add_btn.connect("clicked", _add_click)
             box.append(add_btn)
@@ -695,25 +693,15 @@ class TimelineWidget(Gtk.DrawingArea):
             box.append(add_btn)
 
         elif track == "movement":
-            add_rel_btn = Gtk.Button(label=f"Add Move REL at {t_label}")
-            add_rel_btn.add_css_class("flat")
+            add_move_btn = Gtk.Button(label=f"Add Mouse Move at {t_label}")
+            add_move_btn.add_css_class("flat")
 
-            def _add_rel(_b, _t=t_us, _p=popover):
+            def _add_move(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                self._editor._insert_move_event("rel", default_t_us=_t)
+                self._editor._present_mouse_move_dialog(default_t_us=_t)
 
-            add_rel_btn.connect("clicked", _add_rel)
-            box.append(add_rel_btn)
-
-            add_abs_btn = Gtk.Button(label=f"Add Move ABS at {t_label}")
-            add_abs_btn.add_css_class("flat")
-
-            def _add_abs(_b, _t=t_us, _p=popover):
-                _p.popdown()
-                self._editor._insert_move_event("abs", default_t_us=_t)
-
-            add_abs_btn.connect("clicked", _add_abs)
-            box.append(add_abs_btn)
+            add_move_btn.connect("clicked", _add_move)
+            box.append(add_move_btn)
 
         if track in ("keyboard", "mouse", "gamepad", "movement"):
             if box.get_first_child():

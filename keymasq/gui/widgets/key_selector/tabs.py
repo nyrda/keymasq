@@ -109,7 +109,12 @@ def _ensure_compact_tabs_css() -> None:
 
 class SharedInputTabsMixin:
     _include_keyboard_capture_controls = False
+    _include_mpris_controls = True
+    _include_mouse_button_controls = True
+    _include_mouse_scroll_controls = True
     _include_mouse_move_controls = False
+    _include_mouse_move_failure_controls = False
+    _mouse_move_commit_label = "Map Move"
     _include_tap_options = False
     _gamepad_output_selector_mode = "inline"
 
@@ -290,7 +295,7 @@ class SharedInputTabsMixin:
         return build_shared_media_tab(
             self,
             media_groups=MEDIA_KEY_GROUPS,
-            mpris_groups=MPRIS_MEDIA_GROUPS,
+            mpris_groups=MPRIS_MEDIA_GROUPS if self._include_mpris_controls else None,
         )
 
     def _build_mouse_tab(self) -> Gtk.Widget:
@@ -298,7 +303,8 @@ class SharedInputTabsMixin:
         if not self._include_mouse_move_controls:
             return box
 
-        box.append(Gtk.Separator())
+        if self._include_mouse_button_controls or self._include_mouse_scroll_controls:
+            box.append(Gtk.Separator())
 
         move_label = Gtk.Label(label="Move Cursor")
         move_label.add_css_class("heading")
@@ -357,7 +363,7 @@ class SharedInputTabsMixin:
         self.mouse_move_y_spin.set_width_chars(6)
         coords_row.append(self.mouse_move_y_spin)
 
-        move_map_btn = Gtk.Button(label="Map Move")
+        move_map_btn = Gtk.Button(label=self._mouse_move_commit_label)
         move_map_btn.add_css_class("suggested-action")
         move_map_btn.connect("clicked", self._on_mouse_move_map_clicked)
         move_map_btn.set_margin_start(4)
@@ -511,6 +517,19 @@ class SharedInputTabsMixin:
 
         self.mouse_move_natural_options_row_2 = natural_row_2
         box.append(self.mouse_move_natural_options_row_2)
+
+        self.mouse_move_stop_on_failure_check = Gtk.CheckButton(
+            label="Stop macro if target can't be reached"
+        )
+        self.mouse_move_stop_on_failure_check.set_active(self._mouse_move_stop_on_failure)
+        self.mouse_move_stop_on_failure_check.set_tooltip_text(
+            "During macro playback, abort the current macro run if natural movement times out"
+        )
+        self.mouse_move_stop_on_failure_check.set_halign(Gtk.Align.CENTER)
+        self.mouse_move_stop_on_failure_check.set_visible(
+            self._include_mouse_move_failure_controls
+        )
+        box.append(self.mouse_move_stop_on_failure_check)
 
         self._update_mouse_move_mode_visibility()
 

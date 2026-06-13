@@ -325,6 +325,7 @@ The editor lets you insert several kinds of events into the timeline:
 | **Gamepad button** | Press or release of a gamepad button. Routed events can target a configured virtual or hardware gamepad output. |
 | **Relative mouse movement** | Move the pointer by a delta (pixels). Useful for macros that should work regardless of where the cursor starts. |
 | **Absolute mouse movement** | Move the pointer to an exact screen coordinate. Useful when a macro always targets a fixed UI element. |
+| **Natural mouse movement** | Move toward an exact screen coordinate with the same natural movement engine used by mappings. Playback waits for the move to finish before continuing. |
 | **Wait** | Pause macro playback for a fixed duration. The editor stores it at its timestamp and does not move later events. |
 | **Wait (random)** | Pause macro playback for a random duration in a configured range. The editor stores it at its timestamp and does not estimate the eventual delay. |
 | **Exec (synchronous)** | Run an external program and wait for it to finish before the macro continues. Macro playback is paused until the process exits. |
@@ -350,6 +351,12 @@ compositor listener with compositor dispatch enabled.
 
 Playback errors are silent — if a macro fails mid-sequence (for example, the
 target device is gone), the GUI won't notify you.
+
+Natural mouse move events are stored at a single timestamp. During playback,
+`keymasqd` runs the movement to completion, then shifts later event deadlines
+back by the actual elapsed move time. Enable **Stop macro if target can't be
+reached** on a natural move when later clicks or key presses should not run
+after a timeout or missing cursor feedback.
 
 ### Wait Controls
 

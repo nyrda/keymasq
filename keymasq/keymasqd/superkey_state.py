@@ -83,6 +83,7 @@ class SuperkeyActionData:
     move_curve: str = "ease_in_out"
     move_tolerance: int = 2
     move_max_duration_ms: int = 3000
+    move_stop_on_failure: bool = False
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20

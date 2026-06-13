@@ -186,6 +186,47 @@ def test_parse_reconstruct_macro_move_actions_separate_from_waveform() -> None:
     ]
 
 
+def test_parse_reconstruct_natural_mouse_move_action() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 200,
+            "macro_action": "mouse_move_natural_abs",
+            "x": 300,
+            "y": 200,
+            "speed": 1500.0,
+            "jitter": 0.5,
+            "curve": "minimum_jerk",
+            "tolerance": 3,
+            "max_duration_ms": 2500,
+            "stop_on_failure": True,
+        },
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    assert editable == []
+    assert rel_events == []
+    assert passthrough == []
+    assert control_events == []
+    assert len(synthetic_moves) == 1
+    move = synthetic_moves[0]
+    assert move.mode == "natural"
+    assert move.x == 300
+    assert move.y == 200
+    assert move.speed == 1500.0
+    assert move.jitter == 0.5
+    assert move.curve == "minimum_jerk"
+    assert move.tolerance == 3
+    assert move.max_duration_ms == 2500
+    assert move.stop_on_failure is True
+
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+    assert rebuilt == raw
+
+
 def test_parse_reconstruct_preserves_wait_controls() -> None:
     raw = [
         {

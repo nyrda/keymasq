@@ -386,53 +386,58 @@ def build_mouse_tab(owner) -> Gtk.Box:
     box.set_margin_end(16)
     box.set_valign(Gtk.Align.CENTER)
 
-    btn_row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    btn_row1.set_halign(Gtk.Align.CENTER)
+    include_buttons = bool(getattr(owner, "_include_mouse_button_controls", True))
+    include_scroll = bool(getattr(owner, "_include_mouse_scroll_controls", True))
 
-    btn_label1 = Gtk.Label(label="Buttons:")
-    btn_row1.append(btn_label1)
+    if include_buttons:
+        btn_row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row1.set_halign(Gtk.Align.CENTER)
 
-    for label, evdev_id in [
-        ("Left", "btn_left"),
-        ("Middle", "btn_middle"),
-        ("Right", "btn_right"),
-    ]:
-        btn = owner._create_key_button(label, evdev_id)
-        btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
-        btn_row1.append(btn)
+        btn_label1 = Gtk.Label(label="Buttons:")
+        btn_row1.append(btn_label1)
 
-    box.append(btn_row1)
+        for label, evdev_id in [
+            ("Left", "btn_left"),
+            ("Middle", "btn_middle"),
+            ("Right", "btn_right"),
+        ]:
+            btn = owner._create_key_button(label, evdev_id)
+            btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
+            btn_row1.append(btn)
 
-    btn_row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    btn_row2.set_halign(Gtk.Align.CENTER)
+        box.append(btn_row1)
 
-    extras_label = Gtk.Label(label="Extras:")
-    btn_row2.append(extras_label)
+        btn_row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row2.set_halign(Gtk.Align.CENTER)
 
-    for label, evdev_id in [("Forward", "btn_extra"), ("Back", "btn_side")]:
-        btn = owner._create_key_button(label, evdev_id)
-        btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
-        btn_row2.append(btn)
+        extras_label = Gtk.Label(label="Extras:")
+        btn_row2.append(extras_label)
 
-    box.append(btn_row2)
+        for label, evdev_id in [("Forward", "btn_extra"), ("Back", "btn_side")]:
+            btn = owner._create_key_button(label, evdev_id)
+            btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
+            btn_row2.append(btn)
 
-    scroll_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    scroll_row.set_halign(Gtk.Align.CENTER)
+        box.append(btn_row2)
 
-    scroll_label = Gtk.Label(label="Scroll:")
-    scroll_row.append(scroll_label)
+    if include_scroll:
+        scroll_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        scroll_row.set_halign(Gtk.Align.CENTER)
 
-    for label, evdev_id in [
-        ("↑", "rel_wheel:1"),
-        ("↓", "rel_wheel:-1"),
-        ("←", "rel_hwheel:-1"),
-        ("→", "rel_hwheel:1"),
-    ]:
-        btn = owner._create_key_button(label, evdev_id)
-        btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
-        scroll_row.append(btn)
+        scroll_label = Gtk.Label(label="Scroll:")
+        scroll_row.append(scroll_label)
 
-    box.append(scroll_row)
+        for label, evdev_id in [
+            ("↑", "rel_wheel:1"),
+            ("↓", "rel_wheel:-1"),
+            ("←", "rel_hwheel:-1"),
+            ("→", "rel_hwheel:1"),
+        ]:
+            btn = owner._create_key_button(label, evdev_id)
+            btn.connect("clicked", owner._on_mouse_clicked, evdev_id)
+            scroll_row.append(btn)
+
+        box.append(scroll_row)
 
     return box
 

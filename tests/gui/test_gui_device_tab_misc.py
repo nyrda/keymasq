@@ -2808,6 +2808,7 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     results: list[MappingAction] = []
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
 
+    dialog.stack.set_visible_child_name("mouse")
     dialog.mouse_move_abs_check.set_active(True)
     dialog._on_mouse_move_mode_changed(dialog.mouse_move_abs_check)
     dialog._on_capture_position_clicked(Gtk.Button())
@@ -2815,8 +2816,10 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     assert dialog.mouse_move_x_spin.get_value_as_int() == 640
     assert dialog.mouse_move_y_spin.get_value_as_int() == 480
     assert dialog.mouse_move_capture_status.get_text() == "Captured: 640, 480"
+    assert dialog.map_btn.get_visible() is True
+    assert dialog.map_btn.get_label() == "Map Move"
 
-    dialog._on_mouse_move_map_clicked(None)
+    dialog._on_map_clicked(dialog.map_btn)
 
     assert len(results) == 1
     assert results[0].action_type == ActionType.MOUSE_MOVE_ABS

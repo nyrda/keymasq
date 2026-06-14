@@ -540,6 +540,7 @@ class KeySelectorDialog(
         is_analog_only = is_analog_control or is_analog_presets
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
+        is_mouse_move = child_name == "mouse" and self._include_mouse_move_controls
         is_exec = child_name == "exec"
         is_gamepad = child_name == "gamepad"
         is_media = child_name == "media"
@@ -560,7 +561,10 @@ class KeySelectorDialog(
         self.options_box.set_sensitive(show_options)
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
-        self.map_btn.set_visible(is_superkey or is_analog_control or is_macro or is_profile)
+        self.map_btn.set_visible(
+            is_superkey or is_analog_control or is_macro or is_profile or is_mouse_move
+        )
+        self.map_btn.set_label(self._mouse_move_commit_label if is_mouse_move else "Map")
         if self._cancel_macro_playback_btn is not None:
             self._cancel_macro_playback_btn.set_visible(is_macro)
         if is_superkey:
@@ -571,6 +575,8 @@ class KeySelectorDialog(
             self.map_btn.set_sensitive(self._selected_macro is not None)
         elif is_profile:
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
+        elif is_mouse_move:
+            self.map_btn.set_sensitive(True)
         else:
             self.map_btn.set_sensitive(False)
         if self._gamepad_output_header is not None:
@@ -737,6 +743,8 @@ class KeySelectorDialog(
             self._on_macro_map_clicked(btn)
         elif child_name == "profile":
             self._on_profile_map_clicked(btn)
+        elif child_name == "mouse":
+            self._on_mouse_move_map_clicked(btn)
 
     def _set_initial_tab(self):
         if self._initial_tab and self._tab_allowed(self._initial_tab):

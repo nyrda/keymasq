@@ -310,9 +310,16 @@ class SharedInputTabsMixin:
         if self._include_mouse_button_controls or self._include_mouse_scroll_controls:
             box.append(Gtk.Separator())
 
+        move_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        move_header.set_halign(Gtk.Align.CENTER)
         move_label = Gtk.Label(label="Move Cursor")
         move_label.add_css_class("heading")
-        box.append(move_label)
+        move_header.append(move_label)
+        self.mouse_move_capture_status = Gtk.Label(label="")
+        self.mouse_move_capture_status.add_css_class("dim-label")
+        self.mouse_move_capture_status.set_halign(Gtk.Align.START)
+        move_header.append(self.mouse_move_capture_status)
+        box.append(move_header)
 
         # Mode selector. Natural is the default and leads the group.
         mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -346,40 +353,15 @@ class SharedInputTabsMixin:
 
         box.append(mode_row)
 
-        # Target coordinates and the commit button, kept together so Capture
-        # sits right beside the X/Y fields it fills in.
+        # Target coordinates, kept together so Capture sits beside the X/Y
+        # fields it fills in while the commit action stays in the footer.
         coords_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         coords_row.set_halign(Gtk.Align.CENTER)
 
-        coords_row.append(Gtk.Label(label="X"))
-        self.mouse_move_x_spin = Gtk.SpinButton()
-        self.mouse_move_x_spin.set_adjustment(
-            Gtk.Adjustment(value=self._mouse_move_x, lower=-10000, upper=10000, step_increment=1)
-        )
-        self.mouse_move_x_spin.set_width_chars(6)
-        coords_row.append(self.mouse_move_x_spin)
-
-        coords_row.append(Gtk.Label(label="Y"))
-        self.mouse_move_y_spin = Gtk.SpinButton()
-        self.mouse_move_y_spin.set_adjustment(
-            Gtk.Adjustment(value=self._mouse_move_y, lower=-10000, upper=10000, step_increment=1)
-        )
-        self.mouse_move_y_spin.set_width_chars(6)
-        coords_row.append(self.mouse_move_y_spin)
-
-        move_map_btn = Gtk.Button(label=self._mouse_move_commit_label)
-        move_map_btn.add_css_class("suggested-action")
-        move_map_btn.connect("clicked", self._on_mouse_move_map_clicked)
-        move_map_btn.set_margin_start(4)
-        coords_row.append(move_map_btn)
-
-        box.append(coords_row)
-
         capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        capture_row.set_halign(Gtk.Align.CENTER)
 
         if not self._slurp_available:
-            delay_label = Gtk.Label(label="Capture in:")
+            delay_label = Gtk.Label(label="In:")
             capture_row.append(delay_label)
 
         self.mouse_move_capture_delay_spin = Gtk.SpinButton()
@@ -400,19 +382,31 @@ class SharedInputTabsMixin:
             delay_suffix = Gtk.Label(label="s")
             capture_row.append(delay_suffix)
 
-        btn_label = "Capture" if self._slurp_available else "Capture Position"
-        self.mouse_move_capture_btn = Gtk.Button(label=btn_label)
+        self.mouse_move_capture_btn = Gtk.Button(label="Capture")
         self.mouse_move_capture_btn.set_tooltip_text("Read the current cursor position into X/Y")
         self.mouse_move_capture_btn.connect("clicked", self._on_capture_position_clicked)
         capture_row.append(self.mouse_move_capture_btn)
 
-        self.mouse_move_capture_status = Gtk.Label(label="")
-        self.mouse_move_capture_status.add_css_class("dim-label")
-        self.mouse_move_capture_status.set_halign(Gtk.Align.START)
-        capture_row.append(self.mouse_move_capture_status)
-
         self.mouse_move_capture_row = capture_row
-        box.append(self.mouse_move_capture_row)
+        coords_row.append(self.mouse_move_capture_row)
+
+        coords_row.append(Gtk.Label(label="X"))
+        self.mouse_move_x_spin = Gtk.SpinButton()
+        self.mouse_move_x_spin.set_adjustment(
+            Gtk.Adjustment(value=self._mouse_move_x, lower=-10000, upper=10000, step_increment=1)
+        )
+        self.mouse_move_x_spin.set_width_chars(6)
+        coords_row.append(self.mouse_move_x_spin)
+
+        coords_row.append(Gtk.Label(label="Y"))
+        self.mouse_move_y_spin = Gtk.SpinButton()
+        self.mouse_move_y_spin.set_adjustment(
+            Gtk.Adjustment(value=self._mouse_move_y, lower=-10000, upper=10000, step_increment=1)
+        )
+        self.mouse_move_y_spin.set_width_chars(6)
+        coords_row.append(self.mouse_move_y_spin)
+
+        box.append(coords_row)
 
         # Natural-only tuning, laid out as an aligned label/value grid.
         natural_row = Gtk.Grid(column_spacing=10, row_spacing=8)

@@ -119,6 +119,41 @@ async def test_get_cursor_position_bounds_timeout_by_tracking_hint(
 
 
 @pytest.mark.asyncio
+async def test_move_cursor_natural_stops_cursor_tracking_after_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    async def move_cursor_naturally(**_kwargs: object) -> JsonObject:
+        return {"status": "ok"}
+
+    monkeypatch.setattr(dm.runtime_natural_mouse, "move_cursor_naturally", move_cursor_naturally)
+
+    assert await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500) == {
+        "status": "ok"
+    }
+    broadcast.assert_awaited_once_with(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
+
+
+@pytest.mark.asyncio
+async def test_move_cursor_natural_stops_cursor_tracking_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    async def move_cursor_naturally(**_kwargs: object) -> JsonObject:
+        raise RuntimeError("move failed")
+
+    monkeypatch.setattr(dm.runtime_natural_mouse, "move_cursor_naturally", move_cursor_naturally)
+
+    with pytest.raises(RuntimeError, match="move failed"):
+        await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500)
+    broadcast.assert_awaited_once_with(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
+
+
+@pytest.mark.asyncio
 async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> None:
     manager = DeviceManager()
     manager.topology_state.live_snapshot = {

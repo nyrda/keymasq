@@ -902,6 +902,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     assert to_thread_calls[0][0].__name__ == "_prepare_macro_store"
     macro_store.ensure.assert_called_once()
     macro_store.register_internal.assert_called_once()
+    assert macro_store.register_internal.call_args.args[0] == "__cursor_position_trigger"
     recording_manager.cleanup_spool_dir.assert_called_once()
     recording_manager.load_persisted_slot_recordings.assert_awaited_once()
     device_manager.initialize_output_devices.assert_called_once()

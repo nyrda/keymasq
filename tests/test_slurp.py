@@ -87,6 +87,15 @@ def test_slurp_capture_available_with_niri_is_enabled() -> None:
     assert capture.available is True
 
 
+def test_slurp_capture_available_with_layer_shell_fallback_is_enabled() -> None:
+    capture = SlurpCapture()
+    capture._slurp_path = "/usr/bin/slurp"
+    capture._available = None
+    capture.set_compositor("wayland-layer-shell")
+
+    assert capture.available is True
+
+
 @pytest.mark.parametrize(
     ("slurp_path", "compositor_id"),
     [

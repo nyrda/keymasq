@@ -9,6 +9,7 @@ from keymasq.session.listeners.cosmic import CosmicListener
 from keymasq.session.listeners.gnome import GnomeListener
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.listeners.kde import KDEListener
+from keymasq.session.listeners.layer_shell import LayerShellCursorListener
 from keymasq.session.listeners.niri import NiriListener
 from keymasq.session.listeners.wayland_wlr import WlrootsWaylandListener
 from keymasq.session.listeners.x11 import X11Listener
@@ -22,6 +23,7 @@ type CompositorListener = (
     | type[GnomeListener]
     | type[HyprlandListener]
     | type[KDEListener]
+    | type[LayerShellCursorListener]
     | type[NiriListener]
     | type[WlrootsWaylandListener]
     | type[X11Listener]
@@ -78,6 +80,13 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
         "capabilities": [],
         "listener": WlrootsWaylandListener,
         "probe_order": 60,
+    },
+    "wayland-layer-shell": {
+        "env": "WAYLAND_DISPLAY",
+        "name": "Wayland Layer Shell",
+        "capabilities": [],
+        "listener": LayerShellCursorListener,
+        "probe_order": 65,
     },
     "x11": {
         "env": "DISPLAY",

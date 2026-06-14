@@ -7,6 +7,7 @@ from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list_client import (
     ExtForeignToplevelListWaylandClient,
 )
+from keymasq.session.wayland_protocols.layer_shell_cursor import LayerShellCursorTracker
 from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WlrForeignToplevelWaylandClient,
 )
@@ -18,6 +19,7 @@ from keymasq.session.wayland_protocols.wlr_foreign_toplevel_manager import (
 __all__ = [
     "ExtForeignToplevelListTracker",
     "ExtForeignToplevelListWaylandClient",
+    "LayerShellCursorTracker",
     "CosmicToplevelInfoWaylandClient",
     "WLR_TOPLEVEL_STATE_ACTIVATED",
     "WlrForeignToplevelManagerTracker",

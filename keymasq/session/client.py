@@ -116,7 +116,12 @@ class KeymasqdClient:
 
         elif response.status == "event":
             try:
-                event_type = CommandType(response.data.get("command"))
+                raw_command = response.data.get("command")
+                try:
+                    event_type = CommandType(raw_command)
+                except ValueError:
+                    log.warning("Ignoring unknown daemon event: %s", raw_command)
+                    return
                 data = response.data.get("data", {})
                 await self.event_handler(event_type, data)
             except Exception as e:

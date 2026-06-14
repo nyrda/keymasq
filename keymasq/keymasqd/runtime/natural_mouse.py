@@ -13,6 +13,10 @@ from keymasq.keymasqd.runtime.adapters import WritableUInput
 _DEFAULT_TICK_HZ = 120.0
 _EDGE_FOLLOW_RETRY_S = 0.09
 _STUCK_FRAME_LIMIT = 8
+_APPROACH_BRAKE_FRACTION = 0.55
+_JITTER_BRAKE_FRACTION = 0.25
+_GAIN_SMOOTHING = 0.35
+_MAX_RESPONSE_GAIN = 8.0
 
 
 class CursorPositionGetter(Protocol):
@@ -92,6 +96,7 @@ async def move_cursor_naturally(
     mode_retry_at = started_at
     stuck_frames = 0
     emitted_frames = 0
+    response_gain = 1.0
 
     while loop.time() <= deadline:
         distance = distance_to_target(position, target)
@@ -118,12 +123,22 @@ async def move_cursor_naturally(
             1.0,
             config.speed_px_s * tick_s * _curve_velocity_scale(config.curve, progress),
         )
+        step_px = _reliable_approach_step_px(
+            step_px,
+            distance=distance,
+            tolerance=config.tolerance_px,
+            response_gain=response_gain,
+        )
         move_x_f = direction_x * step_px
         move_y_f = direction_y * step_px
         move_x_f, move_y_f = _apply_perpendicular_jitter(
             move_x_f,
             move_y_f,
-            config.jitter_px,
+            _effective_jitter_px(
+                config.jitter_px,
+                distance=distance,
+                tolerance=config.tolerance_px,
+            ),
         )
         move_x, move_y, residual_x, residual_y = _quantize_move(
             move_x_f,
@@ -159,6 +174,14 @@ async def move_cursor_naturally(
             stuck_frames += 1
         else:
             stuck_frames = 0
+
+        response_gain = _updated_response_gain(
+            response_gain=response_gain,
+            requested_dx=move_x,
+            requested_dy=move_y,
+            actual_dx=actual_dx,
+            actual_dy=actual_dy,
+        )
 
         mode, mode_retry_at = _next_route_mode(
             mode=mode,
@@ -220,6 +243,59 @@ def _curve_velocity_scale(curve: str, progress: float) -> float:
         # derivative of 10t^3 - 15t^4 + 6t^5, normalized near a 1.0 peak.
         return max(0.18, (30.0 * progress * progress * (1.0 - progress) ** 2) / 1.875)
     return 1.0
+
+
+def _reliable_approach_step_px(
+    nominal_step_px: float,
+    *,
+    distance: float,
+    tolerance: int,
+    response_gain: float,
+) -> float:
+    remaining = max(1.0, float(distance) - float(max(0, tolerance)))
+    brake_step = max(1.0, remaining * _APPROACH_BRAKE_FRACTION)
+    gain = max(1.0, min(_MAX_RESPONSE_GAIN, float(response_gain)))
+    return max(1.0, min(float(nominal_step_px), brake_step) / gain)
+
+
+def _effective_jitter_px(jitter_px: float, *, distance: float, tolerance: int) -> float:
+    if jitter_px <= 0.0:
+        return 0.0
+    remaining = max(0.0, float(distance) - float(max(0, tolerance)))
+    return min(float(jitter_px), remaining * _JITTER_BRAKE_FRACTION)
+
+
+def _updated_response_gain(
+    *,
+    response_gain: float,
+    requested_dx: int,
+    requested_dy: int,
+    actual_dx: int,
+    actual_dy: int,
+) -> float:
+    requested_distance = math.hypot(float(requested_dx), float(requested_dy))
+    if requested_distance <= 0.0:
+        return response_gain
+
+    actual_along_request = (
+        float(actual_dx * requested_dx + actual_dy * requested_dy) / requested_distance
+    )
+    if actual_along_request <= 0.0:
+        return response_gain
+
+    observed_gain = actual_along_request / requested_distance
+    if not math.isfinite(observed_gain):
+        return response_gain
+
+    observed_gain = max(1.0, min(_MAX_RESPONSE_GAIN, observed_gain))
+    return max(
+        1.0,
+        min(
+            _MAX_RESPONSE_GAIN,
+            (float(response_gain) * (1.0 - _GAIN_SMOOTHING))
+            + (observed_gain * _GAIN_SMOOTHING),
+        ),
+    )
 
 
 def _direction_for_mode(mode: str, error_x: int, error_y: int) -> tuple[float, float]:

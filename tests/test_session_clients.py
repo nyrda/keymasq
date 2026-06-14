@@ -62,6 +62,32 @@ def test_keymasqd_client_handle_response_dispatches_event() -> None:
     asyncio.run(_run())
 
 
+def test_keymasqd_client_handle_response_ignores_unknown_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _run() -> None:
+        calls: list[tuple[CommandType, dict[str, Any]]] = []
+
+        async def _event_handler(event_type: CommandType, data: dict[str, Any]) -> None:
+            calls.append((event_type, data))
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        response = Response(
+            status="event",
+            data={
+                "command": "newer_daemon_event",
+                "data": {"ok": True},
+            },
+        )
+        with caplog.at_level(logging.WARNING, logger="keymasq-session.client"):
+            await client._handle_response(response)
+
+        assert calls == []
+        assert "Ignoring unknown daemon event: newer_daemon_event" in caplog.text
+
+    asyncio.run(_run())
+
+
 def test_keymasqd_client_listen_loop_skips_discarded_response_frame() -> None:
     async def _run() -> None:
         calls: list[tuple[CommandType, dict[str, Any]]] = []

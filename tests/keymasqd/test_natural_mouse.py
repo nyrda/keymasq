@@ -47,6 +47,15 @@ class OffsetDisplayMouse(TrackingMouse):
         self.pending = [0, 0]
 
 
+class AcceleratedMouse(TrackingMouse):
+    def syn(self) -> None:
+        factor_x = 3 if abs(self.pending[0]) >= 2 else 1
+        factor_y = 3 if abs(self.pending[1]) >= 2 else 1
+        self.position[0] += self.pending[0] * factor_x
+        self.position[1] += self.pending[1] * factor_y
+        self.pending = [0, 0]
+
+
 @pytest.mark.asyncio
 async def test_natural_mouse_move_reaches_target_with_relative_events() -> None:
     mouse = TrackingMouse()
@@ -101,6 +110,34 @@ async def test_natural_mouse_move_follows_edge_when_axis_is_clipped() -> None:
     assert result["status"] == "ok"
     assert result["reached"] is True
     assert mouse.position == [10, 10]
+
+
+@pytest.mark.asyncio
+async def test_natural_mouse_move_brakes_when_relative_motion_is_accelerated() -> None:
+    mouse = AcceleratedMouse()
+
+    async def get_position(**_kwargs: object) -> tuple[int, int]:
+        return mouse.position[0], mouse.position[1]
+
+    result = await move_cursor_naturally(
+        uinput=mouse,
+        target_x=80,
+        target_y=0,
+        get_cursor_position=get_position,
+        config=NaturalMouseMoveConfig(
+            speed_px_s=12000,
+            jitter_px=0,
+            curve="linear",
+            tolerance_px=1,
+            max_duration_ms=1000,
+        ),
+        asyncio_mod=FastAsyncio(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["reached"] is True
+    assert abs(mouse.position[0] - 80) <= 1
+    assert mouse.position[1] == 0
 
 
 @pytest.mark.asyncio

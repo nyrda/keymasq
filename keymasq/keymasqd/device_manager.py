@@ -1523,6 +1523,14 @@ class DeviceManager:
         future.set_result(data)
         return {"status": "ok", "matched": True}
 
+    async def stop_cursor_position_tracking(self) -> None:
+        if self.broadcast_callback is None:
+            return
+        try:
+            await self.broadcast_callback(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
+        except (ConnectionError, OSError, RuntimeError, TimeoutError, TypeError):
+            log.debug("Failed to broadcast cursor position tracking stop", exc_info=True)
+
     async def move_cursor_natural(
         self,
         x: int,
@@ -1534,20 +1542,26 @@ class DeviceManager:
         max_duration_ms: int,
     ) -> JsonObject:
         async with self._cursor_move_lock:
-            return await runtime_natural_mouse.move_cursor_naturally(
-                uinput=cast(runtime_adapters.WritableUInput | None, self.output_state.mouse_uinput),
-                target_x=int(x),
-                target_y=int(y),
-                get_cursor_position=self.get_cursor_position,
-                config=runtime_natural_mouse.NaturalMouseMoveConfig(
-                    speed_px_s=float(speed),
-                    jitter_px=float(jitter),
-                    curve=str(curve),
-                    tolerance_px=int(tolerance),
-                    max_duration_ms=int(max_duration_ms),
-                ),
-                asyncio_mod=ASYNCIO_RUNTIME,
-            )
+            try:
+                return await runtime_natural_mouse.move_cursor_naturally(
+                    uinput=cast(
+                        runtime_adapters.WritableUInput | None,
+                        self.output_state.mouse_uinput,
+                    ),
+                    target_x=int(x),
+                    target_y=int(y),
+                    get_cursor_position=self.get_cursor_position,
+                    config=runtime_natural_mouse.NaturalMouseMoveConfig(
+                        speed_px_s=float(speed),
+                        jitter_px=float(jitter),
+                        curve=str(curve),
+                        tolerance_px=int(tolerance),
+                        max_duration_ms=int(max_duration_ms),
+                    ),
+                    asyncio_mod=ASYNCIO_RUNTIME,
+                )
+            finally:
+                await self.stop_cursor_position_tracking()
 
     async def cancel_macro_playback(self) -> JsonObject:
         result = await runtime_macros.cancel_macro_playback(

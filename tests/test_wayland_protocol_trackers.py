@@ -3,6 +3,7 @@ import socket
 import struct
 import tempfile
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 
 from keymasq.session.wayland_protocols import client_transport as transport_module
 from keymasq.session.wayland_protocols import cosmic_toplevel_info_client as cosmic_client_module
+from keymasq.session.wayland_protocols import layer_shell_cursor as layer_cursor_module
 from keymasq.session.wayland_protocols import registry_probe
 from keymasq.session.wayland_protocols import wlr_foreign_toplevel_client as wlr_client_module
 from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
@@ -62,6 +64,19 @@ class _FakeSockRecvLoop:
         return b""
 
 
+class _FakeSendmsgSocket:
+    def __init__(self) -> None:
+        self.sent: list[tuple[bytes, object]] = []
+
+    def sendmsg(self, buffers: list[bytes], ancdata: object) -> int:
+        data = b"".join(buffers)
+        self.sent.append((data, ancdata))
+        return len(data)
+
+    def fileno(self) -> int:
+        return -1
+
+
 def _wl_message(object_id: int, opcode: int, payload: bytes = b"") -> bytes:
     size = 8 + len(payload)
     return struct.pack("<II", object_id, ((size & 0xFFFF) << 16) | (opcode & 0xFFFF)) + payload
@@ -105,6 +120,10 @@ def _encode_array(values: list[int]) -> bytes:
     raw = b"".join(value.to_bytes(4, byteorder="little") for value in values)
     padded = (len(raw) + 3) & ~3
     return struct.pack("<I", len(raw)) + raw + (b"\x00" * (padded - len(raw)))
+
+
+def _fixed(value: float) -> bytes:
+    return struct.pack("<i", int(round(value * 256.0)))
 
 
 def test_protocol_trackers_alias_active_window_tracker() -> None:
@@ -452,6 +471,235 @@ def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
             assert fake_loop.sent == [(fake_socket, _wl_message(11, 7, b"payload"))]
 
     asyncio.run(send_requests())
+
+
+def test_wayland_transport_can_send_request_with_fd() -> None:
+    async def send_request() -> None:
+        client = transport_module.WaylandClientTransport()
+        fake_socket = _FakeSendmsgSocket()
+        client._socket = cast(Any, fake_socket)
+        client._loop = cast(Any, _FakeSockSendallLoop())
+
+        await client._send_request_with_fds(11, 3, b"payload", [7])
+
+        assert len(fake_socket.sent) == 1
+        data, ancdata = fake_socket.sent[0]
+        assert data == _wl_message(11, 3, b"payload")
+        assert ancdata
+
+    asyncio.run(send_request())
+
+
+@pytest.mark.asyncio
+async def test_wayland_transport_roundtrip_can_wait_for_running_reader_callback() -> None:
+    client = transport_module.WaylandClientTransport()
+    fake_loop = _FakeSockSendallLoop()
+    client._socket = cast(Any, object())  # noqa: SLF001
+    client._loop = cast(Any, fake_loop)  # noqa: SLF001
+    client._running = True  # noqa: SLF001
+
+    task = asyncio.create_task(client._roundtrip(timeout=1.0))  # noqa: SLF001
+    await asyncio.sleep(0)
+    assert task.done() is False
+
+    assert len(fake_loop.sent) == 1
+    callback_id = struct.unpack_from("<I", fake_loop.sent[0][1], 8)[0]
+    assert callback_id in client._sync_waiters  # noqa: SLF001
+
+    client._handle_callback_event(callback_id, 0)  # noqa: SLF001
+    await task
+
+    assert callback_id not in client._sync_waiters  # noqa: SLF001
+    assert callback_id not in client._sync_futures  # noqa: SLF001
+
+
+def test_layer_shell_cursor_tracker_publishes_xdg_output_geometry() -> None:
+    tracker = layer_cursor_module.LayerShellCursorTracker()
+    output = layer_cursor_module._OutputState(  # noqa: SLF001
+        global_name=10,
+        output_id=20,
+        output_version=3,
+        xdg_output_id=30,
+        xdg_output_version=3,
+    )
+    tracker._outputs_by_object[20] = output  # noqa: SLF001
+    tracker._outputs_by_xdg_object[30] = output  # noqa: SLF001
+
+    tracker._handle_xdg_output_event(30, 0, struct.pack("<ii", -1920, 0))  # noqa: SLF001
+    tracker._handle_xdg_output_event(30, 1, struct.pack("<ii", 1920, 1080))  # noqa: SLF001
+    tracker._handle_output_event(20, 2, b"")  # noqa: SLF001
+
+    geometries = tracker._ready_output_geometries()  # noqa: SLF001
+    assert geometries[20] == layer_cursor_module.OutputGeometry(
+        x=-1920,
+        y=0,
+        width=1920,
+        height=1080,
+        generation=1,
+    )
+
+
+def test_layer_shell_cursor_tracker_converts_surface_position_to_global_position() -> None:
+    tracker = layer_cursor_module.LayerShellCursorTracker()
+    tracker._geometry_generation = 4  # noqa: SLF001
+    surface = layer_cursor_module._SurfaceState(  # noqa: SLF001
+        output_id=20,
+        geometry=layer_cursor_module.OutputGeometry(
+            x=2560,
+            y=-120,
+            width=1920,
+            height=1080,
+            generation=4,
+        ),
+        surface_id=44,
+        layer_surface_id=45,
+    )
+    tracker._surfaces_by_surface[44] = surface  # noqa: SLF001
+
+    tracker._handle_pointer_event(  # noqa: SLF001
+        0,
+        struct.pack("<II", 99, 44) + _fixed(300.25) + _fixed(220.5),
+    )
+
+    assert tracker._sample == layer_cursor_module.CursorSample(  # noqa: SLF001
+        x=2860,
+        y=100,
+        generation=4,
+        sequence=1,
+        received_at=tracker._sample.received_at,  # noqa: SLF001
+    )
+
+
+def _ready_layer_shell_cursor_tracker(
+    daemon_client: object | None = None,
+) -> layer_cursor_module.LayerShellCursorTracker:
+    tracker = layer_cursor_module.LayerShellCursorTracker(daemon_client=cast(Any, daemon_client))
+    tracker._compositor_id = 2  # noqa: SLF001
+    tracker._shm_id = 3  # noqa: SLF001
+    tracker._layer_shell_id = 4  # noqa: SLF001
+    tracker._xdg_output_manager_id = 5  # noqa: SLF001
+    tracker._pointer_id = 6  # noqa: SLF001
+    tracker._socket = cast(Any, object())  # noqa: SLF001
+    tracker._geometry_generation = 1  # noqa: SLF001
+    tracker._mapped_until = time.monotonic() + 1.0  # noqa: SLF001
+    output = layer_cursor_module._OutputState(  # noqa: SLF001
+        global_name=10,
+        output_id=20,
+        output_version=3,
+        xdg_output_id=30,
+        xdg_output_version=3,
+        logical_x=0,
+        logical_y=0,
+        logical_width=1920,
+        logical_height=1080,
+    )
+    surface = layer_cursor_module._SurfaceState(  # noqa: SLF001
+        output_id=20,
+        geometry=layer_cursor_module.OutputGeometry(
+            x=0,
+            y=0,
+            width=1920,
+            height=1080,
+            generation=1,
+        ),
+        surface_id=44,
+        layer_surface_id=45,
+    )
+    tracker._outputs_by_object[20] = output  # noqa: SLF001
+    tracker._surfaces_by_surface[44] = surface  # noqa: SLF001
+    return tracker
+
+
+@pytest.mark.asyncio
+async def test_layer_shell_cursor_tracker_waits_for_new_sample_before_reusing_cache() -> None:
+    tracker = _ready_layer_shell_cursor_tracker()
+
+    tracker._update_cursor_sample(44, 10, 10)  # noqa: SLF001
+    assert await tracker.get_cursor_position() == (10, 10)
+
+    task = asyncio.create_task(tracker.get_cursor_position())
+    await asyncio.sleep(0)
+    assert task.done() is False
+
+    tracker._update_cursor_sample(44, 11, 10)  # noqa: SLF001
+    assert await task == (11, 10)
+
+
+@pytest.mark.asyncio
+async def test_layer_shell_cursor_tracker_triggers_sample_after_cache_wait_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = _ready_layer_shell_cursor_tracker(daemon_client=object())
+    monkeypatch.setattr(layer_cursor_module, "NEXT_SAMPLE_TIMEOUT_S", 0.001)
+
+    async def trigger_sample() -> None:
+        tracker._update_cursor_sample(44, 12, 10)  # noqa: SLF001
+
+    tracker._trigger_sample = trigger_sample  # type: ignore[method-assign]  # noqa: SLF001
+    tracker._update_cursor_sample(44, 10, 10)  # noqa: SLF001
+
+    assert await tracker.get_cursor_position() == (10, 10)
+    assert await tracker.get_cursor_position() == (12, 10)
+
+
+@pytest.mark.asyncio
+async def test_layer_shell_cursor_tracker_does_not_reuse_returned_sample_after_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = _ready_layer_shell_cursor_tracker(daemon_client=object())
+    monkeypatch.setattr(layer_cursor_module, "INITIAL_SAMPLE_TIMEOUT_S", 0.001)
+    monkeypatch.setattr(layer_cursor_module, "NEXT_SAMPLE_TIMEOUT_S", 0.001)
+
+    async def trigger_sample() -> None:
+        return None
+
+    tracker._trigger_sample = trigger_sample  # type: ignore[method-assign]  # noqa: SLF001
+    tracker._update_cursor_sample(44, 10, 10)  # noqa: SLF001
+
+    assert await tracker.get_cursor_position() == (10, 10)
+    assert await tracker.get_cursor_position() is None
+
+
+@pytest.mark.asyncio
+async def test_layer_shell_cursor_tracker_stop_unmaps_surfaces_immediately() -> None:
+    tracker = _ready_layer_shell_cursor_tracker()
+    fake_socket = _FakeWaylandSocket()
+    fake_loop = _FakeSockSendallLoop()
+    calls: list[str] = []
+    tracker._socket = cast(Any, fake_socket)  # noqa: SLF001
+    tracker._loop = cast(Any, fake_loop)  # noqa: SLF001
+    surface = tracker._surfaces_by_surface[44]  # noqa: SLF001
+    surface.buffer_id = 46
+    tracker._objects[44] = transport_module.WaylandObject("wl_surface")  # noqa: SLF001
+    tracker._objects[45] = transport_module.WaylandObject(  # noqa: SLF001
+        layer_cursor_module.WLR_LAYER_SURFACE_INTERFACE
+    )
+    tracker._objects[46] = transport_module.WaylandObject("wl_buffer")  # noqa: SLF001
+    tracker._mapped_until = time.monotonic() + 10.0  # noqa: SLF001
+    tracker._update_cursor_sample(44, 10, 10)  # noqa: SLF001
+
+    async def roundtrip(*, timeout: float = 2.0) -> None:
+        assert timeout == layer_cursor_module.SURFACE_DESTROY_SYNC_TIMEOUT_S
+        calls.append("roundtrip")
+
+    async def trigger_sample() -> None:
+        calls.append("trigger")
+
+    tracker._roundtrip = roundtrip  # type: ignore[method-assign]  # noqa: SLF001
+    tracker._trigger_sample = trigger_sample  # type: ignore[method-assign]  # noqa: SLF001
+
+    await tracker.stop_cursor_position_tracking()
+
+    sent_opcodes = [_wl_message_object_opcode(data) for _sock, data in fake_loop.sent]
+    assert (44, 1) in sent_opcodes
+    assert (44, 6) in sent_opcodes
+    assert (45, 7) in sent_opcodes
+    assert (44, 0) in sent_opcodes
+    assert (46, 0) in sent_opcodes
+    assert tracker._surfaces_by_surface == {}  # noqa: SLF001
+    assert tracker._sample is None  # noqa: SLF001
+    assert tracker._mapped_until == 0.0  # noqa: SLF001
+    assert calls == ["roundtrip", "trigger"]
 
 
 def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:

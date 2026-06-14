@@ -13,7 +13,16 @@ from keymasq.session.compositor import (
     is_compositor_supported_sync,
 )
 
-EXPECTED_PROBE_ORDER = ["hyprland", "niri", "kde", "gnome", "cosmic", "wayland", "x11"]
+EXPECTED_PROBE_ORDER = [
+    "hyprland",
+    "niri",
+    "kde",
+    "gnome",
+    "cosmic",
+    "wayland",
+    "wayland-layer-shell",
+    "x11",
+]
 
 
 def _probe_result(value: bool):
@@ -182,10 +191,17 @@ def test_detect_gnome_even_when_bridge_support_is_unavailable(monkeypatch) -> No
 def test_detect_priority_wayland_over_x11(monkeypatch) -> None:
     _set_probes(
         monkeypatch,
-        wayland=True,
-        x11=True,
+        **{"wayland": True, "wayland-layer-shell": True, "x11": True},
     )
     assert detect_compositor_sync() == "wayland"
+
+
+def test_detect_priority_layer_shell_wayland_over_x11(monkeypatch) -> None:
+    _set_probes(
+        monkeypatch,
+        **{"wayland-layer-shell": True, "x11": True},
+    )
+    assert detect_compositor_sync() == "wayland-layer-shell"
 
 
 def test_detect_x11(monkeypatch) -> None:
@@ -204,13 +220,17 @@ def test_detect_none(monkeypatch) -> None:
 def test_support_gates(monkeypatch) -> None:
     _set_probes(
         monkeypatch,
-        gnome=True,
-        cosmic=True,
-        wayland=True,
-        x11=True,
+        **{
+            "gnome": True,
+            "cosmic": True,
+            "wayland": True,
+            "wayland-layer-shell": True,
+            "x11": True,
+        },
     )
     assert is_compositor_supported_sync("x11") is True
     assert is_compositor_supported_sync("wayland") is True
+    assert is_compositor_supported_sync("wayland-layer-shell") is True
     assert is_compositor_supported_sync("kde") is False
     assert is_compositor_supported_sync("cosmic") is True
     assert is_compositor_supported_sync("gnome") is True

@@ -98,6 +98,8 @@ class LayerShellCursorListener(WindowListener):
                 pass
             except (OSError, RuntimeError):
                 log.debug("Wayland layer-shell cursor read loop stopped", exc_info=True)
+            except Exception:  # noqa: BLE001 - listener task must not block shutdown.
+                log.debug("Wayland layer-shell cursor read loop stopped", exc_info=True)
         log.info("Wayland layer-shell cursor listener stopped")
 
     async def get_cursor_position(self) -> tuple[int, int] | None:

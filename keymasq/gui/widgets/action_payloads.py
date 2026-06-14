@@ -2,6 +2,7 @@ from typing import cast
 
 from keymasq.common.coercion import bool_value, coerce_float, coerce_int
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
     ActionType,
@@ -85,7 +86,7 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         mpris_command=_optional_text(action_data.get("command")),
         move_x=coerce_int(action_data.get("x"), 0),
         move_y=coerce_int(action_data.get("y"), 0),
-        move_speed=coerce_float(action_data.get("speed"), 1200.0),
+        move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
         move_jitter=coerce_float(action_data.get("jitter"), 0.3),
         move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
         move_tolerance=coerce_int(action_data.get("tolerance"), 2),

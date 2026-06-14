@@ -2823,7 +2823,7 @@ class TestGrabbedDeviceHelpers:
                 move_y=20,
                 move_speed=900.0,
                 move_jitter=0.5,
-                move_curve="minimum_jerk",
+                move_curve="natural",
                 move_tolerance=3,
                 move_max_duration_ms=2500,
             ),
@@ -2837,7 +2837,7 @@ class TestGrabbedDeviceHelpers:
             20,
             900.0,
             0.5,
-            "minimum_jerk",
+            "natural",
             3,
             2500,
         )

@@ -109,7 +109,7 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_us":10000,"max_us":50000}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
-{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_natural_abs","x":100,"y":200,"speed":1200.0,"jitter":0.3,"curve":"ease_in_out","tolerance":2,"max_duration_ms":3000,"stop_on_failure":false}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_natural_abs","x":100,"y":200,"speed":12000.0,"jitter":0.3,"curve":"natural","tolerance":2,"max_duration_ms":3000,"stop_on_failure":false}
 ```
 
 Natural mouse move events block macro playback until movement finishes or times

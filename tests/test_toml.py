@@ -109,7 +109,7 @@ def test_mapping_action_toml_round_trips_natural_mouse_move() -> None:
             "y": 480,
             "speed": 900.0,
             "jitter": 0.5,
-            "curve": "minimum-jerk",
+            "curve": "natural",
             "tolerance": 3,
             "max_duration_ms": 2500,
             "rapidfire_enabled": True,
@@ -125,7 +125,7 @@ def test_mapping_action_toml_round_trips_natural_mouse_move() -> None:
         "y": 480,
         "speed": 900.0,
         "jitter": 0.5,
-        "curve": "minimum_jerk",
+        "curve": "natural",
         "tolerance": 3,
         "max_duration_ms": 2500,
     }

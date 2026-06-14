@@ -15,6 +15,8 @@ from keymasq.common.coercion import (
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     normalize_macro_loop_stop_behavior,
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
@@ -632,9 +634,9 @@ async def play_macro_task(
                             result = await mover(
                                 x,
                                 y,
-                                coerce_float(ev.get("speed"), 1200.0),
+                                coerce_float(ev.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
                                 coerce_float(ev.get("jitter"), 0.3),
-                                str_value_fn(ev.get("curve"), "ease_in_out"),
+                                str_value_fn(ev.get("curve"), DEFAULT_NATURAL_MOUSE_MOVE_CURVE),
                                 int_value_fn(ev.get("tolerance"), 2),
                                 max_duration_ms,
                             )

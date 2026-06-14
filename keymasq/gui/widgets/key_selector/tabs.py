@@ -32,6 +32,10 @@ from keymasq.gui.widgets.input_picker_shared import (
 from keymasq.gui.widgets.input_picker_shared import (
     build_navigation_tab as build_shared_navigation_tab,
 )
+from keymasq.gui.widgets.mouse_move_units import (
+    NATURAL_MOVE_SPEED_MAX_KPX_S,
+    speed_px_s_to_kpx_s,
+)
 
 from . import compat
 from .targets import (
@@ -420,28 +424,30 @@ class SharedInputTabsMixin:
         self.mouse_move_speed_spin = Gtk.SpinButton()
         self.mouse_move_speed_spin.set_adjustment(
             Gtk.Adjustment(
-                value=self._mouse_move_speed,
+                value=speed_px_s_to_kpx_s(self._mouse_move_speed),
                 lower=1.0,
-                upper=12000.0,
-                step_increment=50.0,
-                page_increment=250.0,
+                upper=NATURAL_MOVE_SPEED_MAX_KPX_S,
+                step_increment=1.0,
+                page_increment=10.0,
             )
         )
         self.mouse_move_speed_spin.set_digits(0)
-        self.mouse_move_speed_spin.set_width_chars(6)
-        self.mouse_move_speed_spin.set_tooltip_text("Travel speed in pixels per second")
+        self.mouse_move_speed_spin.set_width_chars(4)
+        self.mouse_move_speed_spin.set_tooltip_text(
+            "Travel speed in thousands of pixels per second"
+        )
         natural_row.attach(self.mouse_move_speed_spin, 1, 0, 1, 1)
-        natural_row.attach(_unit_label("px/s"), 2, 0, 1, 1)
+        natural_row.attach(_unit_label("kpx/s"), 2, 0, 1, 1)
 
         curve_label = Gtk.Label(label="Curve:")
         curve_label.set_halign(Gtk.Align.END)
         natural_row.attach(curve_label, 3, 0, 1, 1)
-        curve_labels = ["Linear", "Ease", "Minimum Jerk"]
+        curve_labels = ["Linear", "Natural"]
         self.mouse_move_curve_dropdown = Gtk.DropDown.new_from_strings(curve_labels)
         self.mouse_move_curve_dropdown.set_tooltip_text(
-            "Velocity profile: constant, ease in/out, or smoothest (minimum jerk)"
+            "Velocity profile: constant or smooth natural acceleration"
         )
-        curve_values = ["linear", "ease_in_out", "minimum_jerk"]
+        curve_values = ["linear", "natural"]
         try:
             self.mouse_move_curve_dropdown.set_selected(curve_values.index(self._mouse_move_curve))
         except ValueError:

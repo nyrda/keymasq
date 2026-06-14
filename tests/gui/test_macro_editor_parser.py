@@ -199,7 +199,7 @@ def test_parse_reconstruct_natural_mouse_move_action() -> None:
             "y": 200,
             "speed": 1500.0,
             "jitter": 0.5,
-            "curve": "minimum_jerk",
+            "curve": "natural",
             "tolerance": 3,
             "max_duration_ms": 2500,
             "stop_on_failure": True,
@@ -218,7 +218,7 @@ def test_parse_reconstruct_natural_mouse_move_action() -> None:
     assert move.y == 200
     assert move.speed == 1500.0
     assert move.jitter == 0.5
-    assert move.curve == "minimum_jerk"
+    assert move.curve == "natural"
     assert move.tolerance == 3
     assert move.max_duration_ms == 2500
     assert move.stop_on_failure is True

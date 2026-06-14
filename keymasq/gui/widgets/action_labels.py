@@ -5,6 +5,7 @@ from collections.abc import Callable
 from keymasq.common.gamepad_axes import gamepad_axis_range
 from keymasq.common.models import ActionType, MappingAction, normalize_mpris_command
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
+from keymasq.gui.widgets.mouse_move_units import format_natural_move_speed
 
 MPRIS_COMMAND_LABELS = {
     "play_pause": "Play/Pause",
@@ -45,7 +46,9 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.MOUSE_MOVE_ABS:
         parts.append(f"⌖ {action.move_x},{action.move_y}")
     elif action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
-        parts.append(f"⌁ {action.move_x},{action.move_y} {action.move_speed:g}px/s")
+        parts.append(
+            f"⌁ {action.move_x},{action.move_y} {format_natural_move_speed(action.move_speed)}"
+        )
     elif action.action_type == ActionType.GAMEPAD:
         suffix = f" @{action.output_id}" if action.output_id else ""
         parts.append(f"🎮 {action.target or '?'}{suffix}")
@@ -143,7 +146,7 @@ def describe_mapping_action_verbose(
     if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
         return (
             f"Mouse Move (natural) → {action.move_x}, {action.move_y} "
-            f"@ {action.move_speed:g}px/s"
+            f"@ {format_natural_move_speed(action.move_speed)}"
         )
     if action.action_type == ActionType.GAMEPAD:
         suffix = f" @ {_gamepad_output_label(action.output_id)}" if action.output_id else ""

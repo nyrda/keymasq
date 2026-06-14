@@ -6,6 +6,7 @@ from typing import cast
 from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -218,7 +219,7 @@ def parse_action(
         move_x=shared.move_x,
         move_y=shared.move_y,
         axis_value=shared.axis_value,
-        move_speed=coerce_float(action_data.get("speed"), 1200.0),
+        move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
         move_jitter=coerce_float(action_data.get("jitter"), 0.3),
         move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
         move_tolerance=coerce_int(action_data.get("tolerance"), 2),

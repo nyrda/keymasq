@@ -11,6 +11,8 @@ import evdev
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     ActionType,
     MappingAction,
     ProfileDeactivationPolicy,
@@ -78,9 +80,9 @@ class SuperkeyActionData:
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
-    move_speed: float = 1200.0
+    move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
     move_jitter: float = 0.3
-    move_curve: str = "ease_in_out"
+    move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
     move_tolerance: int = 2
     move_max_duration_ms: int = 3000
     move_stop_on_failure: bool = False

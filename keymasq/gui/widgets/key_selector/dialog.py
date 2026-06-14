@@ -11,6 +11,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_REPEAT_CATEGORIES,
     ActionType,
     AnalogControlConfig,
@@ -22,6 +24,7 @@ from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
+from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
 from .analog_tab import AnalogTabMixin
@@ -173,9 +176,9 @@ class KeySelectorDialog(
         self._mouse_move_x: int = 0
         self._mouse_move_y: int = 0
         self._mouse_move_mode: str = "natural"
-        self._mouse_move_speed: float = 1200.0
+        self._mouse_move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
         self._mouse_move_jitter: float = 0.3
-        self._mouse_move_curve: str = "ease_in_out"
+        self._mouse_move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
         self._mouse_move_tolerance: int = 2
         self._mouse_move_max_duration_ms: int = 3000
         self._mouse_move_stop_on_failure: bool = False
@@ -592,17 +595,17 @@ class KeySelectorDialog(
         if self.mouse_move_natural_check.get_active():
             self._warn_and_clear_unsupported_rapidfire(ActionType.MOUSE_MOVE_NATURAL_ABS)
             curve_index = int(self.mouse_move_curve_dropdown.get_selected())
-            curve_values = ["linear", "ease_in_out", "minimum_jerk"]
+            curve_values = ["linear", "natural"]
             curve = (
                 curve_values[curve_index]
                 if 0 <= curve_index < len(curve_values)
-                else "ease_in_out"
+                else DEFAULT_NATURAL_MOUSE_MOVE_CURVE
             )
             action = MappingAction(
                 action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
                 move_x=x,
                 move_y=y,
-                move_speed=float(self.mouse_move_speed_spin.get_value()),
+                move_speed=speed_kpx_s_to_px_s(self.mouse_move_speed_spin.get_value()),
                 move_jitter=float(self.mouse_move_jitter_spin.get_value()),
                 move_curve=curve,
                 move_tolerance=int(self.mouse_move_tolerance_spin.get_value()),

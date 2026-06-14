@@ -241,12 +241,16 @@ tolerance, and timeout from the Mouse tab or profile TOML:
 action = "mouse_move_natural_abs"
 x = 640
 y = 480
-speed = 1200.0
-curve = "ease_in_out" # linear, ease_in_out, minimum_jerk
+speed = 12000.0
+curve = "natural" # linear or natural
 jitter = 0.3
 tolerance = 2
 max_duration_ms = 3000
 ```
+
+The GUI shows natural movement speed as `kpx/s` (thousands of pixels per
+second), so `12 kpx/s` is stored as `speed = 12000.0` in TOML and macro
+payloads.
 
 For desktop automation on GNOME or Hyprland you can use the compositor action
 **Set Cursor** preset when you need the compositor to place the pointer at an

@@ -19,6 +19,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _get_key_name,
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+from keymasq.gui.widgets.mouse_move_units import format_natural_move_speed
 
 _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("none", "Once"),
@@ -852,7 +853,7 @@ class MacroEditorPanelsMixin:
             if move.mode == "natural":
                 stop_suffix = ", stop on failure" if move.stop_on_failure else ""
                 detail = (
-                    f"{detail} @ {move.speed:g}px/s, {move.curve}, "
+                    f"{detail} @ {format_natural_move_speed(move.speed)}, {move.curve}, "
                     f"timeout {move.max_duration_ms}ms{stop_suffix}"
                 )
             self._key_info_label.set_label(detail)

@@ -215,10 +215,11 @@ def _curve_velocity_scale(curve: str, progress: float) -> float:
     normalized = normalize_natural_mouse_move_curve(curve)
     if normalized == "linear":
         return 1.0
-    if normalized == "minimum_jerk":
-        # Derivative of 10t^3 - 15t^4 + 6t^5, normalized near a 1.0 peak.
+    if normalized == "natural":
+        # Natural uses the minimum-jerk position curve's velocity profile:
+        # derivative of 10t^3 - 15t^4 + 6t^5, normalized near a 1.0 peak.
         return max(0.18, (30.0 * progress * progress * (1.0 - progress) ** 2) / 1.875)
-    return max(0.18, math.sin(math.pi * progress))
+    return 1.0
 
 
 def _direction_for_mode(mode: str, error_x: int, error_y: int) -> tuple[float, float]:

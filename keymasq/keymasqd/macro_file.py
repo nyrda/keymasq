@@ -217,7 +217,7 @@ def _device_types(events: list[MacroEvent]) -> list[str]:
         }:
             device_types.add("mouse")
             continue
-        device_type = str(event.get("device_type", "other"))
-        if device_type != "macro":
+        device_type = str(event.get("device_type", "") or "")
+        if device_type and device_type != "macro":
             device_types.add(device_type)
     return sorted(device_types)

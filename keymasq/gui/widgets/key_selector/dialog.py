@@ -12,7 +12,10 @@ from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAc
 
 from keymasq.common.models import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     DEFAULT_REPEAT_CATEGORIES,
     ActionType,
     AnalogControlConfig,
@@ -177,10 +180,10 @@ class KeySelectorDialog(
         self._mouse_move_y: int = 0
         self._mouse_move_mode: str = "natural"
         self._mouse_move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
-        self._mouse_move_jitter: float = 0.3
+        self._mouse_move_jitter: float = DEFAULT_NATURAL_MOUSE_MOVE_JITTER
         self._mouse_move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
-        self._mouse_move_tolerance: int = 2
-        self._mouse_move_max_duration_ms: int = 3000
+        self._mouse_move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
+        self._mouse_move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
         self._mouse_move_stop_on_failure: bool = False
         self._capture_delay_seconds: float = 2.0
         self._capture_timeout_id: int = 0
@@ -251,7 +254,9 @@ class KeySelectorDialog(
             ):
                 self._mouse_move_x = int(current_action.move_x)
                 self._mouse_move_y = int(current_action.move_y)
-                if current_action.action_type == ActionType.MOUSE_MOVE_ABS:
+                if current_action.action_type == ActionType.MOUSE_MOVE_REL:
+                    self._mouse_move_mode = "rel"
+                elif current_action.action_type == ActionType.MOUSE_MOVE_ABS:
                     self._mouse_move_mode = "abs"
                 elif current_action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
                     self._mouse_move_mode = "natural"

@@ -1497,8 +1497,13 @@ class DeviceManager:
             CommandType.CURSOR_POSITION_REQUEST,
             payload,
         )
+        request_timeout_s = max(0.05, float(timeout_s))
+        if tracking_hint_ms is not None:
+            remaining_timeout_s = max(0.001, int(tracking_hint_ms) / 1000.0)
+            request_timeout_s = min(request_timeout_s, remaining_timeout_s)
+
         try:
-            result = await asyncio.wait_for(future, timeout=max(0.05, float(timeout_s)))
+            result = await asyncio.wait_for(future, timeout=request_timeout_s)
         except TimeoutError:
             return None
         finally:

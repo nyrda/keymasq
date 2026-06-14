@@ -63,6 +63,14 @@ class FakeComboDevice:
 
 
 class TestComboActionDispatch:
+    def test_combo_action_needs_release_tracks_natural_mouse_move_tap(self) -> None:
+        action = dm.MappingAction(
+            action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+            tap_enabled=True,
+        )
+
+        assert cdm._combo_action_needs_release(action) is True
+
     @pytest.mark.asyncio
     async def test_profile_activation_trigger_end_follows_combo_lifecycle(self) -> None:
         events: list[tuple[CommandType, dict[str, object]]] = []

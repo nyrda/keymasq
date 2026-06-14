@@ -888,7 +888,11 @@ def _combo_action_needs_release(action: MappingAction) -> bool:
             or action.rapidfire_enabled
             or (target is not None and not target.is_relative)
         )
-    if action.action_type in {ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS}:
+    if action.action_type in {
+        ActionType.MOUSE_MOVE_REL,
+        ActionType.MOUSE_MOVE_ABS,
+        ActionType.MOUSE_MOVE_NATURAL_ABS,
+    }:
         return bool(action.tap_enabled or action.rapidfire_enabled)
     if action.action_type == ActionType.MACRO:
         return is_hold_macro_action(action)

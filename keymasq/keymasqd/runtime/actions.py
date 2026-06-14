@@ -6,7 +6,10 @@ from typing import cast
 from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -59,6 +62,11 @@ class _ParsedActionFields:
     mpris_command: str | None
     move_x: int
     move_y: int
+    move_speed: float
+    move_jitter: float
+    move_curve: str
+    move_tolerance: int
+    move_max_duration_ms: int
     axis_value: int
     rapidfire_enabled: bool
     rapidfire_hold_ms: int
@@ -131,6 +139,17 @@ def _parse_shared_action_fields(
         mpris_command=mpris_command,
         move_x=coerce_int(action_data.get("x"), 0),
         move_y=coerce_int(action_data.get("y"), 0),
+        move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
+        move_jitter=coerce_float(action_data.get("jitter"), DEFAULT_NATURAL_MOUSE_MOVE_JITTER),
+        move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
+        move_tolerance=coerce_int(
+            action_data.get("tolerance"),
+            DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+        ),
+        move_max_duration_ms=coerce_int(
+            action_data.get("max_duration_ms"),
+            DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+        ),
         axis_value=axis_value,
         rapidfire_enabled=rapidfire_enabled,
         rapidfire_hold_ms=rapidfire_hold_ms,
@@ -219,11 +238,11 @@ def parse_action(
         move_x=shared.move_x,
         move_y=shared.move_y,
         axis_value=shared.axis_value,
-        move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
-        move_jitter=coerce_float(action_data.get("jitter"), 0.3),
-        move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
-        move_tolerance=coerce_int(action_data.get("tolerance"), 2),
-        move_max_duration_ms=coerce_int(action_data.get("max_duration_ms"), 3000),
+        move_speed=shared.move_speed,
+        move_jitter=shared.move_jitter,
+        move_curve=shared.move_curve,
+        move_tolerance=shared.move_tolerance,
+        move_max_duration_ms=shared.move_max_duration_ms,
         rapidfire_enabled=shared.rapidfire_enabled,
         rapidfire_hold_ms=shared.rapidfire_hold_ms,
         rapidfire_wait_ms=shared.rapidfire_wait_ms,
@@ -542,6 +561,11 @@ def parse_superkey_action(
         mpris_command=shared.mpris_command,
         move_x=shared.move_x,
         move_y=shared.move_y,
+        move_speed=shared.move_speed,
+        move_jitter=shared.move_jitter,
+        move_curve=shared.move_curve,
+        move_tolerance=shared.move_tolerance,
+        move_max_duration_ms=shared.move_max_duration_ms,
         axis_value=shared.axis_value,
         rapidfire_enabled=shared.rapidfire_enabled,
         rapidfire_hold_ms=shared.rapidfire_hold_ms,

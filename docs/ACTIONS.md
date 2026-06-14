@@ -211,13 +211,15 @@ Scroll Up or Scroll Down to emit a virtual `REL_WHEEL` pulse.
 
 ### Mouse Move
 
-Move the cursor when the key is pressed. Three modes are available:
+Move the cursor when the key is pressed. Three modes are available. The GUI
+shows **Natural** first because it is the preferred mode for fixed cursor
+positioning on supported desktops.
 
 | Mode | What it does |
 |---|---|
-| **Relative** | Move the cursor by a pixel offset from its current position (e.g. 100 px right, 50 px down). |
-| **Absolute** | Move the cursor to a screen position by first sending a large upper-left reset through the virtual mouse, then sending the configured X/Y offset. |
 | **Natural** | Move toward an absolute screen position by emitting normal relative mouse events over time, checking realtime cursor feedback, and correcting the route until the pointer reaches the configured tolerance or times out. |
+| **Relative** | Move the cursor by a pixel offset from its current position (e.g. 100 px right, 50 px down). |
+| **Absolute** | Attempt to move the cursor to a screen position by first sending a large upper-left reset through the virtual mouse, then sending the configured X/Y offset. |
 
 Set the X and Y values with the spin buttons, or use **Capture** to select a
 point on screen. On supported platforms (Wayland compositors with slurp),
@@ -232,10 +234,24 @@ compositor cursor warps. Because these are not native compositor cursor warps,
 the final position can still depend on how the desktop processes relative
 pointer motion.
 
-Natural movement is available only when Keymasq has realtime cursor feedback
-from the active listener, currently GNOME bridge, Hyprland, KDE Plasma, and X11.
-It does not use slurp-backed cursor capture. Configure its speed, curve, jitter,
-tolerance, and timeout from the Mouse tab or profile TOML:
+For reliable fixed-position cursor movement, use **Natural** with a high speed
+and low jitter when realtime feedback is available. The feedback loop corrects
+the path while the pointer moves, so it handles desktop scaling and multi-monitor
+layouts better than the one-shot Absolute mode.
+
+**Absolute** is a compatibility fallback, not an exact cursor warp. It does not
+reliably work with desktop scaling, fractional or per-monitor scaling, or
+multi-monitor layouts, and pointer acceleration or sensitivity can also shift the
+final position. It is mainly useful when realtime feedback is unavailable or when
+you intentionally want a simple virtual-mouse reset-and-offset action.
+
+Natural movement requires realtime, low-latency cursor feedback while the
+virtual mouse is moving. Keymasq currently supports that feedback on GNOME,
+Hyprland, KDE Plasma, and X11. Other Wayland compositors are not
+available for Natural movement because their pointer-position paths do not
+provide the feedback loop. Slurp can still be used by **Capture** to fill the
+target coordinates. Configure speed, curve, jitter, tolerance, and timeout from
+the Mouse tab or profile TOML:
 
 ```toml
 action = "mouse_move_natural_abs"
@@ -252,11 +268,11 @@ The GUI shows natural movement speed as `kpx/s` (thousands of pixels per
 second), so `12 kpx/s` is stored as `speed = 12000.0` in TOML and macro
 payloads.
 
-For desktop automation on GNOME or Hyprland you can use the compositor action
-**Set Cursor** preset when you need the compositor to place the pointer at an
-absolute desktop coordinate.
+For desktop automation on GNOME or Hyprland, the compositor action **Set
+Cursor** preset is also available when you specifically need the compositor to
+place the pointer at an absolute desktop coordinate.
 
-![Mouse tab — buttons and Move Cursor with Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
+![Mouse tab — buttons and Move Cursor with Natural/Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
 
 ## Gamepad
 
@@ -562,7 +578,8 @@ They are available in the shared options area for: Keyboard, Mouse, Navigation,
 Media, Gamepad, and Mouse Move actions. Repeat has its own Rapidfire control in
 the Special tab, limited to remembered keyboard keys, mouse buttons, mouse wheel
 actions, and gamepad buttons. They are not available for other Special actions,
-Super Keys, Macro, Profile, or Compositor actions.
+Super Keys, Macro, Profile, or Compositor actions. Natural mouse movement is an
+exception within Mouse Move: it does not support rapidfire or tap.
 
 ### Rapidfire
 
@@ -581,8 +598,8 @@ This continues for as long as the key is physically held down.
 **Use cases:** auto-fire in games, Linux autoclicker setups, repeated key
 presses, and continuous mouse movement.
 
-With mouse move actions, rapidfire repeats the movement offset on each cycle —
-useful for continuous scrolling or nudging.
+With relative and absolute mouse move actions, rapidfire repeats the movement
+offset on each cycle — useful for continuous scrolling or nudging.
 
 If you want a simple autoclicker, map a key or mouse button to a mouse action
 and enable Rapidfire. Use a [macro](MACROS.md) instead when you need a more
@@ -602,8 +619,8 @@ automatically after the configured duration.
 **Use cases:** sending a clean single key press from a button you might
 accidentally hold, ensuring consistent short inputs.
 
-With mouse move actions, tap emits the movement once and ignores how long the
-key is held.
+With relative and absolute mouse move actions, tap emits the movement once and
+ignores how long the key is held.
 
 ## Safety Note
 

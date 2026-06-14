@@ -108,7 +108,7 @@ x = 100
 y = 0
 
 # natural absolute cursor movement uses relative uinput events plus realtime
-# cursor feedback; supported on GNOME bridge, Hyprland, and X11, not slurp.
+# cursor feedback; supported on GNOME, Hyprland, KDE Plasma, and X11
 action = "mouse_move_natural_abs"
 x = 640
 y = 480

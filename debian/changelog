@@ -13,7 +13,7 @@ keymasq (0.18.0-1) unstable; urgency=medium
   * Improve the GTK app with reorderable/restored tabs, fuzzy search in selector
     dialogs, and runtime inspectors for devices and combos.
 
- -- nyrda <nyrda@keymasq.tools>  Sat, 06 Jun 2026 00:00:00 +0000
+ -- nyrda <nyrda@keymasq.tools>  Sun, 14 Jun 2026 00:00:00 +0000
 
 keymasq (0.17.0-1) unstable; urgency=medium
 

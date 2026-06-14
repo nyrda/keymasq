@@ -44,6 +44,7 @@ class LayerShellCursorListener(WindowListener):
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
         self._cursor_tracker: LayerShellCursorTracker | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def name(self) -> str:

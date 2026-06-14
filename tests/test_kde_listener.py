@@ -226,10 +226,15 @@ def test_kde_cursor_cache_is_used_only_while_tracking_is_active(monkeypatch) -> 
 async def _run_kde_cursor_payload_tracking_test() -> tuple[
     tuple[int, int] | None,
     tuple[int, int] | None,
+    bool,
+    tuple[int, int] | None,
     tuple[int, int],
 ]:
     listener = KDEListener(_noop_callback)
-    payload = f'{{"id":"{KDE_CURSOR_TRACKING_REQUEST_ID}","x":11,"y":12}}'
+    tracking_id = f"{KDE_CURSOR_TRACKING_REQUEST_ID}:test"
+    listener._cursor_tracking_request_id = tracking_id
+    payload = f'{{"id":"{tracking_id}","x":11,"y":12}}'
+    unmatched_payload = '{"id":"other-request","x":99,"y":100}'
 
     listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() - 1.0
     listener.handle_cursor_payload(payload)
@@ -239,19 +244,30 @@ async def _run_kde_cursor_payload_tracking_test() -> tuple[
     waiter: asyncio.Future[tuple[int, int]] = loop.create_future()
     listener._cursor_tracking_sample_waiters.add(waiter)
     listener._cursor_tracking_deadline_at = kde_listener_module.time.monotonic() + 1.0
+    listener.handle_cursor_payload(unmatched_payload)
+    unmatched_cache = listener._cursor_tracking_cache
+    unmatched_waiter_done = waiter.done()
     listener.handle_cursor_payload(payload)
     active_cache = listener._cursor_tracking_cache
     waiter_result = await waiter
 
-    return inactive_cache, active_cache, waiter_result
+    return inactive_cache, unmatched_cache, unmatched_waiter_done, active_cache, waiter_result
 
 
 def test_kde_cursor_tracking_payload_is_ignored_when_not_active() -> None:
-    inactive_cache, active_cache, waiter_result = asyncio.run(
-        _run_kde_cursor_payload_tracking_test()
+    (
+        inactive_cache,
+        unmatched_cache,
+        unmatched_waiter_done,
+        active_cache,
+        waiter_result,
+    ) = asyncio.run(
+        _run_kde_cursor_payload_tracking_test(),
     )
 
     assert inactive_cache is None
+    assert unmatched_cache is None
+    assert unmatched_waiter_done is False
     assert active_cache == (11, 12)
     assert waiter_result == (11, 12)
 
@@ -271,7 +287,7 @@ async def _run_prepare_cursor_tracking_test(monkeypatch, tmp_path) -> tuple[
         async def call_run(self) -> None:
             calls.append("run")
             listener.handle_cursor_payload(
-                f'{{"id":"{KDE_CURSOR_TRACKING_REQUEST_ID}","x":13,"y":14}}'
+                f'{{"id":"{listener._cursor_tracking_request_id}","x":13,"y":14}}'
             )
 
         async def call_stop(self) -> None:

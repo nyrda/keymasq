@@ -183,6 +183,7 @@ class KDEListener(WindowListener):
         self._cursor_tracking_lock = asyncio.Lock()
         self._cursor_tracking_deadline_at = 0.0
         self._cursor_tracking_cache: tuple[int, int] | None = None
+        self._cursor_tracking_request_id = ""
         self._cursor_tracking_plugin_name = ""
         self._cursor_tracking_script_path: Path | None = None
         self._cursor_tracking_script_iface: object | None = None
@@ -483,12 +484,14 @@ class KDEListener(WindowListener):
             return
 
         plugin_name = f"keymasq-kde-cursor-track-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        request_id = f"{KDE_CURSOR_TRACKING_REQUEST_ID}:{uuid.uuid4().hex}"
         script_path: Path | None = None
         script_iface: object | None = None
         try:
+            self._cursor_tracking_request_id = request_id
             script_path = await asyncio.to_thread(
                 self._write_script_file,
-                self._build_cursor_tracking_script_source(),
+                self._build_cursor_tracking_script_source(request_id),
             )
             self._cursor_tracking_script_path = script_path
             self._cursor_tracking_plugin_name = plugin_name
@@ -525,6 +528,7 @@ class KDEListener(WindowListener):
                 with contextlib.suppress(OSError):
                     await asyncio.to_thread(script_path.unlink, missing_ok=True)
             self._cursor_tracking_plugin_name = ""
+            self._cursor_tracking_request_id = ""
             self._cursor_tracking_script_path = None
             self._cursor_tracking_script_iface = None
             self._cursor_tracking_cache = None
@@ -545,6 +549,7 @@ class KDEListener(WindowListener):
                 with contextlib.suppress(OSError):
                     await asyncio.to_thread(script_path.unlink, missing_ok=True)
             self._cursor_tracking_plugin_name = ""
+            self._cursor_tracking_request_id = ""
             self._cursor_tracking_script_path = None
             self._cursor_tracking_script_iface = None
             self._cursor_tracking_cache = None
@@ -595,6 +600,7 @@ class KDEListener(WindowListener):
         script_path = self._cursor_tracking_script_path
         self._cursor_tracking_script_iface = None
         self._cursor_tracking_plugin_name = ""
+        self._cursor_tracking_request_id = ""
         self._cursor_tracking_script_path = None
         self._cursor_tracking_deadline_at = 0.0
         self._cursor_tracking_cache = None
@@ -642,12 +648,17 @@ class KDEListener(WindowListener):
             return
 
         request_id, x, y = parsed
-        if self._cursor_tracking_active():
+        if (
+            self._cursor_tracking_active()
+            and request_id
+            and request_id == self._cursor_tracking_request_id
+        ):
             self._cursor_tracking_cache = (x, y)
             for future in list(self._cursor_tracking_sample_waiters):
                 if not future.done():
                     future.set_result((x, y))
-        if request_id == KDE_CURSOR_TRACKING_REQUEST_ID:
+            return
+        if request_id == self._cursor_tracking_request_id:
             return
 
         future = self._cursor_waiters.get(request_id)
@@ -886,12 +897,15 @@ try {{
 }} catch (e) {{}}
 """.strip()
 
-    def _build_cursor_tracking_script_source(self) -> str:
+    def _build_cursor_tracking_script_source(self, request_id: str | None = None) -> str:
+        tracking_request_id = (
+            request_id or self._cursor_tracking_request_id or KDE_CURSOR_TRACKING_REQUEST_ID
+        )
         return f"""
 const DBUS_NAME = \"{self._bus.unique_name if self._bus else ""}\";
 const DBUS_PATH = \"{KDE_DBUS_OBJECT_PATH}\";
 const DBUS_IFACE = \"{KDE_DBUS_INTERFACE}\";
-const REQUEST_ID = \"{KDE_CURSOR_TRACKING_REQUEST_ID}\";
+const REQUEST_ID = \"{tracking_request_id}\";
 
 function connectSignal(source, name, callback) {{
     try {{

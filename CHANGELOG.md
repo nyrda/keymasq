@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.18.0 - 2026-06-14
+
+### Improved
+
+- Expanded game controller support with remappable sticks, triggers, wheels,
+  generic axes, and configurable virtual gamepad outputs.
+- Added reusable Analog Controls for routing analog inputs to mouse movement,
+  digital actions, or tuned gamepad output.
+- Added temporary profile layers with while-held, one-shot, action-count, and
+  timeout lifetimes.
+- Added Repeat Last Action for replaying the last repeatable input or action
+  with category filters.
+- Reworked macro recording around explicit temporary slots that can be
+  replayed, saved later, or deleted, with recording opt-in managed from
+  Settings.
+- Improved the GTK app with reorderable/restored tabs, fuzzy search in selector
+  dialogs, and runtime inspectors for devices and combos.
+
 ## 0.17.1
 
 ### Fixed

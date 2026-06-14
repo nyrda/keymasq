@@ -1,9 +1,19 @@
-keymasq (0.17.1-1) unstable; urgency=medium
+keymasq (0.18.0-1) unstable; urgency=medium
 
-  * Add a confirmation prompt when closing the Super Keys dialog with unsaved
-    changes.
+  * Expand game controller support with remappable sticks, triggers, wheels,
+    generic axes, and configurable virtual gamepad outputs.
+  * Add reusable Analog Controls for routing analog inputs to mouse movement,
+    digital actions, or tuned gamepad output.
+  * Add temporary profile layers with while-held, one-shot, action-count, and
+    timeout lifetimes.
+  * Add Repeat Last Action for replaying the last repeatable input or action
+    with category filters.
+  * Rework macro recording around explicit temporary slots that can be replayed,
+    saved later, or deleted, with recording opt-in managed from Settings.
+  * Improve the GTK app with reorderable/restored tabs, fuzzy search in selector
+    dialogs, and runtime inspectors for devices and combos.
 
- -- nyrda <nyrda@keymasq.tools>  Mon, 11 May 2026 14:48:57 +0000
+ -- nyrda <nyrda@keymasq.tools>  Sun, 14 Jun 2026 00:00:00 +0000
 
 keymasq (0.17.0-1) unstable; urgency=medium
 

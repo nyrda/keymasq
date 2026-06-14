@@ -37,6 +37,13 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.18.0" date="2026-06-14">
+      <description>
+        <p>Expands game controller support with remappable sticks, triggers, wheels, generic axes, reusable Analog Controls, and configurable virtual gamepad outputs.</p>
+        <p>Adds temporary profile layers, Repeat Last Action, and slot-based macro recording with opt-in managed from Settings.</p>
+        <p>Improves the GTK app with reorderable/restored tabs, fuzzy search in selector dialogs, and runtime inspectors for devices and combos.</p>
+      </description>
+    </release>
     <release version="0.17.1" date="2026-05-11">
       <description>
         <p>Adds a confirmation prompt when closing the Super Keys dialog with unsaved changes.</p>

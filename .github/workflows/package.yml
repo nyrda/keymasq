@@ -451,8 +451,23 @@ jobs:
             opensuse/tumbleweed:latest \
             bash -lc '
               set -euo pipefail
-              zypper --non-interactive refresh
-              zypper --non-interactive install \
+
+              zypper_retry() {
+                local attempt
+                for attempt in 1 2 3; do
+                  if zypper --non-interactive "$@"; then
+                    return 0
+                  fi
+                  if [[ "$attempt" -eq 3 ]]; then
+                    return 1
+                  fi
+                  sleep $((attempt * 10))
+                  zypper --non-interactive refresh --force || true
+                done
+              }
+
+              zypper_retry refresh
+              zypper_retry install \
                 findutils \
                 gcc \
                 git \
@@ -635,7 +650,7 @@ jobs:
 
       - name: Generate artifact attestations
         if: ${{ github.event.repository.private == false }}
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest@v4
         with:
           subject-path: |
             dist/*.deb
@@ -645,7 +660,7 @@ jobs:
             dist/SHA256SUMS
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
             dist/*.deb
@@ -668,10 +683,26 @@ jobs:
       - build-rpm-fedora
       - build-rpm-opensuse
       - test-rpm
-    if: needs.version-metadata.outputs.is_manual_prerelease == 'true' && github.actor != 'nektos/act'
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        github.actor != 'nektos/act' &&
+        needs.version-metadata.outputs.is_manual_prerelease == 'true' &&
+        needs.build-source-tarball.result == 'success' &&
+        needs.build-pacman-arch.result == 'success' &&
+        needs.test-pacman-arch.result == 'success' &&
+        needs.build-deb.result == 'success' &&
+        needs.test-deb.result == 'success' &&
+        needs.build-rpm-fedora.result == 'success' &&
+        needs.build-rpm-opensuse.result == 'success' &&
+        needs.test-rpm.result == 'success'
+      }}
     runs-on: ubuntu-24.04
     permissions:
+      attestations: write
       contents: write
+      id-token: write
 
     steps:
       - name: Download source tarball
@@ -704,8 +735,18 @@ jobs:
           cd dist
           sha256sum ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
 
+      - name: Generate prerelease artifact attestations
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
       - name: Create GitHub prerelease
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ needs.version-metadata.outputs.release_tag }}
           target_commitish: ${{ needs.version-metadata.outputs.checkout_sha }}

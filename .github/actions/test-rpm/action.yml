@@ -66,8 +66,22 @@ runs:
                 dnf install -y python3 systemd acl
                 ;;
               opensuse)
-                zypper --non-interactive refresh
-                zypper --non-interactive install python3 systemd acl
+                zypper_retry() {
+                  local attempt
+                  for attempt in 1 2 3; do
+                    if zypper --non-interactive "$@"; then
+                      return 0
+                    fi
+                    if [[ "$attempt" -eq 3 ]]; then
+                      return 1
+                    fi
+                    sleep $((attempt * 10))
+                    zypper --non-interactive refresh --force || true
+                  done
+                }
+
+                zypper_retry refresh
+                zypper_retry install python3 systemd acl
                 ;;
               *)
                 echo "unsupported RPM test distro: $KEYMASQ_RPM_TEST_DISTRO" >&2

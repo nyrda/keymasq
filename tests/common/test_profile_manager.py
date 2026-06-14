@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
@@ -608,6 +609,76 @@ macro_name = "Example"
         assert 'enabled = false' in fixture_path.read_text(encoding="utf-8")
         assert not (profiles_dir / "Integration_Analog_Gamepad.toml").exists()
 
+    def test_set_profile_enabled_serializes_against_reload(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Race Profile", enabled=True))
+        original_save_profile = manager.save_profile
+        save_started = threading.Event()
+        release_save = threading.Event()
+
+        def save_profile_with_pause(
+            config: ProfileConfig,
+            path: Path | None = None,
+        ) -> None:
+            save_started.set()
+            assert release_save.wait(timeout=5)
+            original_save_profile(config, path=path)
+
+        monkeypatch.setattr(manager, "save_profile", save_profile_with_pause)
+        setter_errors: list[object] = []
+        reload_errors: list[object] = []
+
+        def set_profile_disabled() -> None:
+            try:
+                manager.set_profile_enabled("Race Profile", False)
+            except (AssertionError, OSError, RuntimeError, ValueError) as exc:
+                setter_errors.append(exc)
+
+        setter = threading.Thread(target=set_profile_disabled)
+        reloader: threading.Thread | None = None
+        setter.start()
+        try:
+            assert save_started.wait(timeout=5)
+            original_load_all = manager._load_all
+            reload_started = threading.Event()
+            reload_reached_load = threading.Event()
+
+            def load_all_with_signal(*, strict: bool = False) -> None:
+                reload_reached_load.set()
+                original_load_all(strict=strict)
+
+            def reload_profiles() -> None:
+                reload_started.set()
+                try:
+                    manager.reload()
+                except (AssertionError, OSError, RuntimeError, ValueError) as exc:
+                    reload_errors.append(exc)
+
+            monkeypatch.setattr(manager, "_load_all", load_all_with_signal)
+            reloader = threading.Thread(target=reload_profiles)
+            reloader.start()
+
+            assert reload_started.wait(timeout=5)
+            assert not reload_reached_load.wait(timeout=0.2)
+        finally:
+            release_save.set()
+            setter.join(timeout=5)
+            if reloader is not None:
+                reloader.join(timeout=5)
+
+        assert not setter.is_alive()
+        assert reloader is not None
+        assert not reloader.is_alive()
+        assert setter_errors == []
+        assert reload_errors == []
+        profile = manager.get_profile("Race Profile")
+        assert profile is not None
+        assert profile.config.enabled is False
+
     def test_duplicate_profile_names_prefer_canonical_path(
         self,
         temp_config_dir,
@@ -900,6 +971,44 @@ target = "key_1"
 
         assert manager.get_profile("Delete Me") is profile
         assert profile_path.exists()
+
+    def test_delete_profile_preserves_state_when_fallback_unlink_fails(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Delete Me"))
+        profile = manager.get_profile("Delete Me")
+        assert profile is not None
+        profile_path = profile.path
+        original_rename = Path.rename
+        original_unlink = Path.unlink
+
+        def fail_profile_rename(self: Path, target: Path) -> Path:
+            if self == profile_path:
+                raise OSError("cross-device link")
+            return original_rename(self, target)
+
+        def fail_profile_unlink(self: Path, missing_ok: bool = False) -> None:
+            if self == profile_path:
+                raise OSError("permission denied")
+            original_unlink(self, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "rename", fail_profile_rename)
+        monkeypatch.setattr(Path, "unlink", fail_profile_unlink)
+
+        with (
+            caplog.at_level("WARNING", logger="keymasq-session.profiles"),
+            pytest.raises(OSError, match="permission denied"),
+        ):
+            manager.delete_profile("Delete Me")
+
+        assert manager.get_profile("Delete Me") is profile
+        assert profile_path.exists()
+        assert "Failed to move deleted profile to trash" in caplog.text
+        assert "Failed to delete profile file" in caplog.text
 
     def test_remove_device_button_mappings_clears_matching_profile_entries(self, temp_config_dir):
         manager = ProfileManager()

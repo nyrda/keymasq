@@ -609,8 +609,6 @@ async def play_macro_task(
                     "mouse_move_rel",
                     "mouse_move_natural_abs",
                 }:
-                    if not replay_mouse_movement:
-                        continue
                     x = int_value_fn(ev.get("x"), 0)
                     y = int_value_fn(ev.get("y"), 0)
                     if action_type == "mouse_move_abs":

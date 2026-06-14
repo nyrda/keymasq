@@ -58,6 +58,7 @@ from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
 from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
+from keymasq.keymasqd.runtime import natural_mouse as runtime_natural_mouse
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime import topology as runtime_topology
@@ -409,6 +410,9 @@ class DeviceManager:
         self.emergency_cancel_combo_enabled = True
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
+        self._cursor_move_lock = asyncio.Lock()
+        self._cursor_request_seq = 0
+        self._cursor_position_waiters: dict[str, asyncio.Future[JsonObject]] = {}
         self.diagnostics_state = DiagnosticsState()
         self.grab_state = GrabRuntimeState(
             release_grace_s=max(0.01, float(release_grace_s)),
@@ -1470,6 +1474,80 @@ class DeviceManager:
             absolute=True,
         )
         return {"status": "ok", "x": int(x), "y": int(y)}
+
+    async def get_cursor_position(
+        self,
+        timeout_s: float = 0.75,
+        *,
+        tracking_hint_ms: int | None = None,
+    ) -> tuple[int, int] | None:
+        if self.broadcast_callback is None:
+            return None
+
+        self._cursor_request_seq += 1
+        request_id = str(self._cursor_request_seq)
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[JsonObject] = loop.create_future()
+        self._cursor_position_waiters[request_id] = future
+        payload: JsonObject = {"request_id": request_id}
+        if tracking_hint_ms is not None:
+            payload["tracking_hint_ms"] = max(1, int(tracking_hint_ms))
+
+        self._broadcast_runtime_event(
+            CommandType.CURSOR_POSITION_REQUEST,
+            payload,
+        )
+        request_timeout_s = max(0.05, float(timeout_s))
+        if tracking_hint_ms is not None:
+            remaining_timeout_s = max(0.001, int(tracking_hint_ms) / 1000.0)
+            request_timeout_s = min(request_timeout_s, remaining_timeout_s)
+
+        try:
+            result = await asyncio.wait_for(future, timeout=request_timeout_s)
+        except TimeoutError:
+            return None
+        finally:
+            self._cursor_position_waiters.pop(request_id, None)
+
+        if result.get("status") != "ok":
+            return None
+        return coerce_int(result.get("x"), 0), coerce_int(result.get("y"), 0)
+
+    def handle_cursor_position_response(self, data: JsonObject) -> JsonObject:
+        request_id = coerce_str(data.get("request_id"), "")
+        if not request_id:
+            return {"status": "error", "message": "request_id required"}
+        future = self._cursor_position_waiters.get(request_id)
+        if future is None or future.done():
+            return {"status": "ok", "matched": False}
+        future.set_result(data)
+        return {"status": "ok", "matched": True}
+
+    async def move_cursor_natural(
+        self,
+        x: int,
+        y: int,
+        speed: float,
+        jitter: float,
+        curve: str,
+        tolerance: int,
+        max_duration_ms: int,
+    ) -> JsonObject:
+        async with self._cursor_move_lock:
+            return await runtime_natural_mouse.move_cursor_naturally(
+                uinput=cast(runtime_adapters.WritableUInput | None, self.output_state.mouse_uinput),
+                target_x=int(x),
+                target_y=int(y),
+                get_cursor_position=self.get_cursor_position,
+                config=runtime_natural_mouse.NaturalMouseMoveConfig(
+                    speed_px_s=float(speed),
+                    jitter_px=float(jitter),
+                    curve=str(curve),
+                    tolerance_px=int(tolerance),
+                    max_duration_ms=int(max_duration_ms),
+                ),
+                asyncio_mod=ASYNCIO_RUNTIME,
+            )
 
     async def cancel_macro_playback(self) -> JsonObject:
         result = await runtime_macros.cancel_macro_playback(

@@ -11,6 +11,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     DEFAULT_REPEAT_CATEGORIES,
     ActionType,
     AnalogControlConfig,
@@ -22,6 +27,7 @@ from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
+from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
 from .analog_tab import AnalogTabMixin
@@ -82,6 +88,14 @@ class KeySelectorDialog(
         allow_macro_options: bool = True,
         source_type: str = "button",
         analog_input_type: str | None = None,
+        allowed_tabs: set[str] | list[str] | tuple[str, ...] | None = None,
+        initial_tab: str | None = None,
+        include_mpris_controls: bool = True,
+        include_mouse_button_controls: bool = True,
+        include_mouse_scroll_controls: bool = True,
+        include_mouse_move_controls: bool | None = None,
+        include_mouse_move_failure_controls: bool = False,
+        mouse_move_commit_label: str = "Map Move",
     ):
         super().__init__(title=f"Map: {button_label}", content_width=570, content_height=580)
         self._parent = parent
@@ -96,6 +110,15 @@ class KeySelectorDialog(
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
         self._source_type = str(source_type or "button")
+        self._allowed_tabs = set(allowed_tabs) if allowed_tabs is not None else None
+        self._initial_tab = initial_tab
+        self._include_mpris_controls = include_mpris_controls
+        self._include_mouse_button_controls = include_mouse_button_controls
+        self._include_mouse_scroll_controls = include_mouse_scroll_controls
+        if include_mouse_move_controls is not None:
+            self._include_mouse_move_controls = include_mouse_move_controls
+        self._include_mouse_move_failure_controls = include_mouse_move_failure_controls
+        self._mouse_move_commit_label = mouse_move_commit_label
         self._analog_input_type = (
             str(analog_input_type or "").lower()
             if self._source_type == "analog" and analog_input_type
@@ -155,7 +178,13 @@ class KeySelectorDialog(
         self._exec_cmd: str = ""
         self._mouse_move_x: int = 0
         self._mouse_move_y: int = 0
-        self._mouse_move_mode: str = "rel"
+        self._mouse_move_mode: str = "natural"
+        self._mouse_move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
+        self._mouse_move_jitter: float = DEFAULT_NATURAL_MOUSE_MOVE_JITTER
+        self._mouse_move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+        self._mouse_move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
+        self._mouse_move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
+        self._mouse_move_stop_on_failure: bool = False
         self._capture_delay_seconds: float = 2.0
         self._capture_timeout_id: int = 0
         self._capture_pending: bool = False
@@ -221,17 +250,35 @@ class KeySelectorDialog(
             elif current_action.action_type in (
                 ActionType.MOUSE_MOVE_REL,
                 ActionType.MOUSE_MOVE_ABS,
+                ActionType.MOUSE_MOVE_NATURAL_ABS,
             ):
                 self._mouse_move_x = int(current_action.move_x)
                 self._mouse_move_y = int(current_action.move_y)
-                if current_action.action_type == ActionType.MOUSE_MOVE_ABS:
+                if current_action.action_type == ActionType.MOUSE_MOVE_REL:
+                    self._mouse_move_mode = "rel"
+                elif current_action.action_type == ActionType.MOUSE_MOVE_ABS:
                     self._mouse_move_mode = "abs"
+                elif current_action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+                    self._mouse_move_mode = "natural"
+                    self._mouse_move_speed = float(current_action.move_speed)
+                    self._mouse_move_jitter = float(current_action.move_jitter)
+                    self._mouse_move_curve = str(current_action.move_curve)
+                    self._mouse_move_tolerance = int(current_action.move_tolerance)
+                    self._mouse_move_max_duration_ms = int(
+                        current_action.move_max_duration_ms
+                    )
+                    self._mouse_move_stop_on_failure = bool(
+                        current_action.move_stop_on_failure
+                    )
         if not self._allow_rapidfire:
             self._rapidfire_enabled = False
         if not self._allow_tap:
             self._tap_enabled = False
 
         self._build_ui()
+
+    def _tab_allowed(self, name: str) -> bool:
+        return self._allowed_tabs is None or name in self._allowed_tabs
 
     def _build_ui(self):
         _ensure_compact_tabs_css()
@@ -254,30 +301,42 @@ class KeySelectorDialog(
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
         if self._source_type == "analog":
-            self.stack.add_titled(
-                self._build_analog_presets_tab(),
-                "analog_presets",
-                "Presets",
-            )
-            self.stack.add_titled(
-                self._build_analog_control_tab(),
-                "analog_control",
-                "Analog Controls",
-            )
-            self.stack.add_titled(self._build_special_tab(), "special", "Special")
+            if self._tab_allowed("analog_presets"):
+                self.stack.add_titled(
+                    self._build_analog_presets_tab(),
+                    "analog_presets",
+                    "Presets",
+                )
+            if self._tab_allowed("analog_control"):
+                self.stack.add_titled(
+                    self._build_analog_control_tab(),
+                    "analog_control",
+                    "Analog Controls",
+                )
+            if self._tab_allowed("special"):
+                self.stack.add_titled(self._build_special_tab(), "special", "Special")
         else:
-            self.stack.add_titled(self._build_special_tab(), "special", "Special")
-            self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
-            self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
-            self.stack.add_titled(self._build_media_tab(), "media", "Media")
-            self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
+            if self._tab_allowed("special"):
+                self.stack.add_titled(self._build_special_tab(), "special", "Special")
+            if self._tab_allowed("keyboard"):
+                self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
+            if self._tab_allowed("navigation"):
+                self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
+            if self._tab_allowed("media"):
+                self.stack.add_titled(self._build_media_tab(), "media", "Media")
+            if self._tab_allowed("mouse"):
+                self.stack.add_titled(self._build_mouse_tab(), "mouse", "Mouse")
             for page in self._compositor_action_pages:
-                self.stack.add_titled(page.widget, page.page_id, page.title)
-            self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
-            if self._allow_superkey:
+                if self._tab_allowed(page.page_id):
+                    self.stack.add_titled(page.widget, page.page_id, page.title)
+            if self._tab_allowed("gamepad"):
+                self.stack.add_titled(self._build_gamepad_tab(), "gamepad", "Gamepad")
+            if self._allow_superkey and self._tab_allowed("superkey"):
                 self.stack.add_titled(self._build_superkey_tab(), "superkey", "Super Keys")
-            self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
-            self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
+            if self._tab_allowed("macro"):
+                self.stack.add_titled(self._build_macro_tab(), "macro", "Macro")
+            if self._tab_allowed("profile"):
+                self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
 
         self._set_initial_tab()
 
@@ -481,6 +540,7 @@ class KeySelectorDialog(
         is_analog_only = is_analog_control or is_analog_presets
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
+        is_mouse_move = child_name == "mouse" and self._include_mouse_move_controls
         is_exec = child_name == "exec"
         is_gamepad = child_name == "gamepad"
         is_media = child_name == "media"
@@ -501,7 +561,10 @@ class KeySelectorDialog(
         self.options_box.set_sensitive(show_options)
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
-        self.map_btn.set_visible(is_superkey or is_analog_control or is_macro or is_profile)
+        self.map_btn.set_visible(
+            is_superkey or is_analog_control or is_macro or is_profile or is_mouse_move
+        )
+        self.map_btn.set_label(self._mouse_move_commit_label if is_mouse_move else "Map")
         if self._cancel_macro_playback_btn is not None:
             self._cancel_macro_playback_btn.set_visible(is_macro)
         if is_superkey:
@@ -512,6 +575,8 @@ class KeySelectorDialog(
             self.map_btn.set_sensitive(self._selected_macro is not None)
         elif is_profile:
             self.map_btn.set_sensitive(bool(self._selected_profile_name))
+        elif is_mouse_move:
+            self.map_btn.set_sensitive(True)
         else:
             self.map_btn.set_sensitive(False)
         if self._gamepad_output_header is not None:
@@ -538,6 +603,33 @@ class KeySelectorDialog(
     def _on_mouse_move_map_clicked(self, btn) -> None:
         x = int(self.mouse_move_x_spin.get_value())
         y = int(self.mouse_move_y_spin.get_value())
+        if self.mouse_move_natural_check.get_active():
+            self._warn_and_clear_unsupported_rapidfire(ActionType.MOUSE_MOVE_NATURAL_ABS)
+            curve_index = int(self.mouse_move_curve_dropdown.get_selected())
+            curve_values = ["linear", "natural"]
+            curve = (
+                curve_values[curve_index]
+                if 0 <= curve_index < len(curve_values)
+                else DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+            )
+            action = MappingAction(
+                action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+                move_x=x,
+                move_y=y,
+                move_speed=speed_kpx_s_to_px_s(self.mouse_move_speed_spin.get_value()),
+                move_jitter=float(self.mouse_move_jitter_spin.get_value()),
+                move_curve=curve,
+                move_tolerance=int(self.mouse_move_tolerance_spin.get_value()),
+                move_max_duration_ms=int(self.mouse_move_duration_spin.get_value()),
+                move_stop_on_failure=bool(
+                    self.mouse_move_stop_on_failure_check.get_active()
+                )
+                if hasattr(self, "mouse_move_stop_on_failure_check")
+                else False,
+            )
+            self.emit("key-selected", action)
+            self.close()
+            return
         if self.mouse_move_abs_check.get_active():
             action_type = ActionType.MOUSE_MOVE_ABS
         else:
@@ -560,8 +652,16 @@ class KeySelectorDialog(
 
     def _update_mouse_move_mode_visibility(self) -> None:
         is_abs = self.mouse_move_abs_check.get_active()
-        self.mouse_move_capture_row.set_visible(is_abs)
-        if not is_abs:
+        is_natural = self.mouse_move_natural_check.get_active()
+        uses_absolute_target = is_abs or is_natural
+        self.mouse_move_capture_row.set_visible(uses_absolute_target)
+        self.mouse_move_natural_options_row.set_visible(is_natural)
+        self.mouse_move_natural_options_row_2.set_visible(is_natural)
+        if hasattr(self, "mouse_move_stop_on_failure_check"):
+            self.mouse_move_stop_on_failure_check.set_visible(
+                self._include_mouse_move_failure_controls and is_natural
+            )
+        if not uses_absolute_target:
             self._cancel_capture_position("")
 
     def _on_capture_position_clicked(self, btn: Gtk.Button) -> None:
@@ -643,8 +743,13 @@ class KeySelectorDialog(
             self._on_macro_map_clicked(btn)
         elif child_name == "profile":
             self._on_profile_map_clicked(btn)
+        elif child_name == "mouse":
+            self._on_mouse_move_map_clicked(btn)
 
     def _set_initial_tab(self):
+        if self._initial_tab and self._tab_allowed(self._initial_tab):
+            self.stack.set_visible_child_name(self._initial_tab)
+            return
         if self._source_type == "analog":
             self._set_initial_analog_tab()
             return
@@ -675,6 +780,7 @@ class KeySelectorDialog(
             ActionType.MOUSE: "mouse",
             ActionType.MOUSE_MOVE_REL: "mouse",
             ActionType.MOUSE_MOVE_ABS: "mouse",
+            ActionType.MOUSE_MOVE_NATURAL_ABS: "mouse",
             ActionType.GAMEPAD: "gamepad",
             ActionType.GAMEPAD_AXIS: "gamepad",
             ActionType.MACRO: "macro",

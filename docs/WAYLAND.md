@@ -41,9 +41,9 @@ is used by recording, point capture, and macros that need a known starting
 position. Some compositors use a slurp-assisted path for this; see
 [Slurp-Assisted Pointer Capture](#slurp-assisted-pointer-capture).
 
-**Absolute mouse action** means Keymasq can move the pointer toward a requested
-screen coordinate by sending normal motion through its virtual mouse device. See
-[Absolute Pointer Movement](#absolute-pointer-movement).
+**Absolute mouse action** means Keymasq can attempt to move the pointer toward a
+requested screen coordinate by sending normal motion through its virtual mouse
+device. See [Absolute Pointer Movement](#absolute-pointer-movement).
 
 **Compositor actions** means Keymasq can ask the desktop to perform actions such
 as changing workspace, closing the focused window, toggling fullscreen, moving
@@ -71,21 +71,28 @@ API for moving the pointer.
 
 ## Absolute Pointer Movement
 
-Absolute mouse actions use Keymasq's virtual mouse device. This does not truly
-teleport the pointer. It sends normal relative mouse motion through `keymasqd`:
-four movement events in two batches. First it sends a very large negative X
-movement and a very large negative Y movement to push the pointer toward the
-top-left corner. Then it sends a positive X movement and a positive Y movement
-toward the target coordinate.
+Absolute mouse actions use Keymasq's virtual mouse device. This does not
+teleport the pointer or ask the compositor to place it at an exact coordinate.
+It sends normal relative mouse motion through `keymasqd`: four movement events
+in two batches. First it sends a very large negative X movement and a very large
+negative Y movement to push the pointer toward the top-left corner. Then it
+sends a positive X movement and a positive Y movement toward the target
+coordinate.
 
-Because this is interpreted as ordinary mouse motion, the compositor can distort
-it through pointer acceleration, sensitivity, scaling, output layout, or other
-pointer settings. It works reliably on many setups and can work better in
-pointer-locked games that ignore compositor cursor warps.
+Because this is interpreted as ordinary mouse motion, it does not reliably work
+with desktop scaling, fractional or per-monitor scaling, or multi-monitor output
+layouts. Pointer acceleration, sensitivity, and other pointer settings can also
+shift the final position.
 
-For desktop UI automation on GNOME or Hyprland, use the compositor action
-**Set Cursor** preset. That path asks the desktop itself to set the cursor
-position and is independent from absolute mouse actions.
+When realtime cursor feedback is available, prefer Natural mouse movement with a
+high speed for reliable fixed-position cursor movement. Natural movement still
+uses virtual mouse motion, but it reads the cursor position during the move and
+corrects the path until the target is reached or the configured timeout expires.
+
+For desktop UI automation on GNOME or Hyprland, the compositor action **Set
+Cursor** preset is also available when you specifically need the desktop itself
+to set the cursor position. That path is independent from absolute mouse
+actions.
 
 ## Desktop Details
 
@@ -106,13 +113,14 @@ See [GNOME.md](GNOME.md) for setup and troubleshooting.
 
 ### KDE Plasma Wayland
 
-Keymasq talks to KWin over the session D-Bus and loads a temporary KWin
-JavaScript bridge. That bridge reports the active window back to
-`keymasq-session` and runs a limited set of supported KWin actions.
+Keymasq talks to KWin over the session D-Bus and loads a KWin JavaScript
+bridge. That bridge reports the active window back to `keymasq-session`, runs a
+limited set of supported KWin actions, and can temporarily load demand-scoped
+cursor tracking while natural mouse movement is active.
 
 KDE supports active-window tracking, window-aware profiles, pointer-position
-reads, and selected compositor actions. Absolute mouse actions use Keymasq's
-virtual mouse device.
+reads, realtime cursor feedback for natural mouse movement, and selected
+compositor actions. Absolute mouse actions use Keymasq's virtual mouse device.
 
 Supported compositor actions include switching virtual desktops, closing the
 focused window, toggling fullscreen, moving focus, moving the focused window,
@@ -186,8 +194,9 @@ Common things to check:
   current GNOME Shell session. See [GNOME.md](GNOME.md).
 - For slurp-assisted pointer capture, make sure `slurp` is installed and can run
   in the current Wayland session.
-- If absolute mouse movement is unreliable, remember that it uses normal virtual
-  mouse motion and can be affected by scaling, acceleration, and sensitivity
-  settings.
+- If absolute mouse movement is unreliable, use Natural movement where realtime
+  cursor feedback is supported. Absolute movement uses normal virtual mouse
+  motion and is affected by scaling, output layout, acceleration, and
+  sensitivity settings.
 - If your supported desktop is not working as described, please open an issue
   with the desktop/compositor name, version, and `keymasq-session` logs.

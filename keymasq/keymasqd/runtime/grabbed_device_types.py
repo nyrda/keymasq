@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 
 type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[None]]
 type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
+type NaturalMouseMover = Callable[
+    [int, int, float, float, str, int, int],
+    Awaitable[dict[str, object]],
+]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
@@ -248,6 +252,9 @@ class ActionRuntime(Protocol):
 
     @property
     def cursor_position_setter(self) -> CursorPositionSetter | None: ...
+
+    @property
+    def natural_mouse_mover(self) -> NaturalMouseMover | None: ...
 
     @property
     def macro_player(self) -> MacroPlayer | None: ...

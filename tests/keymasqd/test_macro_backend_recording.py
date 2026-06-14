@@ -1531,6 +1531,150 @@ async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() 
 
 
 @pytest.mark.asyncio
+async def test_play_macro_replays_semantic_moves_when_recorded_movement_disabled() -> None:
+    manager = DeviceManager()
+    manager.output_state.mouse_uinput = MagicMock()
+    manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+    manager.move_cursor_natural = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+
+    await mdm.play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": 0,
+                "macro_action": "mouse_move_abs",
+                "x": 320,
+                "y": 240,
+            },
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": 0,
+                "macro_action": "mouse_move_natural_abs",
+                "x": 640,
+                "y": 480,
+                "speed": 12000.0,
+                "jitter": 0.3,
+                "curve": "natural",
+                "tolerance": 2,
+                "max_duration_ms": 3000,
+            },
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": 0,
+                "macro_action": "mouse_move_rel",
+                "x": 7,
+                "y": -3,
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_REL,
+                "code": evdev.ecodes.REL_X,
+                "value": 5,
+                "device_type": "mouse",
+            },
+        ],
+        macro_name="semantic_moves",
+        replay_mouse_movement=False,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+        deps=dm._macro_runtime_deps(),
+    )
+
+    manager.set_cursor_position.assert_awaited_once_with(320, 240)
+    manager.move_cursor_natural.assert_awaited_once_with(  # type: ignore[attr-defined]
+        640,
+        480,
+        12000.0,
+        0.3,
+        "natural",
+        2,
+        3000,
+    )
+    assert [call.args for call in manager.output_state.mouse_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 7),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -3),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_play_macro_natural_move_can_stop_current_run_on_failure() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    manager.move_cursor_natural = AsyncMock(  # type: ignore[method-assign]
+        return_value={"status": "error", "reached": False}
+    )
+
+    await mdm.play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[
+            {
+                "device_type": "macro",
+                "type": 0,
+                "code": 0,
+                "value": 0,
+                "t_us": 0,
+                "macro_action": "mouse_move_natural_abs",
+                "x": 320,
+                "y": 240,
+                "speed": 1500.0,
+                "jitter": 0.5,
+                "curve": "linear",
+                "tolerance": 3,
+                "max_duration_ms": 1200,
+                "stop_on_failure": True,
+            },
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_A,
+                "value": 1,
+                "device_type": "keyboard",
+            },
+        ],
+        macro_name="natural_stop",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+        deps=dm._macro_runtime_deps(),
+    )
+
+    manager.move_cursor_natural.assert_awaited_once_with(  # type: ignore[attr-defined]
+        320,
+        240,
+        1500.0,
+        0.5,
+        "linear",
+        3,
+        1200,
+    )
+    manager.output_state.keyboard_uinput.write.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_play_macro_wait_control_actions_shift_later_deadlines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

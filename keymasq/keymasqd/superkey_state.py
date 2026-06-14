@@ -11,6 +11,8 @@ import evdev
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     ActionType,
     MappingAction,
     ProfileDeactivationPolicy,
@@ -78,6 +80,12 @@ class SuperkeyActionData:
     move_x: int = 0
     move_y: int = 0
     axis_value: int = 0
+    move_speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
+    move_jitter: float = 0.3
+    move_curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+    move_tolerance: int = 2
+    move_max_duration_ms: int = 3000
+    move_stop_on_failure: bool = False
     rapidfire_enabled: bool = False
     rapidfire_hold_ms: int = 20
     rapidfire_wait_ms: int = 20
@@ -146,6 +154,10 @@ class SuperkeyConfig:
 
 
 type CursorPositionSetter = Callable[[int, int], Awaitable[dict[str, object]]]
+type NaturalMouseMover = Callable[
+    [int, int, float, float, str, int, int],
+    Awaitable[dict[str, object]],
+]
 type CancelMacroPlayback = Callable[[], Awaitable[dict[str, object]]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
 type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
@@ -175,6 +187,7 @@ class SuperkeyMachine:
         source_device: str = "",
         broadcast_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
+        natural_mouse_mover: NaturalMouseMover | None = None,
         key_event_tracker: Callable[[str, int, int], bool] | None = None,
         axis_event_tracker: Callable[[str, int, int], bool] | None = None,
         gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
@@ -193,6 +206,7 @@ class SuperkeyMachine:
         self.source_device = source_device
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
+        self.natural_mouse_mover = natural_mouse_mover
         self.key_event_tracker = key_event_tracker
         self.axis_event_tracker = axis_event_tracker
         self.gamepad_output_resolver = gamepad_output_resolver
@@ -219,6 +233,7 @@ class SuperkeyMachine:
             gamepad_uinput=gamepad_uinput,
             broadcast_callback=self._broadcast_action_trigger,
             cursor_position_setter=cursor_position_setter,
+            natural_mouse_mover=natural_mouse_mover,
             macro_player=macro_player,
             emergency_resetter=emergency_resetter,
             gamepad_output_resolver=gamepad_output_resolver,

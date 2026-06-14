@@ -45,6 +45,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     GrabbedDeviceState,
     MacroPlayer,
     MappingGetter,
+    NaturalMouseMover,
     RuntimeDisconnectCallback,
 )
 from keymasq.keymasqd.runtime.grabbed_device_types import (
@@ -271,6 +272,7 @@ class GrabbedDevice:
         gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None,
         broadcast_callback: BroadcastCallback | None = None,
         cursor_position_setter: CursorPositionSetter | None = None,
+        natural_mouse_mover: NaturalMouseMover | None = None,
         recording_manager: RecordingManager | None = None,
         macro_player: MacroPlayer | None = None,
         emergency_resetter: EmergencyResetter | None = None,
@@ -328,6 +330,7 @@ class GrabbedDevice:
         self._gamepad_output_resolver = gamepad_output_resolver
         self.broadcast_callback = broadcast_callback
         self.cursor_position_setter = cursor_position_setter
+        self.natural_mouse_mover = natural_mouse_mover
         self.recording_manager: RecordingManager | None = recording_manager
         self.macro_player = macro_player
         self.emergency_resetter = emergency_resetter

@@ -2,12 +2,17 @@ from typing import cast
 
 from keymasq.common.coercion import bool_value, coerce_float, coerce_int
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
     ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
+    normalize_natural_mouse_move_curve,
     parse_profile_deactivation_policy,
 )
 
@@ -84,6 +89,18 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         mpris_command=_optional_text(action_data.get("command")),
         move_x=coerce_int(action_data.get("x"), 0),
         move_y=coerce_int(action_data.get("y"), 0),
+        move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
+        move_jitter=coerce_float(action_data.get("jitter"), DEFAULT_NATURAL_MOUSE_MOVE_JITTER),
+        move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
+        move_tolerance=coerce_int(
+            action_data.get("tolerance"),
+            DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+        ),
+        move_max_duration_ms=coerce_int(
+            action_data.get("max_duration_ms"),
+            DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+        ),
+        move_stop_on_failure=bool_value(action_data.get("stop_on_failure")),
         axis_value=coerce_int(action_data.get("value"), 0),
         rapidfire_enabled=bool_value(action_data.get("rapidfire_enabled")),
         rapidfire_hold_ms=coerce_int(

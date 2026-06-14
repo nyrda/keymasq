@@ -107,7 +107,7 @@ superkeys and mapping-only control actions are not available. Pattern slots can 
 |---|---|
 | **Keyboard** | Send a keyboard key. |
 | **Mouse** | Send a mouse button. |
-| **Mouse Move** | Move the cursor relative or absolute. |
+| **Mouse Move** | Move the cursor relative, absolute, or natural absolute. |
 | **Gamepad** | Send a gamepad button, trigger axis, or stick axis. |
 | **Macro** | Play a saved macro. |
 | **Command** | Run a shell command. |

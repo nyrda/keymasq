@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from keymasq.keymasqd.macro_file import MacroFileMeta, load_macro, write_macro
+from keymasq.keymasqd.macro_file import (
+    MacroFileMeta,
+    load_macro,
+    macro_payload_from_events,
+    write_macro,
+)
 
 
 def _open_fd_count() -> int:
@@ -65,3 +70,18 @@ def test_write_macro_without_overwrite_preserves_existing_destination(tmp_path: 
         )
 
     assert load_macro(path)["events"] == [original_event]
+
+
+def test_macro_payload_device_types_skip_missing_and_macro_events() -> None:
+    payload = macro_payload_from_events(
+        {"name": "macro"},
+        [
+            {"t_us": 0},
+            {"device_type": "", "t_us": 1},
+            {"device_type": "macro", "t_us": 2},
+            {"device_type": "keyboard", "t_us": 3},
+            {"macro_action": "mouse_move_natural_abs", "t_us": 4},
+        ],
+    )
+
+    assert payload["device_types"] == ["keyboard", "mouse"]

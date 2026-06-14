@@ -12,6 +12,8 @@
   timeout lifetimes.
 - Added Repeat Last Action for replaying the last repeatable input or action
   with category filters.
+- Added Natural mouse move actions for reliable absolute cursor positioning
+  through realtime cursor feedback.
 - Reworked macro recording around explicit temporary slots that can be
   replayed, saved later, or deleted, with recording opt-in managed from
   Settings.

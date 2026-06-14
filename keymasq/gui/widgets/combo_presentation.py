@@ -139,6 +139,8 @@ def combo_action_label(action: MappingAction | None) -> str:
         return f"Move {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.MOUSE_MOVE_ABS:
         return f"Move Abs {action.move_x}, {action.move_y}"
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        return f"Move Natural {action.move_x}, {action.move_y}"
     if action.action_type == ActionType.SUPERKEY:
         return action.superkey_name or "Super Key"
     return action.action_type.value.replace("_", " ").title()

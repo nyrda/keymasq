@@ -224,6 +224,10 @@ class HyprlandListener(WindowListener):
         except (OSError, UnicodeDecodeError, ValueError):
             return None
 
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        return True
+
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
         return await self.dispatch("movecursor", f"{int(x)} {int(y)}")
 

@@ -103,9 +103,20 @@ action = "exec"
 cmd = "notify-send keymasq"
 
 # move cursor
-action = "mouse_move_rel" # or "mouse_move_abs"
+action = "mouse_move_rel" # or "mouse_move_abs", "mouse_move_natural_abs"
 x = 100
 y = 0
+
+# natural absolute cursor movement uses relative uinput events plus realtime
+# cursor feedback; supported on GNOME, Hyprland, KDE Plasma, and X11
+action = "mouse_move_natural_abs"
+x = 640
+y = 480
+speed = 12000.0
+curve = "natural" # linear or natural
+jitter = 0.3
+tolerance = 2
+max_duration_ms = 3000
 
 # play saved macro by name
 action = "macro"
@@ -154,9 +165,10 @@ action = "cancel_macro_playback"
 
 Rapidfire emits repeated output pulses while the physical source is held.
 Supported by `keyboard`, `mouse`, `gamepad`, `mouse_move_rel`, and
-`mouse_move_abs`. Repeat actions also store rapidfire fields, but Repeat only
-applies them when the remembered action is a keyboard key, mouse button, mouse
-wheel action, or gamepad button.
+`mouse_move_abs`. Natural mouse movement is not rapidfire-capable. Repeat
+actions also store rapidfire fields, but Repeat only applies them when the
+remembered action is a keyboard key, mouse button, mouse wheel action, or
+gamepad button.
 
 ```toml
 rapidfire_enabled = true
@@ -181,10 +193,11 @@ enabled by `repeat_categories`. Valid categories are `keyboard`, `mouse`,
 values are normalized to `mouse`.
 
 `mouse` covers mouse buttons and wheel directions. Configured
-`mouse_move_rel` and `mouse_move_abs` actions are `special`; raw passthrough
-mouse movement is not recorded. Repeat does not remember Repeat, passthrough
-mapping actions, suppress actions, profile actions, emergency reset, or
-unresolved top-level superkey bindings. For superkeys, the top-level binding
+`mouse_move_rel`, `mouse_move_abs`, and `mouse_move_natural_abs` actions are
+`special`; raw passthrough mouse movement is not recorded. Repeat does not
+remember Repeat, passthrough mapping actions, suppress actions, profile actions,
+emergency reset, or unresolved top-level superkey bindings. For superkeys, the
+top-level binding
 itself is not stored
 verbatim; Repeat stores the resolved slot/overload path (not the original
 top-level superkey binding), so repeated Repeat invocations replay the resolved

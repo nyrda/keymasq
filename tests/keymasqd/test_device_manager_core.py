@@ -12,6 +12,7 @@ import pytest
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import DeviceType
+from keymasq.common.types import JsonObject
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
 from keymasq.keymasqd.runtime import grab_lifecycle as ldm
@@ -45,6 +46,76 @@ async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
         "status": "error",
         "message": "No mouse uinput device available",
     }
+
+
+@pytest.mark.asyncio
+async def test_get_cursor_position_uses_broadcast_request_response() -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    task = asyncio.create_task(manager.get_cursor_position(timeout_s=1.0))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    broadcast.assert_awaited_once()
+    event_type, payload = broadcast.await_args.args
+    assert event_type == CommandType.CURSOR_POSITION_REQUEST
+    request_id = payload["request_id"]
+
+    result = manager.handle_cursor_position_response(
+        {"request_id": request_id, "status": "ok", "x": 42, "y": 84}
+    )
+
+    assert result == {"status": "ok", "matched": True}
+    assert await task == (42, 84)
+
+
+@pytest.mark.asyncio
+async def test_get_cursor_position_sends_tracking_hint_when_requested() -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+
+    task = asyncio.create_task(
+        manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=123)
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    broadcast.assert_awaited_once()
+    event_type, payload = broadcast.await_args.args
+    assert event_type == CommandType.CURSOR_POSITION_REQUEST
+    assert payload["tracking_hint_ms"] == 123
+    request_id = payload["request_id"]
+
+    result = manager.handle_cursor_position_response(
+        {"request_id": request_id, "status": "ok", "x": 10, "y": 20}
+    )
+
+    assert result == {"status": "ok", "matched": True}
+    assert await task == (10, 20)
+
+
+@pytest.mark.asyncio
+async def test_get_cursor_position_bounds_timeout_by_tracking_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broadcast = AsyncMock()
+    manager = DeviceManager(broadcast_callback=broadcast)
+    observed_timeout: float | None = None
+
+    async def wait_for_cursor_response(
+        _future: asyncio.Future[JsonObject],
+        *,
+        timeout: float | None = None,
+    ) -> JsonObject:
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return {"status": "ok", "x": 10, "y": 20}
+
+    monkeypatch.setattr(dm.asyncio, "wait_for", wait_for_cursor_response)
+
+    assert await manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=25) == (10, 20)
+    assert observed_timeout == pytest.approx(0.025)
 
 
 @pytest.mark.asyncio

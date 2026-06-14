@@ -30,6 +30,8 @@ class _DeviceCommandManager(Protocol):
 
     async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
 
+    def handle_cursor_position_response(self, data: JsonObject) -> JsonObject: ...
+
     async def list_devices(self) -> JsonObject: ...
 
     async def device_runtime_status(self) -> JsonObject: ...
@@ -131,6 +133,9 @@ async def handle_device_command(
 
     if command_type == CommandType.DEVICE_RUNTIME_STATUS:
         return await daemon.device_manager.device_runtime_status()
+
+    if command_type == CommandType.CURSOR_POSITION_RESPONSE:
+        return daemon.device_manager.handle_cursor_position_response(data)
 
     if command_type == CommandType.SET_DIAGNOSTICS:
         enabled = bool(data.get("enabled", False))

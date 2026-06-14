@@ -32,6 +32,10 @@ from keymasq.gui.widgets.input_picker_shared import (
 from keymasq.gui.widgets.input_picker_shared import (
     build_navigation_tab as build_shared_navigation_tab,
 )
+from keymasq.gui.widgets.mouse_move_units import (
+    NATURAL_MOVE_SPEED_MAX_KPX_S,
+    speed_px_s_to_kpx_s,
+)
 
 from . import compat
 from .targets import (
@@ -52,6 +56,13 @@ from .targets import (
 log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
 
 _compact_tabs_css_installed = False
+
+
+def _unit_label(text: str) -> Gtk.Label:
+    label = Gtk.Label(label=text)
+    label.add_css_class("dim-label")
+    label.set_halign(Gtk.Align.START)
+    return label
 
 
 class InputTabsHost(Protocol):
@@ -102,7 +113,12 @@ def _ensure_compact_tabs_css() -> None:
 
 class SharedInputTabsMixin:
     _include_keyboard_capture_controls = False
+    _include_mpris_controls = True
+    _include_mouse_button_controls = True
+    _include_mouse_scroll_controls = True
     _include_mouse_move_controls = False
+    _include_mouse_move_failure_controls = False
+    _mouse_move_commit_label = "Map Move"
     _include_tap_options = False
     _gamepad_output_selector_mode = "inline"
 
@@ -283,7 +299,7 @@ class SharedInputTabsMixin:
         return build_shared_media_tab(
             self,
             media_groups=MEDIA_KEY_GROUPS,
-            mpris_groups=MPRIS_MEDIA_GROUPS,
+            mpris_groups=MPRIS_MEDIA_GROUPS if self._include_mpris_controls else None,
         )
 
     def _build_mouse_tab(self) -> Gtk.Widget:
@@ -291,54 +307,61 @@ class SharedInputTabsMixin:
         if not self._include_mouse_move_controls:
             return box
 
-        box.append(Gtk.Separator())
+        if self._include_mouse_button_controls or self._include_mouse_scroll_controls:
+            box.append(Gtk.Separator())
 
+        move_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        move_header.set_halign(Gtk.Align.CENTER)
         move_label = Gtk.Label(label="Move Cursor")
-        move_label.add_css_class("dim-label")
-        box.append(move_label)
+        move_label.add_css_class("heading")
+        move_header.append(move_label)
+        self.mouse_move_capture_status = Gtk.Label(label="")
+        self.mouse_move_capture_status.add_css_class("dim-label")
+        self.mouse_move_capture_status.set_halign(Gtk.Align.START)
+        move_header.append(self.mouse_move_capture_status)
+        box.append(move_header)
 
-        mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # Mode selector. Natural is the default and leads the group.
+        mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         mode_row.set_halign(Gtk.Align.CENTER)
 
+        self.mouse_move_natural_check = Gtk.CheckButton(label="Natural")
+        self.mouse_move_natural_check.set_active(self._mouse_move_mode == "natural")
+        self.mouse_move_natural_check.set_tooltip_text(
+            "Glide the cursor to a screen position along a human-like path"
+        )
+        self.mouse_move_natural_check.connect("toggled", self._on_mouse_move_mode_changed)
+        mode_row.append(self.mouse_move_natural_check)
+
         self.mouse_move_rel_check = Gtk.CheckButton(label="Relative")
+        self.mouse_move_rel_check.set_group(self.mouse_move_natural_check)
         self.mouse_move_rel_check.set_active(self._mouse_move_mode == "rel")
+        self.mouse_move_rel_check.set_tooltip_text(
+            "Nudge the cursor by an X/Y offset from where it is now"
+        )
         self.mouse_move_rel_check.connect("toggled", self._on_mouse_move_mode_changed)
         mode_row.append(self.mouse_move_rel_check)
 
         self.mouse_move_abs_check = Gtk.CheckButton(label="Absolute")
-        self.mouse_move_abs_check.set_group(self.mouse_move_rel_check)
+        self.mouse_move_abs_check.set_group(self.mouse_move_natural_check)
         self.mouse_move_abs_check.set_active(self._mouse_move_mode == "abs")
+        self.mouse_move_abs_check.set_tooltip_text(
+            "Warp the cursor instantly to a screen position"
+        )
         self.mouse_move_abs_check.connect("toggled", self._on_mouse_move_mode_changed)
         mode_row.append(self.mouse_move_abs_check)
 
         box.append(mode_row)
 
+        # Target coordinates, kept together so Capture sits beside the X/Y
+        # fields it fills in while the commit action stays in the footer.
         coords_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         coords_row.set_halign(Gtk.Align.CENTER)
 
-        x_label = Gtk.Label(label="X:")
-        coords_row.append(x_label)
-        self.mouse_move_x_spin = Gtk.SpinButton()
-        self.mouse_move_x_spin.set_adjustment(
-            Gtk.Adjustment(value=self._mouse_move_x, lower=-10000, upper=10000, step_increment=1)
-        )
-        self.mouse_move_x_spin.set_width_chars(6)
-        coords_row.append(self.mouse_move_x_spin)
-
-        y_label = Gtk.Label(label="Y:")
-        coords_row.append(y_label)
-        self.mouse_move_y_spin = Gtk.SpinButton()
-        self.mouse_move_y_spin.set_adjustment(
-            Gtk.Adjustment(value=self._mouse_move_y, lower=-10000, upper=10000, step_increment=1)
-        )
-        self.mouse_move_y_spin.set_width_chars(6)
-        coords_row.append(self.mouse_move_y_spin)
-
         capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        capture_row.set_halign(Gtk.Align.CENTER)
 
         if not self._slurp_available:
-            delay_label = Gtk.Label(label="Capture in:")
+            delay_label = Gtk.Label(label="In:")
             capture_row.append(delay_label)
 
         self.mouse_move_capture_delay_spin = Gtk.SpinButton()
@@ -359,25 +382,154 @@ class SharedInputTabsMixin:
             delay_suffix = Gtk.Label(label="s")
             capture_row.append(delay_suffix)
 
-        btn_label = "Capture" if self._slurp_available else "Capture Position"
-        self.mouse_move_capture_btn = Gtk.Button(label=btn_label)
+        self.mouse_move_capture_btn = Gtk.Button(label="Capture")
+        self.mouse_move_capture_btn.set_tooltip_text("Read the current cursor position into X/Y")
         self.mouse_move_capture_btn.connect("clicked", self._on_capture_position_clicked)
         capture_row.append(self.mouse_move_capture_btn)
 
-        self.mouse_move_capture_status = Gtk.Label(label="")
-        self.mouse_move_capture_status.add_css_class("dim-label")
-        self.mouse_move_capture_status.set_halign(Gtk.Align.START)
-        capture_row.append(self.mouse_move_capture_status)
-
         self.mouse_move_capture_row = capture_row
-        box.append(self.mouse_move_capture_row)
+        coords_row.append(self.mouse_move_capture_row)
 
-        move_map_btn = Gtk.Button(label="Map Move")
-        move_map_btn.add_css_class("suggested-action")
-        move_map_btn.connect("clicked", self._on_mouse_move_map_clicked)
-        coords_row.append(move_map_btn)
+        coords_row.append(Gtk.Label(label="X"))
+        self.mouse_move_x_spin = Gtk.SpinButton()
+        self.mouse_move_x_spin.set_adjustment(
+            Gtk.Adjustment(value=self._mouse_move_x, lower=-10000, upper=10000, step_increment=1)
+        )
+        self.mouse_move_x_spin.set_width_chars(6)
+        coords_row.append(self.mouse_move_x_spin)
+
+        coords_row.append(Gtk.Label(label="Y"))
+        self.mouse_move_y_spin = Gtk.SpinButton()
+        self.mouse_move_y_spin.set_adjustment(
+            Gtk.Adjustment(value=self._mouse_move_y, lower=-10000, upper=10000, step_increment=1)
+        )
+        self.mouse_move_y_spin.set_width_chars(6)
+        coords_row.append(self.mouse_move_y_spin)
 
         box.append(coords_row)
+
+        # Natural-only tuning, laid out as an aligned label/value grid.
+        natural_row = Gtk.Grid(column_spacing=10, row_spacing=8)
+        natural_row.set_halign(Gtk.Align.CENTER)
+
+        speed_label = Gtk.Label(label="Speed:")
+        speed_label.set_halign(Gtk.Align.END)
+        natural_row.attach(speed_label, 0, 0, 1, 1)
+        self.mouse_move_speed_spin = Gtk.SpinButton()
+        self.mouse_move_speed_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=speed_px_s_to_kpx_s(self._mouse_move_speed),
+                lower=1.0,
+                upper=NATURAL_MOVE_SPEED_MAX_KPX_S,
+                step_increment=1.0,
+                page_increment=10.0,
+            )
+        )
+        self.mouse_move_speed_spin.set_digits(0)
+        self.mouse_move_speed_spin.set_width_chars(4)
+        self.mouse_move_speed_spin.set_tooltip_text(
+            "Travel speed in thousands of pixels per second"
+        )
+        natural_row.attach(self.mouse_move_speed_spin, 1, 0, 1, 1)
+        natural_row.attach(_unit_label("kpx/s"), 2, 0, 1, 1)
+
+        curve_label = Gtk.Label(label="Curve:")
+        curve_label.set_halign(Gtk.Align.END)
+        natural_row.attach(curve_label, 3, 0, 1, 1)
+        curve_labels = ["Linear", "Natural"]
+        self.mouse_move_curve_dropdown = Gtk.DropDown.new_from_strings(curve_labels)
+        self.mouse_move_curve_dropdown.set_tooltip_text(
+            "Velocity profile: constant or smooth natural acceleration"
+        )
+        curve_values = ["linear", "natural"]
+        try:
+            self.mouse_move_curve_dropdown.set_selected(curve_values.index(self._mouse_move_curve))
+        except ValueError:
+            self.mouse_move_curve_dropdown.set_selected(1)
+        natural_row.attach(self.mouse_move_curve_dropdown, 4, 0, 2, 1)
+
+        jitter_label = Gtk.Label(label="Jitter:")
+        jitter_label.set_halign(Gtk.Align.END)
+        natural_row.attach(jitter_label, 0, 1, 1, 1)
+        self.mouse_move_jitter_spin = Gtk.SpinButton()
+        self.mouse_move_jitter_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._mouse_move_jitter,
+                lower=0.0,
+                upper=20.0,
+                step_increment=0.1,
+                page_increment=1.0,
+            )
+        )
+        self.mouse_move_jitter_spin.set_digits(1)
+        self.mouse_move_jitter_spin.set_width_chars(4)
+        self.mouse_move_jitter_spin.set_tooltip_text(
+            "Random sideways wobble added to the path, in pixels"
+        )
+        natural_row.attach(self.mouse_move_jitter_spin, 1, 1, 1, 1)
+        natural_row.attach(_unit_label("px"), 2, 1, 1, 1)
+
+        tolerance_label = Gtk.Label(label="Tolerance:")
+        tolerance_label.set_halign(Gtk.Align.END)
+        natural_row.attach(tolerance_label, 3, 1, 1, 1)
+        self.mouse_move_tolerance_spin = Gtk.SpinButton()
+        self.mouse_move_tolerance_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._mouse_move_tolerance,
+                lower=0,
+                upper=50,
+                step_increment=1,
+                page_increment=5,
+            )
+        )
+        self.mouse_move_tolerance_spin.set_width_chars(4)
+        self.mouse_move_tolerance_spin.set_tooltip_text(
+            "Stop once the cursor is within this many pixels of the target"
+        )
+        natural_row.attach(self.mouse_move_tolerance_spin, 4, 1, 1, 1)
+        natural_row.attach(_unit_label("px"), 5, 1, 1, 1)
+
+        self.mouse_move_natural_options_row = natural_row
+        box.append(self.mouse_move_natural_options_row)
+
+        natural_row_2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        natural_row_2.set_halign(Gtk.Align.CENTER)
+
+        duration_label = Gtk.Label(label="Give up after:")
+        natural_row_2.append(duration_label)
+        self.mouse_move_duration_spin = Gtk.SpinButton()
+        self.mouse_move_duration_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._mouse_move_max_duration_ms,
+                lower=1,
+                upper=30000,
+                step_increment=100,
+                page_increment=500,
+            )
+        )
+        self.mouse_move_duration_spin.set_width_chars(6)
+        self.mouse_move_duration_spin.set_tooltip_text(
+            "Abort the move if the target has not been reached within this time"
+        )
+        natural_row_2.append(self.mouse_move_duration_spin)
+
+        natural_row_2.append(Gtk.Label(label="ms"))
+
+        self.mouse_move_natural_options_row_2 = natural_row_2
+        box.append(self.mouse_move_natural_options_row_2)
+
+        self.mouse_move_stop_on_failure_check = Gtk.CheckButton(
+            label="Stop macro if target can't be reached"
+        )
+        self.mouse_move_stop_on_failure_check.set_active(self._mouse_move_stop_on_failure)
+        self.mouse_move_stop_on_failure_check.set_tooltip_text(
+            "During macro playback, abort the current macro run if natural movement times out"
+        )
+        self.mouse_move_stop_on_failure_check.set_halign(Gtk.Align.CENTER)
+        self.mouse_move_stop_on_failure_check.set_visible(
+            self._include_mouse_move_failure_controls
+        )
+        box.append(self.mouse_move_stop_on_failure_check)
 
         self._update_mouse_move_mode_visibility()
 

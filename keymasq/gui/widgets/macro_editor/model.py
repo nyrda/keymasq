@@ -5,7 +5,17 @@ from typing import Any
 
 import evdev
 
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.coercion import bool_value, coerce_float, coerce_int
+from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+    ActionType,
+    MappingAction,
+    normalize_natural_mouse_move_curve,
+)
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 
 # ---------------------------------------------------------------------------
@@ -125,10 +135,16 @@ class EditableEvent:
 
 @dataclass
 class EditableMove:
-    mode: str  # "rel" or "abs"
+    mode: str  # "rel", "abs", or "natural"
     t_us: int
     x: int
     y: int
+    speed: float = DEFAULT_NATURAL_MOUSE_MOVE_SPEED
+    jitter: float = DEFAULT_NATURAL_MOUSE_MOVE_JITTER
+    curve: str = DEFAULT_NATURAL_MOUSE_MOVE_CURVE
+    tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
+    max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
+    stop_on_failure: bool = False
     original_order: int | None = None
 
 
@@ -155,6 +171,67 @@ def _control_to_compositor_action(control: EditableControl) -> MappingAction:
         compositor_dispatcher=control.compositor_dispatcher,
         compositor_args=control.compositor_args,
     )
+
+
+def _move_macro_action(mode: str) -> str:
+    if mode == "natural":
+        return "mouse_move_natural_abs"
+    if mode == "abs":
+        return "mouse_move_abs"
+    return "mouse_move_rel"
+
+
+def _move_mode_from_action(action: str) -> str:
+    if action == "mouse_move_natural_abs":
+        return "natural"
+    if action == "mouse_move_abs":
+        return "abs"
+    return "rel"
+
+
+def _move_to_mapping_action(move: EditableMove) -> MappingAction:
+    if move.mode == "natural":
+        return MappingAction(
+            action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+            move_x=int(move.x),
+            move_y=int(move.y),
+            move_speed=float(move.speed),
+            move_jitter=float(move.jitter),
+            move_curve=normalize_natural_mouse_move_curve(move.curve),
+            move_tolerance=int(move.tolerance),
+            move_max_duration_ms=int(move.max_duration_ms),
+            move_stop_on_failure=bool(move.stop_on_failure),
+        )
+    return MappingAction(
+        action_type=ActionType.MOUSE_MOVE_ABS
+        if move.mode == "abs"
+        else ActionType.MOUSE_MOVE_REL,
+        move_x=int(move.x),
+        move_y=int(move.y),
+    )
+
+
+def _apply_mapping_action_to_move(move: EditableMove, action: MappingAction) -> bool:
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        move.mode = "natural"
+        move.x = int(action.move_x)
+        move.y = int(action.move_y)
+        move.speed = float(action.move_speed)
+        move.jitter = float(action.move_jitter)
+        move.curve = normalize_natural_mouse_move_curve(action.move_curve)
+        move.tolerance = int(action.move_tolerance)
+        move.max_duration_ms = int(action.move_max_duration_ms)
+        move.stop_on_failure = bool(action.move_stop_on_failure)
+        return True
+    if action.action_type == ActionType.MOUSE_MOVE_ABS:
+        move.mode = "abs"
+    elif action.action_type == ActionType.MOUSE_MOVE_REL:
+        move.mode = "rel"
+    else:
+        return False
+    move.x = int(action.move_x)
+    move.y = int(action.move_y)
+    return True
 
 
 def _describe_compositor_control(control: EditableControl) -> str:
@@ -199,13 +276,25 @@ def parse_events(
 
     for original_order, ev in enumerate(raw_events):
         macro_action = str(ev.get("macro_action", "") or "")
-        if macro_action in {"mouse_move_abs", "mouse_move_rel"}:
+        if macro_action in {"mouse_move_abs", "mouse_move_rel", "mouse_move_natural_abs"}:
             editable_moves.append(
                 EditableMove(
-                    mode="abs" if macro_action == "mouse_move_abs" else "rel",
+                    mode=_move_mode_from_action(macro_action),
                     t_us=int(ev.get("t_us", 0)),
                     x=int(ev.get("x", 0) or 0),
                     y=int(ev.get("y", 0) or 0),
+                    speed=coerce_float(ev.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
+                    jitter=coerce_float(ev.get("jitter"), DEFAULT_NATURAL_MOUSE_MOVE_JITTER),
+                    curve=normalize_natural_mouse_move_curve(ev.get("curve")),
+                    tolerance=coerce_int(
+                        ev.get("tolerance"),
+                        DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+                    ),
+                    max_duration_ms=coerce_int(
+                        ev.get("max_duration_ms"),
+                        DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+                    ),
+                    stop_on_failure=bool_value(ev.get("stop_on_failure")),
                     original_order=original_order,
                 )
             )
@@ -363,10 +452,17 @@ def reconstruct_events(
             "code": 0,
             "value": 0,
             "t_us": int(move.t_us),
-            "macro_action": "mouse_move_abs" if move.mode == "abs" else "mouse_move_rel",
+            "macro_action": _move_macro_action(move.mode),
             "x": int(move.x),
             "y": int(move.y),
         }
+        if move.mode == "natural":
+            move_event["speed"] = float(move.speed)
+            move_event["jitter"] = float(move.jitter)
+            move_event["curve"] = normalize_natural_mouse_move_curve(move.curve)
+            move_event["tolerance"] = int(move.tolerance)
+            move_event["max_duration_ms"] = int(move.max_duration_ms)
+            move_event["stop_on_failure"] = bool(move.stop_on_failure)
         if move.original_order is not None:
             move_event = _with_editor_order(move_event, move.original_order)
         raw.append(move_event)

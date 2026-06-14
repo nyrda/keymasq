@@ -4,6 +4,7 @@ from typing import Literal, cast
 from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
 from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
     ActionType,
@@ -11,6 +12,7 @@ from keymasq.common.models import (
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
     normalize_mpris_command,
+    normalize_natural_mouse_move_curve,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     profile_deactivation_policy_to_dict,
@@ -212,6 +214,18 @@ def mapping_action_from_toml(
             tap_hold_ms=coerce_int(action_data.get("tap_hold_ms"), 10),
         )
 
+    if action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        return MappingAction(
+            action_type=action_type,
+            move_x=coerce_int(action_data.get("x"), 0),
+            move_y=coerce_int(action_data.get("y"), 0),
+            move_speed=coerce_float(action_data.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
+            move_jitter=coerce_float(action_data.get("jitter"), 0.3),
+            move_curve=normalize_natural_mouse_move_curve(action_data.get("curve")),
+            move_tolerance=coerce_int(action_data.get("tolerance"), 2),
+            move_max_duration_ms=coerce_int(action_data.get("max_duration_ms"), 3000),
+        )
+
     target = action_data.get("target")
     cmd = action_data.get("cmd")
     axis_value = 0
@@ -280,6 +294,14 @@ def mapping_action_to_toml(
     if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):
         action_data["x"] = int(action.move_x)
         action_data["y"] = int(action.move_y)
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        action_data["x"] = int(action.move_x)
+        action_data["y"] = int(action.move_y)
+        action_data["speed"] = float(action.move_speed)
+        action_data["jitter"] = float(action.move_jitter)
+        action_data["curve"] = normalize_natural_mouse_move_curve(action.move_curve)
+        action_data["tolerance"] = int(action.move_tolerance)
+        action_data["max_duration_ms"] = int(action.move_max_duration_ms)
     if action.action_type == ActionType.GAMEPAD_AXIS:
         action_data["value"] = int(action.axis_value)
     if action.action_type in PROFILE_REF_ACTION_TYPES:

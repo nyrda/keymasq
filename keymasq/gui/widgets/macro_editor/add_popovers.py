@@ -8,13 +8,15 @@ gi.require_version("Adw", "1")
 import evdev
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import MappingAction
+from keymasq.common.models import ActionType, MappingAction
 from keymasq.gui.widgets.compositor_actions import build_compositor_action_pages
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
     EditableMove,
+    _apply_mapping_action_to_move,
     _control_to_compositor_action,
+    _move_to_mapping_action,
 )
 
 
@@ -27,13 +29,13 @@ class MacroEditorAddPopoversMixin:
         self._present_add_key_dialog()
 
     def _on_add_click(self, btn) -> None:
-        self._show_add_click_popover(btn)
+        self._present_add_key_dialog(device_type="mouse")
 
     def _on_add_move_rel(self, btn) -> None:
-        self._insert_move_event("rel")
+        self._present_mouse_move_dialog(mode="rel")
 
     def _on_add_move_abs(self, btn) -> None:
-        self._insert_move_event("abs")
+        self._present_mouse_move_dialog(mode="abs")
 
     def _default_insert_time_us(self, default_t_us: int | None = None) -> int:
         if default_t_us is not None:
@@ -51,6 +53,83 @@ class MacroEditorAddPopoversMixin:
         self._synthetic_moves.sort(key=lambda m: m.t_us)
         self._timeline._selected = move
         self._refresh_after_timing_edit()
+
+    def _present_mouse_move_dialog(
+        self,
+        default_t_us: int | None = None,
+        move: EditableMove | None = None,
+        mode: str = "natural",
+    ) -> None:
+        from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+        if move is not None:
+            current_action = _move_to_mapping_action(move)
+        else:
+            action_type = {
+                "abs": ActionType.MOUSE_MOVE_ABS,
+                "rel": ActionType.MOUSE_MOVE_REL,
+            }.get(mode, ActionType.MOUSE_MOVE_NATURAL_ABS)
+            current_action = MappingAction(action_type=action_type)
+
+        dialog = KeySelectorDialog(
+            self._parent,
+            "Mouse Move",
+            current_action,
+            allow_passthrough=False,
+            allow_clear_mapping=False,
+            allow_suppress=False,
+            allow_superkey=False,
+            allow_repeat=False,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allowed_tabs={"mouse"},
+            initial_tab="mouse",
+            include_mouse_button_controls=False,
+            include_mouse_scroll_controls=False,
+            include_mouse_move_controls=True,
+            include_mouse_move_failure_controls=True,
+            mouse_move_commit_label="Apply Move" if move is not None else "Insert Move",
+        )
+        if move is not None:
+            dialog.connect("key-selected", self._on_mouse_move_selected_for_edit, move)
+        else:
+            dialog.connect(
+                "key-selected",
+                self._on_mouse_move_selected_for_insert,
+                self._default_insert_time_us(default_t_us),
+            )
+        dialog.present(self._parent)
+
+    def _on_mouse_move_selected_for_insert(
+        self,
+        _dialog: Gtk.Widget,
+        action: MappingAction | None,
+        default_t_us: int,
+    ) -> None:
+        if action is None:
+            return
+        move = EditableMove(mode="rel", t_us=max(0, int(default_t_us)), x=0, y=0)
+        if not _apply_mapping_action_to_move(move, action):
+            return
+        self._synthetic_moves.append(move)
+        self._synthetic_moves.sort(key=lambda m: m.t_us)
+        self._timeline._selected = move
+        self._refresh_after_timing_edit()
+        self._on_selection_changed(move)
+
+    def _on_mouse_move_selected_for_edit(
+        self,
+        _dialog: Gtk.Widget,
+        action: MappingAction | None,
+        move: EditableMove,
+    ) -> None:
+        if action is None or move not in self._synthetic_moves:
+            return
+        if not _apply_mapping_action_to_move(move, action):
+            return
+        self._synthetic_moves.sort(key=lambda m: m.t_us)
+        self._refresh_after_timing_edit()
+        self._on_selection_changed(move)
 
     def _insert_control_event(self, control: EditableControl) -> None:
         self._control_events.append(control)
@@ -310,18 +389,39 @@ class MacroEditorAddPopoversMixin:
         default_t_us: int | None = None,
         device_type: str = "keyboard",
     ) -> None:
-        from keymasq.common.models import ActionType, MappingAction
         from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 
         if default_t_us is None:
             default_t_us = int((self._duration_us / 2) if self._duration_us else 500000)
-        action_type = ActionType.GAMEPAD if device_type == "gamepad" else ActionType.KEYBOARD
+        if device_type == "gamepad":
+            action_type = ActionType.GAMEPAD
+            allowed_tabs = {"gamepad"}
+            label = "Add Gamepad Button"
+        elif device_type == "mouse":
+            action_type = ActionType.MOUSE
+            allowed_tabs = {"mouse"}
+            label = "Add Mouse Click"
+        else:
+            action_type = ActionType.KEYBOARD
+            allowed_tabs = {"keyboard", "navigation", "media"}
+            label = "Add Keystroke"
 
         dialog = KeySelectorDialog(
             self._parent,
-            "Add Keystroke",
+            label,
             MappingAction(action_type=action_type),
+            allow_passthrough=False,
+            allow_clear_mapping=False,
+            allow_suppress=False,
+            allow_superkey=False,
             allow_repeat=False,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allowed_tabs=allowed_tabs,
+            initial_tab=device_type if device_type in {"mouse", "gamepad"} else "keyboard",
+            include_mpris_controls=False,
+            include_mouse_move_controls=False,
+            include_mouse_scroll_controls=False if device_type == "mouse" else True,
         )
         dialog.connect(
             "key-selected",
@@ -343,6 +443,7 @@ class MacroEditorAddPopoversMixin:
 
         if action is None or action.action_type not in {
             ActionType.KEYBOARD,
+            ActionType.MOUSE,
             ActionType.GAMEPAD,
             ActionType.GAMEPAD_AXIS,
         }:
@@ -368,12 +469,17 @@ class MacroEditorAddPopoversMixin:
                 output_id=getattr(action, "output_id", None),
             )
         else:
+            is_mouse = action.action_type == ActionType.MOUSE
             ev = EditableEvent(
-                device_type="gamepad" if action.action_type == ActionType.GAMEPAD else "keyboard",
+                device_type="mouse"
+                if is_mouse
+                else "gamepad"
+                if action.action_type == ActionType.GAMEPAD
+                else "keyboard",
                 ev_type=evdev.ecodes.EV_KEY,
                 code=code,
                 press_t_us=t_us,
-                release_t_us=t_us + 50000,
+                release_t_us=t_us + (80000 if is_mouse else 50000),
                 output_id=getattr(action, "output_id", None)
                 if action.action_type == ActionType.GAMEPAD
                 else None,

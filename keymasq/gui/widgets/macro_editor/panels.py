@@ -19,6 +19,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _get_key_name,
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+from keymasq.gui.widgets.mouse_move_units import format_natural_move_speed
 
 _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("none", "Once"),
@@ -426,6 +427,34 @@ class MacroEditorPanelsMixin:
         move_row.set_halign(Gtk.Align.START)
         self._move_mode_label = Gtk.Label(label="Mode: REL")
         move_row.append(self._move_mode_label)
+
+        self._move_capture_prefix_label = Gtk.Label(label="")
+        move_row.append(self._move_capture_prefix_label)
+
+        self._move_capture_delay_label = Gtk.Label(label="Capture in:")
+        self._move_capture_delay_label.add_css_class("dim-label")
+        move_row.append(self._move_capture_delay_label)
+
+        self._move_capture_delay_spin = Gtk.SpinButton()
+        self._move_capture_delay_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=self._capture_delay_seconds, lower=0.2, upper=15.0, step_increment=0.2
+            )
+        )
+        self._move_capture_delay_spin.set_digits(1)
+        self._move_capture_delay_spin.set_width_chars(4)
+        move_row.append(self._move_capture_delay_spin)
+
+        self._move_capture_delay_unit_label = Gtk.Label(label="s")
+        move_row.append(self._move_capture_delay_unit_label)
+
+        self._move_capture_btn = Gtk.Button(label="Capture")
+        self._move_capture_btn.connect("clicked", self._on_capture_selected_move_clicked)
+        move_row.append(self._move_capture_btn)
+
+        self._move_capture_colon_label = Gtk.Label(label="")
+        move_row.append(self._move_capture_colon_label)
+
         self._move_x_label = Gtk.Label(label="X:")
         move_row.append(self._move_x_label)
         self._move_x_spin = Gtk.SpinButton()
@@ -446,46 +475,26 @@ class MacroEditorPanelsMixin:
         self._move_y_spin.set_width_chars(7)
         self._move_y_spin.connect("value-changed", self._on_move_y_changed)
         move_row.append(self._move_y_spin)
-        panel.append(move_row)
-        self._move_row = move_row
-        self._move_row.set_visible(False)
-
-        move_capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        move_capture_row.set_halign(Gtk.Align.START)
-        move_capture_row.set_margin_start(24)
-
-        if not self._slurp_available:
-            move_capture_label = Gtk.Label(label="Capture new position in:")
-            move_capture_label.add_css_class("dim-label")
-            move_capture_row.append(move_capture_label)
-
-        self._move_capture_delay_spin = Gtk.SpinButton()
-        self._move_capture_delay_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=self._capture_delay_seconds, lower=0.2, upper=15.0, step_increment=0.2
-            )
-        )
-        self._move_capture_delay_spin.set_digits(1)
-        self._move_capture_delay_spin.set_width_chars(4)
-        self._move_capture_delay_spin.set_visible(not self._slurp_available)
-        move_capture_row.append(self._move_capture_delay_spin)
-
-        if not self._slurp_available:
-            move_capture_row.append(Gtk.Label(label="s"))
-
-        self._move_capture_btn = Gtk.Button(label="Capture")
-        self._move_capture_btn.connect("clicked", self._on_capture_selected_move_clicked)
-        move_capture_row.append(self._move_capture_btn)
 
         self._move_capture_status = Gtk.Label(label="")
         self._move_capture_status.add_css_class("dim-label")
         self._move_capture_status.set_halign(Gtk.Align.START)
         self._move_capture_status.set_hexpand(True)
-        move_capture_row.append(self._move_capture_status)
+        move_row.append(self._move_capture_status)
 
-        panel.append(move_capture_row)
-        self._move_capture_row = move_capture_row
-        self._move_capture_row.set_visible(False)
+        panel.append(move_row)
+        self._move_row = move_row
+        self._move_capture_widgets = (
+            self._move_capture_prefix_label,
+            self._move_capture_delay_label,
+            self._move_capture_delay_spin,
+            self._move_capture_delay_unit_label,
+            self._move_capture_btn,
+            self._move_capture_colon_label,
+            self._move_capture_status,
+        )
+        self._move_row.set_visible(False)
+        self._update_selected_move_capture_controls(None)
 
         control_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._control_mode_label = Gtk.Label()
@@ -764,7 +773,10 @@ class MacroEditorPanelsMixin:
             return
 
         self._revealer.set_reveal_child(True)
-        if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "abs":
+        if not isinstance(selected_obj, EditableMove) or selected_obj.mode not in {
+            "abs",
+            "natural",
+        }:
             self._cancel_capture_selected_move("")
         if isinstance(selected_obj, EditableControl):
             control = selected_obj
@@ -829,15 +841,22 @@ class MacroEditorPanelsMixin:
                     self._update_timeout_clamp_hint(int(control.timeout_ms))
             finally:
                 self._updating_props = False
-            self._move_capture_row.set_visible(False)
             self._update_selected_move_capture_controls(None)
             return
 
         self._control_row.set_visible(False)
         if isinstance(selected_obj, EditableMove):
             move = selected_obj
-            self._prop_title.set_label(f"Mouse Move ({move.mode.upper()})")
-            self._key_info_label.set_label(f"Move {move.mode.upper()} (x={move.x}, y={move.y})")
+            mode_label = "NATURAL" if move.mode == "natural" else move.mode.upper()
+            self._prop_title.set_label(f"Mouse Move ({mode_label})")
+            detail = f"Move {mode_label} (x={move.x}, y={move.y})"
+            if move.mode == "natural":
+                stop_suffix = ", stop on failure" if move.stop_on_failure else ""
+                detail = (
+                    f"{detail} @ {format_natural_move_speed(move.speed)}, {move.curve}, "
+                    f"timeout {move.max_duration_ms}ms{stop_suffix}"
+                )
+            self._key_info_label.set_label(detail)
 
             self._press_label.set_label("At:")
             self._duration_text_label.set_visible(False)
@@ -846,10 +865,10 @@ class MacroEditorPanelsMixin:
             self._release_label.set_visible(False)
             self._release_spin.set_visible(False)
             self._release_unit_label.set_visible(False)
-            self._change_key_btn.set_visible(False)
+            self._change_key_btn.set_visible(move.mode == "natural")
+            self._change_key_btn.set_label("Modify Move")
             self._move_row.set_visible(True)
-            self._move_capture_row.set_visible(move.mode == "abs")
-            self._move_mode_label.set_label(f"Mode: {move.mode.upper()}")
+            self._move_mode_label.set_label(f"Mode: {mode_label}")
             self._move_x_label.set_label("X:")
             self._move_y_label.set_label("Y:")
             self._move_y_label.set_visible(True)
@@ -882,8 +901,6 @@ class MacroEditorPanelsMixin:
             self._change_key_btn.set_visible(False)
             self._move_row.set_visible(False)
             self._control_row.set_visible(False)
-            self._move_capture_row.set_visible(False)
-
             self._updating_props = True
             try:
                 self._press_spin.set_value(int(selected_obj.get("t_us", 0)) / 1000)
@@ -913,7 +930,6 @@ class MacroEditorPanelsMixin:
             self._change_key_btn.set_visible(True)
             self._change_key_btn.set_label("Change Axis...")
             self._move_row.set_visible(True)
-            self._move_capture_row.set_visible(False)
             self._move_mode_label.set_label("Gamepad Axis:")
             self._move_x_label.set_label("Value:")
             self._move_y_label.set_visible(False)
@@ -946,7 +962,6 @@ class MacroEditorPanelsMixin:
         self._change_key_btn.set_visible(True)
         self._change_key_btn.set_label("Change Key...")
         self._move_row.set_visible(False)
-        self._move_capture_row.set_visible(False)
 
         self._updating_props = True
         try:
@@ -1107,7 +1122,10 @@ class MacroEditorPanelsMixin:
         if isinstance(ev, EditableControl) and ev.mode == "compositor_dispatch":
             self._present_compositor_action_dialog(control=ev)
             return
-        if ev is None or isinstance(ev, (EditableMove, EditableControl, dict)):
+        if isinstance(ev, EditableMove):
+            self._present_mouse_move_dialog(move=ev)
+            return
+        if ev is None or isinstance(ev, (EditableControl, dict)):
             return
         assert isinstance(ev, EditableEvent)
 
@@ -1148,7 +1166,31 @@ class MacroEditorPanelsMixin:
             self._parent,
             dialog_label,
             current_action,
+            allow_passthrough=False,
+            allow_clear_mapping=False,
+            allow_suppress=False,
+            allow_superkey=False,
             allow_repeat=False,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allowed_tabs={
+                "gamepad"
+                if ev.device_type == "gamepad"
+                else "mouse"
+                if ev.device_type == "mouse"
+                else "keyboard",
+                *(() if ev.device_type != "keyboard" else ("navigation", "media")),
+            },
+            initial_tab=(
+                "gamepad"
+                if ev.device_type == "gamepad"
+                else "mouse"
+                if ev.device_type == "mouse"
+                else "keyboard"
+            ),
+            include_mpris_controls=False,
+            include_mouse_move_controls=False,
+            include_mouse_scroll_controls=False if ev.device_type == "mouse" else True,
         )
         dialog.connect("key-selected", self._on_key_selected_for_edit)
         dialog.present(self._parent)
@@ -1386,14 +1428,19 @@ class MacroEditorPanelsMixin:
         self,
         selected_move: EditableMove | None = None,
     ) -> None:
-        if not hasattr(self, "_move_capture_row"):
+        if not hasattr(self, "_move_capture_widgets"):
             return
         move = selected_move
         if move is None:
             selected_obj = self._timeline._selected if hasattr(self, "_timeline") else None
             move = selected_obj if isinstance(selected_obj, EditableMove) else None
-        enabled = bool(move is not None and move.mode == "abs")
-        self._move_capture_row.set_visible(enabled)
+        enabled = bool(move is not None and move.mode in {"abs", "natural"})
+        for widget in self._move_capture_widgets:
+            widget.set_visible(enabled)
+        show_delay = enabled and not self._slurp_available
+        self._move_capture_delay_label.set_visible(show_delay)
+        self._move_capture_delay_spin.set_visible(show_delay)
+        self._move_capture_delay_unit_label.set_visible(show_delay)
         if self._slurp_available:
             self._move_capture_delay_spin.set_sensitive(False)
         else:
@@ -1427,7 +1474,10 @@ class MacroEditorPanelsMixin:
 
     def _on_capture_selected_move_clicked(self, btn: Gtk.Button) -> None:
         selected_obj = self._timeline._selected
-        if not isinstance(selected_obj, EditableMove) or selected_obj.mode != "abs":
+        if not isinstance(selected_obj, EditableMove) or selected_obj.mode not in {
+            "abs",
+            "natural",
+        }:
             return
         self._selected_move_capture.begin(
             button=self._move_capture_btn,
@@ -1451,7 +1501,7 @@ class MacroEditorPanelsMixin:
         x: int,
         y: int,
     ) -> bool:
-        if move.mode != "abs" or move not in self._synthetic_moves:
+        if move.mode not in {"abs", "natural"} or move not in self._synthetic_moves:
             self._move_capture_status.set_text("Capture target no longer available")
             return False
 

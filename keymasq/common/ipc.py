@@ -49,6 +49,8 @@ class CommandType(Enum):
     CANCEL_MACRO_PLAYBACK = "cancel_macro_playback"
     EMERGENCY_RESET = "emergency_reset"
     MACRO_EXEC_COMPLETE = "macro_exec_complete"
+    CURSOR_POSITION_REQUEST = "cursor_position_request"
+    CURSOR_POSITION_RESPONSE = "cursor_position_response"
     CAPTURE_BEGIN = "capture_begin"
     CAPTURE_READ = "capture_read"
     CAPTURE_END = "capture_end"

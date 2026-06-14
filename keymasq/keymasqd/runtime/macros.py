@@ -2,7 +2,7 @@ import contextlib
 import logging
 import random
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, field, fields
 from typing import Any, cast
 
@@ -15,12 +15,18 @@ from keymasq.common.coercion import (
 from keymasq.common.ipc import CommandType
 from keymasq.common.models import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+    DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
+    DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     normalize_macro_loop_stop_behavior,
 )
 from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
 
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
+type NaturalMacroMover = Callable[
+    [int, int, float, float, str, int, int],
+    Awaitable[dict[str, object]],
+]
 type _MacroManager = Any
 type _MacroOptionParser = Callable[[object, object, bool], object]
 type MacroEventIteratorFactory = Callable[[], Iterator[dict[str, object]]]
@@ -575,6 +581,7 @@ async def play_macro_task(
             iteration_anchor = event_loop.time()
             timeline_offset_s = 0.0
             idx = 0
+            stop_current_run = False
             async for ev in iter_macro_source_events(
                 macro_event_source,
                 deps=deps,
@@ -597,13 +604,46 @@ async def play_macro_task(
                     await asyncio_mod.sleep(remaining)
 
                 action_type = str(ev.get("macro_action", "") or "")
-                if action_type in {"mouse_move_abs", "mouse_move_rel"}:
-                    if not replay_mouse_movement:
-                        continue
+                if action_type in {
+                    "mouse_move_abs",
+                    "mouse_move_rel",
+                    "mouse_move_natural_abs",
+                }:
                     x = int_value_fn(ev.get("x"), 0)
                     y = int_value_fn(ev.get("y"), 0)
                     if action_type == "mouse_move_abs":
                         await manager.set_cursor_position(x, y)
+                    elif action_type == "mouse_move_natural_abs":
+                        raw_mover = getattr(manager, "move_cursor_natural", None)
+                        started_at = event_loop.time()
+                        result: dict[str, object] = {
+                            "status": "error",
+                            "message": "Natural mouse movement is unavailable",
+                        }
+                        max_duration_ms = int_value_fn(ev.get("max_duration_ms"), 3000)
+                        if block_mouse_movement:
+                            renew_macro_mouse_suppression(
+                                manager,
+                                timeout_s=max(0.1, max_duration_ms / 1000.0 + 1.0),
+                                deps=deps,
+                            )
+                        if callable(raw_mover):
+                            mover = cast(NaturalMacroMover, raw_mover)
+                            result = await mover(
+                                x,
+                                y,
+                                coerce_float(ev.get("speed"), DEFAULT_NATURAL_MOUSE_MOVE_SPEED),
+                                coerce_float(ev.get("jitter"), 0.3),
+                                str_value_fn(ev.get("curve"), DEFAULT_NATURAL_MOUSE_MOVE_CURVE),
+                                int_value_fn(ev.get("tolerance"), 2),
+                                max_duration_ms,
+                            )
+                        timeline_offset_s += max(0.0, event_loop.time() - started_at)
+                        if coerce_bool(ev.get("stop_on_failure"), False) and (
+                            result.get("status") != "ok"
+                        ):
+                            stop_current_run = True
+                            break
                     else:
                         uinput = manager.output_state.mouse_uinput
                         output = uinput_writer(uinput) if uinput else None
@@ -697,6 +737,9 @@ async def play_macro_task(
                         event_value,
                         deps=deps,
                     )
+
+            if stop_current_run:
+                break
 
             if instance_id not in manager.macro_state.cancel_instance_ids:
                 end_deadline = iteration_anchor + (macro_duration_us / speed_factor) / 1_000_000.0

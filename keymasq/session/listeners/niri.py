@@ -11,12 +11,12 @@ from typing import cast
 
 from keymasq.common.coercion import coerce_int
 from keymasq.common.coercion import json_object as _json_object
-from keymasq.common.slurp import get_slurp_capture
 from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners._socket_helpers import unix_socket_connectable
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
-from keymasq.session.slurp import capture_slurp_cursor_position
+from keymasq.session.listeners.layer_shell import pick_layer_shell_cursor_socket
+from keymasq.session.wayland_protocols.layer_shell_cursor import LayerShellCursorTracker
 
 log = logging.getLogger("keymasq-session.listeners.niri")
 
@@ -235,8 +235,8 @@ class NiriListener(WindowListener):
         self._windows: dict[int, JsonObject] = {}
         self._last_class = ""
         self._last_title = ""
-        self._slurp = get_slurp_capture()
-        self._slurp.set_compositor("niri")
+        self._cursor_tracker: LayerShellCursorTracker | None = None
+        self._cursor_task: asyncio.Task[None] | None = None
 
     @property
     def name(self) -> str:
@@ -271,6 +271,7 @@ class NiriListener(WindowListener):
             raise RuntimeError("Niri socket not available")
 
         self.socket_path = str(socket_path)
+        await self._start_cursor_tracker()
         self.running = True
         self._task = asyncio.create_task(self._listen())
         await self._refresh_focused_window()
@@ -303,6 +304,8 @@ class NiriListener(WindowListener):
                 log.debug("Failed while closing Niri command writer", exc_info=True)
             self._cmd_writer = None
             self._cmd_reader = None
+
+        await self._stop_cursor_tracker()
 
         log.info("Niri listener stopped")
 
@@ -584,8 +587,68 @@ class NiriListener(WindowListener):
         await self._emit_current_window_if_changed()
         return {"found": True, "id": window_id, "title": expected_title}
 
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        tracker = self._cursor_tracker
+        return bool(tracker is not None and tracker.supports_cursor_tracking)
+
+    async def prepare_cursor_position_tracking(self, duration_ms: int) -> None:
+        tracker = self._cursor_tracker
+        if tracker is not None:
+            await tracker.prepare_cursor_position_tracking(duration_ms)
+
     async def get_cursor_position(self) -> tuple[int, int] | None:
-        return await capture_slurp_cursor_position(self._slurp, self.client, log)
+        tracker = self._cursor_tracker
+        if tracker is None:
+            return None
+        return await tracker.get_cursor_position()
+
+    async def stop_cursor_position_tracking(self) -> None:
+        tracker = self._cursor_tracker
+        if tracker is not None:
+            await tracker.stop_cursor_position_tracking()
+
+    async def _start_cursor_tracker(self) -> None:
+        socket_path = await pick_layer_shell_cursor_socket()
+        if socket_path is None:
+            log.debug("Niri layer-shell cursor tracker unavailable: required protocols missing")
+            return
+
+        tracker = LayerShellCursorTracker(self.client, socket_path=str(socket_path))
+        try:
+            await tracker.start()
+        except (OSError, RuntimeError):
+            log.debug("Niri layer-shell cursor tracker unavailable", exc_info=True)
+            await tracker.stop()
+            return
+        except Exception:
+            log.exception("Niri layer-shell cursor tracker failed")
+            await tracker.stop()
+            return
+
+        self._cursor_tracker = tracker
+        self._cursor_task = asyncio.create_task(
+            tracker.run(),
+            name="keymasq-session:niri-layer-cursor",
+        )
+
+    async def _stop_cursor_tracker(self) -> None:
+        tracker = self._cursor_tracker
+        self._cursor_tracker = None
+        if tracker is not None:
+            await tracker.stop()
+
+        task = self._cursor_task
+        self._cursor_task = None
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except (OSError, RuntimeError):
+                log.debug("Niri layer-shell cursor read loop stopped", exc_info=True)
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         raw_dispatcher = str(dispatcher or "").strip()

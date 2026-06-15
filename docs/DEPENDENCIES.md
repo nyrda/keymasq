@@ -105,21 +105,21 @@ differentiator is the compositor/session environment itself.
 
 ### Pointer capture helpers
 
-- `slurp` is used only on compatible compositors:
-  `hyprland`, `wayland-wlr`, `kde`, `cosmic`, and `niri`
-- On `wayland-wlr` and `cosmic`, `slurp` is the cursor-acquisition
-  path used by the listener for recording start-position capture and similar
-  pointer reads
-- On unsupported compositors, `slurp` is not used
+- Session cursor-position reads on generic Wayland use an internal
+  `zwlr_layer_shell_v1` + `zxdg_output_manager_v1` backend; they do not spawn
+  `slurp`
+- `slurp` is used only by GUI point-picking Capture on compatible compositors:
+  `hyprland`, `wayland`, `wayland-wlr`, `wayland-layer-shell`, `kde`,
+  `cosmic`, and `niri`
+- On unsupported compositors, GUI `slurp` capture is not used
 - Path resolution checks the embedded build path first, then `/usr/bin/slurp`,
   `/run/current-system/sw/bin/slurp`, and finally `PATH`
 - `SLURP_PATH` overrides auto-detection entirely:
   set it to an absolute path to force that binary, or set it to an empty string
-  to disable slurp integration and force the fallback cursor-query path
+  to disable GUI `slurp` capture
 
-`slurp` is not a universal base runtime dependency, but it is a real
-feature/runtime dependency for supported Wayland environments rather than just a
-GUI convenience.
+`slurp` is not a universal base runtime dependency. It is a GUI Capture helper
+for supported Wayland environments.
 
 ### Capture unlock helper
 

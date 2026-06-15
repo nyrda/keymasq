@@ -187,7 +187,14 @@ The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` 
 
 **Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
-**Cursor position**: The Niri VM test uses the `slurp`-backed cursor capture path, just like Sway and COSMIC. The test grabs the QEMU AT keyboard so keymasqd creates uinput devices (including `keymasq-mouse`), then verifies that `get_cursor_position` returns valid on-screen coordinates. A retry loop (up to 3 attempts) handles VM timing variance where the compositor may need extra time to register the new uinput mouse or where slurp's layer surface isn't ready before the macro click fires.
+**Cursor position**: The Niri VM test uses the native layer-shell cursor feedback
+path, just like Sway and COSMIC when they expose `zwlr_layer_shell_v1` and
+`zxdg_output_manager_v1`. The test grabs the QEMU AT keyboard so keymasqd
+creates uinput devices (including `keymasq-mouse`), then verifies that
+`get_cursor_position` returns valid on-screen coordinates. A retry loop (up to 3
+attempts) handles VM timing variance where the compositor may need extra time to
+register the new uinput mouse or where the temporary layer surfaces are not ready
+before the synthetic cursor sample nudge runs.
 
 **Software renderer patch**: Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. The niri version is pinned via `niriExpectedVersion`; a Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
 

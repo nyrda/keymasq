@@ -247,11 +247,10 @@ you intentionally want a simple virtual-mouse reset-and-offset action.
 
 Natural movement requires realtime, low-latency cursor feedback while the
 virtual mouse is moving. Keymasq currently supports that feedback on GNOME,
-Hyprland, KDE Plasma, and X11. Other Wayland compositors are not
-available for Natural movement because their pointer-position paths do not
-provide the feedback loop. Slurp can still be used by **Capture** to fill the
-target coordinates. Configure speed, curve, jitter, tolerance, and timeout from
-the Mouse tab or profile TOML:
+Hyprland, KDE Plasma, X11, and Wayland compositors that expose both
+`zwlr_layer_shell_v1` and `zxdg_output_manager_v1`. Slurp can still be used by
+**Capture** to fill the target coordinates. Configure speed, curve, jitter,
+tolerance, and timeout from the Mouse tab or profile TOML:
 
 ```toml
 action = "mouse_move_natural_abs"

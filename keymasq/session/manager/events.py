@@ -106,6 +106,13 @@ async def handle_cursor_position_request(
         log.debug("Failed to send cursor position response", exc_info=True)
 
 
+async def handle_cursor_position_tracking_stop(manager: "SessionManager") -> None:
+    try:
+        await runtime_compositor.stop_cursor_position_tracking(manager)
+    except Exception:
+        log.exception("Failed to stop cursor position tracking")
+
+
 async def handle_event(
     manager: "SessionManager",
     event_type: CommandType,
@@ -119,6 +126,14 @@ async def handle_event(
             manager,
             handle_cursor_position_request(manager, data),
             name="cursor_position_request",
+        )
+        return
+
+    if event_type == CommandType.CURSOR_POSITION_TRACKING_STOP:
+        create_event_task(
+            manager,
+            handle_cursor_position_tracking_stop(manager),
+            name="cursor_position_tracking_stop",
         )
         return
 

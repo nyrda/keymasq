@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import logging
+from collections.abc import Awaitable
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
@@ -271,20 +272,22 @@ async def get_cursor_position_payload(
     tracking_hint_ms: int | None = None,
 ) -> JsonObject:
     pos = None
+    listener = manager.compositor_state.window_listener
 
-    if manager.compositor_state.window_listener:
+    if listener:
         try:
             if tracking_hint_ms is not None:
-                await manager.compositor_state.window_listener.prepare_cursor_position_tracking(
-                    tracking_hint_ms
-                )
-            pos = await manager.compositor_state.window_listener.get_cursor_position()
+                await listener.prepare_cursor_position_tracking(tracking_hint_ms)
+            pos = await listener.get_cursor_position()
         except Exception:
             log.exception(
                 "Cursor query failed (compositor_id=%s listener=%s)",
                 manager.compositor_state.compositor_id,
-                getattr(manager.compositor_state.window_listener, "name", "unknown"),
+                getattr(listener, "name", "unknown"),
             )
+        finally:
+            if tracking_hint_ms is None:
+                await _stop_listener_cursor_position_tracking(listener)
 
     if pos is None:
         return {
@@ -306,6 +309,24 @@ async def get_realtime_cursor_position_payload(
             "message": "Realtime cursor position is unavailable on this compositor",
         }
     return await get_cursor_position_payload(manager, tracking_hint_ms=tracking_hint_ms)
+
+
+async def stop_cursor_position_tracking(manager: "SessionManager") -> None:
+    listener = manager.compositor_state.window_listener
+    if listener is not None:
+        await listener.stop_cursor_position_tracking()
+
+
+async def _stop_listener_cursor_position_tracking(listener: object) -> None:
+    stop_tracking = getattr(listener, "stop_cursor_position_tracking", None)
+    if not callable(stop_tracking):
+        return
+    try:
+        result = stop_tracking()
+        if inspect.isawaitable(result):
+            await cast(Awaitable[object], result)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        log.debug("Failed to stop one-shot cursor position tracking", exc_info=True)
 
 
 async def compositor_supervisor_loop(manager: "SessionManager") -> None:

@@ -269,7 +269,8 @@ system:
 - `uvloop` installed if you want the preferred async runtime for
   `keymasqd` and `keymasq-session`
 - GTK4 and libadwaita runtime libraries for the GUI
-- `slurp` available for wlroots/COSMIC cursor acquisition and GUI point-pick flows
+- layer-shell plus xdg-output available for generic Wayland cursor feedback
+- `slurp` available for GUI point-pick flows
 - the Keymasq executables available to the system or the users who will run them: `keymasq`, `keymasqd`, and `keymasq-session`
 - a long-running launcher for the privileged daemon process
 - a per-user launcher for the session process in graphical sessions

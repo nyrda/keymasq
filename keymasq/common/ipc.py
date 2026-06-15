@@ -51,6 +51,7 @@ class CommandType(Enum):
     MACRO_EXEC_COMPLETE = "macro_exec_complete"
     CURSOR_POSITION_REQUEST = "cursor_position_request"
     CURSOR_POSITION_RESPONSE = "cursor_position_response"
+    CURSOR_POSITION_TRACKING_STOP = "cursor_position_tracking_stop"
     CAPTURE_BEGIN = "capture_begin"
     CAPTURE_READ = "capture_read"
     CAPTURE_END = "capture_end"

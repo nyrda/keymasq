@@ -200,12 +200,10 @@ class Daemon:
 
     def _register_internal_macros(self) -> None:
         ev_rel = 2
-        ev_key = 1
         rel_x = 0
-        btn_left = 272
 
         self.macro_store.register_internal(
-            "__slurp_trigger",
+            "__cursor_position_trigger",
             events=[
                 {"device_type": "mouse", "type": ev_rel, "code": rel_x, "value": 1, "t_us": 10000},
                 {
@@ -215,25 +213,11 @@ class Daemon:
                     "value": -1,
                     "t_us": 20000,
                 },
-                {
-                    "device_type": "mouse",
-                    "type": ev_key,
-                    "code": btn_left,
-                    "value": 1,
-                    "t_us": 30000,
-                },
-                {
-                    "device_type": "mouse",
-                    "type": ev_key,
-                    "code": btn_left,
-                    "value": 0,
-                    "t_us": 40000,
-                },
             ],
-            duration_ms=50,
+            duration_ms=30,
             device_types=["mouse"],
         )
-        log.debug("Registered internal macros: __slurp_trigger")
+        log.debug("Registered internal macros: __cursor_position_trigger")
 
     def _signal_handler(self) -> None:
         log.info("Received shutdown signal")

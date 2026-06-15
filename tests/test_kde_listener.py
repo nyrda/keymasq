@@ -316,8 +316,8 @@ async def _run_prepare_cursor_tracking_test(monkeypatch, tmp_path) -> tuple[
 
     await listener.prepare_cursor_position_tracking(1)
     cache = listener._cursor_tracking_cache
-    for _ in range(10):
-        if listener._cursor_tracking_script_iface is None:
+    for _ in range(50):
+        if listener._cursor_tracking_script_iface is None and not script_path.exists():
             break
         await asyncio.sleep(0.01)
 

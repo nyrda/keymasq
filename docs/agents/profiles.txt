@@ -108,7 +108,8 @@ x = 100
 y = 0
 
 # natural absolute cursor movement uses relative uinput events plus realtime
-# cursor feedback; supported on GNOME, Hyprland, KDE Plasma, and X11
+# cursor feedback; supported on GNOME, Hyprland, KDE Plasma, X11, and
+# Wayland compositors with zwlr_layer_shell_v1 plus zxdg_output_manager_v1
 action = "mouse_move_natural_abs"
 x = 640
 y = 480

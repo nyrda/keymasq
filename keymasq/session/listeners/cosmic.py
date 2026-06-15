@@ -8,7 +8,6 @@ from keymasq.session.listeners._socket_helpers import (
 )
 from keymasq.session.listeners.base import WindowChangeCallback
 from keymasq.session.listeners.wayland_toplevel import WaylandToplevelListener
-from keymasq.session.slurp import capture_slurp_cursor_position
 from keymasq.session.wayland_protocols import (
     CosmicToplevelInfoWaylandClient,
     ExtForeignToplevelListTracker,
@@ -56,6 +55,3 @@ class CosmicListener(
 
     def _create_client(self, socket_path: Path) -> CosmicToplevelInfoWaylandClient:
         return CosmicToplevelInfoWaylandClient(self._tracker, socket_path=str(socket_path))
-
-    async def get_cursor_position(self) -> tuple[int, int] | None:
-        return await capture_slurp_cursor_position(self._slurp, self.client)

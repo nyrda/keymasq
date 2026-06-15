@@ -356,7 +356,13 @@ class KDEListener(WindowListener):
         if not self.running or self._kwin_scripting is None:
             return
 
-        ttl_ms = max(1, min(KDE_CURSOR_TRACKING_MAX_HINT_MS, int(duration_ms)))
+        initial_sample_window_ms = (
+            int(KDE_CURSOR_TRACKING_INITIAL_SAMPLE_TIMEOUT_SECONDS * 1000) + 1
+        )
+        ttl_ms = max(
+            initial_sample_window_ms,
+            min(KDE_CURSOR_TRACKING_MAX_HINT_MS, int(duration_ms)),
+        )
         self._cursor_tracking_deadline_at = time.monotonic() + ttl_ms / 1000.0
 
         loop = asyncio.get_running_loop()
@@ -392,6 +398,9 @@ class KDEListener(WindowListener):
         finally:
             if sample_waiter is not None:
                 self._cursor_tracking_sample_waiters.discard(sample_waiter)
+
+    async def stop_cursor_position_tracking(self) -> None:
+        await self._stop_cursor_tracking_script()
 
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         if not self.running or self._kwin_scripting is None:

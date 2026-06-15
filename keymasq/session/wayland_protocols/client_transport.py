@@ -1,3 +1,4 @@
+import array
 import asyncio
 import os
 import socket
@@ -125,6 +126,7 @@ class WaylandClientTransport:
         }
         self._registry_id: int | None = None
         self._sync_waiters: set[int] = set()
+        self._sync_futures: dict[int, asyncio.Future[None]] = {}
 
     async def start(self) -> None:
         try:
@@ -199,15 +201,31 @@ class WaylandClientTransport:
     def _add_object(self, object_id: int, interface: str) -> None:
         self._objects[int(object_id)] = WaylandObject(interface)
 
-    async def _roundtrip(self) -> None:
+    async def _roundtrip(self, timeout: float = 2.0) -> None:
         sync_id = await self._request_sync()
-        await self._pump_until_sync(sync_id)
+        if self._running:
+            await self._wait_until_sync(sync_id, timeout=timeout)
+        else:
+            await self._pump_until_sync(sync_id, timeout=timeout)
 
     async def _request_sync(self) -> int:
         callback_id = self._allocate_object_id("wl_callback")
         self._sync_waiters.add(callback_id)
+        self._sync_futures[callback_id] = asyncio.get_running_loop().create_future()
         await self._send_request(WL_DISPLAY_OBJECT_ID, 0, pack_uint(callback_id))
         return callback_id
+
+    async def _wait_until_sync(self, callback_id: int, timeout: float = 2.0) -> None:
+        future = self._sync_futures.get(callback_id)
+        if future is None or future.done():
+            return
+        try:
+            await asyncio.wait_for(future, timeout=timeout)
+        except (TimeoutError, asyncio.CancelledError):
+            self._sync_waiters.discard(callback_id)
+            self._sync_futures.pop(callback_id, None)
+            self._objects.pop(callback_id, None)
+            raise
 
     async def _pump_until_sync(self, callback_id: int, timeout: float = 2.0) -> None:
         sock = self._socket
@@ -234,6 +252,48 @@ class WaylandClientTransport:
             raise RuntimeError("wayland socket is not open")
 
         await loop.sock_sendall(sock, build_request(object_id, opcode, payload))
+
+    async def _send_request_with_fds(
+        self,
+        object_id: int,
+        opcode: int,
+        payload: bytes,
+        fds: list[int],
+    ) -> None:
+        sock = self._socket
+        loop = self._loop
+        if sock is None or loop is None:
+            raise RuntimeError("wayland socket is not open")
+
+        data = build_request(object_id, opcode, payload)
+        fd_array = array.array("i", [int(fd) for fd in fds])
+        ancdata = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fd_array.tobytes())] if fds else []
+        offset = 0
+        send_ancdata = ancdata
+        while offset < len(data):
+            try:
+                sent = sock.sendmsg([data[offset:]], send_ancdata)
+            except (BlockingIOError, InterruptedError):
+                await self._wait_socket_writable(sock)
+                continue
+            if sent <= 0:
+                raise RuntimeError("wayland socket sendmsg returned no progress")
+            offset += sent
+            send_ancdata = []
+
+    async def _wait_socket_writable(self, sock: socket.socket) -> None:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[None] = loop.create_future()
+
+        def _ready() -> None:
+            if not future.done():
+                future.set_result(None)
+
+        loop.add_writer(sock.fileno(), _ready)
+        try:
+            await future
+        finally:
+            loop.remove_writer(sock.fileno())
 
     async def _bind_registry_global(
         self,
@@ -308,7 +368,13 @@ class WaylandClientTransport:
         raise WaylandDisplayError(object_id, error_code, message)
 
     async def _handle_registry_event(self, object_id: int, opcode: int, payload: bytes) -> None:
-        if object_id != self._registry_id or opcode != 0:
+        if object_id != self._registry_id:
+            return
+        if opcode == 1:
+            (global_name,) = struct.unpack_from("<I", payload, 0)
+            await self._handle_registry_global_remove(global_name)
+            return
+        if opcode != 0:
             return
 
         global_name, interface_name, version = decode_registry_global(payload)
@@ -323,7 +389,13 @@ class WaylandClientTransport:
     ) -> None:
         raise NotImplementedError
 
+    async def _handle_registry_global_remove(self, global_name: int) -> None:
+        del global_name
+
     def _handle_callback_event(self, object_id: int, opcode: int) -> None:
         if not callback_done(object_id, opcode, object_id):
             return
         self._sync_waiters.discard(object_id)
+        future = self._sync_futures.pop(object_id, None)
+        if future is not None and not future.done():
+            future.set_result(None)

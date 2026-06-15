@@ -11,7 +11,10 @@ import pytest
 from keymasq.common.ipc import Command, CommandType, Response, encode_response
 from keymasq.session.action_handler import ActionHandler
 from keymasq.session.client import KeymasqdClient
-from keymasq.session.slurp import SLURP_MACRO_NAME, trigger_slurp_macro
+from keymasq.session.cursor_position import (
+    CURSOR_POSITION_TRIGGER_MACRO_NAME,
+    trigger_cursor_position_sample,
+)
 from tests.async_fakes import (
     FakeProcess as _FakeProcess,
 )
@@ -352,7 +355,7 @@ async def test_action_handler_cancel_background_tasks_cancels_pending_command(
 
 
 @pytest.mark.asyncio
-async def test_trigger_slurp_macro_sends_expected_command() -> None:
+async def test_trigger_cursor_position_sample_sends_expected_command() -> None:
     calls: list[Command] = []
 
     class _DaemonClient:
@@ -360,23 +363,11 @@ async def test_trigger_slurp_macro_sends_expected_command() -> None:
             calls.append(command)
             return Response(status="ok")
 
-    await trigger_slurp_macro(_DaemonClient())  # type: ignore[arg-type]
+    await trigger_cursor_position_sample(_DaemonClient())  # type: ignore[arg-type]
 
     assert len(calls) == 1
     assert calls[0].command is CommandType.MACRO_PLAY_BY_NAME
-    assert calls[0].data == {"name": SLURP_MACRO_NAME, "speed": 1.0}
-
-
-@pytest.mark.asyncio
-async def test_trigger_slurp_macro_logs_failures(caplog: pytest.LogCaptureFixture) -> None:
-    class _DaemonClient:
-        async def send_command(self, command: Command) -> Response:
-            raise RuntimeError("slurp failed")
-
-    with caplog.at_level(logging.ERROR):
-        await trigger_slurp_macro(_DaemonClient())  # type: ignore[arg-type]
-
-    assert "failed to trigger slurp macro" in caplog.text
+    assert calls[0].data == {"name": CURSOR_POSITION_TRIGGER_MACRO_NAME, "speed": 1.0}
 
 
 def test_session_main_module_calls_manager_main(monkeypatch: pytest.MonkeyPatch) -> None:

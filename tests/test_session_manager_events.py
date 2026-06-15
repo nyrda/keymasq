@@ -32,6 +32,7 @@ async def test_handle_cursor_position_request_sends_realtime_response() -> None:
     listener = SimpleNamespace(
         supports_realtime_cursor_position=True,
         get_cursor_position=AsyncMock(return_value=(12, 34)),
+        stop_cursor_position_tracking=AsyncMock(),
     )
     manager.compositor_state.window_listener = listener
     manager.compositor_state.compositor_id = "hyprland"
@@ -51,6 +52,7 @@ async def test_handle_cursor_position_request_sends_realtime_response() -> None:
         "x": 12,
         "y": 34,
     }
+    listener.stop_cursor_position_tracking.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -61,6 +63,7 @@ async def test_handle_cursor_position_request_passes_tracking_hint_to_listener()
         supports_realtime_cursor_position=True,
         prepare_cursor_position_tracking=AsyncMock(),
         get_cursor_position=AsyncMock(return_value=(12, 34)),
+        stop_cursor_position_tracking=AsyncMock(),
     )
     manager.compositor_state.window_listener = listener
     manager.compositor_state.compositor_id = "kde"
@@ -74,6 +77,7 @@ async def test_handle_cursor_position_request_passes_tracking_hint_to_listener()
 
     listener.prepare_cursor_position_tracking.assert_awaited_once_with(250)
     listener.get_cursor_position.assert_awaited_once_with()
+    listener.stop_cursor_position_tracking.assert_not_awaited()
     sent = manager.client.send_command.await_args.args[0]
     assert sent.command == CommandType.CURSOR_POSITION_RESPONSE
     assert sent.data == {
@@ -82,6 +86,22 @@ async def test_handle_cursor_position_request_passes_tracking_hint_to_listener()
         "x": 12,
         "y": 34,
     }
+
+
+@pytest.mark.asyncio
+async def test_handle_cursor_position_tracking_stop_stops_listener() -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(stop_cursor_position_tracking=AsyncMock())
+    manager.compositor_state.window_listener = listener
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.CURSOR_POSITION_TRACKING_STOP,
+        {},
+    )
+    await asyncio.sleep(0)
+
+    listener.stop_cursor_position_tracking.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

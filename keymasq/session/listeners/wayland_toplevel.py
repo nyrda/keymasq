@@ -4,9 +4,9 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import ClassVar, Protocol
 
-from keymasq.common.slurp import get_slurp_capture
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
+from keymasq.session.wayland_protocols.layer_shell_cursor import LayerShellCursorTracker
 
 log = logging.getLogger("keymasq-session.listeners.wayland_toplevel")
 
@@ -37,7 +37,6 @@ class WaylandToplevelListener[
     _start_error_message: ClassVar[str] = "Wayland listener requires an active Wayland socket"
     _started_log_message: ClassVar[str] = "Wayland listener started"
     _stopped_log_message: ClassVar[str] = "Wayland listener stopped"
-    _slurp_compositor: ClassVar[str] = "wayland-wlr"
 
     def __init__(
         self,
@@ -50,10 +49,10 @@ class WaylandToplevelListener[
         self._tracker = tracker
         self._client: ClientT | None = None
         self._forward_task: asyncio.Task[None] | None = None
+        self._cursor_tracker: LayerShellCursorTracker | None = None
+        self._cursor_task: asyncio.Task[None] | None = None
         self._last_class = ""
         self._last_title = ""
-        self._slurp = get_slurp_capture()
-        self._slurp.set_compositor(self._slurp_compositor)
 
     @classmethod
     @abstractmethod
@@ -76,6 +75,7 @@ class WaylandToplevelListener[
 
         self._client = self._create_client(socket_path)
         await self._client.start()
+        await self._start_cursor_tracker(socket_path)
 
         self.running = True
         self._task = asyncio.create_task(self._listen())
@@ -101,6 +101,8 @@ class WaylandToplevelListener[
                 await self._task
             except asyncio.CancelledError:
                 pass
+
+        await self._stop_cursor_tracker()
 
         if self._client is not None:
             await self._client.stop()
@@ -145,3 +147,68 @@ class WaylandToplevelListener[
     async def get_active_window(self) -> tuple[str, str, list[str]]:
         window_class, window_title = self._tracker.get_active_window()
         return window_class, window_title, []
+
+    @property
+    def supports_realtime_cursor_position(self) -> bool:
+        tracker = self._cursor_tracker
+        return bool(tracker is not None and tracker.supports_cursor_tracking)
+
+    async def prepare_cursor_position_tracking(self, duration_ms: int) -> None:
+        tracker = self._cursor_tracker
+        if tracker is not None:
+            await tracker.prepare_cursor_position_tracking(duration_ms)
+
+    async def get_cursor_position(self) -> tuple[int, int] | None:
+        tracker = self._cursor_tracker
+        if tracker is None:
+            return None
+        return await tracker.get_cursor_position()
+
+    async def stop_cursor_position_tracking(self) -> None:
+        tracker = self._cursor_tracker
+        if tracker is not None:
+            await tracker.stop_cursor_position_tracking()
+
+    async def _start_cursor_tracker(self, socket_path: Path) -> None:
+        tracker = LayerShellCursorTracker(self.client, socket_path=str(socket_path))
+        try:
+            await tracker.start()
+        except (OSError, RuntimeError):
+            self._logger.debug(
+                "%s layer-shell cursor tracker unavailable",
+                self._listener_error_label,
+                exc_info=True,
+            )
+            await tracker.stop()
+            return
+        except Exception:
+            self._logger.exception(
+                "%s layer-shell cursor tracker failed",
+                self._listener_error_label,
+            )
+            await tracker.stop()
+            return
+
+        self._cursor_tracker = tracker
+        self._cursor_task = asyncio.create_task(
+            tracker.run(),
+            name=f"keymasq-session:{self.name}-layer-cursor",
+        )
+
+    async def _stop_cursor_tracker(self) -> None:
+        tracker = self._cursor_tracker
+        self._cursor_tracker = None
+        if tracker is not None:
+            await tracker.stop()
+
+        task = self._cursor_task
+        self._cursor_task = None
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except (OSError, RuntimeError):
+                self._logger.debug("Layer-shell cursor read loop stopped", exc_info=True)

@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from keymasq.common.ipc import CommandType
@@ -30,6 +30,9 @@ class LiveInterfaceInfo:
     stable_path: str
     path: str
     interface_id: str
+    phys: str = ""
+    device_type: str = ""
+    capabilities: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -494,7 +497,7 @@ def split_desired_hardware_id(desired_hardware_id: object) -> tuple[str, str]:
 
 
 def live_interface_payload(info: Any) -> JsonObject:
-    return {
+    payload: JsonObject = {
         "hardware_id": info.hardware_id,
         "vendor_id": info.vendor_id,
         "product_id": info.product_id,
@@ -502,6 +505,16 @@ def live_interface_payload(info: Any) -> JsonObject:
         "stable_path": info.stable_path,
         "interface_id": info.interface_id,
     }
+    phys = str(getattr(info, "phys", "") or "")
+    if phys:
+        payload["phys"] = phys
+    device_type = str(getattr(info, "device_type", "") or "")
+    if device_type:
+        payload["device_type"] = device_type
+    capabilities = list(getattr(info, "capabilities", ()) or ())
+    if capabilities:
+        payload["capabilities"] = capabilities
+    return payload
 
 
 def scan_live_interfaces_sync(
@@ -539,6 +552,9 @@ def scan_live_interfaces_sync(
                 stable_path=stable_path,
                 path=path,
                 interface_id=str(get_interface_id_fn(stable_path) or "").lower(),
+                phys=device_info.phys,
+                device_type=device_info.device_type.value,
+                capabilities=tuple(sorted(device_info.capabilities)),
             )
         except OSError as exc:
             log.debug("Could not read live topology device %s: %s", path, exc)

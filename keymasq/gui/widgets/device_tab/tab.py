@@ -601,6 +601,7 @@ class DeviceTab(ProfileManagedTab):
             evdev_device,
             product_path,
             "Switched event device to Product ID detection.",
+            preserve_runtime_selectors=True,
         )
 
     def _set_hardware_evdev_stable_detection(
@@ -638,11 +639,6 @@ class DeviceTab(ProfileManagedTab):
                     True,
                     "Match this event device by its /dev/input/by-id path.",
                 )
-            return (
-                False,
-                "Stable Path is unavailable because this event device has no "
-                "/dev/input/by-id path.",
-            )
 
         interface = self._runtime_interface_for_evdev_device(evdev_device)
         if interface is None:
@@ -668,6 +664,8 @@ class DeviceTab(ProfileManagedTab):
         evdev_device: EvdevDevice,
         path: str,
         message: str,
+        *,
+        preserve_runtime_selectors: bool = False,
     ) -> tuple[bool, str]:
         if self.hardware_manager is None:
             log.warning(
@@ -680,6 +678,8 @@ class DeviceTab(ProfileManagedTab):
 
         for configured in self.device.evdev_devices:
             if self._same_evdev_device(configured, evdev_device):
+                if preserve_runtime_selectors:
+                    self._preserve_runtime_evdev_selectors(configured, evdev_device)
                 configured.path = path
                 evdev_device.path = path
                 self.hardware_manager.save_hardware(self.device)
@@ -688,6 +688,33 @@ class DeviceTab(ProfileManagedTab):
                 self._update_header_caption()
                 return True, message
         return False, "Event device could not be found."
+
+    def _preserve_runtime_evdev_selectors(
+        self,
+        configured: EvdevDevice,
+        evdev_device: EvdevDevice,
+    ) -> None:
+        interface = self._runtime_interface_for_evdev_device(evdev_device)
+        if interface is None:
+            return
+
+        phys = str(interface.get("phys", "") or "").strip()
+        if phys:
+            if not str(configured.phys or "").strip():
+                configured.phys = phys
+            if not str(evdev_device.phys or "").strip():
+                evdev_device.phys = phys
+
+        raw_capabilities = interface.get("capabilities", [])
+        if not isinstance(raw_capabilities, list | tuple | set):
+            return
+        capabilities = [str(item) for item in raw_capabilities if str(item)]
+        if not capabilities:
+            return
+        if not configured.capabilities:
+            configured.capabilities = list(capabilities)
+        if not evdev_device.capabilities:
+            evdev_device.capabilities = list(capabilities)
 
     def _hardware_using_product_path(self, product_path: str) -> str:
         hardware_manager = self.hardware_manager

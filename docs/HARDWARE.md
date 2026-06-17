@@ -199,5 +199,3 @@ target = "key_1"
 Here `046d:c08b` is the hardware ID and `btn_back` is the button ID — event
 device paths never appear as profile keys. See [Profiles](PROFILES.md) for
 layering and merge behavior.
-</content>
-</invoke>

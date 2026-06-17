@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
@@ -310,8 +311,9 @@ def _unknown_configured_interface_payloads(
     configured_devices: list[object],
     requested_interfaces: dict[str, str],
 ) -> list[JsonObject]:
-    return [
-        {
+    payloads: list[JsonObject] = []
+    for configured in configured_devices:
+        payload: JsonObject = {
             "id": _configured_interface_id(configured),
             "configured_path": str(getattr(configured, "path", "") or ""),
             "type": _configured_interface_type(configured),
@@ -321,8 +323,13 @@ def _unknown_configured_interface_payloads(
             "current_path": "",
             "stable_path": "",
         }
-        for configured in configured_devices
-    ]
+        _append_interface_selectors(
+            payload,
+            phys=str(getattr(configured, "phys", "") or ""),
+            capabilities=getattr(configured, "capabilities", []),
+        )
+        payloads.append(payload)
+    return payloads
 
 
 def _runtime_interfaces_for_hardware(raw_interfaces: object, hardware_id: str) -> list[JsonObject]:
@@ -372,7 +379,7 @@ def _configured_interface_status(
     live = _match_configured_interface(configured, live_interfaces)
     grabbed = _match_configured_interface(configured, grabbed_interfaces)
     matched = grabbed or live or {}
-    return {
+    payload: JsonObject = {
         "id": _configured_interface_id(configured),
         "configured_path": str(getattr(configured, "path", "") or ""),
         "type": _configured_interface_type(configured),
@@ -386,6 +393,34 @@ def _configured_interface_status(
         ),
         "stable_path": str(matched.get("stable_path") or ""),
     }
+    _append_interface_selectors(
+        payload,
+        phys=str(matched.get("phys") or getattr(configured, "phys", "") or ""),
+        capabilities=matched.get("capabilities")
+        if matched
+        else getattr(configured, "capabilities", []),
+    )
+    return payload
+
+
+def _append_interface_selectors(
+    payload: JsonObject,
+    *,
+    phys: str,
+    capabilities: object,
+) -> None:
+    if phys:
+        payload["phys"] = phys
+    capability_values = _interface_capabilities_payload(capabilities)
+    if capability_values:
+        payload["capabilities"] = capability_values
+
+
+def _interface_capabilities_payload(value: object) -> list[str]:
+    if not isinstance(value, list | tuple | set):
+        return []
+    items = cast(Iterable[object], value)
+    return [str(item) for item in items if str(item)]
 
 
 def _match_configured_interface(

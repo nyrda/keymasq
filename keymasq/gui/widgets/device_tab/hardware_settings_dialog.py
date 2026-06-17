@@ -537,12 +537,19 @@ def _evdev_device_type(device: EvdevDevice) -> DeviceType:
 
 
 def _evdev_device_signature(device: EvdevDevice) -> tuple[str, str, str, tuple[str, ...]]:
+    path = str(device.path or "").strip()
+    if _is_real_evdev_path(path):
+        return (path, "", "", ())
     return (
-        str(device.path or "").strip(),
+        path,
         _evdev_device_type(device).value,
         str(device.phys or "").strip(),
         tuple(sorted(str(item).strip().lower() for item in device.capabilities if str(item))),
     )
+
+
+def _is_real_evdev_path(path: str) -> bool:
+    return path.startswith("/dev/input/") and not is_keymasq_device_path(path)
 
 
 def _normalize_interface_id(value: str) -> str:

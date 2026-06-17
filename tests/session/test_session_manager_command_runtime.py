@@ -531,7 +531,7 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
                 "path": "/dev/input/event10",
                 "interface_id": "gamepad",
                 "phys": "usb-test/input0",
-                "capabilities": ["btn_south"],
+                "capabilities": {"buttons": ["btn_south"]},
             }
         ],
         "grabbed_interfaces": [

@@ -103,6 +103,7 @@ class DeviceTab(ProfileManagedTab):
         self._device_runtime_status = self._device_runtime_status_from_response(data or {})
         super().apply_active_profile_response(data)
         self._update_device_status_pill()
+        self._refresh_hardware_settings_runtime_metadata()
 
     def _selected_layer(self, create: bool = False):
         if not self._selected_profile:
@@ -553,6 +554,11 @@ class DeviceTab(ProfileManagedTab):
     def _on_hardware_settings_dialog_closed(self, dialog: Adw.Dialog) -> None:
         if dialog is self._hardware_settings_dialog:
             self._hardware_settings_dialog = None
+
+    def _refresh_hardware_settings_runtime_metadata(self) -> None:
+        settings_dialog = self._hardware_settings_dialog
+        if settings_dialog is not None:
+            settings_dialog.refresh_runtime_metadata()
 
     def _add_hardware_evdev_devices(self, evdev_devices: list[EvdevDevice]) -> int:
         if self.hardware_manager is None:

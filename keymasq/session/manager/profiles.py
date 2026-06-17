@@ -424,10 +424,23 @@ def _append_interface_selectors(
 
 
 def _interface_capabilities_payload(value: object) -> list[str]:
+    if isinstance(value, dict):
+        items = [
+            nested
+            for item in cast(dict[object, object], value).values()
+            for nested in _interface_capability_items(item)
+        ]
+        return [str(item) for item in items if str(item)]
     if not isinstance(value, list | tuple | set):
         return []
     items = cast(Iterable[object], value)
     return [str(item) for item in items if str(item)]
+
+
+def _interface_capability_items(value: object) -> Iterable[object]:
+    if isinstance(value, list | tuple | set):
+        return cast(Iterable[object], value)
+    return (value,)
 
 
 def _match_configured_interface(

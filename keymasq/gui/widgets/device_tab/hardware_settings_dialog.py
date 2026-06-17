@@ -191,6 +191,10 @@ class HardwareSettingsDialog(Adw.Dialog):
 
         self.set_child(content)
 
+    def refresh_runtime_metadata(self) -> None:
+        self._refresh_identity()
+        self._refresh_interface_rows()
+
     def _refresh_interface_rows(self) -> None:
         for row in self._interface_rows:
             self._interfaces_group.remove(row)

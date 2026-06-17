@@ -2102,6 +2102,106 @@ class TestDeviceTabWidget:
         assert toggles["Product"].get_active() is True
         assert toggle_box.get_tooltip_text() == stable_tooltip
 
+    def test_hardware_settings_refreshes_stable_detection_after_runtime_update(self):
+        from typing import Any, cast
+
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            HardwareSettingsDialog,
+        )
+        from tests.gui.support import collect_widgets
+
+        class _HardwareManager:
+            pass
+
+        evdev_device = EvdevDevice(
+            path="keymasq:1234:5678",
+            device_type=DeviceType.GAMEPAD,
+            id="gamepad",
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+        )
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=cast(Any, _HardwareManager()),
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "gamepad",
+                    "configured_path": "keymasq:1234:5678",
+                    "stable_path": "/dev/input/event10",
+                }
+            ]
+        }
+        stable_tooltip = (
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path."
+        )
+        dialog = HardwareSettingsDialog(
+            None,
+            device,
+            cast(Any, _HardwareManager()),
+            lambda _devices: 0,
+            lambda: None,
+            lambda _device, _delete_profiles: True,
+            lambda _device, _method: (True, ""),
+            tab._stable_detection_status_for_evdev_device,
+            lambda _callback: None,
+            can_delete_profile_mappings=True,
+        )
+        tab._hardware_settings_dialog = dialog
+
+        def dialog_toggles() -> dict[str, Gtk.ToggleButton]:
+            content = dialog.get_child()
+            assert content is not None
+            return {
+                toggle.get_label(): toggle
+                for toggle in collect_widgets(content, Gtk.ToggleButton, include_self=True)
+            }
+
+        initial_toggles = dialog_toggles()
+        assert initial_toggles["Stable"].get_sensitive() is False
+        assert initial_toggles["Stable"].get_tooltip_text() == stable_tooltip
+
+        tab.apply_active_profile_response(
+            {
+                "active_profiles": [],
+                "devices": {
+                    device.hardware_id: {
+                        "profiles": [],
+                        "device_status": {
+                            "interfaces": [
+                                {
+                                    "id": "gamepad",
+                                    "configured_path": "keymasq:1234:5678",
+                                    "stable_path": "/dev/input/by-id/usb-Test-event-joystick",
+                                }
+                            ]
+                        },
+                    }
+                },
+            }
+        )
+
+        refreshed_toggles = dialog_toggles()
+        assert refreshed_toggles["Stable"].get_sensitive() is True
+        assert (
+            refreshed_toggles["Stable"].get_tooltip_text()
+            == "Switch this event device to its /dev/input/by-id path."
+        )
+        assert refreshed_toggles["Product"].get_active() is True
+
     def test_device_tab_hardware_settings_deletes_evdev_device_controls_and_mappings(
         self, monkeypatch, temp_config_dir
     ):

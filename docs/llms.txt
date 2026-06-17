@@ -35,6 +35,7 @@ Primary docs:
 - Home: https://keymasq.tools/docs/latest/
 - Install: https://keymasq.tools/docs/latest/INSTALL/
 - Getting Started: https://keymasq.tools/docs/latest/GETTING_STARTED/
+- Hardware Configuration: https://keymasq.tools/docs/latest/HARDWARE/
 - Profiles: https://keymasq.tools/docs/latest/PROFILES/
 - Actions: https://keymasq.tools/docs/latest/ACTIONS/
 - Macros: https://keymasq.tools/docs/latest/MACROS/

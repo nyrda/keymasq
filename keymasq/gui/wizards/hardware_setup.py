@@ -245,11 +245,19 @@ def _logical_hardware_identity_key(
 class HardwareSetupDialog(Adw.Dialog):
     __gsignals__ = {
         "device-created": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+        "evdev-devices-selected": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
 
-    def __init__(self, parent: Gtk.Window, hardware_manager: HardwareManager) -> None:
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        hardware_manager: HardwareManager,
+        *,
+        raw_evdev_only: bool = False,
+        select_evdev_only: bool = False,
+    ) -> None:
         super().__init__(
-            title="Add New Device",
+            title="Add Event Device" if select_evdev_only else "Add New Device",
             content_width=500,
             content_height=520,
         )
@@ -257,6 +265,8 @@ class HardwareSetupDialog(Adw.Dialog):
             self.set_modal(True)
 
         self.hardware_manager = hardware_manager
+        self._raw_evdev_only = raw_evdev_only
+        self._select_evdev_only = select_evdev_only
         self.detected_devices: dict[str, DetectedDevice] = {}
         self.selected_device: DetectedDevice | None = None
         self.discovered_interfaces: dict[str, DetectedInterface] = {}
@@ -270,7 +280,7 @@ class HardwareSetupDialog(Adw.Dialog):
         self._capture_remaining_ids: list[str] = []
         self._capture_hardware_id: str | None = None
         self._detect_devices_inflight = False
-        self._show_raw_evdev_devices = False
+        self._show_raw_evdev_devices = raw_evdev_only
 
         self._setup_escape_close()
         self._setup_ui()
@@ -322,7 +332,7 @@ class HardwareSetupDialog(Adw.Dialog):
         self.cancel_btn.connect("clicked", self._on_cancel_clicked)
         header.pack_start(self.cancel_btn)
 
-        self.next_btn = Gtk.Button(label="Next")
+        self.next_btn = Gtk.Button(label="Add" if self._select_evdev_only else "Next")
         self.next_btn.connect("clicked", self._on_next)
         self.next_btn.add_css_class("suggested-action")
         self.next_btn.set_sensitive(False)
@@ -340,20 +350,31 @@ class HardwareSetupDialog(Adw.Dialog):
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        title = Gtk.Label(label="Select Your Device")
+        title = Gtk.Label(
+            label="Select Event Device" if self._select_evdev_only else "Select Your Device"
+        )
         title.add_css_class("title-1")
         box.append(title)
 
-        subtitle = Gtk.Label(label="Choose the device you want to configure")
+        subtitle = Gtk.Label(
+            label=(
+                "Choose the raw event device to attach"
+                if self._select_evdev_only
+                else "Choose the device you want to configure"
+            )
+        )
         subtitle.add_css_class("dim-label")
         box.append(subtitle)
 
         device_tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         self.raw_evdev_check = Gtk.CheckButton(label="Show raw evdev devices")
+        self.raw_evdev_check.set_active(self._show_raw_evdev_devices)
         self.raw_evdev_check.set_tooltip_text(
             "Show each event node separately, including unknown device types."
         )
+        if self._raw_evdev_only:
+            self.raw_evdev_check.set_sensitive(False)
         self.raw_evdev_check.connect("toggled", self._on_raw_evdev_toggled)
         device_tools.append(self.raw_evdev_check)
 
@@ -566,7 +587,7 @@ class HardwareSetupDialog(Adw.Dialog):
 
     def _on_detected_devices_done(self) -> None:
         self._detect_devices_inflight = False
-        self.raw_evdev_check.set_sensitive(True)
+        self.raw_evdev_check.set_sensitive(not self._raw_evdev_only)
 
     def _on_detected_devices_ready(
         self,
@@ -689,6 +710,11 @@ class HardwareSetupDialog(Adw.Dialog):
         self._detect_devices()
 
     def _on_raw_evdev_toggled(self, check: Gtk.CheckButton) -> None:
+        if self._raw_evdev_only:
+            if not check.get_active():
+                check.set_active(True)
+            self._show_raw_evdev_devices = True
+            return
         self._show_raw_evdev_devices = check.get_active()
         self.selected_device = None
         self.next_btn.set_sensitive(False)
@@ -1581,6 +1607,9 @@ class HardwareSetupDialog(Adw.Dialog):
             selected_device = self.selected_device
             if selected_device is None:
                 return
+            if self._select_evdev_only:
+                self._emit_selected_evdev_devices()
+                return
             self._configure_mode = self._preferred_configure_mode()
             self.mode_combo.set_selected(self._configure_mode_values.index(self._configure_mode))
             self.describe_title.set_label(f"Configure {selected_device['name']}")
@@ -1604,6 +1633,13 @@ class HardwareSetupDialog(Adw.Dialog):
                 self._save_custom_config()
                 return
             self._save_mouse_config()
+
+    def _emit_selected_evdev_devices(self) -> None:
+        evdev_devices = self._build_evdev_devices(list(self.discovered_interfaces.values()))
+        if not evdev_devices:
+            return
+        self.emit("evdev-devices-selected", evdev_devices)
+        self.close()
 
     def _on_back(self, button: Gtk.Button) -> None:
         visible_page = self.stack.get_visible_child_name()

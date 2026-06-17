@@ -272,6 +272,60 @@ class TestHardwareSetupDialog:
 
         assert dialog.raw_evdev_check.get_sensitive() is True
 
+    def test_select_evdev_only_emits_raw_evdev_devices_without_saving(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.models import DeviceType
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+
+        class _HardwareManager:
+            def save_hardware(self, _config) -> None:
+                raise AssertionError("select mode must not save hardware")
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            _HardwareManager(),
+            raw_evdev_only=True,
+            select_evdev_only=True,
+        )
+        dialog.selected_device = {
+            "vendor_id": "1234",
+            "product_id": "5678",
+            "name": "Raw Device",
+        }
+        dialog.discovered_interfaces = {
+            "event20": {
+                "id": "event20",
+                "stable_path": "/dev/input/by-id/usb-Test-event-kbd",
+                "config_path": "/dev/input/by-id/usb-Test-event-kbd",
+                "path": "/dev/input/event20",
+                "name": "Raw Device",
+                "device_type": DeviceType.KEYBOARD,
+                "device_types": ["keyboard"],
+                "capabilities": ["key_a"],
+            }
+        }
+        selected = []
+        closed: list[bool] = []
+        dialog.connect(
+            "evdev-devices-selected",
+            lambda _dialog, devices: selected.extend(devices),
+        )
+        dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
+
+        dialog._on_next(Gtk.Button())
+
+        assert dialog.raw_evdev_check.get_active() is True
+        assert dialog.raw_evdev_check.get_sensitive() is False
+        assert dialog.next_btn.get_label() == "Add"
+        assert [device.path for device in selected] == ["/dev/input/by-id/usb-Test-event-kbd"]
+        assert selected[0].id == "event20"
+        assert selected[0].device_type == DeviceType.KEYBOARD
+        assert closed == [True]
+
     def test_raw_evdev_mode_keeps_configured_event_nodes_visible(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

@@ -10,6 +10,11 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.devices import (
+    is_by_id_path,
+    is_keymasq_device_path,
+    make_keymasq_device_path,
+)
 from keymasq.common.models import (
     ActionType,
     AnalogInputDefinition,
@@ -37,6 +42,11 @@ from keymasq.gui.widgets.device_tab.grid import (
     DeviceGridCallbacks,
     mapping_action_summary_chars,
     supports_analog_learning,
+)
+from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+    DetectionMethod,
+    HardwareSettingsDialog,
+    append_unique_evdev_devices,
 )
 from keymasq.gui.widgets.device_tab.input_helpers import label_from_evdev
 from keymasq.gui.widgets.device_tab.learn_analog_flow import (
@@ -79,6 +89,7 @@ class DeviceTab(ProfileManagedTab):
             demo_mode=demo_mode,
             compositor_capabilities=compositor_capabilities,
         )
+        self._hardware_settings_dialog: HardwareSettingsDialog | None = None
         self._button_widgets: dict[str, Gtk.Button] = {}
         self._user_interacting = False
         self._keyboard_layout_mode = False
@@ -308,14 +319,13 @@ class DeviceTab(ProfileManagedTab):
             inspect_btn.connect("clicked", self._on_inspect_device_clicked)
             name_row.append(inspect_btn)
 
-            delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
-            delete_btn.set_tooltip_text("Delete device")
-            delete_btn.add_css_class("destructive-action")
-            delete_btn.add_css_class("flat")
-            delete_btn.set_valign(Gtk.Align.CENTER)
-            delete_btn.set_sensitive(self.hardware_manager is not None)
-            delete_btn.connect("clicked", self._on_delete_device)
-            name_row.append(delete_btn)
+            settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+            settings_btn.set_tooltip_text("Hardware settings")
+            settings_btn.add_css_class("flat")
+            settings_btn.set_valign(Gtk.Align.CENTER)
+            settings_btn.set_sensitive(self.hardware_manager is not None)
+            settings_btn.connect("clicked", self._on_hardware_settings_clicked)
+            name_row.append(settings_btn)
 
         info_box.append(name_row)
 
@@ -501,18 +511,324 @@ class DeviceTab(ProfileManagedTab):
         if callable(opener):
             opener(self.device)
 
+    def _on_hardware_settings_clicked(self, _button: Gtk.Button) -> None:
+        if self.hardware_manager is None:
+            return
+        if self._hardware_settings_dialog is not None:
+            parent = self._hardware_settings_parent()
+            self._present_hardware_settings_dialog(self._hardware_settings_dialog, parent)
+            return
+
+        parent = self._hardware_settings_parent()
+        dialog = HardwareSettingsDialog(
+            parent,
+            self.device,
+            self.hardware_manager,
+            self._add_hardware_evdev_devices,
+            self._delete_hardware_from_settings,
+            self._delete_hardware_evdev_device,
+            self._set_hardware_evdev_detection_method,
+            self._stable_detection_status_for_evdev_device,
+            self._show_device_rename_dialog,
+            can_delete_profile_mappings=self.profile_manager is not None,
+        )
+        dialog.connect("closed", self._on_hardware_settings_dialog_closed)
+        self._hardware_settings_dialog = dialog
+        self._present_hardware_settings_dialog(dialog, parent)
+
+    def _hardware_settings_parent(self) -> Gtk.Window | None:
+        root = self.main_window or self.get_root()
+        return root if isinstance(root, Gtk.Window) else None
+
+    def _present_hardware_settings_dialog(
+        self,
+        dialog: HardwareSettingsDialog,
+        parent: Gtk.Window | None,
+    ) -> None:
+        if parent is not None:
+            dialog.present(parent)
+            return
+        dialog.present()
+
+    def _on_hardware_settings_dialog_closed(self, dialog: Adw.Dialog) -> None:
+        if dialog is self._hardware_settings_dialog:
+            self._hardware_settings_dialog = None
+
+    def _add_hardware_evdev_devices(self, evdev_devices: list[EvdevDevice]) -> int:
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot add event devices for %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return 0
+
+        added = append_unique_evdev_devices(self.device, evdev_devices)
+        if added <= 0:
+            return 0
+
+        self.hardware_manager.save_hardware(self.device)
+        _session_request_async({"command": "reload"}, self._ignore_session_response)
+        self._sync_always_grab_device_list()
+        self._update_header_caption()
+        return added
+
+    def _set_hardware_evdev_detection_method(
+        self,
+        evdev_device: EvdevDevice,
+        method: DetectionMethod,
+    ) -> tuple[bool, str]:
+        if method == "product":
+            return self._set_hardware_evdev_product_detection(evdev_device)
+        return self._set_hardware_evdev_stable_detection(evdev_device)
+
+    def _set_hardware_evdev_product_detection(
+        self,
+        evdev_device: EvdevDevice,
+    ) -> tuple[bool, str]:
+        product_path = make_keymasq_device_path(
+            self.device.vendor_id,
+            self.device.product_id,
+        )
+        if is_keymasq_device_path(str(evdev_device.path or "")):
+            return True, "Event device already uses Product ID detection."
+        conflict = self._hardware_using_product_path(product_path)
+        if conflict:
+            return (
+                False,
+                f"Product ID detection is already used by {conflict}.",
+            )
+        return self._update_hardware_evdev_path(
+            evdev_device,
+            product_path,
+            "Switched event device to Product ID detection.",
+        )
+
+    def _set_hardware_evdev_stable_detection(
+        self,
+        evdev_device: EvdevDevice,
+    ) -> tuple[bool, str]:
+        stable_available, stable_message = self._stable_detection_status_for_evdev_device(
+            evdev_device
+        )
+        if not stable_available:
+            return False, stable_message
+
+        current_path = str(evdev_device.path or "").strip()
+        if current_path and not is_keymasq_device_path(current_path):
+            if is_by_id_path(current_path):
+                return True, "Event device already uses Stable Path detection."
+
+        stable_path = self._runtime_stable_path_for_evdev_device(evdev_device)
+        if not stable_path:
+            return False, stable_message
+        return self._update_hardware_evdev_path(
+            evdev_device,
+            stable_path,
+            "Switched event device to Stable Path detection.",
+        )
+
+    def _stable_detection_status_for_evdev_device(
+        self,
+        evdev_device: EvdevDevice,
+    ) -> tuple[bool, str]:
+        current_path = str(evdev_device.path or "").strip()
+        if current_path and not is_keymasq_device_path(current_path):
+            if is_by_id_path(current_path):
+                return (
+                    True,
+                    "Match this event device by its /dev/input/by-id path.",
+                )
+            return (
+                False,
+                "Stable Path is unavailable because this event device has no "
+                "/dev/input/by-id path.",
+            )
+
+        interface = self._runtime_interface_for_evdev_device(evdev_device)
+        if interface is None:
+            return (
+                False,
+                "Stable Path is unavailable until this event device is connected.",
+            )
+
+        stable_path = str(interface.get("stable_path", "") or "").strip()
+        if is_by_id_path(stable_path):
+            return (
+                True,
+                "Switch this event device to its /dev/input/by-id path.",
+            )
+        return (
+            False,
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path.",
+        )
+
+    def _update_hardware_evdev_path(
+        self,
+        evdev_device: EvdevDevice,
+        path: str,
+        message: str,
+    ) -> tuple[bool, str]:
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot update event device detection for %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return False, "Action unavailable: missing hardware manager."
+        if not path:
+            return False, "Event device path could not be determined."
+
+        for configured in self.device.evdev_devices:
+            if self._same_evdev_device(configured, evdev_device):
+                configured.path = path
+                evdev_device.path = path
+                self.hardware_manager.save_hardware(self.device)
+                _session_request_async({"command": "reload"}, self._ignore_session_response)
+                self._sync_always_grab_device_list()
+                self._update_header_caption()
+                return True, message
+        return False, "Event device could not be found."
+
+    def _hardware_using_product_path(self, product_path: str) -> str:
+        hardware_manager = self.hardware_manager
+        if hardware_manager is None:
+            return ""
+        list_hardware = getattr(hardware_manager, "list_hardware", None)
+        if not callable(list_hardware):
+            return ""
+        for config in cast(list[object], list_hardware()):
+            hardware_id = str(getattr(config, "hardware_id", "") or "")
+            if hardware_id == self.device.hardware_id:
+                continue
+            for device in getattr(config, "evdev_devices", []):
+                if str(getattr(device, "path", "") or "").strip() == product_path:
+                    return hardware_id
+        return ""
+
+    def _runtime_interface_for_evdev_device(
+        self,
+        evdev_device: EvdevDevice,
+    ) -> JsonDict | None:
+        device_id = str(evdev_device.id or "").strip().lower()
+        configured_path = str(evdev_device.path or "").strip()
+        for interface in self._device_runtime_interfaces():
+            runtime_id = str(interface.get("id", "") or "").strip().lower()
+            if device_id and runtime_id and device_id == runtime_id:
+                return interface
+            if configured_path and configured_path == str(
+                interface.get("configured_path", "") or ""
+            ).strip():
+                return interface
+        return None
+
+    def _runtime_stable_path_for_evdev_device(self, evdev_device: EvdevDevice) -> str:
+        interface = self._runtime_interface_for_evdev_device(evdev_device)
+        stable_path = str((interface or {}).get("stable_path", "") or "").strip()
+        return stable_path if is_by_id_path(stable_path) else ""
+
+    def _delete_hardware_from_settings(self) -> None:
+        self.present_delete_device_dialog()
+
+    def _delete_hardware_evdev_device(
+        self,
+        evdev_device: EvdevDevice,
+        delete_profile_mappings: bool,
+    ) -> bool:
+        if self.hardware_manager is None:
+            log.warning(
+                "Cannot delete event device for %s without a hardware manager",
+                self.device.hardware_id,
+            )
+            return False
+        if delete_profile_mappings and self.profile_manager is None:
+            log.warning(
+                "Cannot delete profile mappings for %s without a profile manager",
+                self.device.hardware_id,
+            )
+            return False
+
+        original_count = len(self.device.evdev_devices)
+        self.device.evdev_devices = [
+            device
+            for device in self.device.evdev_devices
+            if not self._same_evdev_device(device, evdev_device)
+        ]
+        if len(self.device.evdev_devices) == original_count:
+            return False
+
+        removed_control_ids = self._remove_controls_for_evdev_device(evdev_device)
+        if delete_profile_mappings and self.profile_manager is not None:
+            for control_id in removed_control_ids:
+                self.profile_manager.remove_device_button_mappings(
+                    self.device.hardware_id,
+                    control_id,
+                )
+
+        self.hardware_manager.save_hardware(self.device)
+        _session_request_async({"command": "reload"}, self._ignore_session_response)
+        self._sync_always_grab_device_list()
+        if self.profile_manager is not None:
+            self._reload_ui()
+        else:
+            self._update_header_caption()
+        return True
+
+    def _remove_controls_for_evdev_device(self, evdev_device: EvdevDevice) -> list[str]:
+        source = str(evdev_device.id or "").strip()
+        if not source:
+            return []
+
+        removed_button_ids = [
+            button.id for button in self.device.buttons if button.source == source
+        ]
+        removed_analog_ids = [
+            analog.id for analog in self.device.analog_inputs if analog.source == source
+        ]
+        if removed_button_ids:
+            self.device.buttons = [
+                button for button in self.device.buttons if button.source != source
+            ]
+        if removed_analog_ids:
+            self.device.analog_inputs = [
+                analog for analog in self.device.analog_inputs if analog.source != source
+            ]
+        return [*removed_button_ids, *removed_analog_ids]
+
+    @staticmethod
+    def _same_evdev_device(left: EvdevDevice, right: EvdevDevice) -> bool:
+        return (
+            left is right
+            or (
+                str(left.path or "").strip() == str(right.path or "").strip()
+                and str(left.id or "").strip() == str(right.id or "").strip()
+                and str(left.phys or "").strip() == str(right.phys or "").strip()
+                and getattr(left.device_type, "value", left.device_type)
+                == getattr(right.device_type, "value", right.device_type)
+            )
+        )
+
     def _on_device_name_right_clicked(self, click, n_press, x, y) -> None:
         if n_press != 1 or self.demo_mode or self.hardware_manager is None:
             return
         self._show_device_rename_dialog()
 
-    def _show_device_rename_dialog(self) -> None:
+    def _show_device_rename_dialog(
+        self,
+        on_saved: Callable[[], None] | None = None,
+    ) -> None:
         if self.hardware_manager is None:
             return
+
+        def save(new_name: str) -> bool:
+            saved = self._rename_device(new_name)
+            if saved and on_saved is not None:
+                on_saved()
+            return saved
+
         rename_dialogs.present_device_rename_dialog(
             parent=self.get_root(),
             current_name=self.device.name,
-            on_save=self._rename_device,
+            on_save=save,
             on_close_clicked=self._on_close_dialog_clicked,
         )
 
@@ -643,6 +959,10 @@ class DeviceTab(ProfileManagedTab):
         _session_request_async({"command": "reload"}, lambda _result: False)
 
         dialog.close()
+        settings_dialog = self._hardware_settings_dialog
+        if settings_dialog is not None:
+            settings_dialog.close()
+            self._hardware_settings_dialog = None
 
         root = self.main_window or self.get_root()
         remove_device_tab = getattr(root, "remove_device_tab", None)

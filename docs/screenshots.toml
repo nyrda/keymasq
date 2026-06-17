@@ -30,6 +30,18 @@ name = "keymasq_add_device"
 target = "add_device_dialog"
 
 [[shot]]
+name = "keymasq_hardware_settings"
+target = "hardware_settings"
+device = "1532:00b4"
+
+[[shot]]
+name = "keymasq_hardware_product_id_detection"
+target = "hardware_settings"
+device = "35ef:0021"
+hardware_variant = "product_id"
+dialog_height = 420
+
+[[shot]]
 name = "keymasq_device_fresh"
 target = "device_fresh"
 

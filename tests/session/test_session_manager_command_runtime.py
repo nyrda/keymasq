@@ -530,6 +530,8 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
                 "stable_path": "/dev/input/by-id/pad-event-joystick",
                 "path": "/dev/input/event10",
                 "interface_id": "gamepad",
+                "phys": "usb-test/input0",
+                "capabilities": ["btn_south"],
             }
         ],
         "grabbed_interfaces": [
@@ -562,6 +564,8 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
             "grabbed": True,
             "current_path": "/dev/input/event10",
             "stable_path": "/dev/input/by-id/pad-event-joystick",
+            "phys": "usb-test/input0",
+            "capabilities": ["btn_south"],
         },
         {
             "id": "kbd",

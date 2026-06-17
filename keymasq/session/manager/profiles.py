@@ -395,10 +395,17 @@ def _configured_interface_status(
     }
     _append_interface_selectors(
         payload,
-        phys=str(matched.get("phys") or getattr(configured, "phys", "") or ""),
-        capabilities=matched.get("capabilities")
-        if matched
-        else getattr(configured, "capabilities", []),
+        phys=str(
+            (live or {}).get("phys")
+            or matched.get("phys")
+            or getattr(configured, "phys", "")
+            or ""
+        ),
+        capabilities=(
+            (live or {}).get("capabilities")
+            or matched.get("capabilities")
+            or getattr(configured, "capabilities", [])
+        ),
     )
     return payload
 

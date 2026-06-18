@@ -301,7 +301,6 @@ class HyprlandListener(WindowListener):
                         log.debug("Failed while closing Hyprland command writer: %s", exc)
                     except Exception:
                         log.exception("Unexpected failure while closing Hyprland command writer")
-            return None
 
     async def health_check(self) -> bool:
         if not await super().health_check():

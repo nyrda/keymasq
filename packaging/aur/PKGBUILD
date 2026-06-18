@@ -100,5 +100,4 @@ package() {
     cp -a "gnome-extension/gnome-bridge@keymasq.tools/." \
         "$pkgdir/usr/share/gnome-shell/extensions/gnome-bridge@keymasq.tools/"
 
-    rm -f "$pkgdir/usr/bin/keymasq-cli" "$pkgdir/usr/bin/keymasq-gui"
 }

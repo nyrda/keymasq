@@ -25,10 +25,6 @@ log = logging.getLogger("keymasq-session")
 SUPPORT_DETAILS_TIMEOUT_S = 1.0
 
 
-def get_compositor_payload(manager: "SessionManager") -> JsonObject:
-    raise RuntimeError("get_compositor_payload must be awaited")
-
-
 async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
     details = merge_support_details(
         await cached_support_details(manager),

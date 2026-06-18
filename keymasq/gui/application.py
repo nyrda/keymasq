@@ -28,6 +28,7 @@ from keymasq.gui.preferences import (  # noqa: E402
     save_appearance_mode,
 )
 from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
+from keymasq.gui.widgets.docs_links import docs_page_url  # noqa: E402
 from keymasq.gui.window import MainWindow  # noqa: E402
 
 APP_VERSION = __version__
@@ -41,15 +42,8 @@ COLOR_SCHEME_BY_APPEARANCE: dict[AppearanceMode, Adw.ColorScheme] = {
 }
 
 
-def _docs_version() -> str:
-    version = APP_VERSION.strip()
-    if not version or "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/"
+    return docs_page_url(version=APP_VERSION)
 
 
 class Application(Adw.Application):

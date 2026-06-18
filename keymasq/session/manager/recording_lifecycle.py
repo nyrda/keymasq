@@ -866,8 +866,6 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
         duration_us = coerce_int(data.get("duration_us"), duration_ms * 1000)
         device_types = [str(value) for value in json_list(data.get("device_types"))]
         event_count = coerce_int(data.get("event_count"), 0)
-        pending = True
-        playable = True
         out.append(
             {
                 "kind": "recording_slot",
@@ -875,9 +873,9 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
                 "display_name": f"Slot {slot}",
                 "recording_slot": int(slot),
                 "pending_save_token": token,
-                "pending": pending,
+                "pending": True,
                 "editable": False,
-                "playable": playable,
+                "playable": True,
                 "duration_us": duration_us,
                 "duration_ms": duration_ms,
                 "device_types": device_types,

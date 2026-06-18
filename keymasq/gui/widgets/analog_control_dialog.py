@@ -1,7 +1,10 @@
 from keymasq import __version__
 from keymasq.common.slurp import get_slurp_capture
 from keymasq.gui.widgets.analog_control import dialog as _dialog
-from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog as _AnalogControlDialog
+from keymasq.gui.widgets.analog_control.compat import (
+    analog_controls_docs_url as _analog_controls_docs_url,
+)
+from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
 from keymasq.gui.widgets.analog_control.options import (
     _analog_control_search_text,
     _clamp_threshold_value,
@@ -32,36 +35,13 @@ GLib = _dialog.GLib
 GObject = _dialog.GObject
 Gtk = _dialog.Gtk
 
-
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
-def _analog_controls_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
-
-
-def _sync_compat_overrides() -> None:
-    _dialog.get_slurp_capture = get_slurp_capture
-    _dialog.detect_compositor_sync = detect_compositor_sync
-    _dialog.virtual_gamepad_count = virtual_gamepad_count
-    _dialog.HardwareManager = HardwareManager
-    _dialog._analog_controls_docs_url = _analog_controls_docs_url
-
-
-class AnalogControlDialog(_AnalogControlDialog):
-    def __init__(self, *args, **kwargs):
-        _sync_compat_overrides()
-        super().__init__(*args, **kwargs)
-
-
 __all__ = [
     "AnalogControlDialog",
+    "Adw",
+    "Gdk",
+    "GLib",
+    "GObject",
+    "Gtk",
     "_SelectOption",
     "_analog_control_search_text",
     "_analog_controls_docs_url",
@@ -81,4 +61,9 @@ __all__ = [
     "_option_labels",
     "_options_for_input_type",
     "_to_percent",
+    "get_slurp_capture",
+    "detect_compositor_sync",
+    "HardwareManager",
+    "virtual_gamepad_count",
+    "__version__",
 ]

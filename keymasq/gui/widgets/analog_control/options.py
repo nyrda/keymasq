@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-from keymasq import __version__
 from keymasq.common.models import (
     AnalogActionThreshold,
     AnalogControlConfig,
@@ -67,19 +66,6 @@ _GAMEPAD_OUTPUT_TARGET_OPTIONS = (
 _MOUSE_DEADZONE_DEFAULT = 0.15
 _CONTROL_GROUPS = (("axis", "1D Axes / Triggers"), ("stick", "Sticks"))
 _AXIS_ITEMS = ("x", "y")
-
-
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
-def _analog_controls_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/ANALOG_CONTROLS/"
 
 
 def _compute_hysteresis(threshold: AnalogActionThreshold) -> float:

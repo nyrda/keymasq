@@ -21,8 +21,16 @@ from keymasq.common.models import (
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
 )
-from keymasq.common.slurp import get_slurp_capture
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
+from keymasq.gui.widgets.analog_control.compat import (
+    analog_controls_docs_url as _analog_controls_docs_url,
+)
+from keymasq.gui.widgets.analog_control.compat import (
+    detect_compositor_sync,
+    get_slurp_capture,
+    hardware_manager,
+    virtual_gamepad_count,
+)
 from keymasq.gui.widgets.analog_control.groups import (
     build_digital_group,
     build_gamepad_output_group,
@@ -32,7 +40,6 @@ from keymasq.gui.widgets.analog_control.groups import (
 from keymasq.gui.widgets.analog_control.options import (
     _INPUT_TYPE_OPTIONS,
     _analog_control_search_text,
-    _analog_controls_docs_url,
     _gamepad_output_target_label_for_input_type,
     _gamepad_output_target_options_for_input_type,
     _group_analog_control_names,
@@ -49,7 +56,6 @@ from keymasq.gui.widgets.gamepad_output_choices import (
     load_gamepad_output_choices,
     selected_gamepad_output_id,
     update_gamepad_output_warning_label,
-    virtual_gamepad_count,
 )
 from keymasq.gui.widgets.position_capture import (
     PositionCallback,
@@ -75,8 +81,6 @@ from keymasq.gui.widgets.superkey_dialog import ActionListDialog
 from keymasq.session.analog_controls import (
     AnalogControlManager,
 )
-from keymasq.session.compositor import detect_compositor_sync
-from keymasq.session.hardware import HardwareManager
 from keymasq.session.profiles import ProfileManager
 
 log = logging.getLogger("keymasq.gui.widgets.analog_control_dialog")
@@ -1000,7 +1004,7 @@ class AnalogControlDialog(Adw.Dialog):
         choice_set = load_gamepad_output_choices(
             helper_selected_id,
             count_loader=virtual_gamepad_count,
-            hardware_manager_factory=HardwareManager,
+            hardware_manager_factory=hardware_manager,
         )
         self._hardware_output_configs = {
             str(getattr(config, "hardware_id", "") or ""): config

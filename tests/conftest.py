@@ -249,9 +249,65 @@ def event_loop():
 
 
 _CATEGORY_SUBTREES = {"common", "keymasqd", "session", "gui"}
+_KEYMASQD_ROOT_TEST_FILES = (
+    "test_capture_manager.py",
+    "test_grabbed_device.py",
+    "test_macro_file.py",
+    "test_macro_store.py",
+    "test_macro_store_internal.py",
+    "test_output_helpers.py",
+    "test_profile_handoff.py",
+    "test_record_cli.py",
+    "test_recording_extended.py",
+    "test_socket_server.py",
+    "test_superkey_state.py",
+    "test_superkeys.py",
+)
+_SESSION_ROOT_TEST_FILES = (
+    "test_action_handler.py",
+    "test_analog_controls.py",
+    "test_base_listener.py",
+    "test_compositor.py",
+    "test_config_loading.py",
+    "test_conflicts.py",
+    "test_gnome_listener.py",
+    "test_gnome_shell.py",
+    "test_hyprland_listener.py",
+    "test_kde_listener.py",
+    "test_keymasqd_client.py",
+    "test_listener_socket_helpers.py",
+    "test_niri_listener.py",
+    "test_session_clients.py",
+    "test_session_config_files.py",
+    "test_session_hardware.py",
+    "test_session_manager_compositor.py",
+    "test_session_manager_core.py",
+    "test_session_manager_events.py",
+    "test_session_manager_recording.py",
+    "test_session_support.py",
+    "test_slurp.py",
+    "test_toml.py",
+    "test_wayland_protocol_trackers.py",
+    "test_wayland_toplevel_listener.py",
+    "test_wayland_wlr_listener.py",
+    "test_x11_listener.py",
+)
+_COMMON_ROOT_TEST_FILES = (
+    "test_cli_commands_helpers.py",
+    "test_devices.py",
+    "test_entrypoints_and_cli.py",
+    "test_ipc.py",
+    "test_paths.py",
+    "test_recording_guard.py",
+    "test_release_version.py",
+    "test_rewrite_build_metadata.py",
+    "test_security.py",
+    "test_udev_rules.py",
+)
 _CATEGORY_BY_FILE = {
-    "test_daemon.py": "keymasqd",
-    "test_session_clients.py": "session",
+    **{name: "keymasqd" for name in _KEYMASQD_ROOT_TEST_FILES},
+    **{name: "session" for name in _SESSION_ROOT_TEST_FILES},
+    **{name: "common" for name in _COMMON_ROOT_TEST_FILES},
 }
 
 

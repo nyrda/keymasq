@@ -454,7 +454,9 @@ def test_dispatch_runs_one_shot_kwin_script(monkeypatch, tmp_path) -> None:
 
     class _ScriptIface:
         async def call_run(self) -> None:
-            listener._on_dispatch_payload('{"id":"abc12345def67890","ok":true,"message":"ok"}')
+            listener.handle_dispatch_payload(
+                '{"id":"abc12345def67890","ok":true,"message":"ok"}'
+            )
 
         async def call_stop(self) -> None:
             return

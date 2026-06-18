@@ -25,6 +25,7 @@ from keymasq.gui.session_client import (
     session_request,
     session_request_async,
 )
+from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter, macro_search_text
 
 log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
@@ -33,17 +34,8 @@ _normalize_type_macro_text = normalize_type_macro_text
 _normalize_unicode_type_macro_text = normalize_unicode_type_macro_text
 
 
-def _docs_version() -> str:
-    version = __version__.strip()
-    if not version:
-        return "master"
-    if "dev" in version:
-        return "master"
-    return f"v{version.removeprefix('v')}"
-
-
 def _macros_docs_url() -> str:
-    return f"https://keymasq.tools/docs/{_docs_version()}/MACROS/"
+    return docs_page_url("MACROS", version=__version__)
 
 
 def _suggest_unique_macro_name(existing_names: set[str]) -> str:

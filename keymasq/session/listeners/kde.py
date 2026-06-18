@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Awaitable
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from dbus_next.constants import MessageType
 from dbus_next.message import Message
@@ -20,7 +20,9 @@ from keymasq.session.dbus import SessionDBus, name_has_owner
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.kde")
-s = str
+
+if TYPE_CHECKING:
+    s = str
 
 KDE_DBUS_INTERFACE = "keymasq.kde.Listener"
 KDE_DBUS_OBJECT_PATH = "/keymasq/KDEListener"
@@ -192,10 +194,6 @@ class KDEListener(WindowListener):
     @property
     def name(self) -> str:
         return "kde"
-
-    @property
-    def available(self) -> bool:
-        return self.quick_probe()
 
     @property
     def supports_compositor_dispatch(self) -> bool:
@@ -523,47 +521,46 @@ class KDEListener(WindowListener):
                 )
             await cast(Awaitable[object], result)
         except asyncio.CancelledError:
-            if script_iface is not None:
-                with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
-                    call_stop = getattr(script_iface, "call_stop", None)
-                    if callable(call_stop):
-                        result = call_stop()
-                        if inspect.isawaitable(result):
-                            await cast(Awaitable[object], result)
-            if self._kwin_scripting and plugin_name:
-                with contextlib.suppress(OSError, RuntimeError):
-                    await self._call_unload_script(plugin_name)
-            if script_path is not None:
-                with contextlib.suppress(OSError):
-                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
-            self._cursor_tracking_plugin_name = ""
-            self._cursor_tracking_request_id = ""
-            self._cursor_tracking_script_path = None
-            self._cursor_tracking_script_iface = None
-            self._cursor_tracking_cache = None
-            self._cursor_tracking_deadline_at = 0.0
+            await self._cleanup_cursor_tracking_script(
+                script_iface=script_iface,
+                plugin_name=plugin_name,
+                script_path=script_path,
+            )
             raise
         except Exception:
-            if script_iface is not None:
-                with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
-                    call_stop = getattr(script_iface, "call_stop", None)
-                    if callable(call_stop):
-                        result = call_stop()
-                        if inspect.isawaitable(result):
-                            await cast(Awaitable[object], result)
-            if self._kwin_scripting and plugin_name:
-                with contextlib.suppress(OSError, RuntimeError):
-                    await self._call_unload_script(plugin_name)
-            if script_path is not None:
-                with contextlib.suppress(OSError):
-                    await asyncio.to_thread(script_path.unlink, missing_ok=True)
-            self._cursor_tracking_plugin_name = ""
-            self._cursor_tracking_request_id = ""
-            self._cursor_tracking_script_path = None
-            self._cursor_tracking_script_iface = None
-            self._cursor_tracking_cache = None
-            self._cursor_tracking_deadline_at = 0.0
+            await self._cleanup_cursor_tracking_script(
+                script_iface=script_iface,
+                plugin_name=plugin_name,
+                script_path=script_path,
+            )
             raise
+
+    async def _cleanup_cursor_tracking_script(
+        self,
+        *,
+        script_iface: object | None,
+        plugin_name: str,
+        script_path: Path | None,
+    ) -> None:
+        if script_iface is not None:
+            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+                call_stop = getattr(script_iface, "call_stop", None)
+                if callable(call_stop):
+                    result = call_stop()
+                    if inspect.isawaitable(result):
+                        await cast(Awaitable[object], result)
+        if self._kwin_scripting and plugin_name:
+            with contextlib.suppress(OSError, RuntimeError):
+                await self._call_unload_script(plugin_name)
+        if script_path is not None:
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(script_path.unlink, missing_ok=True)
+        self._cursor_tracking_plugin_name = ""
+        self._cursor_tracking_request_id = ""
+        self._cursor_tracking_script_path = None
+        self._cursor_tracking_script_iface = None
+        self._cursor_tracking_cache = None
+        self._cursor_tracking_deadline_at = 0.0
 
     def _cursor_tracking_active(self) -> bool:
         return self._cursor_tracking_deadline_at > time.monotonic()
@@ -647,9 +644,6 @@ class KDEListener(WindowListener):
         self._callback_tasks.add(task)
         task.add_done_callback(self._on_callback_done)
 
-    def _on_window_payload(self, payload: str) -> None:
-        self.handle_window_payload(payload)
-
     def handle_cursor_payload(self, payload: str) -> None:
         parsed = parse_kde_cursor_payload(payload)
         if not parsed:
@@ -674,9 +668,6 @@ class KDEListener(WindowListener):
         if future and not future.done():
             future.set_result((x, y))
 
-    def _on_cursor_payload(self, payload: str) -> None:
-        self.handle_cursor_payload(payload)
-
     def handle_dispatch_payload(self, payload: str) -> None:
         parsed = parse_kde_dispatch_payload(payload)
         if not parsed:
@@ -688,9 +679,6 @@ class KDEListener(WindowListener):
         future = self._dispatch_waiters.get(request_id)
         if future and not future.done():
             future.set_result((ok, message))
-
-    def _on_dispatch_payload(self, payload: str) -> None:
-        self.handle_dispatch_payload(payload)
 
     def _log_ignored_payload(self, payload_type: str, payload: str) -> None:
         now = time.monotonic()

@@ -28,6 +28,10 @@ class SecurityPolicy:
     emergency_cancel_combo_enabled: bool = True
 
 
+class SecurityPolicyError(RuntimeError):
+    """Raised when the security policy file exists but cannot be loaded."""
+
+
 def _to_str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -72,10 +76,17 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
         daemon_command_acl={"session": []},
     )
 
-    if not config_path.exists():
+    try:
+        config_text = config_path.read_text()
+    except FileNotFoundError:
         return policy
+    except OSError as exc:
+        raise SecurityPolicyError(f"Failed to read security policy {config_path}: {exc}") from exc
 
-    raw: dict[str, Any] = tomllib.loads(config_path.read_text())
+    try:
+        raw: dict[str, Any] = tomllib.loads(config_text)
+    except tomllib.TOMLDecodeError as exc:
+        raise SecurityPolicyError(f"Invalid security policy TOML at {config_path}: {exc}") from exc
 
     session_acl = _to_acl_map(raw.get("session_command_acl"))
     if session_acl:

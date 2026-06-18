@@ -30,6 +30,7 @@ from keymasq.common.recording_guard import (
 from keymasq.common.security import (
     PeerCredentials,
     SecurityPolicy,
+    SecurityPolicyError,
     command_allowed,
     load_security_policy,
     uid_allowed,
@@ -148,6 +149,11 @@ class Daemon:
         log.info("Stopping keymasqd")
         self.running = False
 
+        if self.socket_server:
+            await self._run_async_cleanup("stop socket server", self.socket_server.stop)
+        else:
+            self._cleanup_socket_path()
+
         await self._run_async_cleanup(
             "stop topology watcher",
             self.device_manager.stop_topology_watcher,
@@ -162,20 +168,12 @@ class Daemon:
         )
         await self._run_async_cleanup(
             "clear runtime unlocks",
-            lambda: asyncio.to_thread(
-                self._clear_all_runtime_unlocks,
-                reason="daemon_stop",
-            ),
+            lambda: self._clear_all_runtime_unlocks_async(reason="daemon_stop"),
         )
         self._run_sync_cleanup(
             "shut down output devices",
             self.device_manager.shutdown_output_devices,
         )
-
-        if self.socket_server:
-            await self._run_async_cleanup("stop socket server", self.socket_server.stop)
-        else:
-            self._cleanup_socket_path()
 
     async def _run_async_cleanup(
         self,
@@ -555,12 +553,24 @@ class Daemon:
         except FileNotFoundError:
             pass
 
+        self._record_runtime_unlock_cleared(uid, reason=reason)
+
+    async def _clear_runtime_unlock_async(self, uid: int, *, reason: str) -> None:
+        path = runtime_unlock_path(uid)
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, path.unlink)
+        except FileNotFoundError:
+            pass
+
+        self._record_runtime_unlock_cleared(uid, reason=reason)
+
+    def _record_runtime_unlock_cleared(self, uid: int, *, reason: str) -> None:
         self._unlock_cache[uid] = (time.monotonic(), False, 0, "none")
         self._recording_refresh_owners.pop(uid, None)
         self._log_unlock_state_change(uid, False, "none", 0, reason=reason)
 
-    def _clear_all_runtime_unlocks(self, *, reason: str) -> None:
-        runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
+    def _runtime_unlock_file_uids(self) -> set[int]:
+        runtime_uids: set[int] = set()
         try:
             for path in RECORDING_UNLOCK_RUNTIME_DIR.glob("recording-unlock-*"):
                 suffix = path.name.removeprefix("recording-unlock-")
@@ -570,10 +580,38 @@ class Daemon:
                     continue
         except FileNotFoundError:
             pass
+        return runtime_uids
+
+    async def _runtime_unlock_file_uids_async(self) -> set[int]:
+        return await asyncio.get_running_loop().run_in_executor(
+            None,
+            self._runtime_unlock_file_uids,
+        )
+
+    def _clear_all_runtime_unlocks(self, *, reason: str) -> None:
+        runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
+        runtime_uids.update(self._runtime_unlock_file_uids())
 
         for uid in sorted(runtime_uids):
             try:
                 self._clear_runtime_unlock(uid, reason=reason)
+            except OSError as exc:
+                log.warning(
+                    "Failed to clear runtime unlock uid=%s during %s: %s",
+                    uid,
+                    reason,
+                    exc,
+                )
+
+        self._recording_refresh_owners.clear()
+
+    async def _clear_all_runtime_unlocks_async(self, *, reason: str) -> None:
+        runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
+        runtime_uids.update(await self._runtime_unlock_file_uids_async())
+
+        for uid in sorted(runtime_uids):
+            try:
+                await self._clear_runtime_unlock_async(uid, reason=reason)
             except OSError as exc:
                 log.warning(
                     "Failed to clear runtime unlock uid=%s during %s: %s",
@@ -597,6 +635,27 @@ class Daemon:
 
         try:
             self._clear_runtime_unlock(uid, reason=reason)
+        except OSError as exc:
+            log.warning(
+                "Failed to clear runtime unlock uid=%s during %s: %s",
+                uid,
+                reason,
+                exc,
+            )
+
+    async def _clear_runtime_unlock_for_client_async(
+        self,
+        client: ClientContext,
+        *,
+        reason: str,
+    ) -> None:
+        uid = int(client.uid)
+        owner = self._recording_refresh_owners.get(uid)
+        if owner != (int(client.pid), int(client.connection_id)):
+            return
+
+        try:
+            await self._clear_runtime_unlock_async(uid, reason=reason)
         except OSError as exc:
             log.warning(
                 "Failed to clear runtime unlock uid=%s during %s: %s",
@@ -664,8 +723,7 @@ class Daemon:
         if client is not None:
             await self._run_async_cleanup(
                 "clear runtime unlock for client",
-                lambda: asyncio.to_thread(
-                    self._clear_runtime_unlock_for_client,
+                lambda: self._clear_runtime_unlock_for_client_async(
                     client,
                     reason="session_disconnect",
                 ),
@@ -762,6 +820,9 @@ def main() -> None:
         asyncio.run(daemon.start())
     except KeyboardInterrupt:
         pass
+    except SecurityPolicyError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
     except Exception:
         log.exception("Fatal error")
         sys.exit(1)

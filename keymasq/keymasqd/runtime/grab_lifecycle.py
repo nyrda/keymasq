@@ -278,6 +278,24 @@ async def grab_device_unlocked(
     ) -> None:
         await release_interface(manager, disconnected_hardware_id, disconnected_path)
 
+    async def rollback_failed_grab(path: str, exc: BaseException) -> None:
+        log.error("Failed to grab %s: %s", path, exc)
+        for device in list(devices):
+            if any(device is existing for existing in existing_devices):
+                continue
+            await device.release()
+        _store_grabbed_devices(manager, hardware_id, existing_devices)
+        if created_global_uinputs:
+            runtime_outputs.destroy_global_uinputs(manager, log=log)
+        cancel_pending_interface_releases_for_hardware(manager, hardware_id)
+        if update_desired:
+            restore_desired_grab_state(
+                manager,
+                hardware_id,
+                previous_desired_paths,
+                previous_desired_config,
+            )
+
     for path in sorted(requested_paths):
         if path in existing_by_claim_path:
             continue
@@ -405,43 +423,13 @@ async def grab_device_unlocked(
             if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
                 log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
                 continue
-            log.error("Failed to grab %s: %s", path, exc)
-            for device in devices:
-                if any(device is existing for existing in existing_devices):
-                    continue
-                await device.release()
-            _store_grabbed_devices(manager, hardware_id, existing_devices)
-            if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(manager, log=log)
-            cancel_pending_interface_releases_for_hardware(manager, hardware_id)
-            if update_desired:
-                restore_desired_grab_state(
-                    manager,
-                    hardware_id,
-                    previous_desired_paths,
-                    previous_desired_config,
-                )
+            await rollback_failed_grab(path, exc)
             raise
         except Exception as exc:
             if raw_device is not None:
                 runtime_adapters.close_device(raw_device)
                 raw_device = None
-            log.error("Failed to grab %s: %s", path, exc)
-            for device in devices:
-                if any(device is existing for existing in existing_devices):
-                    continue
-                await device.release()
-            _store_grabbed_devices(manager, hardware_id, existing_devices)
-            if created_global_uinputs:
-                runtime_outputs.destroy_global_uinputs(manager, log=log)
-            cancel_pending_interface_releases_for_hardware(manager, hardware_id)
-            if update_desired:
-                restore_desired_grab_state(
-                    manager,
-                    hardware_id,
-                    previous_desired_paths,
-                    previous_desired_config,
-                )
+            await rollback_failed_grab(path, exc)
             raise
         finally:
             if raw_device is not None:

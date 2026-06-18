@@ -123,7 +123,6 @@ markers = [
     "keymasqd: tests covering the keymasqd daemon and input runtime",
     "session: tests covering keymasq-session and compositor/session integration",
     "gui: tests covering the GTK GUI",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 filterwarnings = [
     "ignore:GLib\\.unix_signal_add_full is deprecated; use GLibUnix\\.signal_add_full instead:Warning:gi\\.overrides",

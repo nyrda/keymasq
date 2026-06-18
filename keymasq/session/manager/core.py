@@ -33,6 +33,7 @@ from keymasq.common.paths import (
 from keymasq.common.security import (
     PeerCredentials,
     SecurityPolicy,
+    SecurityPolicyError,
     get_peer_credentials,
     load_security_policy,
     uid_allowed,
@@ -943,6 +944,9 @@ def main() -> None:
             sys.exit(75)
     except KeyboardInterrupt:
         pass
+    except SecurityPolicyError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
     except Exception:
         log.exception("Fatal error")
         raise

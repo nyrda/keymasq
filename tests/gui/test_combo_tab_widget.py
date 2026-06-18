@@ -1,10 +1,11 @@
-# ruff: noqa: I001
+# ruff: noqa: E402, I001
 import pytest
 
 from tests.gui.support import collect_listbox_row_labels
 
 pytest.importorskip("gi")
 
+from keymasq.gui.window import device_tabs, tab_layout
 
 
 class TestComboTabWidget:
@@ -54,8 +55,8 @@ class TestComboTabWidget:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
-        tab = window._child_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
         tab.profile_dropdown.set_selected(tab._profile_names.index("Gaming"))
 
@@ -98,8 +99,8 @@ class TestComboTabWidget:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
-        tab = window._child_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
         assert window.combo_tab is not None
         window.combo_tab.profile_dropdown.set_selected(
@@ -460,9 +461,7 @@ class TestComboTabWidget:
 
         tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
         tab.refresh_profiles(preferred_profile_name="Base", publish_selection=False)
-        tab._on_active_profile_response(
-            {"active_profiles": ["Base", "App", "Game", "Overlay"]}
-        )
+        tab._on_active_profile_response({"active_profiles": ["Base", "App", "Game", "Overlay"]})
 
         assert tab.active_profiles_label.get_text() == "Base, App, Game, +1"
         assert (

@@ -16,9 +16,10 @@ class SessionIpcHarness:
         self._request_handler = request_handler
 
     def install(self, monkeypatch, module) -> "SessionIpcHarness":
-        monkeypatch.setattr(module, "register_session_event_callback", self.register)
-        monkeypatch.setattr(module, "unregister_session_event_callback", self.unregister)
-        monkeypatch.setattr(module, "session_request_async", self.request_async)
+        target = getattr(module, "_runtime", module)
+        monkeypatch.setattr(target, "register_session_event_callback", self.register)
+        monkeypatch.setattr(target, "unregister_session_event_callback", self.unregister)
+        monkeypatch.setattr(target, "session_request_async", self.request_async)
         return self
 
     def register(self, event: str, callback: SessionCallback) -> None:

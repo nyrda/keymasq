@@ -4,7 +4,7 @@ import logging
 import os
 import signal
 
-from keymasq.gui.session_client import JsonDict
+from keymasq.common.types import JsonObject
 
 log = logging.getLogger("keymasq-session.actions")
 DEFAULT_COMMAND_TIMEOUT_S = 300.0
@@ -30,7 +30,7 @@ class ActionHandler:
     def __init__(self) -> None:
         self._background_tasks: set[asyncio.Task[int]] = set()
 
-    async def handle_action(self, data: JsonDict) -> None:
+    async def handle_action(self, data: JsonObject) -> None:
         action_type = data.get("action_type")
         source_device = data.get("source_device")
         source_button = data.get("source_button")

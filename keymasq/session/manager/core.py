@@ -73,6 +73,9 @@ GRAB_RETRY_DELAY_S = manager_constants.GRAB_RETRY_DELAY_S
 TOPOLOGY_REFRESH_DEBOUNCE_S = manager_constants.TOPOLOGY_REFRESH_DEBOUNCE_S
 TOPOLOGY_REFRESH_RETRY_S = manager_constants.TOPOLOGY_REFRESH_RETRY_S
 CONFIG_RELOAD_DEBOUNCE_S = 0.5
+# Longer than the watcher debounce so explicit saves suppress both already-scheduled
+# and slightly delayed inotify events.
+CONFIG_RELOAD_EXPLICIT_COALESCE_S = CONFIG_RELOAD_DEBOUNCE_S + 1.0
 IN_ACCESS = 0x00000001
 IN_ATTRIB = 0x00000004
 IN_CLOSE_WRITE = 0x00000008
@@ -131,6 +134,7 @@ class SessionManager:
         self.reload_task: asyncio.Task[bool] | None = None
         self.reload_pending = False
         self.config_reload_timer: asyncio.TimerHandle | None = None
+        self._config_reload_coalesce_until = 0.0
         self.config_watch_fd: int | None = None
         self.config_watch_watches: dict[int, Path] = {}
         self.verbosity = verbosity
@@ -736,17 +740,50 @@ class SessionManager:
         return bool(mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB))
 
     def _schedule_config_reload(self) -> None:
+        loop = asyncio.get_running_loop()
+        if self._config_reload_is_coalesced(loop):
+            log.debug("Skipping config watcher reload after explicit reload request")
+            return
+
         timer = self.config_reload_timer
         if timer is not None:
             timer.cancel()
-        self.config_reload_timer = asyncio.get_running_loop().call_later(
+        self.config_reload_timer = loop.call_later(
             CONFIG_RELOAD_DEBOUNCE_S,
             self._run_scheduled_config_reload,
         )
 
+    def _config_reload_is_coalesced(self, loop: asyncio.AbstractEventLoop) -> bool:
+        return loop.time() <= self._config_reload_coalesce_until
+
+    def suppress_config_watcher_reload(self) -> None:
+        timer = self.config_reload_timer
+        if timer is not None:
+            timer.cancel()
+            self.config_reload_timer = None
+        loop = asyncio.get_running_loop()
+        self._config_reload_coalesce_until = max(
+            self._config_reload_coalesce_until,
+            loop.time() + CONFIG_RELOAD_EXPLICIT_COALESCE_S,
+        )
+
+    async def wait_for_running_config_reload(self) -> bool | None:
+        task = self.reload_task
+        if task is None or task.done():
+            return None
+        log.debug("Waiting for running config reload before handling explicit reload request")
+        try:
+            return await task
+        except Exception:
+            log.exception("Running config reload failed")
+            return False
+
     def _run_scheduled_config_reload(self) -> None:
         self.config_reload_timer = None
         if not self.running:
+            return
+        if self._config_reload_is_coalesced(asyncio.get_running_loop()):
+            log.debug("Skipping scheduled config reload after explicit reload request")
             return
         if self.reload_task is not None and not self.reload_task.done():
             log.debug("Config reload already running; skipping scheduled reload")

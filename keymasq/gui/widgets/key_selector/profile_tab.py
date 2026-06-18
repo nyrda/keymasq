@@ -491,8 +491,7 @@ class ProfileTabMixin:
             profile_name=self._selected_profile_name,
             profile_deactivation=self._profile_deactivation_policy(action_type),
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _profile_deactivation_policy(
         self,

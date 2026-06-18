@@ -140,8 +140,7 @@ class AnalogTabMixin:
             action_type=ActionType.ANALOG_CONTROL,
             analog_control_names=[name],
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _show_analog_preset_save_error(self, name: str, exc: Exception) -> None:
         dialog = Adw.AlertDialog()
@@ -359,5 +358,4 @@ class AnalogTabMixin:
             action_type=ActionType.ANALOG_CONTROL,
             analog_control_names=list(self._selected_analog_controls),
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)

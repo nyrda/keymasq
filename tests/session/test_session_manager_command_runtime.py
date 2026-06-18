@@ -1424,6 +1424,34 @@ async def test_reevaluate_profiles_command_invalidates_runtime_payload_signature
 
 
 @pytest.mark.asyncio
+async def test_reevaluate_profiles_command_uses_running_config_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    async def running_reload() -> bool:
+        await asyncio.sleep(0)
+        return True
+
+    manager.reload_task = asyncio.create_task(running_reload())
+
+    result = await manager._handle_session_request(
+        {"command": "reevaluate_profiles"},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok"}
+    manager.reload_config_from_disk.assert_not_called()  # type: ignore[attr-defined]
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_snapshot_event_forwards_to_gui_clients() -> None:
     manager = SessionManager()
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]

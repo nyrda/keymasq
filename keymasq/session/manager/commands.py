@@ -41,6 +41,26 @@ def _daemon_unavailable_response() -> JsonObject:
     return {"status": "error", "message": "Daemon unavailable"}
 
 
+def _config_reload_failed_response() -> JsonObject:
+    return {
+        "status": "error",
+        "message": "Failed to reload config; keeping previous active config",
+    }
+
+
+async def _suppress_or_join_config_watcher_reload(
+    manager: "SessionManager",
+) -> JsonObject | None:
+    manager.suppress_config_watcher_reload()
+    running_reload_result = await manager.wait_for_running_config_reload()
+    if running_reload_result is True:
+        manager.suppress_config_watcher_reload()
+        return {"status": "ok"}
+    if running_reload_result is False:
+        return _config_reload_failed_response()
+    return None
+
+
 async def _send_daemon_request(
     manager: "SessionManager",
     command: Command,
@@ -170,12 +190,12 @@ async def _handle_profile_commands(
         return await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
 
     if command == "reload":
+        if response := await _suppress_or_join_config_watcher_reload(manager):
+            return response
         if await manager.reload_profiles():
+            manager.suppress_config_watcher_reload()
             return {"status": "ok"}
-        return {
-            "status": "error",
-            "message": "Failed to reload config; keeping previous active config",
-        }
+        return _config_reload_failed_response()
 
     if command == "release_device":
         hardware_id = coerce_str(request.get("hardware_id"), "").strip()
@@ -204,6 +224,8 @@ async def _handle_profile_commands(
 
     if command in {"reevaluate_profiles", "reevaluate_hardware"}:
         log.info("Global profile reevaluate requested")
+        if response := await _suppress_or_join_config_watcher_reload(manager):
+            return response
         try:
             await asyncio.to_thread(manager.reload_config_from_disk)
         except Exception as exc:
@@ -213,6 +235,7 @@ async def _handle_profile_commands(
                 "Failed to reload config; keeping the previous active config. See logs.",
             )
             return {"status": "error", "message": str(exc)}
+        manager.suppress_config_watcher_reload()
         runtime_profiles.invalidate_runtime_payload_signatures(manager)
         await runtime_profiles.reevaluate_profiles(manager, reason="session command reevaluate")
         return {"status": "ok"}

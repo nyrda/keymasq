@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import (
     is_by_id_path,
@@ -62,6 +62,7 @@ from keymasq.session.profiles import ProfileInfo, ProfileManager
 log = logging.getLogger(__name__)
 session_request_async = _default_session_request_async
 SessionCallback = Callable[[JsonDict | None], bool]
+SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS = 500
 
 
 def _session_request_async(payload: JsonDict, callback: SessionCallback) -> object:
@@ -95,6 +96,9 @@ class DeviceTab(ProfileManagedTab):
         self._user_interacting = False
         self._keyboard_layout_mode = False
         self._highlight_timeout_ids: list[int] = []
+        self._selector_commit_source_id = 0
+        self._pending_selector_commit: Callable[[], None] | None = None
+        self.connect("destroy", self._on_device_tab_destroy)
         self._setup_header()
         self._setup_profile_selector()
         self._setup_button_grid()
@@ -1337,20 +1341,25 @@ class DeviceTab(ProfileManagedTab):
         if layer:
             current_action = layer.mappings.get(button.id)
 
-        def on_key_selected(dialog, action):
-            layer = self._selected_layer(create=True)
-            if layer is None:
-                return
-            if action is None:
-                if button.id in layer.mappings:
-                    del layer.mappings[button.id]
-            else:
-                layer.mappings[button.id] = action
-            self._save_profile()
-            self._update_button_display(button.id)
-            self._update_header_caption()
-
         dialog = KeySelectorDialog(self, button.label, current_action)
+        defer_commit = self._defer_selector_commit_until_dialog_closed(dialog)
+
+        def on_key_selected(dialog, action):
+            def commit_selection() -> None:
+                layer = self._selected_layer(create=True)
+                if layer is None:
+                    return
+                if action is None:
+                    if button.id in layer.mappings:
+                        del layer.mappings[button.id]
+                else:
+                    layer.mappings[button.id] = action
+                self._update_button_display(button.id)
+                self._update_header_caption()
+                self._save_profile()
+
+            defer_commit(commit_selection)
+
         dialog.connect("key-selected", on_key_selected)
         dialog.present(self.get_root())
 
@@ -1359,18 +1368,6 @@ class DeviceTab(ProfileManagedTab):
         layer = self._selected_layer()
         if layer:
             current_action = layer.mappings.get(analog.id)
-
-        def on_key_selected(dialog, action):
-            layer = self._selected_layer(create=True)
-            if layer is None:
-                return
-            if action is None:
-                layer.mappings.pop(analog.id, None)
-            else:
-                layer.mappings[analog.id] = action
-            self._save_profile()
-            self._update_button_display(analog.id)
-            self._update_header_caption()
 
         dialog = KeySelectorDialog(
             self,
@@ -1382,8 +1379,65 @@ class DeviceTab(ProfileManagedTab):
             source_type="analog",
             analog_input_type=analog.type,
         )
+        defer_commit = self._defer_selector_commit_until_dialog_closed(dialog)
+
+        def on_key_selected(dialog, action):
+            def commit_selection() -> None:
+                layer = self._selected_layer(create=True)
+                if layer is None:
+                    return
+                if action is None:
+                    layer.mappings.pop(analog.id, None)
+                else:
+                    layer.mappings[analog.id] = action
+                self._update_button_display(analog.id)
+                self._update_header_caption()
+                self._save_profile()
+
+            defer_commit(commit_selection)
+
         dialog.connect("key-selected", on_key_selected)
         dialog.present(self.get_root())
+
+    def _defer_selector_commit_until_dialog_closed(
+        self,
+        dialog: Adw.Dialog,
+    ) -> Callable[[Callable[[], None]], None]:
+        pending_commit: Callable[[], None] | None = None
+
+        def set_pending_commit(commit: Callable[[], None]) -> None:
+            nonlocal pending_commit
+            pending_commit = commit
+
+        def on_dialog_closed(_dialog: Adw.Dialog) -> None:
+            if pending_commit is not None:
+                self._queue_selector_commit_after_close(pending_commit)
+
+        dialog.connect("closed", on_dialog_closed)
+        return set_pending_commit
+
+    def _queue_selector_commit_after_close(self, commit: Callable[[], None]) -> None:
+        if self._selector_commit_source_id:
+            GLib.source_remove(self._selector_commit_source_id)
+        self._pending_selector_commit = commit
+        self._selector_commit_source_id = GLib.timeout_add(
+            SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS,
+            self._run_pending_selector_commit,
+        )
+
+    def _run_pending_selector_commit(self) -> bool:
+        self._selector_commit_source_id = 0
+        commit = self._pending_selector_commit
+        self._pending_selector_commit = None
+        if commit is not None:
+            commit()
+        return False
+
+    def _on_device_tab_destroy(self, _widget) -> None:
+        if self._selector_commit_source_id:
+            GLib.source_remove(self._selector_commit_source_id)
+            self._selector_commit_source_id = 0
+        self._pending_selector_commit = None
 
     def _profile_info_by_name(self, profile_name: str) -> ProfileInfo | None:
         return mapping_display.profile_info_by_name(

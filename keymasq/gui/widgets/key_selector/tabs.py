@@ -112,6 +112,7 @@ def _ensure_compact_tabs_css() -> None:
 
 
 class SharedInputTabsMixin:
+    _selection_emit_closes_dialog = False
     _include_keyboard_capture_controls = False
     _include_mpris_controls = True
     _include_mouse_button_controls = True
@@ -121,6 +122,10 @@ class SharedInputTabsMixin:
     _mouse_move_commit_label = "Map Move"
     _include_tap_options = False
     _gamepad_output_selector_mode = "inline"
+
+    def _close_after_selection_emit(self) -> None:
+        if not self._selection_emit_closes_dialog:
+            self.close()
 
     def _create_key_button(
         self, label: str, evdev: str, width: float = 1, large: bool = False, protected: bool = False
@@ -680,7 +685,7 @@ class SharedInputTabsMixin:
             mpris_command=command,
         )
         self._emit_selected_action(action)
-        self.close()
+        self._close_after_selection_emit()
 
     def _on_keyboard_clicked(self, btn, evdev_name: str):
         use_rapidfire = _keyboard_target_allows_rapidfire(evdev_name)
@@ -694,7 +699,7 @@ class SharedInputTabsMixin:
             ),
         )
         self._emit_selected_action(action)
-        self.close()
+        self._close_after_selection_emit()
 
     def _on_f_key_selected(self, btn):
         idx = self.f_dropdown.get_selected()
@@ -710,7 +715,7 @@ class SharedInputTabsMixin:
             **self._input_option_fields(),
         )
         self._emit_selected_action(action)
-        self.close()
+        self._close_after_selection_emit()
 
     def _on_gamepad_clicked(self, btn, evdev_name: str):
         action = self._build_selected_action(
@@ -720,7 +725,7 @@ class SharedInputTabsMixin:
             **self._input_option_fields(),
         )
         self._emit_selected_action(action)
-        self.close()
+        self._close_after_selection_emit()
 
     def _on_gamepad_axis_clicked(self, btn, axis_target: str, axis_value: int):
         action = self._build_selected_action(
@@ -731,7 +736,7 @@ class SharedInputTabsMixin:
             **self._input_option_fields(),
         )
         self._emit_selected_action(action)
-        self.close()
+        self._close_after_selection_emit()
 
     def _on_gamepad_code_clicked(self, widget) -> None:
         evdev_name = _resolve_gamepad_button_target(self.gamepad_code_entry.get_text())

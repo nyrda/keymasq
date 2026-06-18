@@ -897,6 +897,41 @@ async def test_scheduled_config_reload_branches() -> None:
     manager.reload_profiles.assert_awaited_once()  # type: ignore[attr-defined]
 
 
+@pytest.mark.asyncio
+async def test_explicit_reload_coalesces_config_watcher_reload() -> None:
+    manager = SessionManager()
+    manager.reload_profiles = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    manager._schedule_config_reload()
+    first_timer = manager.config_reload_timer
+
+    assert first_timer is not None
+
+    manager.suppress_config_watcher_reload()
+
+    assert first_timer.cancelled()
+    assert manager.config_reload_timer is None
+
+    manager._schedule_config_reload()
+
+    assert manager.config_reload_timer is None
+
+    manager._schedule_config_reload()
+
+    assert manager.config_reload_timer is None
+
+    manager.running = True
+    manager._run_scheduled_config_reload()
+
+    manager.reload_profiles.assert_not_awaited()  # type: ignore[attr-defined]
+
+    manager._config_reload_coalesce_until = 0.0
+    manager._schedule_config_reload()
+
+    assert manager.config_reload_timer is not None
+    manager.config_reload_timer.cancel()
+
+
 def test_resolved_button_codes_skips_unresolved_buttons(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

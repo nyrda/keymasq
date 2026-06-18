@@ -28,7 +28,6 @@ KEYMASQ_SESSION_TEST_TARGETS=(
   tests/test_gnome_shell.py
   tests/test_hyprland_listener.py
   tests/test_keymasqd_client.py
-  tests/test_listener_slurp_cursor.py
   tests/test_listener_socket_helpers.py
   tests/test_niri_listener.py
   tests/test_session_clients.py

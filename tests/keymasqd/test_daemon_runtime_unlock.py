@@ -470,6 +470,50 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
 
 
 @pytest.mark.asyncio
+async def test_async_runtime_unlock_cleanup_offloads_file_io(
+    daemon_testbed,
+    monkeypatch,
+    tmp_path: Path,
+):
+    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    loop = daemon_module.asyncio.get_running_loop()
+    executor_calls: list[str] = []
+    uid = 5555
+    client = client_context(uid=uid, pid=600, connection_id=9)
+    runtime_dir = tmp_path / "runtime-unlocks"
+    runtime_dir.mkdir()
+
+    class _Loop:
+        def run_in_executor(self, executor: object, func):
+            executor_calls.append(getattr(func, "__name__", repr(func)))
+            future = loop.create_future()
+            future.set_result(func())
+            return future
+
+    monkeypatch.setattr(daemon_module.asyncio, "get_running_loop", lambda: _Loop())
+    monkeypatch.setattr(daemon_module, "RECORDING_UNLOCK_RUNTIME_DIR", runtime_dir)
+    monkeypatch.setattr(
+        daemon_module,
+        "runtime_unlock_path",
+        lambda requested_uid: runtime_dir / f"recording-unlock-{requested_uid}",
+    )
+
+    (runtime_dir / f"recording-unlock-{uid}").write_text("10\n", encoding="utf-8")
+    await daemon._clear_all_runtime_unlocks_async(reason="test")
+
+    assert "_runtime_unlock_file_uids" in executor_calls
+    assert "unlink" in executor_calls
+
+    executor_calls.clear()
+    (runtime_dir / f"recording-unlock-{uid}").write_text("10\n", encoding="utf-8")
+    daemon._recording_refresh_owners[uid] = (600, 9)
+
+    await daemon._clear_runtime_unlock_for_client_async(client, reason="test")
+
+    assert executor_calls == ["unlink"]
+
+
+@pytest.mark.asyncio
 async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     recording_manager.discard_all_pending_recordings.side_effect = RuntimeError(

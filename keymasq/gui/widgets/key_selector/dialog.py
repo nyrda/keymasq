@@ -60,6 +60,7 @@ class KeySelectorDialog(
     _include_tap_options = True
     _gamepad_output_selector_mode = "title"
     _rapidfire_warning_context = "key selector"
+    _selection_emit_closes_dialog = True
 
     def _build_selected_action(
         self,
@@ -70,6 +71,7 @@ class KeySelectorDialog(
 
     def _emit_selected_action(self, action: MappingAction | None) -> None:
         self.emit("key-selected", action)
+        self.close()
 
     def __init__(
         self,
@@ -516,20 +518,21 @@ class KeySelectorDialog(
 
     def _on_special_clicked(self, btn, action_type: str):
         if action_type == "clear_mapping":
-            self.emit("key-selected", None)
+            self._emit_selected_action(None)
         elif action_type == "explicit_passthrough":
             self._warn_and_clear_unsupported_rapidfire(ActionType.PASSTHROUGH)
             action = MappingAction(action_type=ActionType.PASSTHROUGH)
-            self.emit("key-selected", action)
+            self._emit_selected_action(action)
         elif action_type == "suppress":
             self._warn_and_clear_unsupported_rapidfire(ActionType.SUPPRESS)
             action = MappingAction(action_type=ActionType.SUPPRESS)
-            self.emit("key-selected", action)
+            self._emit_selected_action(action)
         elif action_type == "cancel_macro_playback":
             self._warn_and_clear_unsupported_rapidfire(ActionType.CANCEL_MACRO_PLAYBACK)
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
-            self.emit("key-selected", action)
-        self.close()
+            self._emit_selected_action(action)
+        else:
+            self.close()
 
     def _on_tab_changed(self, stack, param):
         child_name = self.stack.get_visible_child_name()
@@ -592,13 +595,11 @@ class KeySelectorDialog(
             return
         self._warn_and_clear_unsupported_rapidfire(ActionType.EXEC)
         action = MappingAction(action_type=ActionType.EXEC, cmd=cmd)
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_compositor_action_selected(self, action: MappingAction) -> None:
         self._warn_and_clear_unsupported_rapidfire(ActionType.COMPOSITOR_DISPATCH)
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_mouse_move_map_clicked(self, btn) -> None:
         x = int(self.mouse_move_x_spin.get_value())
@@ -627,8 +628,7 @@ class KeySelectorDialog(
                 if hasattr(self, "mouse_move_stop_on_failure_check")
                 else False,
             )
-            self.emit("key-selected", action)
-            self.close()
+            self._emit_selected_action(action)
             return
         if self.mouse_move_abs_check.get_active():
             action_type = ActionType.MOUSE_MOVE_ABS
@@ -644,8 +644,7 @@ class KeySelectorDialog(
             tap_enabled=self._tap_enabled,
             tap_hold_ms=int(self.tap_spin.get_value()),
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_mouse_move_mode_changed(self, check: Gtk.CheckButton) -> None:
         self._update_mouse_move_mode_visibility()

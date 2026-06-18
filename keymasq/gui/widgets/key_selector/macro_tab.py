@@ -468,8 +468,7 @@ class MacroTabMixin:
             action = MappingAction(action_type=ActionType.CANCEL_MACRO_PLAYBACK)
         else:
             return
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_macro_recording_slot_clicked(self, _btn, slot: int) -> None:
         self._warn_and_clear_unsupported_rapidfire(ActionType.START_MACRO_RECORDING)
@@ -477,8 +476,7 @@ class MacroTabMixin:
             action_type=ActionType.START_MACRO_RECORDING,
             macro_recording_slot=slot,
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_macro_play_slot_clicked(self, _btn, slot: int) -> None:
         self._warn_and_clear_unsupported_rapidfire(ActionType.PLAY_MACRO_SLOT)
@@ -486,8 +484,7 @@ class MacroTabMixin:
             action_type=ActionType.PLAY_MACRO_SLOT,
             macro_recording_slot=slot,
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
     def _on_macro_map_clicked(self, btn) -> None:
         if not self._selected_macro:
@@ -500,8 +497,7 @@ class MacroTabMixin:
             macro_replay_mouse_clicks=self._macro_replay_clicks,
             macro_speed=self._macro_speed,
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
 
 class SuperkeyMacroTabMixin:

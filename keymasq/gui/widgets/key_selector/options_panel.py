@@ -292,8 +292,7 @@ class MappingOptionsPanelMixin(RapidfireWarningMixin):
             rapidfire_hold_ms=int(self.repeat_hold_spin.get_value()),
             rapidfire_wait_ms=int(self.repeat_wait_spin.get_value()),
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)
 
 
 class SuperkeyOptionsPanelMixin(RapidfireWarningMixin):

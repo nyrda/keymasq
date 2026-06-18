@@ -189,5 +189,4 @@ class SuperkeyTabMixin:
             action_type=ActionType.SUPERKEY,
             superkey_name=self._selected_superkey,
         )
-        self.emit("key-selected", action)
-        self.close()
+        self._emit_selected_action(action)

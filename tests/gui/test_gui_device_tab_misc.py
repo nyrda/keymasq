@@ -1326,6 +1326,27 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     assert tap_results[0].tap_hold_ms == 70
 
 
+def test_key_selector_dialog_selection_emits_and_closes(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    results: list[MappingAction | None] = []
+    close_calls: list[bool] = []
+    dialog.connect("key-selected", lambda _dialog, selected: results.append(selected))
+    monkeypatch.setattr(dialog, "close", lambda: close_calls.append(True))
+
+    dialog._on_keyboard_clicked(None, "key_f5")
+
+    assert close_calls == [True]
+    assert len(results) == 1
+    assert results[0] is not None
+    assert results[0].action_type == ActionType.KEYBOARD
+    assert results[0].target == "key_f5"
+
+
 def test_key_selector_dialog_media_tab_hides_options_and_raw_keys_ignore_them():
     from gi.repository import Gtk
 

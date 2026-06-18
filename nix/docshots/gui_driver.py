@@ -49,7 +49,14 @@ from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog, TypeMac
 from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
-from keymasq.gui.window import MainWindow
+from keymasq.gui.window import (
+    MainWindow,
+    compositor,
+    device_tabs,
+    macro_recording,
+    profiles,
+    tab_layout,
+)
 from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
 from keymasq.session.profiles import ProfileInfo
 
@@ -928,36 +935,36 @@ class DocshotRunner:
         assert self.window is not None
         if self._runtime_overrides_installed:
             return
-        apply_compositor_state = self.window._apply_compositor_state
-        update_macro_recording_state = self.window._update_macro_recording_state
-        apply_profile_runtime_state = self.window._apply_profile_runtime_state
+        apply_compositor_state = compositor._apply_compositor_state
+        update_macro_recording_state = macro_recording._update_macro_recording_state
+        apply_profile_runtime_state = profiles._apply_profile_runtime_state
         self._orig_apply_compositor_state = apply_compositor_state
         self._orig_update_macro_recording_state = update_macro_recording_state
         self._orig_apply_profile_runtime_state = apply_profile_runtime_state
 
-        def force_compositor_state(_state: Json) -> None:
-            apply_compositor_state(self._docshot_compositor_state())
+        def force_compositor_state(window: MainWindow, _state: Json) -> None:
+            apply_compositor_state(window, self._docshot_compositor_state())
 
-        def force_macro_recording_state(_state: Json) -> None:
-            update_macro_recording_state(self._docshot_macro_recording_state())
+        def force_macro_recording_state(window: MainWindow, _state: Json) -> None:
+            update_macro_recording_state(window, self._docshot_macro_recording_state())
 
-        def force_profile_runtime_state(_state: Json) -> None:
-            apply_profile_runtime_state(self._docshot_profile_runtime_state())
+        def force_profile_runtime_state(window: MainWindow, _state: Json) -> None:
+            apply_profile_runtime_state(window, self._docshot_profile_runtime_state())
 
-        self.window._apply_compositor_state = force_compositor_state
-        self.window._update_macro_recording_state = force_macro_recording_state
-        self.window._apply_profile_runtime_state = force_profile_runtime_state
+        compositor._apply_compositor_state = force_compositor_state
+        macro_recording._update_macro_recording_state = force_macro_recording_state
+        profiles._apply_profile_runtime_state = force_profile_runtime_state
         self._runtime_overrides_installed = True
 
     def _uninstall_runtime_overrides(self) -> None:
         if not self._runtime_overrides_installed or self.window is None:
             return
         if self._orig_apply_compositor_state is not None:
-            self.window._apply_compositor_state = self._orig_apply_compositor_state
+            compositor._apply_compositor_state = self._orig_apply_compositor_state
         if self._orig_update_macro_recording_state is not None:
-            self.window._update_macro_recording_state = self._orig_update_macro_recording_state
+            macro_recording._update_macro_recording_state = self._orig_update_macro_recording_state
         if self._orig_apply_profile_runtime_state is not None:
-            self.window._apply_profile_runtime_state = self._orig_apply_profile_runtime_state
+            profiles._apply_profile_runtime_state = self._orig_apply_profile_runtime_state
         self._orig_apply_compositor_state = None
         self._orig_update_macro_recording_state = None
         self._orig_apply_profile_runtime_state = None
@@ -969,9 +976,11 @@ class DocshotRunner:
 
     def _apply_runtime_state(self) -> None:
         assert self.window is not None
-        self.window._apply_compositor_state(self._docshot_compositor_state())
-        self.window._update_macro_recording_state(self._docshot_macro_recording_state())
-        self.window._apply_profile_runtime_state(self._docshot_profile_runtime_state())
+        compositor._apply_compositor_state(self.window, self._docshot_compositor_state())
+        macro_recording._update_macro_recording_state(
+            self.window, self._docshot_macro_recording_state()
+        )
+        profiles._apply_profile_runtime_state(self.window, self._docshot_profile_runtime_state())
 
     def _runtime_profiles_for_shot(self, shot: Json) -> list[str]:
         target = str(shot.get("target", "") or "")
@@ -1177,22 +1186,24 @@ class DocshotRunner:
 
     def _close_welcome_placeholder(self) -> None:
         assert self.window is not None
-        page = self.window._placeholder_page or self.window._page_for_child(self.window.placeholder)
+        page = self.window._placeholder_page or tab_layout._page_for_child(
+            self.window, self.window.placeholder
+        )
         if page is not None:
-            self.window._close_tab_page(page)
+            tab_layout._close_tab_page(self.window, page)
         self.window._placeholder_page = None
 
     def _isolate_welcome_tabs(self) -> None:
         assert self.window is not None
         for hardware_id, page in list(self.window._device_pages.items()):
             self.window._device_pages.pop(hardware_id, None)
-            self.window._close_tab_page(page)
+            tab_layout._close_tab_page(self.window, page)
         if self.window._combo_page is not None:
-            self.window._close_tab_page(self.window._combo_page)
+            tab_layout._close_tab_page(self.window, self.window._combo_page)
         self.window.combo_tab = None
         self.window._combo_page = None
-        self.window._ensure_placeholder_page()
-        self.window._set_empty_placeholder_state()
+        device_tabs._ensure_placeholder_page(self.window)
+        device_tabs._set_empty_placeholder_state(self.window)
         self._welcome_tabs_isolated = True
         _drain_events()
 
@@ -1201,8 +1212,8 @@ class DocshotRunner:
         if not self._welcome_tabs_isolated:
             return
         self._close_welcome_placeholder()
-        self.window._apply_loaded_devices(self.window.hardware_manager.list_hardware())
-        self.window._setup_combo_tab()
+        device_tabs._apply_loaded_devices(self.window, self.window.hardware_manager.list_hardware())
+        device_tabs._setup_combo_tab(self.window)
         self._welcome_tabs_isolated = False
         _drain_events()
 
@@ -1260,7 +1271,7 @@ class DocshotRunner:
         page = self.window._device_pages.get(hardware_id)
         if page is None:
             raise KeyError(f"device tab {hardware_id!r} is not loaded")
-        self.window._sync_selected_profile_name(profile)
+        profiles._sync_selected_profile_name(self.window, profile)
         tab = page.get_child()
         if hasattr(tab, "refresh_profiles"):
             tab.refresh_profiles(preferred_profile_name=profile, publish_selection=False)
@@ -1272,9 +1283,9 @@ class DocshotRunner:
         assert self.window is not None
         self._isolate_welcome_tabs()
         placeholder = self.window.placeholder
-        self.window._ensure_placeholder_page()
-        self.window._set_empty_placeholder_state()
-        page = self.window._placeholder_page or self.window._page_for_child(placeholder)
+        device_tabs._ensure_placeholder_page(self.window)
+        device_tabs._set_empty_placeholder_state(self.window)
+        page = self.window._placeholder_page or tab_layout._page_for_child(self.window, placeholder)
         if page is None:
             raise RuntimeError("welcome placeholder page is not available")
         self.window._placeholder_page = page
@@ -1602,7 +1613,9 @@ class DocshotRunner:
 
     def _prepare_combos_tab(self, shot: Json) -> None:
         assert self.window is not None
-        self.window._sync_selected_profile_name(str(shot.get("profile", "Desktop") or "Desktop"))
+        profiles._sync_selected_profile_name(
+            self.window, str(shot.get("profile", "Desktop") or "Desktop")
+        )
         self.window.show_combo_tab()
 
     def _combo_profile(self, shot: Json) -> ProfileInfo | None:

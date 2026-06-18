@@ -1,9 +1,20 @@
-# ruff: noqa: I001
+# ruff: noqa: E402, I001
 from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("gi")
+
+from keymasq.gui.window import (
+    compositor,
+    connection,
+    device_tabs,
+    gnome_setup,
+    macro_recording,
+    profiles,
+    recording_unlock,
+    tab_layout,
+)
 
 
 class TestMainWindow:
@@ -21,9 +32,9 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
+        device_tabs._add_device_tab(window, device)
 
-        tab = window._child_for_hardware_id(device.hardware_id)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
         assert window.profile_manager.get_profile("Default") is not None
         assert tab._selected_profile is not None
@@ -80,14 +91,14 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device1)
-        window._add_device_tab(device2)
+        device_tabs._add_device_tab(window, device1)
+        device_tabs._add_device_tab(window, device2)
 
-        tab1 = window._child_for_hardware_id(device1.hardware_id)
-        tab2 = window._child_for_hardware_id(device2.hardware_id)
+        tab1 = tab_layout._child_for_hardware_id(window, device1.hardware_id)
+        tab2 = tab_layout._child_for_hardware_id(window, device2.hardware_id)
 
         tab1.refresh_profiles(preferred_profile_name="Profile 2")
-        page2 = window._page_for_hardware_id(device2.hardware_id)
+        page2 = tab_layout._page_for_hardware_id(window, device2.hardware_id)
         assert page2 is not None
         window.tab_view.set_selected_page(page2)
 
@@ -103,9 +114,9 @@ class TestMainWindow:
         def fail_system_probe(*args, **kwargs):
             raise AssertionError("demo startup should not probe the real system")
 
-        monkeypatch.setattr(window_module, "detect_compositor_sync", fail_system_probe)
+        monkeypatch.setattr(window_module._runtime, "detect_compositor_sync", fail_system_probe)
         monkeypatch.setattr(window_module.HardwareManager, "list_hardware", fail_system_probe)
-        monkeypatch.setattr(window_module, "run_gui_task", fail_system_probe)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", fail_system_probe)
         monkeypatch.setattr(
             window_module.GLib,
             "idle_add",
@@ -113,13 +124,15 @@ class TestMainWindow:
         )
 
         window = MainWindow(demo_mode=True)
-        demo_tab = window._child_for_hardware_id("1234:5678")
+        demo_tab = tab_layout._child_for_hardware_id(window, "1234:5678")
 
         assert window._startup_probe_done is True
         assert demo_tab is not None
         assert demo_tab.device.name == "Demo Mouse"
 
-    def test_main_window_add_device_action_does_not_require_unlock(self, temp_config_dir):
+    def test_main_window_add_device_action_does_not_require_unlock(
+        self, temp_config_dir, monkeypatch
+    ):
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -128,15 +141,19 @@ class TestMainWindow:
         button = object()
 
         window._recording_unlocked = False
-        window._on_add_device = lambda _button: add_calls.append(True)  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            device_tabs,
+            "_on_add_device",
+            lambda _window, _button: add_calls.append(True),
+        )
         window.present_unlock_dialog = lambda on_success=None: unlock_calls.append(True)  # type: ignore[method-assign]
 
-        window._on_add_device_clicked(button)
+        device_tabs._on_add_device_clicked(window, button)
 
         assert add_calls == [True]
         assert unlock_calls == []
 
-    def test_main_window_device_inspector_uses_unlock_flow(self, temp_config_dir):
+    def test_main_window_device_inspector_uses_unlock_flow(self, temp_config_dir, monkeypatch):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.window import MainWindow
 
@@ -146,8 +163,10 @@ class TestMainWindow:
         window._recording_unlocked = False
         window._recording_refresh_owner = False
         unlock_callbacks = []
-        window.present_unlock_dialog = (  # type: ignore[method-assign]
-            lambda on_success=None: unlock_callbacks.append(on_success)
+        monkeypatch.setattr(
+            recording_unlock,
+            "present_unlock_dialog",
+            lambda _window, on_success=None: unlock_callbacks.append(on_success),
         )
         device = HardwareConfig(
             vendor_id="1234",
@@ -296,12 +315,12 @@ class TestMainWindow:
         success_calls: list[bool] = []
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "resolve_keymasq_record_helper_path",
             lambda: "/usr/bin/keymasq-record",
         )
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "run_gui_task",
             lambda worker, callback: callback(GuiTaskResult(value=worker())),
         )
@@ -312,7 +331,7 @@ class TestMainWindow:
 
         monkeypatch.setattr(window_module.subprocess, "run", fake_run)
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "session_request",
             lambda payload, timeout=3.0: {
                 "status": "ok",
@@ -396,11 +415,11 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device1)
-        window._add_device_tab(device2)
+        device_tabs._add_device_tab(window, device1)
+        device_tabs._add_device_tab(window, device2)
 
-        tab1 = window._child_for_hardware_id(device1.hardware_id)
-        tab2 = window._child_for_hardware_id(device2.hardware_id)
+        tab1 = tab_layout._child_for_hardware_id(window, device1.hardware_id)
+        tab2 = tab_layout._child_for_hardware_id(window, device2.hardware_id)
 
         tab1.profile_dropdown.set_selected(tab1._profile_names.index("Desktop"))
 
@@ -431,15 +450,15 @@ class TestMainWindow:
             evdev_devices=[],
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
-        window._add_device_tab(device)
+        device_tabs._add_device_tab(window, device)
         original_profile_manager = window.profile_manager
-        window._set_profile_manager(ProfileManager(auto_create_default_if_empty=True))
+        profiles._set_profile_manager(window, ProfileManager(auto_create_default_if_empty=True))
         assert window.profile_manager.get_profile("Gaming") is None
         original_profile_manager.save_profile(
             ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
         )
 
-        tab = window._child_for_hardware_id(device.hardware_id)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
         tab._on_profile_created(None, "Gaming")
 
@@ -465,8 +484,8 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
-        page = window._page_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        page = tab_layout._page_for_hardware_id(window, device.hardware_id)
         assert page is not None
         assert page.get_title() == "Mouse One"
 
@@ -495,9 +514,9 @@ class TestMainWindow:
             )
         ]
         for device in devices:
-            window._add_device_tab(device)
+            device_tabs._add_device_tab(window, device)
 
-        third_page = window._page_for_hardware_id(devices[2].hardware_id)
+        third_page = tab_layout._page_for_hardware_id(window, devices[2].hardware_id)
         assert third_page is not None
 
         window.tab_view.reorder_page(third_page, window.tab_view.get_n_pinned_pages())
@@ -508,7 +527,7 @@ class TestMainWindow:
             f"device:{devices[1].hardware_id}",
             "combos",
         ]
-        assert window._current_tab_order() == expected_order
+        assert tab_layout._current_tab_order(window) == expected_order
         assert load_tab_order() == expected_order
 
     def test_main_window_applies_saved_tab_order_on_load(self, temp_config_dir):
@@ -539,13 +558,13 @@ class TestMainWindow:
         save_tab_layout(expected_order[:-1], set())
 
         window = MainWindow(demo_mode=True)
-        window._apply_loaded_devices(devices)
+        device_tabs._apply_loaded_devices(window, devices)
 
-        assert window._current_tab_order() == expected_order
+        assert tab_layout._current_tab_order(window) == expected_order
 
-        window._apply_loaded_devices(devices)
+        device_tabs._apply_loaded_devices(window, devices)
 
-        assert window._current_tab_order() == expected_order
+        assert tab_layout._current_tab_order(window) == expected_order
         assert window.tab_view.get_n_pages() == 4
 
     def test_main_window_persists_selected_tab(self, temp_config_dir):
@@ -567,10 +586,10 @@ class TestMainWindow:
                 ("5679", "Mouse Two"),
             )
         ]
-        window._apply_loaded_devices(devices)
+        device_tabs._apply_loaded_devices(window, devices)
 
-        second_page = window._page_for_hardware_id(devices[1].hardware_id)
-        combo_page = window._page_for_child(window.combo_tab)
+        second_page = tab_layout._page_for_hardware_id(window, devices[1].hardware_id)
+        combo_page = tab_layout._page_for_child(window, window.combo_tab)
         assert second_page is not None
         assert combo_page is not None
 
@@ -607,10 +626,10 @@ class TestMainWindow:
         save_selected_tab(devices[1].hardware_id)
 
         window = MainWindow(demo_mode=True)
-        window._apply_loaded_devices(devices)
+        device_tabs._apply_loaded_devices(window, devices)
 
-        assert window.tab_view.get_selected_page() is window._page_for_hardware_id(
-            devices[1].hardware_id
+        assert window.tab_view.get_selected_page() is tab_layout._page_for_hardware_id(
+            window, devices[1].hardware_id
         )
 
     def test_main_window_applies_saved_selected_combo_tab_on_load(self, temp_config_dir):
@@ -629,10 +648,12 @@ class TestMainWindow:
         save_selected_tab("combos")
 
         window = MainWindow(demo_mode=True)
-        window._apply_loaded_devices([device])
+        device_tabs._apply_loaded_devices(window, [device])
 
         assert window.combo_tab is not None
-        assert window.tab_view.get_selected_page() is window._page_for_child(window.combo_tab)
+        assert window.tab_view.get_selected_page() is tab_layout._page_for_child(
+            window, window.combo_tab
+        )
 
     def test_main_window_invalid_selected_tab_falls_back_to_saved_order(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
@@ -659,10 +680,10 @@ class TestMainWindow:
         save_selected_tab("missing-hardware")
 
         window = MainWindow(demo_mode=True)
-        window._apply_loaded_devices(devices)
+        device_tabs._apply_loaded_devices(window, devices)
 
-        assert window.tab_view.get_selected_page() is window._page_for_hardware_id(
-            devices[1].hardware_id
+        assert window.tab_view.get_selected_page() is tab_layout._page_for_hardware_id(
+            window, devices[1].hardware_id
         )
         assert load_selected_tab() == devices[1].hardware_id
 
@@ -686,10 +707,10 @@ class TestMainWindow:
             )
         ]
         for device in devices:
-            window._add_device_tab(device)
+            device_tabs._add_device_tab(window, device)
 
         assert window.combo_tab is not None
-        combo_page = window._page_for_child(window.combo_tab)
+        combo_page = tab_layout._page_for_child(window, window.combo_tab)
         assert combo_page is not None
         assert window.tab_bar.get_start_action_widget() is not None
         assert window.tab_view.get_n_pages() == 3
@@ -701,13 +722,13 @@ class TestMainWindow:
             f"device:{devices[1].hardware_id}",
         ]
 
-        assert window._current_tab_order() == expected_order
+        assert tab_layout._current_tab_order(window) == expected_order
         assert load_tab_order() == expected_order
 
         window.tab_view.close_page(combo_page)
 
         assert window.combo_tab is None
-        assert window._current_tab_order() == [
+        assert tab_layout._current_tab_order(window) == [
             f"device:{devices[0].hardware_id}",
             f"device:{devices[1].hardware_id}",
         ]
@@ -717,10 +738,10 @@ class TestMainWindow:
         window.show_combo_tab()
 
         assert window.combo_tab is not None
-        restored_page = window._page_for_child(window.combo_tab)
+        restored_page = tab_layout._page_for_child(window, window.combo_tab)
         assert restored_page is not None
         assert window.tab_view.get_selected_page() is restored_page
-        assert window._current_tab_order() == expected_order
+        assert tab_layout._current_tab_order(window) == expected_order
         assert load_tab_order() == expected_order
         assert load_hidden_tabs() == set()
 
@@ -736,10 +757,10 @@ class TestMainWindow:
             evdev_devices=[],
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
-        window._add_device_tab(device)
+        device_tabs._add_device_tab(window, device)
 
-        tab = window._child_for_hardware_id(device.hardware_id)
-        page = window._page_for_hardware_id(device.hardware_id)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
+        page = tab_layout._page_for_hardware_id(window, device.hardware_id)
         assert tab is not None
         assert page is not None
 
@@ -749,7 +770,7 @@ class TestMainWindow:
         window.tab_view.close_page(page)
 
         assert delete_requests == [True]
-        assert window._page_for_hardware_id(device.hardware_id) is page
+        assert tab_layout._page_for_hardware_id(window, device.hardware_id) is page
 
     def test_main_window_startup_probe_applies_compositor_state_and_devices(self, temp_config_dir):
         from keymasq.common.models import (
@@ -782,7 +803,8 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        finished = window._on_startup_probe_finished(
+        finished = compositor._on_startup_probe_finished(
+            window,
             GuiTaskResult(
                 value=(
                     {
@@ -793,10 +815,10 @@ class TestMainWindow:
                     },
                     [device],
                 )
-            )
+            ),
         )
 
-        device_tab = window._child_for_hardware_id(device.hardware_id)
+        device_tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
         assert finished is False
         assert window._startup_probe_done is True
@@ -818,7 +840,8 @@ class TestMainWindow:
         window = MainWindow(demo_mode=True)
         window._destroyed = True
 
-        finished = window._on_startup_probe_finished(
+        finished = compositor._on_startup_probe_finished(
+            window,
             GuiTaskResult(
                 value=(
                     {
@@ -829,7 +852,7 @@ class TestMainWindow:
                     },
                     [],
                 )
-            )
+            ),
         )
 
         assert finished is False
@@ -871,24 +894,24 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
-        tab = window._child_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
         tab.profile_dropdown.set_selected(tab._profile_names.index("Gaming"))
 
-        window._handle_session_event(
+        connection._handle_session_event(
+            window,
             {
                 "event": "profiles_changed",
                 "status": "ok",
                 "active_profiles": ["Gaming"],
                 "devices": {"2234:6678": {"profiles": ["Gaming"]}},
-            }
+            },
         )
 
         assert tab._active_profile_names == ["Gaming"]
         assert tab.active_profiles_title_label.get_text() == "Applied profiles:"
         assert (
-            tab.active_profiles_label.get_tooltip_text()
-            == "Applied profiles. Layer order: Gaming"
+            tab.active_profiles_label.get_tooltip_text() == "Applied profiles. Layer order: Gaming"
         )
         assert tab.status_label.get_text() == "active"
         assert window.combo_tab is not None
@@ -910,10 +933,16 @@ class TestMainWindow:
         from keymasq.gui import window as window_module
         from keymasq.gui.window import MainWindow
 
-        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
-        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
-        monkeypatch.setattr(window_module, "register_session_event_callback", lambda *args: None)
-        monkeypatch.setattr(window_module, "unregister_session_event_callback", lambda *args: None)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(
+            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime, "register_session_event_callback", lambda *args: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime, "unregister_session_event_callback", lambda *args: None
+        )
         monkeypatch.setattr(window_module.GLib, "timeout_add", lambda *args: 0)
         monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda *args: 0)
 
@@ -932,13 +961,14 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_south", label="South", evdev="btn_south")],
         )
 
-        window._add_device_tab(device)
-        tab = window._child_for_hardware_id(device.hardware_id)
-        page = window._page_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
+        page = tab_layout._page_for_hardware_id(window, device.hardware_id)
         assert tab is not None
         assert page is not None
 
-        window._apply_profile_runtime_state(
+        profiles._apply_profile_runtime_state(
+            window,
             {
                 "status": "ok",
                 "active_profiles": [],
@@ -967,7 +997,7 @@ class TestMainWindow:
                         },
                     }
                 },
-            }
+            },
         )
 
         assert page.get_title() == "🟢 Pad One"
@@ -994,7 +1024,7 @@ class TestMainWindow:
         from keymasq.session.profiles import ProfileManager
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "run_gui_task",
             lambda worker, callback, **kwargs: callback(GuiTaskResult(value=worker())),
         )
@@ -1017,7 +1047,7 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
+        device_tabs._add_device_tab(window, device)
         external_profiles = ProfileManager(auto_create_default_if_empty=True)
         external_profiles.save_profile(
             ProfileConfig(
@@ -1028,16 +1058,17 @@ class TestMainWindow:
             )
         )
 
-        window._handle_session_event(
+        connection._handle_session_event(
+            window,
             {
                 "event": "profiles_changed",
                 "status": "ok",
                 "active_profiles": ["Gaming"],
                 "devices": {"2234:6678": {"profiles": ["Gaming"]}},
-            }
+            },
         )
 
-        tab = window._child_for_hardware_id(device.hardware_id)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
         assert "Gaming" in tab._profile_names
         assert window.combo_tab is not None
         assert "Gaming" in window.combo_tab._profile_names
@@ -1052,15 +1083,17 @@ class TestMainWindow:
         registered: list[tuple[str, object]] = []
         unregistered: list[tuple[str, object]] = []
 
-        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
-        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime,
             "register_session_event_callback",
             lambda event, callback: registered.append((event, callback)),
         )
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "unregister_session_event_callback",
             lambda event, callback: unregistered.append((event, callback)),
         )
@@ -1075,9 +1108,10 @@ class TestMainWindow:
         window = MainWindow(demo_mode=False)
         window._on_destroy()
 
-        assert registered == [("*", window._on_session_event)]
+        assert window._session_event_callback is not None
+        assert registered == [("*", window._session_event_callback)]
         assert removed == [11, 22]
-        assert unregistered == [("*", window._on_session_event)]
+        assert unregistered == [("*", window._session_event_callback)]
 
     def test_main_window_macro_recording_dialog_refreshes_session_status(
         self,
@@ -1091,14 +1125,18 @@ class TestMainWindow:
 
         def fake_session_request_async(payload, callback, timeout=5.0):
             requests.append((payload, timeout))
-            callback({
-                "status": "ok",
-                "macro_recording_enabled": True,
-                "macro_recording_source": "persistent",
-                "macro_recording_expires_at": 0,
-            })
+            callback(
+                {
+                    "status": "ok",
+                    "macro_recording_enabled": True,
+                    "macro_recording_source": "persistent",
+                    "macro_recording_expires_at": 0,
+                }
+            )
 
-        monkeypatch.setattr(window_module, "session_request_async", fake_session_request_async)
+        monkeypatch.setattr(
+            window_module._runtime, "session_request_async", fake_session_request_async
+        )
 
         window = MainWindow(demo_mode=True)
         requests.clear()
@@ -1138,23 +1176,24 @@ class TestMainWindow:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device)
-        tab = window._child_for_hardware_id(device.hardware_id)
+        device_tabs._add_device_tab(window, device)
+        tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
         tab.refresh_profiles(preferred_profile_name="Desktop")
-        window._apply_profile_runtime_state(
+        profiles._apply_profile_runtime_state(
+            window,
             {
                 "status": "ok",
                 "active_profiles": ["Desktop"],
                 "devices": {"2234:6678": {"profiles": ["Desktop"]}},
                 "window": {},
-            }
+            },
         )
 
         assert tab.status_label.get_text() == "active"
 
         window._status_query_id = 1
         window._status_query_inflight = True
-        finished = window._on_status_response({"status": "error"}, 1)
+        finished = connection._on_status_response(window, {"status": "error"}, 1)
 
         assert finished is False
         assert tab.status_label.get_text() == "active"
@@ -1163,18 +1202,20 @@ class TestMainWindow:
         from keymasq.gui.window import MainWindow
 
         window = MainWindow(demo_mode=True)
-        window._apply_profile_runtime_state(
+        profiles._apply_profile_runtime_state(
+            window,
             {
                 "status": "ok",
                 "active_profiles": ["Desktop"],
                 "devices": {"2234:6678": {"profiles": ["Desktop"]}},
                 "window": {"class": "steam"},
-            }
+            },
         )
 
         window._status_query_id = 1
         window._status_query_inflight = True
-        finished = window._on_status_response(
+        finished = connection._on_status_response(
+            window,
             {
                 "status": "ok",
                 "keymasqd_connected": True,
@@ -1188,9 +1229,7 @@ class TestMainWindow:
 
         assert finished is False
         assert window._profile_runtime_state["active_profiles"] == ["Desktop"]
-        assert window._profile_runtime_state["devices"] == {
-            "2234:6678": {"profiles": ["Desktop"]}
-        }
+        assert window._profile_runtime_state["devices"] == {"2234:6678": {"profiles": ["Desktop"]}}
         assert window._profile_runtime_state["window"] == {"class": "steam"}
 
     def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
@@ -1199,12 +1238,12 @@ class TestMainWindow:
         window = MainWindow(demo_mode=True)
         captured: dict[str, object] = {}
         monkeypatch.setattr(
-            window,
+            macro_recording,
             "present_recording_settings_dialog",
-            lambda reason="settings": captured.setdefault("reason", reason),
+            lambda _window, reason="settings": captured.setdefault("reason", reason),
         )
 
-        window._handle_session_event({"event": "recording_auth_requested"})
+        connection._handle_session_event(window, {"event": "recording_auth_requested"})
 
         assert captured["reason"] == "recording_locked"
 
@@ -1233,7 +1272,7 @@ class TestMainWindow:
         window._macro_manager_dialog = DummyDialog("macros")  # type: ignore[assignment]
         window._recording_overlay = DummyOverlay()  # type: ignore[assignment]
 
-        window._handle_session_event({"event": "recording_started"})
+        connection._handle_session_event(window, {"event": "recording_started"})
 
         assert closed == ["settings", "macros"]
         assert overlay_events == [{"visible": True}, {"event": "recording_started"}]
@@ -1261,12 +1300,12 @@ class TestMainWindow:
 
         monkeypatch.setattr(save_macro_dialog_module, "SaveMacroDialog", DummySaveMacroDialog)
 
-        window._on_recording_stopped(
-            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        macro_recording._on_recording_stopped(
+            window, {"event": "recording_stopped", "pending_save_token": "pending-1"}
         )
         first_dialog = window._save_macro_dialog
-        window._on_recording_stopped(
-            {"event": "recording_stopped", "pending_save_token": "pending-1"}
+        macro_recording._on_recording_stopped(
+            window, {"event": "recording_stopped", "pending_save_token": "pending-1"}
         )
 
         assert len(created) == 1
@@ -1276,7 +1315,7 @@ class TestMainWindow:
         assert window.present_pending_macro_save_dialog() is True
         assert presented == [window, window, window]
 
-        window._on_save_macro_dialog_closed(first_dialog)
+        macro_recording._on_save_macro_dialog_closed(window, first_dialog)
         assert window._save_macro_dialog is None
 
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
@@ -1287,7 +1326,9 @@ class TestMainWindow:
         window._status_query_inflight = True
         window._on_destroy()
 
-        finished = window._on_status_response({"status": "ok", "keymasqd_connected": True}, 1)
+        finished = connection._on_status_response(
+            window, {"status": "ok", "keymasqd_connected": True}, 1
+        )
 
         assert finished is False
         assert window._status_query_inflight is True
@@ -1317,8 +1358,8 @@ class TestMainWindow:
             lambda self, parent: presented.append((self, parent)),
         )
 
-        window._update_compositor_warning_banner()
-        window._present_gnome_setup_dialog()
+        compositor._update_compositor_warning_banner(window)
+        gnome_setup._present_gnome_setup_dialog(window)
 
         assert window.warning_banner.get_revealed() is False
         assert len(presented) == 1
@@ -1351,16 +1392,14 @@ class TestMainWindow:
             lambda self, parent: presented.append((self, parent)),
         )
 
-        window._update_compositor_status()
-        window._on_compositor_status_released(Gtk.GestureClick(), 1, 0.0, 0.0)
+        compositor._update_compositor_status(window)
+        gnome_setup._on_compositor_status_released(window, Gtk.GestureClick(), 1, 0.0, 0.0)
 
         assert len(presented) == 1
         assert window._gnome_setup_dialog is not None
         assert "GNOME (limited)" in window.compositor_status.get_label()
 
-    def test_gnome_setup_dialog_enable_bridge_uses_session_ipc(
-        self, temp_config_dir, monkeypatch
-    ):
+    def test_gnome_setup_dialog_enable_bridge_uses_session_ipc(self, temp_config_dir, monkeypatch):
         from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
         from keymasq.gui.widgets import gnome_setup_dialog as dialog_module
@@ -1537,7 +1576,7 @@ class TestMainWindow:
         polls: list[object] = []
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "session_request_async",
             lambda payload, callback, timeout=5.0: requests.append(payload),
         )
@@ -1547,7 +1586,7 @@ class TestMainWindow:
             lambda *_args: polls.append(True) or 9,
         )
 
-        window._on_gnome_setup_action_completed("enable_bridge")
+        gnome_setup._on_gnome_setup_action_completed(window, "enable_bridge")
 
         assert requests == []
         assert polls == [True]
@@ -1583,11 +1622,12 @@ class TestMainWindow:
             lambda source_id: removed.append(source_id),
         )
 
-        window._present_gnome_setup_dialog()
+        gnome_setup._present_gnome_setup_dialog(window)
         assert window._gnome_setup_dialog is not None
         window._gnome_setup_poll_source_id = 77
 
-        window._on_status_response(
+        connection._on_status_response(
+            window,
             {
                 "status": "ok",
                 "keymasqd_connected": True,
@@ -1613,37 +1653,37 @@ class TestMainWindow:
 
         window = MainWindow(demo_mode=False)
 
-        window._apply_loaded_devices([])
+        device_tabs._apply_loaded_devices(window, [])
 
         assert window._placeholder_title is not None
         assert window._placeholder_subtitle is not None
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
-        placeholder_page = window._page_for_child(window.placeholder)
+        placeholder_page = tab_layout._page_for_child(window, window.placeholder)
         assert placeholder_page is not None
         icon = placeholder_page.get_icon()
         assert icon is not None
         assert icon.to_string() == resolve_icon_name(*device_icon_names(False))
 
-        window._close_tab_page(placeholder_page)
+        tab_layout._close_tab_page(window, placeholder_page)
         window._placeholder_page = None
         window._placeholder_title.set_label("Loading devices...")
         window._placeholder_subtitle.set_label(
             "Checking compositor support and loading saved hardware"
         )
 
-        window._check_empty_state()
+        device_tabs._check_empty_state(window)
 
-        assert window._page_for_child(window.placeholder) is not None
+        assert tab_layout._page_for_child(window, window.placeholder) is not None
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
 
         demo_window = MainWindow(demo_mode=True)
-        demo_window._apply_loaded_devices([])
+        device_tabs._apply_loaded_devices(demo_window, [])
 
-        demo_tab = demo_window._child_for_hardware_id("1234:5678")
+        demo_tab = tab_layout._child_for_hardware_id(demo_window, "1234:5678")
 
-        assert demo_window._page_for_child(demo_window.placeholder) is None
+        assert tab_layout._page_for_child(demo_window, demo_window.placeholder) is None
         assert demo_tab.device.name == "Demo Mouse"
 
     def test_main_window_status_response_updates_labels_for_all_status_paths(
@@ -1655,21 +1695,31 @@ class TestMainWindow:
         issues: list[str | None] = []
         unlock_updates: list[dict | None] = []
 
-        monkeypatch.setattr(window, "_set_connection_issue", lambda issue: issues.append(issue))
         monkeypatch.setattr(
-            window,
+            connection,
+            "_set_connection_issue",
+            lambda _window, issue: issues.append(issue),
+        )
+        monkeypatch.setattr(
+            recording_unlock,
             "_update_unlock_state",
-            lambda data: unlock_updates.append(data),
+            lambda _window, data: unlock_updates.append(data),
         )
 
         window._status_query_id = 3
         window._status_query_inflight = True
-        assert window._on_status_response({"status": "ok", "keymasqd_connected": True}, 2) is False
+        assert (
+            connection._on_status_response(window, {"status": "ok", "keymasqd_connected": True}, 2)
+            is False
+        )
         assert window._status_query_inflight is True
         assert unlock_updates == []
         assert issues == []
 
-        assert window._on_status_response({"status": "ok", "keymasqd_connected": True}, 3) is False
+        assert (
+            connection._on_status_response(window, {"status": "ok", "keymasqd_connected": True}, 3)
+            is False
+        )
         assert window.session_status.get_label() == "session: 🟢"
         assert window.keymasqd_status.get_label() == "keymasqd: 🟢"
         assert unlock_updates[-1] == {"status": "ok", "keymasqd_connected": True}
@@ -1677,14 +1727,15 @@ class TestMainWindow:
 
         window._status_query_inflight = True
         assert (
-            window._on_status_response({"status": "ok", "keymasqd_connected": False}, 3) is False
+            connection._on_status_response(window, {"status": "ok", "keymasqd_connected": False}, 3)
+            is False
         )
         assert window.session_status.get_label() == "session: 🟡"
         assert window.keymasqd_status.get_label() == "keymasqd: 🔴"
         assert issues[-1] == "keymasqd"
 
         window._status_query_inflight = True
-        assert window._on_status_response(None, 3) is False
+        assert connection._on_status_response(window, None, 3) is False
         assert window.session_status.get_label() == "session: 🔴"
         assert window.keymasqd_status.get_label() == "keymasqd: ⚪"
         assert unlock_updates[-1] is None

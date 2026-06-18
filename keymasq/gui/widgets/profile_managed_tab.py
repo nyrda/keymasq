@@ -32,6 +32,18 @@ def _profiles_docs_url() -> str:
     return docs_page_url("PROFILES", version=__version__)
 
 
+def _window_device_tabs_module():
+    from keymasq.gui.window import device_tabs
+
+    return device_tabs
+
+
+def _window_profiles_module():
+    from keymasq.gui.window import profiles
+
+    return profiles
+
+
 class ProfileManagedTab(Gtk.Box):
     def __init__(
         self,
@@ -72,10 +84,10 @@ class ProfileManagedTab(Gtk.Box):
 
     def _window_selected_profile_name(self) -> str | None:
         if self.main_window is not None:
-            return self.main_window._selected_profile_name
+            return _window_profiles_module().selected_profile_name(self.main_window)
         root = self.get_root()
         if root and hasattr(root, "_selected_profile_name"):
-            return root._selected_profile_name
+            return _window_profiles_module().selected_profile_name(root)
         return None
 
     def selected_profile_name(self) -> str | None:
@@ -285,22 +297,20 @@ class ProfileManagedTab(Gtk.Box):
 
     def _refresh_other_profile_tabs(self, preferred_profile_name: str | None = None) -> None:
         root = self.main_window or self.get_root()
-        if root and hasattr(root, "_refresh_device_tabs"):
-            root._refresh_device_tabs(
+        if root and hasattr(root, "_device_pages"):
+            _window_device_tabs_module()._refresh_device_tabs(
+                root,
                 preferred_profile_name=preferred_profile_name,
                 source_widget=self,
             )
 
     def _publish_profile_selection(self) -> None:
         root = self.main_window or self.get_root()
-        if root and hasattr(root, "_sync_selected_profile_name"):
-            root._sync_selected_profile_name(
+        if root and hasattr(root, "_selected_profile_name"):
+            _window_profiles_module()._sync_selected_profile_name(
+                root,
                 self._selected_profile.config.name if self._selected_profile else None,
                 source_widget=self,
-            )
-        elif root and hasattr(root, "_set_selected_profile_name"):
-            root._set_selected_profile_name(
-                self._selected_profile.config.name if self._selected_profile else None
             )
 
     def _on_name_changed(self, entry: Gtk.Entry) -> None:
@@ -1326,8 +1336,8 @@ class ProfileManagedTab(Gtk.Box):
 
     def _on_profile_created(self, _dialog, profile_name: str) -> None:
         root = self.main_window or self.get_root()
-        if root and hasattr(root, "_set_selected_profile_name"):
-            root._set_selected_profile_name(profile_name)
+        if root and hasattr(root, "_selected_profile_name"):
+            _window_profiles_module()._set_selected_profile_name(root, profile_name)
         if self.profile_manager is not None:
             self.profile_manager.reload()
         self.refresh_profiles(preferred_profile_name=profile_name)

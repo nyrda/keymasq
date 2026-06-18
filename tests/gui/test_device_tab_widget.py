@@ -1,9 +1,11 @@
-# ruff: noqa: I001
+# ruff: noqa: E402, I001
 from types import SimpleNamespace
 
 import pytest
 
 gi = pytest.importorskip("gi")
+
+from keymasq.gui.window import device_tabs, tab_layout
 
 
 def _make_add_inputs_flow(device, on_complete=None, parent=None):
@@ -390,9 +392,7 @@ class TestDeviceTabWidget:
             product_id="5678",
             name="Test Keyboard",
             evdev_devices=[],
-            buttons=[
-                ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids
-            ],
+            buttons=[ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids],
         )
 
         tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
@@ -449,9 +449,7 @@ class TestDeviceTabWidget:
             product_id="5678",
             name="Test Keyboard",
             evdev_devices=[],
-            buttons=[
-                ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids
-            ],
+            buttons=[ButtonDefinition(id=key_id, label=key_id, evdev=key_id) for key_id in key_ids],
         )
 
         tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
@@ -739,9 +737,9 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
         )
 
-        window._add_device_tab(device1)
-        window._add_device_tab(device2)
-        tab = window._child_for_hardware_id(device1.hardware_id)
+        device_tabs._add_device_tab(window, device1)
+        device_tabs._add_device_tab(window, device2)
+        tab = tab_layout._child_for_hardware_id(window, device1.hardware_id)
         tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
 
         tab._on_profile_settings_clicked(tab.settings_btn)
@@ -847,9 +845,7 @@ class TestDeviceTabWidget:
         assert root.checked == 1
         assert closed == [True]
 
-    def test_device_tab_delete_keeps_config_when_release_fails(
-        self, temp_config_dir, monkeypatch
-    ):
+    def test_device_tab_delete_keeps_config_when_release_fails(self, temp_config_dir, monkeypatch):
         from gi.repository import Adw, Gtk
 
         from keymasq.common.models import ButtonDefinition, HardwareConfig
@@ -983,9 +979,7 @@ class TestDeviceTabWidget:
         assert tab._rename_device("   ") is False
         assert reload_requests == [{"command": "reload"}]
 
-    def test_device_tab_rename_without_hardware_manager_does_not_mutate(
-        self, monkeypatch
-    ):
+    def test_device_tab_rename_without_hardware_manager_does_not_mutate(self, monkeypatch):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets import device_tab as device_tab_module
         from keymasq.gui.widgets.device_tab import DeviceTab
@@ -1120,8 +1114,8 @@ class TestDeviceTabWidget:
 
         no_profile_protected_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
         protected_no_profile_calls: list[str] = []
-        no_profile_protected_tab._show_no_profile_dialog = (
-            lambda: protected_no_profile_calls.append("no-profile")
+        no_profile_protected_tab._show_no_profile_dialog = lambda: (
+            protected_no_profile_calls.append("no-profile")
         )
 
         no_profile_protected_tab._on_button_clicked(
@@ -1309,9 +1303,7 @@ class TestDeviceTabWidget:
             product_id="5678",
             name="Keyboard",
             evdev_devices=[EvdevDevice(path="/dev/input/event0", device_type=DeviceType.KEYBOARD)],
-            buttons=[
-                ButtonDefinition(id="key_a", label="A", evdev="key_a")
-            ]
+            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")]
             + [
                 ButtonDefinition(id=f"key_{index}", label=f"Key {index}", evdev=f"key_{index}")
                 for index in range(40)
@@ -1439,9 +1431,7 @@ class TestDeviceTabWidget:
         assert unlock_btn.get_visible() is False
         assert "Add inputs reads raw key events before remapping." in privilege_status.get_text()
 
-    def test_device_tab_finish_add_keys_reloads_session_runtime(
-        self, temp_config_dir, monkeypatch
-    ):
+    def test_device_tab_finish_add_keys_reloads_session_runtime(self, temp_config_dir, monkeypatch):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets import device_tab as device_tab_module
         from keymasq.gui.widgets.device_tab import DeviceTab

@@ -51,7 +51,13 @@ case "$normalized_modes" in
     ;;
 esac
 
-result_path="$(nix build --print-out-paths "path:$repo_root#$package_attr")"
+installable="path:$repo_root#$package_attr"
+echo "Building $installable; this boots a VM and can be quiet for a few minutes." >&2
+printf "To inspect build logs, run: nix log %q\n" "$installable" >&2
+if ! result_path="$(nix build --print-out-paths "$installable")"; then
+  printf "Build failed. Inspect logs with: nix log %q\n" "$installable" >&2
+  exit 1
+fi
 generated="$result_path/screenshots"
 
 if [[ "$normalized_modes" == *dark* && ! -d "$generated/dark" ]]; then

@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
+from enum import Enum, auto
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_int
@@ -26,6 +27,17 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 DEVICE_RUNTIME_STATUS_TIMEOUT_S = 1.0
+type _ProfileActivationNotifier = Callable[[], None]
+
+
+class _ReconcileOutcome(Enum):
+    HANDLED = auto()
+    REGRAB = auto()
+
+
+class _GrabOutcome(Enum):
+    PROCEED = auto()
+    STOP = auto()
 
 
 async def activate_initial_profiles(manager: "SessionManager") -> None:
@@ -942,6 +954,242 @@ async def play_profile_lifecycle_macro(
         )
 
 
+async def _reconcile_existing_grab(
+    manager: "SessionManager",
+    hardware_id: str,
+    resolved: ResolvedDeviceProfile,
+    grab_payload: JsonObject,
+    grab_signature: str,
+    old_profile_names: list[str],
+    notify: _ProfileActivationNotifier,
+    *,
+    generation: int | None,
+) -> _ReconcileOutcome:
+    grab_update_needed = (
+        manager.profile_state.last_sent_grab_signatures.get(hardware_id, "")
+        != grab_signature
+    )
+    mapping_update_needed = runtime_payloads.mapping_update_needed(
+        manager,
+        hardware_id,
+        resolved,
+    )
+    if not grab_update_needed and not mapping_update_needed:
+        log.debug("Skipping unchanged mapping for %s", hardware_id)
+        notify()
+        return _ReconcileOutcome.HANDLED
+    if grab_update_needed:
+        updated_grab = await update_grab_device_payload(
+            manager,
+            hardware_id,
+            grab_payload,
+            grab_signature,
+            generation=generation,
+        )
+        raise_if_stale_profile_apply(manager, generation)
+        if not updated_grab:
+            log.warning(
+                "Grab update failed for %s with same interfaces; forcing re-grab",
+                hardware_id,
+            )
+            await deactivate_profile(manager, hardware_id, generation=generation)
+        elif not mapping_update_needed:
+            notify()
+            return _ReconcileOutcome.HANDLED
+    if hardware_id not in manager.profile_state.grabbed_devices:
+        log.info(
+            "Grab config refresh deactivated %s; reconfiguring in keymasqd",
+            hardware_id,
+        )
+        return _ReconcileOutcome.REGRAB
+    if mapping_update_needed:
+        if old_profile_names == resolved.active_profile_names and manager.verbosity >= 1:
+            log.debug(
+                "Resolved profile set already active for %s, updating mapping only",
+                hardware_id,
+            )
+        elif old_profile_names != resolved.active_profile_names:
+            log.info(
+                "Same interfaces for %s, updating mapping only (old=%s new=%s)",
+                hardware_id,
+                old_profile_names,
+                resolved.active_profile_names,
+            )
+        updated = await update_mapping(
+            manager,
+            hardware_id,
+            resolved,
+            generation=generation,
+        )
+        raise_if_stale_profile_apply(manager, generation)
+        if updated:
+            notify()
+            return _ReconcileOutcome.HANDLED
+        log.warning(
+            "Mapping update failed for %s with same interfaces; forcing re-grab",
+            hardware_id,
+        )
+        await deactivate_profile(manager, hardware_id, generation=generation)
+        manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
+        return _ReconcileOutcome.REGRAB
+    notify()
+    return _ReconcileOutcome.HANDLED
+
+
+async def _send_grab_device_command(
+    manager: "SessionManager",
+    hardware_id: str,
+    resolved: ResolvedDeviceProfile,
+    grab_payload: JsonObject,
+    grab_signature: str,
+    new_interfaces: dict[str, str],
+    *,
+    generation: int | None,
+) -> _GrabOutcome:
+    try:
+        result = await manager.client.send_command(
+            Command(
+                command=CommandType.GRAB_DEVICE,
+                data=grab_payload,
+            ),
+            timeout=GRAB_DEVICE_TIMEOUT_S,
+        )
+        raise_if_stale_profile_apply(manager, generation)
+        if result.status == "ok":
+            result_data = _json_object(result.data)
+            grabbed_count = (
+                coerce_int(result_data.get("grabbed_count"), 0)
+                if result_data is not None
+                else 0
+            )
+            cancel_grab_retry(manager, hardware_id)
+            manager.profile_state.grab_waiting_devices.discard(hardware_id)
+            log.info("keymasqd: Grabbed device %s: %s", hardware_id, result.data)
+            if grabbed_count > 0:
+                manager.profile_state.grabbed_devices.add(hardware_id)
+                manager.profile_state.grabbed_interfaces[hardware_id] = new_interfaces
+                manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+                    grab_signature
+                )
+                manager.profile_state.grab_status.pop(hardware_id, None)
+                return _GrabOutcome.PROCEED
+            manager.profile_state.grabbed_devices.discard(hardware_id)
+            manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
+            waiting_for_device = bool(
+                result_data is not None and result_data.get("waiting_for_device")
+            )
+            if waiting_for_device:
+                manager.profile_state.grab_waiting_devices.add(hardware_id)
+                manager.profile_state.grab_status[hardware_id] = {
+                    "state": "waiting_for_device",
+                    "path": next(iter(new_interfaces.values()), ""),
+                }
+                manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+                    grab_signature
+                )
+            else:
+                manager.profile_state.grab_waiting_devices.discard(hardware_id)
+                manager.profile_state.grab_status.pop(hardware_id, None)
+                manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
+            log.warning(
+                ("keymasqd grab returned zero interfaces for %s (requested=%s, mappings=%d)"),
+                hardware_id,
+                list(new_interfaces.keys()),
+                len(resolved.mappings),
+            )
+            manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
+            return _GrabOutcome.STOP
+
+        log.error("keymasqd: Failed to grab device %s: %s", hardware_id, result.error)
+        if "timed out waiting" in str(result.error or "").lower():
+            manager.profile_state.grab_status[hardware_id] = {
+                "state": "timed_out",
+                "path": next(iter(new_interfaces.values()), ""),
+            }
+            schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
+        return _GrabOutcome.STOP
+    except TimeoutError as exc:
+        log.error(
+            "keymasqd: Exception grabbing device %s: %s: %s",
+            hardware_id,
+            type(exc).__name__,
+            exc,
+        )
+        manager.send_notification(
+            "Keymasq: Grab Timed Out",
+            (
+                f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
+                "waiting for keys to be released. Retrying automatically."
+            ),
+        )
+        manager.profile_state.grab_status[hardware_id] = {
+            "state": "timed_out",
+            "path": next(iter(new_interfaces.values()), ""),
+        }
+        schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
+        return _GrabOutcome.STOP
+    except OSError as exc:
+        log.error(
+            "keymasqd: Exception grabbing device %s: %s: %s",
+            hardware_id,
+            type(exc).__name__,
+            exc,
+        )
+        return _GrabOutcome.STOP
+    except Exception:
+        log.exception("Unexpected failure grabbing device %s", hardware_id)
+        return _GrabOutcome.STOP
+
+
+async def _send_set_mapping_command(
+    manager: "SessionManager",
+    hardware_id: str,
+    resolved: ResolvedDeviceProfile,
+    notify: _ProfileActivationNotifier,
+    *,
+    generation: int | None,
+) -> None:
+    log.info(
+        "Setting mapping for %s with %d buttons from profiles=%s",
+        hardware_id,
+        len(resolved.mappings),
+        resolved.active_profile_names,
+    )
+    try:
+        mapping = runtime_payloads.profile_to_mapping(manager, resolved, hardware_id)
+        log.debug("Mapping data: %s", runtime_payloads.mapping_log_view(mapping))
+        raise_if_stale_profile_apply(manager, generation)
+
+        result = await manager.client.send_command(
+            Command(
+                command=CommandType.SET_MAPPING,
+                data={
+                    "hardware_id": hardware_id,
+                    "mapping": mapping,
+                },
+            )
+        )
+        raise_if_stale_profile_apply(manager, generation)
+
+        if result.status == "ok":
+            manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
+                runtime_payloads.resolved_mapping_signature(manager, resolved, hardware_id)
+            )
+            log.info(
+                "Activated resolved profiles %s for %s",
+                resolved.active_profile_names,
+                hardware_id,
+            )
+            notify()
+        else:
+            log.error("Failed to set mapping: %s", result.error)
+
+    except OSError as exc:
+        log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
+    except Exception:
+        log.exception("Unexpected failure setting mapping for %s", hardware_id)
+
+
 async def apply_resolved_device_profile(
     manager: "SessionManager",
     hardware_id: str,
@@ -963,6 +1211,14 @@ async def apply_resolved_device_profile(
     old_profile_names = old_resolved.active_profile_names if old_resolved else []
     manager.profile_state.resolved_devices[hardware_id] = resolved
     inspector_active = _device_inspector_active(manager, hardware_id)
+
+    def _notify() -> None:
+        maybe_notify_profile_activation(
+            manager,
+            hardware_config.name,
+            old_profile_names,
+            resolved,
+        )
 
     if not resolved.has_effective_mapping and not inspector_active:
         cancel_grab_retry(manager, hardware_id)
@@ -1015,103 +1271,22 @@ async def apply_resolved_device_profile(
         and manager.profile_state.last_sent_grab_signatures.get(hardware_id) == grab_signature
     ):
         log.debug("Skipping pending grab for unavailable device %s", hardware_id)
-        maybe_notify_profile_activation(
-            manager,
-            hardware_config.name,
-            old_profile_names,
-            resolved,
-        )
+        _notify()
         return
 
     if hardware_id in manager.profile_state.grabbed_devices:
         if set(current_interfaces.keys()) == set(new_interfaces.keys()):
-            grab_update_needed = (
-                manager.profile_state.last_sent_grab_signatures.get(hardware_id, "")
-                != grab_signature
-            )
-            mapping_update_needed = runtime_payloads.mapping_update_needed(
+            outcome = await _reconcile_existing_grab(
                 manager,
                 hardware_id,
                 resolved,
+                grab_payload,
+                grab_signature,
+                old_profile_names,
+                _notify,
+                generation=generation,
             )
-            if not grab_update_needed and not mapping_update_needed:
-                log.debug("Skipping unchanged mapping for %s", hardware_id)
-                maybe_notify_profile_activation(
-                    manager,
-                    hardware_config.name,
-                    old_profile_names,
-                    resolved,
-                )
-                return
-            if grab_update_needed:
-                updated_grab = await update_grab_device_payload(
-                    manager,
-                    hardware_id,
-                    grab_payload,
-                    grab_signature,
-                    generation=generation,
-                )
-                raise_if_stale_profile_apply(manager, generation)
-                if not updated_grab:
-                    log.warning(
-                        "Grab update failed for %s with same interfaces; forcing re-grab",
-                        hardware_id,
-                    )
-                    await deactivate_profile(manager, hardware_id, generation=generation)
-                elif not mapping_update_needed:
-                    maybe_notify_profile_activation(
-                        manager,
-                        hardware_config.name,
-                        old_profile_names,
-                        resolved,
-                    )
-                    return
-            if hardware_id not in manager.profile_state.grabbed_devices:
-                log.info(
-                    "Grab config refresh deactivated %s; reconfiguring in keymasqd",
-                    hardware_id,
-                )
-            elif mapping_update_needed:
-                if old_profile_names == resolved.active_profile_names and manager.verbosity >= 1:
-                    log.debug(
-                        "Resolved profile set already active for %s, updating mapping only",
-                        hardware_id,
-                    )
-                elif old_profile_names != resolved.active_profile_names:
-                    log.info(
-                        "Same interfaces for %s, updating mapping only (old=%s new=%s)",
-                        hardware_id,
-                        old_profile_names,
-                        resolved.active_profile_names,
-                    )
-                updated = await update_mapping(
-                    manager,
-                    hardware_id,
-                    resolved,
-                    generation=generation,
-                )
-                raise_if_stale_profile_apply(manager, generation)
-                if updated:
-                    maybe_notify_profile_activation(
-                        manager,
-                        hardware_config.name,
-                        old_profile_names,
-                        resolved,
-                    )
-                    return
-                log.warning(
-                    "Mapping update failed for %s with same interfaces; forcing re-grab",
-                    hardware_id,
-                )
-                await deactivate_profile(manager, hardware_id, generation=generation)
-                manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
-            else:
-                maybe_notify_profile_activation(
-                    manager,
-                    hardware_config.name,
-                    old_profile_names,
-                    resolved,
-                )
+            if outcome is _ReconcileOutcome.HANDLED:
                 return
 
         log.info(
@@ -1122,140 +1297,24 @@ async def apply_resolved_device_profile(
         )
 
     log.info("Grabbing device %s (interfaces: %s)", hardware_id, list(new_interfaces.keys()))
-    try:
-        result = await manager.client.send_command(
-            Command(
-                command=CommandType.GRAB_DEVICE,
-                data=grab_payload,
-            ),
-            timeout=GRAB_DEVICE_TIMEOUT_S,
-        )
-        raise_if_stale_profile_apply(manager, generation)
-        if result.status == "ok":
-            result_data = _json_object(result.data)
-            grabbed_count = (
-                coerce_int(result_data.get("grabbed_count"), 0)
-                if result_data is not None
-                else 0
-            )
-            cancel_grab_retry(manager, hardware_id)
-            manager.profile_state.grab_waiting_devices.discard(hardware_id)
-            log.info("keymasqd: Grabbed device %s: %s", hardware_id, result.data)
-            if grabbed_count > 0:
-                manager.profile_state.grabbed_devices.add(hardware_id)
-                manager.profile_state.grabbed_interfaces[hardware_id] = new_interfaces
-                manager.profile_state.last_sent_grab_signatures[hardware_id] = grab_signature
-                manager.profile_state.grab_status.pop(hardware_id, None)
-            else:
-                manager.profile_state.grabbed_devices.discard(hardware_id)
-                manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
-                waiting_for_device = bool(
-                    result_data is not None and result_data.get("waiting_for_device")
-                )
-                if waiting_for_device:
-                    manager.profile_state.grab_waiting_devices.add(hardware_id)
-                    manager.profile_state.grab_status[hardware_id] = {
-                        "state": "waiting_for_device",
-                        "path": next(iter(new_interfaces.values()), ""),
-                    }
-                    manager.profile_state.last_sent_grab_signatures[hardware_id] = grab_signature
-                else:
-                    manager.profile_state.grab_waiting_devices.discard(hardware_id)
-                    manager.profile_state.grab_status.pop(hardware_id, None)
-                    manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
-                log.warning(
-                    ("keymasqd grab returned zero interfaces for %s (requested=%s, mappings=%d)"),
-                    hardware_id,
-                    list(new_interfaces.keys()),
-                    len(resolved.mappings),
-                )
-                manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
-                return
-        else:
-            log.error("keymasqd: Failed to grab device %s: %s", hardware_id, result.error)
-            if "timed out waiting" in str(result.error or "").lower():
-                manager.profile_state.grab_status[hardware_id] = {
-                    "state": "timed_out",
-                    "path": next(iter(new_interfaces.values()), ""),
-                }
-                schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
-            return
-    except TimeoutError as exc:
-        log.error(
-            "keymasqd: Exception grabbing device %s: %s: %s",
-            hardware_id,
-            type(exc).__name__,
-            exc,
-        )
-        manager.send_notification(
-            "Keymasq: Grab Timed Out",
-            (
-                f"{device_name_for_hardware(manager, hardware_id)}: grab timed out while "
-                "waiting for keys to be released. Retrying automatically."
-            ),
-        )
-        manager.profile_state.grab_status[hardware_id] = {
-            "state": "timed_out",
-            "path": next(iter(new_interfaces.values()), ""),
-        }
-        schedule_grab_retry(manager, hardware_id, delay_s=GRAB_RETRY_DELAY_S)
-        return
-    except OSError as exc:
-        log.error(
-            "keymasqd: Exception grabbing device %s: %s: %s",
-            hardware_id,
-            type(exc).__name__,
-            exc,
-        )
-        return
-    except Exception:
-        log.exception("Unexpected failure grabbing device %s", hardware_id)
-        return
-
-    log.info(
-        "Setting mapping for %s with %d buttons from profiles=%s",
+    grab_outcome = await _send_grab_device_command(
+        manager,
         hardware_id,
-        len(resolved.mappings),
-        resolved.active_profile_names,
+        resolved,
+        grab_payload,
+        grab_signature,
+        new_interfaces,
+        generation=generation,
     )
-    try:
-        mapping = runtime_payloads.profile_to_mapping(manager, resolved, hardware_id)
-        log.debug("Mapping data: %s", runtime_payloads.mapping_log_view(mapping))
-        raise_if_stale_profile_apply(manager, generation)
-
-        result = await manager.client.send_command(
-            Command(
-                command=CommandType.SET_MAPPING,
-                data={
-                    "hardware_id": hardware_id,
-                    "mapping": mapping,
-                },
-            )
-        )
-        raise_if_stale_profile_apply(manager, generation)
-
-        if result.status == "ok":
-            manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
-                runtime_payloads.resolved_mapping_signature(manager, resolved, hardware_id)
-            )
-            log.info(
-                "Activated resolved profiles %s for %s",
-                resolved.active_profile_names,
-                hardware_id,
-            )
-            maybe_notify_profile_activation(
-                manager,
-                hardware_config.name,
-                old_profile_names,
-                resolved,
-            )
-        else:
-            log.error("Failed to set mapping: %s", result.error)
-
-    except OSError as exc:
-        log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
-    except Exception:
-        log.exception("Unexpected failure setting mapping for %s", hardware_id)
+    if grab_outcome is _GrabOutcome.STOP:
+        return
+    await _send_set_mapping_command(
+        manager,
+        hardware_id,
+        resolved,
+        _notify,
+        generation=generation,
+    )
 
 
 def get_interfaces_to_grab(

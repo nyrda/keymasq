@@ -655,35 +655,11 @@ async def process_event(
         return
 
     if event.type == evdev_mod.ecodes.EV_SYN:
-        diag_label = "syn"
-        event_code = int(event.code)
-        syn_report = int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0))
-        syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
-        if event_code == syn_report:
-            passthrough_frame_open = runtime_outputs.passthrough_frame_open(
-                device_runtime,
-                device_runtime.uinput,
-            )
-            runtime_outputs.flush_passthrough_frame(
-                device_runtime,
-                device_runtime.uinput,
-                uinput_writer=identity_uinput_writer,
-            )
-            if passthrough_frame_open:
-                diag_label = "passthrough_syn"
-        elif event_code == syn_mt_report:
-            writer = identity_uinput_writer(device_runtime.uinput)
-            if writer is not None:
-                writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
-                runtime_outputs.mark_passthrough_frame_open(
-                    device_runtime,
-                    device_runtime.uinput,
-                )
-        else:
-            runtime_outputs.mark_passthrough_frame_closed(
-                device_runtime,
-                device_runtime.uinput,
-            )
+        diag_label = _process_syn_event(
+            device_runtime,
+            event,
+            evdev_mod=evdev_mod,
+        )
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
 
@@ -755,55 +731,7 @@ async def process_event(
         and event_name in device_runtime.state.held_source_actions
     )
     if event.type == evdev_mod.ecodes.EV_REL:
-        high_res_wheel_action = _find_high_res_wheel_low_res_action(
-            device_runtime,
-            event,
-            mapping,
-            evdev_mod=evdev_mod,
-        )
-        if (
-            high_res_wheel_action is not None
-            and high_res_wheel_action.action_type == ActionType.PASSTHROUGH
-        ):
-            _record_grabbed_event_if_allowed(
-                device_runtime,
-                event,
-                recording_manager=recording_manager,
-                deps=deps,
-            )
-            runtime_outputs.passthrough(
-                device_runtime,
-                event,
-                evdev_mod=evdev_mod,
-                uinput_writer=identity_uinput_writer,
-                sync=False,
-            )
-            _record_diagnostics(
-                device_runtime,
-                "wheel_passthrough",
-                started_ns,
-                time_mod=time_mod,
-            )
-            return
-        if (
-            high_res_wheel_action is not None
-            and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
-        ):
-            if not _is_recording_control_action(high_res_wheel_action):
-                _record_grabbed_event_if_allowed(
-                    device_runtime,
-                    event,
-                    recording_manager=recording_manager,
-                    deps=deps,
-                )
-            _record_diagnostics(
-                device_runtime,
-                "wheel_high_res_suppressed",
-                started_ns,
-                time_mod=time_mod,
-            )
-            return
-        wheel_diag_label = await _process_wheel_pulse_event(
+        wheel_diag_label = await _process_wheel_event(
             device_runtime,
             event,
             event_name,
@@ -850,6 +778,125 @@ async def process_event(
         _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
         return
 
+    diag_label = await _apply_mapped_action_or_passthrough(
+        device_runtime,
+        event,
+        event_name,
+        mapping,
+        recording_manager=recording_manager,
+        combo_consumed=combo_consumed,
+        combo_passthrough_requested=combo_passthrough_requested,
+        deps=deps,
+    )
+    _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
+
+
+def _process_syn_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    evdev_mod: EvdevModule,
+) -> str:
+    diag_label = "syn"
+    event_code = int(event.code)
+    syn_report = int(getattr(evdev_mod.ecodes, "SYN_REPORT", 0))
+    syn_mt_report = int(getattr(evdev_mod.ecodes, "SYN_MT_REPORT", 0))
+    if event_code == syn_report:
+        passthrough_frame_open = runtime_outputs.passthrough_frame_open(
+            device_runtime,
+            device_runtime.uinput,
+        )
+        runtime_outputs.flush_passthrough_frame(
+            device_runtime,
+            device_runtime.uinput,
+            uinput_writer=identity_uinput_writer,
+        )
+        if passthrough_frame_open:
+            diag_label = "passthrough_syn"
+    elif event_code == syn_mt_report:
+        writer = identity_uinput_writer(device_runtime.uinput)
+        if writer is not None:
+            writer.write(evdev_mod.ecodes.EV_SYN, event_code, int(event.value))
+            runtime_outputs.mark_passthrough_frame_open(
+                device_runtime,
+                device_runtime.uinput,
+            )
+    else:
+        runtime_outputs.mark_passthrough_frame_closed(
+            device_runtime,
+            device_runtime.uinput,
+        )
+    return diag_label
+
+
+async def _process_wheel_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    mapping: dict[str, MappingAction],
+    *,
+    recording_manager: object | None,
+    deps: EventProcessingDeps,
+) -> str | None:
+    evdev_mod = deps.evdev_mod
+    high_res_wheel_action = _find_high_res_wheel_low_res_action(
+        device_runtime,
+        event,
+        mapping,
+        evdev_mod=evdev_mod,
+    )
+    if (
+        high_res_wheel_action is not None
+        and high_res_wheel_action.action_type == ActionType.PASSTHROUGH
+    ):
+        _record_grabbed_event_if_allowed(
+            device_runtime,
+            event,
+            recording_manager=recording_manager,
+            deps=deps,
+        )
+        runtime_outputs.passthrough(
+            device_runtime,
+            event,
+            evdev_mod=evdev_mod,
+            uinput_writer=identity_uinput_writer,
+            sync=False,
+        )
+        return "wheel_passthrough"
+    if (
+        high_res_wheel_action is not None
+        and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
+    ):
+        if not _is_recording_control_action(high_res_wheel_action):
+            _record_grabbed_event_if_allowed(
+                device_runtime,
+                event,
+                recording_manager=recording_manager,
+                deps=deps,
+            )
+        return "wheel_high_res_suppressed"
+    return await _process_wheel_pulse_event(
+        device_runtime,
+        event,
+        event_name,
+        mapping,
+        recording_manager=recording_manager,
+        deps=deps,
+    )
+
+
+async def _apply_mapped_action_or_passthrough(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+    mapping: dict[str, MappingAction],
+    *,
+    recording_manager: object | None,
+    combo_consumed: bool,
+    combo_passthrough_requested: bool,
+    deps: EventProcessingDeps,
+) -> str:
+    evdev_mod = deps.evdev_mod
     action = find_action_for_event(device_runtime, event, mapping)
     if event.type == evdev_mod.ecodes.EV_KEY:
         held_action = device_runtime.state.held_source_actions.get(event_name)
@@ -922,12 +969,14 @@ async def process_event(
             event_name,
             evdev_mod=evdev_mod,
         )
-        diag_label = "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
+        diag_label = (
+            "combo_passthrough" if combo_passthrough_requested else "passthrough_mapped"
+        )
 
     if event.type == evdev_mod.ecodes.EV_KEY and int(event.value) == 0:
         device_runtime.state.held_source_actions.pop(event_name, None)
 
-    _record_diagnostics(device_runtime, diag_label, started_ns, time_mod=time_mod)
+    return diag_label
 
 
 def _clear_released_source_action(

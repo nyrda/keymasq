@@ -765,94 +765,161 @@ def serialize_superkey(
     *,
     track_combo_refs: bool = False,
 ) -> JsonObject:
+    return _serialize_superkey_payload(
+        manager,
+        config,
+        hardware_id,
+        signature=False,
+        track_combo_refs=track_combo_refs,
+    )
+
+
+def _serialize_superkey_payload(
+    manager: "SessionManager",
+    config: SuperkeyConfig,
+    hardware_id: str,
+    *,
+    signature: bool,
+    track_combo_refs: bool = False,
+) -> JsonObject:
     data: JsonObject = {
         "name": config.name,
         "mode": config.mode.value,
-        "tap_timeout_ms": config.tap_timeout_ms,
-        "double_tap_window_ms": config.double_tap_window_ms,
-        "hold_threshold_ms": config.hold_threshold_ms,
+        "tap_timeout_ms": int(config.tap_timeout_ms) if signature else config.tap_timeout_ms,
+        "double_tap_window_ms": (
+            int(config.double_tap_window_ms) if signature else config.double_tap_window_ms
+        ),
+        "hold_threshold_ms": int(config.hold_threshold_ms)
+        if signature
+        else config.hold_threshold_ms,
     }
 
     if config.mode == SuperkeyMode.PATTERN:
         if config.tap_actions:
-            data["tap_actions"] = [
-                serialize_superkey_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.tap_actions
-            ]
-        if config.double_tap_actions:
-            data["double_tap_actions"] = [
-                serialize_superkey_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.double_tap_actions
-            ]
-        if config.hold_actions:
-            data["hold_actions"] = [
-                serialize_superkey_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.hold_actions
-            ]
-        if config.tap_hold_actions:
-            data["tap_hold_actions"] = [
-                serialize_superkey_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.tap_hold_actions
-            ]
-    elif config.overload_actions:
-        data["overload_actions"] = [
-            serialize_superkey_overload_action(
+            data["tap_actions"] = _serialize_superkey_pattern_actions(
                 manager,
-                action,
+                config.tap_actions,
                 hardware_id,
+                signature=signature,
                 track_combo_refs=track_combo_refs,
             )
-            for action in config.overload_actions
-        ]
+        if config.double_tap_actions:
+            data["double_tap_actions"] = _serialize_superkey_pattern_actions(
+                manager,
+                config.double_tap_actions,
+                hardware_id,
+                signature=signature,
+                track_combo_refs=track_combo_refs,
+            )
+        if config.hold_actions:
+            data["hold_actions"] = _serialize_superkey_pattern_actions(
+                manager,
+                config.hold_actions,
+                hardware_id,
+                signature=signature,
+                track_combo_refs=track_combo_refs,
+            )
+        if config.tap_hold_actions:
+            data["tap_hold_actions"] = _serialize_superkey_pattern_actions(
+                manager,
+                config.tap_hold_actions,
+                hardware_id,
+                signature=signature,
+                track_combo_refs=track_combo_refs,
+            )
+    elif config.overload_actions:
+        data["overload_actions"] = _serialize_superkey_overload_actions(
+            manager,
+            config.overload_actions,
+            hardware_id,
+            signature=signature,
+            track_combo_refs=track_combo_refs,
+        )
     if config.mode == SuperkeyMode.OVERLOAD:
         if config.overload_down_actions:
-            data["overload_down_actions"] = [
-                serialize_superkey_overload_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.overload_down_actions
-            ]
+            data["overload_down_actions"] = _serialize_superkey_overload_actions(
+                manager,
+                config.overload_down_actions,
+                hardware_id,
+                signature=signature,
+                track_combo_refs=track_combo_refs,
+            )
         if config.overload_up_actions:
-            data["overload_up_actions"] = [
-                serialize_superkey_overload_action(
-                    manager,
-                    action,
-                    hardware_id,
-                    track_combo_refs=track_combo_refs,
-                )
-                for action in config.overload_up_actions
-            ]
+            data["overload_up_actions"] = _serialize_superkey_overload_actions(
+                manager,
+                config.overload_up_actions,
+                hardware_id,
+                signature=signature,
+                track_combo_refs=track_combo_refs,
+            )
 
     return data
+
+
+def _serialize_superkey_pattern_actions(
+    manager: "SessionManager",
+    actions: list[SuperkeyAction],
+    hardware_id: str,
+    *,
+    signature: bool,
+    track_combo_refs: bool,
+) -> list[JsonObject]:
+    if signature:
+        return [
+            serialize_superkey_action_signature(manager, action, hardware_id)
+            for action in actions
+        ]
+    return [
+        serialize_superkey_action(
+            manager,
+            action,
+            hardware_id,
+            track_combo_refs=track_combo_refs,
+        )
+        for action in actions
+    ]
+
+
+def _serialize_superkey_overload_actions(
+    manager: "SessionManager",
+    actions: list[MappingAction],
+    hardware_id: str,
+    *,
+    signature: bool,
+    track_combo_refs: bool,
+) -> list[JsonObject]:
+    if signature:
+        return [action_signature_payload(manager, action, hardware_id) for action in actions]
+    return [
+        serialize_superkey_overload_action(
+            manager,
+            action,
+            hardware_id,
+            track_combo_refs=track_combo_refs,
+        )
+        for action in actions
+    ]
 
 
 def serialize_analog_control(
     manager: "SessionManager",
     config: AnalogControlConfig,
     hardware_id: str,
+) -> JsonObject:
+    return _serialize_analog_control_payload(
+        manager,
+        config,
+        hardware_id,
+        signature=False,
+    )
+
+
+def _serialize_analog_control_payload(
+    manager: "SessionManager",
+    config: AnalogControlConfig,
+    hardware_id: str,
+    *,
+    signature: bool,
 ) -> JsonObject:
     config = normalize_analog_control_features(config)
     return {
@@ -900,7 +967,12 @@ def serialize_analog_control(
             "response_curve": float(config.gamepad_output.response_curve),
         },
         "thresholds": [
-            serialize_analog_threshold(manager, threshold, hardware_id)
+            _serialize_analog_threshold_payload(
+                manager,
+                threshold,
+                hardware_id,
+                signature=signature,
+            )
             for threshold in config.thresholds
         ],
     }
@@ -911,6 +983,21 @@ def serialize_analog_threshold(
     threshold: AnalogActionThreshold,
     hardware_id: str,
 ) -> JsonObject:
+    return _serialize_analog_threshold_payload(
+        manager,
+        threshold,
+        hardware_id,
+        signature=False,
+    )
+
+
+def _serialize_analog_threshold_payload(
+    manager: "SessionManager",
+    threshold: AnalogActionThreshold,
+    hardware_id: str,
+    *,
+    signature: bool,
+) -> JsonObject:
     return {
         "axis": threshold.axis,
         "trigger_min": float(threshold.trigger_min),
@@ -918,7 +1005,9 @@ def serialize_analog_threshold(
         "release_min": float(threshold.release_min),
         "release_max": float(threshold.release_max),
         "actions": [
-            serialize_overload_action(manager, action, hardware_id)
+            action_signature_payload(manager, action, hardware_id)
+            if signature
+            else serialize_overload_action(manager, action, hardware_id)
             for action in threshold.actions
         ],
     }
@@ -929,56 +1018,12 @@ def serialize_analog_control_signature(
     config: AnalogControlConfig,
     hardware_id: str,
 ) -> JsonObject:
-    config = normalize_analog_control_features(config)
-    return {
-        "name": config.name,
-        "input_type": config.input_type,
-        "mouse_motion": {
-            "enabled": bool(config.mouse_motion.enabled),
-            "mode": config.mouse_motion.mode,
-            "speed": float(config.mouse_motion.speed),
-            "speed_x": float(
-                config.mouse_motion.speed_x
-                if config.mouse_motion.speed_x is not None
-                else config.mouse_motion.speed
-            ),
-            "speed_y": float(
-                config.mouse_motion.speed_y
-                if config.mouse_motion.speed_y is not None
-                else config.mouse_motion.speed
-            ),
-            "area_radius_x": float(config.mouse_motion.area_radius_x),
-            "area_radius_y": float(config.mouse_motion.area_radius_y),
-            "area_start_enabled": bool(config.mouse_motion.area_start_enabled),
-            "area_start_x": int(config.mouse_motion.area_start_x),
-            "area_start_y": int(config.mouse_motion.area_start_y),
-            "deadzone": float(config.mouse_motion.deadzone),
-            "sensitivity": float(config.mouse_motion.sensitivity),
-            "response_curve": float(config.mouse_motion.response_curve),
-            "direction": config.mouse_motion.direction,
-            "invert_x": bool(config.mouse_motion.invert_x),
-            "invert_y": bool(config.mouse_motion.invert_y),
-            "tick_ms": int(config.mouse_motion.tick_ms),
-        },
-        "gamepad_output": {
-            "enabled": bool(config.gamepad_output.enabled),
-            "output_id": config.gamepad_output.output_id,
-            "deadzone": float(config.gamepad_output.deadzone),
-            "target": config.gamepad_output.target,
-            "target_analog_id": config.gamepad_output.target_analog_id,
-            "output_rest": config.gamepad_output.output_rest,
-            "output_direction": config.gamepad_output.output_direction,
-            "output_invert": bool(config.gamepad_output.output_invert),
-            "output_invert_x": bool(config.gamepad_output.output_invert_x),
-            "output_invert_y": bool(config.gamepad_output.output_invert_y),
-            "sensitivity": float(config.gamepad_output.sensitivity),
-            "response_curve": float(config.gamepad_output.response_curve),
-        },
-        "thresholds": [
-            serialize_analog_threshold_signature(manager, threshold, hardware_id)
-            for threshold in config.thresholds
-        ],
-    }
+    return _serialize_analog_control_payload(
+        manager,
+        config,
+        hardware_id,
+        signature=True,
+    )
 
 
 def serialize_analog_threshold_signature(
@@ -986,17 +1031,12 @@ def serialize_analog_threshold_signature(
     threshold: AnalogActionThreshold,
     hardware_id: str,
 ) -> JsonObject:
-    return {
-        "axis": threshold.axis,
-        "trigger_min": float(threshold.trigger_min),
-        "trigger_max": float(threshold.trigger_max),
-        "release_min": float(threshold.release_min),
-        "release_max": float(threshold.release_max),
-        "actions": [
-            action_signature_payload(manager, action, hardware_id)
-            for action in threshold.actions
-        ],
-    }
+    return _serialize_analog_threshold_payload(
+        manager,
+        threshold,
+        hardware_id,
+        signature=True,
+    )
 
 
 def serialize_superkey_signature(
@@ -1004,53 +1044,12 @@ def serialize_superkey_signature(
     config: SuperkeyConfig,
     hardware_id: str,
 ) -> JsonObject:
-    data: JsonObject = {
-        "name": config.name,
-        "mode": config.mode.value,
-        "tap_timeout_ms": int(config.tap_timeout_ms),
-        "double_tap_window_ms": int(config.double_tap_window_ms),
-        "hold_threshold_ms": int(config.hold_threshold_ms),
-    }
-
-    if config.mode == SuperkeyMode.PATTERN:
-        if config.tap_actions:
-            data["tap_actions"] = [
-                serialize_superkey_action_signature(manager, action, hardware_id)
-                for action in config.tap_actions
-            ]
-        if config.double_tap_actions:
-            data["double_tap_actions"] = [
-                serialize_superkey_action_signature(manager, action, hardware_id)
-                for action in config.double_tap_actions
-            ]
-        if config.hold_actions:
-            data["hold_actions"] = [
-                serialize_superkey_action_signature(manager, action, hardware_id)
-                for action in config.hold_actions
-            ]
-        if config.tap_hold_actions:
-            data["tap_hold_actions"] = [
-                serialize_superkey_action_signature(manager, action, hardware_id)
-                for action in config.tap_hold_actions
-            ]
-    elif config.overload_actions:
-        data["overload_actions"] = [
-            action_signature_payload(manager, action, hardware_id)
-            for action in config.overload_actions
-        ]
-    if config.mode == SuperkeyMode.OVERLOAD:
-        if config.overload_down_actions:
-            data["overload_down_actions"] = [
-                action_signature_payload(manager, action, hardware_id)
-                for action in config.overload_down_actions
-            ]
-        if config.overload_up_actions:
-            data["overload_up_actions"] = [
-                action_signature_payload(manager, action, hardware_id)
-                for action in config.overload_up_actions
-            ]
-
-    return data
+    return _serialize_superkey_payload(
+        manager,
+        config,
+        hardware_id,
+        signature=True,
+    )
 
 
 def serialize_superkey_action(

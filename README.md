@@ -155,8 +155,9 @@ stored as plain TOML in `~/.config/keymasq/`:
 - `settings.toml` and `recording_settings.toml` store user preferences
 
 Saved macros are daemon-managed under `/var/lib/keymasq/macros/`; use the GUI
-or CLI to create and edit them. See [docs/PROFILES.md](docs/PROFILES.md) for
-the profile format and merge rules.
+or CLI to create and edit them. See [docs/HARDWARE.md](docs/HARDWARE.md) for
+hardware configuration and [docs/PROFILES.md](docs/PROFILES.md) for the
+profile format and merge rules.
 
 ## Security
 
@@ -173,6 +174,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 
 - Getting started: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
 - Installation guide: [docs/INSTALL.md](docs/INSTALL.md)
+- Hardware configuration: [docs/HARDWARE.md](docs/HARDWARE.md)
 - Game controller support: [docs/GAMEPAD.md](docs/GAMEPAD.md)
 - Profile system: [docs/PROFILES.md](docs/PROFILES.md)
 - Actions explained: [docs/ACTIONS.md](docs/ACTIONS.md)

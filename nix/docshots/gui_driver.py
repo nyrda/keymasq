@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +28,20 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,
 )
 
-from keymasq.common.models import ActionType, HardwareConfig, MappingAction
+from keymasq.common.devices import (
+    is_by_id_path,
+    is_keymasq_device_path,
+    make_keymasq_device_path,
+)
+from keymasq.common.models import ActionType, EvdevDevice, HardwareConfig, MappingAction
 from keymasq.gui.application import Application
 from keymasq.gui.session_client import session_request
 from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
 from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
+from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+    DetectionMethod,
+    HardwareSettingsDialog,
+)
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
 from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
 from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
@@ -1218,6 +1229,7 @@ class DocshotRunner:
         dispatch = {
             "welcome": self._prepare_welcome,
             "add_device_dialog": self._prepare_add_device_dialog,
+            "hardware_settings": self._prepare_hardware_settings,
             "device_fresh": self._prepare_device_fresh,
             "profile_device": self._prepare_profile_device,
             "device_button": self._prepare_device_button,
@@ -1278,6 +1290,100 @@ class DocshotRunner:
         device_list = getattr(dialog, "device_list", None)
         if isinstance(device_list, Gtk.Widget):
             _stabilize_ancestor_scrollbar(device_list)
+
+    def _prepare_hardware_settings(self, shot: Json) -> None:
+        assert self.window is not None
+        hardware_id = str(shot.get("device", "1532:00b4") or "1532:00b4")
+        hardware = self.window.hardware_manager.get_hardware(hardware_id)
+        if hardware is None:
+            raise KeyError(f"hardware {hardware_id!r} is not loaded")
+
+        config = deepcopy(hardware)
+        self._prepare_hardware_settings_fixture(config, shot)
+
+        dialog = HardwareSettingsDialog(
+            self.window,
+            config,
+            self.window.hardware_manager,
+            self._docshot_add_evdev_devices,
+            self._docshot_delete_hardware,
+            self._docshot_delete_evdev_device,
+            self._docshot_set_detection_method,
+            self._docshot_stable_detection_status,
+            self._docshot_rename_hardware,
+            can_delete_profile_mappings=True,
+        )
+        dialog.present(self.window)
+        self.current_dialog = dialog
+        self._set_dialog_crop(dialog, shot)
+
+    def _prepare_hardware_settings_fixture(
+        self,
+        config: HardwareConfig,
+        shot: Json,
+    ) -> None:
+        variant = str(shot.get("hardware_variant", "stable") or "stable")
+        if config.hardware_id == "1532:00b4":
+            for device in config.evdev_devices:
+                if device.id == "mouse":
+                    device.path = (
+                        "/dev/input/by-id/"
+                        "usb-Razer_Razer_Naga_V2_HyperSpeed_000000000000-event-mouse"
+                    )
+                elif device.id == "if02":
+                    device.path = (
+                        "/dev/input/by-id/"
+                        "usb-Razer_Razer_Naga_V2_HyperSpeed_000000000000-if02-event-kbd"
+                    )
+
+        if variant != "product_id":
+            return
+
+        product_path = make_keymasq_device_path(config.vendor_id, config.product_id)
+        for device in config.evdev_devices:
+            device.path = product_path
+            if not device.capabilities:
+                device.capabilities = [f"type:{device.device_type.value}", str(device.id or "")]
+
+    def _docshot_add_evdev_devices(self, _devices: list[EvdevDevice]) -> int:
+        return 0
+
+    def _docshot_delete_hardware(self) -> None:
+        return
+
+    def _docshot_delete_evdev_device(
+        self,
+        _device: EvdevDevice,
+        _delete_profile_mappings: bool,
+    ) -> bool:
+        return False
+
+    def _docshot_set_detection_method(
+        self,
+        _device: EvdevDevice,
+        method: DetectionMethod,
+    ) -> tuple[bool, str]:
+        label = "Stable Path" if method == "stable" else "Product ID"
+        return True, f"Switched event device to {label} detection."
+
+    def _docshot_stable_detection_status(self, device: EvdevDevice) -> tuple[bool, str]:
+        path = str(device.path or "")
+        if is_by_id_path(path):
+            return True, "Match this event device by its /dev/input/by-id path."
+        if is_keymasq_device_path(path):
+            return (
+                False,
+                "Stable Path is unavailable because this event device has no "
+                "/dev/input/by-id path.",
+            )
+        return (
+            False,
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path.",
+        )
+
+    def _docshot_rename_hardware(self, refresh: Callable[[], None]) -> None:
+        refresh()
 
     def _prepare_device_fresh(self, shot: Json) -> None:
         self._select_device_profile(

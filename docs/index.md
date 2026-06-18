@@ -22,6 +22,8 @@ and multi-step automation.
   and NixOS, plus a from-source path.
 - [Getting Started](GETTING_STARTED.md) — open Keymasq, add a device, and
   create your first remap after installing.
+- [Hardware Configuration](HARDWARE.md) — hardware IDs, event devices, source
+  controls, and detection methods.
 - [Profiles](PROFILES.md) — the layered, window-aware profile model that
   everything else builds on.
 - [Actions](ACTIONS.md) — what each mapping can do.

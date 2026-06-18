@@ -135,6 +135,45 @@ class TestDeviceTabWidget:
 
         assert calls == [device]
 
+    def test_device_tab_header_includes_hardware_settings_button(self):
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from tests.gui.support import collect_widgets
+
+        class _HardwareManager:
+            pass
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event4",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=_HardwareManager(),
+            demo_mode=False,
+        )
+
+        tooltips = [
+            button.get_tooltip_text()
+            for button in collect_widgets(tab, Gtk.Button, include_self=True)
+        ]
+
+        assert "Inspect device" in tooltips
+        assert "Hardware settings" in tooltips
+        assert "Delete device" not in tooltips
+
     def test_numbered_hardware_id_header_keeps_path_in_tooltip(self):
         from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab import DeviceTab
@@ -1445,6 +1484,913 @@ class TestDeviceTabWidget:
         assert reload_requests == [{"command": "reload"}]
         assert reloaded == [True]
         assert device.buttons[-1] == added
+
+    def test_device_tab_hardware_settings_adds_evdev_devices_and_reloads(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-event-mouse",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        added, added_message, added_error = tab._add_hardware_evdev_devices(
+            [
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-if02-event-kbd",
+                    device_type=DeviceType.KEYBOARD,
+                    id="mouse",
+                    phys="usb-test/input1",
+                    capabilities=["key_a"],
+                )
+            ]
+        )
+        duplicate, duplicate_message, duplicate_error = tab._add_hardware_evdev_devices(
+            [
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-if02-event-kbd",
+                    device_type=DeviceType.KEYBOARD,
+                    id="kbd",
+                    phys="usb-test/input1",
+                    capabilities=["key_a"],
+                )
+            ]
+        )
+
+        assert added == 1
+        assert added_message == "Added 1 event device to this hardware ID."
+        assert added_error is False
+        assert duplicate == 0
+        assert duplicate_message == "That event device is already attached."
+        assert duplicate_error is False
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+        assert [evdev.id for evdev in device.evdev_devices] == ["mouse", "mouse_2"]
+        assert device.evdev_devices[-1].device_type == DeviceType.KEYBOARD
+        assert "2 evdev" in tab._header_caption_label.get_text()
+
+    def test_device_tab_hardware_settings_switches_evdev_detection_to_product_id(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self, device: HardwareConfig) -> None:
+                self.device = device
+                self.saved: list[HardwareConfig] = []
+
+            def list_hardware(self) -> list[HardwareConfig]:
+                return [self.device]
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        evdev_device = EvdevDevice(
+            path="/dev/input/by-id/usb-Test-event-mouse",
+            device_type=DeviceType.MOUSE,
+            id="mouse",
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+        hardware_manager = _HardwareManager(device)
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "mouse",
+                    "configured_path": "/dev/input/by-id/usb-Test-event-mouse",
+                    "stable_path": "/dev/input/by-id/usb-Test-event-mouse",
+                    "phys": "usb-test/input0",
+                    "capabilities": ["btn_left"],
+                }
+            ]
+        }
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        ok, message = tab._set_hardware_evdev_detection_method(evdev_device, "product")
+
+        assert ok is True
+        assert message == "Switched event device to Product ID detection."
+        assert evdev_device.path == "keymasq:1234:5678"
+        assert evdev_device.phys == "usb-test/input0"
+        assert evdev_device.capabilities == ["btn_left"]
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+
+    def test_device_tab_hardware_settings_denies_product_id_detection_conflict(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self, devices: list[HardwareConfig]) -> None:
+                self.devices = devices
+                self.saved: list[HardwareConfig] = []
+
+            def list_hardware(self) -> list[HardwareConfig]:
+                return self.devices
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        evdev_device = EvdevDevice(
+            path="/dev/input/by-id/usb-Test-if02-event-kbd",
+            device_type=DeviceType.KEYBOARD,
+            id="kbd",
+            capabilities=["key_a"],
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Keyboard",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")],
+            id="1234:5678@2",
+        )
+        existing = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[],
+        )
+        hardware_manager = _HardwareManager([device, existing])
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        ok, message = tab._set_hardware_evdev_detection_method(evdev_device, "product")
+
+        assert ok is False
+        assert message == "Product ID detection is already used by 1234:5678."
+        assert evdev_device.path == "/dev/input/by-id/usb-Test-if02-event-kbd"
+        assert hardware_manager.saved == []
+        assert reload_requests == []
+
+    def test_device_tab_hardware_settings_denies_product_id_add_conflict(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self, devices: list[HardwareConfig]) -> None:
+                self.devices = devices
+                self.saved: list[HardwareConfig] = []
+
+            def list_hardware(self) -> list[HardwareConfig]:
+                return self.devices
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Keyboard",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-if02-event-kbd",
+                    device_type=DeviceType.KEYBOARD,
+                    id="kbd",
+                )
+            ],
+            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")],
+            id="1234:5678@2",
+        )
+        existing = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[],
+        )
+        hardware_manager = _HardwareManager([device, existing])
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        added, message, error = tab._add_hardware_evdev_devices(
+            [
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.KEYBOARD,
+                    id="kbd_product",
+                    capabilities=["key_a"],
+                )
+            ]
+        )
+
+        assert added == 0
+        assert message == "Product ID detection is already used by 1234:5678."
+        assert error is True
+        assert [evdev.path for evdev in device.evdev_devices] == [
+            "/dev/input/by-id/usb-Test-if02-event-kbd"
+        ]
+        assert hardware_manager.saved == []
+        assert reload_requests == []
+
+    def test_device_tab_hardware_settings_switches_evdev_detection_to_stable_path(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        evdev_device = EvdevDevice(
+            path="keymasq:1234:5678",
+            device_type=DeviceType.GAMEPAD,
+            id="gamepad",
+            capabilities=["btn_south"],
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "gamepad",
+                    "configured_path": "keymasq:1234:5678",
+                    "stable_path": "/dev/input/by-id/usb-Test-event-joystick",
+                }
+            ]
+        }
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        ok, message = tab._set_hardware_evdev_detection_method(evdev_device, "stable")
+
+        assert ok is True
+        assert message == "Switched event device to Stable Path detection."
+        assert evdev_device.path == "/dev/input/by-id/usb-Test-event-joystick"
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+
+    def test_device_tab_hardware_settings_migrates_event_path_to_runtime_stable_path(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        evdev_device = EvdevDevice(
+            path="/dev/input/event10",
+            device_type=DeviceType.MOUSE,
+            id="mouse",
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "mouse",
+                    "configured_path": "/dev/input/event10",
+                    "current_path": "/dev/input/event10",
+                    "stable_path": "/dev/input/by-id/usb-Test-event-mouse",
+                }
+            ]
+        }
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        available, tooltip = tab._stable_detection_status_for_evdev_device(evdev_device)
+        ok, message = tab._set_hardware_evdev_detection_method(evdev_device, "stable")
+
+        assert available is True
+        assert tooltip == "Switch this event device to its /dev/input/by-id path."
+        assert ok is True
+        assert message == "Switched event device to Stable Path detection."
+        assert evdev_device.path == "/dev/input/by-id/usb-Test-event-mouse"
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+
+    def test_device_tab_hardware_settings_stable_detection_reports_missing_by_id(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        evdev_device = EvdevDevice(
+            path="keymasq:1234:5678",
+            device_type=DeviceType.GAMEPAD,
+            id="gamepad",
+            capabilities=["btn_south"],
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "gamepad",
+                    "configured_path": "keymasq:1234:5678",
+                    "stable_path": "/dev/input/event10",
+                }
+            ]
+        }
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        available, tooltip = tab._stable_detection_status_for_evdev_device(evdev_device)
+        ok, message = tab._set_hardware_evdev_detection_method(evdev_device, "stable")
+
+        assert available is False
+        assert tooltip == (
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path."
+        )
+        assert ok is False
+        assert message == tooltip
+        assert evdev_device.path == "keymasq:1234:5678"
+        assert hardware_manager.saved == []
+        assert reload_requests == []
+
+    def test_append_unique_evdev_devices_allows_logical_path_with_distinct_metadata(self):
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            append_unique_evdev_devices,
+        )
+
+        config = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                    phys="usb-test/input0",
+                    capabilities=["btn_south"],
+                )
+            ],
+            buttons=[],
+        )
+
+        added = append_unique_evdev_devices(
+            config,
+            [
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                    phys="usb-test/input0",
+                    capabilities=["btn_south"],
+                ),
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                    phys="usb-test/input1",
+                    capabilities=["btn_east"],
+                ),
+            ],
+        )
+
+        assert added == 1
+        assert [device.id for device in config.evdev_devices] == ["gamepad", "gamepad_2"]
+        assert config.evdev_devices[-1].phys == "usb-test/input1"
+
+    def test_append_unique_evdev_devices_treats_real_path_as_duplicate(self):
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            append_unique_evdev_devices,
+        )
+
+        config = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/event10",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[],
+        )
+
+        added = append_unique_evdev_devices(
+            config,
+            [
+                EvdevDevice(
+                    path="/dev/input/event10",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                    phys="usb-test/input0",
+                    capabilities=["btn_left"],
+                )
+            ],
+        )
+
+        assert added == 0
+        assert len(config.evdev_devices) == 1
+
+    def test_hardware_settings_identity_row_opens_rename(self):
+        from collections.abc import Callable
+        from typing import Any, cast
+
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            HardwareSettingsDialog,
+        )
+        from tests.gui.support import collect_widgets
+
+        class _HardwareManager:
+            pass
+
+        class _Click:
+            def __init__(self) -> None:
+                self.states: list[Gtk.EventSequenceState] = []
+
+            def set_state(self, state: Gtk.EventSequenceState) -> bool:
+                self.states.append(state)
+                return True
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-event-mouse",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_left", label="Left Click", evdev="btn_left")],
+        )
+        rename_callbacks: list[Callable[[], None]] = []
+
+        def on_rename(callback: Callable[[], None]) -> None:
+            rename_callbacks.append(callback)
+
+        dialog = HardwareSettingsDialog(
+            None,
+            device,
+            cast(Any, _HardwareManager()),
+            lambda _devices: (0, "That event device is already attached.", False),
+            lambda: None,
+            lambda _device, _delete_profiles: True,
+            lambda _device, _method: (True, ""),
+            lambda _device: (
+                True,
+                "Match this event device by its /dev/input/by-id path.",
+            ),
+            on_rename,
+            can_delete_profile_mappings=True,
+        )
+        row = dialog._identity_row
+        assert row is not None
+        click = _Click()
+        toggle_box = dialog._detection_method_toggle_box(device.evdev_devices[0])
+        toggle_labels = [
+            toggle.get_label()
+            for toggle in collect_widgets(toggle_box, Gtk.ToggleButton, include_self=True)
+        ]
+        content = dialog.get_child()
+        assert content is not None
+        docs_buttons = [
+            button
+            for button in collect_widgets(content, Gtk.Button, include_self=True)
+            if button.get_label() == "?" and button.has_css_class("actions-docs-button")
+        ]
+
+        dialog._on_identity_row_activated(row)
+        dialog._on_identity_row_right_clicked(
+            cast(Gtk.GestureClick, click),
+            1,
+            0.0,
+            0.0,
+        )
+        dialog._on_identity_row_right_clicked(
+            cast(Gtk.GestureClick, _Click()),
+            2,
+            0.0,
+            0.0,
+        )
+
+        assert len(rename_callbacks) == 2
+        assert click.states == [Gtk.EventSequenceState.CLAIMED]
+        assert "Stable" in toggle_labels
+        assert "Product" in toggle_labels
+        assert len(docs_buttons) == 1
+        assert docs_buttons[0].get_tooltip_text() == "Open Hardware documentation"
+
+    def test_hardware_settings_disables_stable_detection_when_unavailable(self):
+        from typing import Any, cast
+
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            HardwareSettingsDialog,
+        )
+        from tests.gui.support import collect_widgets
+
+        class _HardwareManager:
+            pass
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+        )
+        stable_tooltip = (
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path."
+        )
+        dialog = HardwareSettingsDialog(
+            None,
+            device,
+            cast(Any, _HardwareManager()),
+            lambda _devices: (0, "That event device is already attached.", False),
+            lambda: None,
+            lambda _device, _delete_profiles: True,
+            lambda _device, _method: (True, ""),
+            lambda _device: (False, stable_tooltip),
+            lambda _callback: None,
+            can_delete_profile_mappings=True,
+        )
+
+        toggle_box = dialog._detection_method_toggle_box(device.evdev_devices[0])
+        toggles = {
+            toggle.get_label(): toggle
+            for toggle in collect_widgets(toggle_box, Gtk.ToggleButton, include_self=True)
+        }
+
+        assert toggles["Stable"].get_sensitive() is False
+        assert toggles["Stable"].get_tooltip_text() == stable_tooltip
+        assert toggles["Product"].get_active() is True
+        assert toggle_box.get_tooltip_text() == stable_tooltip
+
+    def test_hardware_settings_refreshes_stable_detection_after_runtime_update(self):
+        from typing import Any, cast
+
+        from gi.repository import Gtk
+
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
+            HardwareSettingsDialog,
+        )
+        from tests.gui.support import collect_widgets
+
+        class _HardwareManager:
+            pass
+
+        evdev_device = EvdevDevice(
+            path="keymasq:1234:5678",
+            device_type=DeviceType.GAMEPAD,
+            id="gamepad",
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Gamepad",
+            evdev_devices=[evdev_device],
+            buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
+        )
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=cast(Any, _HardwareManager()),
+            demo_mode=False,
+        )
+        tab._device_runtime_status = {
+            "interfaces": [
+                {
+                    "id": "gamepad",
+                    "configured_path": "keymasq:1234:5678",
+                    "stable_path": "/dev/input/event10",
+                }
+            ]
+        }
+        stable_tooltip = (
+            "Stable Path is unavailable because this event device has no "
+            "/dev/input/by-id path."
+        )
+        dialog = HardwareSettingsDialog(
+            None,
+            device,
+            cast(Any, _HardwareManager()),
+            lambda _devices: (0, "That event device is already attached.", False),
+            lambda: None,
+            lambda _device, _delete_profiles: True,
+            lambda _device, _method: (True, ""),
+            tab._stable_detection_status_for_evdev_device,
+            lambda _callback: None,
+            can_delete_profile_mappings=True,
+        )
+        tab._hardware_settings_dialog = dialog
+
+        def dialog_toggles() -> dict[str, Gtk.ToggleButton]:
+            content = dialog.get_child()
+            assert content is not None
+            return {
+                toggle.get_label(): toggle
+                for toggle in collect_widgets(content, Gtk.ToggleButton, include_self=True)
+            }
+
+        initial_toggles = dialog_toggles()
+        assert initial_toggles["Stable"].get_sensitive() is False
+        assert initial_toggles["Stable"].get_tooltip_text() == stable_tooltip
+
+        tab.apply_active_profile_response(
+            {
+                "active_profiles": [],
+                "devices": {
+                    device.hardware_id: {
+                        "profiles": [],
+                        "device_status": {
+                            "interfaces": [
+                                {
+                                    "id": "gamepad",
+                                    "configured_path": "keymasq:1234:5678",
+                                    "stable_path": "/dev/input/by-id/usb-Test-event-joystick",
+                                }
+                            ]
+                        },
+                    }
+                },
+            }
+        )
+
+        refreshed_toggles = dialog_toggles()
+        assert refreshed_toggles["Stable"].get_sensitive() is True
+        assert (
+            refreshed_toggles["Stable"].get_tooltip_text()
+            == "Switch this event device to its /dev/input/by-id path."
+        )
+        assert refreshed_toggles["Product"].get_active() is True
+
+    def test_device_tab_hardware_settings_deletes_evdev_device_controls_and_mappings(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import (
+            AnalogAxisDefinition,
+            AnalogInputDefinition,
+            ButtonDefinition,
+            DeviceType,
+            EvdevDevice,
+            HardwareConfig,
+        )
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        class _ProfileManager:
+            def __init__(self) -> None:
+                self.removed: list[tuple[str, str]] = []
+
+            def list_profiles(self) -> list[object]:
+                return []
+
+            def remove_device_button_mappings(self, hardware_id: str, button_id: str) -> None:
+                self.removed.append((hardware_id, button_id))
+
+        keyboard_iface = EvdevDevice(
+            path="/dev/input/by-id/usb-Test-if02-event-kbd",
+            device_type=DeviceType.KEYBOARD,
+            id="kbd",
+            phys="usb-test/input1",
+        )
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse Keyboard",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-event-mouse",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                ),
+                keyboard_iface,
+            ],
+            buttons=[
+                ButtonDefinition(
+                    id="btn_left",
+                    label="Left Click",
+                    evdev="btn_left",
+                    source="mouse",
+                ),
+                ButtonDefinition(
+                    id="key_a",
+                    label="A",
+                    evdev="key_a",
+                    source="kbd",
+                ),
+            ],
+            analog_inputs=[
+                AnalogInputDefinition(
+                    id="left_stick",
+                    label="Left Stick",
+                    type="stick",
+                    source="kbd",
+                    axes=[AnalogAxisDefinition(role="x", evdev="abs_x")],
+                )
+            ],
+        )
+        hardware_manager = _HardwareManager()
+        profile_manager = _ProfileManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=profile_manager,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+        reloaded: list[bool] = []
+        tab._reload_ui = lambda: reloaded.append(True)  # type: ignore[method-assign]
+
+        deleted = tab._delete_hardware_evdev_device(
+            keyboard_iface,
+            delete_profile_mappings=True,
+        )
+
+        assert deleted is True
+        assert [evdev.id for evdev in device.evdev_devices] == ["mouse"]
+        assert [button.id for button in device.buttons] == ["btn_left"]
+        assert device.analog_inputs == []
+        assert profile_manager.removed == [
+            ("1234:5678", "key_a"),
+            ("1234:5678", "left_stick"),
+        ]
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+        assert reloaded == [True]
 
     def test_device_tab_add_keys_capture_read_accepts_wheel_input(self, temp_config_dir):
         from gi.repository import Adw, Gtk

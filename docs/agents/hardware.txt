@@ -118,6 +118,15 @@ evdev_code = 2
   for generic axes), `evdev`, optional `evdev_code`, and optional learned
   calibration fields: `minimum`, `maximum`, `center`, `rest`, and `invert`
 
+Detection paths:
+
+- `/dev/input/by-id/...` is the preferred stable kernel-provided path
+- `keymasq:<vendor_id>:<product_id>` is a logical Product ID path, not a real
+  filesystem path; runtime matching also uses interface metadata such as type,
+  `phys`, and capabilities
+- profile mappings refer to hardware IDs and source control IDs, not event
+  device path strings
+
 ## Mapping source IDs
 
 Profile sections use the hardware button `id`, not the raw `evdev` name:

@@ -19,6 +19,7 @@ def present_device_rename_dialog(
     on_close_clicked: Callable[[Gtk.Button, Adw.Dialog], None],
 ) -> None:
     dialog = Adw.Dialog(title="Rename Device", content_width=420, content_height=-1)
+    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     box = _dialog_box()
 
     label = Gtk.Label(label=f"Rename '{current_name}'")
@@ -29,6 +30,15 @@ def present_device_rename_dialog(
     entry.set_text(current_name)
     entry.set_activates_default(True)
     box.append(entry)
+
+    content.append(box)
+    content.append(Gtk.Separator())
+
+    footer = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
+    footer.set_margin_top(6)
+    footer.set_margin_bottom(6)
+    footer.set_margin_start(12)
+    footer.set_margin_end(12)
 
     btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     btn_row.set_halign(Gtk.Align.END)
@@ -48,8 +58,9 @@ def present_device_rename_dialog(
     save_btn.connect("clicked", save)
     btn_row.append(save_btn)
 
-    box.append(btn_row)
-    dialog.set_child(box)
+    footer.set_end_widget(btn_row)
+    content.append(footer)
+    dialog.set_child(content)
     dialog.present(parent)
 
 

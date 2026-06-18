@@ -1220,8 +1220,12 @@ class DeviceManager:
 
     async def device_runtime_status(self) -> JsonObject:
         async with self._op_lock:
-            live_interfaces = [
-                {
+            live_interfaces: list[JsonObject] = []
+            for info in sorted(
+                self.topology_state.live_snapshot.values(),
+                key=lambda item: (item.hardware_id, item.interface_id, item.stable_path),
+            ):
+                item: JsonObject = {
                     "hardware_id": info.hardware_id,
                     "vendor_id": info.vendor_id,
                     "product_id": info.product_id,
@@ -1229,11 +1233,13 @@ class DeviceManager:
                     "path": info.path,
                     "interface_id": info.interface_id,
                 }
-                for info in sorted(
-                    self.topology_state.live_snapshot.values(),
-                    key=lambda item: (item.hardware_id, item.interface_id, item.stable_path),
-                )
-            ]
+                if info.phys:
+                    item["phys"] = info.phys
+                if info.device_type:
+                    item["device_type"] = info.device_type
+                if info.capabilities:
+                    item["capabilities"] = list(info.capabilities)
+                live_interfaces.append(item)
             grabbed_interfaces: list[JsonObject] = []
             for hardware_id, devices in sorted(self.grabbed_devices.items()):
                 for device in devices:

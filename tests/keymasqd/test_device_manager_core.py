@@ -164,6 +164,9 @@ async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> No
             stable_path="/dev/input/by-id/pad-event-joystick",
             path="/dev/input/event10",
             interface_id="gamepad",
+            phys="usb-test/input0",
+            device_type="gamepad",
+            capabilities=("btn_south",),
         )
     }
     manager.grabbed_devices["1234:5678"] = [
@@ -188,6 +191,9 @@ async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> No
                 "stable_path": "/dev/input/by-id/pad-event-joystick",
                 "path": "/dev/input/event10",
                 "interface_id": "gamepad",
+                "phys": "usb-test/input0",
+                "device_type": "gamepad",
+                "capabilities": ["btn_south"],
             }
         ],
         "grabbed_interfaces": [

@@ -30,6 +30,7 @@ from keymasq.common.recording_guard import (
 from keymasq.common.security import (
     PeerCredentials,
     SecurityPolicy,
+    SecurityPolicyError,
     command_allowed,
     load_security_policy,
     uid_allowed,
@@ -148,6 +149,11 @@ class Daemon:
         log.info("Stopping keymasqd")
         self.running = False
 
+        if self.socket_server:
+            await self._run_async_cleanup("stop socket server", self.socket_server.stop)
+        else:
+            self._cleanup_socket_path()
+
         await self._run_async_cleanup(
             "stop topology watcher",
             self.device_manager.stop_topology_watcher,
@@ -162,20 +168,12 @@ class Daemon:
         )
         await self._run_async_cleanup(
             "clear runtime unlocks",
-            lambda: asyncio.to_thread(
-                self._clear_all_runtime_unlocks,
-                reason="daemon_stop",
-            ),
+            lambda: self._clear_all_runtime_unlocks_async(reason="daemon_stop"),
         )
         self._run_sync_cleanup(
             "shut down output devices",
             self.device_manager.shutdown_output_devices,
         )
-
-        if self.socket_server:
-            await self._run_async_cleanup("stop socket server", self.socket_server.stop)
-        else:
-            self._cleanup_socket_path()
 
     async def _run_async_cleanup(
         self,
@@ -584,6 +582,9 @@ class Daemon:
 
         self._recording_refresh_owners.clear()
 
+    async def _clear_all_runtime_unlocks_async(self, *, reason: str) -> None:
+        self._clear_all_runtime_unlocks(reason=reason)
+
     def _clear_runtime_unlock_for_client(
         self,
         client: ClientContext,
@@ -604,6 +605,14 @@ class Daemon:
                 reason,
                 exc,
             )
+
+    async def _clear_runtime_unlock_for_client_async(
+        self,
+        client: ClientContext,
+        *,
+        reason: str,
+    ) -> None:
+        self._clear_runtime_unlock_for_client(client, reason=reason)
 
     def _lock_runtime_unlock(
         self,
@@ -664,8 +673,7 @@ class Daemon:
         if client is not None:
             await self._run_async_cleanup(
                 "clear runtime unlock for client",
-                lambda: asyncio.to_thread(
-                    self._clear_runtime_unlock_for_client,
+                lambda: self._clear_runtime_unlock_for_client_async(
                     client,
                     reason="session_disconnect",
                 ),
@@ -762,6 +770,9 @@ def main() -> None:
         asyncio.run(daemon.start())
     except KeyboardInterrupt:
         pass
+    except SecurityPolicyError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
     except Exception:
         log.exception("Fatal error")
         sys.exit(1)

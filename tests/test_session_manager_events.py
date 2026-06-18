@@ -170,6 +170,38 @@ async def test_handle_event_dispatches_action_trigger_variants(
 
 
 @pytest.mark.asyncio
+async def test_handle_event_double_verbose_logs_full_event_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = SessionManager(verbosity=1)
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.DIAGNOSTICS_SNAPSHOT,
+            {"events": [{"type": 1}]},
+        )
+
+    assert "Event: diagnostics_snapshot ->" in caplog.text
+    assert "<1 events>" in caplog.text
+    assert "{'type': 1}" not in caplog.text
+
+    caplog.clear()
+    manager.verbosity = 2
+    with caplog.at_level(logging.DEBUG, logger="keymasq-session"):
+        await session_events_module.handle_event(
+            manager,
+            CommandType.DIAGNOSTICS_SNAPSHOT,
+            {"events": [{"type": 1}]},
+        )
+
+    assert "Event: diagnostics_snapshot ->" in caplog.text
+    assert "<1 events>" not in caplog.text
+    assert "{'type': 1}" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_handle_event_dispatches_device_and_runtime_variants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

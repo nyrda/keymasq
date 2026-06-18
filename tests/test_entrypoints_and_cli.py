@@ -5,6 +5,8 @@ from collections.abc import Callable
 
 import pytest
 
+from keymasq.common.security import SecurityPolicyError
+
 
 def _module_with_main(fn: Callable[[], None]) -> types.ModuleType:
     module = types.ModuleType("stub_module")
@@ -163,6 +165,56 @@ def test_session_entrypoint_delegates_help_to_manager(monkeypatch: pytest.Monkey
 
     runpy.run_module("keymasq.session.__main__", run_name="__main__")
     assert called == ["manager"]
+
+
+def test_keymasqd_main_exits_on_security_policy_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from keymasq.keymasqd import daemon as daemon_module
+
+    class _Daemon:
+        def __init__(self, *, verbosity: int = 0) -> None:
+            self.verbosity = verbosity
+
+        async def start(self) -> None:
+            raise SecurityPolicyError("Invalid security policy TOML at /tmp/security.toml: bad")
+
+    monkeypatch.setattr(sys, "argv", ["keymasqd"])
+    monkeypatch.setattr(daemon_module, "Daemon", _Daemon)
+    monkeypatch.setattr(daemon_module.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(daemon_module, "ensure_uvloop", lambda _log: None)
+    monkeypatch.setattr(daemon_module, "set_timer_slack_ns", lambda *, logger: None)
+
+    with caplog.at_level("ERROR", logger="keymasqd"):
+        with pytest.raises(SystemExit) as excinfo:
+            daemon_module.main()
+
+    assert excinfo.value.code == 1
+    assert "Invalid security policy TOML at /tmp/security.toml: bad" in caplog.text
+
+
+def test_session_main_exits_on_security_policy_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from keymasq.session.manager import core as manager_module
+
+    class _SessionManager:
+        def __init__(self, *, verbosity: int = 0) -> None:
+            self.verbosity = verbosity
+            raise SecurityPolicyError("Invalid security policy TOML at /tmp/security.toml: bad")
+
+    monkeypatch.setattr(sys, "argv", ["keymasq-session"])
+    monkeypatch.setattr(manager_module, "SessionManager", _SessionManager)
+    monkeypatch.setattr(manager_module, "ensure_uvloop", lambda _log: None)
+
+    with caplog.at_level("ERROR", logger="keymasq-session"):
+        with pytest.raises(SystemExit) as excinfo:
+            manager_module.main()
+
+    assert excinfo.value.code == 1
+    assert "Invalid security policy TOML at /tmp/security.toml: bad" in caplog.text
 
 
 def test_cli_main_profiles_toggle_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None:

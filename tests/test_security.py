@@ -3,7 +3,10 @@ import socket
 import struct
 from pathlib import Path
 
+import pytest
+
 from keymasq.common.security import (
+    SecurityPolicyError,
     command_allowed,
     get_peer_credentials,
     load_security_policy,
@@ -20,6 +23,14 @@ def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
     assert policy.recording_unlock_required is True
     assert policy.macro_edit_requires_unlock is False
     assert policy.emergency_cancel_combo_enabled is True
+
+
+def test_load_security_policy_rejects_malformed_toml(tmp_path: Path) -> None:
+    policy_path = tmp_path / "security.toml"
+    policy_path.write_text("[macro\n")
+
+    with pytest.raises(SecurityPolicyError, match="Invalid security policy TOML"):
+        load_security_policy(policy_path)
 
 
 def test_get_peer_credentials_reads_socket_peercred() -> None:

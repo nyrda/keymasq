@@ -118,7 +118,9 @@ async def handle_event(
     event_type: CommandType,
     data: JsonObject,
 ) -> None:
-    if manager.verbosity >= 1:
+    if manager.verbosity >= 2:
+        log.debug("Event: %s -> %s", event_type.value, data)
+    elif manager.verbosity >= 1:
         log.debug("Event: %s -> %s", event_type.value, event_log_view(data))
 
     if event_type == CommandType.CURSOR_POSITION_REQUEST:

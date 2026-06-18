@@ -1437,7 +1437,16 @@ class DeviceTab(ProfileManagedTab):
     def _queue_selector_commit_after_close(self, commit: Callable[[], None]) -> None:
         if self._selector_commit_source_id:
             GLib.source_remove(self._selector_commit_source_id)
-        self._pending_selector_commit = commit
+        previous_commit = self._pending_selector_commit
+        if previous_commit is not None:
+
+            def combined_commit() -> None:
+                previous_commit()
+                commit()
+
+            self._pending_selector_commit = combined_commit
+        else:
+            self._pending_selector_commit = commit
         self._selector_commit_source_id = GLib.timeout_add(
             SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS,
             self._run_pending_selector_commit,

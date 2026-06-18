@@ -911,6 +911,47 @@ class TestDeviceTabWidget:
         assert tab._pending_selector_commit is None
         assert tab._selector_commit_source_id == 0
 
+    def test_device_tab_selector_pending_commits_chain_in_order(
+        self,
+        monkeypatch,
+    ):
+        from collections.abc import Callable
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        import keymasq.gui.widgets.device_tab.tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        scheduled: list[Callable[[], bool]] = []
+        removed: list[int] = []
+        monkeypatch.setattr(
+            device_tab_module.GLib,
+            "timeout_add",
+            lambda _delay_ms, callback: scheduled.append(callback) or 123,
+        )
+        monkeypatch.setattr(device_tab_module.GLib, "source_remove", removed.append)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+        commits: list[str] = []
+
+        tab._queue_selector_commit_after_close(lambda: commits.append("first"))
+        tab._queue_selector_commit_after_close(lambda: commits.append("second"))
+
+        assert len(scheduled) == 2
+        assert removed == [123]
+
+        assert scheduled[-1]() is False
+
+        assert commits == ["first", "second"]
+        assert tab._pending_selector_commit is None
+        assert tab._selector_commit_source_id == 0
+
     def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
         from keymasq.gui.window import MainWindow

@@ -103,9 +103,9 @@ class TestMainWindow:
         def fail_system_probe(*args, **kwargs):
             raise AssertionError("demo startup should not probe the real system")
 
-        monkeypatch.setattr(window_module, "detect_compositor_sync", fail_system_probe)
+        monkeypatch.setattr(window_module._runtime, "detect_compositor_sync", fail_system_probe)
         monkeypatch.setattr(window_module.HardwareManager, "list_hardware", fail_system_probe)
-        monkeypatch.setattr(window_module, "run_gui_task", fail_system_probe)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", fail_system_probe)
         monkeypatch.setattr(
             window_module.GLib,
             "idle_add",
@@ -296,12 +296,12 @@ class TestMainWindow:
         success_calls: list[bool] = []
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "resolve_keymasq_record_helper_path",
             lambda: "/usr/bin/keymasq-record",
         )
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "run_gui_task",
             lambda worker, callback: callback(GuiTaskResult(value=worker())),
         )
@@ -312,7 +312,7 @@ class TestMainWindow:
 
         monkeypatch.setattr(window_module.subprocess, "run", fake_run)
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "session_request",
             lambda payload, timeout=3.0: {
                 "status": "ok",
@@ -910,10 +910,16 @@ class TestMainWindow:
         from keymasq.gui import window as window_module
         from keymasq.gui.window import MainWindow
 
-        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
-        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
-        monkeypatch.setattr(window_module, "register_session_event_callback", lambda *args: None)
-        monkeypatch.setattr(window_module, "unregister_session_event_callback", lambda *args: None)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(
+            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime, "register_session_event_callback", lambda *args: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime, "unregister_session_event_callback", lambda *args: None
+        )
         monkeypatch.setattr(window_module.GLib, "timeout_add", lambda *args: 0)
         monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda *args: 0)
 
@@ -994,7 +1000,7 @@ class TestMainWindow:
         from keymasq.session.profiles import ProfileManager
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "run_gui_task",
             lambda worker, callback, **kwargs: callback(GuiTaskResult(value=worker())),
         )
@@ -1052,15 +1058,17 @@ class TestMainWindow:
         registered: list[tuple[str, object]] = []
         unregistered: list[tuple[str, object]] = []
 
-        monkeypatch.setattr(window_module, "run_gui_task", lambda worker, callback: None)
-        monkeypatch.setattr(window_module, "session_request_async", lambda *args, **kwargs: None)
+        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            window_module._runtime,
             "register_session_event_callback",
             lambda event, callback: registered.append((event, callback)),
         )
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "unregister_session_event_callback",
             lambda event, callback: unregistered.append((event, callback)),
         )
@@ -1098,7 +1106,9 @@ class TestMainWindow:
                 "macro_recording_expires_at": 0,
             })
 
-        monkeypatch.setattr(window_module, "session_request_async", fake_session_request_async)
+        monkeypatch.setattr(
+            window_module._runtime, "session_request_async", fake_session_request_async
+        )
 
         window = MainWindow(demo_mode=True)
         requests.clear()
@@ -1537,7 +1547,7 @@ class TestMainWindow:
         polls: list[object] = []
 
         monkeypatch.setattr(
-            window_module,
+            window_module._runtime,
             "session_request_async",
             lambda payload, callback, timeout=5.0: requests.append(payload),
         )

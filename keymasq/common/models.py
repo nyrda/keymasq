@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, cast, overload
@@ -527,7 +527,6 @@ class MappingAction:
         self.source_profile_name = (
             str(self.source_profile_name).strip() if self.source_profile_name else None
         ) or None
-        self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
         if self.analog_control_name and not self.analog_control_names:
             self.analog_control_names = [self.analog_control_name]
         else:
@@ -540,45 +539,11 @@ class MappingAction:
             self.analog_control_configs = [self.analog_control_config]
         elif self.analog_control_configs:
             self.analog_control_config = self.analog_control_configs[0]
-        if self.action_type == ActionType.GAMEPAD_AXIS:
-            self.target = normalize_gamepad_axis_target(self.target)
-            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
-        rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
-            self.action_type,
-            rapidfire_enabled=bool(self.rapidfire_enabled),
-            rapidfire_hold_ms=int(self.rapidfire_hold_ms),
-            rapidfire_wait_ms=int(self.rapidfire_wait_ms),
-        )
-        self.rapidfire_enabled = rapidfire_enabled
-        self.rapidfire_hold_ms = rapidfire_hold_ms
-        self.rapidfire_wait_ms = rapidfire_wait_ms
-        self.profile_deactivation = normalize_profile_deactivation_policy(
-            self.action_type,
-            self.profile_deactivation,
-        )
-        if self.action_type == ActionType.MPRIS:
-            self.mpris_command = normalize_mpris_command(self.mpris_command)
-        else:
-            self.mpris_command = None
-        if self.action_type in {
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        }:
-            self.macro_recording_slot = normalize_macro_recording_slot(self.macro_recording_slot)
-        else:
-            self.macro_recording_slot = 0
+        _normalize_common_action_fields(self)
         if self.action_type == ActionType.REPEAT:
             self.repeat_categories = normalize_repeat_categories(self.repeat_categories)
         else:
             self.repeat_categories = None
-        if self.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
-            self.move_speed = max(1.0, float(self.move_speed))
-            self.move_jitter = max(0.0, float(self.move_jitter))
-            self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
-            self.move_tolerance = max(0, int(self.move_tolerance))
-            self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
-            self.move_stop_on_failure = bool_value(self.move_stop_on_failure)
 
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
@@ -853,79 +818,54 @@ class SuperkeyAction:
         return self.action_type in SUPERKEY_ACTION_TYPES
 
     def __post_init__(self) -> None:
-        self.output_id = normalize_gamepad_output_id(self.action_type, self.output_id)
-        if self.action_type == ActionType.GAMEPAD_AXIS:
-            self.target = normalize_gamepad_axis_target(self.target)
-            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
-        rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
-            self.action_type,
-            rapidfire_enabled=bool(self.rapidfire_enabled),
-            rapidfire_hold_ms=int(self.rapidfire_hold_ms),
-            rapidfire_wait_ms=int(self.rapidfire_wait_ms),
-        )
-        self.rapidfire_enabled = rapidfire_enabled
-        self.rapidfire_hold_ms = rapidfire_hold_ms
-        self.rapidfire_wait_ms = rapidfire_wait_ms
-        self.profile_deactivation = normalize_profile_deactivation_policy(
-            self.action_type,
-            self.profile_deactivation,
-        )
-        if self.action_type == ActionType.MPRIS:
-            self.mpris_command = normalize_mpris_command(self.mpris_command)
-        else:
-            self.mpris_command = None
-        if self.action_type in {
-            ActionType.START_MACRO_RECORDING,
-            ActionType.STOP_MACRO_RECORDING,
-            ActionType.PLAY_MACRO_SLOT,
-        }:
-            self.macro_recording_slot = normalize_macro_recording_slot(self.macro_recording_slot)
-        else:
-            self.macro_recording_slot = 0
-        if self.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
-            self.move_speed = max(1.0, float(self.move_speed))
-            self.move_jitter = max(0.0, float(self.move_jitter))
-            self.move_curve = normalize_natural_mouse_move_curve(self.move_curve)
-            self.move_tolerance = max(0, int(self.move_tolerance))
-            self.move_max_duration_ms = max(1, int(self.move_max_duration_ms))
-            self.move_stop_on_failure = bool_value(self.move_stop_on_failure)
+        _normalize_common_action_fields(self)
 
 
-SUPERKEY_ACTION_SHARED_FIELDS = (
-    "target",
-    "output_id",
-    "cmd",
-    "exec_ref",
-    "macro_name",
-    "macro_replay_mouse_movement",
-    "macro_replay_mouse_clicks",
-    "macro_speed",
-    "macro_loop_mode",
-    "macro_loop_count",
-    "macro_loop_stop_behavior",
-    "macro_move_to_start",
-    "macro_start_x",
-    "macro_start_y",
-    "macro_block_mouse_movement",
-    "macro_recording_slot",
-    "profile_name",
-    "profile_deactivation",
-    "compositor_id",
-    "compositor_dispatcher",
-    "compositor_args",
-    "mpris_command",
-    "move_x",
-    "move_y",
-    "axis_value",
-    "move_speed",
-    "move_jitter",
-    "move_curve",
-    "move_tolerance",
-    "move_max_duration_ms",
-    "move_stop_on_failure",
-    "rapidfire_enabled",
-    "rapidfire_hold_ms",
-    "rapidfire_wait_ms",
+def _normalize_common_action_fields(action: MappingAction | SuperkeyAction) -> None:
+    action.output_id = normalize_gamepad_output_id(action.action_type, action.output_id)
+    if action.action_type == ActionType.GAMEPAD_AXIS:
+        action.target = normalize_gamepad_axis_target(action.target)
+        action.axis_value = clamp_gamepad_axis_value(action.target, action.axis_value)
+    rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
+        action.action_type,
+        rapidfire_enabled=bool(action.rapidfire_enabled),
+        rapidfire_hold_ms=int(action.rapidfire_hold_ms),
+        rapidfire_wait_ms=int(action.rapidfire_wait_ms),
+    )
+    action.rapidfire_enabled = rapidfire_enabled
+    action.rapidfire_hold_ms = rapidfire_hold_ms
+    action.rapidfire_wait_ms = rapidfire_wait_ms
+    action.profile_deactivation = normalize_profile_deactivation_policy(
+        action.action_type,
+        action.profile_deactivation,
+    )
+    if action.action_type == ActionType.MPRIS:
+        action.mpris_command = normalize_mpris_command(action.mpris_command)
+    else:
+        action.mpris_command = None
+    if action.action_type in {
+        ActionType.START_MACRO_RECORDING,
+        ActionType.STOP_MACRO_RECORDING,
+        ActionType.PLAY_MACRO_SLOT,
+    }:
+        action.macro_recording_slot = normalize_macro_recording_slot(
+            action.macro_recording_slot
+        )
+    else:
+        action.macro_recording_slot = 0
+    if action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+        action.move_speed = max(1.0, float(action.move_speed))
+        action.move_jitter = max(0.0, float(action.move_jitter))
+        action.move_curve = normalize_natural_mouse_move_curve(action.move_curve)
+        action.move_tolerance = max(0, int(action.move_tolerance))
+        action.move_max_duration_ms = max(1, int(action.move_max_duration_ms))
+        action.move_stop_on_failure = bool_value(action.move_stop_on_failure)
+
+
+SUPERKEY_ACTION_SHARED_FIELDS = tuple(
+    dataclass_field.name
+    for dataclass_field in fields(SuperkeyAction)
+    if dataclass_field.name != "action_type"
 )
 
 

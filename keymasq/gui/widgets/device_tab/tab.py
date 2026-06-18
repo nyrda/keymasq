@@ -45,6 +45,7 @@ from keymasq.gui.widgets.device_tab.grid import (
 )
 from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
+    EvdevDevicesAddResult,
     HardwareSettingsDialog,
     append_unique_evdev_devices,
 )
@@ -560,23 +561,47 @@ class DeviceTab(ProfileManagedTab):
         if settings_dialog is not None:
             settings_dialog.refresh_runtime_metadata()
 
-    def _add_hardware_evdev_devices(self, evdev_devices: list[EvdevDevice]) -> int:
+    def _add_hardware_evdev_devices(
+        self,
+        evdev_devices: list[EvdevDevice],
+    ) -> EvdevDevicesAddResult:
         if self.hardware_manager is None:
             log.warning(
                 "Cannot add event devices for %s without a hardware manager",
                 self.device.hardware_id,
             )
-            return 0
+            return 0, "Action unavailable: missing hardware manager.", True
+
+        conflict = self._product_detection_conflict_for_evdev_devices(evdev_devices)
+        if conflict:
+            return 0, f"Product ID detection is already used by {conflict}.", True
 
         added = append_unique_evdev_devices(self.device, evdev_devices)
         if added <= 0:
-            return 0
+            return 0, "That event device is already attached.", False
 
         self.hardware_manager.save_hardware(self.device)
         _session_request_async({"command": "reload"}, self._ignore_session_response)
         self._sync_always_grab_device_list()
         self._update_header_caption()
-        return added
+        return (
+            added,
+            f"Added {self._count_label(added, 'event device')} to this hardware ID.",
+            False,
+        )
+
+    def _product_detection_conflict_for_evdev_devices(
+        self,
+        evdev_devices: list[EvdevDevice],
+    ) -> str:
+        for evdev_device in evdev_devices:
+            product_path = str(evdev_device.path or "").strip()
+            if not is_keymasq_device_path(product_path):
+                continue
+            conflict = self._hardware_using_product_path(product_path)
+            if conflict:
+                return conflict
+        return ""
 
     def _set_hardware_evdev_detection_method(
         self,

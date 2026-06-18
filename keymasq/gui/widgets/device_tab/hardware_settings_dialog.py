@@ -19,7 +19,8 @@ from keymasq.session.hardware import HardwareManager
 log = logging.getLogger("keymasq.gui.widgets.device_tab.hardware_settings_dialog")
 
 DetectionMethod = Literal["stable", "product"]
-EvdevDevicesAddedCallback = Callable[[list[EvdevDevice]], int]
+EvdevDevicesAddResult = tuple[int, str, bool]
+EvdevDevicesAddedCallback = Callable[[list[EvdevDevice]], EvdevDevicesAddResult]
 EvdevDeviceDeleteCallback = Callable[[EvdevDevice, bool], bool]
 EvdevDetectionMethodCallback = Callable[[EvdevDevice, DetectionMethod], tuple[bool, str]]
 EvdevStableDetectionStatusCallback = Callable[[EvdevDevice], tuple[bool, str]]
@@ -305,14 +306,9 @@ class HardwareSettingsDialog(Adw.Dialog):
             for device in cast(list[object], raw_devices)
             if isinstance(device, EvdevDevice)
         ]
-        added = self._on_add_devices(devices)
+        _added, message, error = self._on_add_devices(devices)
         self._refresh_interface_rows()
-        if added:
-            self._set_status(
-                f"Added {_count_label(added, 'event device')} to this hardware ID."
-            )
-        else:
-            self._set_status("That event device is already attached.")
+        self._set_status(message, error=error)
 
     def _on_detection_method_toggled(
         self,

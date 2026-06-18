@@ -1526,7 +1526,7 @@ class TestDeviceTabWidget:
             lambda payload, callback: reload_requests.append(payload),
         )
 
-        added = tab._add_hardware_evdev_devices(
+        added, added_message, added_error = tab._add_hardware_evdev_devices(
             [
                 EvdevDevice(
                     path="/dev/input/by-id/usb-Test-if02-event-kbd",
@@ -1537,7 +1537,7 @@ class TestDeviceTabWidget:
                 )
             ]
         )
-        duplicate = tab._add_hardware_evdev_devices(
+        duplicate, duplicate_message, duplicate_error = tab._add_hardware_evdev_devices(
             [
                 EvdevDevice(
                     path="/dev/input/by-id/usb-Test-if02-event-kbd",
@@ -1550,7 +1550,11 @@ class TestDeviceTabWidget:
         )
 
         assert added == 1
+        assert added_message == "Added 1 event device to this hardware ID."
+        assert added_error is False
         assert duplicate == 0
+        assert duplicate_message == "That event device is already attached."
+        assert duplicate_error is False
         assert hardware_manager.saved == [device]
         assert reload_requests == [{"command": "reload"}]
         assert [evdev.id for evdev in device.evdev_devices] == ["mouse", "mouse_2"]
@@ -1686,6 +1690,85 @@ class TestDeviceTabWidget:
         assert ok is False
         assert message == "Product ID detection is already used by 1234:5678."
         assert evdev_device.path == "/dev/input/by-id/usb-Test-if02-event-kbd"
+        assert hardware_manager.saved == []
+        assert reload_requests == []
+
+    def test_device_tab_hardware_settings_denies_product_id_add_conflict(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.widgets import device_tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        class _HardwareManager:
+            def __init__(self, devices: list[HardwareConfig]) -> None:
+                self.devices = devices
+                self.saved: list[HardwareConfig] = []
+
+            def list_hardware(self) -> list[HardwareConfig]:
+                return self.devices
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Keyboard",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-Test-if02-event-kbd",
+                    device_type=DeviceType.KEYBOARD,
+                    id="kbd",
+                )
+            ],
+            buttons=[ButtonDefinition(id="key_a", label="A", evdev="key_a")],
+            id="1234:5678@2",
+        )
+        existing = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.MOUSE,
+                    id="mouse",
+                )
+            ],
+            buttons=[],
+        )
+        hardware_manager = _HardwareManager([device, existing])
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+
+        added, message, error = tab._add_hardware_evdev_devices(
+            [
+                EvdevDevice(
+                    path="keymasq:1234:5678",
+                    device_type=DeviceType.KEYBOARD,
+                    id="kbd_product",
+                    capabilities=["key_a"],
+                )
+            ]
+        )
+
+        assert added == 0
+        assert message == "Product ID detection is already used by 1234:5678."
+        assert error is True
+        assert [evdev.path for evdev in device.evdev_devices] == [
+            "/dev/input/by-id/usb-Test-if02-event-kbd"
+        ]
         assert hardware_manager.saved == []
         assert reload_requests == []
 
@@ -1999,7 +2082,7 @@ class TestDeviceTabWidget:
             None,
             device,
             cast(Any, _HardwareManager()),
-            lambda _devices: 0,
+            lambda _devices: (0, "That event device is already attached.", False),
             lambda: None,
             lambda _device, _delete_profiles: True,
             lambda _device, _method: (True, ""),
@@ -2082,7 +2165,7 @@ class TestDeviceTabWidget:
             None,
             device,
             cast(Any, _HardwareManager()),
-            lambda _devices: 0,
+            lambda _devices: (0, "That event device is already attached.", False),
             lambda: None,
             lambda _device, _delete_profiles: True,
             lambda _device, _method: (True, ""),
@@ -2152,7 +2235,7 @@ class TestDeviceTabWidget:
             None,
             device,
             cast(Any, _HardwareManager()),
-            lambda _devices: 0,
+            lambda _devices: (0, "That event device is already attached.", False),
             lambda: None,
             lambda _device, _delete_profiles: True,
             lambda _device, _method: (True, ""),

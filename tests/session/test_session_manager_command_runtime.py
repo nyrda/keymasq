@@ -1424,7 +1424,7 @@ async def test_reevaluate_profiles_command_invalidates_runtime_payload_signature
 
 
 @pytest.mark.asyncio
-async def test_reevaluate_profiles_command_uses_running_config_reload(
+async def test_reevaluate_profiles_command_runs_fresh_reload_after_running_config_reload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
@@ -1447,8 +1447,11 @@ async def test_reevaluate_profiles_command_uses_running_config_reload(
     )
 
     assert result == {"status": "ok"}
-    manager.reload_config_from_disk.assert_not_called()  # type: ignore[attr-defined]
-    reevaluate_profiles.assert_not_awaited()
+    manager.reload_config_from_disk.assert_called_once_with()  # type: ignore[attr-defined]
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason="session command reevaluate",
+    )
 
 
 @pytest.mark.asyncio

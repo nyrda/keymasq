@@ -55,7 +55,7 @@ async def _suppress_or_join_config_watcher_reload(
     running_reload_result = await manager.wait_for_running_config_reload()
     if running_reload_result is True:
         manager.suppress_config_watcher_reload()
-        return {"status": "ok"}
+        return None
     if running_reload_result is False:
         return _config_reload_failed_response()
     return None

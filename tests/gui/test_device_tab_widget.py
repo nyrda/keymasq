@@ -825,10 +825,19 @@ class TestDeviceTabWidget:
                 device_layers={"1234:5678": DeviceProfileLayer(hardware_id="1234:5678")},
             )
         )
+        profile_manager.save_profile(
+            ProfileConfig(
+                name="Work",
+                enabled=True,
+                is_permanent=True,
+            )
+        )
         tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=False)
         tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
-        save_calls: list[bool] = []
-        tab._save_profile = lambda: save_calls.append(True) or True  # type: ignore[method-assign]
+        save_calls: list[str | None] = []
+        tab._save_specific_profile = (  # type: ignore[method-assign]
+            lambda profile: save_calls.append(profile.config.name if profile else None) or True
+        )
 
         tab._show_function_editor(device.buttons[0])
         action = MappingAction(action_type=ActionType.SUPPRESS)
@@ -850,10 +859,57 @@ class TestDeviceTabWidget:
             )
         ]
 
+        tab.refresh_profiles(preferred_profile_name="Work", publish_selection=False)
+        assert tab.selected_profile_name() == "Work"
+
         assert scheduled[0][1]() is False
 
-        assert layer.mappings["btn_back"] == action
-        assert save_calls == [True]
+        gaming = profile_manager.get_profile("Gaming")
+        work = profile_manager.get_profile("Work")
+        assert gaming is not None
+        assert work is not None
+        assert gaming.config.get_layer("1234:5678").mappings["btn_back"] == action
+        work_layer = work.config.get_layer("1234:5678")
+        assert work_layer is None or "btn_back" not in work_layer.mappings
+        assert save_calls == ["Gaming"]
+
+    def test_device_tab_selector_pending_commit_flushes_on_destroy(
+        self,
+        monkeypatch,
+    ):
+        from collections.abc import Callable
+
+        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        import keymasq.gui.widgets.device_tab.tab as device_tab_module
+        from keymasq.gui.widgets.device_tab import DeviceTab
+
+        scheduled: list[Callable[[], bool]] = []
+        removed: list[int] = []
+        monkeypatch.setattr(
+            device_tab_module.GLib,
+            "timeout_add",
+            lambda _delay_ms, callback: scheduled.append(callback) or 123,
+        )
+        monkeypatch.setattr(device_tab_module.GLib, "source_remove", removed.append)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+        commits: list[bool] = []
+
+        tab._queue_selector_commit_after_close(lambda: commits.append(True))
+        tab._on_device_tab_destroy(tab)
+
+        assert scheduled == [tab._run_pending_selector_commit]
+        assert removed == [123]
+        assert commits == [True]
+        assert tab._pending_selector_commit is None
+        assert tab._selector_commit_source_id == 0
 
     def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig

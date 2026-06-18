@@ -117,6 +117,20 @@ class DeviceTab(ProfileManagedTab):
             return self._selected_profile.config.ensure_layer(self.device.hardware_id)
         return self._selected_profile.config.get_layer(self.device.hardware_id)
 
+    def _device_layer_for_profile(self, profile: ProfileInfo | None, create: bool = False):
+        if profile is None:
+            return None
+        if create:
+            return profile.config.ensure_layer(self.device.hardware_id)
+        return profile.config.get_layer(self.device.hardware_id)
+
+    def _profile_is_selected(self, profile: ProfileInfo | None) -> bool:
+        return (
+            profile is not None
+            and self._selected_profile is not None
+            and self._selected_profile.config.name == profile.config.name
+        )
+
     def _append_profile_settings_groups(self, container: Gtk.Box) -> None:
         self.always_grab_checks: dict[str, Adw.SwitchRow] = {}
 
@@ -1336,8 +1350,9 @@ class DeviceTab(ProfileManagedTab):
         dialog.present(self.get_root())
 
     def _show_function_editor(self, button: ButtonDefinition) -> None:
+        target_profile = self._selected_profile
         current_action = None
-        layer = self._selected_layer()
+        layer = self._device_layer_for_profile(target_profile)
         if layer:
             current_action = layer.mappings.get(button.id)
 
@@ -1346,7 +1361,7 @@ class DeviceTab(ProfileManagedTab):
 
         def on_key_selected(dialog, action):
             def commit_selection() -> None:
-                layer = self._selected_layer(create=True)
+                layer = self._device_layer_for_profile(target_profile, create=True)
                 if layer is None:
                     return
                 if action is None:
@@ -1354,9 +1369,10 @@ class DeviceTab(ProfileManagedTab):
                         del layer.mappings[button.id]
                 else:
                     layer.mappings[button.id] = action
-                self._update_button_display(button.id)
-                self._update_header_caption()
-                self._save_profile()
+                if self._profile_is_selected(target_profile):
+                    self._update_button_display(button.id)
+                    self._update_header_caption()
+                self._save_specific_profile(target_profile)
 
             defer_commit(commit_selection)
 
@@ -1364,8 +1380,9 @@ class DeviceTab(ProfileManagedTab):
         dialog.present(self.get_root())
 
     def _show_analog_editor(self, analog: AnalogInputDefinition) -> None:
+        target_profile = self._selected_profile
         current_action = None
-        layer = self._selected_layer()
+        layer = self._device_layer_for_profile(target_profile)
         if layer:
             current_action = layer.mappings.get(analog.id)
 
@@ -1383,16 +1400,17 @@ class DeviceTab(ProfileManagedTab):
 
         def on_key_selected(dialog, action):
             def commit_selection() -> None:
-                layer = self._selected_layer(create=True)
+                layer = self._device_layer_for_profile(target_profile, create=True)
                 if layer is None:
                     return
                 if action is None:
                     layer.mappings.pop(analog.id, None)
                 else:
                     layer.mappings[analog.id] = action
-                self._update_button_display(analog.id)
-                self._update_header_caption()
-                self._save_profile()
+                if self._profile_is_selected(target_profile):
+                    self._update_button_display(analog.id)
+                    self._update_header_caption()
+                self._save_specific_profile(target_profile)
 
             defer_commit(commit_selection)
 
@@ -1437,7 +1455,7 @@ class DeviceTab(ProfileManagedTab):
         if self._selector_commit_source_id:
             GLib.source_remove(self._selector_commit_source_id)
             self._selector_commit_source_id = 0
-        self._pending_selector_commit = None
+        self._run_pending_selector_commit()
 
     def _profile_info_by_name(self, profile_name: str) -> ProfileInfo | None:
         return mapping_display.profile_info_by_name(

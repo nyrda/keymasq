@@ -91,7 +91,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Compact tokens: key_a, key_a:1, key_a:0, btn_left,\n"
-            "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX\n"
+            "move_abs:X:Y, move_rel:DX:DY, move:X:Y[:SPEED],\n"
+            "wait:MS, wait:MIN:MAX\n"
             'Example: keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0\n'
             f"Full reference: {_docs_url()}"
         ),

@@ -72,7 +72,7 @@ Compile compact event tokens into a temporary macro and play it immediately.
 ```bash
 keymasq play key_a
 keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0
-keymasq play move_abs:100:200 wait:10 btn_left
+keymasq play move:100:200 wait:10 btn_left
 keymasq play key_a wait:10:20 key_b
 keymasq play --speed 0.5 key_a wait:20 key_b
 keymasq play --print-json key_a wait:20 key_b
@@ -90,8 +90,22 @@ The compact grammar uses `:` for all parameters:
 | `btn_left:0` / `btn_left:up` | Release a held button |
 | `move_abs:X:Y` | Move the pointer to absolute coordinates |
 | `move_rel:DX:DY` | Move the pointer relative to the current position |
+| `move:X:Y` | Move the pointer to absolute coordinates using realtime cursor feedback |
+| `move:X:Y:SPEED[:JITTER[:CURVE[:TOLERANCE[:MAX_DURATION_MS[:STOP_ON_FAILURE]]]]]` | Natural move with tuning options; `SPEED` is pixels per second, so `100000` is 100 kpx/s |
 | `wait:MS` | Wait a fixed number of milliseconds |
 | `wait:MIN:MAX` | Wait a random number of milliseconds in the inclusive range |
+
+`move_nat`, `move_natural`, and `move_natural_abs` are accepted as aliases for
+`move`. The default compact natural move is `100000` px/s, zero jitter, linear
+curve, `2` px tolerance, `3000` ms timeout, and `stop_on_failure=false`. If you
+provide a `SPEED` lower than `100000` and omit `CURVE`, the curve defaults to
+`natural`; otherwise the omitted curve defaults to `linear`.
+
+Natural movement uses the same runtime as `mouse_move_natural_abs` profile and
+macro actions, and macro playback waits for the move to finish before later
+events run. `move_abs` remains available as the compatibility absolute-move
+token; it is not silently rewritten because existing scripts may rely on its
+immediate behavior. Use `key_move` if you need the Linux `KEY_MOVE` key token.
 
 The compact compiler automatically releases any held keys/buttons at the end of
 the macro, in reverse press order. It rejects duplicate explicit presses and
@@ -107,7 +121,8 @@ keymasq --json play --json < macro.json
 
 `play --json` accepts either an event list or a macro object with an `events`
 field. JSON playback uses the existing macro runtime and supports the full macro
-event schema. Pointer moves compiled from `move_abs` and `move_rel` are semantic
+event schema. Pointer moves compiled from `move_abs`, `move_rel`, and
+`move` are semantic
 macro actions, for example `{"macro_action":"mouse_move_abs","x":100,"y":200}`.
 The compact token grammar intentionally does not support `exec`.
 

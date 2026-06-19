@@ -87,6 +87,101 @@ def test_compact_move_events_use_macro_action_shape() -> None:
     ]
 
 
+def test_compact_natural_move_event_uses_default_options() -> None:
+    events = build_compact_macro_events(["move:100:200"])
+
+    assert events == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 0,
+            "macro_action": "mouse_move_natural_abs",
+            "x": 100,
+            "y": 200,
+            "speed": 100000.0,
+            "jitter": 0.0,
+            "curve": "linear",
+            "tolerance": 2,
+            "max_duration_ms": 3000,
+            "stop_on_failure": False,
+        }
+    ]
+
+
+def test_compact_natural_move_event_accepts_aliases() -> None:
+    for name in ("move", "move_nat", "move_natural", "move_natural_abs"):
+        events = build_compact_macro_events([f"{name}:100:200"])
+
+        assert events[0]["macro_action"] == "mouse_move_natural_abs"
+        assert events[0]["x"] == 100
+        assert events[0]["y"] == 200
+
+
+def test_compact_natural_move_uses_natural_curve_for_lower_custom_speed() -> None:
+    events = build_compact_macro_events(["move:100:200:99999"])
+
+    assert events[0]["speed"] == 99999.0
+    assert events[0]["jitter"] == 0.0
+    assert events[0]["curve"] == "natural"
+
+
+def test_compact_natural_move_allows_explicit_curve_for_lower_custom_speed() -> None:
+    events = build_compact_macro_events(["move:100:200:12000:0:linear"])
+
+    assert events[0]["speed"] == 12000.0
+    assert events[0]["curve"] == "linear"
+
+
+def test_compact_natural_move_event_accepts_tuning_options() -> None:
+    events = build_compact_macro_events(
+        ["move:300:400:100000:0:linear:1:500:true"]
+    )
+
+    assert events == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 0,
+            "macro_action": "mouse_move_natural_abs",
+            "x": 300,
+            "y": 400,
+            "speed": 100000.0,
+            "jitter": 0.0,
+            "curve": "linear",
+            "tolerance": 1,
+            "max_duration_ms": 500,
+            "stop_on_failure": True,
+        }
+    ]
+
+
+def test_compact_explicit_key_move_still_taps_evdev_key_move() -> None:
+    events = build_compact_macro_events(["key_move"])
+
+    assert _key_values(events, evdev.ecodes.KEY_MOVE) == [1, 0]
+
+
+@pytest.mark.parametrize(
+    "token, match",
+    [
+        ("move:1", "requires x and y"),
+        ("move:1:2:0", "speed must be greater than 0"),
+        ("move:1:2:100:nan", "jitter must be finite"),
+        ("move:1:2:100:0:ease", "curve must be one of"),
+        ("move:1:2:100:0:linear:-1", "tolerance must be non-negative"),
+        ("move:1:2:100:0:linear:1:0", "max_duration_ms must be greater than 0"),
+        ("move:1:2:100:0:linear:1:500:maybe", "stop_on_failure must be a boolean"),
+    ],
+)
+def test_compact_natural_move_rejects_invalid_options(token: str, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        build_compact_macro_events([token])
+
+
 def test_compact_releases_held_keys_at_end_in_reverse_order() -> None:
     events = build_compact_macro_events(["key_leftctrl:1", "key_leftshift:1"])
 

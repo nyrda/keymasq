@@ -67,9 +67,17 @@ btn_left:down      press button
 btn_left:up        release button
 move_abs:X:Y       absolute mouse move
 move_rel:DX:DY     relative mouse move
+move:X:Y           natural absolute mouse move
+move:X:Y:SPEED[:JITTER[:CURVE[:TOLERANCE[:MAX_DURATION_MS[:STOP_ON_FAILURE]]]]]
+                   natural absolute mouse move with tuning; SPEED is px/s
 wait:MS            fixed wait
 wait:MIN:MAX       random wait
 ```
+
+Prefer `move:X:Y` for reliable absolute cursor positioning. It uses the natural
+mouse movement runtime, which sends relative motion in a feedback loop and
+checks realtime cursor position until the cursor lands.
+`move` defaults to 100000 px/s, zero jitter, and linear curve.
 
 ## Macro JSON
 

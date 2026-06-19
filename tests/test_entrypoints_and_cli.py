@@ -126,7 +126,8 @@ def test_cli_main_play_help_includes_compact_tokens_and_docs(
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "move_abs:X:Y, move_rel:DX:DY, wait:MS, wait:MIN:MAX" in out
+    assert "move_abs:X:Y, move_rel:DX:DY, move:X:Y[:SPEED]," in out
+    assert "wait:MS, wait:MIN:MAX" in out
     assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
 

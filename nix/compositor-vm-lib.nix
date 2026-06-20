@@ -443,12 +443,18 @@ EOF
           probe_cmd: str | None = None,
       ) -> None:
           deadline = time.time() + timeout
+          socket_seen = False
+          last_probe_status = None
+          last_probe_output = ""
           while time.time() < deadline:
               status, _ = machine.execute(as_user(f"test -S {socket_path}"), timeout=20)
               if status == 0:
+                  socket_seen = True
                   if probe_cmd is None:
                       return
-                  ready_status, _ = machine.execute(as_user(probe_cmd), timeout=20)
+                  ready_status, ready_output = machine.execute(as_user(probe_cmd), timeout=20)
+                  last_probe_status = ready_status
+                  last_probe_output = ready_output
                   if ready_status == 0:
                       return
 
@@ -465,6 +471,12 @@ EOF
               time.sleep(1)
 
           ${dumpFunctionName}(f"Timed out waiting for {description}")
+          if socket_seen:
+              raise AssertionError(
+                  f"{description} socket was created by {unit_name}, "
+                  f"but readiness probe did not succeed "
+                  f"(exit={last_probe_status}): {last_probe_output}"
+              )
           raise AssertionError(f"{description} was not created by {unit_name}")
     '';
 }

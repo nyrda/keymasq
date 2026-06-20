@@ -81,12 +81,17 @@ class WindowLab(Gtk.Application):
 
         def dispatch() -> bool:
             nonlocal response
-            response = self._handle_request(request)
-            done.set()
+            try:
+                response = self._handle_request(request)
+            except Exception as exc:  # noqa: BLE001 - callback boundary must answer the client.
+                response = {"status": "error", "message": f"request failed: {exc}"}
+            finally:
+                done.set()
             return False
 
         GLib.idle_add(dispatch)
-        done.wait()
+        if not done.wait(timeout=10):
+            return {"status": "error", "message": "request timed out"}
         return response
 
     def _handle_request(self, request: dict[str, object]) -> dict[str, object]:

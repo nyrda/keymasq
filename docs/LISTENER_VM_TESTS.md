@@ -112,8 +112,8 @@ These tests are heavy. A Linux host with KVM acceleration is strongly recommende
 The VM environments install:
 
 - `keymasq-session-query` — sends commands to the session socket and prints the JSON response.
-- `keymasq-listener-window-lab` — small GTK4 app controlled over a Unix socket.
-- `keymasq-listener-window-labctl` — CLI client for `window-lab`.
+- `keymasq-listener-window-lab` — the shared GTK4 window lab wrapped with a listener-specific command name.
+- `keymasq-listener-window-labctl` — shared CLI client for `window-lab` wrapped with a listener-specific command name.
 
 `window-lab` gives the test real desktop windows to observe without depending on compositor-specific tooling:
 

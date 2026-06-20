@@ -140,9 +140,10 @@
       listenerVmMatrix =
         let
           pkgs = mkPkgs "x86_64-linux";
+          compositorVmLib = self.lib.compositorVmLib { inherit pkgs; };
         in
         import ./nix/listener-vm-matrix.nix {
-          inherit pkgs;
+          inherit pkgs compositorVmLib;
           system = "x86_64-linux";
           keymasqPackage = packagesFor.x86_64-linux.default;
           keymasqModule = self.nixosModules.default;
@@ -196,6 +197,8 @@
           program = "${self.packages.${system}.default}/bin/keymasq";
         };
       });
+
+      lib.compositorVmLib = { pkgs }: import ./nix/compositor-vm-lib.nix { inherit pkgs; };
 
       checks = {
         x86_64-linux =

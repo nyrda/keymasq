@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import argparse
 import json
@@ -11,7 +12,14 @@ def main() -> int:
     parser.add_argument("--socket", required=True)
     parser.add_argument(
         "command",
-        choices=["open", "focus", "retitle", "close", "quit", "snapshot"],
+        choices=[
+            "open",
+            "focus",
+            "retitle",
+            "close",
+            "snapshot",
+            "quit",
+        ],
     )
     parser.add_argument("window_id", nargs="?")
     parser.add_argument("title", nargs="?")
@@ -36,7 +44,6 @@ def main() -> int:
 
     if data:
         sys.stdout.write(data.decode("utf-8"))
-
     return 0
 
 

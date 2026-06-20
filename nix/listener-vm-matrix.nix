@@ -1,4 +1,10 @@
-{ pkgs, system, keymasqPackage, keymasqModule }:
+{
+  pkgs,
+  system,
+  keymasqPackage,
+  keymasqModule,
+  compositorVmLib,
+}:
 
 let
   lib = pkgs.lib;
@@ -6,54 +12,7 @@ let
 
   vmUser = "keymasqvm";
   vmUid = 1000;
-  giTypelibPath = lib.makeSearchPath "lib/girepository-1.0" [
-    pkgs.cairo
-    pkgs.gdk-pixbuf
-    pkgs.glib
-    pkgs.graphene
-    pkgs.gtk4
-    pkgs.pango
-  ];
 
-  gtkPython = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
-
-  mkGtkScript =
-    name: script:
-    pkgs.stdenvNoCC.mkDerivation {
-      pname = name;
-      version = "1";
-      dontUnpack = true;
-
-      nativeBuildInputs = [
-        pkgs.gobject-introspection
-        pkgs.wrapGAppsHook4
-      ];
-      buildInputs = [
-        gtkPython
-        pkgs.cairo
-        pkgs.gdk-pixbuf
-        pkgs.glib
-        pkgs.graphene
-        pkgs.gtk4
-        pkgs.adwaita-icon-theme
-        pkgs.hicolor-icon-theme
-        pkgs.pango
-      ];
-
-      preFixup = ''
-        gappsWrapperArgs+=(
-          --prefix GI_TYPELIB_PATH : "${giTypelibPath}"
-        )
-      '';
-
-      installPhase = ''
-        mkdir -p "$out/bin"
-        install -m755 ${script} "$out/bin/${name}"
-        sed -i '1s|.*|#!${gtkPython}/bin/python|' "$out/bin/${name}"
-      '';
-    };
-
-  windowLab = mkGtkScript "keymasq-listener-window-lab" ./listener-vms/window-lab.py;
   gnomeBridge = pkgs.runCommand "keymasq-gnome-bridge" { } ''
     mkdir -p "$out/share/gnome-shell/extensions/gnome-bridge@keymasq.tools"
     cp ${gnomeBridgeSource + "/extension.js"} \
@@ -78,52 +37,15 @@ let
     '';
   };
 
-  windowCtl = pkgs.writeShellApplication {
-    name = "keymasq-listener-window-labctl";
-    runtimeInputs = [ pkgs.python3 ];
-    text = ''
-      exec ${pkgs.python3}/bin/python ${./listener-vms/window-labctl.py} "$@"
-    '';
+  listenerWindowLabTools = compositorVmLib.mkWindowLabTools {
+    commandPrefix = "keymasq-listener";
+    packageName = "keymasq-listener-vm-tools";
+    extraPaths = [
+      sessionQuery
+      gnomeBridgeProbe
+    ];
   };
-
-  listenerVmTools = pkgs.symlinkJoin {
-    name = "keymasq-listener-vm-tools";
-    paths = [ windowLab sessionQuery windowCtl gnomeBridgeProbe ];
-  };
-
-  cosmicMinimalSession = pkgs.stdenvNoCC.mkDerivation {
-    pname = "keymasq-cosmic-minimal-session";
-    version = "1";
-    dontUnpack = true;
-    passthru.providedSessions = [ "cosmic-minimal" ];
-    installPhase = ''
-      mkdir -p "$out/bin" "$out/share/wayland-sessions"
-      cat > "$out/bin/cosmic-minimal-session" <<'EOF'
-#!${pkgs.bash}/bin/bash
-set -euo pipefail
-export XDG_CURRENT_DESKTOP=COSMIC
-export DESKTOP_SESSION=cosmic
-export XDG_SESSION_TYPE=wayland
-exec ${pkgs.cosmic-comp}/bin/cosmic-comp
-EOF
-      chmod +x "$out/bin/cosmic-minimal-session"
-      cat > "$out/share/wayland-sessions/cosmic-minimal.desktop" <<EOF
-[Desktop Entry]
-Name=COSMIC Minimal
-Comment=Minimal COSMIC compositor session for Keymasq listener tests
-Exec=$out/bin/cosmic-minimal-session
-Type=Application
-DesktopNames=COSMIC
-EOF
-    '';
-  };
-
-  userCommand =
-    cmd:
-    let
-      runtimeDir = "/run/user/${toString vmUid}";
-    in
-    "runuser -u ${vmUser} -- sh -lc 'export XDG_RUNTIME_DIR=${runtimeDir}; export DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDir}/bus; ${cmd}'";
+  listenerVmTools = listenerWindowLabTools.tools;
 
   mkDesktopTest =
     {
@@ -140,83 +62,90 @@ EOF
     pkgs.testers.runNixOSTest {
       inherit name;
 
-      nodes.machine =
-        {
-          pkgs,
-          ...
-        }:
-        {
-          imports = [
-            keymasqModule
-            extraModule
-          ];
-
-          documentation.nixos.enable = false;
-
-          virtualisation = {
-            graphics = true;
-            memorySize = memorySize;
-            cores = 4;
-          };
-
-          networking.hostName = name;
-          time.timeZone = "UTC";
-          i18n.defaultLocale = "en_US.UTF-8";
-
-          services.keymasq = {
-            enable = true;
-            securityConfig = {
-              daemon_allowed_uids = [ vmUid ];
-              session_allowed_uids = [ vmUid ];
-              recording_guard = {
-                unlock_required = false;
-                macro_edit_requires_unlock = false;
+      nodes.machine = compositorVmLib.mkBaseDesktopModule {
+        inherit
+          name
+          vmUser
+          vmUid
+          memorySize
+          ;
+        userDescription = "Listener VM test user";
+        imports = [ keymasqModule ];
+        extraGroups = [
+          "wheel"
+          "video"
+          "input"
+        ];
+        systemPackages = [
+          keymasqPackage
+          listenerVmTools
+          gnomeBridge
+          pkgs.jq
+          pkgs.wmctrl
+          pkgs.xdotool
+          pkgs.slurp
+        ];
+        extraConfig = lib.mkMerge [
+          extraModule
+          {
+            services.keymasq = {
+              enable = true;
+              securityConfig = {
+                daemon_allowed_uids = [ vmUid ];
+                session_allowed_uids = [ vmUid ];
+                recording_guard = {
+                  unlock_required = false;
+                  macro_edit_requires_unlock = false;
+                };
               };
             };
-          };
-
-          users.users.${vmUser} = {
-            isNormalUser = true;
-            uid = vmUid;
-            description = "Listener VM test user";
-            createHome = true;
-            home = "/home/${vmUser}";
-            extraGroups = [ "wheel" "video" "input" ];
-          };
-
-          services.displayManager.autoLogin = {
-            enable = true;
-            user = vmUser;
-          };
-
-          hardware.graphics.enable = true;
-          services.dbus.enable = true;
-          security.polkit.enable = true;
-          services.libinput.enable = true;
-          programs.dconf.enable = true;
-
-          environment.systemPackages = [
-            keymasqPackage
-            listenerVmTools
-            gnomeBridge
-            pkgs.jq
-            pkgs.wmctrl
-            pkgs.xdotool
-            pkgs.slurp
-          ];
-        };
+          }
+        ];
+      };
 
       testScript = ''
-        import json
-        import shlex
-        import time
+        ${compositorVmLib.testScriptPrelude {
+          inherit vmUser vmUid;
+          dumpFunctionName = "dump_session_debug";
+          extraDebugScript = ''
+            log_command_output("loginctl user-status", "loginctl user-status ${vmUser} || true")
+            log_command_output(
+                "journalctl display-manager",
+                "journalctl -b -u display-manager.service --no-pager -n 200 || true",
+            )
+            log_command_output(
+                "journalctl user@${toString vmUid}",
+                "journalctl -b -u user@${toString vmUid}.service --no-pager -n 200 || true",
+            )
+            log_command_output(
+                "user systemctl failed units",
+                as_user("systemctl --user --failed --no-pager || true"),
+            )
+            log_command_output(
+                "user default target",
+                as_user("systemctl --user status default.target --no-pager || true"),
+            )
+            log_command_output(
+                "keymasq-session user service",
+                as_user("systemctl --user status keymasq-session.service --no-pager || true"),
+            )
+            log_command_output(
+                "keymasq-session journal",
+                as_user("journalctl --user -u keymasq-session.service --no-pager -n 200 || true"),
+            )
+            log_command_output(
+                "gnome-bridge-probe user service",
+                as_user("systemctl --user status gnome-bridge-probe.service --no-pager || true"),
+            )
+            log_command_output(
+                "gnome-bridge-probe journal",
+                as_user("journalctl --user -u gnome-bridge-probe.service --no-pager -n 200 || true"),
+            )
+          '';
+        }}
 
-        runtime_dir = "/run/user/${toString vmUid}"
         listener_socket = f"{runtime_dir}/listener-lab.sock"
         lab_prestarted = False
-
-        def as_user(cmd: str) -> str:
-            return "${userCommand "{cmd}"}".replace("{cmd}", cmd)
 
         def session_query(command: str) -> dict:
             raw = machine.succeed(
@@ -375,113 +304,6 @@ EOF
         def niri_window_by_title(title: str) -> dict | None:
             return next((window for window in niri_windows() if window.get("title") == title), None)
 
-        def log_command_output(label: str, cmd: str) -> None:
-            status, output = machine.execute(cmd)
-            machine.log(f"{label} (exit={status})\n{output}")
-
-        def dump_session_debug(label: str) -> None:
-            machine.log(f"==== {label} ====")
-            log_command_output("loginctl list-sessions", "loginctl list-sessions --no-legend")
-            log_command_output("loginctl user-status", "loginctl user-status ${vmUser}")
-            log_command_output(
-                "systemctl status display-manager.service",
-                "systemctl status display-manager.service --no-pager",
-            )
-            log_command_output(
-                "systemctl status user@${toString vmUid}.service",
-                "systemctl status user@${toString vmUid}.service --no-pager",
-            )
-            log_command_output(
-                "journalctl display-manager",
-                "journalctl -b -u display-manager.service --no-pager -n 200",
-            )
-            log_command_output(
-                "journalctl user@${toString vmUid}",
-                "journalctl -b -u user@${toString vmUid}.service --no-pager -n 200",
-            )
-            log_command_output("runtime directory contents", f"ls -la {runtime_dir} || true")
-            log_command_output(
-                "user systemctl failed units",
-                as_user("systemctl --user --failed --no-pager || true"),
-            )
-            log_command_output(
-                "user default target",
-                as_user("systemctl --user status default.target --no-pager || true"),
-            )
-            log_command_output(
-                "keymasq-session user service",
-                as_user("systemctl --user status keymasq-session.service --no-pager || true"),
-            )
-            log_command_output(
-                "keymasq-session journal",
-                as_user("journalctl --user -u keymasq-session.service --no-pager -n 200 || true"),
-            )
-            log_command_output(
-                "gnome-bridge-probe user service",
-                as_user("systemctl --user status gnome-bridge-probe.service --no-pager || true"),
-            )
-            log_command_output(
-                "gnome-bridge-probe journal",
-                as_user("journalctl --user -u gnome-bridge-probe.service --no-pager -n 200 || true"),
-            )
-
-        def wait_for_command(description: str, cmd: str, timeout: int = 180) -> str:
-            machine.log(f"Waiting for {description}: {cmd}")
-            deadline = time.time() + timeout
-            last_output = ""
-            last_status = None
-            while time.time() < deadline:
-                status, output = machine.execute(cmd, timeout=20)
-                last_status = status
-                last_output = output
-                if status == 0:
-                    return output
-                time.sleep(1)
-            dump_session_debug(f"Timed out waiting for {description}")
-            raise AssertionError(
-                f"{description} did not become ready (exit={last_status}): {last_output}"
-            )
-
-        def wait_for_user_command(description: str, cmd: str, timeout: int = 180) -> str:
-            return wait_for_command(description, as_user(cmd), timeout=timeout)
-
-        def wait_for_user_socket(
-            description: str, socket_path: str, unit_name: str, timeout: int = 60
-        ) -> None:
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                status, _ = machine.execute(as_user(f"test -S {socket_path}"), timeout=20)
-                if status == 0:
-                    if socket_path == listener_socket:
-                        ready_status, _ = machine.execute(
-                            as_user(
-                                "keymasq-listener-window-labctl "
-                                f"--socket {socket_path} snapshot >/dev/null"
-                            ),
-                            timeout=20,
-                        )
-                        if ready_status == 0:
-                            return
-                    else:
-                        return
-
-                unit_status, _ = machine.execute(
-                    as_user(f"systemctl --user is-failed {unit_name}"), timeout=20
-                )
-                if unit_status == 0:
-                    dump_session_debug(f"{unit_name} failed while waiting for {description}")
-                    raise AssertionError(
-                        machine.succeed(
-                            as_user(
-                                f"journalctl --user -u {unit_name} --no-pager -n 80 || true"
-                            )
-                        )
-                    )
-                time.sleep(1)
-
-            dump_session_debug(f"Timed out waiting for {description}")
-            raise AssertionError(f"{description} was not created by {unit_name}")
-
         def wait_for_listener() -> None:
             machine.log("Waiting for keymasq-session listener readiness")
             deadline = time.time() + 120
@@ -547,8 +369,8 @@ EOF
         ${desktopReadyScript}
         ${preflightScript}
         if ${if runListenerAssertions then "True" else "False"}:
-            machine.succeed("${userCommand "systemctl --user stop keymasq-session.service || true"}")
-            machine.succeed("${userCommand "systemctl --user start keymasq-session.service || true"}")
+            machine.succeed(as_user("systemctl --user stop keymasq-session.service || true"))
+            machine.succeed(as_user("systemctl --user start keymasq-session.service || true"))
             wait_for_user_command("keymasq-session user service", "systemctl --user is-active keymasq-session.service")
             wait_for_user_socket(
                 "keymasq-session socket",
@@ -586,6 +408,10 @@ EOF
                         "window lab socket",
                         listener_socket,
                         "keymasq-window-lab.service",
+                        probe_cmd=(
+                            "keymasq-listener-window-labctl "
+                            f"--socket {listener_socket} snapshot >/dev/null"
+                        ),
                     )
 
                 machine.succeed(
@@ -837,141 +663,28 @@ EOF
       '';
     };
 
-  gnomeModule = {
-    services.xserver.enable = true;
-    services.displayManager.defaultSession = "gnome";
-    services.displayManager.gdm.enable = true;
-    services.desktopManager.gnome.enable = true;
+  gnomeModule = lib.mkMerge [
+    (compositorVmLib.desktopModules.gnome {
+      enableXserver = true;
+      dconfExtensions = [ "gnome-bridge@keymasq.tools" ];
+    })
+    {
+      systemd.user.services.keymasq-session = {
+        wantedBy = lib.mkForce [ ];
+        partOf = lib.mkForce [ ];
+        after = lib.mkForce [ ];
+      };
 
-    systemd.user.services.keymasq-session = {
-      wantedBy = lib.mkForce [ ];
-      partOf = lib.mkForce [ ];
-      after = lib.mkForce [ ];
-    };
+      services.gnome.gnome-initial-setup.enable = false;
+    }
+  ];
 
-    services.gnome.gnome-initial-setup.enable = false;
-    programs.dconf.profiles.user.databases = [
-      {
-        settings = {
-          "org/gnome/shell" = {
-            disable-user-extensions = false;
-            enabled-extensions = [ "gnome-bridge@keymasq.tools" ];
-          };
-        };
-      }
-    ];
-  };
-
-  kdeModule = {
-    services.xserver.enable = true;
-    services.displayManager.defaultSession = "plasma";
-    services.displayManager.sddm = {
-      enable = true;
-      wayland.enable = true;
-    };
-    services.desktopManager.plasma6.enable = true;
-  };
-
-  hyprlandModule = {
-    services.displayManager.defaultSession = "hyprland-uwsm";
-    services.displayManager.sddm = {
-      enable = true;
-      wayland.enable = true;
-    };
-    programs.hyprland = {
-      enable = true;
-      withUWSM = true;
-    };
-  };
-
-  xfceModule = {
-    services.xserver.enable = true;
-    services.displayManager.defaultSession = "xfce";
-    services.xserver.displayManager.lightdm.enable = true;
-    services.xserver.desktopManager.xfce.enable = true;
-  };
-
-  cosmicModule = {
-    services.displayManager.defaultSession = "cosmic-minimal";
-    services.displayManager.sessionPackages = [ cosmicMinimalSession ];
-    services.xserver.enable = true;
-    services.displayManager.sddm = {
-      enable = true;
-      wayland.enable = true;
-    };
-    environment.systemPackages = [ pkgs.cosmic-comp ];
-  };
-
-  swayModule = {
-    services.displayManager.defaultSession = "sway";
-    services.displayManager.sddm = {
-      enable = true;
-      wayland.enable = true;
-    };
-    programs.sway.enable = true;
-  };
-
-  # -- Patched niri for VM testing ----------------------------------------
-  #
-  # Niri (Smithay) refuses software EGL renderers (llvmpipe) in
-  # src/backend/tty.rs via `ensure!(!egl_device.is_software(), ...)`.
-  # NixOS VM tests only have software EGL (no real GPU), so niri starts
-  # with zero wl_output objects and slurp fails with "no wl_output".
-  #
-  # Fix: patch the check to `ensure!(true, ...)` so llvmpipe is accepted.
-  # The default QEMU bochs-drm VGA then provides a working DRM/GBM/EGL
-  # pipeline, which is sufficient for compositor integration testing.
-  #
-  # The version assertion and grep guard ensure the build fails loudly
-  # if a nixpkgs bump changes niri underneath the patch.
-  #
-  # To update after a nixpkgs bump:
-  #   1. Set niriExpectedVersion to the new niri version in nixpkgs.
-  #   2. Check the new source for the is_software guard:
-  #        nix build --print-out-paths 'nixpkgs#niri.src' \
-  #          | xargs -I{} grep -n 'is_software' {}/src/backend/tty.rs
-  #   3. If the guard moved or changed, update the sed pattern below.
-  #   4. Run: nix build 'path:.#checks.x86_64-linux.listener-vm-niri'
-  niriExpectedVersion = "26.04";
-
-  niriPatched = assert pkgs.niri.version == niriExpectedVersion; pkgs.niri.overrideAttrs (old: {
-    postPatch = (old.postPatch or "") + ''
-      # Allow software EGL renderers (llvmpipe) for VM testing.
-      # The ensure!(!is_software(), ...) check becomes ensure!(true, ...)
-      # which is a no-op, letting niri initialise its renderer via llvmpipe.
-      sed -i 's/!egl_device\.is_software()/true/' src/backend/tty.rs
-
-      # Guard: fail the build if the sed didn't match.  The patched source
-      # must contain "true," (the replacement) and must NOT contain the
-      # original "is_software()" call in tty.rs.
-      if grep -q 'egl_device\.is_software()' src/backend/tty.rs; then
-        echo "ERROR: niri software-renderer patch did not apply — see niriPatched in listener-vm-matrix.nix"
-        exit 1
-      fi
-    '';
-  });
-
-  niriModule = {
-    services.displayManager.defaultSession = "niri";
-    services.displayManager.sddm = {
-      enable = true;
-      wayland.enable = true;
-    };
-    programs.niri = {
-      enable = true;
-      package = niriPatched;
-    };
-    environment.etc."niri/config.kdl".text = ''
-      input {
-          focus-follows-mouse
-          warp-mouse-to-focus mode="center-xy-always"
-      }
-
-      debug {
-          honor-xdg-activation-with-invalid-serial
-      }
-    '';
-  };
+  kdeModule = compositorVmLib.desktopModules.kde { enableXserver = true; };
+  hyprlandModule = compositorVmLib.desktopModules.hyprland { withUWSM = true; };
+  xfceModule = compositorVmLib.desktopModules.xfce;
+  cosmicModule = compositorVmLib.desktopModules.cosmic { };
+  swayModule = compositorVmLib.desktopModules.sway;
+  niriModule = compositorVmLib.desktopModules.niri { };
 
 in
 {

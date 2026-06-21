@@ -124,6 +124,17 @@ class DeviceTab(ProfileManagedTab):
             return profile.config.ensure_layer(self.device.hardware_id)
         return profile.config.get_layer(self.device.hardware_id)
 
+    def _resolve_mapping_target_profile(
+        self,
+        target_profile: ProfileInfo | None,
+    ) -> ProfileInfo | None:
+        target_profile = target_profile or self._selected_profile
+        if target_profile is None:
+            return None
+        if self.profile_manager is None or self.demo_mode:
+            return target_profile
+        return self.profile_manager.get_profile(target_profile.config.name)
+
     def _profile_is_selected(self, profile: ProfileInfo | None) -> bool:
         return (
             profile is not None
@@ -1361,7 +1372,8 @@ class DeviceTab(ProfileManagedTab):
 
         def on_key_selected(dialog, action):
             def commit_selection() -> None:
-                layer = self._device_layer_for_profile(target_profile, create=True)
+                current_profile = self._resolve_mapping_target_profile(target_profile)
+                layer = self._device_layer_for_profile(current_profile, create=True)
                 if layer is None:
                     return
                 if action is None:
@@ -1369,10 +1381,11 @@ class DeviceTab(ProfileManagedTab):
                         del layer.mappings[button.id]
                 else:
                     layer.mappings[button.id] = action
-                if self._profile_is_selected(target_profile):
+                if self._profile_is_selected(current_profile):
+                    self._selected_profile = current_profile
                     self._update_button_display(button.id)
                     self._update_header_caption()
-                self._save_specific_profile(target_profile)
+                self._save_specific_profile(current_profile)
 
             defer_commit(commit_selection)
 
@@ -1400,17 +1413,19 @@ class DeviceTab(ProfileManagedTab):
 
         def on_key_selected(dialog, action):
             def commit_selection() -> None:
-                layer = self._device_layer_for_profile(target_profile, create=True)
+                current_profile = self._resolve_mapping_target_profile(target_profile)
+                layer = self._device_layer_for_profile(current_profile, create=True)
                 if layer is None:
                     return
                 if action is None:
                     layer.mappings.pop(analog.id, None)
                 else:
                     layer.mappings[analog.id] = action
-                if self._profile_is_selected(target_profile):
+                if self._profile_is_selected(current_profile):
+                    self._selected_profile = current_profile
                     self._update_button_display(analog.id)
                     self._update_header_caption()
-                self._save_specific_profile(target_profile)
+                self._save_specific_profile(current_profile)
 
             defer_commit(commit_selection)
 

@@ -240,6 +240,154 @@ def test_type_macro_builder_expands_enter_and_tab_controls() -> None:
     ]
 
 
+def test_type_macro_builder_expands_named_key_controls() -> None:
+    events = build_type_macro_events(
+        "<space><esc><backspace><delete><up><down><left><right><home><end>"
+        "<pageup><pagedown>",
+        10,
+        0,
+    )
+
+    assert _press_codes(events) == [
+        evdev.ecodes.KEY_SPACE,
+        evdev.ecodes.KEY_ESC,
+        evdev.ecodes.KEY_BACKSPACE,
+        evdev.ecodes.KEY_DELETE,
+        evdev.ecodes.KEY_UP,
+        evdev.ecodes.KEY_DOWN,
+        evdev.ecodes.KEY_LEFT,
+        evdev.ecodes.KEY_RIGHT,
+        evdev.ecodes.KEY_HOME,
+        evdev.ecodes.KEY_END,
+        evdev.ecodes.KEY_PAGEUP,
+        evdev.ecodes.KEY_PAGEDOWN,
+    ]
+
+
+def test_type_macro_builder_repeats_named_key_controls() -> None:
+    events = build_type_macro_events("<tab:3><backspace:2><down:5>", 10, 0)
+
+    assert _press_codes(events) == [
+        evdev.ecodes.KEY_TAB,
+        evdev.ecodes.KEY_TAB,
+        evdev.ecodes.KEY_TAB,
+        evdev.ecodes.KEY_BACKSPACE,
+        evdev.ecodes.KEY_BACKSPACE,
+        evdev.ecodes.KEY_DOWN,
+        evdev.ecodes.KEY_DOWN,
+        evdev.ecodes.KEY_DOWN,
+        evdev.ecodes.KEY_DOWN,
+        evdev.ecodes.KEY_DOWN,
+    ]
+
+
+def test_type_macro_builder_expands_shortcut_controls() -> None:
+    events = build_type_macro_events(
+        "<shortcut:ctrl+l><shortcut:ctrl+a><shortcut:ctrl+shift+v>",
+        10,
+        0,
+    )
+
+    assert [
+        (event["code"], event["value"])
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY
+    ] == [
+        (evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.KEY_L, 1),
+        (evdev.ecodes.KEY_L, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.KEY_A, 1),
+        (evdev.ecodes.KEY_A, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 1),
+        (evdev.ecodes.KEY_LEFTSHIFT, 1),
+        (evdev.ecodes.KEY_V, 1),
+        (evdev.ecodes.KEY_V, 0),
+        (evdev.ecodes.KEY_LEFTSHIFT, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 0),
+    ]
+
+
+def test_type_macro_builder_expands_mouse_move_control() -> None:
+    events = build_type_macro_events("<move:420:180>", 10, 0)
+
+    assert events == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 0,
+            "macro_action": "mouse_move_natural_abs",
+            "x": 420,
+            "y": 180,
+            "speed": 100000.0,
+            "jitter": 0.0,
+            "curve": "linear",
+            "tolerance": 2,
+            "max_duration_ms": 3000,
+            "stop_on_failure": False,
+        }
+    ]
+
+
+def test_type_macro_builder_expands_mouse_click_controls() -> None:
+    events = build_type_macro_events("<click><lclick><leftclick><rclick><rightclick>", 10, 0)
+
+    assert _key_values(events, evdev.ecodes.BTN_LEFT) == [1, 0, 1, 0, 1, 0]
+    assert _key_values(events, evdev.ecodes.BTN_RIGHT) == [1, 0, 1, 0]
+    assert all(event["device_type"] == "mouse" for event in events)
+
+
+def test_type_macro_builder_expands_coordinate_click_control() -> None:
+    events = build_type_macro_events("<click:420:180>", 10, 0)
+
+    assert events[0]["macro_action"] == "mouse_move_natural_abs"
+    assert events[0]["x"] == 420
+    assert events[0]["y"] == 180
+    assert [
+        (event["device_type"], event["code"], event["value"], event["t_us"])
+        for event in events[1:]
+    ] == [
+        ("mouse", evdev.ecodes.BTN_LEFT, 1, 1),
+        ("mouse", evdev.ecodes.BTN_LEFT, 0, 10001),
+    ]
+
+
+def test_type_macro_builder_expands_doubleclick_control_with_pause() -> None:
+    events = build_type_macro_events("<doubleclick>", 10, 20)
+
+    assert [
+        (event["code"], event["value"], event["t_us"])
+        for event in events
+        if event["type"] == evdev.ecodes.EV_KEY
+    ] == [
+        (evdev.ecodes.BTN_LEFT, 1, 0),
+        (evdev.ecodes.BTN_LEFT, 0, 10000),
+        (evdev.ecodes.BTN_LEFT, 1, 30000),
+        (evdev.ecodes.BTN_LEFT, 0, 40000),
+    ]
+
+
+def test_type_macro_builder_expands_coordinate_doubleclick_control() -> None:
+    events = build_type_macro_events("<doubleclick:420:180>", 10, 20)
+
+    assert events[0]["macro_action"] == "mouse_move_natural_abs"
+    assert events[0]["x"] == 420
+    assert events[0]["y"] == 180
+    assert [
+        (event["device_type"], event["code"], event["value"], event["t_us"])
+        for event in events[1:]
+    ] == [
+        ("mouse", evdev.ecodes.BTN_LEFT, 1, 1),
+        ("mouse", evdev.ecodes.BTN_LEFT, 0, 10001),
+        ("mouse", evdev.ecodes.BTN_LEFT, 1, 30001),
+        ("mouse", evdev.ecodes.BTN_LEFT, 0, 40001),
+    ]
+
+
 def test_type_macro_builder_adds_fixed_and_random_wait_controls() -> None:
     events = build_type_macro_events("a<wait:10>b<wait:20:30>c", 10, 0)
 
@@ -264,6 +412,23 @@ def test_type_macro_builder_adds_fixed_and_random_wait_controls() -> None:
             "min_us": 20_000,
             "max_us": 30_000,
         },
+    ]
+
+
+def test_type_macro_builder_adds_settle_control() -> None:
+    events = build_type_macro_events("a<settle>b", 10, 0)
+
+    waits = [event for event in events if event.get("macro_action")]
+    assert waits == [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 10_000,
+            "macro_action": "wait",
+            "duration_us": 300_000,
+        }
     ]
 
 
@@ -326,6 +491,31 @@ def test_type_macro_builder_escapes_literal_less_than_before_control() -> None:
 def test_type_macro_builder_rejects_invalid_wait_control() -> None:
     with pytest.raises(ValueError, match="wait duration must be an integer"):
         build_type_macro_events("a<wait:soon>b", 10, 0)
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("<tab:0>", "tab repeat count must be greater than 0"),
+        ("<tab:soon>", "tab repeat count must be an integer"),
+        ("<tab:1:2>", "tab repeat control accepts one count argument"),
+        ("<shortcut:l>", "shortcut requires modifiers and a key"),
+        ("<shortcut:ctrl+bogus>", "unknown shortcut key: bogus"),
+        ("<shortcut:ctrl+shift>", "shortcut requires one non-modifier key"),
+        ("<move:1>", "move control requires x and y arguments"),
+        ("<move:1:2:3>", "move control requires x and y arguments"),
+        ("<move:soon:2>", "move x must be an integer"),
+        ("<click:1>", "click control accepts optional x and y arguments"),
+        ("<click:1:2:3>", "click control accepts optional x and y arguments"),
+        ("<rclick:1:soon>", "rclick y must be an integer"),
+    ],
+)
+def test_type_macro_builder_rejects_invalid_extended_controls(
+    text: str,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        build_type_macro_events(text, 10, 0)
 
 
 def test_type_macro_builder_reports_unsupported_character_position() -> None:

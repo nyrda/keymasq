@@ -108,7 +108,9 @@ def test_cli_main_type_help_includes_inline_controls_and_docs(
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "<tab>, <enter>, <wait:MS>, <wait:MIN:MAX>" in out
+    assert "<tab>, <enter>, <space>, <esc>, <backspace>, <delete>" in out
+    assert "<KEY:COUNT>, <shortcut:MOD+KEY>, <move:X:Y>, <click[:X:Y]>" in out
+    assert "<doubleclick[:X:Y]>, <rclick[:X:Y]>, <settle>, <wait:MS>, <wait:MIN:MAX>" in out
     assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
 

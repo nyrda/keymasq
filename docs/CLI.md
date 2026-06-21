@@ -37,6 +37,10 @@ keymasq type --speed 1.5 "hello"
 keymasq type "café"
 keymasq type "user<tab>password<enter>"
 keymasq type "user<tab><wait:100:250>password<enter>"
+keymasq type "<shortcut:ctrl+l><delete>query<enter>"
+keymasq type "<down:5><enter>"
+keymasq type "<move:420:180><click>"
+keymasq type "<click:420:180><doubleclick>"
 keymasq type --no-unicode "café"
 keymasq type --print-json "hello"
 ```
@@ -59,8 +63,31 @@ The type compiler supports a small set of inline controls:
 |---|---|
 | `<tab>` | Press Tab |
 | `<enter>` | Press Enter |
+| `<space>` | Press Space |
+| `<esc>` | Press Escape |
+| `<backspace>` | Press Backspace |
+| `<delete>` | Press Delete |
+| `<up>` / `<down>` / `<left>` / `<right>` | Press an arrow key |
+| `<home>` / `<end>` | Press Home or End |
+| `<pageup>` / `<pagedown>` | Press Page Up or Page Down |
+| `<KEY:COUNT>` | Repeat a named key control; for example, `<tab:3>` or `<down:5>` |
+| `<shortcut:MOD+KEY>` | Press a keyboard shortcut; for example, `<shortcut:ctrl+l>` or `<shortcut:ctrl+shift+v>` |
+| `<move:X:Y>` | Move the pointer to absolute coordinates using the fast natural-move defaults |
+| `<click>` / `<lclick>` / `<leftclick>` | Left click |
+| `<rclick>` / `<rightclick>` | Right click |
+| `<doubleclick>` | Double left click |
+| `<click:X:Y>` / `<rclick:X:Y>` / `<doubleclick:X:Y>` | Move to absolute coordinates, then click |
+| `<settle>` | Wait 300 ms |
 | `<wait:MS>` | Wait a fixed number of milliseconds |
 | `<wait:MIN:MAX>` | Wait a random number of milliseconds in the inclusive range |
+
+Shortcut modifiers are `ctrl`, `shift`, `alt`, and `super`, with `control`,
+`meta`, and `win` accepted as modifier aliases.
+
+`<move:X:Y>` uses the same natural cursor movement as the compact `play`
+`move:X:Y` token with the fast defaults: `100000` px/s, zero jitter, linear
+curve, `2` px tolerance, `3000` ms timeout, and `stop_on_failure=false`. The
+type syntax does not expose tuning arguments for this control.
 
 Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
 text, so `\\<tab>` types `\<tab>`.

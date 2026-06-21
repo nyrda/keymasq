@@ -14,10 +14,12 @@ from keymasq.common.models import (
 from keymasq.common.types import JsonObject
 
 IntLike = int | float | str | bytes
+TypeMacroToken = tuple[str, str]
 _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED = 100_000.0
 _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER = 0.0
 _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE = "linear"
 _COMPACT_NATURAL_MOUSE_MOVE_SLOW_CURVE = "natural"
+_TYPE_MACRO_SETTLE_WAIT_MS = 300
 
 _TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
     {
@@ -47,6 +49,41 @@ _TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
         "\ufeff": "",
     }
 )
+
+_TYPE_MACRO_NAMED_KEY_CODES = {
+    "space": evdev.ecodes.KEY_SPACE,
+    "enter": evdev.ecodes.KEY_ENTER,
+    "tab": evdev.ecodes.KEY_TAB,
+    "esc": evdev.ecodes.KEY_ESC,
+    "backspace": evdev.ecodes.KEY_BACKSPACE,
+    "delete": evdev.ecodes.KEY_DELETE,
+    "up": evdev.ecodes.KEY_UP,
+    "down": evdev.ecodes.KEY_DOWN,
+    "left": evdev.ecodes.KEY_LEFT,
+    "right": evdev.ecodes.KEY_RIGHT,
+    "home": evdev.ecodes.KEY_HOME,
+    "end": evdev.ecodes.KEY_END,
+    "pageup": evdev.ecodes.KEY_PAGEUP,
+    "pagedown": evdev.ecodes.KEY_PAGEDOWN,
+}
+
+_TYPE_MACRO_SHORTCUT_MODIFIER_CODES = {
+    "ctrl": evdev.ecodes.KEY_LEFTCTRL,
+    "control": evdev.ecodes.KEY_LEFTCTRL,
+    "shift": evdev.ecodes.KEY_LEFTSHIFT,
+    "alt": evdev.ecodes.KEY_LEFTALT,
+    "super": evdev.ecodes.KEY_LEFTMETA,
+    "meta": evdev.ecodes.KEY_LEFTMETA,
+    "win": evdev.ecodes.KEY_LEFTMETA,
+}
+
+_TYPE_MACRO_CLICK_BUTTON_CODES = {
+    "click": evdev.ecodes.BTN_LEFT,
+    "lclick": evdev.ecodes.BTN_LEFT,
+    "leftclick": evdev.ecodes.BTN_LEFT,
+    "rclick": evdev.ecodes.BTN_RIGHT,
+    "rightclick": evdev.ecodes.BTN_RIGHT,
+}
 
 
 def normalize_type_macro_text(text: str) -> str:
@@ -83,38 +120,51 @@ def build_type_macro_events(
             _append_wait_event(events, value.split(":"), t_us)
             continue
 
-        if kind == "key":
-            code, needs_shift = char_to_key(value)
+        if kind == "mouse_move":
+            t_us = _append_type_macro_mouse_move_event(events, value, t_us)
+        elif kind == "mouse_click":
+            t_us = _append_type_macro_mouse_click_events(events, value, t_us, down_ms)
+        elif kind == "shortcut":
+            t_us = _append_type_macro_shortcut_events(
+                events,
+                value,
+                t_us,
+                down_ms,
+                modifier_settle_us,
+            )
         else:
-            ch = value
-            try:
-                code, needs_shift = char_to_key(ch)
-            except ValueError as exc:
-                if use_unicode_input:
-                    t_us = _append_unicode_char_events(
-                        events,
-                        ch,
-                        t_us,
-                        down_ms,
-                        modifier_settle_us,
-                    )
-                    if _should_add_type_pause(tokens, i, pause_ms):
-                        t_us += pause_ms * 1000
-                    continue
+            if kind == "key":
+                code, needs_shift = _resolve_type_macro_key(value)
+            else:
+                ch = value
+                try:
+                    code, needs_shift = char_to_key(ch)
+                except ValueError as exc:
+                    if use_unicode_input:
+                        t_us = _append_unicode_char_events(
+                            events,
+                            ch,
+                            t_us,
+                            down_ms,
+                            modifier_settle_us,
+                        )
+                        if _should_add_type_pause(tokens, i, pause_ms):
+                            t_us += pause_ms * 1000
+                        continue
 
-                char_name = unicodedata.name(ch, "UNKNOWN")
-                raise ValueError(
-                    f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
-                ) from exc
+                    char_name = unicodedata.name(ch, "UNKNOWN")
+                    raise ValueError(
+                        f"Unsupported character at position {i + 1}: {ch!r} ({char_name})"
+                    ) from exc
 
-        t_us = _append_direct_key_events(
-            events,
-            code,
-            needs_shift,
-            t_us,
-            down_ms,
-            modifier_settle_us,
-        )
+            t_us = _append_direct_key_events(
+                events,
+                code,
+                needs_shift,
+                t_us,
+                down_ms,
+                modifier_settle_us,
+            )
 
         if _should_add_type_pause(tokens, i, pause_ms):
             t_us += pause_ms * 1000
@@ -122,8 +172,8 @@ def build_type_macro_events(
     return events
 
 
-def _type_macro_tokens(text: str) -> list[tuple[str, str]]:
-    tokens: list[tuple[str, str]] = []
+def _type_macro_tokens(text: str) -> list[TypeMacroToken]:
+    tokens: list[TypeMacroToken] = []
     index = 0
     while index < len(text):
         if text.startswith(r"\<", index):
@@ -144,16 +194,9 @@ def _type_macro_tokens(text: str) -> list[tuple[str, str]]:
 
         raw_tag = text[index + 1 : end]
         tag = raw_tag.strip().lower()
-        if tag == "enter":
-            tokens.append(("key", "\n"))
-            index = end + 1
-            continue
-        if tag == "tab":
-            tokens.append(("key", "\t"))
-            index = end + 1
-            continue
-        if tag.startswith("wait:"):
-            tokens.append(("wait", tag.removeprefix("wait:")))
+        control_tokens = _type_macro_control_tokens(tag)
+        if control_tokens is not None:
+            tokens.extend(control_tokens)
             index = end + 1
             continue
 
@@ -163,7 +206,107 @@ def _type_macro_tokens(text: str) -> list[tuple[str, str]]:
     return tokens
 
 
-def _should_add_type_pause(tokens: list[tuple[str, str]], index: int, pause_ms: int) -> bool:
+def _type_macro_control_tokens(tag: str) -> list[TypeMacroToken] | None:
+    if tag == "settle":
+        return [("wait", str(_TYPE_MACRO_SETTLE_WAIT_MS))]
+
+    if tag.startswith("wait:"):
+        return [("wait", tag.removeprefix("wait:"))]
+
+    if tag.startswith("shortcut:"):
+        shortcut = tag.removeprefix("shortcut:").strip()
+        if not shortcut:
+            raise ValueError("shortcut requires modifiers and a key")
+        return [("shortcut", shortcut)]
+
+    move_token = _parse_type_macro_mouse_move_control(tag)
+    if move_token is not None:
+        return [move_token]
+
+    click_tokens = _parse_type_macro_click_control(tag)
+    if click_tokens is not None:
+        return click_tokens
+
+    named_key = _parse_type_macro_named_key_control(tag)
+    if named_key is None:
+        return None
+
+    name, repeat_count = named_key
+    return [("key", name) for _ in range(repeat_count)]
+
+
+def _parse_type_macro_mouse_move_control(tag: str) -> TypeMacroToken | None:
+    if not tag.startswith("move:"):
+        return None
+
+    args = [part.strip() for part in tag.removeprefix("move:").split(":")]
+    if len(args) != 2 or any(not arg for arg in args):
+        raise ValueError("move control requires x and y arguments")
+
+    x = _parse_int(args[0], "move x")
+    y = _parse_int(args[1], "move y")
+    return "mouse_move", f"{x}:{y}"
+
+
+def _parse_type_macro_click_control(tag: str) -> list[TypeMacroToken] | None:
+    parts = [part.strip() for part in tag.split(":")]
+    name = parts[0]
+    if name == "doubleclick":
+        button_code = evdev.ecodes.BTN_LEFT
+        click_args = parts[1:]
+        first_click = _type_macro_mouse_click_token(button_code, click_args, name)
+        return [first_click, _format_type_macro_mouse_click_token(button_code)]
+
+    button_code = _TYPE_MACRO_CLICK_BUTTON_CODES.get(name)
+    if button_code is None:
+        return None
+
+    return [_type_macro_mouse_click_token(button_code, parts[1:], name)]
+
+
+def _type_macro_mouse_click_token(
+    button_code: int,
+    args: list[str],
+    name: str,
+) -> TypeMacroToken:
+    if not args:
+        return _format_type_macro_mouse_click_token(button_code)
+    if len(args) != 2 or any(not arg for arg in args):
+        raise ValueError(f"{name} control accepts optional x and y arguments")
+
+    x = _parse_int(args[0], f"{name} x")
+    y = _parse_int(args[1], f"{name} y")
+    return _format_type_macro_mouse_click_token(button_code, x, y)
+
+
+def _format_type_macro_mouse_click_token(
+    button_code: int,
+    x: int | None = None,
+    y: int | None = None,
+) -> TypeMacroToken:
+    if x is None or y is None:
+        return "mouse_click", str(button_code)
+    return "mouse_click", f"{button_code}:{x}:{y}"
+
+
+def _parse_type_macro_named_key_control(tag: str) -> tuple[str, int] | None:
+    if ":" not in tag:
+        if tag not in _TYPE_MACRO_NAMED_KEY_CODES:
+            return None
+        return tag, 1
+
+    parts = [part.strip() for part in tag.split(":")]
+    name = parts[0]
+    if name not in _TYPE_MACRO_NAMED_KEY_CODES:
+        return None
+    if len(parts) != 2:
+        raise ValueError(f"{name} repeat control accepts one count argument")
+
+    repeat_count = _parse_positive_int(parts[1], f"{name} repeat count")
+    return name, repeat_count
+
+
+def _should_add_type_pause(tokens: list[TypeMacroToken], index: int, pause_ms: int) -> bool:
     return pause_ms > 0 and index < len(tokens) - 1 and tokens[index + 1][0] != "wait"
 
 
@@ -236,6 +379,12 @@ def char_to_key(ch: str) -> tuple[int, bool]:
         return specials[ch]
 
     raise ValueError(f"Unsupported character for typing macro: {ch!r}")
+
+
+def _resolve_type_macro_key(value: str) -> tuple[int, bool]:
+    if value in _TYPE_MACRO_NAMED_KEY_CODES:
+        return _TYPE_MACRO_NAMED_KEY_CODES[value], False
+    return char_to_key(value)
 
 
 def build_compact_macro_events(tokens: list[str]) -> list[JsonObject]:
@@ -492,6 +641,132 @@ def _append_direct_key_events(
         _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
 
     return t_us
+
+
+def _append_type_macro_shortcut_events(
+    events: list[JsonObject],
+    shortcut: str,
+    t_us: int,
+    down_ms: int,
+    modifier_settle_us: int,
+) -> int:
+    modifier_codes, key_code = _parse_type_macro_shortcut(shortcut)
+
+    for modifier_code in modifier_codes:
+        _append_key_event(events, "keyboard", modifier_code, 1, t_us)
+        t_us += modifier_settle_us
+
+    _append_key_event(events, "keyboard", key_code, 1, t_us)
+    t_us += down_ms * 1000
+    _append_key_event(events, "keyboard", key_code, 0, t_us)
+
+    for modifier_code in reversed(modifier_codes):
+        t_us += modifier_settle_us
+        _append_key_event(events, "keyboard", modifier_code, 0, t_us)
+
+    return t_us
+
+
+def _parse_type_macro_shortcut(shortcut: str) -> tuple[list[int], int]:
+    parts = [part.strip() for part in shortcut.split("+")]
+    if len(parts) < 2 or any(not part for part in parts):
+        raise ValueError("shortcut requires modifiers and a key")
+
+    key_part = parts[-1]
+    if key_part in _TYPE_MACRO_SHORTCUT_MODIFIER_CODES:
+        raise ValueError("shortcut requires one non-modifier key")
+
+    modifier_codes: list[int] = []
+    for modifier_name in parts[:-1]:
+        modifier_code = _TYPE_MACRO_SHORTCUT_MODIFIER_CODES.get(modifier_name)
+        if modifier_code is None:
+            raise ValueError(f"unknown shortcut modifier: {modifier_name}")
+        if modifier_code in modifier_codes:
+            raise ValueError(f"duplicate shortcut modifier: {modifier_name}")
+        modifier_codes.append(modifier_code)
+
+    key_code, needs_shift = _resolve_type_macro_shortcut_key(key_part)
+    shift_code = evdev.ecodes.KEY_LEFTSHIFT
+    if needs_shift and shift_code not in modifier_codes:
+        modifier_codes.append(shift_code)
+    return modifier_codes, key_code
+
+
+def _resolve_type_macro_shortcut_key(value: str) -> tuple[int, bool]:
+    if value in _TYPE_MACRO_NAMED_KEY_CODES:
+        return _TYPE_MACRO_NAMED_KEY_CODES[value], False
+    if len(value) == 1:
+        return char_to_key(value)
+
+    try:
+        device_type, code = resolve_key_or_button(value)
+    except ValueError as exc:
+        raise ValueError(f"unknown shortcut key: {value}") from exc
+    if device_type != "keyboard":
+        raise ValueError(f"shortcut key must be a keyboard key: {value}")
+    return code, False
+
+
+def _append_type_macro_mouse_move_event(
+    events: list[JsonObject],
+    value: str,
+    t_us: int,
+) -> int:
+    x, y = _parse_type_macro_coordinate_value(value)
+    _append_type_macro_natural_move_event(events, x, y, t_us)
+    return t_us + 1
+
+
+def _append_type_macro_mouse_click_events(
+    events: list[JsonObject],
+    value: str,
+    t_us: int,
+    down_ms: int,
+) -> int:
+    parts = value.split(":")
+    button_code = _parse_int(parts[0], "click button")
+    if len(parts) == 3:
+        x = _parse_int(parts[1], "click x")
+        y = _parse_int(parts[2], "click y")
+        _append_type_macro_natural_move_event(events, x, y, t_us)
+        t_us += 1
+    elif len(parts) != 1:
+        raise ValueError("click control accepts optional x and y arguments")
+
+    _append_key_event(events, "mouse", button_code, 1, t_us)
+    t_us += down_ms * 1000
+    _append_key_event(events, "mouse", button_code, 0, t_us)
+    return t_us
+
+
+def _append_type_macro_natural_move_event(
+    events: list[JsonObject],
+    x: int,
+    y: int,
+    t_us: int,
+) -> None:
+    _append_mouse_move_event(
+        events,
+        "mouse_move_natural_abs",
+        x,
+        y,
+        t_us,
+        options={
+            "speed": _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED,
+            "jitter": _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER,
+            "curve": _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE,
+            "tolerance": DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+            "max_duration_ms": DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+            "stop_on_failure": False,
+        },
+    )
+
+
+def _parse_type_macro_coordinate_value(value: str) -> tuple[int, int]:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise ValueError("move control requires x and y arguments")
+    return _parse_int(parts[0], "move x"), _parse_int(parts[1], "move y")
 
 
 def _append_unicode_char_events(

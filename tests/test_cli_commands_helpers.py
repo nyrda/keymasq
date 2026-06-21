@@ -547,6 +547,18 @@ def test_type_cli_print_json_does_not_send(
     assert len(payload["events"]) > 0
 
 
+def test_type_cli_print_json_infers_mouse_device_type(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(commands, "_session_request", lambda payload: pytest.fail("sent request"))
+
+    commands.type_cli(["<move:200:100>test"], print_json=True)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["device_types"] == ["mouse", "keyboard"]
+
+
 def test_play_adhoc_cli_compiles_compact_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 

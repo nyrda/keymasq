@@ -281,6 +281,12 @@ def test_type_macro_builder_repeats_named_key_controls() -> None:
     ]
 
 
+def test_type_macro_builder_allows_repeat_count_limit() -> None:
+    events = build_type_macro_events("<tab:100>", 10, 0)
+
+    assert _press_codes(events) == [evdev.ecodes.KEY_TAB] * 100
+
+
 def test_type_macro_builder_expands_shortcut_controls() -> None:
     events = build_type_macro_events(
         "<shortcut:ctrl+l><shortcut:ctrl+a><shortcut:ctrl+shift+v>",
@@ -347,6 +353,7 @@ def test_type_macro_builder_expands_coordinate_click_control() -> None:
     assert events[0]["macro_action"] == "mouse_move_natural_abs"
     assert events[0]["x"] == 420
     assert events[0]["y"] == 180
+    assert events[0]["stop_on_failure"] is True
     assert [
         (event["device_type"], event["code"], event["value"], event["t_us"])
         for event in events[1:]
@@ -377,6 +384,7 @@ def test_type_macro_builder_expands_coordinate_doubleclick_control() -> None:
     assert events[0]["macro_action"] == "mouse_move_natural_abs"
     assert events[0]["x"] == 420
     assert events[0]["y"] == 180
+    assert events[0]["stop_on_failure"] is True
     assert [
         (event["device_type"], event["code"], event["value"], event["t_us"])
         for event in events[1:]
@@ -499,6 +507,7 @@ def test_type_macro_builder_rejects_invalid_wait_control() -> None:
         ("<tab:0>", "tab repeat count must be greater than 0"),
         ("<tab:soon>", "tab repeat count must be an integer"),
         ("<tab:1:2>", "tab repeat control accepts one count argument"),
+        ("<tab:101>", "tab repeat count must be less than or equal to 100"),
         ("<shortcut:l>", "shortcut requires modifiers and a key"),
         ("<shortcut:ctrl+bogus>", "unknown shortcut key: bogus"),
         ("<shortcut:ctrl+shift>", "shortcut requires one non-modifier key"),

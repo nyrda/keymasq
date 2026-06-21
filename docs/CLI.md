@@ -70,13 +70,13 @@ The type compiler supports a small set of inline controls:
 | `<up>` / `<down>` / `<left>` / `<right>` | Press an arrow key |
 | `<home>` / `<end>` | Press Home or End |
 | `<pageup>` / `<pagedown>` | Press Page Up or Page Down |
-| `<KEY:COUNT>` | Repeat a named key control; for example, `<tab:3>` or `<down:5>` |
+| `<KEY:COUNT>` | Repeat a named key control up to 100 times; for example, `<tab:3>` or `<down:5>` |
 | `<shortcut:MOD+KEY>` | Press a keyboard shortcut; for example, `<shortcut:ctrl+l>` or `<shortcut:ctrl+shift+v>` |
 | `<move:X:Y>` | Move the pointer to absolute coordinates using the fast natural-move defaults |
 | `<click>` / `<lclick>` / `<leftclick>` | Left click |
 | `<rclick>` / `<rightclick>` | Right click |
 | `<doubleclick>` | Double left click |
-| `<click:X:Y>` / `<rclick:X:Y>` / `<doubleclick:X:Y>` | Move to absolute coordinates, then click |
+| `<click:X:Y>` / `<rclick:X:Y>` / `<doubleclick:X:Y>` | Move to absolute coordinates, then click if the move succeeds |
 | `<settle>` | Wait 300 ms |
 | `<wait:MS>` | Wait a fixed number of milliseconds |
 | `<wait:MIN:MAX>` | Wait a random number of milliseconds in the inclusive range |

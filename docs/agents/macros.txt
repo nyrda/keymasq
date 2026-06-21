@@ -64,7 +64,7 @@ keymasq play btn_left wait:10 btn_left --print-json \
 <end>
 <pageup>
 <pagedown>
-<KEY:COUNT>          repeat a named key, e.g. <tab:3>
+<KEY:COUNT>          repeat a named key up to 100 times, e.g. <tab:3>
 <shortcut:MOD+KEY>   press a shortcut, e.g. <shortcut:ctrl+shift+v>
 <move:X:Y>           natural absolute mouse move with fast defaults
 <click>              left click

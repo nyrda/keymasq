@@ -20,6 +20,7 @@ _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER = 0.0
 _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE = "linear"
 _COMPACT_NATURAL_MOUSE_MOVE_SLOW_CURVE = "natural"
 _TYPE_MACRO_SETTLE_WAIT_MS = 300
+_TYPE_MACRO_MAX_REPEAT_COUNT = 100
 
 _TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
     {
@@ -303,6 +304,11 @@ def _parse_type_macro_named_key_control(tag: str) -> tuple[str, int] | None:
         raise ValueError(f"{name} repeat control accepts one count argument")
 
     repeat_count = _parse_positive_int(parts[1], f"{name} repeat count")
+    if repeat_count > _TYPE_MACRO_MAX_REPEAT_COUNT:
+        raise ValueError(
+            f"{name} repeat count must be less than or equal to "
+            f"{_TYPE_MACRO_MAX_REPEAT_COUNT}"
+        )
     return name, repeat_count
 
 
@@ -713,7 +719,7 @@ def _append_type_macro_mouse_move_event(
     t_us: int,
 ) -> int:
     x, y = _parse_type_macro_coordinate_value(value)
-    _append_type_macro_natural_move_event(events, x, y, t_us)
+    _append_type_macro_natural_move_event(events, x, y, t_us, stop_on_failure=False)
     return t_us + 1
 
 
@@ -728,7 +734,7 @@ def _append_type_macro_mouse_click_events(
     if len(parts) == 3:
         x = _parse_int(parts[1], "click x")
         y = _parse_int(parts[2], "click y")
-        _append_type_macro_natural_move_event(events, x, y, t_us)
+        _append_type_macro_natural_move_event(events, x, y, t_us, stop_on_failure=True)
         t_us += 1
     elif len(parts) != 1:
         raise ValueError("click control accepts optional x and y arguments")
@@ -744,6 +750,8 @@ def _append_type_macro_natural_move_event(
     x: int,
     y: int,
     t_us: int,
+    *,
+    stop_on_failure: bool,
 ) -> None:
     _append_mouse_move_event(
         events,
@@ -757,7 +765,7 @@ def _append_type_macro_natural_move_event(
             "curve": _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE,
             "tolerance": DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
             "max_duration_ms": DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
-            "stop_on_failure": False,
+            "stop_on_failure": stop_on_failure,
         },
     )
 

@@ -69,7 +69,9 @@ keymasq play btn_left wait:10 btn_left --print-json \
 <move:X:Y>           natural absolute mouse move with fast defaults
 <click>              left click
 <lclick>             left click
+<leftclick>          left click
 <rclick>             right click
+<rightclick>         right click
 <doubleclick>        double left click
 <click:X:Y>          move to absolute coordinates, then left click
 <rclick:X:Y>         move to absolute coordinates, then right click

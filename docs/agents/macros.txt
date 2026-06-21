@@ -52,6 +52,31 @@ keymasq play btn_left wait:10 btn_left --print-json \
 ```text
 <tab>
 <enter>
+<space>
+<esc>
+<backspace>
+<delete>
+<up>
+<down>
+<left>
+<right>
+<home>
+<end>
+<pageup>
+<pagedown>
+<KEY:COUNT>          repeat a named key up to 100 times, e.g. <tab:3>
+<shortcut:MOD+KEY>   press a shortcut, e.g. <shortcut:ctrl+shift+v>
+<move:X:Y>           natural absolute mouse move with fast defaults
+<click>              left click
+<lclick>             left click
+<leftclick>          left click
+<rclick>             right click
+<rightclick>         right click
+<doubleclick>        double left click
+<click:X:Y>          move to absolute coordinates, then left click
+<rclick:X:Y>         move to absolute coordinates, then right click
+<doubleclick:X:Y>    move to absolute coordinates, then double left click
+<settle>             fixed 300ms wait
 <wait:MS>
 <wait:MIN:MAX>
 ```

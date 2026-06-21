@@ -472,7 +472,7 @@ def type_cli(
         except ValueError as exc:
             print(f"Error: {exc}")
             sys.exit(1)
-        _print_json(macro_definition_from_events(events, device_types=["keyboard"]))
+        _print_json(macro_definition_from_events(events))
         return
 
     result = _request_or_error(

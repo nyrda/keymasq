@@ -64,9 +64,13 @@ def main() -> None:
         help="Type text using an ad-hoc macro",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Inline controls: <tab>, <enter>, <wait:MS>, <wait:MIN:MAX>\n"
+            "Inline controls: <tab>, <enter>, <space>, <esc>, <backspace>, <delete>,\n"
+            "<up>, <down>, <left>, <right>, <home>, <end>, <pageup>, <pagedown>,\n"
+            "<KEY:COUNT>, <shortcut:MOD+KEY>, <move:X:Y>, <click[:X:Y]>,\n"
+            "<doubleclick[:X:Y]>, <rclick[:X:Y]>, <settle>, <wait:MS>, <wait:MIN:MAX>\n"
             r"Use \< to type a literal <." "\n"
             'Example: keymasq type "user<tab><wait:100:250>password<enter>"\n'
+            'Example: keymasq type "<move:420:180><click>"\n'
             f"Full reference: {_docs_url()}"
         ),
     )

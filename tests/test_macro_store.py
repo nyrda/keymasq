@@ -443,9 +443,18 @@ def test_macro_store_update_replacing_events_clears_stale_type_metadata(tmp_path
         expected_revision=1,
     )
 
+    persisted = store.get("type_macro")
+
     assert "type_binding" not in updated
     assert "type_text" not in updated
-    assert "type_text" not in store.get("type_macro")
+    assert "type_down_ms" not in updated
+    assert "type_pause_ms" not in updated
+    assert "type_use_unicode_input" not in updated
+    assert "type_binding" not in persisted
+    assert "type_text" not in persisted
+    assert "type_down_ms" not in persisted
+    assert "type_pause_ms" not in persisted
+    assert "type_use_unicode_input" not in persisted
 
 
 def test_macro_store_update_replacing_events_preserves_fresh_type_metadata(tmp_path: Path) -> None:

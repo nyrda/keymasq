@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.coercion import coerce_int
 from keymasq.common.macro_compile import (
@@ -99,18 +99,24 @@ class TypeTabMixin:
         self.type_error_label.set_visible(False)
         outer.append(self.type_error_label)
 
-        current_name = getattr(self, "_selected_type_macro", None)
-        if current_name:
-            GLib.idle_add(self._load_type_macro_details)
-
         self._sync_type_unicode_option()
         self._sync_type_map_button()
         return outer
+
+    def _maybe_load_type_macro_details(self) -> None:
+        if getattr(self, "_type_macro_details_loaded", False):
+            return
+        if getattr(self, "_type_macro_details_loading", False):
+            return
+        if not getattr(self, "_selected_type_macro", None):
+            return
+        self._load_type_macro_details()
 
     def _load_type_macro_details(self) -> bool:
         name = getattr(self, "_selected_type_macro", None)
         if not name:
             return False
+        self._type_macro_details_loading = True
         session_request_async(
             {"command": "get_macro", "name": name},
             self._on_type_macro_details_loaded,
@@ -118,6 +124,8 @@ class TypeTabMixin:
         return False
 
     def _on_type_macro_details_loaded(self, result: JsonObject | None) -> bool:
+        self._type_macro_details_loading = False
+        self._type_macro_details_loaded = True
         macro = result.get("macro") if isinstance(result, dict) else None
         if not isinstance(macro, dict) or not bool(macro.get("type_binding", False)):
             return False
@@ -141,6 +149,7 @@ class TypeTabMixin:
 
     def _on_type_unicode_toggled(self, _check: Gtk.CheckButton) -> None:
         self._clear_type_error()
+        self._sync_type_map_button()
 
     def _type_buffer_text(self) -> str:
         buffer = self.type_text_view.get_buffer()

@@ -144,6 +144,8 @@ class KeySelectorDialog(
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
         self._selected_type_macro: str | None = None
+        self._type_macro_details_loaded = False
+        self._type_macro_details_loading = False
         self._type_create_pending = False
         self._cancel_macro_playback_btn: Gtk.Button | None = None
         self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
@@ -589,6 +591,7 @@ class KeySelectorDialog(
         elif is_analog_control:
             self.map_btn.set_sensitive(bool(self._selected_analog_controls))
         elif is_type:
+            self._maybe_load_type_macro_details()
             self._sync_type_map_button()
         elif is_macro:
             self.map_btn.set_sensitive(self._selected_macro is not None)

@@ -423,6 +423,60 @@ def test_macro_store_update_can_clear_type_metadata(tmp_path: Path) -> None:
     assert "type_text" not in store.get("type_macro")
 
 
+def test_macro_store_update_replacing_events_clears_stale_type_metadata(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "type_macro",
+            "events": [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "secret",
+            "type_down_ms": 20,
+            "type_pause_ms": 30,
+            "type_use_unicode_input": True,
+        }
+    )
+
+    updated = store.update(
+        "type_macro",
+        {"events": [{"device_type": "keyboard", "type": 1, "code": 31, "value": 1, "t_us": 0}]},
+        expected_revision=1,
+    )
+
+    assert "type_binding" not in updated
+    assert "type_text" not in updated
+    assert "type_text" not in store.get("type_macro")
+
+
+def test_macro_store_update_replacing_events_preserves_fresh_type_metadata(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "type_macro",
+            "events": [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "old",
+        }
+    )
+
+    updated = store.update(
+        "type_macro",
+        {
+            "events": [{"device_type": "keyboard", "type": 1, "code": 31, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "new",
+            "type_down_ms": 5,
+            "type_pause_ms": 10,
+        },
+        expected_revision=1,
+    )
+
+    assert updated["type_binding"] is True
+    assert updated["type_text"] == "new"
+    assert updated["type_down_ms"] == 5
+    assert updated["type_pause_ms"] == 10
+
+
 def test_macro_store_list_meta_logs_unreadable_files(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,

@@ -117,6 +117,18 @@ def test_action_labels_include_state_flags_and_fallbacks() -> None:
     ) == "Exec → ?"
     assert (
         describe_mapping_action_compact(
+            MappingAction(action_type=ActionType.MACRO, macro_name="type_text_demo")
+        )
+        == "🎬 type_text_demo"
+    )
+    assert (
+        describe_mapping_action_verbose(
+            MappingAction(action_type=ActionType.MACRO, macro_name="type_text_demo")
+        )
+        == "Macro → type_text_demo"
+    )
+    assert (
+        describe_mapping_action_compact(
             MappingAction(
                 action_type=ActionType.ANALOG_CONTROL,
                 analog_control_names=["Mouse", "WASD"],

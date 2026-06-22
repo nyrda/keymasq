@@ -2137,13 +2137,18 @@ class TestDialogConstruction:
         assert dialog.error_label.get_label() == "Only letters, numbers, underscores and hyphens"
 
         dialog.name_entry.set_text("typed")
-        dialog.text_view.get_buffer().set_text("Hi")
+        dialog.text_view.get_buffer().set_text("Hi<click>")
         dialog.down_spin.set_value(5)
         dialog.pause_spin.set_value(7)
         dialog._on_create(dialog._create_btn)
 
         assert requests[0]["command"] == "create_macro"
         assert requests[0]["macro"]["name"] == "typed"
-        assert requests[0]["macro"]["device_types"] == ["keyboard"]
+        assert requests[0]["macro"]["device_types"] == ["keyboard", "mouse"]
+        assert requests[0]["macro"]["type_binding"] is True
+        assert requests[0]["macro"]["type_text"] == "Hi<click>"
+        assert requests[0]["macro"]["type_down_ms"] == 5
+        assert requests[0]["macro"]["type_pause_ms"] == 7
+        assert requests[0]["macro"]["type_use_unicode_input"] is False
         assert requests[0]["macro"]["events"]
         assert created == [True]

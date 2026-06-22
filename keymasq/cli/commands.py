@@ -3,6 +3,10 @@ import socket
 import sys
 from typing import cast
 
+from keymasq.common.macro_compile import (
+    DEFAULT_TYPE_MACRO_DOWN_MS,
+    DEFAULT_TYPE_MACRO_PAUSE_MS,
+)
 from keymasq.common.models import parse_mpris_command
 from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
@@ -448,8 +452,8 @@ def delete_macro_cli(name: str, *, json_output: bool = False) -> None:
 def type_cli(
     text_parts: list[str],
     *,
-    down_ms: int = 10,
-    pause_ms: int = 20,
+    down_ms: int = DEFAULT_TYPE_MACRO_DOWN_MS,
+    pause_ms: int = DEFAULT_TYPE_MACRO_PAUSE_MS,
     speed: float = 1.0,
     use_unicode_input: bool = True,
     print_json: bool = False,

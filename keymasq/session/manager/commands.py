@@ -4,6 +4,10 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.macro_compile import (
+    DEFAULT_TYPE_MACRO_DOWN_MS,
+    DEFAULT_TYPE_MACRO_PAUSE_MS,
+)
 from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
     normalize_macro_loop_stop_behavior,
@@ -793,8 +797,8 @@ async def _handle_macro_commands(
             events, payload = await asyncio.to_thread(
                 _compile_type_text_macro,
                 text,
-                max(0, coerce_int(request.get("down_ms"), 10)),
-                max(0, coerce_int(request.get("pause_ms"), 20)),
+                max(0, coerce_int(request.get("down_ms"), DEFAULT_TYPE_MACRO_DOWN_MS)),
+                max(0, coerce_int(request.get("pause_ms"), DEFAULT_TYPE_MACRO_PAUSE_MS)),
                 bool(request.get("use_unicode_input", True)),
                 coerce_float(request.get("speed"), 1.0),
             )

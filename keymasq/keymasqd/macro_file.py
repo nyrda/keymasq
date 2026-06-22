@@ -34,6 +34,11 @@ class MacroFileMeta:
     loop_mode: str = "none"
     loop_count: int = 1
     loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    type_binding: bool = False
+    type_text: str = ""
+    type_down_ms: int = 0
+    type_pause_ms: int = 0
+    type_use_unicode_input: bool = False
 
     @classmethod
     def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> "MacroFileMeta":
@@ -56,10 +61,15 @@ class MacroFileMeta:
                 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
             )
             or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+            type_binding=bool(payload.get("type_binding", False)),
+            type_text=macro_payload_str(payload, "type_text"),
+            type_down_ms=macro_payload_int(payload, "type_down_ms", 0),
+            type_pause_ms=macro_payload_int(payload, "type_pause_ms", 0),
+            type_use_unicode_input=bool(payload.get("type_use_unicode_input", False)),
         )
 
-    def to_payload(self) -> JsonObject:
-        return {
+    def to_payload(self, *, include_type_text: bool = False) -> JsonObject:
+        payload: JsonObject = {
             "name": self.name,
             "duration_us": int(self.duration_us),
             "device_types": list(self.device_types),
@@ -74,12 +84,20 @@ class MacroFileMeta:
             "loop_count": int(self.loop_count),
             "loop_stop_behavior": self.loop_stop_behavior,
         }
+        if self.type_binding:
+            payload["type_binding"] = True
+            payload["type_down_ms"] = int(self.type_down_ms)
+            payload["type_pause_ms"] = int(self.type_pause_ms)
+            payload["type_use_unicode_input"] = bool(self.type_use_unicode_input)
+            if include_type_text:
+                payload["type_text"] = self.type_text
+        return payload
 
     def to_record(self) -> JsonObject:
         return {
             "format": MACRO_FILE_FORMAT,
             "version": MACRO_FILE_VERSION,
-            **self.to_payload(),
+            **self.to_payload(include_type_text=True),
         }
 
 
@@ -109,7 +127,7 @@ def iter_macro_events(path: Path) -> Iterator[MacroEvent]:
 
 def load_macro(path: Path) -> JsonObject:
     meta = read_macro_meta(path)
-    payload = meta.to_payload()
+    payload = meta.to_payload(include_type_text=True)
     payload["events"] = list(iter_macro_events(path))
     return payload
 

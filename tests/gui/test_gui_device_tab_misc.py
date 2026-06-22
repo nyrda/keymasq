@@ -1,6 +1,7 @@
 # ruff: noqa: I001
 from collections.abc import Callable
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -911,6 +912,264 @@ def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
 
     buttons_by_label["Passthrough"].emit("clicked")
     assert results == [None]
+
+
+def test_key_selector_type_tab_creates_macro_and_maps_it(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    requests: list[dict[str, object]] = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        requests.append(payload)
+        if on_start:
+            on_start()
+        macro = payload["macro"]
+        callback({"status": "ok", "macro": {"name": macro["name"]}})
+        if on_done:
+            on_done()
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    results = []
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("Hi")
+    dialog.type_down_spin.set_value(5)
+    dialog.type_pause_spin.set_value(7)
+
+    dialog._on_map_clicked(dialog.map_btn)
+
+    assert len(requests) == 1
+    assert requests[0]["command"] == "create_macro"
+    macro = cast(dict[str, object], requests[0]["macro"])
+    assert str(macro["name"]).startswith("type_text_")
+    assert macro["type_binding"] is True
+    assert macro["type_text"] == "Hi"
+    assert macro["type_down_ms"] == 5
+    assert macro["type_pause_ms"] == 7
+    assert macro["type_use_unicode_input"] is False
+    assert macro["events"]
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.MACRO
+    assert results[0].macro_name == macro["name"]
+    assert results[0].macro_replay_mouse_movement is True
+    assert results[0].macro_replay_mouse_clicks is True
+    assert results[0].macro_speed == 1.0
+
+
+def test_key_selector_type_tab_allows_whitespace_only_text(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    requests: list[dict[str, object]] = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        requests.append(payload)
+        macro = payload["macro"]
+        callback({"status": "ok", "macro": {"name": macro["name"]}})
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text(" ")
+
+    assert dialog.map_btn.get_sensitive() is True
+    dialog._on_map_clicked(dialog.map_btn)
+
+    assert len(requests) == 1
+    assert requests[0]["command"] == "create_macro"
+    macro = cast(dict[str, object], requests[0]["macro"])
+    assert macro["type_text"] == " "
+    assert macro["type_down_ms"] == 5
+    assert macro["type_pause_ms"] == 10
+
+
+def test_key_selector_type_tab_loads_macro_details_only_when_opened(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    requests: list[dict[str, object]] = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        requests.append(payload)
+        callback(
+            {
+                "status": "ok",
+                "macro": {
+                    "name": "typed",
+                    "type_binding": True,
+                    "type_text": "Hello",
+                    "type_down_ms": 6,
+                    "type_pause_ms": 8,
+                },
+            }
+        )
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(action_type=ActionType.MACRO, macro_name="typed"),
+    )
+
+    assert requests == []
+
+    dialog.stack.set_visible_child_name("type")
+
+    assert requests == [{"command": "get_macro", "name": "typed"}]
+    assert dialog._type_buffer_text() == "Hello"
+    assert int(dialog.type_down_spin.get_value()) == 6
+    assert int(dialog.type_pause_spin.get_value()) == 8
+
+    dialog.stack.set_visible_child_name("macro")
+    dialog.stack.set_visible_child_name("type")
+
+    assert requests == [{"command": "get_macro", "name": "typed"}]
+
+
+def test_key_selector_type_tab_does_not_clobber_user_edits_after_async_load(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        assert payload == {"command": "get_macro", "name": "typed"}
+        callbacks.append(callback)
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(action_type=ActionType.MACRO, macro_name="typed"),
+    )
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("User edit")
+    dialog.type_down_spin.set_value(22)
+
+    callbacks[0](
+        {
+            "status": "ok",
+            "macro": {
+                "name": "typed",
+                "type_binding": True,
+                "type_text": "Stored text",
+                "type_down_ms": 6,
+                "type_pause_ms": 8,
+            },
+        }
+    )
+
+    assert dialog._type_buffer_text() == "User edit"
+    assert int(dialog.type_down_spin.get_value()) == 22
+
+
+def test_key_selector_type_tab_preserves_macro_playback_options(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    requests: list[dict[str, object]] = []
+    results = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        requests.append(payload)
+        if payload["command"] == "get_macro":
+            callback(
+                {
+                    "status": "ok",
+                    "macro": {
+                        "name": "typed",
+                        "type_binding": True,
+                        "type_text": "Old",
+                    },
+                }
+            )
+            return
+        macro = payload["macro"]
+        callback({"status": "ok", "macro": {"name": macro["name"]}})
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.MACRO,
+            macro_name="typed",
+            macro_replay_mouse_movement=False,
+            macro_replay_mouse_clicks=False,
+            macro_speed=1.75,
+        ),
+    )
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("New")
+
+    dialog._on_map_clicked(dialog.map_btn)
+
+    assert [request["command"] for request in requests] == ["get_macro", "create_macro"]
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.MACRO
+    assert results[0].macro_replay_mouse_movement is False
+    assert results[0].macro_replay_mouse_clicks is False
+    assert results[0].macro_speed == 1.75
+
+
+def test_key_selector_type_tab_resyncs_map_button_after_unicode_toggle(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("\u00ad")
+
+    assert dialog.type_unicode_check.get_visible() is True
+    assert dialog.type_unicode_check.get_active() is True
+    assert dialog.map_btn.get_sensitive() is True
+
+    dialog.type_unicode_check.set_active(False)
+
+    assert dialog.map_btn.get_sensitive() is False
 
 
 def test_analog_key_selector_default_tab_and_special_has_no_passthrough(temp_config_dir):
@@ -3255,6 +3514,14 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     dialog.stack.set_visible_child_name("mouse")
 
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Mouse documentation"
+
+    dialog.stack.set_visible_child_name("type")
+
+    assert dialog.actions_docs_btn.get_tooltip_text() == "Open Type documentation"
+    assert dialog._active_actions_docs_link() == ("type-macro-inline-controls", "Type")
+    assert dialog_module._actions_docs_url("type-macro-inline-controls") == (
+        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+    )
 
     monkeypatch.setattr(dialog_module, "__version__", "1.2.3.dev1")
     assert dialog_module._actions_docs_url("mouse") == (

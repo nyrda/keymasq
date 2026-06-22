@@ -179,6 +179,15 @@ class MacroStore:
                     data.pop("duration_us", None)
                 if "device_types" not in payload:
                     data.pop("device_types", None)
+                if not (payload.get("type_binding") is True and "type_text" in payload):
+                    for key in (
+                        "type_text",
+                        "type_down_ms",
+                        "type_pause_ms",
+                        "type_use_unicode_input",
+                    ):
+                        data.pop(key, None)
+                    data["type_binding"] = False
             self._write_payload(self._macro_path(name), data)
             return self.get(name)
 

@@ -10,6 +10,10 @@ Macros are stored in daemon-owned files:
 
 Do not edit those files directly. Use the GUI or CLI.
 
+The key selector's Type tab creates normal stored type macros with generated
+`type_text_*` names and maps them in one step. These macros appear in normal
+macro lists and the Macro Library.
+
 ## CLI commands
 
 ```bash

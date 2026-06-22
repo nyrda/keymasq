@@ -108,9 +108,11 @@ def test_cli_main_type_help_includes_inline_controls_and_docs(
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "<tab>, <enter>, <space>, <esc>, <backspace>, <delete>" in out
-    assert "<KEY:COUNT>, <shortcut:MOD+KEY>, <move:X:Y>, <click[:X:Y]>" in out
-    assert "<doubleclick[:X:Y]>, <rclick[:X:Y]>, <settle>, <wait:MS>, <wait:MIN:MAX>" in out
+    assert 'Example: keymasq type "user<tab><wait:100:250>password<enter>"' in out
+    assert (
+        "Type inline controls: "
+        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+    ) in out
     assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
 
@@ -305,7 +307,7 @@ def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None
         {
             "text": ["hello"],
             "down_ms": 5,
-            "pause_ms": 20,
+            "pause_ms": 10,
             "speed": 1.25,
             "use_unicode_input": True,
             "print_json": False,

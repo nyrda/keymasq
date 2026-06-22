@@ -303,6 +303,7 @@ ACTION_DOC_LINKS = {
     "analog_control": ("analog-controls", "Analog Controls"),
     "special": ("special", "Special"),
     "keyboard": ("keyboard", "Keyboard"),
+    "type": ("type-macro-inline-controls", "Type"),
     "navigation": ("navigation", "Navigation"),
     "media": ("media", "Media"),
     "mouse": ("mouse", "Mouse"),

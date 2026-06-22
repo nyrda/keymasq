@@ -367,6 +367,62 @@ def test_macro_store_internal_meta_uses_macro_file_meta_payload(tmp_path: Path) 
     ).to_payload()
 
 
+def test_macro_store_list_meta_redacts_type_macro_text(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "type_secret",
+            "events": [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "hunter2",
+            "type_down_ms": 20,
+            "type_pause_ms": 30,
+            "type_use_unicode_input": True,
+        }
+    )
+
+    listed = store.list_meta()[0]
+    loaded = store.get("type_secret")
+
+    assert listed["type_binding"] is True
+    assert "type_text" not in listed
+    assert listed["type_down_ms"] == 20
+    assert listed["type_pause_ms"] == 30
+    assert listed["type_use_unicode_input"] is True
+    assert loaded["type_text"] == "hunter2"
+
+
+def test_macro_store_update_can_clear_type_metadata(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "type_macro",
+            "events": [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "secret",
+            "type_down_ms": 20,
+            "type_pause_ms": 30,
+            "type_use_unicode_input": True,
+        }
+    )
+
+    updated = store.update(
+        "type_macro",
+        {
+            "events": [{"device_type": "keyboard", "type": 1, "code": 31, "value": 1, "t_us": 0}],
+            "type_binding": False,
+        },
+        expected_revision=1,
+    )
+
+    assert "type_binding" not in updated
+    assert "type_text" not in updated
+    assert "type_down_ms" not in updated
+    assert "type_pause_ms" not in updated
+    assert "type_use_unicode_input" not in updated
+    assert "type_text" not in store.get("type_macro")
+
+
 def test_macro_store_list_meta_logs_unreadable_files(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,

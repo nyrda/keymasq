@@ -39,6 +39,7 @@ from .profile_tab import ProfileTabMixin
 from .superkey_tab import SuperkeyTabMixin
 from .tabs import SharedInputTabsMixin, _create_actions_docs_button, _ensure_compact_tabs_css
 from .targets import EVDEV_TO_GAMEPAD, EVDEV_TO_KEY, MEDIA_KEY_TARGETS
+from .type_tab import TypeTabMixin
 
 
 class KeySelectorDialog(
@@ -47,6 +48,7 @@ class KeySelectorDialog(
     GamepadAxisControlsMixin,
     MappingOptionsPanelMixin,
     MacroTabMixin,
+    TypeTabMixin,
     ProfileTabMixin,
     SuperkeyTabMixin,
     AnalogTabMixin,
@@ -141,6 +143,8 @@ class KeySelectorDialog(
         self._repeat_options_box: Gtk.Widget | None = None
         self._macro_list: list[dict] = []
         self._selected_macro: str | None = None
+        self._selected_type_macro: str | None = None
+        self._type_create_pending = False
         self._cancel_macro_playback_btn: Gtk.Button | None = None
         self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
         self._macro_slot_console: Gtk.Box | None = None
@@ -212,6 +216,7 @@ class KeySelectorDialog(
             self._tap_hold = current_action.tap_hold_ms
             if current_action.action_type == ActionType.MACRO:
                 self._selected_macro = current_action.macro_name
+                self._selected_type_macro = current_action.macro_name
                 self._macro_replay_movement = current_action.macro_replay_mouse_movement
                 self._macro_replay_clicks = current_action.macro_replay_mouse_clicks
                 self._macro_speed = current_action.macro_speed
@@ -322,6 +327,8 @@ class KeySelectorDialog(
                 self.stack.add_titled(self._build_special_tab(), "special", "Special")
             if self._tab_allowed("keyboard"):
                 self.stack.add_titled(self._build_keyboard_tab(), "keyboard", "Keyboard")
+            if self._tab_allowed("type"):
+                self.stack.add_titled(self._build_type_tab(), "type", "Type")
             if self._tab_allowed("navigation"):
                 self.stack.add_titled(self._build_navigation_tab(), "navigation", "Navigation")
             if self._tab_allowed("media"):
@@ -541,6 +548,7 @@ class KeySelectorDialog(
         is_analog_control = child_name == "analog_control"
         is_analog_presets = child_name == "analog_presets"
         is_analog_only = is_analog_control or is_analog_presets
+        is_type = child_name == "type"
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
         is_mouse_move = child_name == "mouse" and self._include_mouse_move_controls
@@ -555,6 +563,7 @@ class KeySelectorDialog(
             is_special
             or is_superkey
             or is_analog_only
+            or is_type
             or is_macro
             or is_profile
             or is_exec
@@ -565,7 +574,12 @@ class KeySelectorDialog(
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
         self.map_btn.set_visible(
-            is_superkey or is_analog_control or is_macro or is_profile or is_mouse_move
+            is_superkey
+            or is_analog_control
+            or is_type
+            or is_macro
+            or is_profile
+            or is_mouse_move
         )
         self.map_btn.set_label(self._mouse_move_commit_label if is_mouse_move else "Map")
         if self._cancel_macro_playback_btn is not None:
@@ -574,6 +588,8 @@ class KeySelectorDialog(
             self.map_btn.set_sensitive(self._selected_superkey is not None)
         elif is_analog_control:
             self.map_btn.set_sensitive(bool(self._selected_analog_controls))
+        elif is_type:
+            self._sync_type_map_button()
         elif is_macro:
             self.map_btn.set_sensitive(self._selected_macro is not None)
         elif is_profile:
@@ -738,6 +754,8 @@ class KeySelectorDialog(
             self._on_superkey_map_clicked(btn)
         elif child_name == "analog_control":
             self._on_analog_control_map_clicked(btn)
+        elif child_name == "type":
+            self._on_type_map_clicked(btn)
         elif child_name == "macro":
             self._on_macro_map_clicked(btn)
         elif child_name == "profile":
@@ -760,6 +778,7 @@ class KeySelectorDialog(
         )
         if compositor_tab not in self._compositor_action_page_ids:
             compositor_tab = None
+        macro_tab = "macro"
         tab_map = {
             ActionType.PASSTHROUGH: "special",
             ActionType.SUPPRESS: "special",
@@ -782,7 +801,7 @@ class KeySelectorDialog(
             ActionType.MOUSE_MOVE_NATURAL_ABS: "mouse",
             ActionType.GAMEPAD: "gamepad",
             ActionType.GAMEPAD_AXIS: "gamepad",
-            ActionType.MACRO: "macro",
+            ActionType.MACRO: macro_tab,
             ActionType.PROFILE_ENABLE: "profile",
             ActionType.PROFILE_DISABLE: "profile",
             ActionType.PROFILE_TOGGLE: "profile",

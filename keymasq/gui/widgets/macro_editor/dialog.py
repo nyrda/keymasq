@@ -1122,6 +1122,15 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         data["start_x"] = int(self._macro_start_x_spin.get_value())
         data["start_y"] = int(self._macro_start_y_spin.get_value())
         data["block_mouse_movement"] = bool(self._macro_block_mouse_check.get_active())
+        if raw_events != self._macro_data.get("events", []):
+            for key in (
+                "type_text",
+                "type_down_ms",
+                "type_pause_ms",
+                "type_use_unicode_input",
+            ):
+                data.pop(key, None)
+            data["type_binding"] = False
         return data
 
     def close(self) -> None:

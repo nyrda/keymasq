@@ -2,6 +2,10 @@ import sys
 from math import isfinite
 
 from keymasq import __version__
+from keymasq.common.macro_compile import (
+    DEFAULT_TYPE_MACRO_DOWN_MS,
+    DEFAULT_TYPE_MACRO_PAUSE_MS,
+)
 
 
 def _positive_float(value: str) -> float:
@@ -30,6 +34,12 @@ def _docs_url() -> str:
     version = __version__.strip()
     docs_version = "master" if not version or "dev" in version else f"v{version.removeprefix('v')}"
     return f"https://keymasq.tools/docs/{docs_version}/CLI.md"
+
+
+def _type_controls_docs_url() -> str:
+    version = __version__.strip()
+    docs_version = "master" if not version or "dev" in version else f"v{version.removeprefix('v')}"
+    return f"https://keymasq.tools/docs/{docs_version}/MACROS/#type-macro-inline-controls"
 
 
 def main() -> None:
@@ -64,19 +74,25 @@ def main() -> None:
         help="Type text using an ad-hoc macro",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Inline controls: <tab>, <enter>, <space>, <esc>, <backspace>, <delete>,\n"
-            "<up>, <down>, <left>, <right>, <home>, <end>, <pageup>, <pagedown>,\n"
-            "<KEY:COUNT>, <shortcut:MOD+KEY>, <move:X:Y>, <click[:X:Y]>,\n"
-            "<doubleclick[:X:Y]>, <rclick[:X:Y]>, <settle>, <wait:MS>, <wait:MIN:MAX>\n"
-            r"Use \< to type a literal <." "\n"
             'Example: keymasq type "user<tab><wait:100:250>password<enter>"\n'
             'Example: keymasq type "<move:420:180><click>"\n'
+            f"Type inline controls: {_type_controls_docs_url()}\n"
             f"Full reference: {_docs_url()}"
         ),
     )
     type_parser.add_argument("text", nargs="*", help="Text to type; stdin is used when omitted")
-    type_parser.add_argument("--down-ms", type=int, default=10, help="Key down duration")
-    type_parser.add_argument("--pause-ms", type=int, default=20, help="Pause between characters")
+    type_parser.add_argument(
+        "--down-ms",
+        type=int,
+        default=DEFAULT_TYPE_MACRO_DOWN_MS,
+        help="Key down duration",
+    )
+    type_parser.add_argument(
+        "--pause-ms",
+        type=int,
+        default=DEFAULT_TYPE_MACRO_PAUSE_MS,
+        help="Pause between characters",
+    )
     type_parser.add_argument(
         "--no-unicode",
         action="store_true",

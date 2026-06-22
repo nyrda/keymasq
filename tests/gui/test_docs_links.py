@@ -21,3 +21,6 @@ def test_docs_page_urls_use_shared_versioned_base() -> None:
     assert actions_docs_url("analog-controls", version="1.2.3") == (
         "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
     )
+    assert actions_docs_url("type-macro-inline-controls", version="1.2.3") == (
+        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+    )

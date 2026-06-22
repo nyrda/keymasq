@@ -15,6 +15,8 @@ from keymasq.common.types import JsonObject
 
 IntLike = int | float | str | bytes
 TypeMacroToken = tuple[str, str]
+DEFAULT_TYPE_MACRO_DOWN_MS = 5
+DEFAULT_TYPE_MACRO_PAUSE_MS = 10
 _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED = 100_000.0
 _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER = 0.0
 _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE = "linear"
@@ -95,6 +97,12 @@ def normalize_type_macro_text(text: str) -> str:
 
 def normalize_unicode_type_macro_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def normalize_type_macro_binding_text(text: str, *, use_unicode_input: bool) -> str:
+    if use_unicode_input:
+        return normalize_unicode_type_macro_text(text)
+    return normalize_type_macro_text(text)
 
 
 def build_type_macro_events(

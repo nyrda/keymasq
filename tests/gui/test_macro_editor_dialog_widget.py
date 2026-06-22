@@ -225,6 +225,92 @@ def test_macro_editor_insert_gamepad_action_adds_timeline_event(monkeypatch) -> 
     ]
 
 
+def test_macro_editor_preserves_type_metadata_when_events_are_unchanged(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    raw_events = [
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 1000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 6000,
+        },
+    ]
+    dialog._macro_data = {
+        "name": "type_macro",
+        "events": raw_events,
+        "type_binding": True,
+        "type_text": "a",
+        "type_down_ms": 5,
+        "type_pause_ms": 10,
+        "type_use_unicode_input": False,
+    }
+    (
+        dialog._events,
+        dialog._rel_events,
+        dialog._passthrough_events,
+        dialog._synthetic_moves,
+        dialog._control_events,
+    ) = parse_events(raw_events)
+
+    payload = dialog._build_macro_payload("type_macro")
+
+    assert payload["type_binding"] is True
+    assert payload["type_text"] == "a"
+
+
+def test_macro_editor_clears_type_metadata_when_events_change(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    raw_events = [
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 1000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 6000,
+        },
+    ]
+    dialog._macro_data = {
+        "name": "type_macro",
+        "events": raw_events,
+        "type_binding": True,
+        "type_text": "a",
+        "type_down_ms": 5,
+        "type_pause_ms": 10,
+        "type_use_unicode_input": False,
+    }
+    (
+        dialog._events,
+        dialog._rel_events,
+        dialog._passthrough_events,
+        dialog._synthetic_moves,
+        dialog._control_events,
+    ) = parse_events(raw_events)
+    dialog._events[0].code = evdev.ecodes.KEY_B
+
+    payload = dialog._build_macro_payload("type_macro")
+
+    assert payload["type_binding"] is False
+    assert "type_text" not in payload
+    assert "type_down_ms" not in payload
+    assert "type_pause_ms" not in payload
+    assert "type_use_unicode_input" not in payload
+
+
 def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     event = EditableEvent(

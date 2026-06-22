@@ -1041,9 +1041,10 @@ class DocshotRunner:
         shot = self.shots[self.shot_index]
         path = _shot_path(self.output_root, mode, shot)
         try:
+            _drain_events()
             if self.window is not None:
                 self._apply_runtime_state()
-            _drain_events()
+                _drain_events()
 
             if self.capture_root_window:
                 self._capture_current_root_window(path, shot)

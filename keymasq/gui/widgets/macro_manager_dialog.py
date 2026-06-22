@@ -11,9 +11,12 @@ from gi.repository import Adw, Gdk, GLib, Gtk  # pyright: ignore[reportAttribute
 
 from keymasq import __version__
 from keymasq.common.macro_compile import (
+    DEFAULT_TYPE_MACRO_DOWN_MS,
+    DEFAULT_TYPE_MACRO_PAUSE_MS,
     build_type_macro_events,
     can_type_directly,
     char_to_key,
+    macro_definition_from_events,
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
 )
@@ -866,7 +869,12 @@ class TypeMacroDialog(Adw.Dialog):
 
         self.down_spin = Gtk.SpinButton()
         self.down_spin.set_adjustment(
-            Gtk.Adjustment(value=10, lower=0, upper=1000, step_increment=1)
+            Gtk.Adjustment(
+                value=DEFAULT_TYPE_MACRO_DOWN_MS,
+                lower=0,
+                upper=1000,
+                step_increment=1,
+            )
         )
         timing.append(self.down_spin)
 
@@ -875,7 +883,12 @@ class TypeMacroDialog(Adw.Dialog):
 
         self.pause_spin = Gtk.SpinButton()
         self.pause_spin.set_adjustment(
-            Gtk.Adjustment(value=20, lower=0, upper=1000, step_increment=1)
+            Gtk.Adjustment(
+                value=DEFAULT_TYPE_MACRO_PAUSE_MS,
+                lower=0,
+                upper=1000,
+                step_increment=1,
+            )
         )
         timing.append(self.pause_spin)
 
@@ -967,14 +980,13 @@ class TypeMacroDialog(Adw.Dialog):
             self._show_error(str(e))
             return
 
-        duration_us = int(events[-1]["t_us"]) if events else 0
-        data = {
-            "name": name,
-            "created_at": datetime.now().isoformat(),
-            "duration_us": duration_us,
-            "device_types": ["keyboard"],
-            "events": events,
-        }
+        data = macro_definition_from_events(events, name=name)
+        data["created_at"] = datetime.now().isoformat()
+        data["type_binding"] = True
+        data["type_text"] = text
+        data["type_down_ms"] = down_ms
+        data["type_pause_ms"] = pause_ms
+        data["type_use_unicode_input"] = bool(use_unicode_input)
 
         def on_create_start() -> None:
             self._create_btn.set_sensitive(False)

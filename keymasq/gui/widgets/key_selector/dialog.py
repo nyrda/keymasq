@@ -146,6 +146,8 @@ class KeySelectorDialog(
         self._selected_type_macro: str | None = None
         self._type_macro_details_loaded = False
         self._type_macro_details_loading = False
+        self._type_details_applying = False
+        self._type_controls_modified = False
         self._type_create_pending = False
         self._cancel_macro_playback_btn: Gtk.Button | None = None
         self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)

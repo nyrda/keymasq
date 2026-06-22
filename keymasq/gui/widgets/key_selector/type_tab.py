@@ -75,6 +75,7 @@ class TypeTabMixin:
                 step_increment=1,
             )
         )
+        self.type_down_spin.connect("value-changed", self._on_type_control_changed)
         timing.append(self.type_down_spin)
 
         timing.append(Gtk.Label(label="Pause between keys (ms):"))
@@ -88,6 +89,7 @@ class TypeTabMixin:
                 step_increment=1,
             )
         )
+        self.type_pause_spin.connect("value-changed", self._on_type_control_changed)
         timing.append(self.type_pause_spin)
 
         outer.append(timing)
@@ -129,27 +131,41 @@ class TypeTabMixin:
         macro = result.get("macro") if isinstance(result, dict) else None
         if not isinstance(macro, dict) or not bool(macro.get("type_binding", False)):
             return False
+        if self._type_controls_modified:
+            return False
 
-        self.type_text_view.get_buffer().set_text(str(macro.get("type_text", "") or ""))
-        self.type_down_spin.set_value(
-            float(coerce_int(macro.get("type_down_ms"), DEFAULT_TYPE_MACRO_DOWN_MS))
-        )
-        self.type_pause_spin.set_value(
-            float(coerce_int(macro.get("type_pause_ms"), DEFAULT_TYPE_MACRO_PAUSE_MS))
-        )
-        self.type_unicode_check.set_active(bool(macro.get("type_use_unicode_input", False)))
-        self._sync_type_unicode_option()
+        self._type_details_applying = True
+        try:
+            self.type_text_view.get_buffer().set_text(str(macro.get("type_text", "") or ""))
+            self.type_down_spin.set_value(
+                float(coerce_int(macro.get("type_down_ms"), DEFAULT_TYPE_MACRO_DOWN_MS))
+            )
+            self.type_pause_spin.set_value(
+                float(coerce_int(macro.get("type_pause_ms"), DEFAULT_TYPE_MACRO_PAUSE_MS))
+            )
+            self.type_unicode_check.set_active(bool(macro.get("type_use_unicode_input", False)))
+            self._sync_type_unicode_option()
+        finally:
+            self._type_details_applying = False
         self._sync_type_map_button()
         return False
 
     def _on_type_text_changed(self, _buffer: Gtk.TextBuffer) -> None:
+        if not self._type_details_applying:
+            self._type_controls_modified = True
         self._sync_type_unicode_option()
         self._clear_type_error()
         self._sync_type_map_button()
 
     def _on_type_unicode_toggled(self, _check: Gtk.CheckButton) -> None:
+        if not self._type_details_applying:
+            self._type_controls_modified = True
         self._clear_type_error()
         self._sync_type_map_button()
+
+    def _on_type_control_changed(self, _spin: Gtk.SpinButton) -> None:
+        if not self._type_details_applying:
+            self._type_controls_modified = True
 
     def _type_buffer_text(self) -> str:
         buffer = self.type_text_view.get_buffer()
@@ -253,8 +269,9 @@ class TypeTabMixin:
         action = self._build_selected_action(
             ActionType.MACRO,
             macro_name=macro_name,
-            macro_replay_mouse_movement=True,
-            macro_replay_mouse_clicks=True,
+            macro_replay_mouse_movement=bool(self._macro_replay_movement),
+            macro_replay_mouse_clicks=bool(self._macro_replay_clicks),
+            macro_speed=float(self._macro_speed),
         )
         self._emit_selected_action(action)
         return False

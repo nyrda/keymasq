@@ -963,6 +963,7 @@ def test_key_selector_type_tab_creates_macro_and_maps_it(monkeypatch):
     assert results[0].macro_name == macro["name"]
     assert results[0].macro_replay_mouse_movement is True
     assert results[0].macro_replay_mouse_clicks is True
+    assert results[0].macro_speed == 1.0
 
 
 def test_key_selector_type_tab_allows_whitespace_only_text(monkeypatch):
@@ -1048,6 +1049,109 @@ def test_key_selector_type_tab_loads_macro_details_only_when_opened(monkeypatch)
     dialog.stack.set_visible_child_name("type")
 
     assert requests == [{"command": "get_macro", "name": "typed"}]
+
+
+def test_key_selector_type_tab_does_not_clobber_user_edits_after_async_load(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        assert payload == {"command": "get_macro", "name": "typed"}
+        callbacks.append(callback)
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(action_type=ActionType.MACRO, macro_name="typed"),
+    )
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("User edit")
+    dialog.type_down_spin.set_value(22)
+
+    callbacks[0](
+        {
+            "status": "ok",
+            "macro": {
+                "name": "typed",
+                "type_binding": True,
+                "type_text": "Stored text",
+                "type_down_ms": 6,
+                "type_pause_ms": 8,
+            },
+        }
+    )
+
+    assert dialog._type_buffer_text() == "User edit"
+    assert int(dialog.type_down_spin.get_value()) == 22
+
+
+def test_key_selector_type_tab_preserves_macro_playback_options(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    requests: list[dict[str, object]] = []
+    results = []
+
+    def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        requests.append(payload)
+        if payload["command"] == "get_macro":
+            callback(
+                {
+                    "status": "ok",
+                    "macro": {
+                        "name": "typed",
+                        "type_binding": True,
+                        "type_text": "Old",
+                    },
+                }
+            )
+            return
+        macro = payload["macro"]
+        callback({"status": "ok", "macro": {"name": macro["name"]}})
+
+    monkeypatch.setattr(
+        type_tab_module,
+        "session_request_async",
+        fake_session_request_async,
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.MACRO,
+            macro_name="typed",
+            macro_replay_mouse_movement=False,
+            macro_replay_mouse_clicks=False,
+            macro_speed=1.75,
+        ),
+    )
+    dialog.connect("key-selected", lambda _dialog, action: results.append(action))
+    dialog.stack.set_visible_child_name("type")
+    dialog.type_text_view.get_buffer().set_text("New")
+
+    dialog._on_map_clicked(dialog.map_btn)
+
+    assert [request["command"] for request in requests] == ["get_macro", "create_macro"]
+    assert len(results) == 1
+    assert results[0].action_type == ActionType.MACRO
+    assert results[0].macro_replay_mouse_movement is False
+    assert results[0].macro_replay_mouse_clicks is False
+    assert results[0].macro_speed == 1.75
 
 
 def test_key_selector_type_tab_resyncs_map_button_after_unicode_toggle(monkeypatch):

@@ -6,10 +6,12 @@ from unittest.mock import AsyncMock, Mock
 
 import evdev
 import pytest
+from evdev.uinput import UInputError
 
 from keymasq.common.models import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
 from keymasq.keymasqd.runtime import actions as adm
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as cdm
@@ -276,6 +278,66 @@ class TestDeviceManagerHelpers:
         assert created[2].kwargs["name"] == "keymasq-test-gamepad"
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003
+
+    def test_create_global_uinputs_permission_error_mentions_uinput(self) -> None:
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                device_count=0,
+                keyboard_uinput=None,
+                mouse_uinput=None,
+                gamepad_uinput=None,
+            )
+        )
+
+        def fail_uinput(**_kwargs) -> FakeUInput:
+            raise PermissionError(errno.EACCES, "denied")
+
+        with pytest.raises(PermissionError) as excinfo:
+            ldm.runtime_outputs.create_global_uinputs(
+                manager,
+                evdev_mod=SimpleNamespace(
+                    ecodes=evdev.ecodes,
+                    UInput=fail_uinput,
+                    AbsInfo=evdev.AbsInfo,
+                ),
+                log=logging.getLogger("test"),
+                uinput_writer=lambda device: device,
+            )
+
+        message = str(excinfo.value)
+        assert "keyboard uinput device" in message
+        assert UINPUT_PERMISSION_HINT in message
+        assert manager.output_state.device_count == 0
+
+    def test_create_global_uinputs_uinput_error_mentions_uinput(self) -> None:
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                device_count=0,
+                keyboard_uinput=None,
+                mouse_uinput=None,
+                gamepad_uinput=None,
+            )
+        )
+
+        def fail_uinput(**_kwargs) -> FakeUInput:
+            raise UInputError('"/dev/uinput" cannot be opened for writing')
+
+        with pytest.raises(PermissionError) as excinfo:
+            ldm.runtime_outputs.create_global_uinputs(
+                manager,
+                evdev_mod=SimpleNamespace(
+                    ecodes=evdev.ecodes,
+                    UInput=fail_uinput,
+                    AbsInfo=evdev.AbsInfo,
+                ),
+                log=logging.getLogger("test"),
+                uinput_writer=lambda device: device,
+            )
+
+        message = str(excinfo.value)
+        assert "keyboard uinput device" in message
+        assert UINPUT_PERMISSION_HINT in message
+        assert manager.output_state.device_count == 0
 
     def test_configure_virtual_gamepads_logs_close_failures(
         self,

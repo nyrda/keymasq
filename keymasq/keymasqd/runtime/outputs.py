@@ -1,11 +1,17 @@
 import logging
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from hashlib import blake2b
 from typing import Any, Final, Protocol, cast
 
+from evdev.uinput import UInputError
+
 from keymasq.common.virtual_devices import clamp_virtual_gamepad_count, virtual_gamepad_output_id
+from keymasq.keymasqd.permission_hints import (
+    is_uinput_permission_error,
+    uinput_permission_message,
+)
 from keymasq.keymasqd.runtime.adapters import (
     ClosableUInput,
     UInputWriter,
@@ -213,6 +219,19 @@ class _EvdevModule(Protocol):
     AbsInfo: Final[_AbsInfoFactory]
 
 
+def create_uinput_with_permission_hint[T](context: str, create: Callable[[], T]) -> T:
+    try:
+        return create()
+    except (OSError, UInputError) as exc:
+        if is_uinput_permission_error(exc):
+            raise PermissionError(
+                uinput_permission_message(
+                    f"Failed to create {context} uinput device: {exc}"
+                )
+            ) from exc
+        raise
+
+
 def _test_uinput_enabled() -> bool:
     value = str(os.environ.get(TEST_UINPUT_ENV, "")).strip().lower()
     return value not in {"", "0", "false", "no"}
@@ -348,13 +367,16 @@ def create_virtual_gamepad(
         "gamepad",
         test_name="gamepad" if index == 1 else f"gamepad-{index}",
     )
-    uinput_dev = evdev_mod.UInput(
-        events=cast(dict[int, Sequence[int]], gamepad_caps(evdev_mod)),
-        name=gamepad_name,
-        vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
-        product=0x028E if gamepad_product is None else gamepad_product,
-        version=0x0110,
-        bustype=0x0003,
+    uinput_dev = create_uinput_with_permission_hint(
+        "virtual gamepad",
+        lambda: evdev_mod.UInput(
+            events=cast(dict[int, Sequence[int]], gamepad_caps(evdev_mod)),
+            name=gamepad_name,
+            vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
+            product=0x028E if gamepad_product is None else gamepad_product,
+            version=0x0110,
+            bustype=0x0003,
+        ),
     )
     _initialize_gamepad_axes(uinput_writer(uinput_dev), evdev_mod)
     return uinput_dev
@@ -527,16 +549,22 @@ def create_global_uinputs(
             "keyboard",
         )
         if keyboard_vendor is None or keyboard_product is None:
-            manager.output_state.keyboard_uinput = evdev_mod.UInput(
-                events=cast(dict[int, Sequence[int]], keyboard_caps),
-                name=keyboard_name,
+            manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
+                "keyboard",
+                lambda: evdev_mod.UInput(
+                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    name=keyboard_name,
+                ),
             )
         else:
-            manager.output_state.keyboard_uinput = evdev_mod.UInput(
-                events=cast(dict[int, Sequence[int]], keyboard_caps),
-                name=keyboard_name,
-                vendor=keyboard_vendor,
-                product=keyboard_product,
+            manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
+                "keyboard",
+                lambda: evdev_mod.UInput(
+                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    name=keyboard_name,
+                    vendor=keyboard_vendor,
+                    product=keyboard_product,
+                ),
             )
 
         mouse_caps = {
@@ -570,16 +598,22 @@ def create_global_uinputs(
             "mouse",
         )
         if mouse_vendor is None or mouse_product is None:
-            manager.output_state.mouse_uinput = evdev_mod.UInput(
-                events=cast(dict[int, Sequence[int]], mouse_caps),
-                name=mouse_name,
+            manager.output_state.mouse_uinput = create_uinput_with_permission_hint(
+                "mouse",
+                lambda: evdev_mod.UInput(
+                    events=cast(dict[int, Sequence[int]], mouse_caps),
+                    name=mouse_name,
+                ),
             )
         else:
-            manager.output_state.mouse_uinput = evdev_mod.UInput(
-                events=cast(dict[int, Sequence[int]], mouse_caps),
-                name=mouse_name,
-                vendor=mouse_vendor,
-                product=mouse_product,
+            manager.output_state.mouse_uinput = create_uinput_with_permission_hint(
+                "mouse",
+                lambda: evdev_mod.UInput(
+                    events=cast(dict[int, Sequence[int]], mouse_caps),
+                    name=mouse_name,
+                    vendor=mouse_vendor,
+                    product=mouse_product,
+                ),
             )
 
         configure_virtual_gamepads(

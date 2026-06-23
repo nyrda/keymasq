@@ -20,6 +20,10 @@ from keymasq.common.devices import (
 )
 from keymasq.common.models import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.permission_hints import (
+    input_device_permission_message,
+    is_permission_error,
+)
 from keymasq.keymasqd.runtime.adapters import DeviceInfo, close_device
 
 log = logging.getLogger("keymasqd.device_path_resolver")
@@ -158,6 +162,9 @@ def _probe_cached_device_info(
             is_virtual=_is_keymasq_virtual_device(device),
         )
     except OSError as exc:
+        if is_permission_error(exc):
+            log.warning(input_device_permission_message(skip_log_message), path, exc)
+            return None
         log.debug(skip_log_message, path, exc)
         return None
     except Exception:

@@ -1,3 +1,4 @@
+import errno
 import threading
 from typing import cast
 from unittest.mock import Mock
@@ -121,6 +122,35 @@ def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:
             manager.end(token)
     assert wanted.grabbed is False
     assert wanted.closed is True
+
+
+def test_capture_manager_begin_no_devices_mentions_input_permissions(monkeypatch) -> None:
+    monkeypatch.setattr(evdev, "list_devices", lambda: [])
+
+    manager = CaptureManager()
+    with pytest.raises(ValueError) as excinfo:
+        manager.begin("1234:5678")
+
+    message = str(excinfo.value)
+    assert "No devices found for 1234:5678" in message
+    assert "/dev/input/event*" in message
+
+
+def test_capture_manager_begin_unreadable_devices_mentions_input_permissions(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event1"])
+
+    def fake_input_device(_path: str):
+        raise PermissionError(errno.EACCES, "denied")
+
+    monkeypatch.setattr(evdev, "InputDevice", fake_input_device)
+
+    manager = CaptureManager()
+    with pytest.raises(ValueError) as excinfo:
+        manager.begin("1234:5678")
+
+    assert "/dev/input/event*" in str(excinfo.value)
 
 
 def test_capture_manager_resolves_keymasq_paths(monkeypatch) -> None:
@@ -331,13 +361,54 @@ def test_capture_manager_begin_reports_grab_warnings(monkeypatch) -> None:
     monkeypatch.setattr(evdev, "InputDevice", lambda path: devices[path])
 
     manager = CaptureManager()
-    with pytest.raises(RuntimeError, match="No readable/grabbable interfaces found"):
+    with pytest.raises(RuntimeError, match="No readable/grabbable interfaces found") as excinfo:
         manager.begin("1234:5678")
 
+    message = str(excinfo.value)
+    assert "/dev/input/event2: permission denied" in message
+    assert "/dev/input/event*" in message
     assert busy.closed is True
     assert denied.closed is True
     assert busy.close_count == 1
     assert denied.close_count == 1
+
+
+def test_capture_manager_begin_reports_eperm_grab_warning_with_hint(
+    monkeypatch,
+) -> None:
+    denied = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [])
+
+    def _grab_denied() -> None:
+        raise OSError(errno.EPERM, "not permitted")
+
+    denied.grab = _grab_denied
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: [denied.path])
+    monkeypatch.setattr(evdev, "InputDevice", lambda _path: denied)
+
+    manager = CaptureManager()
+    with pytest.raises(RuntimeError, match="No readable/grabbable interfaces found") as excinfo:
+        manager.begin("1234:5678")
+
+    message = str(excinfo.value)
+    assert "/dev/input/event2: permission denied" in message
+    assert "/dev/input/event*" in message
+    assert denied.closed is True
+    assert denied.close_count == 1
+
+
+def test_capture_manager_begin_combo_no_devices_mentions_input_permissions(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(evdev, "list_devices", lambda: [])
+    manager = CaptureManager()
+
+    with pytest.raises(ValueError) as excinfo:
+        manager.begin_combo(authorization=manager.authorize_combo_capture())
+
+    message = str(excinfo.value)
+    assert "No keyboard devices found for combo capture" in message
+    assert "/dev/input/event*" in message
 
 
 def test_capture_manager_begin_closes_failed_grab_devices_with_partial_success(

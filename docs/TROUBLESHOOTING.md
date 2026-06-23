@@ -183,6 +183,8 @@ Symptoms:
 - `keymasqd` fails to start
 - remaps do not activate
 - logs mention permission errors for `/dev/uinput` or `/dev/input/event*`
+- device discovery or capture says no devices/interfaces were found even though
+  the hardware is connected
 
 Checks:
 

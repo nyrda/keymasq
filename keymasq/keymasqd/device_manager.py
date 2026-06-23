@@ -50,6 +50,10 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeComboStep,
 )
 from keymasq.keymasqd.output_helpers import emit_mouse_move, resolve_output_code
+from keymasq.keymasqd.permission_hints import (
+    input_device_permission_message,
+    is_permission_error,
+)
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
@@ -1332,6 +1336,15 @@ class DeviceManager:
                     }
                 )
             except OSError as exc:
+                if is_permission_error(exc):
+                    log.warning(
+                        input_device_permission_message(
+                            "Skipping unreadable device %s: %s"
+                        ),
+                        path,
+                        exc,
+                    )
+                    continue
                 log.debug("Skipping unreadable device %s: %s", path, exc)
             except Exception:
                 log.exception("Could not read device %s", path)

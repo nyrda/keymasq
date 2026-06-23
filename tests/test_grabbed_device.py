@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import evdev
 import pytest
+from evdev.uinput import UInputError
 
 from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
 from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
 from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
@@ -167,6 +169,49 @@ async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
     fake_device.close.assert_called_once_with()
     fake_device.grab.assert_not_called()
     wait_for_active_keys_to_clear.assert_not_awaited()
+    assert grabbed.device is None
+    assert grabbed.uinput is None
+
+
+@pytest.mark.asyncio
+async def test_grab_uinput_error_mentions_uinput_when_passthrough_creation_fails(
+    monkeypatch,
+):
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_LEFT],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+
+    def fail_uinput_creation(**kwargs):
+        raise UInputError('"/dev/uinput" cannot be opened for writing')
+
+    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+
+    with pytest.raises(PermissionError) as excinfo:
+        await grabbed.grab()
+
+    message = str(excinfo.value)
+    assert "passthrough uinput device" in message
+    assert UINPUT_PERMISSION_HINT in message
+    fake_device.close.assert_called_once_with()
+    fake_device.grab.assert_not_called()
     assert grabbed.device is None
     assert grabbed.uinput is None
 

@@ -3397,6 +3397,7 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     )
     assert manager.recording_state.devices_cache == [{"name": "Keyboard"}]
     assert manager.recording_state.devices_cache_ready is True
+    assert manager.recording_state.devices_cache_include_other is True
     update_selected.assert_called_once_with(manager)
 
 

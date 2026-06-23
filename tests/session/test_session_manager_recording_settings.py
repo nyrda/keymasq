@@ -254,6 +254,60 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_recording_preserves_include_other_device_selection() -> None:
+    manager = SessionManager()
+    sent_commands: list[CommandType] = []
+    sent_payloads: list[dict[str, object]] = []
+    devices = [
+        {
+            "path": "/dev/input/event30",
+            "stable_path": "/dev/input/by-id/usb-touchpad-event",
+            "recording_id": "physical:/dev/input/by-id/usb-touchpad-event",
+            "recording_kind": "physical",
+            "device_type": "touchpad",
+            "device_types": ["touchpad"],
+        },
+        {
+            "path": "/dev/input/event31",
+            "stable_path": "/dev/input/by-id/usb-keyboard-event-kbd",
+            "recording_id": "physical:/dev/input/by-id/usb-keyboard-event-kbd",
+            "recording_kind": "physical",
+            "device_type": "keyboard",
+            "device_types": ["keyboard"],
+        },
+    ]
+
+    async def send_command(command):
+        sent_commands.append(command.command)
+        sent_payloads.append(dict(command.data or {}))
+        if command.command == CommandType.LIST_DEVICES:
+            return Response(status="ok", data={"devices": devices})
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
+    manager.recording_state.devices_cache_include_other = True
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {
+            "physical:/dev/input/by-id/usb-touchpad-event": True,
+            "physical:/dev/input/by-id/usb-keyboard-event-kbd": False,
+        },
+    }
+
+    result = await session_recording_module.start_recording(manager)
+
+    assert result == {"status": "ok", "recording_slot": 1}
+    assert sent_commands == [CommandType.LIST_DEVICES, CommandType.START_RECORDING]
+    assert manager.recording_state.devices_cache_include_other is True
+    sent_devices = cast(list[dict[str, object]], sent_payloads[1]["devices"])
+    assert [device["recording_id"] for device in sent_devices] == [
+        "physical:/dev/input/by-id/usb-touchpad-event"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> None:
     manager = SessionManager()
     manager.profile_state.grabbed_interfaces["045e:02a1"] = {

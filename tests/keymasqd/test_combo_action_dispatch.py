@@ -90,7 +90,7 @@ class TestComboActionDispatch:
         )
 
         assert payload is not None
-        assert payload["evdev"] == "btn_a"
+        assert payload["evdev"] == "btn_south"
         assert payload["source"] == "pad"
 
     def test_combo_action_needs_release_tracks_natural_mouse_move_tap(self) -> None:

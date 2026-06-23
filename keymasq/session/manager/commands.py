@@ -921,9 +921,8 @@ async def _handle_capture_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
-        device_types = ["keyboard", "gamepad", "mouse"]
-        if bool(request.get("include_other", False)):
-            device_types = ["keyboard", "gamepad", "mouse", "touchpad", "pointstick", "other"]
+        include_other = bool(request.get("include_other", False))
+        device_types = runtime_recording.recording_device_filter_types(include_other)
         devices = await runtime_recording.get_devices_for_recording(
             manager,
             device_types,
@@ -931,6 +930,7 @@ async def _handle_capture_commands(
         )
         manager.recording_state.devices_cache = devices
         manager.recording_state.devices_cache_ready = True
+        manager.recording_state.devices_cache_include_other = include_other
         runtime_recording.update_selected_recording_devices_cache(manager)
         return {"status": "ok", "devices": devices}
 

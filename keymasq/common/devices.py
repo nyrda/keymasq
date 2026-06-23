@@ -170,15 +170,37 @@ def gamepad_button_label(evdev_name: str | None) -> str | None:
     return _GAMEPAD_BUTTON_LABELS.get(canonical)
 
 
+def _evdev_name_label(value: object | None) -> str | None:
+    if value is None:
+        return None
+    label = str(value).strip().lower()
+    return label or None
+
+
+def _prefer_canonical_gamepad_alias(candidates: Sequence[object | None]) -> str | None:
+    labels = [_evdev_name_label(candidate) for candidate in candidates]
+    for label in labels:
+        canonical = canonical_gamepad_button_name(label)
+        if canonical in _GAMEPAD_BUTTON_LABELS:
+            return canonical
+    for label in labels:
+        if label is not None:
+            return label
+    return None
+
+
 def evdev_alias_name(raw_name: object, fallback: object | None = None) -> str | None:
     if isinstance(raw_name, (list, tuple)):
-        names = cast(Sequence[object], raw_name)
-        raw_name = names[0] if names else fallback
-    elif raw_name is None:
-        raw_name = fallback
-    if raw_name is None:
+        names = list(cast(Sequence[object], raw_name))
+        if fallback is not None:
+            names.append(fallback)
+        return _prefer_canonical_gamepad_alias(names)
+
+    label = _evdev_name_label(raw_name if raw_name is not None else fallback)
+    if label is None:
         return None
-    return str(raw_name).lower()
+    canonical = canonical_gamepad_button_name(label)
+    return canonical if canonical in _GAMEPAD_BUTTON_LABELS else label
 
 
 def evdev_code_value(raw_code: object) -> int | None:

@@ -891,6 +891,7 @@ class SessionManager:
         self.recording_state.devices_cache.clear()
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False
+        self.recording_state.devices_cache_include_other = False
 
         if was_connected:
             self._broadcast_keymasqd_status(False)

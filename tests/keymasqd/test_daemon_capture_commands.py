@@ -484,7 +484,7 @@ def test_capture_event_code_name_handles_list_style_evdev_aliases(
 
     assert (
         capture_manager_module._event_code_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH)
-        == "btn_a"
+        == "btn_south"
     )
 
 

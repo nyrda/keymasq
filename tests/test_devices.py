@@ -127,8 +127,8 @@ def test_capability_names_handle_list_style_evdev_aliases(
 
     caps = {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]}
 
-    assert capability_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH) == "btn_a"
-    assert capability_names_from_capabilities(caps) == ["btn_a"]
+    assert capability_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH) == "btn_south"
+    assert capability_names_from_capabilities(caps) == ["btn_south"]
     assert gamepad_button_names_from_capabilities(caps) == ["btn_south"]
 
 

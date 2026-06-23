@@ -8,6 +8,7 @@ import pytest
 from evdev.uinput import UInputError
 
 from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
 from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
 from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
@@ -208,7 +209,7 @@ async def test_grab_uinput_error_mentions_uinput_when_passthrough_creation_fails
 
     message = str(excinfo.value)
     assert "passthrough uinput device" in message
-    assert "/dev/uinput" in message
+    assert UINPUT_PERMISSION_HINT in message
     fake_device.close.assert_called_once_with()
     fake_device.grab.assert_not_called()
     assert grabbed.device is None

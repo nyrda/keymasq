@@ -38,7 +38,7 @@ def is_uinput_permission_error(exc: BaseException) -> bool:
 
 def has_permission_hint(message: object) -> bool:
     text = str(message)
-    return "/dev/input/event*" in text or "/dev/uinput" in text
+    return PERMISSION_TROUBLESHOOTING_REF in text
 
 
 def input_device_permission_message(message: str) -> str:

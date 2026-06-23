@@ -11,6 +11,7 @@ from evdev.uinput import UInputError
 from keymasq.common.models import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
 from keymasq.keymasqd.runtime import actions as adm
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as cdm
@@ -305,7 +306,7 @@ class TestDeviceManagerHelpers:
 
         message = str(excinfo.value)
         assert "keyboard uinput device" in message
-        assert "/dev/uinput" in message
+        assert UINPUT_PERMISSION_HINT in message
         assert manager.output_state.device_count == 0
 
     def test_create_global_uinputs_uinput_error_mentions_uinput(self) -> None:
@@ -335,7 +336,7 @@ class TestDeviceManagerHelpers:
 
         message = str(excinfo.value)
         assert "keyboard uinput device" in message
-        assert "/dev/uinput" in message
+        assert UINPUT_PERMISSION_HINT in message
         assert manager.output_state.device_count == 0
 
     def test_configure_virtual_gamepads_logs_close_failures(

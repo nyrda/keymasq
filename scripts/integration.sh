@@ -40,7 +40,7 @@ print_test_names() {
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/integration.sh [test ...]
+Usage: ./scripts/integration.sh [--evdev current|1.6.1|1.7.0] [test ...]
 
 Runs Keymasq NixOS VM integration checks through nix build.
 
@@ -56,10 +56,12 @@ EOF
 Options:
   -s, --scenario NAME[,NAME]  Run selected daemon-session scenario keys
   -r, --repeat N              Repeat selected integration checks N times
+      --evdev VERSION         Use current, 1.6.1, or 1.7.0 for daemon-session checks
 
 Examples:
   ./scripts/integration.sh cosmic
   ./scripts/integration.sh daemon-session
+  ./scripts/integration.sh daemon-session --evdev 1.6.1
   ./scripts/integration.sh daemon-session --scenario hotplug-replug
   ./scripts/integration.sh --scenario profile-lifetime-direct-actions --repeat 10
   ./scripts/integration.sh cosmic --repeat 3
@@ -132,6 +134,25 @@ set_repeat_count() {
   repeat_requested=1
 }
 
+normalize_evdev_lane() {
+  case "${1:-current}" in
+    current|latest|default)
+      printf '%s\n' "current"
+      ;;
+    1.6|1.6.1|161|evdev161)
+      printf '%s\n' "evdev161"
+      ;;
+    1.7|1.7.0|170|evdev170)
+      printf '%s\n' "evdev170"
+      ;;
+    *)
+      echo "Unsupported evdev lane: $1" >&2
+      echo "Use current, 1.6.1, or 1.7.0" >&2
+      exit 1
+      ;;
+  esac
+}
+
 build_or_rebuild() {
   local target="$1"
   local force_rebuild="$2"
@@ -174,6 +195,7 @@ fi
 scenario_filter=""
 repeat_count=""
 repeat_requested=0
+evdev_lane="current"
 raw_tests=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -203,6 +225,17 @@ while [[ $# -gt 0 ]]; do
     --repeat=*)
       set_repeat_count "${1#*=}"
       ;;
+    --evdev)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --evdev" >&2
+        exit 1
+      fi
+      shift
+      evdev_lane="$(normalize_evdev_lane "$1")"
+      ;;
+    --evdev=*)
+      evdev_lane="$(normalize_evdev_lane "${1#*=}")"
+      ;;
     *)
       raw_tests+=("$1")
       ;;
@@ -211,7 +244,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 tests=()
-if [[ ${#raw_tests[@]} -eq 0 && (-n "$scenario_filter" || -n "$repeat_count") ]]; then
+if [[ ${#raw_tests[@]} -eq 0 && (-n "$scenario_filter" || -n "$repeat_count" || "$evdev_lane" != "current") ]]; then
   raw_tests=(daemon-session)
 fi
 
@@ -237,6 +270,11 @@ for test in "${tests[@]}"; do
     exit 1
   fi
 
+  if [[ "$evdev_lane" != "current" && "$check_name" != "daemon-session-integration-test" ]]; then
+    echo "Evdev compatibility lanes are only supported for daemon-session tests" >&2
+    exit 1
+  fi
+
   resolved_tests+=("$test")
   resolved_checks+=("$check_name")
 done
@@ -247,14 +285,19 @@ for index in "${!resolved_tests[@]}"; do
 
   nix_args=()
   run_count="${repeat_count:-1}"
+  selected_daemon_check=0
   if [[ "$check_name" == "daemon-session-integration-test" && (-n "$scenario_filter" || -n "$repeat_count") ]]; then
     check_name="daemon-session-selected-integration-test"
+    selected_daemon_check=1
     nix_args+=(--impure)
+  fi
+  if [[ "$evdev_lane" != "current" && "$check_name" == daemon-session* ]]; then
+    check_name="${check_name}-${evdev_lane}"
   fi
 
   target="path:.#checks.${SYSTEM}.${check_name}"
-  if [[ "$check_name" == "daemon-session-selected-integration-test" ]]; then
-    echo "integration: ${test} scenarios=${scenario_filter:-all} repeat=${run_count} -> ${target}"
+  if [[ "$selected_daemon_check" == "1" ]]; then
+    echo "integration: ${test} scenarios=${scenario_filter:-all} repeat=${run_count} evdev=${evdev_lane} -> ${target}"
     (
       export KEYMASQ_INTEGRATION_SCENARIOS="$scenario_filter"
       export KEYMASQ_INTEGRATION_REPEAT="${repeat_count:-$run_count}"
@@ -263,9 +306,9 @@ for index in "${!resolved_tests[@]}"; do
   else
     for iteration in $(seq 1 "$run_count"); do
       if [[ "$run_count" -gt 1 ]]; then
-        echo "integration: ${test} repeat ${iteration}/${run_count} -> ${target}"
+        echo "integration: ${test} repeat ${iteration}/${run_count} evdev=${evdev_lane} -> ${target}"
       else
-        echo "integration: ${test} -> ${target}"
+        echo "integration: ${test} evdev=${evdev_lane} -> ${target}"
       fi
       build_or_rebuild "$target" "$repeat_requested"
     done

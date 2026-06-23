@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
 
 import evdev
 
-from keymasq.common.devices import resolve_evdev_event_type
+from keymasq.common.devices import evdev_code_value, resolve_evdev_event_type
 from keymasq.common.gamepad_axes import gamepad_axis_range, normalize_gamepad_axis_target
 from keymasq.keymasqd.runtime.adapters import WritableUInput
 
@@ -16,11 +15,7 @@ def _ecode_value(name: str) -> int | None:
     if not hasattr(evdev.ecodes, name):
         return None
     code = getattr(evdev.ecodes, name)
-    if isinstance(code, tuple):
-        tuple_code = cast(tuple[object, ...], code)
-        first = tuple_code[0] if tuple_code else None
-        return first if isinstance(first, int) else None
-    return code if isinstance(code, int) else None
+    return evdev_code_value(code)
 
 
 def resolve_output_code(target: str | None) -> int | None:

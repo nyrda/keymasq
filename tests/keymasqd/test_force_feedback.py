@@ -256,6 +256,47 @@ def test_passthrough_ff_capability_helpers() -> None:
     assert passthrough_ff_max_effects(caps, physical) == 0
 
 
+def test_passthrough_uinput_kwargs_can_omit_unsupported_max_effects() -> None:
+    kwargs = gdm._passthrough_uinput_kwargs(
+        caps={evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]},
+        passthrough_name="pad",
+        passthrough_vendor=None,
+        passthrough_product=None,
+        passthrough_version=None,
+        passthrough_bustype=None,
+        passthrough_input_props=None,
+        ff_max_effects=0,
+        supports_max_effects=False,
+    )
+
+    assert "max_effects" not in kwargs
+
+
+def test_uinput_supports_max_effects_detects_evdev_constructor_shapes() -> None:
+    class _Evdev16StyleUInput:
+        def __init__(self, *, events=None, name="py-evdev-uinput", input_props=None) -> None:
+            self.events = events
+            self.name = name
+            self.input_props = input_props
+
+    class _Evdev17StyleUInput:
+        def __init__(
+            self,
+            *,
+            events=None,
+            name="py-evdev-uinput",
+            input_props=None,
+            max_effects=96,
+        ) -> None:
+            self.events = events
+            self.name = name
+            self.input_props = input_props
+            self.max_effects = max_effects
+
+    assert gdm._uinput_supports_max_effects(_Evdev16StyleUInput) is False
+    assert gdm._uinput_supports_max_effects(_Evdev17StyleUInput) is True
+
+
 class _FakeLoop:
     def __init__(self) -> None:
         self.reader: tuple[int, Callable[[], object]] | None = None

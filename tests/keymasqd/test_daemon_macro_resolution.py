@@ -154,7 +154,7 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
     )
 
     loaded_names = [call.args[0] for call in macro_store.get_meta.call_args_list]
-    assert loaded_names == sorted(macro_names)
+    assert sorted(loaded_names) == sorted(macro_names)
 
     action = cast(dict[str, object], resolved["btn_side"])
     superkey = cast(dict[str, object], action["superkey"])

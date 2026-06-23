@@ -44,11 +44,70 @@
               || pkgs.lib.hasSuffix ".pyc" base
             );
         };
+      mkEvdevPackage =
+        pkgs: pythonPackages:
+        {
+          version,
+          hash,
+          pyproject ? true,
+        }:
+        pythonPackages.buildPythonPackage {
+          pname = "evdev";
+          inherit version;
+          format = if pyproject then "pyproject" else "setuptools";
+
+          src = pkgs.fetchPypi {
+            pname = "evdev";
+            inherit version hash;
+          };
+
+          patchPhase = ''
+            substituteInPlace setup.py \
+              --replace-fail /usr/include ${pkgs.linuxHeaders}/include
+          '';
+
+          build-system = lib.optionals pyproject [ pythonPackages.setuptools ];
+          nativeBuildInputs = lib.optionals (!pyproject) [ pythonPackages.setuptools ];
+          buildInputs = [ pkgs.linuxHeaders ];
+
+          doCheck = false;
+          pythonImportsCheck = [ "evdev" ];
+
+          meta = {
+            description = "Provides bindings to the generic input event interface in Linux";
+            homepage = "https://python-evdev.readthedocs.io/";
+            changelog = "https://github.com/gvalkov/python-evdev/blob/v${version}/docs/changelog.rst";
+            license = lib.licenses.bsd3;
+            platforms = lib.platforms.linux;
+          };
+        };
+      mkEvdevPackages =
+        pkgs: pythonPackages:
+        let
+          mkEvdev = mkEvdevPackage pkgs pythonPackages;
+        in
+        {
+          evdev161 = mkEvdev {
+            version = "1.6.1";
+            hash = "sha256-KZ24YozHOyN/wcxX08KUj6oHVuKli2GUtb+B3CCB8eM=";
+            pyproject = false;
+          };
+          evdev170 = mkEvdev {
+            version = "1.7.0";
+            hash = "sha256-lb0qHgxs4s16LsxubNlzb/eUs61ctU2B2MvC5BTQuHA=";
+          };
+        };
       mkPackage =
         pkgs:
+        { evdevPackage ? null }:
         let
           runtimePython = pkgs.python3;
           runtimePythonPackages = runtimePython.pkgs;
+          resolvedEvdevPackage =
+            if evdevPackage == null then
+              runtimePythonPackages.evdev
+            else
+              evdevPackage;
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keymasq";
@@ -90,7 +149,7 @@
           ];
 
           propagatedBuildInputs = with runtimePythonPackages; [
-            evdev
+            resolvedEvdevPackage
             tomli-w
             dbus-next
             uvloop
@@ -134,9 +193,22 @@
             mainProgram = "keymasq";
           };
         };
-      packagesFor = forAllSystems (system: {
-        default = mkPackage (mkPkgs system);
-      });
+      packagesFor = forAllSystems (
+        system:
+        let
+          pkgs = mkPkgs system;
+          evdevPackages = mkEvdevPackages pkgs pkgs.python3.pkgs;
+        in
+        {
+          default = mkPackage pkgs { };
+          keymasq-evdev161 = mkPackage pkgs {
+            evdevPackage = evdevPackages.evdev161;
+          };
+          keymasq-evdev170 = mkPackage pkgs {
+            evdevPackage = evdevPackages.evdev170;
+          };
+        }
+      );
       listenerVmMatrix =
         let
           pkgs = mkPkgs "x86_64-linux";
@@ -159,6 +231,34 @@
           keymasqModule = self.nixosModules.default;
           source = mkCleanSrc pkgs;
         };
+      pytestVmEvdev161Checks =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+          evdevPackages = mkEvdevPackages pkgs pkgs.python3.pkgs;
+        in
+        import ./nix/pytest-vm.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.keymasq-evdev161;
+          keymasqModule = self.nixosModules.default;
+          source = mkCleanSrc pkgs;
+          checkName = "pytest-vm-evdev161";
+          evdevPackage = evdevPackages.evdev161;
+        };
+      pytestVmEvdev170Checks =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+          evdevPackages = mkEvdevPackages pkgs pkgs.python3.pkgs;
+        in
+        import ./nix/pytest-vm.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.keymasq-evdev170;
+          keymasqModule = self.nixosModules.default;
+          source = mkCleanSrc pkgs;
+          checkName = "pytest-vm-evdev170";
+          evdevPackage = evdevPackages.evdev170;
+        };
       daemonSessionIntegrationChecks =
         let
           pkgs = mkPkgs "x86_64-linux";
@@ -168,6 +268,32 @@
           system = "x86_64-linux";
           keymasqPackage = packagesFor.x86_64-linux.default;
           keymasqModule = self.nixosModules.default;
+        };
+      daemonSessionIntegrationEvdev161Checks =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+          evdevPackages = mkEvdevPackages pkgs pkgs.python3.pkgs;
+        in
+        import ./nix/daemon-session-integration-test.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.keymasq-evdev161;
+          keymasqModule = self.nixosModules.default;
+          checkSuffix = "-evdev161";
+          evdevPackage = evdevPackages.evdev161;
+        };
+      daemonSessionIntegrationEvdev170Checks =
+        let
+          pkgs = mkPkgs "x86_64-linux";
+          evdevPackages = mkEvdevPackages pkgs pkgs.python3.pkgs;
+        in
+        import ./nix/daemon-session-integration-test.nix {
+          inherit pkgs;
+          system = "x86_64-linux";
+          keymasqPackage = packagesFor.x86_64-linux.keymasq-evdev170;
+          keymasqModule = self.nixosModules.default;
+          checkSuffix = "-evdev170";
+          evdevPackage = evdevPackages.evdev170;
         };
       docshotVm =
         let
@@ -204,7 +330,11 @@
         x86_64-linux =
           listenerVmMatrix.checks
           // pytestVmChecks.checks
+          // pytestVmEvdev161Checks.checks
+          // pytestVmEvdev170Checks.checks
           // daemonSessionIntegrationChecks.checks
+          // daemonSessionIntegrationEvdev161Checks.checks
+          // daemonSessionIntegrationEvdev170Checks.checks
           // docshotVm.checks;
       };
 
@@ -329,56 +459,73 @@
         let
           pkgs = mkPkgs system;
           devPython = pkgs.python312;
+          devPythonPackages = devPython.pkgs;
+          evdevPackages = mkEvdevPackages pkgs devPythonPackages;
           mkTestPython =
+            evdevPackage:
             extraPackages:
             devPython.withPackages (
-              ps: with ps; [
-                dbus-next
-                evdev
-                tomli-w
-                uvloop
-                xlib
-                pytest
-                pytest-asyncio
-                pytest-cov
-                pytest-xdist
+              ps: [
+                ps.dbus-next
+                evdevPackage
+                ps.tomli-w
+                ps.uvloop
+                ps.xlib
+                ps.pytest
+                ps.pytest-asyncio
+                ps.pytest-cov
+                ps.pytest-xdist
               ] ++ extraPackages
             );
+          mkCiShell =
+            evdevPackage:
+            pkgs.mkShell {
+              packages = [
+                (mkTestPython evdevPackage [ ])
+              ];
+            };
+          mkCiGuiShell =
+            evdevPackage:
+            pkgs.mkShell {
+              # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
+              # (Adwaita theme, GTK4 assets) render correctly inside the
+              # dev shell — matches what wrapGAppsHook4 does for the
+              # installed package.
+              GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+
+              packages = [
+                (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
+                pkgs.gobject-introspection
+                pkgs.gtk4
+                pkgs.libadwaita
+                pkgs.librsvg
+                pkgs.adwaita-icon-theme
+                pkgs.basedpyright
+                pkgs.hicolor-icon-theme
+                pkgs.stylelint
+                pkgs.xorgserver
+              ];
+            };
         in
         {
-          ci = pkgs.mkShell {
-            packages = [
-              (mkTestPython [ ])
-            ];
-          };
+          ci = mkCiShell devPythonPackages.evdev;
+
+          ci-evdev161 = mkCiShell evdevPackages.evdev161;
+
+          ci-evdev170 = mkCiShell evdevPackages.evdev170;
 
           ci-typecheck = pkgs.mkShell {
             packages = [
-              (mkTestPython [ pkgs.python312Packages.pygobject3 ])
+              (mkTestPython devPythonPackages.evdev [ pkgs.python312Packages.pygobject3 ])
               pkgs.basedpyright
             ];
           };
 
-          ci-gui = pkgs.mkShell {
-            # Point gdk-pixbuf at the librsvg loaders cache so SVG icons
-            # (Adwaita theme, GTK4 assets) render correctly inside the
-            # dev shell — matches what wrapGAppsHook4 does for the
-            # installed package.
-            GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+          ci-gui = mkCiGuiShell devPythonPackages.evdev;
 
-            packages = [
-              (mkTestPython [ pkgs.python312Packages.pygobject3 ])
-              pkgs.gobject-introspection
-              pkgs.gtk4
-              pkgs.libadwaita
-              pkgs.librsvg
-              pkgs.adwaita-icon-theme
-              pkgs.basedpyright
-              pkgs.hicolor-icon-theme
-              pkgs.stylelint
-              pkgs.xorgserver
-            ];
-          };
+          ci-gui-evdev161 = mkCiGuiShell evdevPackages.evdev161;
+
+          ci-gui-evdev170 = mkCiGuiShell evdevPackages.evdev170;
 
           default = pkgs.mkShell {
             # Point gdk-pixbuf at the librsvg loaders cache so SVG icons

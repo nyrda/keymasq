@@ -473,6 +473,21 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
     )
 
 
+def test_capture_event_code_name_handles_list_style_evdev_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ev_key_names = dict(capture_manager_module.evdev.ecodes.bytype[evdev.ecodes.EV_KEY])
+    ev_key_names[evdev.ecodes.BTN_SOUTH] = ["BTN_A", "BTN_GAMEPAD", "BTN_SOUTH"]
+    bytype = dict(capture_manager_module.evdev.ecodes.bytype)
+    bytype[evdev.ecodes.EV_KEY] = ev_key_names
+    monkeypatch.setattr(capture_manager_module.evdev.ecodes, "bytype", bytype)
+
+    assert (
+        capture_manager_module._event_code_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH)
+        == "btn_a"
+    )
+
+
 @pytest.mark.asyncio
 async def test_capture_combo_forwards_explicit_hardware_paths(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed

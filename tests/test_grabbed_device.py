@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import evdev
 import pytest
+from evdev.uinput import UInputError
 
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import grabbed_device as gdm
@@ -172,7 +173,7 @@ async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
 
 
 @pytest.mark.asyncio
-async def test_grab_permission_error_mentions_uinput_when_passthrough_creation_fails(
+async def test_grab_uinput_error_mentions_uinput_when_passthrough_creation_fails(
     monkeypatch,
 ):
     fake_device = SimpleNamespace(
@@ -189,7 +190,7 @@ async def test_grab_permission_error_mentions_uinput_when_passthrough_creation_f
     )
 
     def fail_uinput_creation(**kwargs):
-        raise PermissionError(13, "denied")
+        raise UInputError('"/dev/uinput" cannot be opened for writing')
 
     monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
     monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)

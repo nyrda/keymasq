@@ -373,6 +373,30 @@ def test_capture_manager_begin_reports_grab_warnings(monkeypatch) -> None:
     assert denied.close_count == 1
 
 
+def test_capture_manager_begin_reports_eperm_grab_warning_with_hint(
+    monkeypatch,
+) -> None:
+    denied = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [])
+
+    def _grab_denied() -> None:
+        raise OSError(errno.EPERM, "not permitted")
+
+    denied.grab = _grab_denied
+
+    monkeypatch.setattr(evdev, "list_devices", lambda: [denied.path])
+    monkeypatch.setattr(evdev, "InputDevice", lambda _path: denied)
+
+    manager = CaptureManager()
+    with pytest.raises(RuntimeError, match="No readable/grabbable interfaces found") as excinfo:
+        manager.begin("1234:5678")
+
+    message = str(excinfo.value)
+    assert "/dev/input/event2: permission denied" in message
+    assert "/dev/input/event*" in message
+    assert denied.closed is True
+    assert denied.close_count == 1
+
+
 def test_capture_manager_begin_combo_no_devices_mentions_input_permissions(
     monkeypatch,
 ) -> None:

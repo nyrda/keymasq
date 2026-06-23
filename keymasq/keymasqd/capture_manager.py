@@ -21,7 +21,10 @@ from keymasq.common.devices import (
     wheel_button_id,
 )
 from keymasq.common.types import JsonObject
-from keymasq.keymasqd.permission_hints import input_device_permission_message
+from keymasq.keymasqd.permission_hints import (
+    input_device_permission_message,
+    is_permission_error,
+)
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime.adapters import DeviceInfo
 
@@ -118,6 +121,7 @@ class CaptureManager:
 
         grabbed: list[_CaptureInputDevice] = []
         warnings: list[str] = []
+        permission_error_seen = False
         for device in matched:
             try:
                 device.grab()
@@ -125,7 +129,8 @@ class CaptureManager:
             except OSError as e:
                 if e.errno == errno.EBUSY:
                     warnings.append(f"{device.path}: busy")
-                elif e.errno == errno.EACCES:
+                elif is_permission_error(e):
+                    permission_error_seen = True
                     warnings.append(f"{device.path}: permission denied")
                 else:
                     warnings.append(f"{device.path}: {e}")
@@ -135,7 +140,7 @@ class CaptureManager:
             message = "No readable/grabbable interfaces found"
             if warnings:
                 message = f"{message}: {', '.join(warnings)}"
-            if any("permission denied" in warning for warning in warnings):
+            if permission_error_seen:
                 message = input_device_permission_message(message)
             raise RuntimeError(message)
 

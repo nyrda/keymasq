@@ -11,12 +11,29 @@ UINPUT_PERMISSION_HINT = (
     "Check that keymasqd can write /dev/uinput; see "
     f"{PERMISSION_TROUBLESHOOTING_REF}."
 )
+UINPUT_PERMISSION_ERROR_MARKERS = (
+    "cannot be opened for writing",
+    "permission",
+    "not permitted",
+    "access denied",
+)
 
 
 def is_permission_error(exc: BaseException) -> bool:
     if isinstance(exc, PermissionError):
         return True
     return isinstance(exc, OSError) and exc.errno in {errno.EACCES, errno.EPERM}
+
+
+def is_uinput_permission_error(exc: BaseException) -> bool:
+    if is_permission_error(exc):
+        return True
+    if exc.__class__.__name__ != "UInputError":
+        return False
+    message = str(exc).lower()
+    return "/dev/uinput" in message and any(
+        marker in message for marker in UINPUT_PERMISSION_ERROR_MARKERS
+    )
 
 
 def has_permission_hint(message: object) -> bool:

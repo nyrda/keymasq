@@ -5,9 +5,11 @@ from collections.abc import Callable, Mapping, Sequence
 from hashlib import blake2b
 from typing import Any, Final, Protocol, cast
 
+from evdev.uinput import UInputError
+
 from keymasq.common.virtual_devices import clamp_virtual_gamepad_count, virtual_gamepad_output_id
 from keymasq.keymasqd.permission_hints import (
-    is_permission_error,
+    is_uinput_permission_error,
     uinput_permission_message,
 )
 from keymasq.keymasqd.runtime.adapters import (
@@ -220,8 +222,8 @@ class _EvdevModule(Protocol):
 def create_uinput_with_permission_hint[T](context: str, create: Callable[[], T]) -> T:
     try:
         return create()
-    except OSError as exc:
-        if is_permission_error(exc):
+    except (OSError, UInputError) as exc:
+        if is_uinput_permission_error(exc):
             raise PermissionError(
                 uinput_permission_message(
                     f"Failed to create {context} uinput device: {exc}"

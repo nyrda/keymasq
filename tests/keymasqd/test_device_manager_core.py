@@ -58,6 +58,7 @@ async def test_grab_device_permission_denied_mentions_input_permissions(
         raise PermissionError(errno.EACCES, "denied")
 
     monkeypatch.setattr(dm.evdev, "InputDevice", fake_input_device)
+    monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
 
     with pytest.raises(PermissionError) as excinfo:
         await manager.grab_device(

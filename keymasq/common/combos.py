@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from keymasq.common.devices import canonical_gamepad_button_name
+
 COMBO_PULSE_EVDEVS = frozenset(
     {
         "wheel_up",
@@ -31,7 +33,7 @@ def normalize_combo_evdev(evdev_name: str) -> str:
     token = str(evdev_name or "").strip().lower()
     if not token:
         return ""
-    return GENERIC_MODIFIER_MAP.get(token, token)
+    return canonical_gamepad_button_name(GENERIC_MODIFIER_MAP.get(token, token))
 
 
 def is_combo_pulse_evdev(evdev_name: str) -> bool:

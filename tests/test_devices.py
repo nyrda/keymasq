@@ -7,11 +7,14 @@ import evdev
 import pytest
 
 from keymasq.common.devices import (
+    capability_name,
+    capability_names_from_capabilities,
     classify_event_device_type,
     clear_device_path_cache,
     config_path_for_detected_event,
     detect_input_classes_from_capabilities,
     find_all_interfaces,
+    gamepad_button_names_from_capabilities,
     get_interface_id,
     hardware_model_id_key,
     input_classes_include_gamepad,
@@ -111,6 +114,22 @@ def test_resolve_stable_path_skips_symlink_read_errors(monkeypatch: pytest.Monke
     assert resolve_stable_path("/dev/input/event9") == "/dev/input/event9"
 
     clear_device_path_cache()
+
+
+def test_capability_names_handle_list_style_evdev_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ev_key_names = dict(evdev.ecodes.bytype[evdev.ecodes.EV_KEY])
+    ev_key_names[evdev.ecodes.BTN_SOUTH] = ["BTN_A", "BTN_GAMEPAD", "BTN_SOUTH"]
+    bytype = dict(evdev.ecodes.bytype)
+    bytype[evdev.ecodes.EV_KEY] = ev_key_names
+    monkeypatch.setattr(evdev.ecodes, "bytype", bytype)
+
+    caps = {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]}
+
+    assert capability_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH) == "btn_a"
+    assert capability_names_from_capabilities(caps) == ["btn_a"]
+    assert gamepad_button_names_from_capabilities(caps) == ["btn_south"]
 
 
 def test_keymasq_device_path_helpers() -> None:

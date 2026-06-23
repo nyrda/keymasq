@@ -50,6 +50,26 @@ What they are used for:
 - `python-xlib`: X11 listener support, including cursor position read/write
 - `tomli-w`: writing profile, hardware, and superkey TOML files
 
+### python-evdev compatibility lanes
+
+The default Nix development and check commands use the current `evdev` package
+from the pinned `nixpkgs` input. Compatibility lanes are available for testing
+the Ubuntu 24.04 package range explicitly:
+
+- `nix develop .#ci-evdev161 -c pytest ...`
+- `nix develop .#ci-evdev170 -c pytest ...`
+- `nix build .#checks.x86_64-linux.pytest-vm-evdev161`
+- `nix build .#checks.x86_64-linux.pytest-vm-evdev170`
+- `nix build .#checks.x86_64-linux.daemon-session-integration-test-evdev161`
+- `nix build .#checks.x86_64-linux.daemon-session-integration-test-evdev170`
+
+`evdev 1.6.x` supports `InputDevice.input_props()` and
+`UInput(..., input_props=...)`, but it does not support
+`UInput(..., max_effects=...)`. Keymasq omits `max_effects` on that runtime, so
+passthrough devices can still be created. Force-feedback passthrough remains
+available, but the virtual device's advertised maximum effect count cannot be
+capped to the physical device's exact value until `evdev 1.7.0+`.
+
 
 ## System Runtime Dependencies
 

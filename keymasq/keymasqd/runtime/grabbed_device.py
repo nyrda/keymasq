@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -198,6 +199,17 @@ def _copy_passthrough_capabilities(
     return caps, ff_max_effects
 
 
+def _uinput_supports_max_effects(uinput_factory: Callable[..., object]) -> bool:
+    try:
+        parameters = inspect.signature(uinput_factory).parameters
+    except (TypeError, ValueError):
+        return True
+    return "max_effects" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
 def _passthrough_uinput_kwargs(
     *,
     caps: dict[int, Sequence[object]],
@@ -208,6 +220,7 @@ def _passthrough_uinput_kwargs(
     passthrough_bustype: int | None,
     passthrough_input_props: Sequence[int] | None,
     ff_max_effects: int,
+    supports_max_effects: bool,
 ) -> _PassthroughUInputKwargs:
     events = {
         int(event_type): list(codes)
@@ -225,7 +238,8 @@ def _passthrough_uinput_kwargs(
         kwargs["bustype"] = passthrough_bustype
     if passthrough_input_props is not None:
         kwargs["input_props"] = passthrough_input_props
-    kwargs["max_effects"] = ff_max_effects
+    if supports_max_effects:
+        kwargs["max_effects"] = ff_max_effects
     return kwargs
 
 
@@ -534,6 +548,14 @@ class GrabbedDevice:
                 passthrough_bustype = None
                 passthrough_input_props = None
 
+            supports_max_effects = _uinput_supports_max_effects(evdev.UInput)
+            if ff_max_effects > 0 and not supports_max_effects:
+                log.debug(
+                    "python-evdev UInput does not support max_effects; "
+                    "using evdev's default force-feedback capacity for %s",
+                    self.path,
+                )
+
             def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
                 return evdev.UInput(
                     **_passthrough_uinput_kwargs(
@@ -545,6 +567,7 @@ class GrabbedDevice:
                         passthrough_bustype=passthrough_bustype,
                         passthrough_input_props=passthrough_input_props,
                         ff_max_effects=max_effects,
+                        supports_max_effects=supports_max_effects,
                     )
                 )
 

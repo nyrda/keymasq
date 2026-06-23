@@ -15,6 +15,7 @@ import evdev
 
 from keymasq.common.devices import (
     clear_device_path_cache,
+    evdev_alias_name,
     get_interface_id,
     normalize_wheel_value,
     resolve_stable_path,
@@ -59,11 +60,7 @@ def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
 def _event_code_name(event_type: int, code: int) -> str:
     bytype = cast(dict[int, dict[int, object]], evdev.ecodes.bytype)
     code_name = bytype.get(event_type, {}).get(code, str(code))
-    if isinstance(code_name, tuple):
-        tuple_name = cast(tuple[object, ...], code_name)
-        first = tuple_name[0] if tuple_name else str(code)
-        return first.lower() if isinstance(first, str) else str(code)
-    return code_name.lower() if isinstance(code_name, str) else str(code)
+    return evdev_alias_name(code_name, str(code)) or str(code)
 
 
 @dataclass

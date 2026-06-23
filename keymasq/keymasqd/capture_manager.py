@@ -21,6 +21,7 @@ from keymasq.common.devices import (
     wheel_button_id,
 )
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.permission_hints import input_device_permission_message
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime.adapters import DeviceInfo
 
@@ -111,7 +112,9 @@ class CaptureManager:
         else:
             matched = self._find_devices(*self._parse_hardware_id(hardware_id))
         if not matched:
-            raise ValueError(f"No devices found for {hardware_id}")
+            raise ValueError(
+                input_device_permission_message(f"No devices found for {hardware_id}")
+            )
 
         grabbed: list[_CaptureInputDevice] = []
         warnings: list[str] = []
@@ -129,7 +132,12 @@ class CaptureManager:
                 _close_device(device)
 
         if not grabbed:
-            raise RuntimeError("No readable/grabbable interfaces found")
+            message = "No readable/grabbable interfaces found"
+            if warnings:
+                message = f"{message}: {', '.join(warnings)}"
+            if any("permission denied" in warning for warning in warnings):
+                message = input_device_permission_message(message)
+            raise RuntimeError(message)
 
         token = str(uuid.uuid4())
         self._sessions[token] = CaptureSession(
@@ -190,7 +198,11 @@ class CaptureManager:
             path_hardware_ids=path_hardware_ids,
         )
         if not matched and not allow_empty:
-            raise ValueError("No keyboard devices found for combo capture")
+            raise ValueError(
+                input_device_permission_message(
+                    "No keyboard devices found for combo capture"
+                )
+            )
 
         devices = list(matched)
         warnings: list[str] = []

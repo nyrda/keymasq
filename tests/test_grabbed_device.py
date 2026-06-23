@@ -171,6 +171,49 @@ async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
     assert grabbed.uinput is None
 
 
+@pytest.mark.asyncio
+async def test_grab_permission_error_mentions_uinput_when_passthrough_creation_fails(
+    monkeypatch,
+):
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_LEFT],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+
+    def fail_uinput_creation(**kwargs):
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+
+    with pytest.raises(PermissionError) as excinfo:
+        await grabbed.grab()
+
+    message = str(excinfo.value)
+    assert "passthrough uinput device" in message
+    assert "/dev/uinput" in message
+    fake_device.close.assert_called_once_with()
+    fake_device.grab.assert_not_called()
+    assert grabbed.device is None
+    assert grabbed.uinput is None
+
+
 class TestActionExecution:
     def test_resolve_code_btn_left(self):
         code = resolve_output_code("btn_left")

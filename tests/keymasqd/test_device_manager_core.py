@@ -49,6 +49,29 @@ async def test_set_cursor_position_reports_missing_mouse_uinput() -> None:
 
 
 @pytest.mark.asyncio
+async def test_grab_device_permission_denied_mentions_input_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+
+    def fake_input_device(_path: str):
+        raise PermissionError(errno.EACCES, "denied")
+
+    monkeypatch.setattr(dm.evdev, "InputDevice", fake_input_device)
+
+    with pytest.raises(PermissionError) as excinfo:
+        await manager.grab_device(
+            "1234:5678",
+            ["/dev/input/event0"],
+            {"a": "key_a"},
+        )
+
+    message = str(excinfo.value)
+    assert "/dev/input/event0" in message
+    assert "/dev/input/event*" in message
+
+
+@pytest.mark.asyncio
 async def test_get_cursor_position_uses_broadcast_request_response() -> None:
     broadcast = AsyncMock()
     manager = DeviceManager(broadcast_callback=broadcast)
@@ -1923,6 +1946,26 @@ class TestListDevices:
         assert closed_paths == ["/dev/input/event0"]
         assert "Skipping unreadable device /dev/input/event0" in caplog.text
         assert "Could not read device /dev/input/event0" not in caplog.text
+
+    def test_list_devices_permission_error_logs_hint(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+
+        def fake_input_device(_path: str):
+            raise PermissionError(errno.EACCES, "denied")
+
+        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(dm.evdev, "InputDevice", fake_input_device)
+        caplog.set_level(logging.WARNING, logger="keymasqd.devices")
+
+        result = manager._list_devices_sync()
+
+        assert result == {"devices": []}
+        assert "Skipping unreadable device /dev/input/event0" in caplog.text
+        assert "/dev/input/event*" in caplog.text
 
     def test_list_devices_marks_physical_recording_identity(
         self,

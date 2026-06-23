@@ -51,7 +51,10 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
 from keymasq.keymasqd.runtime.grabbed_device_types import (
     ManagedInputDevice as _ManagedInputDevice,
 )
-from keymasq.keymasqd.runtime.outputs import uinput_identity
+from keymasq.keymasqd.runtime.outputs import (
+    create_uinput_with_permission_hint,
+    uinput_identity,
+)
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
 log = logging.getLogger("keymasqd.devices")
@@ -535,17 +538,20 @@ class GrabbedDevice:
                 passthrough_input_props = None
 
             def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
-                return evdev.UInput(
-                    **_passthrough_uinput_kwargs(
-                        caps=caps,
-                        passthrough_name=passthrough_name,
-                        passthrough_vendor=passthrough_vendor,
-                        passthrough_product=passthrough_product,
-                        passthrough_version=passthrough_version,
-                        passthrough_bustype=passthrough_bustype,
-                        passthrough_input_props=passthrough_input_props,
-                        ff_max_effects=max_effects,
-                    )
+                return create_uinput_with_permission_hint(
+                    "passthrough",
+                    lambda: evdev.UInput(
+                        **_passthrough_uinput_kwargs(
+                            caps=caps,
+                            passthrough_name=passthrough_name,
+                            passthrough_vendor=passthrough_vendor,
+                            passthrough_product=passthrough_product,
+                            passthrough_version=passthrough_version,
+                            passthrough_bustype=passthrough_bustype,
+                            passthrough_input_props=passthrough_input_props,
+                            ff_max_effects=max_effects,
+                        )
+                    ),
                 )
 
             self.uinput = make_passthrough_uinput(ff_max_effects)

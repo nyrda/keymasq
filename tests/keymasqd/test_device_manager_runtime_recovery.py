@@ -277,6 +277,36 @@ class TestDeviceManagerHelpers:
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003
 
+    def test_create_global_uinputs_permission_error_mentions_uinput(self) -> None:
+        manager = SimpleNamespace(
+            output_state=SimpleNamespace(
+                device_count=0,
+                keyboard_uinput=None,
+                mouse_uinput=None,
+                gamepad_uinput=None,
+            )
+        )
+
+        def fail_uinput(**_kwargs) -> FakeUInput:
+            raise PermissionError(errno.EACCES, "denied")
+
+        with pytest.raises(PermissionError) as excinfo:
+            ldm.runtime_outputs.create_global_uinputs(
+                manager,
+                evdev_mod=SimpleNamespace(
+                    ecodes=evdev.ecodes,
+                    UInput=fail_uinput,
+                    AbsInfo=evdev.AbsInfo,
+                ),
+                log=logging.getLogger("test"),
+                uinput_writer=lambda device: device,
+            )
+
+        message = str(excinfo.value)
+        assert "keyboard uinput device" in message
+        assert "/dev/uinput" in message
+        assert manager.output_state.device_count == 0
+
     def test_configure_virtual_gamepads_logs_close_failures(
         self,
         caplog: pytest.LogCaptureFixture,

@@ -16,6 +16,11 @@ from keymasq.common.models import MappingAction
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.permission_hints import (
+    has_permission_hint,
+    input_device_permission_message,
+    is_permission_error,
+)
 from keymasq.keymasqd.runtime import actions as runtime_actions
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as runtime_combos
@@ -278,8 +283,9 @@ async def grab_device_unlocked(
     ) -> None:
         await release_interface(manager, disconnected_hardware_id, disconnected_path)
 
-    async def rollback_failed_grab(path: str, exc: BaseException) -> None:
-        log.error("Failed to grab %s: %s", path, exc)
+    async def rollback_failed_grab(path: str, exc: BaseException) -> BaseException:
+        reported_exc = _permission_aware_grab_exception(path, exc)
+        log.error("Failed to grab %s: %s", path, reported_exc)
         for device in list(devices):
             if any(device is existing for existing in existing_devices):
                 continue
@@ -295,6 +301,7 @@ async def grab_device_unlocked(
                 previous_desired_paths,
                 previous_desired_config,
             )
+        return reported_exc
 
     for path in sorted(requested_paths):
         if path in existing_by_claim_path:
@@ -423,14 +430,14 @@ async def grab_device_unlocked(
             if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
                 log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
                 continue
-            await rollback_failed_grab(path, exc)
-            raise
+            reported_exc = await rollback_failed_grab(path, exc)
+            raise reported_exc from exc
         except Exception as exc:
             if raw_device is not None:
                 runtime_adapters.close_device(raw_device)
                 raw_device = None
-            await rollback_failed_grab(path, exc)
-            raise
+            reported_exc = await rollback_failed_grab(path, exc)
+            raise reported_exc from exc
         finally:
             if raw_device is not None:
                 runtime_adapters.close_device(raw_device)
@@ -481,6 +488,16 @@ async def grab_device_unlocked(
         "skipped_count": skipped_count,
         "waiting_for_device": waiting_for_device,
     }
+
+
+def _permission_aware_grab_exception(path: str, exc: BaseException) -> BaseException:
+    if not is_permission_error(exc) or has_permission_hint(exc):
+        return exc
+    return PermissionError(
+        input_device_permission_message(
+            f"Permission denied while opening or grabbing {path}: {exc}"
+        )
+    )
 
 
 def grabbed_paths_for_other_hardware(

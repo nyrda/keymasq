@@ -164,8 +164,8 @@ trap 'rm -rf "$tmp_dir"' EXIT
 strip_log_noise() {
   sed -E \
     -e $'s/\x1B\\[[0-9;]*[[:alpha:]]//g' \
-    -e 's/^vm-test-run-pytest-vm> //' \
-    -e 's/^pytest-vm: //' \
+    -e 's/^vm-test-run-pytest-vm(-evdev(161|170))?> //' \
+    -e 's/^pytest-vm(-evdev(161|170))?: //' \
     -e 's/[[:space:]]+$//'
 }
 
@@ -224,7 +224,7 @@ extract_pytest_report() {
       next
     }
     capture {
-      if ($0 ~ /^\(finished: run the VM test script,/ || $0 ~ /^test script finished/ || $0 ~ /^cleanup$/ || $0 ~ /^kill / || $0 ~ /^vde_switch:/ || $0 ~ /^additionally exposed symbols:/ || $0 ~ /^    / || $0 ~ /^pytest-vm,$/ || $0 ~ /^vlan1,$/ || $0 ~ /^start_all,/) {
+      if ($0 ~ /^\(finished: run the VM test script,/ || $0 ~ /^test script finished/ || $0 ~ /^cleanup$/ || $0 ~ /^kill / || $0 ~ /^vde_switch:/ || $0 ~ /^additionally exposed symbols:/ || $0 ~ /^    / || $0 ~ /^pytest-vm(-evdev(161|170))?,$/ || $0 ~ /^vlan1,$/ || $0 ~ /^start_all,/) {
         exit
       }
       if ($0 != "") {

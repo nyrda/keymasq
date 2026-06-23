@@ -102,6 +102,7 @@ in
 
           services.keymasq = {
             enable = true;
+            package = keymasqPackage;
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
               session_allowed_uids = [ vmUid ];

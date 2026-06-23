@@ -21,7 +21,7 @@ from .common import (
     json_list,
     json_object,
 )
-from .recording_device_selection import recording_device_id
+from .recording_device_selection import recording_device_id, refresh_recording_devices_cache
 from .state import PendingSave, PendingSlot
 
 if TYPE_CHECKING:
@@ -708,6 +708,7 @@ async def start_recording(
     record_start_position = settings.get("record_start_position", False)
     device_types = ["keyboard", "gamepad", "mouse"]
 
+    await refresh_recording_devices_cache(manager)
     if not manager.recording_state.devices_cache_ready:
         log.debug("Recording start using empty/uninitialized recording device cache")
     devices = list(manager.recording_state.selected_devices_cache)

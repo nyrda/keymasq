@@ -116,7 +116,11 @@ async def test_start_recording_clears_replaced_pending_slot_after_success() -> N
         recording_slot=1,
     )
     manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"status": "ok"})
+        side_effect=[
+            Response(status="ok", data={"devices": []}),
+            Response(status="ok", data={"status": "ok"}),
+            Response(status="ok", data={"status": "ok"}),
+        ]
     )
 
     result = await session_recording_module.start_recording(manager, recording_slot=1)
@@ -127,10 +131,11 @@ async def test_start_recording_clears_replaced_pending_slot_after_success() -> N
     assert manager.recording_state.active_slot == 1
     sent_commands = [call.args[0] for call in manager.client.send_command.await_args_list]
     assert [command.command for command in sent_commands] == [
+        CommandType.LIST_DEVICES,
         CommandType.START_RECORDING,
         CommandType.MACRO_DELETE_RECORDING,
     ]
-    assert sent_commands[1].data == {"pending_recording_id": "recording-1"}
+    assert sent_commands[2].data == {"pending_recording_id": "recording-1"}
 
 
 @pytest.mark.asyncio

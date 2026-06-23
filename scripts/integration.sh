@@ -270,7 +270,7 @@ for test in "${tests[@]}"; do
     exit 1
   fi
 
-  if [[ "$evdev_lane" != "current" && "$check_name" != "daemon-session-integration-test" ]]; then
+  if [[ "$evdev_lane" != "current" && "$check_name" != daemon-session* ]]; then
     echo "Evdev compatibility lanes are only supported for daemon-session tests" >&2
     exit 1
   fi

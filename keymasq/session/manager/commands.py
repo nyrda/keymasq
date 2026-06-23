@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
@@ -921,7 +921,7 @@ async def _handle_capture_commands(
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
-        include_other = bool(request.get("include_other", False))
+        include_other = coerce_bool(request.get("include_other"), False)
         device_types = runtime_recording.recording_device_filter_types(include_other)
         devices = await runtime_recording.get_devices_for_recording(
             manager,

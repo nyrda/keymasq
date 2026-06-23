@@ -203,23 +203,7 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
     manager = SessionManager()
     sent_commands: list[CommandType] = []
     sent_payloads: list[dict[str, object]] = []
-
-    async def send_command(command):
-        sent_commands.append(command.command)
-        sent_payloads.append(dict(command.data or {}))
-        return Response(status="ok", data={"status": "ok"})
-
-    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
-    manager.recording_state.settings = {
-        "include_mouse_movement": False,
-        "include_mouse_clicks": False,
-        "record_start_position": False,
-        "device_overrides": {
-            "keymasq:passthrough:1234:5678:kbd": True,
-            "physical:/dev/input/by-id/usb-raw-event-kbd": False,
-        },
-    }
-    manager.recording_state.devices_cache = [
+    devices = [
         {
             "path": "/dev/input/event20",
             "recording_id": "keymasq:passthrough:1234:5678:kbd",
@@ -236,23 +220,37 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
             "device_types": ["keyboard"],
         },
     ]
+
+    async def send_command(command):
+        sent_commands.append(command.command)
+        sent_payloads.append(dict(command.data or {}))
+        if command.command == CommandType.LIST_DEVICES:
+            return Response(status="ok", data={"devices": devices})
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {
+            "keymasq:passthrough:1234:5678:kbd": True,
+            "physical:/dev/input/by-id/usb-raw-event-kbd": False,
+        },
+    }
+    manager.recording_state.devices_cache = devices
     session_recording_module.update_selected_recording_devices_cache(manager)
 
     result = await session_recording_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
-    assert sent_commands == [CommandType.START_RECORDING]
-    assert sent_payloads[0]["recording_slot"] == 1
-    assert sent_payloads[0]["devices"] == [
-        {
-            "path": "/dev/input/event20",
-            "recording_id": "keymasq:passthrough:1234:5678:kbd",
-            "recording_kind": "keymasq_passthrough",
-            "device_type": "keyboard",
-            "device_types": ["keyboard"],
-        }
+    assert sent_commands == [CommandType.LIST_DEVICES, CommandType.START_RECORDING]
+    assert sent_payloads[1]["recording_slot"] == 1
+    sent_devices = cast(list[dict[str, object]], sent_payloads[1]["devices"])
+    assert [device["recording_id"] for device in sent_devices] == [
+        "keymasq:passthrough:1234:5678:kbd"
     ]
-    assert "recording_ids" not in sent_payloads[0]
+    assert "recording_ids" not in sent_payloads[1]
 
 
 @pytest.mark.asyncio
@@ -314,19 +312,7 @@ async def test_get_devices_for_recording_logs_unexpected_failure(
 async def test_start_recording_defaults_to_recommended_sources_only() -> None:
     manager = SessionManager()
     sent_payloads: list[dict[str, object]] = []
-
-    async def send_command(command):
-        sent_payloads.append(dict(command.data or {}))
-        return Response(status="ok", data={"status": "ok"})
-
-    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
-    manager.recording_state.settings = {
-        "include_mouse_movement": False,
-        "include_mouse_clicks": False,
-        "record_start_position": False,
-        "device_overrides": {},
-    }
-    manager.recording_state.devices_cache = [
+    devices = [
         {
             "path": "/dev/input/event20",
             "recording_id": "keymasq:output:keyboard",
@@ -350,12 +336,27 @@ async def test_start_recording_defaults_to_recommended_sources_only() -> None:
             "device_types": ["keyboard"],
         },
     ]
+
+    async def send_command(command):
+        sent_payloads.append(dict(command.data or {}))
+        if command.command == CommandType.LIST_DEVICES:
+            return Response(status="ok", data={"devices": devices})
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {},
+    }
+    manager.recording_state.devices_cache = devices
     session_recording_module.update_selected_recording_devices_cache(manager)
 
     result = await session_recording_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
-    sent_devices = cast(list[dict[str, object]], sent_payloads[0]["devices"])
+    sent_devices = cast(list[dict[str, object]], sent_payloads[1]["devices"])
     assert [device["recording_id"] for device in sent_devices] == [
         "keymasq:output:keyboard",
         "keymasq:passthrough:1234:5678:mouse",
@@ -517,6 +518,8 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
 
     async def send_command(command: Command) -> Response:
         sent_commands.append(command)
+        if command.command == CommandType.LIST_DEVICES:
+            return Response(status="ok", data={"devices": []})
         return Response(status="ok", data={"status": "ok"})
 
     manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
@@ -530,11 +533,12 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert [command.command for command in sent_commands] == [
+        CommandType.LIST_DEVICES,
         CommandType.START_RECORDING,
         CommandType.MACRO_DELETE_RECORDING,
     ]
-    assert sent_commands[0].data["recording_slot"] == 1
-    assert sent_commands[1].data == {"pending_recording_id": "recording-old"}
+    assert sent_commands[1].data["recording_slot"] == 1
+    assert sent_commands[2].data == {"pending_recording_id": "recording-old"}
     assert manager.recording_state.pending_slots == {}
     assert manager.recording_state.pending_save is None
 

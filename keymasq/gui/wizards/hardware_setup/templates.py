@@ -8,6 +8,7 @@ from keymasq.common.devices import (
     capability_name,
     evdev_code_value,
     gamepad_button_label,
+    is_by_id_path,
     is_low_res_wheel_evdev,
     normalize_input_classes,
     ordered_gamepad_button_names,
@@ -82,8 +83,14 @@ def interfaces_have_capability(
 def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice]:
     evdev_devices = []
     for iface in interfaces:
-        config_path = str(iface.get("config_path", "") or iface.get("stable_path", "") or "")
-        device_path = str(iface.get("stable_path", "") or iface.get("path", "") or config_path)
+        stable_path = str(iface.get("stable_path", "") or "")
+        config_path = str(iface.get("config_path", "") or "")
+        event_path = str(iface.get("path", "") or "")
+        device_path = (
+            stable_path
+            if is_by_id_path(stable_path)
+            else config_path or stable_path or event_path
+        )
         iface_id = str(iface.get("id", "") or "")
         if not device_path or not iface_id:
             continue

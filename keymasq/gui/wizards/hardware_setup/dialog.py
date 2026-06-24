@@ -547,7 +547,12 @@ class HardwareSetupDialog(Adw.Dialog):
         has_gamepad = False
         has_mouse = False
         has_keyboard = False
-        for iface in self.selected_device.get("interfaces", []) or []:
+        interfaces: Sequence[Mapping[str, Any]] = (
+            list(self.discovered_interfaces.values())
+            if self.discovered_interfaces
+            else self.selected_device.get("interfaces", []) or []
+        )
+        for iface in interfaces:
             iface_types = self._interface_device_types(iface)
             if "gamepad" in iface_types:
                 has_gamepad = True
@@ -710,8 +715,9 @@ class HardwareSetupDialog(Adw.Dialog):
 
         discovered_interfaces: dict[str, DetectedInterface] = {}
 
+        selected_interfaces = list(selected_device.get("interfaces", []) or [])
         interfaces = []
-        for iface in selected_device.get("interfaces", []) or []:
+        for iface in selected_interfaces:
             raw_path = str(iface.get("path", "") or "")
             if not raw_path:
                 continue
@@ -726,6 +732,8 @@ class HardwareSetupDialog(Adw.Dialog):
                     "config_path": config_path,
                     "name": str(iface.get("name", "") or raw_path),
                     "phys": str(iface.get("phys", "") or ""),
+                    "device_type": iface.get("device_type", DeviceType.OTHER),
+                    "device_types": self._interface_device_types(iface),
                     "capabilities": capability_names,
                     "raw_capabilities": raw_capabilities,
                     **_interface_source_fields(iface),
@@ -742,21 +750,11 @@ class HardwareSetupDialog(Adw.Dialog):
                     pid,
                     stable_path,
                 )
-        iface_info_by_path = {
-            iface.get("path"): {
-                "device_type": iface.get("device_type", DeviceType.OTHER),
-                "device_types": self._interface_device_types(iface),
-            }
-            for iface in selected_device.get("interfaces", []) or []
-        }
         used_interface_ids: set[str] = set()
         for iface in interfaces:
             merged_iface = {
                 **iface,
-                "device_types": iface_info_by_path.get(iface["path"], {}).get(
-                    "device_types",
-                    iface.get("device_types", ["other"]),
-                ),
+                "device_types": self._interface_device_types(iface),
             }
             raw_iface_id = _interface_id_for_config(merged_iface, used_interface_ids)
             iface_key = raw_iface_id
@@ -775,14 +773,8 @@ class HardwareSetupDialog(Adw.Dialog):
                     "name": iface["name"],
                     "phys": str(iface.get("phys", "") or ""),
                     **_interface_source_fields(iface),
-                    "device_type": iface_info_by_path.get(iface["path"], {}).get(
-                        "device_type",
-                        DeviceType.OTHER,
-                    ),
-                    "device_types": iface_info_by_path.get(iface["path"], {}).get(
-                        "device_types",
-                        ["other"],
-                    ),
+                    "device_type": iface.get("device_type", DeviceType.OTHER),
+                    "device_types": self._interface_device_types(iface),
                     "capabilities": list(iface.get("capabilities", [])),
                     "raw_capabilities": cast(
                         dict[int, list[object]],

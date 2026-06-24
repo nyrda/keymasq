@@ -139,9 +139,8 @@ class ProfileManager:
         self._profile_file_lock = threading.RLock()
         self._profile_state_lock = threading.RLock()
         self._load_all()
-        self._ensure_default_profile_exists()
 
-    def _load_all(self, *, strict: bool = False) -> None:
+    def _load_profiles(self, *, strict: bool = False) -> dict[str, ProfileInfo]:
         loaded_profiles: dict[str, ProfileInfo] = {}
         for profile_file, config in load_config_files_sync(
             paths.PROFILES_DIR,
@@ -156,6 +155,14 @@ class ProfileManager:
                 loaded_profiles,
             )
 
+        return loaded_profiles
+
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded_profiles = self._load_profiles(strict=strict)
+        loaded_profiles = self._profiles_with_default_if_empty(
+            loaded_profiles,
+            strict=strict,
+        )
         with self._profile_state_lock:
             self._profiles = loaded_profiles
 
@@ -199,15 +206,15 @@ class ProfileManager:
     @_with_profile_file_lock
     def reload(self) -> None:
         self._load_all(strict=True)
-        self._ensure_default_profile_exists()
 
-    def _ensure_default_profile_exists(self) -> None:
-        if not self._auto_create_default_if_empty:
-            return
-
-        with self._profile_state_lock:
-            if self._profiles:
-                return
+    def _profiles_with_default_if_empty(
+        self,
+        profiles: dict[str, ProfileInfo],
+        *,
+        strict: bool = False,
+    ) -> dict[str, ProfileInfo]:
+        if not self._auto_create_default_if_empty or profiles:
+            return profiles
 
         config = ProfileConfig(
             name=DEFAULT_PROFILE_NAME,
@@ -227,14 +234,11 @@ class ProfileManager:
                 exclusive=True,
             )
         except FileExistsError:
-            self._load_all()
-            return
+            return self._load_profiles(strict=strict)
 
-        with self._profile_state_lock:
-            if self._profiles:
-                return
-            self._profiles[config.name] = ProfileInfo(path=path, config=config)
+        profiles[config.name] = ProfileInfo(path=path, config=config)
         log.info("Created default profile: %s", path)
+        return profiles
 
     def _load_profile(self, path: Path) -> ProfileConfig:
         with open(path, "rb") as f:
@@ -542,10 +546,12 @@ class ProfileManager:
     def list_profiles(self) -> list[ProfileInfo]:
         return list(self._profiles.values())
 
+    @_with_profile_file_lock
     @_with_profile_state_lock
     def snapshot_profiles(self) -> dict[str, ProfileInfo]:
         return self._profiles.copy()
 
+    @_with_profile_file_lock
     @_with_profile_state_lock
     def restore_profiles(self, profiles: dict[str, ProfileInfo]) -> None:
         self._profiles = profiles.copy()
@@ -570,20 +576,25 @@ class ProfileManager:
     def _is_canonical_profile_storage_path(self, profile_name: str, path: Path) -> bool:
         return path == self._canonical_profile_storage_path(profile_name)
 
+    def _occupied_profile_paths(self, current_path: Path | None = None) -> set[Path]:
+        return {
+            info.path
+            for info in self._profiles.values()
+            if current_path is None or info.path != current_path
+        }
+
     def _profile_path_for_name(
         self,
         profile_name: str,
         current_path: Path | None = None,
+        occupied_paths: set[Path] | None = None,
     ) -> Path:
         base_stem = self._sanitize_profile_storage_stem(profile_name)
         candidate = self._canonical_profile_storage_path(profile_name)
         suffix = 2
 
-        occupied_paths = {
-            info.path
-            for info in self._profiles.values()
-            if current_path is None or info.path != current_path
-        }
+        if occupied_paths is None:
+            occupied_paths = self._occupied_profile_paths(current_path)
 
         attempts = 0
         while candidate in occupied_paths or (candidate.exists() and candidate != current_path):
@@ -839,6 +850,7 @@ class ProfileManager:
 
         profile_name = config.name
         current_path = path
+        occupied_paths: set[Path] | None = None
         with self._profile_state_lock:
             existing_profile = self._profiles.get(profile_name)
             if existing_profile is not None:
@@ -851,7 +863,14 @@ class ProfileManager:
                 else:
                     path = existing_profile.path
             else:
-                path = self._profile_path_for_name(profile_name, current_path=current_path)
+                occupied_paths = self._occupied_profile_paths(current_path)
+
+        if path is None:
+            path = self._profile_path_for_name(
+                profile_name,
+                current_path=current_path,
+                occupied_paths=occupied_paths,
+            )
 
         self._write_profile_file(config, path, validate_window_rules=False)
 
@@ -1010,7 +1029,13 @@ class ProfileManager:
             old_path = profile.path
             renamed_config = copy.deepcopy(profile.config)
             renamed_config.name = new_name
-            new_path = self._profile_path_for_name(new_name, current_path=old_path)
+            occupied_paths = self._occupied_profile_paths(old_path)
+
+        new_path = self._profile_path_for_name(
+            new_name,
+            current_path=old_path,
+            occupied_paths=occupied_paths,
+        )
 
         self.validate_window_rules(renamed_config.window_rules)
         if renamed_config.created_at is None:
@@ -1032,6 +1057,7 @@ class ProfileManager:
         return renamed_profile
 
     @_with_profile_file_lock
+    @_with_profile_state_lock
     def find_profiles_using_superkey(self, superkey_name: str) -> list[tuple[str, str]]:
         result: list[tuple[str, str]] = []
         for info in self.list_profiles():
@@ -1055,6 +1081,7 @@ class ProfileManager:
         return result
 
     @_with_profile_file_lock
+    @_with_profile_state_lock
     def find_profiles_using_analog_control(
         self,
         analog_control_name: str,
@@ -1075,8 +1102,9 @@ class ProfileManager:
     def replace_analog_control_with_suppress(self, analog_control_name: str) -> int:
         count = 0
         for info in self.list_profiles():
+            updated_config = copy.deepcopy(info.config)
             modified = False
-            for layer in info.config.device_layers.values():
+            for layer in updated_config.device_layers.values():
                 for button_id, action in list(layer.mappings.items()):
                     if (
                         action.action_type == ActionType.ANALOG_CONTROL
@@ -1098,7 +1126,7 @@ class ProfileManager:
                         modified = True
                         count += 1
             if modified:
-                self.save_profile(info.config)
+                self.save_profile(updated_config, path=info.path)
         if count > 0:
             log.info(
                 "Replaced analog control '%s' with suppress in %d references",
@@ -1113,8 +1141,9 @@ class ProfileManager:
             return 0
         count = 0
         for info in self.list_profiles():
+            updated_config = copy.deepcopy(info.config)
             modified = False
-            for layer in info.config.device_layers.values():
+            for layer in updated_config.device_layers.values():
                 for action in layer.mappings.values():
                     if (
                         action.action_type == ActionType.ANALOG_CONTROL
@@ -1128,7 +1157,7 @@ class ProfileManager:
                         modified = True
                         count += 1
             if modified:
-                self.save_profile(info.config)
+                self.save_profile(updated_config, path=info.path)
         if count > 0:
             log.info(
                 "Renamed analog control references '%s' -> '%s' in %d mappings",
@@ -1142,8 +1171,9 @@ class ProfileManager:
     def replace_superkey_with_suppress(self, superkey_name: str) -> int:
         count = 0
         for info in self.list_profiles():
+            updated_config = copy.deepcopy(info.config)
             modified = False
-            for layer in info.config.device_layers.values():
+            for layer in updated_config.device_layers.values():
                 for button_id, action in list(layer.mappings.items()):
                     if (
                         action.action_type == ActionType.SUPERKEY
@@ -1152,7 +1182,7 @@ class ProfileManager:
                         layer.mappings[button_id] = MappingAction(action_type=ActionType.SUPPRESS)
                         modified = True
                         count += 1
-            for combo in info.config.combos:
+            for combo in updated_config.combos:
                 action = combo.action
                 if (
                     action is not None
@@ -1163,7 +1193,7 @@ class ProfileManager:
                     modified = True
                     count += 1
             if modified:
-                self.save_profile(info.config)
+                self.save_profile(updated_config, path=info.path)
         if count > 0:
             log.info(
                 "Replaced superkey '%s' with suppress in %d references",
@@ -1178,8 +1208,9 @@ class ProfileManager:
         for info in self.list_profiles():
             if hardware_id not in info.config.device_layers:
                 continue
-            info.config.device_layers.pop(hardware_id, None)
-            self.save_profile(info.config)
+            updated_config = copy.deepcopy(info.config)
+            updated_config.device_layers.pop(hardware_id, None)
+            self.save_profile(updated_config, path=info.path)
             updated += 1
         return updated
 
@@ -1187,10 +1218,11 @@ class ProfileManager:
     def remove_device_button_mappings(self, hardware_id: str, button_id: str) -> int:
         updated = 0
         for info in self.list_profiles():
-            layer = info.config.get_layer(hardware_id)
+            updated_config = copy.deepcopy(info.config)
+            layer = updated_config.get_layer(hardware_id)
             if layer is None or button_id not in layer.mappings:
                 continue
             layer.mappings.pop(button_id, None)
-            self.save_profile(info.config)
+            self.save_profile(updated_config, path=info.path)
             updated += 1
         return updated

@@ -34,7 +34,7 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
 
         self.demo_mode = demo_mode
         self.hardware_manager = HardwareManager()
-        self.profile_manager = ProfileManager(auto_create_default_if_empty=True)
+        self.profile_manager = ProfileManager()
         self._session_connected: bool | None = None
         self._keymasqd_via_session: bool | None = None
         self._compositor_id: str | None = None
@@ -94,6 +94,7 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         }
         self._profile_reload_inflight = False
         self._profile_reload_pending = False
+        self._initial_status_profile_reload_done = False
         self._destroyed = False
         self._tab_order = load_tab_order()
         self._hidden_tabs = load_hidden_tabs()

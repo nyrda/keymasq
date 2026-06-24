@@ -133,6 +133,57 @@ class TestProfileManagedTab:
         assert copy_config is not None
         assert copy_config.name == "Project_2"
 
+    def test_delete_last_profile_is_blocked(self, monkeypatch):
+        from pathlib import Path
+
+        from keymasq.common.models import ProfileConfig
+        from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+        from keymasq.session.profiles import ProfileInfo
+
+        only_profile = ProfileInfo(Path("base.toml"), ProfileConfig(name="Base"))
+
+        class ProfileManagerStub:
+            def __init__(self):
+                self.deleted: list[str] = []
+
+            def list_profiles(self):
+                return [only_profile]
+
+            def delete_profile(self, name: str):
+                self.deleted.append(name)
+                return True
+
+        class DialogStub:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        manager = ProfileManagerStub()
+        reloads: list[bool] = []
+        monkeypatch.setattr(
+            profile_managed_tab_module,
+            "notify_session_reload_async",
+            lambda: reloads.append(True),
+        )
+
+        tab = ProfileManagedTab(manager)
+        tab._selected_profile = only_profile
+        errors: list[str] = []
+        tab._show_profile_error_dialog = errors.append
+        dialog = DialogStub()
+
+        tab._on_confirm_delete_profile(None, dialog)
+
+        assert dialog.closed is True
+        assert manager.deleted == []
+        assert reloads == []
+        assert errors == [
+            "At least one profile is required. Create another profile before deleting this one."
+        ]
+
 
 class TestProfileActions:
     def test_action_types(self):

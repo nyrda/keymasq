@@ -18,7 +18,7 @@ from keymasq.gui.window import (
 
 
 class TestMainWindow:
-    def test_main_window_seeds_default_profile_for_first_device(self, temp_config_dir):
+    def test_main_window_does_not_seed_default_profile_for_first_device(self, temp_config_dir):
         from keymasq.common.models import ButtonDefinition, HardwareConfig
         from keymasq.gui.window import MainWindow
 
@@ -36,10 +36,16 @@ class TestMainWindow:
 
         tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
 
-        assert window.profile_manager.get_profile("Default") is not None
-        assert tab._selected_profile is not None
-        assert tab._selected_profile.config.name == "Default"
-        assert tab.settings_frame.get_sensitive() is True
+        assert window.profile_manager.get_profile("Default") is None
+        assert not (temp_config_dir / "profiles" / "Default.toml").exists()
+        assert tab._selected_profile is None
+        assert tab.settings_frame.get_sensitive() is False
+
+    def test_gui_profile_reload_snapshot_does_not_seed_default(self, temp_config_dir):
+        manager = profiles._load_profile_manager_snapshot(object())
+
+        assert manager.list_profiles() == []
+        assert not (temp_config_dir / "profiles" / "Default.toml").exists()
 
     def test_main_window_demo_mode(self, temp_config_dir):
         from keymasq.common.models import (
@@ -452,7 +458,7 @@ class TestMainWindow:
         )
         device_tabs._add_device_tab(window, device)
         original_profile_manager = window.profile_manager
-        profiles._set_profile_manager(window, ProfileManager(auto_create_default_if_empty=True))
+        profiles._set_profile_manager(window, ProfileManager())
         assert window.profile_manager.get_profile("Gaming") is None
         original_profile_manager.save_profile(
             ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
@@ -1048,7 +1054,7 @@ class TestMainWindow:
         )
 
         device_tabs._add_device_tab(window, device)
-        external_profiles = ProfileManager(auto_create_default_if_empty=True)
+        external_profiles = ProfileManager()
         external_profiles.save_profile(
             ProfileConfig(
                 name="Gaming",
@@ -1231,6 +1237,44 @@ class TestMainWindow:
         assert window._profile_runtime_state["active_profiles"] == ["Desktop"]
         assert window._profile_runtime_state["devices"] == {"2234:6678": {"profiles": ["Desktop"]}}
         assert window._profile_runtime_state["window"] == {"class": "steam"}
+
+    def test_main_window_successful_initial_status_queues_profile_reload_once(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        reloads: list[object] = []
+        monkeypatch.setattr(
+            profiles,
+            "_queue_profile_reload",
+            lambda target: reloads.append(target),
+        )
+
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        finished = connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": False},
+            1,
+        )
+
+        assert finished is False
+        assert reloads == [window]
+        assert window._initial_status_profile_reload_done is True
+
+        window._status_query_id = 2
+        window._status_query_inflight = True
+        connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": True},
+            2,
+        )
+
+        assert reloads == [window]
 
     def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
         from keymasq.gui.window import MainWindow

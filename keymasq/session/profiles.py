@@ -856,6 +856,18 @@ class ProfileManager:
         current_path = path
         occupied_paths: set[Path] | None = None
         with self._profile_state_lock:
+            if current_path is not None:
+                path_owner = next(
+                    (
+                        name
+                        for name, info in self._profiles.items()
+                        if info.path == current_path
+                    ),
+                    None,
+                )
+                if path_owner is not None and path_owner != profile_name:
+                    raise ValueError(f"Profile storage path is already used by '{path_owner}'")
+
             existing_profile = self._profiles.get(profile_name)
             if existing_profile is not None:
                 if current_path is None:

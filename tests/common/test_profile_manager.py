@@ -590,6 +590,21 @@ macro_name = "Example"
         assert first.path.name == "Work_Mode.toml"
         assert second.path.name == "Work_Mode_2.toml"
 
+    def test_save_profile_rejects_explicit_path_owned_by_other_profile(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Work/Mode", enabled=True, device_layers={}))
+        first = manager.get_profile("Work/Mode")
+        assert first is not None
+
+        with pytest.raises(ValueError, match="already used by 'Work/Mode'"):
+            manager.save_profile(
+                ProfileConfig(name="Work_Mode", enabled=False, device_layers={}),
+                path=first.path,
+            )
+
+        assert manager.get_profile("Work_Mode") is None
+        assert 'name = "Work/Mode"' in first.path.read_text(encoding="utf-8")
+
     def test_save_existing_loaded_profile_updates_original_path(self, temp_config_dir):
         profiles_dir = temp_config_dir / "profiles"
         fixture_path = _write_profile_toml(

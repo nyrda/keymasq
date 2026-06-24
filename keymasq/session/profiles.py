@@ -546,9 +546,13 @@ class ProfileManager:
     def list_profiles(self) -> list[ProfileInfo]:
         return list(self._profiles.values())
 
-    @_with_profile_file_lock
     @_with_profile_state_lock
     def snapshot_profiles(self) -> dict[str, ProfileInfo]:
+        return self._profiles.copy()
+
+    @_with_profile_file_lock
+    @_with_profile_state_lock
+    def snapshot_profiles_for_reload(self) -> dict[str, ProfileInfo]:
         return self._profiles.copy()
 
     @_with_profile_file_lock
@@ -1056,7 +1060,6 @@ class ProfileManager:
         log.info("Renamed profile: %s -> %s", old_name, new_name)
         return renamed_profile
 
-    @_with_profile_file_lock
     @_with_profile_state_lock
     def find_profiles_using_superkey(self, superkey_name: str) -> list[tuple[str, str]]:
         result: list[tuple[str, str]] = []
@@ -1080,7 +1083,6 @@ class ProfileManager:
                     break
         return result
 
-    @_with_profile_file_lock
     @_with_profile_state_lock
     def find_profiles_using_analog_control(
         self,

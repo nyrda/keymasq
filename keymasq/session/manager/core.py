@@ -625,7 +625,7 @@ class SessionManager:
     def reload_config_from_disk(self) -> None:
         superkeys_snapshot = self.superkeys.snapshot_superkeys()
         analog_controls_snapshot = self.analog_controls.snapshot_analog_controls()
-        profiles_snapshot = self.profiles.snapshot_profiles()
+        profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
         hardware_snapshot = self.hardware.snapshot_hardware()
         old_virtual_gamepad_count = self.virtual_gamepad_count
 

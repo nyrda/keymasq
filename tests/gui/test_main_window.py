@@ -1258,7 +1258,7 @@ class TestMainWindow:
         window._status_query_inflight = True
         finished = connection._on_status_response(
             window,
-            {"status": "ok", "keymasqd_connected": True},
+            {"status": "ok", "keymasqd_connected": False},
             1,
         )
 

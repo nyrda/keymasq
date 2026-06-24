@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, cast
@@ -67,6 +68,33 @@ def combo_runtime_deps(
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
+
+
+async def stop_device_event_loop(device: object) -> None:
+    stopper = getattr(device, "stop_event_loop", None)
+    if callable(stopper):
+        result = cast(Callable[[], object], stopper)()
+        if inspect.isawaitable(result):
+            await cast(Awaitable[None], result)
+        return
+
+    if hasattr(device, "_running"):
+        cast(Any, device)._running = False
+    task = getattr(device, "task", None)
+    if task is None or task is asyncio.current_task():
+        return
+    cancel = getattr(task, "cancel", None)
+    if callable(cancel):
+        cancel()
+    try:
+        await asyncio.wait_for(cast(Awaitable[object], task), timeout=1.0)
+    except (TimeoutError, asyncio.CancelledError):
+        pass
+
+
+async def stop_device_event_loops(devices: Sequence[object]) -> None:
+    for device in devices:
+        await stop_device_event_loop(device)
 
 
 async def grab_device_unlocked(
@@ -813,6 +841,7 @@ async def release_device_unlocked(
 ) -> dict[str, object]:
     cancel_pending_hardware_release(manager, hardware_id)
     cancel_pending_interface_releases_for_hardware(manager, hardware_id)
+    await stop_device_event_loops(manager.grabbed_devices.get(hardware_id, []))
     await runtime_combos.clear_combo_runtime_for_binding_scope(
         manager,
         hardware_id,
@@ -1007,6 +1036,7 @@ async def release_interface_unlocked(
     if removed is None:
         return
 
+    await stop_device_event_loop(removed)
     await runtime_combos.clear_combo_runtime_for_binding_scope(
         manager,
         hardware_id,
@@ -1044,6 +1074,8 @@ async def release_all_devices(
 ) -> None:
     async with manager._op_lock:
         await manager.cancel_macro_playback()
+        for devices in list(manager.grabbed_devices.values()):
+            await stop_device_event_loops(devices)
         await runtime_combos.clear_combo_runtime(
             manager,
             deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),

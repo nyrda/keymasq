@@ -497,6 +497,127 @@ class TestCombos:
         await asyncio.sleep(0)
 
     @pytest.mark.asyncio
+    async def test_runtime_combo_release_during_action_start_does_not_leave_stale_action(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-cross-device",
+                    "name": "Cross Device",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-a",
+                                    "evdev": "key_leftalt",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-b",
+                                    "evdev": "key_b",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "keyboard",
+                        "target": "key_f5",
+                        "tap_enabled": True,
+                        "tap_hold_ms": 10,
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "")
+
+        action_task_waiting = asyncio.Event()
+        release_action_task = asyncio.Event()
+        action_tasks: list[asyncio.Task[object]] = []
+
+        def delayed_fire_and_observe(coro, _label):
+            async def runner():
+                try:
+                    action_task_waiting.set()
+                    await release_action_task.wait()
+                    return await coro
+                finally:
+                    if not release_action_task.is_set():
+                        close = getattr(coro, "close", None)
+                        if callable(close):
+                            close()
+
+            task = asyncio.create_task(runner())
+            action_tasks.append(task)
+            return task
+
+        kwargs = combo_event_runtime_kwargs()
+        kwargs["deps"] = combo_runtime_deps(
+            fire_and_observe_fn=delayed_fire_and_observe,
+        )
+        press_b_task = None
+        try:
+            await cdm.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd-a",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_LEFTALT,
+                1,
+                None,
+                "kbd-a",
+                **kwargs,
+            )
+            press_b_task = asyncio.create_task(
+                cdm.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-b",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_B,
+                    1,
+                    None,
+                    "kbd-b",
+                    **kwargs,
+                )
+            )
+            await asyncio.wait_for(action_task_waiting.wait(), timeout=1.0)
+
+            await cdm.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd-b",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_B,
+                0,
+                None,
+                "kbd-b",
+                **kwargs,
+            )
+            release_action_task.set()
+            await asyncio.wait_for(press_b_task, timeout=1.0)
+            await asyncio.gather(*action_tasks, return_exceptions=True)
+
+            assert manager.combo_state.active_actions == {}
+        finally:
+            release_action_task.set()
+            if press_b_task is not None and not press_b_task.done():
+                press_b_task.cancel()
+                await asyncio.gather(press_b_task, return_exceptions=True)
+            await cdm.clear_combo_runtime(manager, deps=combo_runtime_deps())
+            for task in action_tasks:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_keyboard_action_mirrors_press_and_release(self, monkeypatch):
         manager = DeviceManager()
         manager.output_state.keyboard_uinput = Mock()

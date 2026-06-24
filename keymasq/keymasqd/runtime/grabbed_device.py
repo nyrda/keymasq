@@ -631,8 +631,20 @@ class GrabbedDevice:
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 
-    async def release(self) -> None:
+    async def stop_event_loop(self) -> None:
         self._running = False
+        if self.task:
+            task = self.task
+            self.task = None
+            if task is not asyncio.current_task():
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=1.0)
+                except (TimeoutError, asyncio.CancelledError):
+                    pass
+
+    async def release(self) -> None:
+        await self.stop_event_loop()
         await self.reset_analog_controls()
         await self.reset_superkeys()
         runtime_events.observe_profile_trigger_end_for_held_sources(self)
@@ -645,16 +657,6 @@ class GrabbedDevice:
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
-
-        if self.task:
-            task = self.task
-            self.task = None
-            if task is not asyncio.current_task():
-                task.cancel()
-                try:
-                    await asyncio.wait_for(task, timeout=1.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    pass
 
         await self._stop_force_feedback_proxy()
 

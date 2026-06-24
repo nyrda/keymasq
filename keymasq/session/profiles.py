@@ -113,6 +113,17 @@ class ProfileManager:
 
         return wrapper
 
+    @staticmethod
+    def _with_profile_state_lock[**P, R](
+        method: Callable[Concatenate["ProfileManager", P], R],
+    ) -> Callable[Concatenate["ProfileManager", P], R]:
+        @wraps(method)
+        def wrapper(self: "ProfileManager", *args: P.args, **kwargs: P.kwargs) -> R:
+            with self._profile_state_lock:
+                return method(self, *args, **kwargs)
+
+        return wrapper
+
     def __init__(
         self,
         superkey_manager: "SuperkeyManager | None" = None,
@@ -126,6 +137,7 @@ class ProfileManager:
         self._profiles: dict[str, ProfileInfo] = {}
         self._pending_repairs: set[asyncio.Task[None]] = set()
         self._profile_file_lock = threading.RLock()
+        self._profile_state_lock = threading.RLock()
         self._load_all()
         self._ensure_default_profile_exists()
 
@@ -144,7 +156,8 @@ class ProfileManager:
                 loaded_profiles,
             )
 
-        self._profiles = loaded_profiles
+        with self._profile_state_lock:
+            self._profiles = loaded_profiles
 
     def _add_loaded_profile(
         self,
@@ -189,8 +202,12 @@ class ProfileManager:
         self._ensure_default_profile_exists()
 
     def _ensure_default_profile_exists(self) -> None:
-        if not self._auto_create_default_if_empty or self._profiles:
+        if not self._auto_create_default_if_empty:
             return
+
+        with self._profile_state_lock:
+            if self._profiles:
+                return
 
         config = ProfileConfig(
             name=DEFAULT_PROFILE_NAME,
@@ -213,7 +230,10 @@ class ProfileManager:
             self._load_all()
             return
 
-        self._profiles[config.name] = ProfileInfo(path=path, config=config)
+        with self._profile_state_lock:
+            if self._profiles:
+                return
+            self._profiles[config.name] = ProfileInfo(path=path, config=config)
         log.info("Created default profile: %s", path)
 
     def _load_profile(self, path: Path) -> ProfileConfig:
@@ -518,23 +538,23 @@ class ProfileManager:
             return self._parse_action(action_dict)
         return None
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def list_profiles(self) -> list[ProfileInfo]:
         return list(self._profiles.values())
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def snapshot_profiles(self) -> dict[str, ProfileInfo]:
         return self._profiles.copy()
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def restore_profiles(self, profiles: dict[str, ProfileInfo]) -> None:
         self._profiles = profiles.copy()
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def get_profile(self, profile_name: str) -> ProfileInfo | None:
         return self._profiles.get(profile_name)
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def get_next_priority(self) -> int:
         if not self._profiles:
             return 0
@@ -577,17 +597,21 @@ class ProfileManager:
 
     @_with_profile_file_lock
     def set_profile_enabled(self, profile_name: str, enabled: bool | None) -> ProfileConfig | None:
-        profile = self.get_profile(profile_name)
-        if profile is None:
-            return None
+        with self._profile_state_lock:
+            profile = self._profiles.get(profile_name)
+            if profile is None:
+                return None
 
-        target_enabled = (not profile.config.enabled) if enabled is None else bool(enabled)
-        if profile.config.enabled == target_enabled:
-            return profile.config
+            target_enabled = (not profile.config.enabled) if enabled is None else bool(enabled)
+            if profile.config.enabled == target_enabled:
+                return profile.config
 
-        profile.config.enabled = target_enabled
-        self.save_profile(profile.config)
-        return profile.config
+            updated_config = copy.deepcopy(profile.config)
+            updated_config.enabled = target_enabled
+            profile_path = profile.path
+
+        self.save_profile(updated_config, path=profile_path)
+        return updated_config
 
     def has_unsupported_rules(self, config: ProfileConfig, capabilities: list[str]) -> bool:
         has_tag_support = "window_tags" in capabilities
@@ -638,7 +662,7 @@ class ProfileManager:
 
         return True
 
-    @_with_profile_file_lock
+    @_with_profile_state_lock
     def resolve_active_profiles(
         self,
         window_info: TomlDict | None = None,
@@ -815,22 +839,24 @@ class ProfileManager:
 
         profile_name = config.name
         current_path = path
-        existing_profile = self._profiles.get(profile_name)
-        if existing_profile is not None:
-            if current_path is None:
-                if existing_profile.config is not config:
+        with self._profile_state_lock:
+            existing_profile = self._profiles.get(profile_name)
+            if existing_profile is not None:
+                if current_path is None:
+                    if existing_profile.config is not config:
+                        raise ValueError(f"Profile '{profile_name}' already exists")
+                    path = existing_profile.path
+                elif existing_profile.path != current_path:
                     raise ValueError(f"Profile '{profile_name}' already exists")
-                path = existing_profile.path
-            elif existing_profile.path != current_path:
-                raise ValueError(f"Profile '{profile_name}' already exists")
+                else:
+                    path = existing_profile.path
             else:
                 path = self._profile_path_for_name(profile_name, current_path=current_path)
-        else:
-            path = self._profile_path_for_name(profile_name, current_path=current_path)
 
         self._write_profile_file(config, path, validate_window_rules=False)
 
-        self._profiles[config.name] = ProfileInfo(path=path, config=config)
+        with self._profile_state_lock:
+            self._profiles[config.name] = ProfileInfo(path=path, config=config)
 
         log.info("Saved profile: %s", path)
 
@@ -935,13 +961,15 @@ class ProfileManager:
 
     @_with_profile_file_lock
     def delete_profile(self, name: str) -> bool:
-        profile = self._profiles.get(name)
+        with self._profile_state_lock:
+            profile = self._profiles.get(name)
         if profile is None:
             return False
 
         if profile.path.exists():
             self._trash_profile_file(profile.path)
-        self._profiles.pop(name, None)
+        with self._profile_state_lock:
+            self._profiles.pop(name, None)
         log.info("Deleted profile: %s", name)
         return True
 
@@ -971,19 +999,28 @@ class ProfileManager:
 
     @_with_profile_file_lock
     def rename_profile(self, old_name: str, new_name: str) -> ProfileInfo:
-        if new_name in self._profiles and new_name != old_name:
-            raise ValueError(f"Profile '{new_name}' already exists")
+        with self._profile_state_lock:
+            if new_name in self._profiles and new_name != old_name:
+                raise ValueError(f"Profile '{new_name}' already exists")
 
-        profile = self._profiles.get(old_name)
-        if profile is None:
-            raise ValueError(f"Profile '{old_name}' not found")
+            profile = self._profiles.get(old_name)
+            if profile is None:
+                raise ValueError(f"Profile '{old_name}' not found")
 
-        old_path = profile.path
-        profile.config.name = new_name
-        self._profiles.pop(old_name, None)
-        self.save_profile(profile.config, path=old_path)
-        renamed_profile = self._profiles[new_name]
-        new_path = renamed_profile.path
+            old_path = profile.path
+            renamed_config = copy.deepcopy(profile.config)
+            renamed_config.name = new_name
+            new_path = self._profile_path_for_name(new_name, current_path=old_path)
+
+        self.validate_window_rules(renamed_config.window_rules)
+        if renamed_config.created_at is None:
+            renamed_config.created_at = datetime.now()
+        self._write_profile_file(renamed_config, new_path, validate_window_rules=False)
+
+        renamed_profile = ProfileInfo(path=new_path, config=renamed_config)
+        with self._profile_state_lock:
+            self._profiles.pop(old_name, None)
+            self._profiles[new_name] = renamed_profile
 
         if old_path != new_path and old_path.exists():
             try:

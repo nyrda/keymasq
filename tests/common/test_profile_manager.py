@@ -679,6 +679,70 @@ macro_name = "Example"
         assert profile is not None
         assert profile.config.enabled is False
 
+    def test_profile_reads_do_not_wait_for_reload_disk_load(
+        self,
+        temp_config_dir,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Race Profile", enabled=True, is_permanent=True))
+        original_load_all = manager._load_all
+        reload_reached_load = threading.Event()
+        release_reload = threading.Event()
+        reload_errors: list[object] = []
+
+        def load_all_with_pause(*, strict: bool = False) -> None:
+            reload_reached_load.set()
+            assert release_reload.wait(timeout=5)
+            original_load_all(strict=strict)
+
+        def reload_profiles() -> None:
+            try:
+                manager.reload()
+            except (AssertionError, OSError, RuntimeError, ValueError) as exc:
+                reload_errors.append(exc)
+
+        monkeypatch.setattr(manager, "_load_all", load_all_with_pause)
+        reloader = threading.Thread(target=reload_profiles)
+        reloader.start()
+
+        read_done = threading.Event()
+        read_errors: list[object] = []
+        reader: threading.Thread | None = None
+        try:
+            assert reload_reached_load.wait(timeout=5)
+
+            def read_profiles() -> None:
+                try:
+                    profile = manager.get_profile("Race Profile")
+                    assert profile is not None
+                    assert [info.config.name for info in manager.list_profiles()] == [
+                        "Race Profile"
+                    ]
+                    resolved = manager.resolve_active_profiles()
+                    assert [profile.name for profile in resolved.active_profiles] == [
+                        "Race Profile"
+                    ]
+                except (AssertionError, OSError, RuntimeError, ValueError) as exc:
+                    read_errors.append(exc)
+                finally:
+                    read_done.set()
+
+            reader = threading.Thread(target=read_profiles)
+            reader.start()
+            assert read_done.wait(timeout=0.2)
+        finally:
+            release_reload.set()
+            if reader is not None:
+                reader.join(timeout=5)
+            reloader.join(timeout=5)
+
+        assert reader is not None
+        assert not reader.is_alive()
+        assert not reloader.is_alive()
+        assert read_errors == []
+        assert reload_errors == []
+
     def test_duplicate_profile_names_prefer_canonical_path(
         self,
         temp_config_dir,

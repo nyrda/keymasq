@@ -231,8 +231,8 @@ instead. `by-path` is stable across reboots as long as the device stays in the
 same USB or PCI path. If you move the receiver or device to another port, the
 `by-path` link changes and you must update the config again.
 
-If Linux does not expose a `/dev/input/by-id/...` link at all, Keymasq stores a
-logical path such as `keymasq:2dc8:3106` instead of the unstable
+If Linux does not expose a `/dev/input/by-id/...` link at all, Product detection
+uses a logical path such as `keymasq:2dc8:3106` instead of the unstable
 `/dev/input/eventN` node. This is not a real filesystem path. At runtime,
 `keymasqd` resolves it by matching live evdev devices with the configured
 vendor/product IDs and interface metadata such as type, `phys`, and

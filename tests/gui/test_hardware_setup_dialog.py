@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -42,23 +44,6 @@ class TestHardwareSetupDialog:
 
         assert handled is True
         assert closed == [True]
-
-    def test_hardware_setup_close_stops_active_capture(self, monkeypatch):
-        gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
-
-        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
-
-        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
-
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
-        stopped: list[bool] = []
-        dialog._capturing = True
-        dialog._stop_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
-
-        dialog._on_closed()
-
-        assert stopped == [True]
 
     def test_uinput_identity_groups_same_model_over_unstable_event_path(self):
         from keymasq.gui.wizards.hardware_setup.identity import logical_hardware_identity_key
@@ -538,10 +523,10 @@ class TestHardwareSetupDialog:
             ],
         }
 
-        dialog._discover_interfaces()
+        dialog.discovered_interfaces = dialog._discover_interfaces(dialog.selected_device)
 
         raw_iface = next(iter(dialog.discovered_interfaces.values()))
-        assert raw_iface["config_path"] == "keymasq:1234:1002"
+        assert raw_iface.get("config_path") == "keymasq:1234:1002"
 
         dialog.selected_device = {
             "vendor_id": "1234",
@@ -560,10 +545,53 @@ class TestHardwareSetupDialog:
             ],
         )
 
-        dialog._discover_interfaces()
+        dialog.discovered_interfaces = dialog._discover_interfaces(dialog.selected_device)
 
         fallback_iface = next(iter(dialog.discovered_interfaces.values()))
-        assert fallback_iface["config_path"] == "keymasq:1234:1002"
+        assert fallback_iface.get("config_path") == "keymasq:1234:1002"
+
+    def test_build_evdev_devices_preserves_real_path_separate_from_config_path(self):
+        from keymasq.gui.wizards.hardware_setup import templates
+
+        devices = templates.build_evdev_devices(
+            [
+                {
+                    "id": "mouse",
+                    "path": "/dev/input/event20",
+                    "stable_path": "/dev/input/event20",
+                    "config_path": "keymasq:1234:1002",
+                    "device_types": ["mouse"],
+                }
+            ]
+        )
+
+        assert devices[0].path == "/dev/input/event20"
+
+    def test_configured_identity_skips_phys_probe_for_by_id_path(self, monkeypatch):
+        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.gui.wizards.hardware_setup import inventory
+
+        stable_path = "/dev/input/by-id/usb-Test_Mouse-event-mouse"
+        configured = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[
+                EvdevDevice(path=stable_path, device_type=DeviceType.MOUSE),
+            ],
+            buttons=[],
+        )
+        monkeypatch.setattr(
+            inventory,
+            "configured_device_phys",
+            lambda _device: pytest.fail("by-id identities must not probe phys"),
+        )
+
+        keys = inventory.configured_identity_hardware_ids(
+            SimpleNamespace(list_hardware=lambda: [configured])
+        )
+
+        assert keys["by-id:usb-Test_Mouse"] == "1234:5678"
 
     def test_normal_rows_show_interface_expander_and_raw_rows_use_summary(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -593,7 +621,7 @@ class TestHardwareSetupDialog:
 
         dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
         dialog._show_raw_evdev_devices = True
-        dialog._discover_interfaces = lambda: None  # type: ignore[method-assign]
+        dialog._start_discover_interfaces = lambda: None  # type: ignore[method-assign]
         dialog._refresh_configure_modes = lambda: None  # type: ignore[method-assign]
         dialog.detected_devices = {
             "045e:02a1#/dev/input/event20": {
@@ -641,6 +669,7 @@ class TestHardwareSetupDialog:
         from gi.repository import Gtk
 
         from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import dialog as hardware_setup_mod
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
@@ -653,8 +682,28 @@ class TestHardwareSetupDialog:
                 "interfaces": [],
             }
         }
-        dialog._discover_interfaces = lambda: None  # type: ignore[method-assign]
-        dialog._refresh_configure_modes = lambda: None  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            HardwareSetupDialog,
+            "_discover_interfaces",
+            lambda _self, _selected: {
+                "input": {
+                    "id": "input",
+                    "stable_path": "/dev/input/event20",
+                    "path": "/dev/input/event20",
+                    "name": "Test Input",
+                    "device_types": ["mouse"],
+                    "capabilities": [],
+                }
+            },
+        )
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "run_gui_task",
+            lambda worker, callback, on_done=None: (
+                callback(hardware_setup_mod.GuiTaskResult(value=worker())),
+                on_done() if on_done else None,
+            ),
+        )
         row = Gtk.ListBoxRow()
         row.hardware_id = "1234:1002"
 
@@ -663,24 +712,64 @@ class TestHardwareSetupDialog:
         assert dialog.selected_device is dialog.detected_devices["1234:1002"]
         assert dialog.next_btn.get_sensitive() is True
 
-    def test_hardware_setup_close_without_active_capture_does_not_stop_capture(
-        self, monkeypatch
-    ):
+    def test_selecting_row_defers_interface_discovery_to_gui_task(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
         from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import dialog as hardware_setup_mod
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
         dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
-        stopped: list[bool] = []
-        dialog._capture_hardware_id = "1234:1002"
-        dialog._stop_capture = lambda: stopped.append(True)  # type: ignore[method-assign]
+        dialog.detected_devices = {
+            "1234:1002": {
+                "vendor_id": "1234",
+                "product_id": "1002",
+                "hardware_id": "1234:1002",
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Test Input",
+                        "device_types": ["mouse"],
+                    }
+                ],
+            }
+        }
+        scheduled: list[
+            tuple[Callable[[], Any], Callable[[Any], Any], Callable[[], Any] | None]
+        ] = []
+        probes: list[str] = []
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "run_gui_task",
+            lambda worker, callback, on_done=None: scheduled.append(
+                (worker, callback, on_done)
+            ),
+        )
+        monkeypatch.setattr(
+            HardwareSetupDialog,
+            "_read_interface_capabilities",
+            lambda _self, path: (probes.append(path) or ([], {})),
+        )
+        row = Gtk.ListBoxRow()
+        row.hardware_id = "1234:1002"
 
-        dialog._on_closed()
+        dialog._on_device_selected(dialog.device_list, row)
 
-        assert stopped == []
+        assert len(scheduled) == 1
+        assert probes == []
+        assert dialog.next_btn.get_sensitive() is False
+
+        worker, callback, on_done = scheduled[0]
+        callback(hardware_setup_mod.GuiTaskResult(value=worker()))
+        if on_done:
+            on_done()
+
+        assert probes == ["/dev/input/event20"]
+        assert dialog.discovered_interfaces
+        assert dialog.next_btn.get_sensitive() is True
 
     def test_refresh_configure_modes_offers_gamepad_first(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -1970,113 +2059,3 @@ def test_hardware_setup_saves_mouse_keyboard_template_with_horizontal_wheel(monk
     assert by_id["wheel_left"].source == "mouse"
     assert by_id["wheel_right"].source == "mouse"
     assert by_id["key_a"].source == "kbd"
-
-
-def test_hardware_setup_capture_flow_records_buttons_and_saves(monkeypatch):
-    gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
-
-    import keymasq.gui.wizards.hardware_setup.dialog as hardware_setup_module
-    from keymasq.common.models import DeviceType
-    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
-
-    class _HardwareManager:
-        def __init__(self) -> None:
-            self.saved = []
-
-        def save_hardware(self, config) -> None:
-            self.saved.append(config)
-
-    requests: list[dict] = []
-
-    def fake_session_request_async(payload, callback):
-        requests.append(payload)
-        if payload["command"] == "begin_capture":
-            callback({"status": "ok", "warnings": ["limited permissions"]})
-        elif payload["command"] == "capture_read":
-            callback(
-                {
-                    "status": "ok",
-                    "captured": {
-                        "evdev": "btn_left",
-                        "code": 272,
-                        "value": 1,
-                        "direction": "press",
-                        "source": "mouse",
-                        "stable_path": "/dev/input/by-id/test-mouse",
-                    },
-                }
-            )
-        elif payload["command"] == "end_capture":
-            callback({"status": "ok"})
-
-    monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
-    monkeypatch.setattr(hardware_setup_module, "session_request_async", fake_session_request_async)
-    monkeypatch.setattr(hardware_setup_module.GLib, "timeout_add", lambda *_args: 42)
-    monkeypatch.setattr(hardware_setup_module.GLib, "source_remove", lambda _source_id: True)
-
-    hardware_manager = _HardwareManager()
-    dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
-    dialog._setup_page_capture()
-    dialog.selected_device = {
-        "vendor_id": "1234",
-        "product_id": "5678",
-        "name": "Capture Mouse",
-    }
-    dialog.discovered_interfaces = {
-        "mouse": {
-            "id": "mouse",
-            "stable_path": "/dev/input/by-id/test-mouse",
-            "device_types": ["mouse"],
-            "capabilities": ["btn_left", "rel_x"],
-        }
-    }
-    dialog._capture_hardware_id = "1234:5678"
-    dialog.button_definitions = [
-        {"id": "btn_left", "label": "Left Click", "type": "button"},
-    ]
-    dialog.current_button_index = 0
-    dialog.emit = lambda _signal, _config: None
-    dialog.close = lambda: None
-
-    dialog._update_capture_ui()
-    dialog._on_start_capture(dialog.capture_btn)
-
-    assert dialog.capture_status.get_label() == "Capture warnings: limited permissions"
-    assert dialog._capture_poll_id == 42
-
-    assert dialog._poll_capture() is True
-
-    assert dialog.current_button_index == 1
-    assert dialog.capture_title.get_label() == "Setup Complete!"
-    assert dialog.capture_btn.get_label() == "Save"
-    assert dialog.button_definitions[0]["evdev"] == "btn_left"
-    assert dialog.button_definitions[0]["source"] == "mouse"
-
-    dialog._on_save(dialog.capture_btn)
-
-    saved = hardware_manager.saved[0]
-    assert saved.id is None
-    assert saved.evdev_devices[0].device_type == DeviceType.MOUSE
-    assert saved.evdev_devices[0].capabilities == ["btn_left", "rel_x"]
-    assert saved.buttons[0].id == "btn_left"
-    assert saved.buttons[0].evdev == "btn_left"
-    assert requests == [
-        {
-            "command": "begin_capture",
-            "hardware_id": "1234:5678",
-            "end_on_disconnect": True,
-            "evdev_paths": ["/dev/input/by-id/test-mouse"],
-            "evdev_interfaces": [
-                    {
-                        "id": "mouse",
-                        "path": "/dev/input/by-id/test-mouse",
-                        "type": "mouse",
-                        "phys": "",
-                        "capabilities": ["btn_left", "rel_x"],
-                    }
-                ],
-            },
-        {"command": "capture_read", "hardware_id": "1234:5678"},
-        {"command": "end_capture", "hardware_id": "1234:5678"},
-    ]

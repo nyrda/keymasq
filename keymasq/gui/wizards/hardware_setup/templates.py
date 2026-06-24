@@ -1,3 +1,6 @@
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import evdev
 
 from keymasq.common.devices import (
@@ -19,29 +22,31 @@ from keymasq.common.models import (
     EvdevDevice,
 )
 
+InterfaceInfo = Mapping[str, Any]
 
-def interface_device_types(iface: dict) -> list[str]:
+
+def interface_device_types(iface: InterfaceInfo) -> list[str]:
     return normalize_input_classes(iface.get("device_types"), iface.get("device_type"))
 
 
-def interface_has_role(iface: dict, role: str) -> bool:
+def interface_has_role(iface: InterfaceInfo, role: str) -> bool:
     return role in interface_device_types(iface)
 
 
 def interfaces_for_roles(
-    discovered_interfaces: list[dict],
+    discovered_interfaces: Sequence[InterfaceInfo],
     roles: set[str],
-) -> list[dict]:
+) -> list[InterfaceInfo]:
     interfaces = [
         iface
         for iface in discovered_interfaces
         if any(interface_has_role(iface, role) for role in roles)
     ]
-    return interfaces or discovered_interfaces
+    return interfaces or list(discovered_interfaces)
 
 
-def merge_interface_lists(*interface_lists: list[dict]) -> list[dict]:
-    merged: list[dict] = []
+def merge_interface_lists(*interface_lists: Sequence[InterfaceInfo]) -> list[InterfaceInfo]:
+    merged: list[InterfaceInfo] = []
     seen_keys: set[tuple[str, str]] = set()
     for interface_list in interface_lists:
         for iface in interface_list:
@@ -55,7 +60,10 @@ def merge_interface_lists(*interface_lists: list[dict]) -> list[dict]:
     return merged
 
 
-def interfaces_have_capability(interfaces: list[dict], capability: str) -> bool:
+def interfaces_have_capability(
+    interfaces: Sequence[InterfaceInfo],
+    capability: str,
+) -> bool:
     capability_l = capability.strip().lower()
     for iface in interfaces:
         capabilities = {str(name).strip().lower() for name in iface.get("capabilities", [])}
@@ -71,16 +79,17 @@ def interfaces_have_capability(interfaces: list[dict], capability: str) -> bool:
     return False
 
 
-def build_evdev_devices(interfaces: list[dict]) -> list[EvdevDevice]:
+def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice]:
     evdev_devices = []
     for iface in interfaces:
         config_path = str(iface.get("config_path", "") or iface.get("stable_path", "") or "")
+        device_path = str(iface.get("stable_path", "") or iface.get("path", "") or config_path)
         iface_id = str(iface.get("id", "") or "")
-        if not config_path or not iface_id:
+        if not device_path or not iface_id:
             continue
         evdev_devices.append(
             EvdevDevice(
-                path=config_path,
+                path=device_path,
                 device_type=primary_input_class(iface.get("device_types")),
                 id=iface_id,
                 phys=str(iface.get("phys", "") or "") or None,
@@ -171,7 +180,7 @@ def standard_wheel_buttons(
     return buttons
 
 
-def build_gamepad_buttons(interfaces: list[dict]) -> list[ButtonDefinition]:
+def build_gamepad_buttons(interfaces: Sequence[InterfaceInfo]) -> list[ButtonDefinition]:
     button_specs: dict[str, tuple[int, str | None]] = {}
 
     for iface in interfaces:
@@ -213,7 +222,9 @@ def build_gamepad_buttons(interfaces: list[dict]) -> list[ButtonDefinition]:
     return buttons
 
 
-def build_gamepad_analog_inputs(interfaces: list[dict]) -> list[AnalogInputDefinition]:
+def build_gamepad_analog_inputs(
+    interfaces: Sequence[InterfaceInfo],
+) -> list[AnalogInputDefinition]:
     axis_specs = {
         "left_stick": (
             "Left Stick",

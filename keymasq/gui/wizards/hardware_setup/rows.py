@@ -1,3 +1,6 @@
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -9,14 +12,23 @@ from keymasq.common.models import DeviceType
 from keymasq.gui.wizards.hardware_setup.identity import device_search_text
 from keymasq.gui.wizards.hardware_setup.templates import interface_device_types
 
+InterfaceInfo = Mapping[str, Any]
+DeviceInfo = Mapping[str, Any]
 
-def should_show_interface_expander(show_raw_evdev_devices: bool, interfaces: list[dict]) -> bool:
+
+def should_show_interface_expander(
+    show_raw_evdev_devices: bool,
+    interfaces: Sequence[InterfaceInfo],
+) -> bool:
     if show_raw_evdev_devices:
         return False
     return bool(interfaces)
 
 
-def raw_device_summary(show_raw_evdev_devices: bool, interfaces: list[dict]) -> str:
+def raw_device_summary(
+    show_raw_evdev_devices: bool,
+    interfaces: Sequence[InterfaceInfo],
+) -> str:
     if not show_raw_evdev_devices or not interfaces:
         return ""
     iface = interfaces[0]
@@ -30,7 +42,7 @@ def raw_device_summary(show_raw_evdev_devices: bool, interfaces: list[dict]) -> 
     return " · ".join(part for part in parts if part)
 
 
-def device_in_use(dev_info: dict) -> bool:
+def device_in_use(dev_info: DeviceInfo) -> bool:
     return any(
         bool(iface.get("grabbed_by_keymasq", False))
         or bool(iface.get("configured_hardware_id", False))
@@ -39,7 +51,7 @@ def device_in_use(dev_info: dict) -> bool:
     )
 
 
-def device_in_use_summary(dev_info: dict) -> str:
+def device_in_use_summary(dev_info: DeviceInfo) -> str:
     for iface in dev_info.get("interfaces", []):
         if not isinstance(iface, dict):
             continue
@@ -58,7 +70,7 @@ def device_in_use_summary(dev_info: dict) -> str:
     return ""
 
 
-def interface_detail_lines(iface: dict) -> list[str]:
+def interface_detail_lines(iface: InterfaceInfo) -> list[str]:
     lines = [f"- {iface.get('name', '') or iface.get('path', '')}"]
     path = str(iface.get("path", "") or "")
     stable_path = str(iface.get("stable_path", "") or "")
@@ -89,7 +101,7 @@ def device_type_sort_order(device_type: DeviceType) -> int:
     return order.get(device_type, 99)
 
 
-def group_device_type(dev_info: dict) -> DeviceType:
+def group_device_type(dev_info: DeviceInfo) -> DeviceType:
     interfaces = dev_info.get("interfaces", [])
     if not interfaces:
         return DeviceType.OTHER
@@ -105,7 +117,7 @@ def group_device_type(dev_info: dict) -> DeviceType:
     return best
 
 
-def group_device_types(dev_info: dict) -> list[str]:
+def group_device_types(dev_info: DeviceInfo) -> list[str]:
     interfaces = dev_info.get("interfaces", [])
     type_set: set[str] = set()
     for iface in interfaces:
@@ -119,7 +131,7 @@ def group_device_types(dev_info: dict) -> list[str]:
 
 def build_detected_device_row(
     hardware_id: str,
-    dev_info: dict,
+    dev_info: DeviceInfo,
     *,
     show_raw_evdev_devices: bool,
 ) -> Gtk.ListBoxRow:
@@ -130,7 +142,7 @@ def build_detected_device_row(
     row_box.set_margin_start(12)
     row_box.set_margin_end(12)
 
-    name = Gtk.Label(label=dev_info.get("display_name", dev_info["name"]))
+    name = Gtk.Label(label=str(dev_info.get("display_name") or dev_info.get("name") or "Device"))
     name.set_halign(Gtk.Align.START)
     row_box.append(name)
 

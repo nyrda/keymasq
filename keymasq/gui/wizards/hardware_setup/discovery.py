@@ -10,6 +10,7 @@ from keymasq.gui.wizards.hardware_setup.identity import (
     logical_hardware_identity_key,
     raw_row_key,
 )
+from keymasq.gui.wizards.hardware_setup.types import DetectedDevice, DetectedInterface
 
 
 def detected_identity_key(
@@ -69,7 +70,7 @@ def allocate_hardware_id(model_id: str, used_hardware_ids: set[str]) -> str:
 
 
 def detect_devices_via_session(
-    detected_devices: dict[str, dict],
+    detected_devices: dict[str, DetectedDevice],
     *,
     hardware_manager: object,
     show_raw_evdev_devices: bool,
@@ -175,34 +176,49 @@ def detect_devices_via_session(
             configured_fields = {}
 
         if device_key not in detected_devices:
-            detected_devices[device_key] = {
-                "name": name,
-                "display_name": name,
-                "hardware_id": hardware_id,
-                "model_id": vid_pid,
-                "vendor_id": vendor_id,
-                "product_id": product_id,
-                "paths": [path] if path else [],
-                "interfaces": [
-                    {
-                        "path": path,
-                        "stable_path": stable_path,
-                        "name": name,
-                        "phys": phys,
-                        "device_type": dtype,
-                        "device_types": device_types,
-                        **source_fields,
-                        **configured_fields,
-                    }
-                ]
-                if path
-                else [],
-            }
+            detected_devices[device_key] = cast(
+                DetectedDevice,
+                {
+                    "name": name,
+                    "display_name": name,
+                    "hardware_id": hardware_id,
+                    "model_id": vid_pid,
+                    "vendor_id": vendor_id,
+                    "product_id": product_id,
+                    "paths": [path] if path else [],
+                    "interfaces": [
+                        {
+                            "path": path,
+                            "stable_path": stable_path,
+                            "name": name,
+                            "phys": phys,
+                            "device_type": dtype,
+                            "device_types": device_types,
+                            **source_fields,
+                            **configured_fields,
+                        }
+                    ]
+                    if path
+                    else [],
+                },
+            )
         else:
             if path:
-                detected_devices[device_key]["paths"].append(path)
-                detected_devices[device_key]["interfaces"].append(
-                    {
+                device_info = detected_devices[device_key]
+                paths = device_info.get("paths")
+                if paths is None:
+                    paths = []
+                    device_info["paths"] = paths
+                paths.append(path)
+
+                interfaces = device_info.get("interfaces")
+                if interfaces is None:
+                    interfaces = []
+                    device_info["interfaces"] = interfaces
+                interfaces.append(
+                    cast(
+                        DetectedInterface,
+                        {
                         "path": path,
                         "stable_path": stable_path,
                         "name": name,
@@ -211,7 +227,8 @@ def detect_devices_via_session(
                         "device_types": device_types,
                         **source_fields,
                         **configured_fields,
-                    }
+                        },
+                    )
                 )
 
     return bool(detected_devices)

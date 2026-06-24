@@ -1,5 +1,7 @@
 import logging
-from typing import cast
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
+from typing import Any, cast
 
 import evdev
 import gi
@@ -10,7 +12,6 @@ gi.require_version("Adw", "1")
 from gi.repository import (
     Adw,  # pyright: ignore[reportAttributeAccessIssue]
     Gdk,  # pyright: ignore[reportAttributeAccessIssue]
-    GLib,  # pyright: ignore[reportAttributeAccessIssue]
     GObject,  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
@@ -20,7 +21,6 @@ from keymasq.common.devices import (
     find_all_interfaces,
     input_classes_include_gamepad,
     make_keymasq_device_path,
-    primary_input_class,
     resolve_stable_path,
 )
 from keymasq.common.models import (
@@ -33,10 +33,9 @@ from keymasq.common.models import (
 from keymasq.gui.session_client import (
     GuiTaskResult,
     run_gui_task,
-    session_request_async,
 )
 from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
-from keymasq.gui.wizards.hardware_setup import capture, discovery, inventory, rows, templates
+from keymasq.gui.wizards.hardware_setup import discovery, inventory, rows, templates
 from keymasq.gui.wizards.hardware_setup.identity import (
     config_path_for_detected_interface as _config_path_for_detected_interface,
 )
@@ -47,7 +46,6 @@ from keymasq.gui.wizards.hardware_setup.identity import (
     interface_source_fields as _interface_source_fields,
 )
 from keymasq.gui.wizards.hardware_setup.types import (
-    DetectedButton,
     DetectedDevice,
     DetectedInterface,
 )
@@ -84,22 +82,16 @@ class HardwareSetupDialog(Adw.Dialog):
         self.detected_devices: dict[str, DetectedDevice] = {}
         self.selected_device: DetectedDevice | None = None
         self.discovered_interfaces: dict[str, DetectedInterface] = {}
-        self.button_definitions: list[DetectedButton] = []
-        self.current_button_index = 0
         self._configure_mode: str = ""
         self._configure_mode_values: list[str] = ["mouse"]
-        self._capturing = False
-        self._capture_poll_id = None
-        self._capture_poll_inflight = False
-        self._capture_remaining_ids: list[str] = []
-        self._capture_hardware_id: str | None = None
         self._detect_devices_inflight = False
+        self._discover_interfaces_inflight = False
+        self._discover_interfaces_request_id = 0
         self._show_raw_evdev_devices = raw_evdev_only
 
         self._setup_escape_close()
         self._setup_ui()
         self._detect_devices()
-        self.connect("closed", self._on_closed)
 
     def _setup_escape_close(self) -> None:
         controller = Gtk.EventControllerKey.new()
@@ -124,10 +116,6 @@ class HardwareSetupDialog(Adw.Dialog):
             return False
         self.close()
         return True
-
-    def _on_closed(self, *_args: object) -> None:
-        if self._capturing:
-            self._stop_capture()
 
     def _setup_ui(self) -> None:
         self.stack = Adw.ViewStack()
@@ -318,55 +306,6 @@ class HardwareSetupDialog(Adw.Dialog):
 
         self.stack.add_titled(box, "describe", "Describe Device")
 
-    def _setup_page_capture(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        self.capture_title = Gtk.Label()
-        self.capture_title.add_css_class("title-2")
-        box.append(self.capture_title)
-
-        self.capture_instruction = Gtk.Label()
-        self.capture_instruction.add_css_class("dim-label")
-        box.append(self.capture_instruction)
-
-        self.capture_status = Gtk.Label()
-        capture_status_row, self.capture_status_dot = capture.make_capture_status_row(
-            self.capture_status
-        )
-        box.append(capture_status_row)
-
-        self.capture_progress = Gtk.ProgressBar()
-        self.capture_progress.set_margin_top(12)
-        box.append(self.capture_progress)
-
-        self.captured_list = Gtk.ListBox()
-        self.captured_list.set_margin_top(12)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_child(self.captured_list)
-        box.append(scrolled)
-
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        btn_box.set_margin_top(12)
-
-        self.skip_btn = Gtk.Button(label="Skip")
-        self.skip_btn.connect("clicked", self._on_skip)
-        btn_box.append(self.skip_btn)
-
-        self.capture_btn = Gtk.Button(label="Start Capture")
-        self.capture_btn.connect("clicked", self._on_start_capture)
-        self.capture_btn.add_css_class("suggested-action")
-        btn_box.append(self.capture_btn)
-
-        box.append(btn_box)
-
-        self.stack.add_titled(box, "capture", "Capture Buttons")
-
     def _detect_devices(self) -> None:
         if self._detect_devices_inflight:
             return
@@ -391,8 +330,8 @@ class HardwareSetupDialog(Adw.Dialog):
             on_done=self._on_detected_devices_done,
         )
 
-    def _collect_detected_devices(self) -> dict[str, dict]:
-        detected_devices: dict[str, dict] = {}
+    def _collect_detected_devices(self) -> dict[str, DetectedDevice]:
+        detected_devices: dict[str, DetectedDevice] = {}
         self._detect_devices_via_session(detected_devices)
         return detected_devices
 
@@ -447,20 +386,23 @@ class HardwareSetupDialog(Adw.Dialog):
         self.next_btn.set_sensitive(False)
         self._detect_devices()
 
-    def _should_show_interface_expander(self, interfaces: list[dict]) -> bool:
+    def _should_show_interface_expander(
+        self,
+        interfaces: Sequence[Mapping[str, Any]],
+    ) -> bool:
         return rows.should_show_interface_expander(self._show_raw_evdev_devices, interfaces)
 
-    def _raw_device_summary(self, interfaces: list[dict]) -> str:
+    def _raw_device_summary(self, interfaces: Sequence[Mapping[str, Any]]) -> str:
         return rows.raw_device_summary(self._show_raw_evdev_devices, interfaces)
 
-    def _device_in_use(self, dev_info: dict) -> bool:
+    def _device_in_use(self, dev_info: Mapping[str, Any]) -> bool:
         return rows.device_in_use(dev_info)
 
     @staticmethod
-    def _device_in_use_summary(dev_info: dict) -> str:
+    def _device_in_use_summary(dev_info: Mapping[str, Any]) -> str:
         return rows.device_in_use_summary(dev_info)
 
-    def _interface_detail_lines(self, iface: dict) -> list[str]:
+    def _interface_detail_lines(self, iface: Mapping[str, Any]) -> list[str]:
         return rows.interface_detail_lines(iface)
 
     def _detected_identity_key(
@@ -483,7 +425,10 @@ class HardwareSetupDialog(Adw.Dialog):
             config_path=config_path,
         )
 
-    def _detect_devices_via_session(self, detected_devices: dict[str, dict]) -> bool:
+    def _detect_devices_via_session(
+        self,
+        detected_devices: dict[str, DetectedDevice],
+    ) -> bool:
         return discovery.detect_devices_via_session(
             detected_devices,
             hardware_manager=self.hardware_manager,
@@ -517,8 +462,17 @@ class HardwareSetupDialog(Adw.Dialog):
     def _allocate_hardware_id(self, model_id: str, used_hardware_ids: set[str]) -> str:
         return discovery.allocate_hardware_id(model_id, used_hardware_ids)
 
+    @staticmethod
+    def _selected_device_fields(selected_device: DetectedDevice) -> tuple[str, str, str]:
+        return (
+            str(selected_device.get("vendor_id", "") or ""),
+            str(selected_device.get("product_id", "") or ""),
+            str(selected_device.get("name", "") or "Device"),
+        )
+
     def _selected_config_id(self, selected_device: DetectedDevice) -> str | None:
-        model_id = f"{selected_device['vendor_id']}:{selected_device['product_id']}"
+        vendor_id, product_id, _name = self._selected_device_fields(selected_device)
+        model_id = f"{vendor_id}:{product_id}"
         hardware_id = str(selected_device.get("hardware_id") or model_id)
         if (
             (self._show_raw_evdev_devices or self._selected_uses_model_path(selected_device))
@@ -532,9 +486,7 @@ class HardwareSetupDialog(Adw.Dialog):
         product_id = str(selected_device.get("product_id", "") or "")
         if not vendor_id or not product_id:
             return False
-        for iface in selected_device.get("interfaces", []):
-            if not isinstance(iface, dict):
-                continue
+        for iface in selected_device.get("interfaces", []) or []:
             if not input_classes_include_gamepad(
                 iface.get("device_types"),
                 iface.get("device_type"),
@@ -570,18 +522,19 @@ class HardwareSetupDialog(Adw.Dialog):
                     other._expander.set_expanded(False)
                 idx += 1
 
-            self._discover_interfaces()
-            self._refresh_configure_modes()
-            self.next_btn.set_sensitive(not self._device_in_use(self.selected_device))
+            self._start_discover_interfaces()
 
     def _clear_device_selection(self) -> None:
         self.selected_device = None
+        self.discovered_interfaces = {}
+        self._discover_interfaces_request_id += 1
+        self._discover_interfaces_inflight = False
         self.next_btn.set_sensitive(False)
 
-    def _interface_device_types(self, iface: dict) -> list[str]:
+    def _interface_device_types(self, iface: Mapping[str, Any]) -> list[str]:
         return templates.interface_device_types(iface)
 
-    def _interface_has_role(self, iface: dict, role: str) -> bool:
+    def _interface_has_role(self, iface: Mapping[str, Any], role: str) -> bool:
         return templates.interface_has_role(iface, role)
 
     def _device_type_label(self, device_type: str) -> str:
@@ -594,7 +547,7 @@ class HardwareSetupDialog(Adw.Dialog):
         has_gamepad = False
         has_mouse = False
         has_keyboard = False
-        for iface in self.selected_device.get("interfaces", []):
+        for iface in self.selected_device.get("interfaces", []) or []:
             iface_types = self._interface_device_types(iface)
             if "gamepad" in iface_types:
                 has_gamepad = True
@@ -687,20 +640,78 @@ class HardwareSetupDialog(Adw.Dialog):
     def _group_device_types(self, dev_info: dict) -> list[str]:
         return rows.group_device_types(dev_info)
 
-    def _discover_interfaces(self) -> None:
-        if not self.selected_device:
-            return
-
-        vid = self.selected_device["vendor_id"]
-        pid = self.selected_device["product_id"]
-        self._capture_hardware_id = str(
-            self.selected_device.get("hardware_id") or f"{vid}:{pid}"
+    def _selected_device_request_key(self, selected_device: DetectedDevice) -> str:
+        vendor_id = str(selected_device.get("vendor_id", "") or "")
+        product_id = str(selected_device.get("product_id", "") or "")
+        return str(
+            selected_device.get("hardware_id")
+            or selected_device.get("model_id")
+            or f"{vendor_id}:{product_id}"
         )
 
+    def _start_discover_interfaces(self) -> None:
+        selected_device = self.selected_device
         self.discovered_interfaces = {}
+        self._discover_interfaces_request_id += 1
+        request_id = self._discover_interfaces_request_id
+        self.next_btn.set_sensitive(False)
+
+        if not selected_device:
+            self._discover_interfaces_inflight = False
+            return
+
+        selected_snapshot = deepcopy(selected_device)
+        selected_key = self._selected_device_request_key(selected_device)
+        self._discover_interfaces_inflight = True
+        run_gui_task(
+            lambda: self._discover_interfaces(selected_snapshot),
+            lambda result: self._on_discovered_interfaces_ready(
+                request_id,
+                selected_key,
+                result,
+            ),
+            on_done=lambda: self._on_discovered_interfaces_done(request_id),
+        )
+
+    def _on_discovered_interfaces_ready(
+        self,
+        request_id: int,
+        selected_key: str,
+        result: GuiTaskResult[dict[str, DetectedInterface]],
+    ) -> bool:
+        selected_device = self.selected_device
+        if (
+            request_id != self._discover_interfaces_request_id
+            or selected_device is None
+            or selected_key != self._selected_device_request_key(selected_device)
+        ):
+            return False
+
+        self.discovered_interfaces = result.value if result.ok and result.value is not None else {}
+        self._refresh_configure_modes()
+        self.next_btn.set_sensitive(
+            bool(self.discovered_interfaces) and not self._device_in_use(selected_device)
+        )
+        return False
+
+    def _on_discovered_interfaces_done(self, request_id: int) -> None:
+        if request_id == self._discover_interfaces_request_id:
+            self._discover_interfaces_inflight = False
+
+    def _discover_interfaces(
+        self,
+        selected_device: DetectedDevice,
+    ) -> dict[str, DetectedInterface]:
+        if not selected_device:
+            return {}
+
+        vid = str(selected_device.get("vendor_id", "") or "")
+        pid = str(selected_device.get("product_id", "") or "")
+
+        discovered_interfaces: dict[str, DetectedInterface] = {}
 
         interfaces = []
-        for iface in self.selected_device.get("interfaces", []):
+        for iface in selected_device.get("interfaces", []) or []:
             raw_path = str(iface.get("path", "") or "")
             if not raw_path:
                 continue
@@ -736,7 +747,7 @@ class HardwareSetupDialog(Adw.Dialog):
                 "device_type": iface.get("device_type", DeviceType.OTHER),
                 "device_types": self._interface_device_types(iface),
             }
-            for iface in self.selected_device.get("interfaces", [])
+            for iface in selected_device.get("interfaces", []) or []
         }
         used_interface_ids: set[str] = set()
         for iface in interfaces:
@@ -750,32 +761,36 @@ class HardwareSetupDialog(Adw.Dialog):
             raw_iface_id = _interface_id_for_config(merged_iface, used_interface_ids)
             iface_key = raw_iface_id
             duplicate_index = 2
-            while iface_key in self.discovered_interfaces:
+            while iface_key in discovered_interfaces:
                 iface_key = f"{raw_iface_id}_{duplicate_index}"
                 duplicate_index += 1
 
-            self.discovered_interfaces[iface_key] = {
-                "id": raw_iface_id,
-                "stable_path": iface["stable_path"],
-                "config_path": str(iface.get("config_path") or iface["stable_path"]),
-                "path": iface["path"],
-                "name": iface["name"],
-                "phys": str(iface.get("phys", "") or ""),
-                **_interface_source_fields(iface),
-                "device_type": iface_info_by_path.get(iface["path"], {}).get(
-                    "device_type",
-                    DeviceType.OTHER,
-                ),
-                "device_types": iface_info_by_path.get(iface["path"], {}).get(
-                    "device_types",
-                    ["other"],
-                ),
-                "capabilities": list(iface.get("capabilities", [])),
-                "raw_capabilities": cast(
-                    dict[int, list[object]],
-                    iface.get("raw_capabilities") or {},
-                ),
-            }
+            discovered_interfaces[iface_key] = cast(
+                DetectedInterface,
+                {
+                    "id": raw_iface_id,
+                    "stable_path": iface["stable_path"],
+                    "config_path": str(iface.get("config_path") or iface["stable_path"]),
+                    "path": iface["path"],
+                    "name": iface["name"],
+                    "phys": str(iface.get("phys", "") or ""),
+                    **_interface_source_fields(iface),
+                    "device_type": iface_info_by_path.get(iface["path"], {}).get(
+                        "device_type",
+                        DeviceType.OTHER,
+                    ),
+                    "device_types": iface_info_by_path.get(iface["path"], {}).get(
+                        "device_types",
+                        ["other"],
+                    ),
+                    "capabilities": list(iface.get("capabilities", [])),
+                    "raw_capabilities": cast(
+                        dict[int, list[object]],
+                        iface.get("raw_capabilities") or {},
+                    ),
+                },
+            )
+        return discovered_interfaces
 
     def _on_next(self, button: Gtk.Button) -> None:
         visible_page = self.stack.get_visible_child_name()
@@ -784,12 +799,16 @@ class HardwareSetupDialog(Adw.Dialog):
             selected_device = self.selected_device
             if selected_device is None:
                 return
+            if self._discover_interfaces_inflight:
+                return
             if self._select_evdev_only:
                 self._emit_selected_evdev_devices()
                 return
             self._configure_mode = self._preferred_configure_mode()
             self.mode_combo.set_selected(self._configure_mode_values.index(self._configure_mode))
-            self.describe_title.set_label(f"Configure {selected_device['name']}")
+            self.describe_title.set_label(
+                f"Configure {selected_device.get('name', 'Device')}"
+            )
             self._update_describe_mode_ui()
             self.stack.set_visible_child_name("describe")
             self.back_btn.set_visible(True)
@@ -827,115 +846,17 @@ class HardwareSetupDialog(Adw.Dialog):
             self.cancel_btn.set_visible(True)
             self.next_btn.set_sensitive(True)
 
-    def _update_capture_ui(self) -> None:
-        capture.update_capture_ui(self)
-
-    def _clear_captured_list(self) -> None:
-        capture.clear_captured_list(self)
-
-    def _add_captured_button(self, btn_def: dict, evdev_code: str) -> None:
-        capture.add_captured_button(self, btn_def, evdev_code)
-
-    def _on_start_capture(self, button: Gtk.Button) -> None:
-        capture.on_start_capture(self, session_request_async)
-
-    def _on_capture_begin_response(self, result: dict | None) -> bool:
-        return capture.on_capture_begin_response(self, result, GLib)
-
-    def _poll_capture(self) -> bool:
-        return capture.poll_capture(self, session_request_async)
-
-    def _on_capture_poll_response(self, result: dict | None) -> bool:
-        return capture.on_capture_poll_response(self, result)
-
-    def _stop_capture(self) -> None:
-        capture.stop_capture(self, session_request_async, GLib)
-
-    def _on_skip(self, button: Gtk.Button) -> None:
-        capture.on_skip(self)
-
-    def _finish_capture(self) -> None:
-        capture.finish_capture(self)
-
-    def _on_save(self, button: Gtk.Button) -> None:
-        selected_device = self.selected_device
-        if selected_device is None:
-            return
-
-        source_to_interface = {}
-        for btn_def in self.button_definitions:
-            source = btn_def.get("source")
-            source_iface = self.discovered_interfaces.get(str(source or ""))
-            if isinstance(source_iface, dict):
-                config_path = (
-                    source_iface.get("config_path")
-                    or source_iface.get("stable_path")
-                    or source_iface.get("path")
-                    or btn_def.get("stable_path")
-                )
-            else:
-                config_path = btn_def.get("stable_path")
-            if source and config_path:
-                source_to_interface[source] = config_path
-
-        discovered_by_source = {
-            str(iface.get("id", "") or ""): iface for iface in self.discovered_interfaces.values()
-        }
-
-        evdev_devices = []
-        for iface_id, stable_path in source_to_interface.items():
-            iface_info = discovered_by_source.get(iface_id, {})
-            device_type = primary_input_class(
-                iface_info.get("device_types"),
-            )
-
-            evdev_devices.append(
-                EvdevDevice(
-                    path=stable_path,
-                    device_type=device_type,
-                    id=iface_id,
-                    phys=str(iface_info.get("phys", "") or "") or None,
-                    capabilities=list(iface_info.get("capabilities", [])),
-                )
-            )
-
-        buttons = []
-        for btn_def in self.button_definitions:
-            buttons.append(
-                ButtonDefinition(
-                    id=btn_def["id"],
-                    label=btn_def["label"],
-                    evdev=btn_def.get("evdev", "unknown"),
-                    evdev_value=btn_def.get("evdev_value"),
-                    source=btn_def.get("source"),
-                    type=btn_def.get("type"),
-                )
-            )
-
-        config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
-            evdev_devices=evdev_devices,
-            buttons=buttons,
-            id=self._selected_config_id(selected_device),
-        )
-
-        self.hardware_manager.save_hardware(config)
-
-        self.emit("device-created", config)
-        self.close()
-
     def _save_custom_config(self) -> None:
         selected_device = self.selected_device
         if selected_device is None:
             return
 
+        vendor_id, product_id, name = self._selected_device_fields(selected_device)
         interfaces = list(self.discovered_interfaces.values())
         config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=name,
             evdev_devices=self._build_evdev_devices(interfaces),
             buttons=[],
             id=self._selected_config_id(selected_device),
@@ -950,6 +871,7 @@ class HardwareSetupDialog(Adw.Dialog):
         if selected_device is None:
             return
 
+        vendor_id, product_id, name = self._selected_device_fields(selected_device)
         keyboard_interfaces = self._interfaces_for_roles({"keyboard"})
         interfaces = self._merge_interface_lists(
             keyboard_interfaces,
@@ -965,9 +887,9 @@ class HardwareSetupDialog(Adw.Dialog):
         buttons = self._build_standard_keyboard_buttons(primary_keyboard_source)
 
         config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=name,
             evdev_devices=evdev_devices,
             buttons=buttons,
             id=self._selected_config_id(selected_device),
@@ -982,6 +904,7 @@ class HardwareSetupDialog(Adw.Dialog):
         if selected_device is None:
             return
 
+        vendor_id, product_id, name = self._selected_device_fields(selected_device)
         mouse_interfaces = self._interfaces_for_roles({"mouse", "pointstick"})
         interfaces = self._merge_interface_lists(
             mouse_interfaces,
@@ -992,9 +915,9 @@ class HardwareSetupDialog(Adw.Dialog):
             primary_mouse_source = str(mouse_interfaces[0].get("id", "") or "")
 
         config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=name,
             evdev_devices=self._build_evdev_devices(interfaces),
             buttons=self._build_standard_mouse_buttons(
                 primary_mouse_source,
@@ -1015,6 +938,7 @@ class HardwareSetupDialog(Adw.Dialog):
         if selected_device is None:
             return
 
+        vendor_id, product_id, name = self._selected_device_fields(selected_device)
         keyboard_interfaces = self._interfaces_for_roles({"keyboard"})
         mouse_interfaces = self._interfaces_for_roles({"mouse", "pointstick"})
 
@@ -1041,9 +965,9 @@ class HardwareSetupDialog(Adw.Dialog):
         buttons.extend(self._build_standard_keyboard_buttons(primary_keyboard_source))
 
         config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=name,
             evdev_devices=self._build_evdev_devices(interfaces),
             buttons=buttons,
             id=self._selected_config_id(selected_device),
@@ -1079,22 +1003,32 @@ class HardwareSetupDialog(Adw.Dialog):
 
         return (capability_names_from_capabilities(raw_capabilities), raw_capabilities)
 
-    def _gamepad_interfaces(self) -> list[dict]:
+    def _gamepad_interfaces(self) -> list[Mapping[str, Any]]:
         return self._interfaces_for_roles({"gamepad"})
 
-    def _interfaces_for_roles(self, roles: set[str]) -> list[dict]:
+    def _interfaces_for_roles(self, roles: set[str]) -> list[Mapping[str, Any]]:
         return templates.interfaces_for_roles(
             list(self.discovered_interfaces.values()),
             roles,
         )
 
-    def _merge_interface_lists(self, *interface_lists: list[dict]) -> list[dict]:
+    def _merge_interface_lists(
+        self,
+        *interface_lists: Sequence[Mapping[str, Any]],
+    ) -> list[Mapping[str, Any]]:
         return templates.merge_interface_lists(*interface_lists)
 
-    def _interfaces_have_capability(self, interfaces: list[dict], capability: str) -> bool:
+    def _interfaces_have_capability(
+        self,
+        interfaces: Sequence[Mapping[str, Any]],
+        capability: str,
+    ) -> bool:
         return templates.interfaces_have_capability(interfaces, capability)
 
-    def _build_evdev_devices(self, interfaces: list[dict]) -> list[EvdevDevice]:
+    def _build_evdev_devices(
+        self,
+        interfaces: Sequence[Mapping[str, Any]],
+    ) -> list[EvdevDevice]:
         return templates.build_evdev_devices(interfaces)
 
     def _build_standard_mouse_buttons(
@@ -1115,10 +1049,16 @@ class HardwareSetupDialog(Adw.Dialog):
     ) -> list[ButtonDefinition]:
         return templates.standard_wheel_buttons(source_id, include_horizontal)
 
-    def _build_gamepad_buttons(self, interfaces: list[dict]) -> list[ButtonDefinition]:
+    def _build_gamepad_buttons(
+        self,
+        interfaces: Sequence[Mapping[str, Any]],
+    ) -> list[ButtonDefinition]:
         return templates.build_gamepad_buttons(interfaces)
 
-    def _build_gamepad_analog_inputs(self, interfaces: list[dict]) -> list[AnalogInputDefinition]:
+    def _build_gamepad_analog_inputs(
+        self,
+        interfaces: Sequence[Mapping[str, Any]],
+    ) -> list[AnalogInputDefinition]:
         return templates.build_gamepad_analog_inputs(interfaces)
 
     def _save_gamepad_config(self) -> None:
@@ -1126,6 +1066,7 @@ class HardwareSetupDialog(Adw.Dialog):
         if selected_device is None:
             return
 
+        vendor_id, product_id, name = self._selected_device_fields(selected_device)
         gamepad_interfaces = self._gamepad_interfaces()
         interfaces = self._merge_interface_lists(
             gamepad_interfaces,
@@ -1133,9 +1074,9 @@ class HardwareSetupDialog(Adw.Dialog):
         )
 
         config = HardwareConfig(
-            vendor_id=selected_device["vendor_id"],
-            product_id=selected_device["product_id"],
-            name=selected_device["name"],
+            vendor_id=vendor_id,
+            product_id=product_id,
+            name=name,
             evdev_devices=self._build_evdev_devices(interfaces),
             buttons=self._build_gamepad_buttons(gamepad_interfaces),
             analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),

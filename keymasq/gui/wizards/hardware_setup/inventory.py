@@ -74,14 +74,15 @@ def configured_identity_hardware_ids(hardware_manager: object) -> dict[str, str]
             device_types = [str(device_type or "other")]
             for key in configured_raw_identity_keys(path):
                 keys.setdefault(key, hardware_id)
+            stable_path = configured_device_stable_path(path)
+            phys = "" if is_by_id_path(stable_path) else configured_device_phys(device)
             keys.setdefault(
                 logical_hardware_identity_key(
                     model_id=model_id,
                     device_types=device_types,
-                    stable_path=configured_device_stable_path(path),
-                    phys=configured_device_phys(device),
+                    stable_path=stable_path,
+                    phys=phys,
                     path=path,
-                    config_path=path,
                 ),
                 hardware_id,
             )

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from keymasq.common.devices import (
@@ -10,10 +11,9 @@ from keymasq.common.devices import (
     primary_input_class,
 )
 from keymasq.common.models import DeviceType
-from keymasq.gui.wizards.hardware_setup.types import DetectedDevice
 
 
-def device_search_text(hardware_id: str, dev_info: DetectedDevice) -> str:
+def device_search_text(hardware_id: str, dev_info: Mapping[str, Any]) -> str:
     interfaces = dev_info.get("interfaces", [])
     interface_text: list[str] = []
     if isinstance(interfaces, list):
@@ -87,7 +87,7 @@ def dedupe_interface_id(base_id: str, used_ids: set[str]) -> str:
     return deduped
 
 
-def interface_id_for_config(iface: dict, used_ids: set[str]) -> str:
+def interface_id_for_config(iface: Mapping[str, Any], used_ids: set[str]) -> str:
     stable_path = str(iface.get("stable_path", "") or "")
     config_path = str(iface.get("config_path", "") or "")
     if is_by_id_path(stable_path) or is_by_id_path(config_path):
@@ -109,7 +109,7 @@ def config_path_for_detected_interface(
     return make_keymasq_device_path(vendor_id, product_id)
 
 
-def interface_source_fields(dev: dict[str, Any]) -> dict[str, object]:
+def interface_source_fields(dev: Mapping[str, Any]) -> dict[str, object]:
     fields: dict[str, object] = {}
     if bool(dev.get("grabbed_by_keymasq", False)):
         fields["grabbed_by_keymasq"] = True

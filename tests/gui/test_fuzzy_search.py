@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.gui.support import collect_widgets
+from tests.gui.support import collect_widgets, iter_widget_children
 
 gi = pytest.importorskip("gi")
 
@@ -166,6 +166,77 @@ def test_key_selector_macro_refresh_clears_missing_selection(monkeypatch) -> Non
     dialog._populate_macro_listbox()
 
     assert dialog._selected_macro is None
+    assert dialog.map_btn.get_sensitive() is False
+
+
+def test_key_selector_superkey_search_clears_hidden_selection(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+    from keymasq.common.models import (
+        ActionType,
+        MappingAction,
+        SuperkeyConfig,
+        SuperkeyMode,
+    )
+    from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.session.superkeys import SuperkeyManager
+
+    monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
+    monkeypatch.setattr(
+        key_selector_dialog_module,
+        "session_request_async",
+        lambda _payload, _callback: None,
+    )
+
+    manager = SuperkeyManager()
+    manager.save_superkey(
+        SuperkeyConfig(
+            name="copy_paste",
+            description="Clipboard actions",
+            mode=SuperkeyMode.PATTERN,
+        )
+    )
+    manager.save_superkey(
+        SuperkeyConfig(
+            name="gamepad_layer",
+            description="Controller mode",
+            mode=SuperkeyMode.OVERLOAD,
+        )
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Window(),
+        "Back",
+        current_action=MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_name="copy_paste",
+        ),
+    )
+    dialog.stack.set_visible_child_name("superkey")
+
+    assert dialog._superkey_search_entry.get_placeholder_text() == "Search Super Keys"
+    assert dialog._selected_superkey == "copy_paste"
+    assert dialog.map_btn.get_sensitive() is True
+
+    rows_by_name = {
+        row._superkey_name: row
+        for row in iter_widget_children(dialog._superkey_listbox)
+        if hasattr(row, "_superkey_name")
+    }
+    assert fuzzy_query_matches("clipboard", rows_by_name["copy_paste"]._search_text)
+    assert fuzzy_query_matches("controller", rows_by_name["gamepad_layer"]._search_text)
+    assert fuzzy_query_matches("overload", rows_by_name["gamepad_layer"]._search_text)
+    assert not fuzzy_query_matches("controller", rows_by_name["copy_paste"]._search_text)
+
+    dialog._superkey_search_entry.set_text("controller")
+
+    assert dialog._selected_superkey is None
     assert dialog.map_btn.get_sensitive() is False
 
 

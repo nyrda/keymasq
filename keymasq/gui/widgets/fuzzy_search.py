@@ -7,6 +7,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.models import SuperkeyConfig
+
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -76,6 +78,26 @@ def macro_search_text(macro: Mapping[str, object]) -> str:
         duration_us = 0
     duration_ms = duration_us // 1000
     return f"{macro.get('name', '')} {device_types} {event_count} events {duration_ms}ms"
+
+
+def superkey_search_text(config: SuperkeyConfig | None, name: str) -> str:
+    if config is None:
+        return name
+    return " ".join(
+        [
+            str(config.name or ""),
+            str(config.description or ""),
+            config.mode.value,
+            str(len(config.tap_actions)),
+            str(len(config.double_tap_actions)),
+            str(len(config.hold_actions)),
+            str(len(config.tap_hold_actions)),
+            str(len(config.overload_actions)),
+            str(len(config.overload_down_actions)),
+            str(len(config.overload_up_actions)),
+            "actions",
+        ]
+    )
 
 
 def install_listbox_fuzzy_filter(

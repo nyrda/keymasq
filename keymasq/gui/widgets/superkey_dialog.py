@@ -25,7 +25,10 @@ from keymasq.common.models import (
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.dialog_sizing import parent_constrained_dialog_width
 from keymasq.gui.widgets.docs_links import docs_page_url
-from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
+from keymasq.gui.widgets.fuzzy_search import (
+    install_listbox_fuzzy_filter,
+    superkey_search_text,
+)
 from keymasq.session.profiles import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
 
@@ -34,26 +37,6 @@ log = logging.getLogger("keymasq.gui.widgets.superkey_dialog")
 
 def _superkeys_docs_url() -> str:
     return docs_page_url("SUPERKEYS", version=__version__)
-
-
-def _superkey_search_text(config: SuperkeyConfig | None, name: str) -> str:
-    if config is None:
-        return name
-    return " ".join(
-        [
-            str(config.name or ""),
-            str(config.description or ""),
-            config.mode.value,
-            str(len(config.tap_actions)),
-            str(len(config.double_tap_actions)),
-            str(len(config.hold_actions)),
-            str(len(config.tap_hold_actions)),
-            str(len(config.overload_actions)),
-            str(len(config.overload_down_actions)),
-            str(len(config.overload_up_actions)),
-            "actions",
-        ]
-    )
 
 
 def _append_action_state_markers(label: str, action: object) -> str:
@@ -867,7 +850,7 @@ class SuperkeyDialog(Adw.Dialog):
             self.list_box.append(
                 self._build_saved_superkey_row(
                     name,
-                    _superkey_search_text(configs.get(name), name),
+                    superkey_search_text(configs.get(name), name),
                 )
             )
 

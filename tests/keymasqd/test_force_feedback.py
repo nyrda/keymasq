@@ -1,6 +1,7 @@
 import asyncio
 import ctypes
 import errno
+import threading
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
@@ -403,6 +404,33 @@ async def test_stop_and_wait_drains_inflight_worker_before_returning() -> None:
 
     assert physical.upload_ids == [-1]
     assert proxy.effect_mappings[7].physical_id == 23
+
+
+@pytest.mark.asyncio
+async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> None:
+    uinput = _FakeUInput()
+    entered_upload = threading.Event()
+    finish_upload = threading.Event()
+
+    class _BlockingPhysicalDevice(_FakePhysicalDevice):
+        def upload_effect(self, effect: object) -> int:
+            entered_upload.set()
+            if not finish_upload.wait(timeout=1.0):
+                raise TimeoutError("timed out waiting to finish force-feedback upload")
+            return super().upload_effect(effect)
+
+    physical = _BlockingPhysicalDevice()
+    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    uinput.uploads[100] = _Upload(effect_id=7)
+
+    upload_task = asyncio.create_task(asyncio.to_thread(proxy._handle_upload, 100))
+    assert await asyncio.to_thread(entered_upload.wait, 1.0)
+
+    proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
+    finish_upload.set()
+    await upload_task
+
+    assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
 
 
 @pytest.mark.asyncio

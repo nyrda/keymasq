@@ -969,25 +969,28 @@ class DeviceManager:
                 self,
                 deps=_combo_runtime_deps(),
             )
-            self.combo_state.engine.set_combos(active_combos)
         else:
             await runtime_combos.clear_combo_runtime_except(
                 self,
                 preserve_combo_ids,
                 deps=_combo_runtime_deps(),
             )
-            self.combo_state.engine.set_combos(
-                active_combos,
-                preserve_candidate_ids=preserve_combo_ids,
+        async with self.combo_state.runtime_lock:
+            if preserve_combo_ids is None:
+                self.combo_state.engine.set_combos(active_combos)
+            else:
+                self.combo_state.engine.set_combos(
+                    active_combos,
+                    preserve_candidate_ids=preserve_combo_ids,
+                )
+            runtime_combos.prime_combo_engine_with_held_bindings(
+                self,
             )
-        runtime_combos.prime_combo_engine_with_held_bindings(
-            self,
-        )
-        runtime_combos.refresh_combo_timeout_watchdog(
-            self,
-            deps=_combo_runtime_deps(),
-        )
-        return active_combos
+            runtime_combos.refresh_combo_timeout_watchdog(
+                self,
+                deps=_combo_runtime_deps(),
+            )
+            return active_combos
 
     async def _refresh_combo_runtime_preserving_unchanged(self) -> list[RuntimeCombo]:
         unchanged_ids = unchanged_combo_ids(

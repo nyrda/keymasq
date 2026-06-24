@@ -1795,6 +1795,48 @@ class TestDeviceManager:
 
         assert len(manager.grabbed_devices) == 0
 
+    @pytest.mark.asyncio
+    async def test_release_interface_stops_event_loop_before_clearing_combo_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        pending = asyncio.Event()
+        read_task = asyncio.create_task(pending.wait())
+
+        class _Device:
+            path = "/dev/input/event0"
+            interface_id = "kbd"
+
+            def __init__(self) -> None:
+                self.task = read_task
+                self.release_tracked_outputs = Mock()
+
+            async def release(self) -> None:
+                self.task.cancel()
+                await asyncio.gather(self.task, return_exceptions=True)
+
+        device = _Device()
+        manager.grabbed_devices["hw"] = [device]
+        manager.grab_state.desired_paths["hw"] = {device.path}
+
+        async def clear_combo_runtime_for_binding_scope(*_args, **_kwargs) -> None:
+            assert device.task.done()
+
+        monkeypatch.setattr(
+            ldm.runtime_combos,
+            "clear_combo_runtime_for_binding_scope",
+            clear_combo_runtime_for_binding_scope,
+        )
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+
+        try:
+            await ldm.release_interface_unlocked(manager, "hw", device.path)
+        finally:
+            if not read_task.done():
+                read_task.cancel()
+                await asyncio.gather(read_task, return_exceptions=True)
+
 
 class TestDeviceDetection:
     @pytest.mark.asyncio

@@ -2,6 +2,7 @@ import asyncio
 import ctypes
 import errno
 import logging
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol, cast
@@ -173,13 +174,17 @@ class PassthroughForceFeedbackProxy:
         self._fd: int | None = None
         self._running = False
         self._effects: dict[int, EffectMapping] = {}
+        self._effects_lock = threading.RLock()
+        self._pending_uploads: set[int] = set()
+        self._queued_upload_plays: dict[int, list[int]] = {}
         self._request_queue: asyncio.Queue[_WorkerRequest] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._write_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def effect_mappings(self) -> Mapping[int, EffectMapping]:
-        return dict(self._effects)
+        with self._effects_lock:
+            return dict(self._effects)
 
     def start(self) -> None:
         if self._running:
@@ -271,7 +276,9 @@ class PassthroughForceFeedbackProxy:
             self._schedule_physical_ff(event_code, event_value)
             return
 
-        mapping = self._effects.get(event_code)
+        mapping, queued = self._effect_mapping_for_play(event_code, event_value)
+        if queued:
+            return
         if mapping is None:
             self.log.debug(
                 "Dropping force-feedback play for unknown virtual effect %s on %s",
@@ -280,6 +287,20 @@ class PassthroughForceFeedbackProxy:
             )
             return
         self._schedule_physical_ff(mapping.physical_id, event_value)
+
+    def _effect_mapping_for_play(
+        self,
+        virtual_id: int,
+        event_value: int,
+    ) -> tuple[EffectMapping | None, bool]:
+        with self._effects_lock:
+            mapping = self._effects.get(virtual_id)
+            if mapping is not None:
+                return mapping, False
+            if virtual_id not in self._pending_uploads:
+                return None, False
+            self._queued_upload_plays.setdefault(virtual_id, []).append(int(event_value))
+            return None, True
 
     async def _request_worker(self, queue: asyncio.Queue[_WorkerRequest]) -> None:
         while True:
@@ -324,11 +345,14 @@ class PassthroughForceFeedbackProxy:
         previous_mapping: EffectMapping | None = None
         physical_id: int | None = None
         published_mapping = False
+        queued_plays: list[int] = []
         try:
             upload = _begin_upload(self.uinput, request_id)
             effect = cast(_UploadLike, upload).effect
             virtual_id = _effect_id(effect)
-            previous_mapping = self._effects.get(virtual_id)
+            with self._effects_lock:
+                self._pending_uploads.add(virtual_id)
+                previous_mapping = self._effects.get(virtual_id)
             physical_upload_id = (
                 previous_mapping.physical_id if previous_mapping is not None else -1
             )
@@ -337,9 +361,15 @@ class PassthroughForceFeedbackProxy:
                 physical_id = int(self.physical_device.upload_effect(effect))
             finally:
                 _set_effect_id(effect, virtual_id)
-            self._effects[virtual_id] = EffectMapping(physical_id=physical_id)
+            with self._effects_lock:
+                self._effects[virtual_id] = EffectMapping(physical_id=physical_id)
+                self._pending_uploads.discard(virtual_id)
+                queued_plays = self._queued_upload_plays.pop(virtual_id, [])
             published_mapping = True
+            for queued_value in queued_plays:
+                self._schedule_physical_ff(physical_id, queued_value)
         except Exception as exc:  # noqa: BLE001 - request must be acked on upload failure.
+            self._discard_pending_upload(virtual_id)
             retval = _negative_errno(exc)
             self.log.warning(
                 "Failed to proxy force-feedback upload for %s: %s",
@@ -373,11 +403,16 @@ class PassthroughForceFeedbackProxy:
         try:
             erase = _begin_erase(self.uinput, request_id)
             virtual_id = _erase_effect_id(erase)
-            mapping = self._effects.get(virtual_id)
+            with self._effects_lock:
+                mapping = self._effects.pop(virtual_id, None)
             if mapping is None:
                 raise OSError(errno.EINVAL, "unknown force-feedback effect")
-            self.physical_device.erase_effect(mapping.physical_id)
-            self._effects.pop(virtual_id, None)
+            try:
+                self.physical_device.erase_effect(mapping.physical_id)
+            except Exception:
+                with self._effects_lock:
+                    self._effects[virtual_id] = mapping
+                raise
         except Exception as exc:  # noqa: BLE001 - request must be acked on erase failure.
             retval = _negative_errno(exc, default_errno=errno.EINVAL)
             self.log.warning(
@@ -395,7 +430,14 @@ class PassthroughForceFeedbackProxy:
                     self.log.exception(
                         "Failed to finish force-feedback erase request for %s",
                         self.label,
-                    )
+                )
+
+    def _discard_pending_upload(self, virtual_id: int | None) -> None:
+        if virtual_id is None:
+            return
+        with self._effects_lock:
+            self._pending_uploads.discard(virtual_id)
+            self._queued_upload_plays.pop(virtual_id, None)
 
     def _rollback_uploaded_effect(
         self,
@@ -432,10 +474,11 @@ class PassthroughForceFeedbackProxy:
     ) -> None:
         if not published_mapping or virtual_id is None:
             return
-        if previous_mapping is None:
-            self._effects.pop(virtual_id, None)
-            return
-        self._effects[virtual_id] = previous_mapping
+        with self._effects_lock:
+            if previous_mapping is None:
+                self._effects.pop(virtual_id, None)
+                return
+            self._effects[virtual_id] = previous_mapping
 
     async def _wait_for_write_tasks(self) -> None:
         tasks = set(self._write_tasks)

@@ -98,6 +98,7 @@ class ComboRuntimeState:
     capture_queues: dict[str, ComboCaptureQueueState] = field(default_factory=dict)
     active_combos: list[RuntimeCombo] = field(default_factory=list)
     engine: ComboEngine = field(default_factory=ComboEngine)
+    runtime_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
@@ -234,15 +235,17 @@ async def on_device_event(
     if not event_source:
         resolved_path = stable_path or resolve_stable_path_fn(evdev_path)
         event_source = str(get_interface_id_fn(resolved_path) or "").lower()
-    if should_suppress_high_res_combo_wheel_event(
-        manager,
-        hardware_id,
-        event_type,
-        event_code,
-        event_value,
-        event_source,
-        evdev_mod=deps.evdev_mod,
-    ):
+    async with manager.combo_state.runtime_lock:
+        suppress_high_res = should_suppress_high_res_combo_wheel_event(
+            manager,
+            hardware_id,
+            event_type,
+            event_code,
+            event_value,
+            event_source,
+            evdev_mod=deps.evdev_mod,
+        )
+    if suppress_high_res:
         return True
     combo_payload = build_combo_event_payload(
         hardware_id,
@@ -414,21 +417,22 @@ async def process_runtime_combo_event(
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
     )
-    if value == 1 and not is_combo_pulse_evdev(binding.evdev):
-        held_modifiers = held_combo_modifier_bindings_for_scope(
-            manager,
-            binding.hardware_id,
-            binding.source,
+    async with manager.combo_state.runtime_lock:
+        if value == 1 and not is_combo_pulse_evdev(binding.evdev):
+            held_modifiers = held_combo_modifier_bindings_for_scope(
+                manager,
+                binding.hardware_id,
+                binding.source,
+            )
+            if binding in held_modifiers:
+                held_modifiers.discard(binding)
+            manager.combo_state.engine.prime_held_bindings(held_modifiers)
+        decision = manager.combo_state.engine.handle_event(
+            ComboInputEvent(binding=binding, value=value),
+            time.monotonic(),
         )
-        if binding in held_modifiers:
-            held_modifiers.discard(binding)
-        manager.combo_state.engine.prime_held_bindings(held_modifiers)
-    decision = manager.combo_state.engine.handle_event(
-        ComboInputEvent(binding=binding, value=value),
-        time.monotonic(),
-    )
-    if decision.recall_events:
-        emit_combo_recalls(manager, decision.recall_events)
+        if decision.recall_events:
+            emit_combo_recalls(manager, decision.recall_events)
     if decision.action_transition is not None:
         await apply_combo_action_transition(
             manager,
@@ -441,10 +445,11 @@ async def process_runtime_combo_event(
             transition,
             deps=deps,
         )
-    refresh_combo_timeout_watchdog(
-        manager,
-        deps=deps,
-    )
+    async with manager.combo_state.runtime_lock:
+        refresh_combo_timeout_watchdog(
+            manager,
+            deps=deps,
+        )
     if (
         decision.consume_current_event
         or decision.passthrough_current_event
@@ -1241,27 +1246,61 @@ async def _start_combo_action_instance(
             deps=combo_deps,
         )
 
-    await shared_action_runner.execute_action(
-        runtime,
-        action,
-        _combo_synthetic_event(trigger_binding, 1),
-        trigger_name,
-        deps=_action_execution_deps(deps),
-        execution_handle=handle,
-        cancel_macro_playback=manager.cancel_macro_playback,
-        repeat_superkey_executor=repeat_superkey_executor,
-        resolve_code_fn=deps.resolve_code_fn,
-        record_repeat=record_repeat,
-    )
-    await started.wait()
+    needs_release = _combo_action_needs_release(action)
+    preregistered = False
+    if needs_release and action.action_type != ActionType.REPEAT:
+        manager.combo_state.active_actions[combo_id] = ComboActionState(
+            kind="executor",
+            action=action,
+            trigger_binding=trigger_binding,
+            source_device=runtime.hardware_id,
+            source_button=trigger_name,
+            started=handle.started,
+            action_runtime=runtime,
+            execution_handle=handle,
+        )
+        preregistered = True
+
+    try:
+        await shared_action_runner.execute_action(
+            runtime,
+            action,
+            _combo_synthetic_event(trigger_binding, 1),
+            trigger_name,
+            deps=_action_execution_deps(deps),
+            execution_handle=handle,
+            cancel_macro_playback=manager.cancel_macro_playback,
+            repeat_superkey_executor=repeat_superkey_executor,
+            resolve_code_fn=deps.resolve_code_fn,
+            record_repeat=record_repeat,
+        )
+        await started.wait()
+    except asyncio.CancelledError:
+        if preregistered:
+            manager.combo_state.active_actions.pop(combo_id, None)
+            runtime.stop()
+        raise
+    except Exception:
+        if preregistered:
+            manager.combo_state.active_actions.pop(combo_id, None)
+            runtime.stop()
+        raise
 
     if is_hold_macro_action(action):
         await shared_action_runner.drain_action_tasks(handle)
 
-    needs_release = _combo_action_needs_release(action)
     if action.action_type == ActionType.REPEAT and not runtime.state.repeat_active_actions:
         needs_release = False
     if needs_release:
+        if preregistered:
+            state = manager.combo_state.active_actions.get(combo_id)
+            if state is None:
+                runtime.stop()
+                return
+            state.trigger_binding = trigger_binding
+            state.source_device = runtime.hardware_id
+            state.source_button = trigger_name
+            return
         manager.combo_state.active_actions[combo_id] = ComboActionState(
             kind="executor",
             action=action,
@@ -1397,6 +1436,18 @@ async def clear_combo_runtime(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
+    async with manager.combo_state.runtime_lock:
+        await clear_combo_runtime_unlocked(
+            manager,
+            deps=deps,
+        )
+
+
+async def clear_combo_runtime_unlocked(
+    manager: _ComboManager,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
     manager.combo_state.engine.reset()
     for combo_id in list(manager.combo_state.active_actions):
         await stop_combo_action(
@@ -1424,6 +1475,20 @@ async def clear_combo_runtime(
 
 
 async def clear_combo_runtime_except(
+    manager: _ComboManager,
+    preserve_combo_ids: set[str],
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    async with manager.combo_state.runtime_lock:
+        await clear_combo_runtime_except_unlocked(
+            manager,
+            preserve_combo_ids,
+            deps=deps,
+        )
+
+
+async def clear_combo_runtime_except_unlocked(
     manager: _ComboManager,
     preserve_combo_ids: set[str],
     *,
@@ -1464,6 +1529,22 @@ async def clear_combo_runtime_except(
 
 
 async def clear_combo_runtime_for_binding_scope(
+    manager: _ComboManager,
+    hardware_id: str,
+    source: str | None,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    async with manager.combo_state.runtime_lock:
+        await clear_combo_runtime_for_binding_scope_unlocked(
+            manager,
+            hardware_id,
+            source,
+            deps=deps,
+        )
+
+
+async def clear_combo_runtime_for_binding_scope_unlocked(
     manager: _ComboManager,
     hardware_id: str,
     source: str | None,
@@ -1536,16 +1617,16 @@ async def combo_timeout_watchdog(
 ) -> None:
     try:
         await deps.asyncio_mod.sleep(max(0.0, deadline - time.monotonic()))
-        manager.combo_state.engine.expire_timeouts(time.monotonic())
+        async with manager.combo_state.runtime_lock:
+            manager.combo_state.engine.expire_timeouts(time.monotonic())
+            if manager.combo_state.timeout_task is deps.asyncio_mod.current_task():
+                manager.combo_state.timeout_task = None
+            refresh_combo_timeout_watchdog(
+                manager,
+                deps=deps,
+            )
     except deps.asyncio_mod.CancelledError:
         raise
-    finally:
-        if manager.combo_state.timeout_task is deps.asyncio_mod.current_task():
-            manager.combo_state.timeout_task = None
-        refresh_combo_timeout_watchdog(
-            manager,
-            deps=deps,
-        )
 
 
 def begin_combo_capture(

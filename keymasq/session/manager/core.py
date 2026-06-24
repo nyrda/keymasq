@@ -623,26 +623,27 @@ class SessionManager:
         return True
 
     def reload_config_from_disk(self) -> None:
-        superkeys_snapshot = self.superkeys.snapshot_superkeys()
-        analog_controls_snapshot = self.analog_controls.snapshot_analog_controls()
-        profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
-        hardware_snapshot = self.hardware.snapshot_hardware()
-        old_virtual_gamepad_count = self.virtual_gamepad_count
+        with self.profiles.profile_file_transaction():
+            superkeys_snapshot = self.superkeys.snapshot_superkeys()
+            analog_controls_snapshot = self.analog_controls.snapshot_analog_controls()
+            profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
+            hardware_snapshot = self.hardware.snapshot_hardware()
+            old_virtual_gamepad_count = self.virtual_gamepad_count
 
-        try:
-            self.superkeys.reload()
-            self.analog_controls.reload()
-            self.profiles.reload()
-            self.hardware.reload()
-            settings = load_global_settings(strict=True)
-            self.virtual_gamepad_count = settings.virtual_gamepad_count
-        except Exception:
-            self.superkeys.restore_superkeys(superkeys_snapshot)
-            self.analog_controls.restore_analog_controls(analog_controls_snapshot)
-            self.profiles.restore_profiles(profiles_snapshot)
-            self.hardware.restore_hardware(hardware_snapshot)
-            self.virtual_gamepad_count = old_virtual_gamepad_count
-            raise
+            try:
+                self.superkeys.reload()
+                self.analog_controls.reload()
+                self.profiles.reload()
+                self.hardware.reload()
+                settings = load_global_settings(strict=True)
+                self.virtual_gamepad_count = settings.virtual_gamepad_count
+            except Exception:
+                self.superkeys.restore_superkeys(superkeys_snapshot)
+                self.analog_controls.restore_analog_controls(analog_controls_snapshot)
+                self.profiles.restore_profiles(profiles_snapshot)
+                self.hardware.restore_hardware(hardware_snapshot)
+                self.virtual_gamepad_count = old_virtual_gamepad_count
+                raise
 
     def _start_config_watcher(self) -> None:
         try:

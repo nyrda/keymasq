@@ -5,7 +5,8 @@ import logging
 import re
 import threading
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
@@ -206,6 +207,11 @@ class ProfileManager:
     @_with_profile_file_lock
     def reload(self) -> None:
         self._load_all(strict=True)
+
+    @contextmanager
+    def profile_file_transaction(self) -> Generator[None]:
+        with self._profile_file_lock:
+            yield
 
     def _profiles_with_default_if_empty(
         self,

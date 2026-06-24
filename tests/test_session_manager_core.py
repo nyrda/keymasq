@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -480,6 +481,57 @@ def test_reload_config_from_disk_rolls_back_user_config_on_failure(
     assert manager.superkeys.get_superkey("OldSuper") is old_superkey
     assert manager.superkeys.get_superkey("NewSuper") is None
     assert manager.virtual_gamepad_count == 2
+
+
+def test_reload_config_from_disk_serializes_profile_writes_until_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    original_snapshot = manager.profiles.snapshot_profiles_for_reload
+    writer_started = threading.Event()
+    writer_done = threading.Event()
+    writer_errors: list[object] = []
+    writer: threading.Thread | None = None
+
+    def enable_profile() -> None:
+        writer_started.set()
+        try:
+            manager.profiles.set_profile_enabled("Nav", True)
+        except (AssertionError, OSError, RuntimeError, ValueError) as exc:
+            writer_errors.append(exc)
+        finally:
+            writer_done.set()
+
+    def snapshot_profiles_for_reload() -> dict[str, ProfileInfo]:
+        nonlocal writer
+        snapshot = original_snapshot()
+        writer = threading.Thread(target=enable_profile)
+        writer.start()
+        assert writer_started.wait(timeout=5)
+        assert not writer_done.wait(timeout=0.2)
+        return snapshot
+
+    def reload_hardware() -> None:
+        raise ValueError("bad hardware TOML")
+
+    monkeypatch.setattr(
+        manager.profiles,
+        "snapshot_profiles_for_reload",
+        snapshot_profiles_for_reload,
+    )
+    monkeypatch.setattr(manager.hardware, "reload", reload_hardware)
+
+    with pytest.raises(ValueError, match="bad hardware TOML"):
+        manager.reload_config_from_disk()
+
+    assert writer is not None
+    writer.join(timeout=5)
+    assert not writer.is_alive()
+    assert writer_errors == []
+    profile = manager.profiles.get_profile("Nav")
+    assert profile is not None
+    assert profile.config.enabled is True
 
 
 @pytest.mark.asyncio

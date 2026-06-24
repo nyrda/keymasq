@@ -51,6 +51,19 @@ def test_single_step_combo_tracks_recalls_and_releases():
     assert release_a.reset_candidates is False
 
 
+def test_legacy_gamepad_alias_combo_matches_canonical_runtime_event() -> None:
+    engine = ComboEngine()
+    configured = binding("btn_a", hardware_id="1234:5678", source="gamepad")
+    runtime = binding("btn_south", hardware_id="1234:5678", source="gamepad")
+    engine.set_combos([combo("combo-gamepad", (configured,))])
+
+    press = handle_combo_event(engine, runtime, 1, 0.0)
+
+    assert press.consume_current_event is True
+    assert press.action_transition is not None
+    assert press.action_transition.combo_id == "combo-gamepad"
+
+
 def test_single_step_combo_releases_action_when_any_step_key_is_released():
     engine = ComboEngine()
     alt = binding("key_leftalt")

@@ -1,4 +1,12 @@
-{ pkgs, system, keymasqPackage, keymasqModule, source }:
+{
+  pkgs,
+  system,
+  keymasqPackage,
+  keymasqModule,
+  source,
+  checkName ? "pytest-vm",
+  evdevPackage ? pkgs.python3Packages.evdev,
+}:
 
 let
   lib = pkgs.lib;
@@ -10,7 +18,7 @@ let
   testPython = pkgs.python3.withPackages (
     ps: with ps; [
       dbus-next
-      evdev
+      evdevPackage
       pygobject3
       pytest
       pytest-asyncio
@@ -70,8 +78,8 @@ EOF
 in
 {
   checks = {
-    pytest-vm = pkgs.testers.runNixOSTest {
-      name = "pytest-vm";
+    ${checkName} = pkgs.testers.runNixOSTest {
+      name = checkName;
 
       nodes.machine =
         { ... }:
@@ -94,6 +102,7 @@ in
 
           services.keymasq = {
             enable = true;
+            package = keymasqPackage;
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
               session_allowed_uids = [ vmUid ];

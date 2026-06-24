@@ -31,6 +31,7 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     manager.recording_state.devices_cache = [{"name": "Keyboard"}]
     manager.recording_state.selected_devices_cache = [{"name": "Keyboard"}]
     manager.recording_state.devices_cache_ready = True
+    manager.recording_state.devices_cache_include_other = True
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
 
     manager._handle_keymasqd_disconnect()
@@ -56,6 +57,7 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     assert manager.recording_state.devices_cache == []
     assert manager.recording_state.selected_devices_cache == []
     assert manager.recording_state.devices_cache_ready is False
+    assert manager.recording_state.devices_cache_include_other is False
     manager._broadcast_keymasqd_status.assert_called_once_with(False)  # type: ignore[attr-defined]
 
     with pytest.raises(asyncio.CancelledError):

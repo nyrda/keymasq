@@ -3,11 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/check.sh [--vm] [auto|keymasqd|session|gui|docshots|full]
+Usage: ./scripts/check.sh [--vm] [--evdev current|1.6.1|1.7.0] [auto|keymasqd|session|gui|docshots|full]
 
 Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
 Defaults to auto, which selects the category from pending and untracked changes
 under keymasq/, tests/, and nix/docshots/.
+
+The default evdev lane is current nixpkgs. Use --evdev for compatibility pytest
+or pytest VM runs against specific python-evdev versions.
 EOF
 }
 
@@ -16,11 +19,42 @@ cd "$ROOT_DIR"
 
 BACKEND="host"
 CATEGORY="auto"
+EVDEV_LANE="current"
+
+normalize_evdev_lane() {
+  case "${1:-current}" in
+    current|latest|default)
+      printf '%s\n' "current"
+      ;;
+    1.6|1.6.1|161|evdev161)
+      printf '%s\n' "evdev161"
+      ;;
+    1.7|1.7.0|170|evdev170)
+      printf '%s\n' "evdev170"
+      ;;
+    *)
+      echo "Unsupported evdev lane: $1" >&2
+      echo "Use current, 1.6.1, or 1.7.0" >&2
+      exit 1
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --vm)
       BACKEND="vm"
+      ;;
+    --evdev)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --evdev" >&2
+        exit 1
+      fi
+      shift
+      EVDEV_LANE="$(normalize_evdev_lane "$1")"
+      ;;
+    --evdev=*)
+      EVDEV_LANE="$(normalize_evdev_lane "${1#*=}")"
       ;;
   auto|keymasqd|session|keymasq-session|gui|docshots|full)
       CATEGORY="$1"
@@ -130,8 +164,8 @@ trap 'rm -rf "$tmp_dir"' EXIT
 strip_log_noise() {
   sed -E \
     -e $'s/\x1B\\[[0-9;]*[[:alpha:]]//g' \
-    -e 's/^vm-test-run-pytest-vm> //' \
-    -e 's/^pytest-vm: //' \
+    -e 's/^vm-test-run-pytest-vm(-evdev(161|170))?> //' \
+    -e 's/^pytest-vm(-evdev(161|170))?: //' \
     -e 's/[[:space:]]+$//'
 }
 
@@ -147,11 +181,19 @@ run_default_nix() {
 }
 
 run_ci_nix() {
-  run_in_repo nix develop ".#ci" -c "$@"
+  local shell="ci"
+  if [[ "$EVDEV_LANE" != "current" ]]; then
+    shell="ci-${EVDEV_LANE}"
+  fi
+  run_in_repo nix develop ".#${shell}" -c "$@"
 }
 
 run_ci_gui_nix() {
-  run_in_repo nix develop ".#ci-gui" -c "$@"
+  local shell="ci-gui"
+  if [[ "$EVDEV_LANE" != "current" ]]; then
+    shell="ci-gui-${EVDEV_LANE}"
+  fi
+  run_in_repo nix develop ".#${shell}" -c "$@"
 }
 
 run_compact_check() {
@@ -182,7 +224,7 @@ extract_pytest_report() {
       next
     }
     capture {
-      if ($0 ~ /^\(finished: run the VM test script,/ || $0 ~ /^test script finished/ || $0 ~ /^cleanup$/ || $0 ~ /^kill / || $0 ~ /^vde_switch:/ || $0 ~ /^additionally exposed symbols:/ || $0 ~ /^    / || $0 ~ /^pytest-vm,$/ || $0 ~ /^vlan1,$/ || $0 ~ /^start_all,/) {
+      if ($0 ~ /^\(finished: run the VM test script,/ || $0 ~ /^test script finished/ || $0 ~ /^cleanup$/ || $0 ~ /^kill / || $0 ~ /^vde_switch:/ || $0 ~ /^additionally exposed symbols:/ || $0 ~ /^    / || $0 ~ /^pytest-vm(-evdev(161|170))?,$/ || $0 ~ /^vlan1,$/ || $0 ~ /^start_all,/) {
         exit
       }
       if ($0 != "") {
@@ -289,7 +331,7 @@ run_pytest_host() {
     pytest_args+=(-n "$pytest_workers")
   fi
 
-  echo "pytest (${CATEGORY}):"
+  echo "pytest (${CATEGORY}, evdev=${EVDEV_LANE}):"
   if run_pytest_host_command "${pytest_args[@]}" >"$raw_log" 2>&1; then
     strip_log_noise <"$raw_log" >"$clean_log"
     if extract_pytest_final_summary <"$clean_log" >"$summary_log"; then
@@ -312,13 +354,17 @@ run_pytest_vm() {
   local raw_log="$tmp_dir/pytest-vm.raw.log"
   local clean_log="$tmp_dir/pytest-vm.clean.log"
   local report_log="$tmp_dir/pytest-vm.report.log"
-  local -a command=(nix run "${flake_ref}#checks.x86_64-linux.pytest-vm.driver" -- --keep-machine-state)
+  local check_name="pytest-vm"
+  if [[ "$EVDEV_LANE" != "current" ]]; then
+    check_name="pytest-vm-${EVDEV_LANE}"
+  fi
+  local -a command=(nix run "${flake_ref}#checks.x86_64-linux.${check_name}.driver" -- --keep-machine-state)
 
   if [[ -n "$PYTEST_MARK_EXPR" ]]; then
     command=(env "KEYMASQ_PYTEST_MARK_EXPR=$PYTEST_MARK_EXPR" "${command[@]}")
   fi
 
-  echo "pytest (${CATEGORY}, vm):"
+  echo "pytest (${CATEGORY}, vm, evdev=${EVDEV_LANE}):"
   if run_in_repo "${command[@]}" >"$raw_log" 2>&1; then
     :
   else

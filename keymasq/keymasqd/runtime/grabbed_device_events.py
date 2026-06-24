@@ -11,6 +11,7 @@ from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     classify_event_device_type,
+    evdev_alias_name,
     high_res_wheel_low_res_code,
     normalize_evdev_binding_value,
     normalize_wheel_value,
@@ -87,11 +88,7 @@ def build_event_processing_deps(
 
 
 def _evdev_code_name(raw_name: object, fallback: int) -> str:
-    if isinstance(raw_name, tuple):
-        names = cast(tuple[object, ...], raw_name)
-        first: object = names[0] if names else str(fallback)
-        return str(first).lower()
-    return str(raw_name).lower()
+    return evdev_alias_name(raw_name, str(fallback)) or str(fallback)
 
 
 def _event_code_int(value: object) -> int | None:

@@ -1,11 +1,18 @@
-{ pkgs, system, keymasqPackage, keymasqModule }:
+{
+  pkgs,
+  system,
+  keymasqPackage,
+  keymasqModule,
+  checkSuffix ? "",
+  evdevPackage ? pkgs.python3Packages.evdev,
+}:
 
 let
   vmUser = "keymasqvm";
   vmUid = 1000;
   runtimeDir = "/run/user/${toString vmUid}";
   testSource = ./daemon-session-integration-test;
-  testPython = pkgs.python3.withPackages (ps: [ ps.evdev ]);
+  testPython = pkgs.python3.withPackages (_ps: [ evdevPackage ]);
 
   integrationRunner = pkgs.writeShellApplication {
     name = "keymasq-daemon-session-integration-test";
@@ -91,6 +98,7 @@ let
 
           services.keymasq = {
             enable = true;
+            package = keymasqPackage;
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
               session_allowed_uids = [ vmUid ];
@@ -251,20 +259,20 @@ let
 in
 {
   checks = {
-    daemon-session-integration-test = mkDaemonSessionIntegrationTest {
-      name = "daemon-session-integration-test";
+    "daemon-session-integration-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-integration-test${checkSuffix}";
       unlockRequired = false;
     };
 
-    daemon-session-selected-integration-test = mkDaemonSessionIntegrationTest {
-      name = "daemon-session-selected-integration-test";
+    "daemon-session-selected-integration-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-selected-integration-test${checkSuffix}";
       unlockRequired = false;
       scenarioFilter = selectedScenarioFilter;
       repeatCount = selectedRepeatCount;
     };
 
-    daemon-session-macro-slot-locked-playback-test = mkDaemonSessionIntegrationTest {
-      name = "daemon-session-macro-slot-locked-playback-test";
+    "daemon-session-macro-slot-locked-playback-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
+      name = "daemon-session-macro-slot-locked-playback-test${checkSuffix}";
       unlockRequired = true;
       scenarioFilter = "mapped-macro-slot-playback-without-capture-unlock";
     };

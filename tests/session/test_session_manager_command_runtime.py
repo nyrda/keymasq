@@ -3306,6 +3306,51 @@ async def test_adhoc_macro_payload_reports_daemon_failures() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("value", "expected_include_other"),
+    [
+        (True, True),
+        (False, False),
+        ("true", True),
+        ("false", False),
+        (None, False),
+    ],
+)
+async def test_list_devices_for_recording_coerces_include_other(
+    monkeypatch: pytest.MonkeyPatch,
+    value: object,
+    expected_include_other: bool,
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    get_devices = AsyncMock(return_value=[])
+    update_selected = Mock()
+    monkeypatch.setattr(session_recording_module, "get_devices_for_recording", get_devices)
+    monkeypatch.setattr(
+        session_recording_module,
+        "update_selected_recording_devices_cache",
+        update_selected,
+    )
+
+    result = await manager._handle_session_request(
+        {"command": "list_devices_for_recording", "include_other": value},
+        "client",
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "devices": []}
+    get_devices.assert_awaited_once_with(
+        manager,
+        session_recording_module.recording_device_filter_types(expected_include_other),
+        include_grabbed=True,
+    )
+    assert manager.recording_state.devices_cache_include_other is expected_include_other
+    update_selected.assert_called_once_with(manager)
+
+
+@pytest.mark.asyncio
 async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3397,6 +3442,7 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     )
     assert manager.recording_state.devices_cache == [{"name": "Keyboard"}]
     assert manager.recording_state.devices_cache_ready is True
+    assert manager.recording_state.devices_cache_include_other is True
     update_selected.assert_called_once_with(manager)
 
 

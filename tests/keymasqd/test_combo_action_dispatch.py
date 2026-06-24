@@ -63,6 +63,36 @@ class FakeComboDevice:
 
 
 class TestComboActionDispatch:
+    def test_combo_payload_handles_list_style_evdev_aliases(self) -> None:
+        evdev_mod = SimpleNamespace(
+            ecodes=SimpleNamespace(
+                EV_KEY=evdev.ecodes.EV_KEY,
+                EV_REL=evdev.ecodes.EV_REL,
+                bytype={
+                    evdev.ecodes.EV_KEY: {
+                        evdev.ecodes.BTN_SOUTH: ["BTN_A", "BTN_GAMEPAD", "BTN_SOUTH"]
+                    }
+                },
+            )
+        )
+
+        payload = cdm.build_combo_event_payload(
+            "1234:5678",
+            "/dev/input/event7",
+            evdev.ecodes.EV_KEY,
+            evdev.ecodes.BTN_SOUTH,
+            1,
+            stable_path=None,
+            source=None,
+            evdev_mod=evdev_mod,
+            resolve_stable_path_fn=lambda path: f"{path}-stable",
+            get_interface_id_fn=lambda _path: "pad",
+        )
+
+        assert payload is not None
+        assert payload["evdev"] == "btn_south"
+        assert payload["source"] == "pad"
+
     def test_combo_action_needs_release_tracks_natural_mouse_move_tap(self) -> None:
         action = dm.MappingAction(
             action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,

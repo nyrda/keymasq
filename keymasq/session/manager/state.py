@@ -62,6 +62,7 @@ class RecordingRuntimeState:
     devices_cache: list[JsonObject] = field(default_factory=list)
     selected_devices_cache: list[JsonObject] = field(default_factory=list)
     devices_cache_ready: bool = False
+    devices_cache_include_other: bool = False
 
 
 @dataclass

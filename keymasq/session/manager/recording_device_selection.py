@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+CORE_RECORDING_DEVICE_FILTER_TYPES: tuple[str, ...] = ("keyboard", "gamepad", "mouse")
+OTHER_RECORDING_DEVICE_FILTER_TYPES: tuple[str, ...] = ("touchpad", "pointstick", "other")
+
+
+def recording_device_filter_types(include_other: bool = False) -> list[str]:
+    device_types = list(CORE_RECORDING_DEVICE_FILTER_TYPES)
+    if include_other:
+        device_types.extend(OTHER_RECORDING_DEVICE_FILTER_TYPES)
+    return device_types
 
 
 def update_recording_settings(manager: "SessionManager", request: JsonObject) -> None:
@@ -146,15 +155,24 @@ def prune_stale_recording_device_overrides(
     }
 
 
-async def refresh_recording_devices_cache(manager: "SessionManager") -> None:
+async def refresh_recording_devices_cache(
+    manager: "SessionManager",
+    include_other: bool | None = None,
+) -> None:
+    include_other = (
+        manager.recording_state.devices_cache_include_other
+        if include_other is None
+        else include_other
+    )
     try:
         devices = await get_devices_for_recording(
             manager,
-            ["keyboard", "gamepad", "mouse"],
+            recording_device_filter_types(include_other),
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices
         manager.recording_state.devices_cache_ready = True
+        manager.recording_state.devices_cache_include_other = include_other
         update_selected_recording_devices_cache(manager)
     except OSError as exc:
         log.debug("Failed to refresh recording devices cache: %s", exc)

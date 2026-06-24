@@ -94,6 +94,25 @@ class TestGrabbedDeviceHelpers:
         assert gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod) == "key_a"
         assert gde.get_key_name(evdev.ecodes.KEY_A, evdev_mod=evdev_mod) == "key_a"
 
+    def test_event_name_helpers_handle_list_style_evdev_aliases(self) -> None:
+        evdev_mod = SimpleNamespace(
+            ecodes=SimpleNamespace(
+                EV_KEY=evdev.ecodes.EV_KEY,
+                bytype={
+                    evdev.ecodes.EV_KEY: {
+                        evdev.ecodes.BTN_SOUTH: ["BTN_A", "BTN_GAMEPAD", "BTN_SOUTH"]
+                    }
+                },
+            )
+        )
+        event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SOUTH, value=1)
+
+        assert (
+            gde.get_event_name(cast(gdt.InputEventLike, event), evdev_mod=evdev_mod)
+            == "btn_south"
+        )
+        assert gde.get_key_name(evdev.ecodes.BTN_SOUTH, evdev_mod=evdev_mod) == "btn_south"
+
     def test_event_name_helpers_normalize_numeric_code_lookup(self) -> None:
         evdev_mod = SimpleNamespace(
             ecodes=SimpleNamespace(
@@ -1539,7 +1558,7 @@ class TestGrabbedDeviceHelpers:
 
         gdg.seed_startup_held_actions(device)
 
-        assert device.state.held_source_actions["btn_a"] == mapping_state["south"]
+        assert device.state.held_source_actions["btn_south"] == mapping_state["south"]
 
     def test_reconcile_startup_held_action_releases_gamepad_output(
         self,

@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from keymasq.common.combos import is_combo_pulse_evdev, normalize_combo_evdev
 from keymasq.common.devices import (
+    evdev_alias_name,
     high_res_wheel_low_res_code,
     normalize_wheel_value,
     resolve_evdev_code,
@@ -210,11 +211,7 @@ def _combo_synthetic_event(
 
 
 def _evdev_code_name(raw_name: object, fallback: int) -> str:
-    if isinstance(raw_name, tuple):
-        names = cast(tuple[object, ...], raw_name)
-        first: object = names[0] if names else str(fallback)
-        return str(first).lower()
-    return str(raw_name).lower()
+    return evdev_alias_name(raw_name, str(fallback)) or str(fallback)
 
 
 async def on_device_event(

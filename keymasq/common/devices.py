@@ -170,34 +170,72 @@ def gamepad_button_label(evdev_name: str | None) -> str | None:
     return _GAMEPAD_BUTTON_LABELS.get(canonical)
 
 
+def _evdev_name_label(value: object | None) -> str | None:
+    if value is None:
+        return None
+    label = str(value).strip().lower()
+    return label or None
+
+
+def _prefer_canonical_gamepad_alias(candidates: Sequence[object | None]) -> str | None:
+    labels = [_evdev_name_label(candidate) for candidate in candidates]
+    for label in labels:
+        canonical = canonical_gamepad_button_name(label)
+        if canonical in _GAMEPAD_BUTTON_LABELS:
+            return canonical
+    for label in labels:
+        if label is not None:
+            return label
+    return None
+
+
+def evdev_alias_name(raw_name: object, fallback: object | None = None) -> str | None:
+    if isinstance(raw_name, (list, tuple)):
+        names = list(cast(Sequence[object], raw_name))
+        if fallback is not None:
+            names.append(fallback)
+        return _prefer_canonical_gamepad_alias(names)
+
+    label = _evdev_name_label(raw_name if raw_name is not None else fallback)
+    if label is None:
+        return None
+    canonical = canonical_gamepad_button_name(label)
+    return canonical if canonical in _GAMEPAD_BUTTON_LABELS else label
+
+
+def evdev_code_value(raw_code: object) -> int | None:
+    candidates: list[object]
+    if isinstance(raw_code, (list, tuple)):
+        values = list(cast(Sequence[object], raw_code))
+        candidates = values[:1]
+        if len(values) > 1:
+            candidates.append(values[1])
+    else:
+        candidates = [raw_code]
+
+    for candidate in candidates:
+        if isinstance(candidate, bool):
+            continue
+        if isinstance(candidate, int):
+            return candidate
+        if isinstance(candidate, str):
+            try:
+                return int(candidate, 0)
+            except ValueError:
+                continue
+    return None
+
+
 def capability_name(event_type: int, code: object) -> str | None:
     code_int = _capability_code_int(code)
     if code_int is None:
         return None
     code_name = evdev.ecodes.bytype.get(int(event_type), {}).get(code_int)
-    if isinstance(code_name, tuple):
-        code_name = code_name[0] if code_name else None
-    if not isinstance(code_name, str):
-        return None
-    return code_name.lower()
+    return evdev_alias_name(code_name)
 
 
 def _capability_code_int(code: object) -> int | None:
-    if isinstance(code, tuple):
-        tuple_code = cast(tuple[object, ...], code)
-        if not tuple_code:
-            return None
-        candidate = tuple_code[0]
-    else:
-        candidate = code
-    if isinstance(candidate, int):
-        return candidate
-    if isinstance(candidate, str):
-        try:
-            return int(candidate)
-        except ValueError:
-            return None
-    return None
+    return evdev_code_value(code)
 
 
 def resolve_evdev_code(evdev_name: str | None) -> int | None:
@@ -212,11 +250,7 @@ def resolve_evdev_code(evdev_name: str | None) -> int | None:
         if not hasattr(evdev.ecodes, candidate):
             continue
         code = getattr(evdev.ecodes, candidate)
-        if isinstance(code, tuple):
-            tuple_code = cast(tuple[object, ...], code)
-            first = tuple_code[0] if tuple_code else None
-            return first if isinstance(first, int) else None
-        return int(code)
+        return evdev_code_value(code)
 
     return None
 

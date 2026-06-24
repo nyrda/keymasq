@@ -24,6 +24,7 @@ from keymasq.common.devices import (
     capability_name,
     capability_names_from_capabilities,
     detect_input_classes,
+    evdev_code_value,
     find_all_interfaces,
     gamepad_button_label,
     get_interface_id,
@@ -2274,7 +2275,7 @@ class HardwareSetupDialog(Adw.Dialog):
                     id=button_id,
                     label=label,
                     evdev=evdev_name,
-                    evdev_code=int(code) if code is not None else None,
+                    evdev_code=evdev_code_value(code),
                     evdev_value=value,
                     source=source_id or None,
                     type="wheel",
@@ -2293,7 +2294,9 @@ class HardwareSetupDialog(Adw.Dialog):
 
             source_id = str(iface.get("id", "") or "")
             for code in raw_capabilities.get(evdev.ecodes.EV_KEY, []):
-                code_int = int(code[0] if isinstance(code, tuple) else code)
+                code_int = evdev_code_value(code)
+                if code_int is None:
+                    continue
                 evdev_name = capability_name(evdev.ecodes.EV_KEY, code_int)
                 if not evdev_name:
                     continue
@@ -2353,8 +2356,9 @@ class HardwareSetupDialog(Adw.Dialog):
                 continue
             source_id = str(iface.get("id", "") or "")
             abs_codes = {
-                int(code[0] if isinstance(code, tuple) else code)
+                code_int
                 for code in raw_capabilities.get(evdev.ecodes.EV_ABS, [])
+                if (code_int := evdev_code_value(code)) is not None
             }
             for analog_id, (_label, _input_type, axes) in axis_specs.items():
                 codes = tuple(code for code, _role in axes)

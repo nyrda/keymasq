@@ -63,7 +63,7 @@ def _queue_profile_reload(window) -> None:
 
 
 def _load_profile_manager_snapshot(window) -> ProfileManager:
-    return ProfileManager(auto_create_default_if_empty=True)
+    return ProfileManager()
 
 
 def _on_profile_reload_finished(window, result: _runtime.GuiTaskResult[ProfileManager]) -> bool:

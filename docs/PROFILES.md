@@ -93,8 +93,9 @@ Profiles are stored in:
 
 The visible profile name can contain arbitrary characters. The on-disk filename is derived from that name by replacing unsafe filename characters so the file always stays inside `profiles/`.
 
-On first start, Keymasq seeds an editable permanent profile named `Default` so
-new devices can be remapped immediately without creating a profile first.
+Keymasq keeps at least one editable profile. On first start, and whenever the
+session reloads an empty profiles directory, `keymasq-session` seeds a permanent
+profile named `Default` so new devices can be remapped immediately.
 
 Hardware definitions are still separate:
 

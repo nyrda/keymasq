@@ -485,6 +485,9 @@ class ProfileManagedTab(Gtk.Box):
     ) -> None:
         if not self._selected_profile or self.demo_mode:
             return
+        if not self._can_delete_selected_profile():
+            self._show_last_profile_error()
+            return
 
         profile_name = self._selected_profile.config.name
         dialog = Adw.Dialog(title="Delete Profile", content_width=360, content_height=-1)
@@ -530,6 +533,10 @@ class ProfileManagedTab(Gtk.Box):
         if not self._selected_profile or self.profile_manager is None:
             dialog.close()
             return
+        if not self._can_delete_selected_profile():
+            dialog.close()
+            self._show_last_profile_error()
+            return
 
         self.profile_manager.delete_profile(self._selected_profile.config.name)
         self._refresh_other_profile_tabs()
@@ -538,6 +545,16 @@ class ProfileManagedTab(Gtk.Box):
         if close_after_delete is not None:
             close_after_delete.close()
         notify_session_reload_async()
+
+    def _can_delete_selected_profile(self) -> bool:
+        if self.profile_manager is None:
+            return False
+        return len(self.profile_manager.list_profiles()) > 1
+
+    def _show_last_profile_error(self) -> None:
+        self._show_profile_error_dialog(
+            "At least one profile is required. Create another profile before deleting this one."
+        )
 
     def _on_priority_changed(self, spin: Gtk.SpinButton) -> None:
         if not self._selected_profile:

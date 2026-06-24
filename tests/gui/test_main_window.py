@@ -1238,6 +1238,44 @@ class TestMainWindow:
         assert window._profile_runtime_state["devices"] == {"2234:6678": {"profiles": ["Desktop"]}}
         assert window._profile_runtime_state["window"] == {"class": "steam"}
 
+    def test_main_window_successful_initial_status_queues_profile_reload_once(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        reloads: list[object] = []
+        monkeypatch.setattr(
+            profiles,
+            "_queue_profile_reload",
+            lambda target: reloads.append(target),
+        )
+
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        finished = connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": True},
+            1,
+        )
+
+        assert finished is False
+        assert reloads == [window]
+        assert window._initial_status_profile_reload_done is True
+
+        window._status_query_id = 2
+        window._status_query_inflight = True
+        connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": True},
+            2,
+        )
+
+        assert reloads == [window]
+
     def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
         from keymasq.gui.window import MainWindow
 

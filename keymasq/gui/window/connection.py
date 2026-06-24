@@ -131,6 +131,7 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
         )
         if isinstance(data, dict) and data.get("status") == "ok":
             profiles._apply_profile_runtime_state(window, data)
+            _queue_initial_status_profile_reload(window)
             compositor_id = data.get("compositor_id")
             if compositor_id is not None:
                 window._compositor_id = compositor_id
@@ -159,6 +160,13 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
         _update_status_disconnected(window)
 
     return False
+
+
+def _queue_initial_status_profile_reload(window) -> None:
+    if window.demo_mode or window._initial_status_profile_reload_done:
+        return
+    window._initial_status_profile_reload_done = True
+    profiles._queue_profile_reload(window)
 
 
 def _update_status_disconnected(window) -> None:

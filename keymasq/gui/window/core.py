@@ -94,6 +94,7 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         }
         self._profile_reload_inflight = False
         self._profile_reload_pending = False
+        self._initial_status_profile_reload_done = False
         self._destroyed = False
         self._tab_order = load_tab_order()
         self._hidden_tabs = load_hidden_tabs()

@@ -310,6 +310,7 @@ class HardwareSetupDialog(Adw.Dialog):
         if self._detect_devices_inflight:
             return
 
+        self._clear_device_selection()
         while row := self.device_list.get_row_at_index(0):
             self.device_list.remove(row)
 

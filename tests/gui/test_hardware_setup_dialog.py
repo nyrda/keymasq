@@ -257,6 +257,87 @@ class TestHardwareSetupDialog:
 
         assert dialog.raw_evdev_check.get_sensitive() is True
 
+    def test_refresh_invalidates_pending_interface_discovery(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import dialog as hardware_setup_mod
+
+        original_detect = HardwareSetupDialog._detect_devices
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", original_detect)
+        dialog.detected_devices = {
+            "1234:5678": {
+                "vendor_id": "1234",
+                "product_id": "5678",
+                "hardware_id": "1234:5678",
+                "name": "Pending Device",
+                "interfaces": [
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/event20",
+                        "name": "Pending Device",
+                        "device_types": ["mouse"],
+                    }
+                ],
+            }
+        }
+        row = Gtk.ListBoxRow()
+        row.hardware_id = "1234:5678"
+        dialog.device_list.append(row)
+        scheduled: list[
+            tuple[Callable[[], Any], Callable[[Any], Any], Callable[[], Any] | None]
+        ] = []
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "run_gui_task",
+            lambda worker, callback, on_done=None: scheduled.append(
+                (worker, callback, on_done)
+            ),
+        )
+        monkeypatch.setattr(
+            HardwareSetupDialog,
+            "_discover_interfaces",
+            lambda _self, _selected: {
+                "mouse": {
+                    "id": "mouse",
+                    "path": "/dev/input/event20",
+                    "stable_path": "/dev/input/event20",
+                    "name": "Pending Device",
+                    "device_types": ["mouse"],
+                }
+            },
+        )
+        monkeypatch.setattr(
+            HardwareSetupDialog,
+            "_collect_detected_devices",
+            lambda _self: {},
+        )
+
+        dialog._on_device_selected(dialog.device_list, row)
+
+        assert len(scheduled) == 1
+        discover_worker, discover_callback, discover_done = scheduled[0]
+        stale_request_id = dialog._discover_interfaces_request_id
+
+        dialog._detect_devices()
+
+        assert dialog.selected_device is None
+        assert dialog.next_btn.get_sensitive() is False
+        assert dialog._discover_interfaces_request_id > stale_request_id
+        assert len(scheduled) == 2
+
+        discover_callback(hardware_setup_mod.GuiTaskResult(value=discover_worker()))
+        if discover_done:
+            discover_done()
+
+        assert dialog.selected_device is None
+        assert dialog.discovered_interfaces == {}
+        assert dialog.next_btn.get_sensitive() is False
+
     def test_select_evdev_only_emits_raw_evdev_devices_without_saving(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

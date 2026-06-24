@@ -8,6 +8,11 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.models import ActionType, MappingAction, SuperkeyConfig
+from keymasq.gui.widgets.fuzzy_search import (
+    fuzzy_query_matches,
+    install_listbox_fuzzy_filter,
+    superkey_search_text,
+)
 from keymasq.session.superkeys import SuperkeyManager
 
 from .compat import notify_session_reload_async
@@ -37,6 +42,16 @@ class SuperkeyTabMixin:
         toolbar_row.append(selection_hint)
         outer.append(toolbar_row)
 
+        self._superkey_search_entry = Gtk.SearchEntry()
+        self._superkey_search_entry.set_placeholder_text("Search Super Keys")
+        self._superkey_search_entry.set_tooltip_text(
+            "Filter Super Keys by name, description, or mode"
+        )
+        self._superkey_search_entry.set_margin_start(12)
+        self._superkey_search_entry.set_margin_end(12)
+        self._superkey_search_entry.set_margin_bottom(8)
+        outer.append(self._superkey_search_entry)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
@@ -48,6 +63,11 @@ class SuperkeyTabMixin:
         self._superkey_listbox.set_margin_start(12)
         self._superkey_listbox.set_margin_end(12)
         self._superkey_listbox.connect("row-selected", self._on_superkey_row_selected)
+        install_listbox_fuzzy_filter(
+            self._superkey_listbox,
+            self._superkey_search_entry,
+            after_filter_changed=self._after_superkey_search_filter_changed,
+        )
         scrolled.set_child(self._superkey_listbox)
         outer.append(scrolled)
 
@@ -102,6 +122,7 @@ class SuperkeyTabMixin:
         for config in self._superkey_list:
             row = Gtk.ListBoxRow()
             row._superkey_name = config.name
+            row._search_text = superkey_search_text(config, config.name)
             right_click = Gtk.GestureClick()
             right_click.set_button(3)
             right_click.connect("pressed", self._on_superkey_row_right_pressed, config.name)
@@ -129,10 +150,15 @@ class SuperkeyTabMixin:
             if self._selected_superkey and config.name == self._selected_superkey:
                 selected_row = row
 
-        if selected_row is not None:
+        self._superkey_listbox.invalidate_filter()
+
+        if selected_row is not None and fuzzy_query_matches(
+            self._superkey_search_entry.get_text(),
+            getattr(selected_row, "_search_text", ""),
+        ):
             self._superkey_listbox.select_row(selected_row)
         elif self._selected_superkey:
-            self._selected_superkey = None
+            self._clear_superkey_selection()
 
     def _describe_superkey_row(self, config: SuperkeyConfig) -> str:
         if config.mode.value == "overload":
@@ -180,6 +206,24 @@ class SuperkeyTabMixin:
             self._selected_superkey = None
         if self.stack.get_visible_child_name() == "superkey":
             self.map_btn.set_sensitive(self._selected_superkey is not None)
+
+    def _after_superkey_search_filter_changed(self) -> None:
+        selected_row = self._superkey_listbox.get_selected_row()
+        if selected_row is None:
+            self._clear_superkey_selection()
+            return
+        if fuzzy_query_matches(
+            self._superkey_search_entry.get_text(),
+            getattr(selected_row, "_search_text", ""),
+        ):
+            return
+        self._superkey_listbox.unselect_row(selected_row)
+        self._clear_superkey_selection()
+
+    def _clear_superkey_selection(self) -> None:
+        self._selected_superkey = None
+        if self.stack.get_visible_child_name() == "superkey":
+            self.map_btn.set_sensitive(False)
 
     def _on_superkey_map_clicked(self, btn) -> None:
         if not self._selected_superkey:

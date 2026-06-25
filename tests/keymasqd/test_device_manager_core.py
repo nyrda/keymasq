@@ -652,6 +652,38 @@ class TestDeviceManager:
         disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
 
     @pytest.mark.asyncio
+    async def test_release_waiting_device_does_not_destroy_global_outputs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        destroy_global_uinputs = Mock()
+        manager.output_state.device_count = 1
+        manager.grab_state.desired_paths["045e:02a1@2"] = {
+            "keymasq:045e:02a1@2",
+        }
+        manager.grab_state.desired_grabs["045e:02a1@2"] = DesiredGrabConfig(
+            paths={"keymasq:045e:02a1@2"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=[
+                {
+                    "id": "gamepad",
+                    "path": "keymasq:045e:02a1@2",
+                    "type": "gamepad",
+                }
+            ],
+        )
+        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+
+        result = await manager.release_device("045e:02a1@2", immediate=True)
+
+        assert result == {"released": True, "hardware_id": "045e:02a1@2"}
+        destroy_global_uinputs.assert_not_called()
+        assert manager.output_state.device_count == 1
+        assert "045e:02a1@2" not in manager.grab_state.desired_paths
+        assert "045e:02a1@2" not in manager.grab_state.desired_grabs
+
+    @pytest.mark.asyncio
     async def test_release_device_logs_hotplug_hiding_disable_failure(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -859,7 +859,8 @@ async def release_device_unlocked(
     for device in devices:
         await device.release()
 
-    runtime_outputs.destroy_global_uinputs(manager, log=log)
+    if devices:
+        runtime_outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
     log.info("Released device %s", hardware_id)

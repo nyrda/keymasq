@@ -627,6 +627,42 @@ class TestDeviceManager:
         enable_hotplug_hiding.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_grab_device_waits_when_raw_interfaces_do_not_resolve(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        path = "/dev/input/event404"
+        disable_hotplug_hiding = AsyncMock()
+        monkeypatch.setattr(
+            ldm.device_path_resolver,
+            "resolve_evdev_interfaces",
+            lambda *_args, **_kwargs: [],
+        )
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            disable_hotplug_hiding,
+        )
+
+        result = await manager.grab_device(
+            hardware_id="1234:5678",
+            evdev_paths=[],
+            evdev_interfaces=[{"id": "kbd", "path": path, "type": "keyboard"}],
+            button_map={"a": "key_a"},
+        )
+
+        assert result == {
+            "grabbed": True,
+            "hardware_id": "1234:5678",
+            "grabbed_count": 0,
+            "skipped_count": 0,
+            "waiting_for_device": True,
+        }
+        assert manager.grab_state.desired_paths["1234:5678"] == {path}
+        disable_hotplug_hiding.assert_awaited_once_with("1234:5678")
+
+    @pytest.mark.asyncio
     async def test_release_device_disables_waiting_gamepad_hotplug_hiding(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1159,6 +1195,75 @@ class TestDeviceManager:
         assert observed_paths == [[path]]
 
     @pytest.mark.asyncio
+    async def test_grab_device_creates_global_uinputs_once_for_multiple_interfaces(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        paths = ["/dev/input/event2", "/dev/input/event3"]
+        create_global_uinputs = Mock()
+
+        class _InputDevice:
+            name = "Pad"
+            phys = "usb-pad/input0"
+            info = SimpleNamespace(vendor=0x2DC8, product=0x3106)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]}
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def grab(self) -> None:
+                return
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", create_global_uinputs)
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+        manager._detect_device_types = lambda _device: ["gamepad"]  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id="2dc8:3106",
+            evdev_paths=paths,
+            evdev_interfaces=[
+                {"id": "gamepad", "path": paths[0], "type": "gamepad"},
+                {"id": "gamepad", "path": paths[1], "type": "gamepad"},
+            ],
+            button_map={"btn_south": "btn_south"},
+            button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+        )
+
+        assert result["grabbed_count"] == 2
+        assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == paths
+        create_global_uinputs.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_grab_device_reuses_combo_runtime_deps_for_callbacks(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1261,30 +1366,34 @@ class TestDeviceManager:
 
         await ldm.grab_device_unlocked(
             manager,
-            "2dc8:3106",
-            [path],
-            {"btn_south": "btn_south"},
-            {"btn_south": evdev.ecodes.BTN_SOUTH},
-            None,
-            None,
-            False,
-            evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
-            update_desired=False,
-            desired_grab_config_cls=lambda **kwargs: kwargs,
-            clear_device_path_cache_fn=lambda: None,
-            resolve_stable_path_fn=lambda value: value,
-            device_path_resolver_deps=ldm.device_path_resolver.DevicePathResolverDeps(
-                device_paths_fn=lambda: [],
-                device_input_fn=lambda _path: _InputDevice(),
-                detect_input_classes_fn=lambda _device: [],
-                primary_input_class_fn=lambda _types: DeviceType.GAMEPAD,
+            ldm.GrabRequest(
+                hardware_id="2dc8:3106",
+                evdev_paths=[path],
+                button_map={"btn_south": "btn_south"},
+                button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
+                button_values=None,
+                analog_inputs=None,
+                force_grab_unmapped=False,
+                evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
+                update_desired=False,
             ),
-            grabbed_device_cls=_GrabbedDevice,
-            get_interface_id_fn=lambda _path: "gamepad",
-            str_value_fn=str,
-            int_value_fn=int,
-            fire_and_observe_fn=lambda coro, _label: asyncio.ensure_future(coro),
-            errno_mod=errno,
+            ldm.GrabDeviceDeps(
+                desired_grab_config_cls=lambda **kwargs: kwargs,
+                clear_device_path_cache_fn=lambda: None,
+                resolve_stable_path_fn=lambda value: value,
+                device_path_resolver_deps=ldm.device_path_resolver.DevicePathResolverDeps(
+                    device_paths_fn=lambda: [],
+                    device_input_fn=lambda _path: _InputDevice(),
+                    detect_input_classes_fn=lambda _device: [],
+                    primary_input_class_fn=lambda _types: DeviceType.GAMEPAD,
+                ),
+                grabbed_device_cls=_GrabbedDevice,
+                get_interface_id_fn=lambda _path: "gamepad",
+                str_value_fn=str,
+                int_value_fn=int,
+                fire_and_observe_fn=lambda coro, _label: asyncio.ensure_future(coro),
+                errno_mod=errno,
+            ),
         )
 
         device = manager.grabbed_devices["2dc8:3106"][0]
@@ -1753,6 +1862,70 @@ class TestDeviceManager:
                 evdev_paths=["/dev/input/event10"],
                 button_map={"btn_side": "btn_side"},
             )
+
+    @pytest.mark.asyncio
+    async def test_grab_device_force_grab_unmapped_grabs_without_matching_capabilities(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        path = "/dev/input/event10"
+
+        class _InputDevice:
+            name = "Keyboard"
+            phys = "usb-keyboard/input0"
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def input_props(self) -> list[int]:
+                return []
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+
+            async def grab(self) -> None:
+                return
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(
+            ldm.source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+        manager._detect_device_types = lambda _device: ["keyboard"]  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id="1234:5678",
+            evdev_paths=[path],
+            button_map={"btn_side": "btn_side"},
+            force_grab_unmapped=True,
+        )
+
+        assert result["grabbed_count"] == 1
+        assert result["skipped_count"] == 0
+        assert manager.grabbed_devices["1234:5678"][0].path == path
 
     @pytest.mark.asyncio
     @requires_uinput

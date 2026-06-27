@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 import evdev
@@ -43,6 +44,73 @@ type _GrabManager = Any
 
 ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
 COMBO_EVDEV_RUNTIME = runtime_adapters.COMBO_EVDEV_RUNTIME
+
+
+@dataclass(frozen=True)
+class GrabDeviceDeps:
+    desired_grab_config_cls: DesiredGrabConfigFactory
+    clear_device_path_cache_fn: Callable[[], None]
+    resolve_stable_path_fn: ResolveStablePathFn
+    device_path_resolver_deps: device_path_resolver.DevicePathResolverDeps
+    grabbed_device_cls: GrabbedDeviceFactory
+    get_interface_id_fn: GetInterfaceIdFn
+    str_value_fn: StrValueFn
+    int_value_fn: IntValueFn
+    fire_and_observe_fn: FireAndObserve
+    errno_mod: runtime_adapters.ErrnoModule
+
+
+@dataclass(frozen=True)
+class GrabRequest:
+    hardware_id: str
+    evdev_paths: list[str]
+    button_map: dict[str, str]
+    button_codes: dict[str, int] | None = None
+    button_values: dict[str, int] | None = None
+    analog_inputs: dict[str, object] | None = None
+    force_grab_unmapped: bool = False
+    evdev_interfaces: list[JsonObject] | None = None
+    update_desired: bool = True
+
+
+@dataclass(frozen=True)
+class GrabPlan:
+    hardware_id: str
+    raw_interfaces: list[JsonObject]
+    evdev_interfaces_provided: bool
+    resolved_interfaces: list[device_path_resolver.ResolvedInterface]
+    requested_paths: set[str]
+    requested_claim_paths: set[str]
+    resolved_by_claim_path: dict[str, device_path_resolver.ResolvedInterface]
+    desired_paths: set[str]
+    mapped_evdev_names: set[str]
+    resolved_button_codes: dict[str, int]
+    resolved_button_values: dict[str, int]
+    button_mapped_bindings: set[tuple[int, int]]
+    mapped_bindings: set[tuple[int, int]]
+    analog_inputs: dict[str, object]
+    existing_devices: list[_ManagedGrabbedDevice]
+    existing_by_claim_path: dict[str, _ManagedGrabbedDevice]
+    previous_desired_paths: set[str] | None
+    previous_desired_config: object | None
+    requests_gamepad_source_hiding: bool
+
+
+@dataclass(frozen=True)
+class _RuntimeCallbacks:
+    combo_deps: Any
+    event_callback: Callable[..., Awaitable[ComboDecision | bool | None]]
+    runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]]
+    runtime_disconnect_callback: Callable[[str, str], Awaitable[None]]
+
+
+@dataclass
+class _GrabLoopState:
+    devices: list[_ManagedGrabbedDevice]
+    grabbed_count: int = 0
+    skipped_count: int = 0
+    available_count: int = 0
+    created_global_uinputs: bool = False
 
 
 def _normalize_evdev_name(value: object, default: str) -> str:
@@ -99,77 +167,79 @@ async def stop_device_event_loops(devices: Sequence[object]) -> None:
 
 async def grab_device_unlocked(
     manager: _GrabManager,
-    hardware_id: str,
-    evdev_paths: list[str],
-    button_map: dict[str, str],
-    button_codes: dict[str, int] | None,
-    button_values: dict[str, int] | None,
-    analog_inputs: dict[str, object] | None,
-    force_grab_unmapped: bool,
-    *,
-    evdev_interfaces: list[JsonObject] | None = None,
-    update_desired: bool,
-    desired_grab_config_cls: DesiredGrabConfigFactory,
-    clear_device_path_cache_fn: Callable[[], None],
-    resolve_stable_path_fn: ResolveStablePathFn,
-    device_path_resolver_deps: device_path_resolver.DevicePathResolverDeps,
-    grabbed_device_cls: GrabbedDeviceFactory,
-    get_interface_id_fn: GetInterfaceIdFn,
-    str_value_fn: StrValueFn,
-    int_value_fn: IntValueFn,
-    fire_and_observe_fn: FireAndObserve,
-    errno_mod: runtime_adapters.ErrnoModule,
+    request: GrabRequest,
+    deps: GrabDeviceDeps,
 ) -> dict[str, object]:
-    clear_device_path_cache_fn()
+    deps.clear_device_path_cache_fn()
     device_path_resolver.clear_cached_devices()
-    cancel_pending_hardware_release(manager, hardware_id)
+    cancel_pending_hardware_release(manager, request.hardware_id)
 
+    plan = _build_grab_plan(manager, request, deps)
+    if request.update_desired:
+        _persist_desired_grab(manager, request, plan, deps)
+    _log_grab_request(plan)
+    _update_existing_devices(plan, request, deps)
+    _reconcile_existing_interface_releases(manager, request.hardware_id, plan, deps)
+    callbacks = _build_runtime_callbacks(manager, deps)
+    state = _GrabLoopState(devices=list(plan.existing_devices))
+
+    for path in sorted(plan.requested_paths):
+        await _grab_one_interface(manager, request, plan, deps, callbacks, state, path)
+
+    return await _finalize_grab(manager, request, plan, deps, state)
+
+
+def _build_grab_plan(
+    manager: _GrabManager,
+    request: GrabRequest,
+    deps: GrabDeviceDeps,
+) -> GrabPlan:
     raw_interfaces = (
-        evdev_interfaces
-        if evdev_interfaces
-        else device_path_resolver.interface_descriptors_from_paths(evdev_paths)
+        list(request.evdev_interfaces)
+        if request.evdev_interfaces
+        else device_path_resolver.interface_descriptors_from_paths(request.evdev_paths)
     )
     requests_gamepad_source_hiding = _interfaces_request_gamepad_source_hiding(
         raw_interfaces
     )
 
-    existing_devices = list(manager.grabbed_devices.get(hardware_id, []))
+    existing_devices = list(manager.grabbed_devices.get(request.hardware_id, []))
     existing_by_claim_path = grabbed_devices_by_claim_path(
         existing_devices,
-        resolve_stable_path_fn=resolve_stable_path_fn,
+        resolve_stable_path_fn=deps.resolve_stable_path_fn,
     )
-    previous_desired_paths_raw = manager.grab_state.desired_paths.get(hardware_id)
+    previous_desired_paths_raw = manager.grab_state.desired_paths.get(request.hardware_id)
     previous_desired_paths = (
         set(previous_desired_paths_raw) if previous_desired_paths_raw is not None else None
     )
-    previous_desired_config = manager.grab_state.desired_grabs.get(hardware_id)
+    previous_desired_config = manager.grab_state.desired_grabs.get(request.hardware_id)
     excluded_paths = grabbed_paths_for_other_hardware(
         manager,
-        hardware_id,
-        resolve_stable_path_fn=resolve_stable_path_fn,
+        request.hardware_id,
+        resolve_stable_path_fn=deps.resolve_stable_path_fn,
     )
     resolved_interfaces = device_path_resolver.resolve_evdev_interfaces(
         raw_interfaces,
-        deps=device_path_resolver_deps,
-        hardware_id=hardware_id,
+        deps=deps.device_path_resolver_deps,
+        hardware_id=request.hardware_id,
         excluded_paths=excluded_paths,
         preferred_paths=grabbed_paths_for_hardware(
             manager,
-            hardware_id,
-            resolve_stable_path_fn=resolve_stable_path_fn,
+            request.hardware_id,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
         ),
         match_model_gamepads=True,
     )
     requested_interface_paths = [
-        resolve_stable_path_fn(interface.path) for interface in resolved_interfaces
+        deps.resolve_stable_path_fn(interface.path) for interface in resolved_interfaces
     ]
     requested_paths = set(requested_interface_paths)
     requested_claim_paths: set[str] = set()
-    resolved_by_claim_path: dict[str, Any] = {}
+    resolved_by_claim_path: dict[str, device_path_resolver.ResolvedInterface] = {}
     for interface in resolved_interfaces:
         aliases = path_claim_aliases(
             interface.path,
-            resolve_stable_path_fn=resolve_stable_path_fn,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
         )
         requested_claim_paths.update(aliases)
         for alias in aliases:
@@ -180,84 +250,130 @@ async def grab_device_unlocked(
         if (path := str(descriptor.get("path", "") or "").strip())
     }
     desired_paths = requested_paths | raw_interface_paths
-    mapped_evdev_names = {name.lower() for name in button_map.values()}
+    mapped_evdev_names = {name.lower() for name in request.button_map.values()}
     resolved_button_codes = {
-        button_id: int(code) for button_id, code in (button_codes or {}).items()
+        button_id: int(code) for button_id, code in (request.button_codes or {}).items()
     }
     resolved_button_values = {
-        button_id: int(value) for button_id, value in (button_values or {}).items()
+        button_id: int(value) for button_id, value in (request.button_values or {}).items()
     }
     button_mapped_bindings = {
         (int(event_type), int(code))
         for button_id, code in resolved_button_codes.items()
-        if (event_type := resolve_evdev_event_type(button_map.get(button_id))) is not None
+        if (event_type := resolve_evdev_event_type(request.button_map.get(button_id)))
+        is not None
     }
-    analog_bindings = analog_input_bindings(analog_inputs or {})
+    analog_bindings = analog_input_bindings(request.analog_inputs or {})
     mapped_bindings = button_mapped_bindings | analog_bindings
-    if update_desired:
-        manager.grab_state.desired_paths[hardware_id] = set(desired_paths)
-        manager.grab_state.desired_grabs[hardware_id] = desired_grab_config_cls(
-            paths=set(desired_paths),
-            button_map=dict(button_map),
-            button_codes=dict(resolved_button_codes),
-            button_values=dict(resolved_button_values),
-            analog_inputs=dict(analog_inputs or {}),
-            force_grab_unmapped=bool(force_grab_unmapped),
-            evdev_interfaces=list(raw_interfaces) if evdev_interfaces is not None else [],
-        )
-    log.info(
-        "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_bindings=%d",
-        hardware_id,
-        len(requested_paths),
-        len(mapped_evdev_names),
-        len(mapped_bindings),
+
+    return GrabPlan(
+        hardware_id=request.hardware_id,
+        raw_interfaces=raw_interfaces,
+        evdev_interfaces_provided=request.evdev_interfaces is not None,
+        resolved_interfaces=resolved_interfaces,
+        requested_paths=requested_paths,
+        requested_claim_paths=requested_claim_paths,
+        resolved_by_claim_path=resolved_by_claim_path,
+        desired_paths=desired_paths,
+        mapped_evdev_names=mapped_evdev_names,
+        resolved_button_codes=resolved_button_codes,
+        resolved_button_values=resolved_button_values,
+        button_mapped_bindings=button_mapped_bindings,
+        mapped_bindings=mapped_bindings,
+        analog_inputs=dict(request.analog_inputs or {}),
+        existing_devices=existing_devices,
+        existing_by_claim_path=existing_by_claim_path,
+        previous_desired_paths=previous_desired_paths,
+        previous_desired_config=previous_desired_config,
+        requests_gamepad_source_hiding=requests_gamepad_source_hiding,
     )
 
-    for device in existing_devices:
+
+def _persist_desired_grab(
+    manager: _GrabManager,
+    request: GrabRequest,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+) -> None:
+    if not request.update_desired:
+        return
+    manager.grab_state.desired_paths[request.hardware_id] = set(plan.desired_paths)
+    manager.grab_state.desired_grabs[request.hardware_id] = deps.desired_grab_config_cls(
+        paths=set(plan.desired_paths),
+        button_map=dict(request.button_map),
+        button_codes=dict(plan.resolved_button_codes),
+        button_values=dict(plan.resolved_button_values),
+        analog_inputs=dict(plan.analog_inputs),
+        force_grab_unmapped=bool(request.force_grab_unmapped),
+        evdev_interfaces=list(plan.raw_interfaces) if plan.evdev_interfaces_provided else [],
+    )
+
+
+def _log_grab_request(plan: GrabPlan) -> None:
+    log.info(
+        "Grab request for %s: paths=%d mapped_evdev_names=%d mapped_bindings=%d",
+        plan.hardware_id,
+        len(plan.requested_paths),
+        len(plan.mapped_evdev_names),
+        len(plan.mapped_bindings),
+    )
+
+
+def _update_existing_devices(
+    plan: GrabPlan,
+    request: GrabRequest,
+    deps: GrabDeviceDeps,
+) -> None:
+    for device in plan.existing_devices:
         device_claim_paths = grabbed_device_claim_paths(
             device,
-            resolve_stable_path_fn=resolve_stable_path_fn,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
         )
         resolved_interface = next(
             (
-                resolved_by_claim_path[path]
+                plan.resolved_by_claim_path[path]
                 for path in device_claim_paths
-                if path in resolved_by_claim_path
+                if path in plan.resolved_by_claim_path
             ),
             None,
         )
         interface_id = str(
-            (resolved_interface.interface_id if resolved_interface else "")
-            or get_interface_id_fn(str(getattr(device, "path", "") or ""))
+            (resolved_interface.interface_id if resolved_interface is not None else "")
+            or deps.get_interface_id_fn(str(getattr(device, "path", "") or ""))
             or ""
         ).lower()
         if interface_id:
             device.interface_id = interface_id
-        device.update_button_map(button_map, resolved_button_codes, resolved_button_values)
+        device.update_button_map(
+            request.button_map,
+            plan.resolved_button_codes,
+            plan.resolved_button_values,
+        )
         update_analog_inputs = getattr(device, "update_analog_inputs", None)
         if callable(update_analog_inputs):
-            update_analog_inputs(dict(analog_inputs or {}))
+            update_analog_inputs(dict(plan.analog_inputs))
 
-    devices = list(existing_devices)
-    grabbed_count = 0
-    skipped_count = 0
-    available_count = 0
-    created_global_uinputs = False
 
-    for device in existing_devices:
+def _reconcile_existing_interface_releases(
+    manager: _GrabManager,
+    hardware_id: str,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+) -> None:
+    for device in plan.existing_devices:
         device_claim_paths = grabbed_device_claim_paths(
             device,
-            resolve_stable_path_fn=resolve_stable_path_fn,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
         )
-        if device_claim_paths & requested_claim_paths:
+        if device_claim_paths & plan.requested_claim_paths:
             cancel_pending_interface_release(manager, hardware_id, device.path)
 
-    for device in existing_devices:
+    for device in plan.existing_devices:
         device_claim_paths = grabbed_device_claim_paths(
             device,
-            resolve_stable_path_fn=resolve_stable_path_fn,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
         )
-        if device_claim_paths & requested_claim_paths:
+        if device_claim_paths & plan.requested_claim_paths:
             continue
         schedule_interface_release(
             manager,
@@ -267,7 +383,12 @@ async def grab_device_unlocked(
             log=log,
         )
 
-    combo_deps = combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn)
+
+def _build_runtime_callbacks(
+    manager: _GrabManager,
+    deps: GrabDeviceDeps,
+) -> _RuntimeCallbacks:
+    combo_deps = combo_runtime_deps(fire_and_observe_fn=deps.fire_and_observe_fn)
 
     async def event_callback(
         callback_hardware_id: str,
@@ -287,10 +408,10 @@ async def grab_device_unlocked(
             event_value,
             stable_path,
             source,
-            resolve_stable_path_fn=resolve_stable_path_fn,
-            get_interface_id_fn=get_interface_id_fn,
-            int_value_fn=int_value_fn,
-            str_value_fn=str_value_fn,
+            resolve_stable_path_fn=deps.resolve_stable_path_fn,
+            get_interface_id_fn=deps.get_interface_id_fn,
+            int_value_fn=deps.int_value_fn,
+            str_value_fn=deps.str_value_fn,
             deps=combo_deps,
         )
 
@@ -311,209 +432,289 @@ async def grab_device_unlocked(
     ) -> None:
         await release_interface(manager, disconnected_hardware_id, disconnected_path)
 
-    async def rollback_failed_grab(path: str, exc: BaseException) -> BaseException:
-        reported_exc = _permission_aware_grab_exception(path, exc)
-        log.error("Failed to grab %s: %s", path, reported_exc)
-        for device in list(devices):
-            if any(device is existing for existing in existing_devices):
-                continue
-            await device.release()
-        _store_grabbed_devices(manager, hardware_id, existing_devices)
-        if created_global_uinputs:
-            runtime_outputs.destroy_global_uinputs(manager, log=log)
-        cancel_pending_interface_releases_for_hardware(manager, hardware_id)
-        if update_desired:
-            restore_desired_grab_state(
+    return _RuntimeCallbacks(
+        combo_deps=combo_deps,
+        event_callback=event_callback,
+        runtime_cleanup_callback=runtime_cleanup_callback,
+        runtime_disconnect_callback=runtime_disconnect_callback,
+    )
+
+
+def _construct_grabbed_device(
+    manager: _GrabManager,
+    request: GrabRequest,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+    callbacks: _RuntimeCallbacks,
+    path: str,
+    interface_id: str,
+    probe_device: object,
+) -> _ManagedGrabbedDevice:
+    detected_types = manager._detect_device_types(probe_device)
+    detected_type = deps.device_path_resolver_deps.primary_input_class_fn(detected_types)
+
+    def mapping_getter(hid: str = request.hardware_id) -> dict[str, MappingAction]:
+        return manager.active_mappings.get(hid, {})
+
+    def diagnostics_recorder(label: str, duration_us: float) -> None:
+        manager._record_diagnostic(label, duration_us)
+
+    def gamepad_output_resolver(
+        output_id: str | None,
+        context: str,
+    ) -> object | None:
+        return manager.resolve_gamepad_output(output_id, context=context)
+
+    return deps.grabbed_device_cls(
+        path=path,
+        hardware_id=request.hardware_id,
+        button_map=request.button_map,
+        button_codes=plan.resolved_button_codes,
+        button_values=plan.resolved_button_values,
+        analog_inputs=dict(plan.analog_inputs),
+        mapping_getter=mapping_getter,
+        event_callback=callbacks.event_callback,
+        device_type=detected_type,
+        device_types=detected_types,
+        verbosity=manager.verbosity,
+        keyboard_uinput=manager.output_state.keyboard_uinput,
+        mouse_uinput=manager.output_state.mouse_uinput,
+        gamepad_uinput=manager.output_state.gamepad_uinput,
+        gamepad_output_resolver=gamepad_output_resolver,
+        broadcast_callback=manager.broadcast_callback,
+        cursor_position_setter=manager.set_cursor_position,
+        natural_mouse_mover=getattr(manager, "move_cursor_natural", None),
+        recording_manager=manager.recording_manager,
+        macro_player=manager.play_macro,
+        emergency_resetter=manager.emergency_reset,
+        inspector_event_callback=manager.broadcast_device_inspector_event,
+        inspector_active_getter=manager.device_inspector_active,
+        inspector_suppression_getter=manager.device_inspector_suppressed,
+        inspector_suppressed_ids_getter=(
+            manager.device_inspector_suppressed_hardware_ids_snapshot
+        ),
+        inspector_suppression_disabler=manager.disable_device_inspector_suppression,
+        profile_activation_recorder=manager.record_profile_action,
+        profile_activation_trigger_start_observer=(
+            manager.observe_profile_trigger_start
+        ),
+        profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
+        suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
+        mouse_rel_suppression_start_callback=lambda: None,
+        diagnostics_recorder=diagnostics_recorder,
+        runtime_cleanup_callback=callbacks.runtime_cleanup_callback,
+        runtime_disconnect_callback=callbacks.runtime_disconnect_callback,
+        repeat_state=manager.repeat_state,
+        interface_id=interface_id,
+    )
+
+
+def _probe_interface_device_sync(
+    manager: _GrabManager,
+    path: str,
+) -> tuple[_ManagedGrabbedDevice, dict[int, Sequence[object]]]:
+    probe_device = manager._device_input(path)
+    try:
+        caps = cast(dict[int, Sequence[object]], probe_device.capabilities())
+    except Exception:
+        runtime_adapters.close_device(probe_device)
+        raise
+    return probe_device, caps
+
+
+async def _grab_one_interface(
+    manager: _GrabManager,
+    request: GrabRequest,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+    callbacks: _RuntimeCallbacks,
+    state: _GrabLoopState,
+    path: str,
+) -> None:
+    if path in plan.existing_by_claim_path:
+        return
+
+    raw_device: Any | None = None
+    try:
+        probe_device, caps = await ASYNCIO_RUNTIME.to_thread(
+            _probe_interface_device_sync,
+            manager,
+            path,
+        )
+        raw_device = probe_device
+        state.available_count += 1
+        resolved_interface = plan.resolved_by_claim_path.get(path)
+        interface_id = str(
+            (resolved_interface.interface_id if resolved_interface is not None else "")
+            or deps.get_interface_id_fn(path)
+            or ""
+        ).lower()
+        interface_mapped_bindings = plan.button_mapped_bindings | analog_input_bindings(
+            plan.analog_inputs,
+            source=interface_id,
+        )
+        has_mapped_buttons = device_has_mapped_buttons(
+            caps,
+            plan.mapped_evdev_names,
+            interface_mapped_bindings,
+            evdev_mod=evdev,
+        )
+
+        if has_mapped_buttons or request.force_grab_unmapped:
+            needs_global_uinputs = request.hardware_id not in manager.grabbed_devices
+            if needs_global_uinputs and not state.created_global_uinputs:
+                runtime_outputs.create_global_uinputs(
+                    manager,
+                    evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
+                    log=log,
+                    uinput_writer=runtime_adapters.identity_uinput_writer,
+                )
+                state.created_global_uinputs = True
+            device = _construct_grabbed_device(
                 manager,
-                hardware_id,
-                previous_desired_paths,
-                previous_desired_config,
+                request,
+                plan,
+                deps,
+                callbacks,
+                path,
+                interface_id,
+                probe_device,
             )
-        return reported_exc
+            state.devices.append(device)
+            _store_grabbed_devices(manager, request.hardware_id, state.devices)
+            try:
+                await grab_with_retry(
+                    device,
+                    path,
+                    asyncio_mod=ASYNCIO_RUNTIME,
+                    log=log,
+                    errno_mod=deps.errno_mod,
+                )
+            except (asyncio.CancelledError, Exception):
+                state.devices.remove(device)
+                _store_grabbed_devices(manager, request.hardware_id, state.devices)
+                raise
+            state.grabbed_count += 1
+            if manager.verbosity >= 1:
+                reason = "mapped buttons" if has_mapped_buttons else "forced for combos"
+                log.debug("  %s - grabbed (%s)", path, reason)
+        else:
+            state.skipped_count += 1
+            if manager.verbosity >= 1:
+                log.debug("  %s - skipped (no matching mapped button names/codes)", path)
+    except OSError as exc:
+        if raw_device is not None:
+            runtime_adapters.close_device(raw_device)
+            raw_device = None
+        if exc.errno in {deps.errno_mod.ENOENT, deps.errno_mod.ENODEV}:
+            log.info("Skipping unavailable interface for %s: %s", request.hardware_id, path)
+            return
+        reported_exc = await _rollback_failed_grab(manager, request, plan, deps, state, path, exc)
+        raise reported_exc from exc
+    except Exception as exc:
+        if raw_device is not None:
+            runtime_adapters.close_device(raw_device)
+            raw_device = None
+        reported_exc = await _rollback_failed_grab(manager, request, plan, deps, state, path, exc)
+        raise reported_exc from exc
+    finally:
+        if raw_device is not None:
+            runtime_adapters.close_device(raw_device)
 
-    for path in sorted(requested_paths):
-        if path in existing_by_claim_path:
+
+async def _rollback_failed_grab(
+    manager: _GrabManager,
+    request: GrabRequest,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+    state: _GrabLoopState,
+    path: str,
+    exc: BaseException,
+) -> BaseException:
+    reported_exc = _permission_aware_grab_exception(path, exc)
+    log.error("Failed to grab %s: %s", path, reported_exc)
+    rollback_release_failed = False
+    for device in list(state.devices):
+        if any(device is existing for existing in plan.existing_devices):
             continue
-        raw_device: Any | None = None
         try:
-            probe_device = manager._device_input(path)
-            raw_device = probe_device
-            available_count += 1
-            caps = probe_device.capabilities()
-            resolved_interface = resolved_by_claim_path.get(path)
-            interface_id = str(
-                (resolved_interface.interface_id if resolved_interface else "")
-                or get_interface_id_fn(path)
-                or ""
-            ).lower()
-            interface_mapped_bindings = button_mapped_bindings | analog_input_bindings(
-                analog_inputs or {},
-                source=interface_id,
+            await device.release()
+        except Exception:  # noqa: BLE001 - rollback must restore manager state.
+            rollback_release_failed = True
+            log.warning(
+                "Failed to release %s during grab rollback",
+                getattr(device, "path", "<unknown>"),
+                exc_info=True,
             )
-            has_mapped_buttons = device_has_mapped_buttons(
-                caps,
-                mapped_evdev_names,
-                interface_mapped_bindings,
-                evdev_mod=evdev,
-            )
+    _store_grabbed_devices(manager, request.hardware_id, plan.existing_devices)
+    if state.created_global_uinputs:
+        runtime_outputs.destroy_global_uinputs(manager, log=log)
+    cancel_pending_interface_releases_for_hardware(manager, request.hardware_id)
+    if request.update_desired:
+        restore_desired_grab_state(
+            manager,
+            request.hardware_id,
+            plan.previous_desired_paths,
+            plan.previous_desired_config,
+        )
+    if rollback_release_failed:
+        log.warning("Grab rollback completed with cleanup errors")
+    return reported_exc
 
-            if has_mapped_buttons or force_grab_unmapped:
-                if hardware_id not in manager.grabbed_devices and not created_global_uinputs:
-                    runtime_outputs.create_global_uinputs(
-                        manager,
-                        evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
-                        log=log,
-                        uinput_writer=runtime_adapters.identity_uinput_writer,
-                    )
-                    created_global_uinputs = True
-                detected_types = manager._detect_device_types(probe_device)
-                detected_type = device_path_resolver_deps.primary_input_class_fn(
-                    detected_types
-                )
 
-                def mapping_getter(hid: str = hardware_id) -> dict[str, MappingAction]:
-                    return manager.active_mappings.get(hid, {})
-
-                def diagnostics_recorder(label: str, duration_us: float) -> None:
-                    manager._record_diagnostic(label, duration_us)
-
-                def gamepad_output_resolver(
-                    output_id: str | None,
-                    context: str,
-                ) -> object | None:
-                    return manager.resolve_gamepad_output(output_id, context=context)
-
-                device = grabbed_device_cls(
-                    path=path,
-                    hardware_id=hardware_id,
-                    button_map=button_map,
-                    button_codes=resolved_button_codes,
-                    button_values=resolved_button_values,
-                    analog_inputs=dict(analog_inputs or {}),
-                    mapping_getter=mapping_getter,
-                    event_callback=event_callback,
-                    device_type=detected_type,
-                    device_types=detected_types,
-                    verbosity=manager.verbosity,
-                    keyboard_uinput=manager.output_state.keyboard_uinput,
-                    mouse_uinput=manager.output_state.mouse_uinput,
-                    gamepad_uinput=manager.output_state.gamepad_uinput,
-                    gamepad_output_resolver=gamepad_output_resolver,
-                    broadcast_callback=manager.broadcast_callback,
-                    cursor_position_setter=manager.set_cursor_position,
-                    natural_mouse_mover=getattr(manager, "move_cursor_natural", None),
-                    recording_manager=manager.recording_manager,
-                    macro_player=manager.play_macro,
-                    emergency_resetter=manager.emergency_reset,
-                    inspector_event_callback=manager.broadcast_device_inspector_event,
-                    inspector_active_getter=manager.device_inspector_active,
-                    inspector_suppression_getter=manager.device_inspector_suppressed,
-                    inspector_suppressed_ids_getter=(
-                        manager.device_inspector_suppressed_hardware_ids_snapshot
-                    ),
-                    inspector_suppression_disabler=(
-                        manager.disable_device_inspector_suppression
-                    ),
-                    profile_activation_recorder=manager.record_profile_action,
-                    profile_activation_trigger_start_observer=(
-                        manager.observe_profile_trigger_start
-                    ),
-                    profile_activation_trigger_end_observer=(
-                        manager.observe_profile_trigger_end
-                    ),
-                    suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
-                    mouse_rel_suppression_start_callback=lambda: None,
-                    diagnostics_recorder=diagnostics_recorder,
-                    runtime_cleanup_callback=runtime_cleanup_callback,
-                    runtime_disconnect_callback=runtime_disconnect_callback,
-                    repeat_state=manager.repeat_state,
-                    interface_id=interface_id,
-                )
-                devices.append(device)
-                _store_grabbed_devices(manager, hardware_id, devices)
-                try:
-                    await grab_with_retry(
-                        device,
-                        path,
-                        asyncio_mod=ASYNCIO_RUNTIME,
-                        log=log,
-                        errno_mod=errno_mod,
-                    )
-                except (asyncio.CancelledError, Exception):
-                    devices.remove(device)
-                    _store_grabbed_devices(manager, hardware_id, devices)
-                    raise
-                grabbed_count += 1
-                if manager.verbosity >= 1:
-                    reason = "mapped buttons" if has_mapped_buttons else "forced for combos"
-                    log.debug("  %s - grabbed (%s)", path, reason)
-            else:
-                skipped_count += 1
-                if manager.verbosity >= 1:
-                    log.debug("  %s - skipped (no matching mapped button names/codes)", path)
-        except OSError as exc:
-            if raw_device is not None:
-                runtime_adapters.close_device(raw_device)
-                raw_device = None
-            if exc.errno in {errno_mod.ENOENT, errno_mod.ENODEV}:
-                log.info("Skipping unavailable interface for %s: %s", hardware_id, path)
-                continue
-            reported_exc = await rollback_failed_grab(path, exc)
-            raise reported_exc from exc
-        except Exception as exc:
-            if raw_device is not None:
-                runtime_adapters.close_device(raw_device)
-                raw_device = None
-            reported_exc = await rollback_failed_grab(path, exc)
-            raise reported_exc from exc
-        finally:
-            if raw_device is not None:
-                runtime_adapters.close_device(raw_device)
-
+async def _finalize_grab(
+    manager: _GrabManager,
+    request: GrabRequest,
+    plan: GrabPlan,
+    deps: GrabDeviceDeps,
+    state: _GrabLoopState,
+) -> dict[str, object]:
     waiting_for_device = bool(
-        (requested_paths or raw_interfaces) and available_count == 0 and not devices
+        (plan.requested_paths or plan.raw_interfaces)
+        and state.available_count == 0
+        and not state.devices
     )
     if (
         not waiting_for_device
-        and hardware_id not in manager.grabbed_devices
-        and requested_paths
-        and (mapped_evdev_names or mapped_bindings)
-        and grabbed_count == 0
+        and request.hardware_id not in manager.grabbed_devices
+        and plan.requested_paths
+        and (plan.mapped_evdev_names or plan.mapped_bindings)
+        and state.grabbed_count == 0
     ):
-        if created_global_uinputs:
+        if state.created_global_uinputs:
             runtime_outputs.destroy_global_uinputs(manager, log=log)
         raise ValueError(
-            f"No interfaces for {hardware_id} matched mapped buttons "
-            f"(paths={len(requested_paths)}, mapped_names={len(mapped_evdev_names)}, "
-            f"mapped_bindings={len(mapped_bindings)})"
+            f"No interfaces for {request.hardware_id} matched mapped buttons "
+            f"(paths={len(plan.requested_paths)}, mapped_names={len(plan.mapped_evdev_names)}, "
+            f"mapped_bindings={len(plan.mapped_bindings)})"
         )
 
-    if devices:
-        manager.grabbed_devices[hardware_id] = devices
+    if state.devices:
+        manager.grabbed_devices[request.hardware_id] = state.devices
     else:
-        manager.grabbed_devices.pop(hardware_id, None)
+        manager.grabbed_devices.pop(request.hardware_id, None)
 
     log.info(
         "Configured device %s: total_interfaces=%d newly_grabbed=%d skipped=%d",
-        hardware_id,
-        len(devices),
-        grabbed_count,
-        skipped_count,
+        request.hardware_id,
+        len(state.devices),
+        state.grabbed_count,
+        state.skipped_count,
     )
-    if update_desired:
-        if requests_gamepad_source_hiding and waiting_for_device:
-            await _enable_hardware_hotplug_hiding_best_effort(manager, hardware_id)
+    if request.update_desired:
+        if plan.requests_gamepad_source_hiding and waiting_for_device:
+            await _enable_hardware_hotplug_hiding_best_effort(manager, request.hardware_id)
         else:
             await _disable_hardware_hotplug_hiding_if_unused_best_effort(
                 manager,
-                hardware_id,
+                request.hardware_id,
             )
 
     return {
         "grabbed": True,
-        "hardware_id": hardware_id,
-        "grabbed_count": len(devices),
-        "skipped_count": skipped_count,
+        "hardware_id": request.hardware_id,
+        "grabbed_count": len(state.devices),
+        "skipped_count": state.skipped_count,
         "waiting_for_device": waiting_for_device,
     }
 

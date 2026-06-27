@@ -593,17 +593,18 @@ class DeviceManager:
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
         async with self._op_lock:
-            result = await runtime_grab_lifecycle.grab_device_unlocked(
-                self,
-                hardware_id,
-                evdev_paths,
-                button_map,
-                button_codes,
-                button_values,
-                analog_inputs,
-                force_grab_unmapped,
+            request = runtime_grab_lifecycle.GrabRequest(
+                hardware_id=hardware_id,
+                evdev_paths=evdev_paths,
+                button_map=button_map,
+                button_codes=button_codes,
+                button_values=button_values,
+                analog_inputs=analog_inputs,
+                force_grab_unmapped=force_grab_unmapped,
                 evdev_interfaces=evdev_interfaces,
                 update_desired=True,
+            )
+            deps = runtime_grab_lifecycle.GrabDeviceDeps(
                 desired_grab_config_cls=DesiredGrabConfig,
                 clear_device_path_cache_fn=clear_device_path_cache,
                 resolve_stable_path_fn=resolve_stable_path,
@@ -614,6 +615,11 @@ class DeviceManager:
                 int_value_fn=coerce_int,
                 fire_and_observe_fn=_fire_and_observe,
                 errno_mod=errno,
+            )
+            result = await runtime_grab_lifecycle.grab_device_unlocked(
+                self,
+                request,
+                deps,
             )
             await self._refresh_combo_runtime_preserving_unchanged()
             return result

@@ -231,6 +231,18 @@ class HyprlandListener(WindowListener):
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
         return await self.dispatch("movecursor", f"{int(x)} {int(y)}")
 
+    @staticmethod
+    def _movecursor_command(args: str) -> str | None:
+        parts = args.split()
+        if len(parts) != 2:
+            return None
+        try:
+            x = int(float(parts[0]))
+            y = int(float(parts[1]))
+        except ValueError:
+            return None
+        return f"dispatch hl.dsp.cursor.move({{ x = {x}, y = {y} }})"
+
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
         dispatcher_name = " ".join(str(dispatcher or "").strip().split())
         dispatcher_args = " ".join(str(args or "").strip().splitlines())
@@ -247,8 +259,13 @@ class HyprlandListener(WindowListener):
                 return False, "set_cursor_position expects numeric X Y"
             return await self.set_cursor_position(x, y)
 
-        command = f"dispatch {dispatcher_name}"
-        command = f"{command} {dispatcher_args}" if dispatcher_args else f"{command} _"
+        if dispatcher_name == "movecursor":
+            command = self._movecursor_command(dispatcher_args)
+            if command is None:
+                return False, "movecursor expects X Y"
+        else:
+            command = f"dispatch {dispatcher_name}"
+            command = f"{command} {dispatcher_args}" if dispatcher_args else f"{command} _"
         response = await self._send_cmd(command, read_size=4096)
         if response is None:
             return False, "no response from Hyprland"

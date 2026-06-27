@@ -35,6 +35,28 @@ async def test_hyprland_dispatch_set_cursor_position_uses_special_dispatcher() -
 
 
 @pytest.mark.asyncio
+async def test_hyprland_dispatch_movecursor_uses_lua_cursor_dispatcher() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    assert await listener.dispatch("movecursor", "123 456") == (True, "ok")
+
+    listener._send_cmd.assert_awaited_once_with(
+        "dispatch hl.dsp.cursor.move({ x = 123, y = 456 })",
+        read_size=4096,
+    )
+
+
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_movecursor_rejects_invalid_args() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    assert await listener.dispatch("movecursor", "123") == (False, "movecursor expects X Y")
+    listener._send_cmd.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_hyprland_get_active_window_normalizes_tags() -> None:
     listener = HyprlandListener(_noop_callback)
     listener._send_cmd = AsyncMock(  # type: ignore[method-assign]

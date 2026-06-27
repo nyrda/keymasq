@@ -80,9 +80,11 @@ def _plan(
     *,
     hardware_id: str = "2dc8:3106",
     raw_interfaces: list[ldm.JsonObject] | None = None,
+    evdev_interfaces_provided: bool = False,
     requested_paths: set[str] | None = None,
     mapped_evdev_names: set[str] | None = None,
     mapped_bindings: set[tuple[int, int]] | None = None,
+    analog_inputs: dict[str, object] | None = None,
     existing_devices: list[object] | None = None,
     previous_desired_paths: set[str] | None = None,
     previous_desired_config: object | None = None,
@@ -91,6 +93,7 @@ def _plan(
     return ldm.GrabPlan(
         hardware_id=hardware_id,
         raw_interfaces=raw_interfaces or [],
+        evdev_interfaces_provided=evdev_interfaces_provided,
         resolved_interfaces=[],
         requested_paths=requested_paths or set(),
         requested_claim_paths=set(),
@@ -101,6 +104,7 @@ def _plan(
         resolved_button_values={},
         button_mapped_bindings=set(),
         mapped_bindings=mapped_bindings or set(),
+        analog_inputs=analog_inputs or {},
         existing_devices=existing_devices or [],
         existing_by_claim_path={},
         previous_desired_paths=previous_desired_paths,
@@ -384,6 +388,12 @@ class _ExistingDevice(_ReleasedDevice):
         raise AssertionError("existing devices must not be released during rollback")
 
 
+class _FailingReleaseDevice(_ReleasedDevice):
+    async def release(self) -> None:
+        self.release_count += 1
+        raise RuntimeError("release failed")
+
+
 @pytest.mark.asyncio
 async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
     monkeypatch: pytest.MonkeyPatch,
@@ -437,4 +447,49 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
     )
     assert task.cancelled is True
     assert other_task.cancelled is False
+    destroy_global_uinputs.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_rollback_failed_grab_restores_state_when_new_device_release_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = _ExistingDevice("/dev/input/event1")
+    failing_new = _FailingReleaseDevice("/dev/input/event2")
+    old_config = object()
+    task = _FakeTask()
+    manager = _manager(
+        grabbed_devices={"2dc8:3106": [existing, failing_new]},
+        desired_paths={"2dc8:3106": {"new-path"}},
+        desired_grabs={"2dc8:3106": object()},
+    )
+    manager.grab_state.pending_interface_release[("2dc8:3106", "/dev/input/event1")] = task
+    destroy_global_uinputs = Mock()
+    monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+    exc = RuntimeError("grab failed")
+
+    reported = await ldm._rollback_failed_grab(
+        manager,
+        _request(update_desired=True),
+        _plan(
+            existing_devices=[existing],
+            previous_desired_paths={"old-path"},
+            previous_desired_config=old_config,
+        ),
+        _deps(),
+        ldm._GrabLoopState(
+            devices=[existing, failing_new],
+            created_global_uinputs=True,
+        ),
+        "/dev/input/event3",
+        exc,
+    )
+
+    assert reported is exc
+    assert failing_new.release_count == 1
+    assert manager.grabbed_devices["2dc8:3106"] == [existing]
+    assert manager.grab_state.desired_paths["2dc8:3106"] == {"old-path"}
+    assert manager.grab_state.desired_grabs["2dc8:3106"] is old_config
+    assert ("2dc8:3106", "/dev/input/event1") not in manager.grab_state.pending_interface_release
+    assert task.cancelled is True
     destroy_global_uinputs.assert_called_once()

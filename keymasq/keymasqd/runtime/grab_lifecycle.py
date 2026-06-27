@@ -509,6 +509,19 @@ def _construct_grabbed_device(
     )
 
 
+def _probe_interface_device_sync(
+    manager: _GrabManager,
+    path: str,
+) -> tuple[_ManagedGrabbedDevice, dict[int, Sequence[object]]]:
+    probe_device = manager._device_input(path)
+    try:
+        caps = cast(dict[int, Sequence[object]], probe_device.capabilities())
+    except Exception:
+        runtime_adapters.close_device(probe_device)
+        raise
+    return probe_device, caps
+
+
 async def _grab_one_interface(
     manager: _GrabManager,
     request: GrabRequest,
@@ -523,10 +536,13 @@ async def _grab_one_interface(
 
     raw_device: Any | None = None
     try:
-        probe_device = manager._device_input(path)
+        probe_device, caps = await ASYNCIO_RUNTIME.to_thread(
+            _probe_interface_device_sync,
+            manager,
+            path,
+        )
         raw_device = probe_device
         state.available_count += 1
-        caps = cast(dict[int, Sequence[object]], probe_device.capabilities())
         resolved_interface = plan.resolved_by_claim_path.get(path)
         interface_id = str(
             (resolved_interface.interface_id if resolved_interface is not None else "")
@@ -617,10 +633,19 @@ async def _rollback_failed_grab(
 ) -> BaseException:
     reported_exc = _permission_aware_grab_exception(path, exc)
     log.error("Failed to grab %s: %s", path, reported_exc)
+    rollback_release_failed = False
     for device in list(state.devices):
         if any(device is existing for existing in plan.existing_devices):
             continue
-        await device.release()
+        try:
+            await device.release()
+        except Exception:  # noqa: BLE001 - rollback must restore manager state.
+            rollback_release_failed = True
+            log.warning(
+                "Failed to release %s during grab rollback",
+                getattr(device, "path", "<unknown>"),
+                exc_info=True,
+            )
     _store_grabbed_devices(manager, request.hardware_id, plan.existing_devices)
     if state.created_global_uinputs:
         runtime_outputs.destroy_global_uinputs(manager, log=log)
@@ -632,6 +657,8 @@ async def _rollback_failed_grab(
             plan.previous_desired_paths,
             plan.previous_desired_config,
         )
+    if rollback_release_failed:
+        log.warning("Grab rollback completed with cleanup errors")
     return reported_exc
 
 

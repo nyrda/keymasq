@@ -25,15 +25,15 @@ from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
 from keymasq.keymasqd.runtime import force_feedback as runtime_force_feedback
-from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
-from keymasq.keymasqd.runtime import grabbed_device_grab as runtime_grab
-from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime import source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device import events as runtime_events
+from keymasq.keymasqd.runtime.grabbed_device import grab as runtime_grab
+from keymasq.keymasqd.runtime.grabbed_device import outputs as runtime_outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     AsyncioModule as _AsyncioModule,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     BroadcastCallback,
     CursorPositionSetter,
     DeviceEventCallback,
@@ -49,7 +49,7 @@ from keymasq.keymasqd.runtime.grabbed_device_types import (
     NaturalMouseMover,
     RuntimeDisconnectCallback,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ManagedInputDevice as _ManagedInputDevice,
 )
 from keymasq.keymasqd.runtime.outputs import (

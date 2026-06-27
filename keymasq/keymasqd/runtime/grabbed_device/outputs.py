@@ -10,7 +10,7 @@ from keymasq.keymasqd.runtime.adapters import (
     WritableUInput,
     identity_uinput_writer,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionRuntime,
     EvdevModule,
     InputEventLike,

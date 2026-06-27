@@ -15,14 +15,14 @@ from keymasq.common.models import (
     analog_gamepad_output_distance,
 )
 from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
-from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
-from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+from keymasq.keymasqd.runtime.grabbed_device import actions as runtime_actions
+from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     syn_if_passthrough_frame_closed,
     track_abs_state,
     track_refcounted_output_bucket,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     AnalogGamepadOutputState,
     GrabbedDeviceRuntime,

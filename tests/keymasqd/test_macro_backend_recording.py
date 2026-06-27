@@ -18,10 +18,10 @@ from keymasq.common.models import (
 )
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
 from keymasq.keymasqd.runtime import macros as mdm
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
 from tests.keymasqd.device_manager_support import grabbed_event_processing_deps
 from tests.keymasqd.macro_backend_support import FakeRecorder, play_macro_task_helper
 

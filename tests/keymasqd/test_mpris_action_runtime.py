@@ -15,7 +15,7 @@ from keymasq.keymasqd.runtime.action_runner import (
     execute_action,
 )
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
-from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps
+from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps
 
 
 def _deps() -> ActionExecutionDeps:

@@ -18,13 +18,13 @@ from keymasq.keymasqd.output_helpers import (
     resolve_output_code,
 )
 from keymasq.keymasqd.runtime.adapters import AsyncioEvent
-from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     bucket_for_uinput,
     passthrough,
     write_abs_axis,
     write_key,
 )
-from keymasq.keymasqd.runtime.grabbed_device_repeat import (
+from keymasq.keymasqd.runtime.grabbed_device.repeat import (
     emit_move_action,
     rapidfire_abs_axis,
     rapidfire_key,
@@ -37,7 +37,7 @@ from keymasq.keymasqd.runtime.grabbed_device_repeat import (
     tap_move,
     tap_relative,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     ActionRuntime,
     CursorPositionSetter,

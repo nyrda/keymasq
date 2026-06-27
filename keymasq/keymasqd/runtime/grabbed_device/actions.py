@@ -14,11 +14,11 @@ from keymasq.keymasqd.runtime.action_runner import (
     source_trigger_id,
 )
 from keymasq.keymasqd.runtime.adapters import WritableUInput
-from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     track_superkey_abs_output,
     track_superkey_output,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     ActionRuntime,
     GrabbedDeviceRuntime,

@@ -9,10 +9,10 @@ from evdev.uinput import UInputError
 
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
-from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_outputs as gdo
-from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import outputs as gdo
+from keymasq.keymasqd.runtime.grabbed_device import repeat as gdr
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")

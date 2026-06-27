@@ -9,9 +9,9 @@ from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.models import DeviceType
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
 
 
 class FakeUInput:

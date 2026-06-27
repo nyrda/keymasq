@@ -6,9 +6,9 @@ import pytest
 
 from keymasq.common.models import ActionType, MappingAction
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
 
 
 class _FakeUInput:

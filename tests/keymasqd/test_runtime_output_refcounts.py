@@ -5,10 +5,8 @@ from keymasq.keymasqd.runtime import (
     analog_controls,
     combos,
 )
-from keymasq.keymasqd.runtime import (
-    grabbed_device_outputs as outputs,
-)
-from keymasq.keymasqd.runtime.grabbed_device_types import GrabbedDeviceState
+from keymasq.keymasqd.runtime.grabbed_device import outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import GrabbedDeviceState
 
 
 def test_refcounted_held_output_balances_shared_references() -> None:

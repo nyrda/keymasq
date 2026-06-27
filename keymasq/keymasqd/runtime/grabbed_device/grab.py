@@ -9,10 +9,10 @@ from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
 )
-from keymasq.keymasqd.runtime import grabbed_device_events as runtime_events
-from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime.adapters import ErrnoModule, identity_uinput_writer
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device import events as runtime_events
+from keymasq.keymasqd.runtime.grabbed_device import outputs as runtime_outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     AsyncioModule,
     GrabbedDeviceRuntime,
     TimeModule,

@@ -19,7 +19,7 @@ from keymasq.common.models import (
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     normalize_macro_loop_stop_behavior,
 )
-from keymasq.keymasqd.runtime.grabbed_device_outputs import syn_if_passthrough_frame_closed
+from keymasq.keymasqd.runtime.grabbed_device.outputs import syn_if_passthrough_frame_closed
 
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]

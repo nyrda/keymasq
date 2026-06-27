@@ -26,8 +26,8 @@ from keymasq.keymasqd.runtime.analog_controls import (
     process_analog_event,
     reset_analog_controls,
 )
-from keymasq.keymasqd.runtime.grabbed_device_outputs import release_all_keys
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.outputs import release_all_keys
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceState,
 )

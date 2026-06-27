@@ -10,7 +10,7 @@ from keymasq.common.models import ActionType, DeviceType
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_event_runtime_kwargs,

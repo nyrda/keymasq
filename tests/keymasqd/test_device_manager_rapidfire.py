@@ -13,12 +13,12 @@ from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
 from keymasq.keymasqd.runtime import combos as cdm
 from keymasq.keymasqd.runtime import grab_lifecycle as ldm
-from keymasq.keymasqd.runtime import grabbed_device as gdm
-from keymasq.keymasqd.runtime import grabbed_device_actions as gda
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
-from keymasq.keymasqd.runtime import grabbed_device_grab as gdg
-from keymasq.keymasqd.runtime import grabbed_device_repeat as gdr
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import actions as gda
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.grabbed_device import grab as gdg
+from keymasq.keymasqd.runtime.grabbed_device import repeat as gdr
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_runtime_deps,

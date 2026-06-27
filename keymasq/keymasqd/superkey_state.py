@@ -39,7 +39,7 @@ from keymasq.keymasqd.runtime.repeat import (
 from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
 
 if TYPE_CHECKING:
-    from keymasq.keymasqd.runtime.grabbed_device_types import ActionExecutionDeps
+    from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps
 
 log = logging.getLogger("keymasqd.superkey")
 
@@ -164,7 +164,7 @@ type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
 
 
 def _default_action_deps() -> "ActionExecutionDeps":
-    from keymasq.keymasqd.runtime.grabbed_device_types import (
+    from keymasq.keymasqd.runtime.grabbed_device.types import (
         ActionExecutionDeps,
     )
 

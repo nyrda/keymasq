@@ -11,13 +11,13 @@ import evdev
 import pytest
 
 from keymasq.common.models import DeviceType
-from keymasq.keymasqd.runtime import grabbed_device as gdm
 from keymasq.keymasqd.runtime.force_feedback import (
     PassthroughForceFeedbackProxy,
     disable_force_feedback,
     passthrough_ff_max_effects,
 )
 from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device import device as gdm
 
 
 class _Upload:

@@ -16,7 +16,7 @@ from keymasq.common.models import (
 from keymasq.keymasqd import device_manager as dm
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import grabbed_device_events as gde
+from keymasq.keymasqd.runtime.grabbed_device import events as gde
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 from tests.keymasqd.device_manager_support import (
     FakeUInput,

@@ -41,8 +41,8 @@ from keymasq.keymasqd.runtime.action_runner import (
     is_hold_macro_action,
     source_trigger_id,
 )
-from keymasq.keymasqd.runtime.grabbed_device_outputs import track_refcounted_output_bucket
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.outputs import track_refcounted_output_bucket
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     ActionRuntime,
     EvdevModule,

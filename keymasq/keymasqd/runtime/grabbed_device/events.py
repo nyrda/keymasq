@@ -21,12 +21,12 @@ from keymasq.common.models import ActionType, MappingAction
 from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import analog_controls as runtime_analog_controls
-from keymasq.keymasqd.runtime import grabbed_device_actions as runtime_actions
-from keymasq.keymasqd.runtime import grabbed_device_outputs as runtime_outputs
 from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime.action_runner import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device import actions as runtime_actions
+from keymasq.keymasqd.runtime.grabbed_device import outputs as runtime_outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     AsyncioModule,
     EvdevModule,

@@ -60,12 +60,12 @@ from keymasq.keymasqd.runtime import adapters as runtime_adapters
 from keymasq.keymasqd.runtime import combos as runtime_combos
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
-from keymasq.keymasqd.runtime import grabbed_device as runtime_grabbed_device
 from keymasq.keymasqd.runtime import macros as runtime_macros
 from keymasq.keymasqd.runtime import natural_mouse as runtime_natural_mouse
 from keymasq.keymasqd.runtime import outputs as runtime_outputs
 from keymasq.keymasqd.runtime import repeat as runtime_repeat
 from keymasq.keymasqd.runtime import topology as runtime_topology
+from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
@@ -1625,5 +1625,3 @@ class DeviceManager:
     def end_combo_capture(self, token: str) -> JsonObject:
         return runtime_combos.end_combo_capture(self, token)
 
-
-GrabbedDevice = runtime_grabbed_device.GrabbedDevice

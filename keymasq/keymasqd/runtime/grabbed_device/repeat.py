@@ -14,14 +14,14 @@ from keymasq.keymasqd.runtime.adapters import (
     UInputWriter,
     identity_uinput_writer,
 )
-from keymasq.keymasqd.runtime.grabbed_device_outputs import (
+from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     emit_configured_mouse_move,
     ensure_abs_axis_released,
     ensure_key_released,
     write_abs_axis,
     write_key,
 )
-from keymasq.keymasqd.runtime.grabbed_device_types import (
+from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionRuntime,
     AsyncioModule,
     EvdevModule,

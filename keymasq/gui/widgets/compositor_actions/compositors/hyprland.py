@@ -178,6 +178,8 @@ def hyprland_action_label(action: MappingAction) -> str | None:
     if move_workspace_match is not None:
         workspace = move_workspace_match.group(1) or move_workspace_match.group(2) or "?"
         verb = "Move To" if move_workspace_match.group(3) == "true" else "Send To"
+        if workspace.casefold() == "special":
+            return f"{verb} Special"
         return f"{verb} Workspace {workspace}"
     if workspace_label is not None:
         return workspace_label

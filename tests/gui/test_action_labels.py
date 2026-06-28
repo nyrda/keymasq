@@ -141,6 +141,12 @@ def test_action_labels_compact_hyprland_lua_dispatchers() -> None:
         compositor_dispatcher='hl.dsp.window.move({ workspace = "special", follow = true })',
         compositor_args="",
     )
+    move_capitalized_special_action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="hyprland",
+        compositor_dispatcher='hl.dsp.window.move({ workspace = "Special", follow = true })',
+        compositor_args="",
+    )
     custom_workspace_action = MappingAction(
         action_type=ActionType.COMPOSITOR_DISPATCH,
         compositor_id="hyprland",
@@ -153,6 +159,7 @@ def test_action_labels_compact_hyprland_lua_dispatchers() -> None:
     assert describe_mapping_action_compact(preset_action) == "🪟 Toggle Floating"
     assert describe_mapping_action_compact(move_workspace_action) == "🪟 Move To Workspace 2"
     assert describe_mapping_action_compact(move_special_action) == "🪟 Move To Special"
+    assert describe_mapping_action_compact(move_capitalized_special_action) == "🪟 Move To Special"
     assert describe_mapping_action_compact(custom_workspace_action) == "🪟 workspace 7"
     assert describe_mapping_action_verbose(
         MappingAction(action_type=ActionType.KEYBOARD),

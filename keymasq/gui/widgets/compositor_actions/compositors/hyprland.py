@@ -166,21 +166,19 @@ def hyprland_action_label(action: MappingAction) -> str | None:
         return f"Set Cursor {args}".strip()
     if args:
         return None
+    preset_label = _HYPRLAND_PRESET_LABELS.get(dispatcher)
+    if preset_label is not None:
+        return preset_label
     workspace_label: str | None = None
     workspace_match = _WORKSPACE_DISPATCH_RE.fullmatch(dispatcher)
     if workspace_match is not None:
         workspace = workspace_match.group(1) or workspace_match.group(2) or "?"
-        if workspace.isdecimal():
-            return f"workspace {workspace}"
         workspace_label = f"workspace {workspace}"
     move_workspace_match = _MOVE_WORKSPACE_DISPATCH_RE.fullmatch(dispatcher)
     if move_workspace_match is not None:
         workspace = move_workspace_match.group(1) or move_workspace_match.group(2) or "?"
         verb = "Move To" if move_workspace_match.group(3) == "true" else "Send To"
         return f"{verb} Workspace {workspace}"
-    preset_label = _HYPRLAND_PRESET_LABELS.get(dispatcher)
-    if preset_label is not None:
-        return preset_label
     if workspace_label is not None:
         return workspace_label
     return None

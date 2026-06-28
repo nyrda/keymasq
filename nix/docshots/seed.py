@@ -152,6 +152,14 @@ def _action(action: str, **fields: Any) -> Json:
     return {"action": action, **{k: v for k, v in fields.items() if v is not None}}
 
 
+def _hyprland_dispatch(dispatcher: str) -> Json:
+    return _action("compositor_dispatch", compositor="hyprland", dispatcher=dispatcher)
+
+
+def _hyprland_workspace(index: int) -> Json:
+    return _hyprland_dispatch(f'hl.dsp.focus({{ workspace = "{index}" }})')
+
+
 def _keyboard_label_from_evdev(key_name: str) -> str:
     token = key_name[4:] if key_name.startswith("KEY_") else key_name
     token = token.replace("LEFT", "Left ").replace("RIGHT", "Right ")
@@ -492,62 +500,22 @@ def _seed_profiles(config_dir: Path) -> None:
             "1532:00b4": {
                 "always_grab_all": True,
                 "mapping": {
-                    "extra_1": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="1",
+                    "extra_1": _hyprland_workspace(1),
+                    "extra_2": _hyprland_workspace(2),
+                    "extra_3": _hyprland_workspace(3),
+                    "extra_4": _hyprland_workspace(4),
+                    "extra_5": _hyprland_workspace(5),
+                    "extra_6": _hyprland_workspace(6),
+                    "extra_7": _hyprland_dispatch(
+                        'hl.dsp.window.float({ action = "toggle" })'
                     ),
-                    "extra_2": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="2",
-                    ),
-                    "extra_3": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="3",
-                    ),
-                    "extra_4": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="4",
-                    ),
-                    "extra_5": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="5",
-                    ),
-                    "extra_6": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="workspace",
-                        args="6",
-                    ),
-                    "extra_7": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="layoutmsg",
-                        args="swapzone",
-                    ),
-                    "extra_8": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="pin",
+                    "extra_8": _hyprland_dispatch(
+                        'hl.dsp.window.pin({ action = "toggle" })'
                     ),
                     "extra_9": _action("start_macro_recording"),
                     "extra_10": _action("exec", cmd="grimblast --freeze copy area"),
                     "extra_11": _action("superkey", superkey_name="wpctl_volume_rocker"),
-                    "extra_12": _action(
-                        "compositor_dispatch",
-                        compositor="hyprland",
-                        dispatcher="layoutmsg",
-                        args="swapzone",
-                    ),
+                    "extra_12": _hyprland_dispatch("hl.dsp.window.center()"),
                     "extra_13": _action("superkey", superkey_name="paste"),
                     "extra_14": _action("superkey", superkey_name="copy"),
                 },
@@ -576,8 +544,7 @@ def _seed_profiles(config_dir: Path) -> None:
                 "action": _action(
                     "compositor_dispatch",
                     compositor="hyprland",
-                    dispatcher="movetoworkspace",
-                    args="1",
+                    dispatcher='hl.dsp.window.move({ workspace = "1", follow = true })',
                 ),
             },
             {

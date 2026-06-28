@@ -13,6 +13,44 @@ log = logging.getLogger("keymasq-session.listeners.hyprland")
 HYPRLAND_COMMAND_TIMEOUT_S = 1.0
 
 
+def _parse_int_pair(args: str) -> tuple[int, int] | None:
+    parts = args.split()
+    if len(parts) != 2:
+        return None
+    try:
+        return int(float(parts[0])), int(float(parts[1]))
+    except ValueError:
+        return None
+
+
+def _movecursor_command(args: str) -> str | None:
+    pair = _parse_int_pair(args)
+    if pair is None:
+        return None
+    x, y = pair
+    return f"dispatch hl.dsp.cursor.move({{ x = {x}, y = {y} }})"
+
+
+def _strip_hyprland_dispatch_prefix(dispatcher: str) -> str:
+    value = dispatcher.strip()
+    lowered = value.lower()
+    for prefix in ("hyprctl dispatch ", "dispatch "):
+        if lowered.startswith(prefix):
+            return value[len(prefix) :].strip()
+    return value
+
+
+def _build_hyprland_dispatch_command(dispatcher: str, args: str) -> tuple[bool, str, str | None]:
+    raw_dispatcher = _strip_hyprland_dispatch_prefix(dispatcher)
+    if not raw_dispatcher:
+        return False, "missing dispatcher", None
+    if args.strip():
+        return False, "Hyprland 0.55 custom dispatch expects args to be empty", None
+    if raw_dispatcher.startswith("hl.dsp."):
+        return True, "", f"dispatch {raw_dispatcher}"
+    return False, "Hyprland 0.55 custom dispatch expects an hl.dsp.* Lua expression", None
+
+
 class HyprlandListener(WindowListener):
     def __init__(
         self,
@@ -231,24 +269,12 @@ class HyprlandListener(WindowListener):
     async def set_cursor_position(self, x: int, y: int) -> tuple[bool, str]:
         return await self.dispatch("movecursor", f"{int(x)} {int(y)}")
 
-    @staticmethod
-    def _movecursor_command(args: str) -> str | None:
-        parts = args.split()
-        if len(parts) != 2:
-            return None
-        try:
-            x = int(float(parts[0]))
-            y = int(float(parts[1]))
-        except ValueError:
-            return None
-        return f"dispatch hl.dsp.cursor.move({{ x = {x}, y = {y} }})"
-
     async def dispatch(self, dispatcher: str, args: str = "") -> tuple[bool, str]:
-        dispatcher_name = " ".join(str(dispatcher or "").strip().split())
+        dispatcher_name = str(dispatcher or "").strip()
         dispatcher_args = " ".join(str(args or "").strip().splitlines())
         if not dispatcher_name:
             return False, "missing dispatcher"
-        if dispatcher_name == "set_cursor_position":
+        if dispatcher_name.strip() == "set_cursor_position":
             parts = dispatcher_args.split()
             if len(parts) != 2:
                 return False, "set_cursor_position expects X Y"
@@ -258,14 +284,17 @@ class HyprlandListener(WindowListener):
             except ValueError:
                 return False, "set_cursor_position expects numeric X Y"
             return await self.set_cursor_position(x, y)
-
-        if dispatcher_name == "movecursor":
-            command = self._movecursor_command(dispatcher_args)
+        if dispatcher_name.strip() == "movecursor":
+            command = _movecursor_command(dispatcher_args)
             if command is None:
                 return False, "movecursor expects X Y"
         else:
-            command = f"dispatch {dispatcher_name}"
-            command = f"{command} {dispatcher_args}" if dispatcher_args else f"{command} _"
+            ok, message, command = _build_hyprland_dispatch_command(
+                dispatcher_name,
+                dispatcher_args,
+            )
+            if not ok or command is None:
+                return False, message
         response = await self._send_cmd(command, read_size=4096)
         if response is None:
             return False, "no response from Hyprland"

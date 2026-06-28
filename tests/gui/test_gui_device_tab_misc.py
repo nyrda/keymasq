@@ -2679,6 +2679,11 @@ def test_key_selector_dialog_shows_hyprland_actions_for_active_listener_or_saved
         },
     )
     assert active_dialog.stack.get_child_by_name("hyprland") is not None
+    active_page = active_dialog.stack.get_child_by_name("hyprland")
+    assert active_page is not None
+    assert active_page._preset_dropdown.get_selected() == 0
+    assert active_page._dispatcher_row.get_visible() is True
+    assert active_page._args_row.get_visible() is False
 
     saved_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2696,6 +2701,62 @@ def test_key_selector_dialog_shows_hyprland_actions_for_active_listener_or_saved
     )
     assert saved_dialog.stack.get_child_by_name("hyprland") is not None
     assert saved_dialog.stack.get_visible_child_name() == "hyprland"
+
+
+def test_key_selector_dialog_hides_hyprland_lua_template_fields():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="hyprland",
+            compositor_dispatcher='hl.dsp.focus({ workspace = "e+1" })',
+            compositor_args="",
+        ),
+        compositor_action_status={
+            "listener_name": "hyprland",
+            "compositor_dispatch_available": True,
+        },
+    )
+
+    page = dialog.stack.get_child_by_name("hyprland")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() != 0
+    assert page._dispatcher_row.get_visible() is False
+    assert page._args_row.get_visible() is False
+
+
+def test_key_selector_dialog_hides_hyprland_numbered_workspace_template_fields():
+    from gi.repository import Gtk
+
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Back",
+        MappingAction(
+            action_type=ActionType.COMPOSITOR_DISPATCH,
+            compositor_id="hyprland",
+            compositor_dispatcher='hl.dsp.focus({ workspace = "2" })',
+            compositor_args="",
+        ),
+        compositor_action_status={
+            "listener_name": "hyprland",
+            "compositor_dispatch_available": True,
+        },
+    )
+
+    page = dialog.stack.get_child_by_name("hyprland")
+    assert page is not None
+    assert page._preset_dropdown.get_selected() != 0
+    assert page._dispatcher_row.get_visible() is False
+    assert page._args_row.get_visible() is False
 
 
 def test_key_selector_dialog_shows_niri_dispatch_for_active_listener_or_saved_action():
@@ -2875,6 +2936,8 @@ def test_key_selector_dialog_reopens_set_cursor_with_captured_coordinates():
     assert page._preset_dropdown.get_selected() != 0
     assert page._dispatcher_entry.get_text() == "set_cursor_position"
     assert page._args_entry.get_text() == "640 480"
+    assert page._dispatcher_row.get_visible() is False
+    assert page._args_row.get_visible() is True
     assert page._capture_row.get_visible() is True
 
 
@@ -2940,7 +3003,8 @@ def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
     assert page._dispatcher_entry.get_text() == ""
     assert page._args_entry.get_text() == ""
     assert page._dispatcher_entry.get_editable() is True
-    assert page._args_entry.get_editable() is True
+    assert page._dispatcher_row.get_visible() is True
+    assert page._args_row.get_visible() is False
 
 
 def test_compositor_action_helpers_resolve_kde_actions() -> None:

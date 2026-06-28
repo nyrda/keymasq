@@ -171,7 +171,9 @@ Window switching in the test still uses the GTK lab app's normal activation path
 
 The Hyprland test uses the Hyprland listener which connects to `.socket2.sock` for `activewindow>>` events and `.socket.sock` for IPC commands. UWSM (Universal Wayland Session Manager) handles session setup and exports `HYPRLAND_INSTANCE_SIGNATURE` to the systemd user environment.
 
-**Focus switching**: The test uses `hyprctl dispatch focuswindow title:<name>` to switch focus, which is Hyprland's native IPC mechanism.
+**Focus switching**: The test uses
+`hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` to switch focus,
+which is Hyprland's native IPC mechanism.
 
 **Window tags**: Hyprland is the only compositor in the matrix that supports window tags. The test verifies that `get_active_window` returns a `tags` field (currently `[]` for the test windows).
 
@@ -224,7 +226,7 @@ movement path.
 | ---------- | ------------------ | ----------------- |
 | GNOME | no | bridge `activate_title` → `meta_window.activate()` |
 | KDE | yes | GTK activation; listener events come from injected KWin script over D-Bus |
-| Hyprland | no | `hyprctl dispatch focuswindow title:<name>` |
+| Hyprland | no | `hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` |
 | Niri | no | Keymasq `activate_title` -> Niri `FocusWindow { id }` |
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | `swaymsg "[title=<name>] focus"` |

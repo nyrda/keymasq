@@ -137,14 +137,15 @@ quick-tiling, toggling all-desktops, and toggling show-desktop.
 
 ### Hyprland
 
-Keymasq uses Hyprland's event socket for active-window updates and the command
-socket for queries, pointer movement, and compositor dispatch. This gives
-Keymasq active-window profiles, pointer-position reads, Hyprland dispatchers,
-the **Set Cursor** compositor action, and Hyprland window tags.
+Keymasq targets Hyprland 0.55 and newer. It uses Hyprland's event socket for
+active-window updates and the command socket for queries, pointer movement, and
+compositor dispatch. This gives Keymasq active-window profiles,
+pointer-position reads, Lua dispatcher actions, the **Set Cursor** compositor
+action, and Hyprland window tags.
 
-Custom compositor actions use Hyprland dispatcher names and arguments. For
-example, the GUI presets are built on the same dispatcher mechanism as
-`hyprctl dispatch`.
+Custom compositor actions in Keymasq use Lua dispatcher expressions in the
+dispatcher field, for example `hl.dsp.focus({ workspace = "e+1" })`. The args
+field is left empty for these actions.
 
 ### Niri
 

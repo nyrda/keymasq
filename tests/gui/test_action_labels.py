@@ -108,6 +108,38 @@ def test_action_labels_include_state_flags_and_fallbacks() -> None:
     assert describe_mapping_action_compact(None) == "No action selected"
     assert describe_mapping_action_verbose(None) == "No action selected"
     assert describe_mapping_action_compact(action, include_state=True) == "→ key_b ⚡ ↓"
+
+
+def test_action_labels_compact_hyprland_lua_dispatchers() -> None:
+    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.gui.widgets.action_labels import (
+        describe_mapping_action_compact,
+        describe_mapping_action_verbose,
+    )
+
+    workspace_action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="hyprland",
+        compositor_dispatcher='hl.dsp.focus({ workspace = "2" })',
+        compositor_args="",
+    )
+    preset_action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="hyprland",
+        compositor_dispatcher='hl.dsp.window.float({ action = "toggle" })',
+        compositor_args="",
+    )
+    move_workspace_action = MappingAction(
+        action_type=ActionType.COMPOSITOR_DISPATCH,
+        compositor_id="hyprland",
+        compositor_dispatcher='hl.dsp.window.move({ workspace = "2", follow = true })',
+        compositor_args="",
+    )
+
+    assert describe_mapping_action_compact(workspace_action) == "🪟 workspace 2"
+    assert describe_mapping_action_verbose(workspace_action) == "Hyprland → workspace 2"
+    assert describe_mapping_action_compact(preset_action) == "🪟 Toggle Floating"
+    assert describe_mapping_action_compact(move_workspace_action) == "🪟 Move To Workspace 2"
     assert describe_mapping_action_verbose(
         MappingAction(action_type=ActionType.KEYBOARD),
         keyboard_label=lambda value: f"resolved:{value}",

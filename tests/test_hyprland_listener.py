@@ -27,7 +27,9 @@ async def test_hyprland_set_cursor_position_uses_movecursor_dispatcher() -> None
 @pytest.mark.asyncio
 async def test_hyprland_dispatch_set_cursor_position_uses_special_dispatcher() -> None:
     listener = HyprlandListener(_noop_callback)
-    listener.set_cursor_position = AsyncMock(return_value=(True, "ok"))  # type: ignore[method-assign]
+    listener.set_cursor_position = AsyncMock(  # type: ignore[method-assign]
+        return_value=(True, "ok")
+    )
 
     assert await listener.dispatch("set_cursor_position", "123 456") == (True, "ok")
 
@@ -53,6 +55,55 @@ async def test_hyprland_dispatch_movecursor_rejects_invalid_args() -> None:
     listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
 
     assert await listener.dispatch("movecursor", "123") == (False, "movecursor expects X Y")
+    listener._send_cmd.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_accepts_raw_lua_dispatchers() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    command = 'hl.dsp.focus({ workspace = "3" })'
+    assert await listener.dispatch(command) == (True, "ok")
+
+    listener._send_cmd.assert_awaited_once_with(f"dispatch {command}", read_size=4096)
+
+
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_accepts_prefixed_raw_lua_dispatchers() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    command = 'dispatch hl.dsp.focus({ workspace = "3" })'
+    assert await listener.dispatch(command) == (True, "ok")
+
+    listener._send_cmd.assert_awaited_once_with(
+        'dispatch hl.dsp.focus({ workspace = "3" })',
+        read_size=4096,
+    )
+
+
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_rejects_raw_lua_args_field() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    assert await listener.dispatch("hl.dsp.focus", "3") == (
+        False,
+        "Hyprland 0.55 custom dispatch expects args to be empty",
+    )
+    listener._send_cmd.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_dispatch_rejects_legacy_dispatcher() -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener._send_cmd = AsyncMock(return_value=b"ok")  # type: ignore[method-assign]
+
+    assert await listener.dispatch("workspace") == (
+        False,
+        "Hyprland 0.55 custom dispatch expects an hl.dsp.* Lua expression",
+    )
     listener._send_cmd.assert_not_awaited()
 
 

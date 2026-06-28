@@ -273,7 +273,10 @@ let
             ):
                 x = coordinate(at[0]) + max(1, coordinate(size[0]) // 2)
                 y = coordinate(at[1]) + max(1, coordinate(size[1]) // 2)
-                machine.succeed(f"{env_prefix} hyprctl dispatch movecursor {x} {y}")
+                machine.succeed(
+                    f"{env_prefix} hyprctl dispatch "
+                    f"\"hl.dsp.cursor.move({{ x = {x}, y = {y} }})\""
+                )
 
             machine.succeed(
                 f"{env_prefix} hyprctl dispatch "

@@ -330,7 +330,7 @@ must_run(
     timeout=1200,
 )
 ${modeWaits}
-machine.copy_from_vm("${outputDir}")
+machine.copy_from_machine("${outputDir}")
       '';
     };
 

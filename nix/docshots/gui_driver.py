@@ -250,10 +250,18 @@ def _render_widget_png(
         raise RuntimeError(f"cannot render unmapped widget {type(widget).__name__}")
 
     renderer = native.get_renderer()
+    node = None
     paintable = Gtk.WidgetPaintable.new(widget)
-    snapshot = Gtk.Snapshot()
-    paintable.snapshot(snapshot, width, height)
-    node = snapshot.to_node()
+    for attempt in range(4):
+        snapshot = Gtk.Snapshot()
+        paintable.snapshot(snapshot, width, height)
+        node = snapshot.to_node()
+        if node is not None:
+            break
+        widget.queue_draw()
+        _drain_events()
+        if attempt < 3:
+            GLib.usleep(50_000)
     if node is None:
         raise RuntimeError(f"widget {type(widget).__name__} produced no render node")
 
@@ -1143,7 +1151,17 @@ class DocshotRunner:
         if shot_crop is not None:
             self._render_widget_crop(self.window, path, shot_crop)
             return
-        _render_widget_png(self.window, path)
+        try:
+            _render_widget_png(self.window, path)
+        except RuntimeError as exc:
+            if "produced no render node" not in str(exc):
+                raise
+            window_id = _widget_window_id(self.window) or _active_window_id()
+            _capture_root_window_area(
+                path,
+                window_id,
+                (self.window.get_width(), self.window.get_height()),
+            )
 
     def _render_root_for_crop_widget(self, widget: Gtk.Widget) -> Gtk.Widget:
         if isinstance(self.current_dialog, Gtk.Widget):
@@ -1712,8 +1730,8 @@ class DocshotRunner:
         action = MappingAction(
             action_type=ActionType.COMPOSITOR_DISPATCH,
             compositor_id=str(shot.get("compositor", "hyprland") or "hyprland"),
-            compositor_dispatcher="workspace",
-            compositor_args="1",
+            compositor_dispatcher='hl.dsp.focus({ workspace = "1" })',
+            compositor_args="",
         )
         dialog = KeySelectorDialog(
             self.window,

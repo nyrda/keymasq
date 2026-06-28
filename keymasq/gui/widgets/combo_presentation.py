@@ -109,9 +109,8 @@ def combo_action_label(action: MappingAction | None) -> str:
     if action.action_type == ActionType.EXEC:
         return action.cmd or "Exec"
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        dispatcher = action.compositor_dispatcher or "Compositor"
-        args = str(action.compositor_args or "").strip()
-        return f"{dispatcher} {args}".strip()
+        label = describe_mapping_action_compact(action)
+        return label.removeprefix("🪟 ").strip()
     if action.action_type == ActionType.SUPPRESS:
         return "Suppress"
     if action.action_type == ActionType.MACRO:

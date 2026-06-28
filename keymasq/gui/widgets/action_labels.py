@@ -27,6 +27,18 @@ def _resolved_label(
     return resolver(label)
 
 
+def _compositor_dispatch_label(action: MappingAction, *, compact: bool) -> str:
+    description = describe_compositor_action(action)
+    if description is not None:
+        if compact and "→" in description:
+            return description.split("→", 1)[1].strip()
+        return description
+    dispatcher = action.compositor_dispatcher or "dispatch"
+    args = str(action.compositor_args or "").strip()
+    suffix = f" {args}" if args else ""
+    return f"{dispatcher}{suffix}"
+
+
 def describe_mapping_action_compact(
     action: MappingAction | None,
     *,
@@ -61,9 +73,7 @@ def describe_mapping_action_compact(
         cmd = action.cmd or "exec"
         parts.append(f"▶ {cmd}")
     elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        dispatcher = action.compositor_dispatcher or "dispatch"
-        args = str(action.compositor_args or "").strip()
-        parts.append(f"🪟 {dispatcher}{f' {args}' if args else ''}")
+        parts.append(f"🪟 {_compositor_dispatch_label(action, compact=True)}")
     elif action.action_type == ActionType.MPRIS:
         parts.append(f"▶ media {_mpris_command_label(action)}")
     elif action.action_type == ActionType.SUPERKEY:
@@ -169,10 +179,7 @@ def describe_mapping_action_verbose(
     if compositor_action is not None:
         return compositor_action
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        dispatcher = action.compositor_dispatcher or "dispatch"
-        args = str(action.compositor_args or "").strip()
-        suffix = f" {args}" if args else ""
-        return f"Compositor → {dispatcher}{suffix}"
+        return f"Compositor → {_compositor_dispatch_label(action, compact=False)}"
 
     if action.action_type == ActionType.START_MACRO_RECORDING:
         slot = f" Slot {action.macro_recording_slot}" if action.macro_recording_slot else ""

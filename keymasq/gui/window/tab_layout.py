@@ -223,6 +223,9 @@ def _page_for_selected_tab(window, selected_tab: str) -> _runtime.Adw.TabPage | 
 
 
 def _default_selected_tab_page(window) -> _runtime.Adw.TabPage | None:
+    if not window._device_pages and window._placeholder_page is not None:
+        return window._placeholder_page
+
     for tab_id in _desired_visible_tab_order(window):
         page = _page_for_tab_id(window, tab_id)
         if page is not None:
@@ -234,7 +237,18 @@ def _default_selected_tab_page(window) -> _runtime.Adw.TabPage | None:
     return None
 
 
+def _select_empty_placeholder_tab(window) -> bool:
+    if window._device_pages or window._placeholder_page is None:
+        return False
+    window.tab_view.set_selected_page(window._placeholder_page)
+    window._initial_tab_selection_pending = False
+    return True
+
+
 def _select_saved_or_default_tab(window) -> None:
+    if _select_empty_placeholder_tab(window):
+        return
+
     page = _page_for_selected_tab(window, window._selected_tab)
     if page is None:
         page = _default_selected_tab_page(window)

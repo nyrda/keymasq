@@ -1693,8 +1693,10 @@ class TestMainWindow:
         self, temp_config_dir
     ):
         from keymasq.gui.icons import resolve_icon_name, device_icon_names
+        from keymasq.gui.preferences import save_selected_tab
         from keymasq.gui.window import MainWindow
 
+        save_selected_tab("combos")
         window = MainWindow(demo_mode=False)
 
         device_tabs._apply_loaded_devices(window, [])
@@ -1705,6 +1707,7 @@ class TestMainWindow:
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
         placeholder_page = tab_layout._page_for_child(window, window.placeholder)
         assert placeholder_page is not None
+        assert window.tab_view.get_selected_page() is placeholder_page
         icon = placeholder_page.get_icon()
         assert icon is not None
         assert icon.to_string() == resolve_icon_name(*device_icon_names(False))
@@ -1719,6 +1722,10 @@ class TestMainWindow:
         device_tabs._check_empty_state(window)
 
         assert tab_layout._page_for_child(window, window.placeholder) is not None
+        assert (
+            window.tab_view.get_selected_page()
+            is tab_layout._page_for_child(window, window.placeholder)
+        )
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
 

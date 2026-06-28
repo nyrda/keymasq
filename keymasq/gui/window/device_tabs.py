@@ -290,3 +290,4 @@ def _check_empty_state(window) -> None:
     if not window._device_pages:
         _ensure_placeholder_page(window)
         _set_empty_placeholder_state(window)
+        tab_layout._select_empty_placeholder_tab(window)

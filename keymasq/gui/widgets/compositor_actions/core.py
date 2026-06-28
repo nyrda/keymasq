@@ -12,6 +12,7 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 from keymasq.common.models import ActionType, MappingAction
 
 type PositionCaptureCallback = Callable[[Gtk.Button, Gtk.Label, Callable[[int, int], None]], None]
+type CompositorActionLabeler = Callable[[MappingAction], str | None]
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,8 @@ class CompositorActionDefinition:
     subtitle: str
     dispatcher_placeholder: str
     args_placeholder: str
+    args_visible: bool
+    show_fields_for_presets: bool
     action_type: ActionType
     presets: tuple[CompositorActionPreset, ...]
     allow_custom: bool
@@ -58,6 +61,9 @@ def build_compositor_dispatch_definition(
     presets: tuple[CompositorActionPreset, ...],
     allow_custom: bool,
     listener_name: str | None = None,
+    args_visible: bool = True,
+    show_fields_for_presets: bool = True,
+    action_label: CompositorActionLabeler | None = None,
 ) -> CompositorActionDefinition:
     resolved_listener_name = listener_name or compositor_id
 
@@ -91,6 +97,10 @@ def build_compositor_dispatch_definition(
         )
 
     def describe_action(action: MappingAction) -> str:
+        if action_label is not None:
+            label = action_label(action)
+            if label:
+                return f"{title} → {label}"
         args = str(action.compositor_args or "").strip()
         suffix = f" {args}" if args else ""
         return f"{title} → {action.compositor_dispatcher or '?'}{suffix}"
@@ -102,6 +112,8 @@ def build_compositor_dispatch_definition(
         subtitle=subtitle,
         dispatcher_placeholder=dispatcher_placeholder,
         args_placeholder=args_placeholder,
+        args_visible=args_visible,
+        show_fields_for_presets=show_fields_for_presets,
         action_type=ActionType.COMPOSITOR_DISPATCH,
         presets=presets,
         allow_custom=allow_custom,
@@ -192,6 +204,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self._dispatcher_entry.set_editable(self._definition.allow_custom)
         self._dispatcher_entry.connect("changed", self._on_fields_changed)
         dispatcher_row.append(self._dispatcher_entry)
+        self._dispatcher_row = dispatcher_row
         self.append(dispatcher_row)
 
         args_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -209,6 +222,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self._args_entry.set_editable(self._definition.allow_custom)
         self._args_entry.connect("changed", self._on_fields_changed)
         args_row.append(self._args_entry)
+        self._args_row = args_row
         self.append(args_row)
 
         capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -241,6 +255,7 @@ class _CompositorDispatchPage(Gtk.Box):
         self.append(self._map_btn)
 
         self._select_initial_preset()
+        self._update_field_visibility()
         self._update_hint()
         self._update_capture_visibility()
         self._update_map_button()
@@ -284,6 +299,7 @@ class _CompositorDispatchPage(Gtk.Box):
     def _on_preset_changed(self, _dropdown, _pspec) -> None:
         if not self._selecting_initial_preset:
             self._apply_selected_preset()
+        self._update_field_visibility()
         self._update_hint()
         self._update_capture_visibility()
         self._update_map_button()
@@ -291,6 +307,16 @@ class _CompositorDispatchPage(Gtk.Box):
     def _on_fields_changed(self, _entry: Gtk.Entry) -> None:
         self._update_hint()
         self._update_map_button()
+
+    def _update_field_visibility(self) -> None:
+        preset = self._selected_preset()
+        show_raw_fields = self._definition.show_fields_for_presets or preset is None
+        self._dispatcher_row.set_visible(show_raw_fields)
+        show_args = bool(
+            (self._definition.args_visible and show_raw_fields)
+            or (preset is not None and preset.captures_position)
+        )
+        self._args_row.set_visible(show_args)
 
     def _update_hint(self) -> None:
         preset = self._selected_preset()
@@ -301,6 +327,11 @@ class _CompositorDispatchPage(Gtk.Box):
         args = self._args_entry.get_text().strip()
         if not dispatcher:
             self._hint_label.set_label("Choose a preset or enter a dispatcher manually.")
+            return
+        if not self._definition.args_visible:
+            self._hint_label.set_label(
+                f"Dispatch this Lua expression through {self._definition.title}."
+            )
             return
         suffix = f" {args}" if args else ""
         self._hint_label.set_label(
@@ -336,7 +367,7 @@ class _CompositorDispatchPage(Gtk.Box):
 
     def _on_map_clicked(self, _btn: Gtk.Button) -> None:
         dispatcher = self._dispatcher_entry.get_text().strip()
-        args = self._args_entry.get_text().strip()
+        args = self._args_entry.get_text().strip() if self._args_row.get_visible() else ""
         if not dispatcher:
             return
         self._on_selected(self._definition.build_action(dispatcher, args))

@@ -355,8 +355,8 @@ Hyprland, Niri, KDE Plasma, and GNOME.
 
 ### Hyprland
 
-Choose from a preset dropdown of common Hyprland dispatchers, or enter a
-custom dispatcher and arguments manually.
+Choose from a preset dropdown of common Hyprland 0.55 Lua dispatchers, or enter
+a custom `hl.dsp.*` dispatcher expression manually.
 
 **Preset examples:**
 
@@ -366,15 +366,16 @@ custom dispatcher and arguments manually.
 | Fullscreen | Toggle fullscreen on the focused window. |
 | Close Window | Close the focused window. |
 | Workspace Next / Previous | Switch to the next or previous workspace. |
+| Workspace 1-6 | Switch to a numbered workspace. |
 | Focus Left / Right / Up / Down | Move window focus in a direction. |
 | Move Left / Right / Up / Down | Move the focused window in a direction. |
 | Center Window | Center the focused window on screen. |
 | Pin Window | Pin the focused window (stays visible across workspaces). |
 
-For custom dispatchers, enter the dispatcher name and any arguments in the
-text fields.
+For custom dispatchers, enter the Lua dispatcher expression in the dispatcher
+field and leave args empty, for example `hl.dsp.focus({ workspace = "3" })`.
 
-![Hyprland tab — preset dropdown and custom dispatcher fields](assets/screenshots/key_selector_hyprland.png)
+![Hyprland tab — preset dropdown](assets/screenshots/key_selector_hyprland.png)
 
 ### Niri
 

@@ -210,17 +210,92 @@ let
             raise Exception(f"Failed to activate GNOME window {title!r}")
 
         def hyprland_activate_title(title: str) -> None:
-            """Use hyprctl to focus a window by title on Hyprland."""
+            """Use Hyprland dispatchers to focus a window by title."""
             sig = machine.succeed(as_user(
                 "systemctl --user show-environment"
                 " | sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p'"
             )).strip()
             machine.log(f"hyprland_activate_title({title!r}): sig={sig!r}")
-            machine.succeed(
+            env_prefix = (
                 f"runuser -u ${vmUser} -- env"
                 f" HYPRLAND_INSTANCE_SIGNATURE={sig}"
                 f" XDG_RUNTIME_DIR={runtime_dir}"
-                f" hyprctl dispatch focuswindow title:{title}"
+            )
+
+            def hyprctl_json(command: str) -> object:
+                raw = machine.succeed(f"{env_prefix} hyprctl -j {command}")
+                return json.loads(raw or "null")
+
+            def active_title() -> str:
+                active = hyprctl_json("activewindow")
+                if isinstance(active, dict):
+                    return str(active.get("title") or "")
+                return ""
+
+            def wait_for_hyprland_active() -> bool:
+                deadline = time.time() + 5
+                last = None
+                while time.time() < deadline:
+                    last = active_title()
+                    if last == title:
+                        return True
+                    time.sleep(0.25)
+                machine.log(
+                    f"Hyprland active title after focus attempt: {last!r}, expected {title!r}"
+                )
+                return False
+
+            clients = hyprctl_json("clients")
+            assert isinstance(clients, list), clients
+            match = next(
+                (
+                    client
+                    for client in clients
+                    if isinstance(client, dict) and client.get("title") == title
+                ),
+                None,
+            )
+            assert match is not None, clients
+            address = match.get("address")
+            assert address, match
+            at = match.get("at")
+            size = match.get("size")
+
+            def coordinate(value: object) -> int:
+                assert isinstance(value, (int, float, str)), value
+                return int(float(value))
+
+            if (
+                isinstance(at, list)
+                and isinstance(size, list)
+                and len(at) >= 2
+                and len(size) >= 2
+            ):
+                x = coordinate(at[0]) + max(1, coordinate(size[0]) // 2)
+                y = coordinate(at[1]) + max(1, coordinate(size[1]) // 2)
+                machine.succeed(
+                    f"{env_prefix} hyprctl dispatch "
+                    f"\"hl.dsp.cursor.move({{ x = {x}, y = {y} }})\""
+                )
+
+            machine.succeed(
+                f"{env_prefix} hyprctl dispatch "
+                f"\"hl.dsp.focus({{ window = '{address}' }})\""
+            )
+            if wait_for_hyprland_active():
+                return
+
+            machine.send_monitor_command("sendkey meta_l-left")
+            if wait_for_hyprland_active():
+                return
+
+            for _ in range(len(clients) + 1):
+                machine.succeed(f"{env_prefix} hyprctl dispatch cyclenext prev")
+                if wait_for_hyprland_active():
+                    return
+
+            raise AssertionError(
+                f"Hyprland did not focus title {title!r}; clients={clients!r}"
             )
 
         def sway_activate_title(title: str) -> None:

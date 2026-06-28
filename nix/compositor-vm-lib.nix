@@ -196,6 +196,18 @@ rec {
       services.displayManager.defaultSession = "xfce";
       services.xserver.displayManager.lightdm.enable = true;
       services.xserver.desktopManager.xfce.enable = true;
+      services.xserver.displayManager.sessionCommands = ''
+        xfsettingsd &
+        xfwm4 &
+        xfdesktop &
+        xfce4-panel &
+      '';
+      environment.systemPackages = with pkgs; [
+        xfce4-panel
+        xfce4-settings
+        xfdesktop
+        xfwm4
+      ];
     };
 
     gnome =

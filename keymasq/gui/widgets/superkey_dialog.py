@@ -91,10 +91,9 @@ def _describe_pattern_superkey_action(
             f"{action.move_x}, {action.move_y}"
         )
     elif action.action_type == ActionType.COMPOSITOR_DISPATCH:
-        dispatcher = action.compositor_dispatcher or "dispatch"
-        args = str(action.compositor_args or "").strip()
-        suffix = f" {args}" if args else ""
-        label = f"{type_label('Compositor')}{target_separator}{dispatcher}{suffix}"
+        description = describe_mapping_action_verbose(superkey_action_to_mapping_action(action))
+        target = description.split("→", 1)[1].strip() if "→" in description else description
+        label = f"{type_label('Compositor')}{target_separator}{target}"
     elif action.action_type == ActionType.START_MACRO_RECORDING:
         label = type_label("Toggle Macro Recording")
     elif action.action_type == ActionType.STOP_MACRO_RECORDING:

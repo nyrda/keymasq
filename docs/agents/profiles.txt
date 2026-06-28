@@ -141,7 +141,7 @@ target = "Gaming"
 # compositor dispatch
 action = "compositor_dispatch"
 compositor = "hyprland" # hyprland, niri, kde, gnome
-dispatcher = "fullscreen"
+dispatcher = "hl.dsp.window.fullscreen({ mode = \"fullscreen\", action = \"toggle\" })"
 args = ""
 
 # superkey

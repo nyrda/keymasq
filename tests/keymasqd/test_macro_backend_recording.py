@@ -55,6 +55,40 @@ async def test_recording_manager_uses_relative_timestamps() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recording_manager_records_start_position_as_initial_natural_move() -> None:
+    recorder = RecordingManager(broadcast_callback=AsyncMock())
+    await recorder.start([], start_position=(123, 456))
+
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+
+    result = await recorder.stop()
+    events = await _recorded_events(recorder, result)
+
+    assert result["event_count"] == 2
+    assert result["device_types"] == ["keyboard", "mouse"]
+    assert events[0] == {
+        "device_type": "macro",
+        "type": 0,
+        "code": 0,
+        "value": 0,
+        "t_us": 0,
+        "macro_action": "mouse_move_natural_abs",
+        "x": 123,
+        "y": 456,
+        "speed": 100_000.0,
+        "jitter": 0.0,
+        "curve": "linear",
+        "tolerance": 2,
+        "max_duration_ms": 3000,
+        "stop_on_failure": False,
+    }
+    assert events[1]["code"] == evdev.ecodes.KEY_A
+
+
+@pytest.mark.asyncio
 async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
     await recorder.start([], recording_slot=2)

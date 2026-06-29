@@ -112,7 +112,7 @@ reach them will be captured too, which is rarely what you want.
 
 | Option | What it does |
 |---|---|
-| Move to start | Before playback, move the cursor to the position it was at when recording began. |
+| Move to start | Add an editable natural mouse move at the start of the macro that returns the cursor to the position it was at when recording began. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
 **Recording sources:** the recording settings dialog separates Keymasq output
@@ -253,8 +253,6 @@ Once a macro is saved, you can trigger it in several ways:
 - **Speed multiplier** — make the macro faster or slower than it was recorded.
 - **Replay mouse movement** — on or off.
 - **Replay mouse clicks** — on or off.
-- **Move to start** — jump the cursor to the original recording position
-  before playing (if configured when saved).
 - **Block mouse movement** — temporarily prevent mouse movement during
   playback (requires a grabbed mouse device).
 

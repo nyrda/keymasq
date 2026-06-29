@@ -20,7 +20,11 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import normalize_macro_recording_slot
+from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+    normalize_macro_recording_slot,
+)
 from keymasq.common.paths import STATE_DIR
 from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
@@ -29,6 +33,9 @@ type RecordingEvent = dict[str, object]
 type RecordingPayload = dict[str, object]
 type RecordingDevice = dict[str, object]
 PENDING_RECORDING_TTL_S = 30 * 60
+START_MOUSE_MOVE_SPEED = 100_000.0
+START_MOUSE_MOVE_JITTER = 0.0
+START_MOUSE_MOVE_CURVE = "linear"
 log = logging.getLogger("keymasqd.recording")
 
 
@@ -81,6 +88,7 @@ class RecordingManager:
         include_mouse_movement: bool = False,
         include_mouse_clicks: bool = False,
         recording_slot: int = 0,
+        start_position: tuple[int, int] | None = None,
     ) -> RecordingPayload:
         await self.discard_expired_pending_recordings()
         previous = await self.stop()
@@ -101,6 +109,8 @@ class RecordingManager:
         self._include_mouse_clicks = bool(include_mouse_clicks)
         self._recording_slot = normalize_macro_recording_slot(recording_slot)
         extra_devices, self._record_grabbed_source_keys = _build_recording_plan(devices)
+        if start_position is not None:
+            self._spool.append(_start_mouse_move_event(*start_position))
 
         for dev in extra_devices:
             path_value = dev.get("open_path", dev.get("path"))
@@ -709,12 +719,32 @@ def _remove_invalid_slot_metadata(meta_path: Path) -> None:
         log.exception("Unexpected failure removing invalid recording slot metadata %s", meta_path)
 
 
+def _start_mouse_move_event(x: int, y: int) -> RecordingEvent:
+    return {
+        "device_type": "macro",
+        "type": 0,
+        "code": 0,
+        "value": 0,
+        "t_us": 0,
+        "macro_action": "mouse_move_natural_abs",
+        "x": int(x),
+        "y": int(y),
+        "speed": START_MOUSE_MOVE_SPEED,
+        "jitter": START_MOUSE_MOVE_JITTER,
+        "curve": START_MOUSE_MOVE_CURVE,
+        "tolerance": DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+        "max_duration_ms": DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+        "stop_on_failure": False,
+    }
+
+
 def _is_wheel_event(event: evdev.InputEvent) -> bool:
     if event.type != evdev.ecodes.EV_REL:
         return False
     return event.code in (evdev.ecodes.REL_WHEEL, evdev.ecodes.REL_HWHEEL) or (
         high_res_wheel_low_res_code(int(event.code)) is not None
     )
+
 
 def _physical_source_key(stable_path: str) -> str:
     return f"physical:{stable_path}"

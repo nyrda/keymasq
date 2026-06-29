@@ -654,6 +654,7 @@ class MacroEditorPanelsMixin:
         outer.append(self._exec_summary_label)
 
         start_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._legacy_move_to_start_row = start_row
         self._macro_move_to_start_check = Gtk.CheckButton(label="Move mouse to:")
         self._macro_move_to_start_check.set_active(self._macro_move_to_start)
         self._macro_move_to_start_check.connect("toggled", self._on_macro_move_to_start_toggled)
@@ -682,6 +683,7 @@ class MacroEditorPanelsMixin:
         outer.append(start_row)
 
         capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._legacy_move_to_start_capture_row = capture_row
         capture_row.set_margin_start(24)
 
         if not self._slurp_available:
@@ -982,6 +984,7 @@ class MacroEditorPanelsMixin:
         self._sync_close_guard()
 
     def _refresh_after_passthrough_timing_change(self, ev: MacroEvent) -> None:
+        self._rel_events.sort(key=lambda e: int(e.get("t_us", 0)))
         self._passthrough_events.sort(key=lambda e: int(e.get("t_us", 0)))
         self._recompute_duration()
         self._update_stats()
@@ -1059,6 +1062,9 @@ class MacroEditorPanelsMixin:
         deleted = False
         if isinstance(ev, EditableEvent) and ev in self._events:
             self._events.remove(ev)
+            deleted = True
+        elif isinstance(ev, dict) and ev in self._rel_events:
+            self._rel_events.remove(ev)
             deleted = True
         elif isinstance(ev, dict) and ev in self._passthrough_events:
             self._passthrough_events.remove(ev)
@@ -1415,6 +1421,9 @@ class MacroEditorPanelsMixin:
         self._sync_close_guard()
 
     def _update_macro_move_start_controls(self) -> None:
+        visible = self._macro_has_legacy_move_to_start
+        self._legacy_move_to_start_row.set_visible(visible)
+        self._legacy_move_to_start_capture_row.set_visible(visible)
         enabled = self._macro_move_to_start
         self._macro_start_x_spin.set_sensitive(enabled)
         self._macro_start_y_spin.set_sensitive(enabled)

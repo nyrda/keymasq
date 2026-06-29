@@ -21,13 +21,14 @@ class SaveMacroDialog(Adw.Dialog):
         self._unlock_denied_for_save = False
         self._pending_save_token = str(recording_data.get("pending_save_token", "") or "")
         self._recording_slot = int(recording_data.get("recording_slot", 0) or 0)
-        has_start_pos = ("start_x" in recording_data) and ("start_y" in recording_data)
-        self._move_to_start = bool(recording_data.get("move_to_start", has_start_pos))
-        self._start_x = int(recording_data.get("start_x", 0) or 0)
-        self._start_y = int(recording_data.get("start_y", 0) or 0)
+        self._start_position_recorded = bool(
+            recording_data.get("start_position_recorded", False)
+        )
         self._block_mouse_movement = bool(recording_data.get("block_mouse_movement", False))
         self._existing_macro_names: set[str] = set()
         self._later_btn: Gtk.Button | None = None
+        self._save_edit_btn: Gtk.Button | None = None
+        self._edit_after_save = False
         self._build_ui()
         GLib.idle_add(self._load_existing_macro_names)
 
@@ -107,6 +108,8 @@ class SaveMacroDialog(Adw.Dialog):
             ("Events:", str(event_count)),
             ("Devices:", devices_str),
         ]
+        if self._start_position_recorded:
+            rows.append(("Start position:", "Recorded"))
 
         for i, (lbl_text, val_text) in enumerate(rows):
             lbl = Gtk.Label(label=lbl_text)
@@ -121,38 +124,6 @@ class SaveMacroDialog(Adw.Dialog):
         content.append(info_grid)
 
         content.append(Gtk.Separator())
-
-        start_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        start_row.set_halign(Gtk.Align.START)
-
-        self._move_to_start_check = Gtk.CheckButton(label="Move mouse to:")
-        self._move_to_start_check.set_active(self._move_to_start)
-        self._move_to_start_check.connect("toggled", self._on_move_to_start_toggled)
-        start_row.append(self._move_to_start_check)
-
-        self._start_x_spin = Gtk.SpinButton()
-        self._start_x_spin.set_adjustment(
-            Gtk.Adjustment(value=self._start_x, lower=-100000, upper=100000, step_increment=1)
-        )
-        self._start_x_spin.set_digits(0)
-        self._start_x_spin.set_width_chars(7)
-        self._start_x_spin.connect("value-changed", self._on_start_pos_changed)
-        start_row.append(self._start_x_spin)
-
-        self._start_y_spin = Gtk.SpinButton()
-        self._start_y_spin.set_adjustment(
-            Gtk.Adjustment(value=self._start_y, lower=-100000, upper=100000, step_increment=1)
-        )
-        self._start_y_spin.set_digits(0)
-        self._start_y_spin.set_width_chars(7)
-        self._start_y_spin.connect("value-changed", self._on_start_pos_changed)
-        start_row.append(self._start_y_spin)
-
-        start_suffix = Gtk.Label(label="at the start of the macro")
-        start_suffix.add_css_class("dim-label")
-        start_row.append(start_suffix)
-
-        content.append(start_row)
 
         self._block_mouse_check = Gtk.CheckButton(
             label="Block physical mouse movement during playback"
@@ -187,11 +158,16 @@ class SaveMacroDialog(Adw.Dialog):
         self._save_btn.connect("clicked", self._on_save_clicked)
         footer.append(self._save_btn)
 
+        save_edit_btn = Gtk.Button(label="Save + Edit")
+        save_edit_btn.set_sensitive(False)
+        save_edit_btn.connect("clicked", self._on_save_edit_clicked)
+        self._save_edit_btn = save_edit_btn
+        footer.append(save_edit_btn)
+
         inner.append(footer)
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
-        self._update_start_pos_controls()
         self._update_unlock_ui()
 
     def _build_locked_notice(self) -> Gtk.Box:
@@ -232,18 +208,6 @@ class SaveMacroDialog(Adw.Dialog):
             return
         self._close_for_later()
 
-    def _on_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
-        self._move_to_start = check.get_active()
-        self._update_start_pos_controls()
-
-    def _on_start_pos_changed(self, spin: Gtk.SpinButton) -> None:
-        self._start_x = int(self._start_x_spin.get_value())
-        self._start_y = int(self._start_y_spin.get_value())
-
-    def _update_start_pos_controls(self) -> None:
-        self._start_x_spin.set_sensitive(self._move_to_start)
-        self._start_y_spin.set_sensitive(self._move_to_start)
-
     def _suggest_name(self) -> None:
         base = "macro"
         name = base
@@ -283,23 +247,25 @@ class SaveMacroDialog(Adw.Dialog):
     def _validate_name(self, name: str) -> None:
         if not name:
             self._show_error("Name cannot be empty")
-            self._save_btn.set_sensitive(False)
+            self._set_submit_buttons_sensitive(False)
             return
 
         import re
 
         if not re.match(r"^[a-zA-Z0-9_\-]+$", name):
             self._show_error("Only letters, numbers, underscores and hyphens allowed")
-            self._save_btn.set_sensitive(False)
+            self._set_submit_buttons_sensitive(False)
             return
 
         if name in self._existing_macro_names:
             self._show_error(f"A macro named '{name}' already exists")
-            self._save_btn.set_sensitive(False)
+            self._set_submit_buttons_sensitive(False)
             return
 
         self._hide_error()
-        self._save_btn.set_sensitive(not self._request_inflight and self._persist_unlock_ready())
+        self._set_submit_buttons_sensitive(
+            not self._request_inflight and self._persist_unlock_ready()
+        )
 
     def _refresh_submit_state(self) -> None:
         self._validate_name(self._name_entry.get_text().strip())
@@ -312,6 +278,14 @@ class SaveMacroDialog(Adw.Dialog):
         self._error_label.set_visible(False)
 
     def _on_save_clicked(self, btn: Gtk.Button) -> None:
+        self._edit_after_save = False
+        self._save_current_name()
+
+    def _on_save_edit_clicked(self, btn: Gtk.Button) -> None:
+        self._edit_after_save = True
+        self._save_current_name()
+
+    def _save_current_name(self) -> None:
         name = self._name_entry.get_text().strip()
         if not name or not self._persist_unlock_ready():
             return
@@ -323,9 +297,6 @@ class SaveMacroDialog(Adw.Dialog):
         payload = {
             "command": "save_recording",
             "name": name,
-            "move_to_start": self._move_to_start,
-            "start_x": int(self._start_x_spin.get_value()),
-            "start_y": int(self._start_y_spin.get_value()),
             "block_mouse_movement": self._block_mouse_check.get_active(),
         }
         if self._pending_save_token:
@@ -427,9 +398,13 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_save_finished(self, result: dict | None) -> bool:
         if result and result.get("status") == "ok":
+            saved_name = str(result.get("name") or self._name_entry.get_text().strip())
+            edit_after_save = self._edit_after_save and bool(saved_name)
             self._saved = True
             self._closing_after_resolution = True
             self.force_close()
+            if edit_after_save:
+                GLib.idle_add(self._present_saved_macro_editor, saved_name)
         else:
             result = result or {}
             error_code = str(result.get("error_code", "") or "").strip()
@@ -439,6 +414,13 @@ class SaveMacroDialog(Adw.Dialog):
                 self._update_unlock_ui()
                 return False
             self._request_error_message = result.get("message", "Failed to save macro")
+        return False
+
+    def _present_saved_macro_editor(self, name: str) -> bool:
+        from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+
+        dialog = MacroEditorDialog(self._parent, name)
+        dialog.present(self._parent)
         return False
 
     def _on_later_clicked(self, btn: Gtk.Button) -> None:
@@ -451,19 +433,20 @@ class SaveMacroDialog(Adw.Dialog):
     def _set_request_inflight(self, inflight: bool) -> None:
         self._request_inflight = inflight
         self.set_can_close(not inflight)
-        self._save_btn.set_sensitive(False)
+        self._set_submit_buttons_sensitive(False)
         if self._later_btn is not None:
             self._later_btn.set_sensitive(not inflight)
         self._name_entry.set_sensitive(not inflight)
-        self._move_to_start_check.set_sensitive(not inflight)
         self._block_mouse_check.set_sensitive(not inflight)
         if inflight:
             self._unlock_btn.set_sensitive(False)
-            self._start_x_spin.set_sensitive(False)
-            self._start_y_spin.set_sensitive(False)
             return
 
         self._unlock_btn.set_sensitive(True)
-        self._update_start_pos_controls()
         self._update_unlock_ui()
         self._refresh_submit_state()
+
+    def _set_submit_buttons_sensitive(self, sensitive: bool) -> None:
+        self._save_btn.set_sensitive(sensitive)
+        if self._save_edit_btn is not None:
+            self._save_edit_btn.set_sensitive(sensitive)

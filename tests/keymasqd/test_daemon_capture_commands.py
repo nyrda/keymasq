@@ -240,6 +240,37 @@ async def test_macro_save_recording_claims_snapshot_and_restores_slot(daemon_tes
 
 
 @pytest.mark.asyncio
+async def test_macro_save_recording_does_not_create_start_move_on_save(daemon_testbed):
+    daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
+    stored_payloads: list[dict[str, object]] = []
+    stored_events: list[dict[str, object]] = []
+
+    def create_from_events(payload, events, *, return_full: bool = False):
+        stored_payloads.append(dict(payload))
+        stored_events.extend(events)
+        return {"name": payload["name"]}
+
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot()
+    macro_store.create_from_events.side_effect = create_from_events
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_SAVE_RECORDING,
+        {
+            "pending_recording_id": "recording-1",
+            "name": "saved",
+            "start_x": 123,
+            "start_y": 456,
+        },
+    )
+
+    assert result == {"macro": {"name": "saved"}}
+    assert stored_payloads[0]["event_count"] == 1
+    assert stored_payloads[0]["device_types"] == ["keyboard"]
+    assert "move_to_start" not in stored_payloads[0]
+    assert stored_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+
+
+@pytest.mark.asyncio
 async def test_macro_save_recording_releases_unslotted_snapshot_as_saved(daemon_testbed):
     daemon, _device_manager, recording_manager, macro_store, _capture_manager = daemon_testbed
 
@@ -320,6 +351,29 @@ async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
 
 
 @pytest.mark.asyncio
+async def test_macro_play_recording_does_not_create_start_move_on_play(daemon_testbed):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    recording_manager.claim_pending_recording.return_value = _PendingRecordingSnapshot()
+
+    result = await daemon._handle_command(
+        CommandType.MACRO_PLAY_RECORDING,
+        {
+            "pending_recording_id": "recording-1",
+            "start_x": 123,
+            "start_y": 456,
+        },
+    )
+
+    assert result == {"played": True}
+    options = device_manager.play_macro.await_args.args[0]
+    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
+    assert options.move_to_start is False
+    assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert options.load_stored_macro is False
+
+
+@pytest.mark.asyncio
 async def test_start_recording_resolves_recording_ids_before_start(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     selected = {
@@ -358,6 +412,31 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
         include_mouse_movement=True,
         include_mouse_clicks=False,
         recording_slot=2,
+        start_position=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_recording_forwards_start_position_to_recording_manager(daemon_testbed):
+    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.START_RECORDING,
+        {
+            "devices": [],
+            "recording_slot": 1,
+            "start_x": 123,
+            "start_y": 456,
+        },
+    )
+
+    assert result == {"recording": "started"}
+    recording_manager.start.assert_awaited_once_with(
+        [],
+        include_mouse_movement=False,
+        include_mouse_clicks=False,
+        recording_slot=1,
+        start_position=(123, 456),
     )
 
 

@@ -237,9 +237,6 @@ def _save_pending_recording_sync(
         "duration_us": int(snapshot.duration_ms) * 1000,
         "device_types": list(snapshot.device_types),
         "event_count": int(snapshot.event_count),
-        "move_to_start": coerce_bool(data.get("move_to_start"), False),
-        "start_x": coerce_int(data.get("start_x", 0), 0),
-        "start_y": coerce_int(data.get("start_y", 0), 0),
         "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
     }
     macro = daemon.macro_store.create_from_events(

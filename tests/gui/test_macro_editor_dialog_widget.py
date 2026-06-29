@@ -170,6 +170,8 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_start_y_spin.get_value_as_int() == 240
     assert dialog._macro_start_x_spin.get_sensitive() is True
     assert dialog._macro_start_y_spin.get_sensitive() is True
+    assert dialog._legacy_move_to_start_row.get_visible() is True
+    assert dialog._legacy_move_to_start_capture_row.get_visible() is True
     assert dialog._macro_block_mouse_check.get_active() is True
 
 
@@ -801,9 +803,9 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     assert payload["loop_count"] == 2
     assert payload["loop_stop_behavior"] == "finish_run"
     assert dialog._macro_loop_finish_check.get_visible() is True
-    assert payload["move_to_start"] is True
-    assert payload["start_x"] == 10
-    assert payload["start_y"] == 20
+    assert "move_to_start" not in payload
+    assert "start_x" not in payload
+    assert "start_y" not in payload
     assert payload["block_mouse_movement"] is True
     assert payload["device_types"] == ["keyboard", "mouse"]
     assert {
@@ -895,6 +897,69 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
     assert reloads == [True]
     assert closed == []
     assert apply_btn.get_sensitive() is True
+
+
+def test_macro_editor_can_select_first_event_on_initial_load(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+
+    dialog._on_initial_state_loaded(
+        GuiTaskResult(
+            value={
+                "timeout_max": 30000,
+                "compositor_status": {},
+                "macro": {
+                    "name": "demo_macro",
+                    "events": [
+                        {
+                            "device_type": "mouse",
+                            "type": evdev.ecodes.EV_REL,
+                            "code": evdev.ecodes.REL_X,
+                            "value": 5,
+                            "t_us": 0,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 1,
+                            "t_us": 0,
+                        },
+                        {
+                            "device_type": "macro",
+                            "type": 0,
+                            "code": 0,
+                            "value": 0,
+                            "t_us": 0,
+                            "macro_action": "mouse_move_natural_abs",
+                            "x": 123,
+                            "y": 456,
+                            "speed": 100_000.0,
+                            "jitter": 0.0,
+                            "curve": "linear",
+                            "tolerance": 2,
+                            "max_duration_ms": 3000,
+                            "stop_on_failure": False,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 0,
+                            "t_us": 1000,
+                        },
+                    ],
+                    "duration_us": 1000,
+                },
+            }
+        )
+    )
+
+    selected = dialog._timeline._selected
+    assert isinstance(selected, dict)
+    assert selected["type"] == evdev.ecodes.EV_REL
+    assert selected["code"] == evdev.ecodes.REL_X
 
 
 def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
@@ -1167,6 +1232,8 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
 
+    assert dialog._legacy_move_to_start_row.get_visible() is False
+    assert dialog._legacy_move_to_start_capture_row.get_visible() is False
     dialog._macro_block_mouse_check.set_active(True)
     assert dialog.get_can_close() is False
 

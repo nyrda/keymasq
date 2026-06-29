@@ -567,6 +567,9 @@ async def play_macro_task(
                     deps=deps,
                 )
             iterations += 1
+            # Legacy macro-level start positioning. New recorded macros encode
+            # this as an initial mouse_move_natural_abs event so it remains
+            # visible and editable in the macro timeline.
             if move_to_start:
                 await manager.set_cursor_position(int(start_x), int(start_y))
 

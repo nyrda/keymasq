@@ -96,7 +96,9 @@ class RecordingSpool:
             self._memory_bytes += _estimate_event_bytes(event)
             self.event_count += 1
             self.duration_ms = max(self.duration_ms, int(_event_t_us(event) / 1000))
-            self.device_types.add(str(event.get("device_type", "other")))
+            device_type = _event_device_type(event)
+            if device_type:
+                self.device_types.add(device_type)
 
             if (
                 len(self._memory_events) >= self.memory_event_limit
@@ -219,6 +221,17 @@ class RecordingSpool:
 def _event_t_us(event: RecordingEvent) -> int:
     value = event.get("t_us", 0)
     return value if isinstance(value, int) else 0
+
+
+def _event_device_type(event: RecordingEvent) -> str:
+    if str(event.get("macro_action", "") or "") in {
+        "mouse_move_abs",
+        "mouse_move_rel",
+        "mouse_move_natural_abs",
+    }:
+        return "mouse"
+    device_type = str(event.get("device_type", "other") or "other")
+    return "" if device_type == "macro" else device_type
 
 
 def _estimate_event_bytes(event: RecordingEvent) -> int:

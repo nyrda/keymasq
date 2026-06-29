@@ -120,9 +120,6 @@ Canonical macro object:
   "loop_mode": "none",
   "loop_count": 1,
   "loop_stop_behavior": "finish_run",
-  "move_to_start": false,
-  "start_x": 0,
-  "start_y": 0,
   "block_mouse_movement": false,
   "events": [
     {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0},
@@ -148,6 +145,10 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_natural_abs","x":100,"y":200,"speed":12000.0,"jitter":0.3,"curve":"natural","tolerance":2,"max_duration_ms":3000,"stop_on_failure":false}
 ```
+
+Recorded macro start positioning is represented as the first
+`mouse_move_natural_abs` event at `t_us=0`, with `speed=100000.0`,
+`jitter=0.0`, and `curve="linear"`.
 
 Natural mouse move events block macro playback until movement finishes or times
 out. Later event deadlines are shifted by the elapsed movement time. If

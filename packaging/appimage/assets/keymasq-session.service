@@ -1,0 +1,16 @@
+[Unit]
+Description=Keymasq Session Manager
+Documentation=https://keymasq.tools/docs/latest/
+After=default.target
+PartOf=default.target
+
+[Service]
+Type=simple
+Environment=KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1
+ExecStart=/opt/keymasq/bin/keymasq-session
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

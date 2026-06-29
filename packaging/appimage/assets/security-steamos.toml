@@ -1,0 +1,21 @@
+daemon_allowed_uids = []
+session_allowed_uids = []
+
+[macro]
+exec_timeout_max_ms = 30000
+
+[gui]
+emergency_cancel_combo_enabled = true
+
+[recording_guard]
+# SteamOS/AppImage installs default to the easier flow: privileged capture
+# unlock is disabled because the package already installs a system daemon.
+unlock_required = false
+macro_edit_requires_unlock = false
+
+[session_command_acl]
+gui = []
+cli = []
+
+[daemon_command_acl]
+session = []

@@ -293,6 +293,7 @@ _SESSION_ROOT_TEST_FILES = (
     "test_x11_listener.py",
 )
 _COMMON_ROOT_TEST_FILES = (
+    "test_appimage_packaging.py",
     "test_cli_commands_helpers.py",
     "test_devices.py",
     "test_entrypoints_and_cli.py",

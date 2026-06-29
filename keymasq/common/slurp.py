@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.paths import resolve_slurp_path
+from keymasq.common.subprocess_env import host_subprocess_environment, is_appimage_path
 
 log = logging.getLogger("keymasq.slurp")
 
@@ -127,11 +128,19 @@ class SlurpCapture:
                 os.environ.get("WAYLAND_DISPLAY", ""),
                 os.environ.get("XDG_RUNTIME_DIR", ""),
             )
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            if is_appimage_path(slurp_path):
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=host_subprocess_environment(),
+                )
             self._process = process
 
             if mode == SlurpMode.POINT_IMMEDIATE:

@@ -1,0 +1,35 @@
+[Unit]
+Description=Keymasq Input Remapping Daemon
+Documentation=https://keymasq.tools/docs/latest/
+After=systemd-udevd.service systemd-udev-trigger.service
+Wants=systemd-udev-trigger.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=keymasq
+Group=keymasq
+SupplementaryGroups=input
+Nice=-5
+ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
+ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
+ExecStart=/opt/keymasq/bin/keymasqd
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+NoNewPrivileges=true
+# Required for udevadm trigger to write sysfs uevent files during source hide/restore.
+AmbientCapabilities=CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RuntimeDirectory=keymasq
+RuntimeDirectoryMode=0755
+StateDirectory=keymasq
+StateDirectoryMode=0750
+ReadWritePaths=/run/keymasq /var/lib/keymasq
+
+[Install]
+WantedBy=multi-user.target

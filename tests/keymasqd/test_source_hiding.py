@@ -272,6 +272,46 @@ async def test_reconcile_all_clears_flags_and_triggers_input(
     ]
 
 
+@pytest.mark.asyncio
+async def test_udevadm_runs_with_host_tool_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
+    monkeypatch.setenv("APPDIR", "/tmp/.mount_Keymasq")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/tmp/.mount_Keymasq/lib")
+    monkeypatch.setenv("PYTHONPATH", "/tmp/.mount_Keymasq/lib/python3.12")
+    monkeypatch.setenv("LANG", "C.UTF-8")
+    captured_env: dict[str, str] | None = None
+
+    async def fake_create_subprocess_exec(
+        *_args: Any,
+        **kwargs: Any,
+    ) -> _FakeProcess:
+        nonlocal captured_env
+        captured_env = kwargs.get("env")
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(
+        source_hiding.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    result = await source_hiding._run_udevadm(  # pyright: ignore[reportPrivateUsage]
+        ["trigger", "--subsystem-match=input"],
+        timeout_s=0.01,
+        context="test",
+    )
+
+    assert result is True
+    assert captured_env is not None
+    assert captured_env["LANG"] == "C.UTF-8"
+    assert captured_env["PATH"] == "/usr/sbin:/usr/bin:/sbin:/bin"
+    assert "APPDIR" not in captured_env
+    assert "LD_LIBRARY_PATH" not in captured_env
+    assert "PYTHONPATH" not in captured_env
+
+
 def test_hardware_flag_name_normalizes_common_hardware_id_forms() -> None:
     assert source_hiding.hardware_flag_name("045E:02A1") == "045e:02a1"
     assert source_hiding.hardware_flag_name("45e:2a1") == "045e:02a1"

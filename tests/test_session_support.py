@@ -190,6 +190,86 @@ async def test_action_handler_execute_command_warns_on_nonzero_exit(
 
 
 @pytest.mark.asyncio
+async def test_action_handler_execute_command_scrubs_appimage_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = ActionHandler()
+    appdir = tmp_path / "appdir"
+    appdir.mkdir()
+    captured_env: dict[str, str] = {}
+
+    monkeypatch.setenv("APPDIR", str(appdir))
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "Keymasq.AppImage"))
+    monkeypatch.setenv("LD_LIBRARY_PATH", f"{appdir / 'lib'}:/host/lib")
+    monkeypatch.setenv("PYTHONHOME", str(appdir))
+    monkeypatch.setenv("PYTHONPATH", str(appdir / "pythonpath"))
+    monkeypatch.setenv("PYTHONNOUSERSITE", "true")
+    monkeypatch.setenv("GI_TYPELIB_PATH", str(appdir / "lib/girepository-1.0"))
+    monkeypatch.setenv("GDK_PIXBUF_MODULE_FILE", str(appdir / "loaders.cache"))
+    monkeypatch.setenv("GDK_PIXBUF_MODULEDIR", str(appdir / "loaders"))
+    monkeypatch.setenv("GIO_MODULE_DIR", str(appdir / "gio/modules"))
+    monkeypatch.setenv("XKB_CONFIG_ROOT", str(appdir / "share/X11/xkb"))
+    monkeypatch.setenv("XDG_DATA_DIRS", f"{appdir / 'share'}:/usr/local/share:/usr/share")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+
+    async def _create_subprocess_shell(*_args: Any, **kwargs: Any) -> _FakeProcess:
+        captured_env.update(kwargs["env"])
+        return _FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", _create_subprocess_shell)
+
+    result = await handler.execute_command("notify-send ok")
+
+    assert result == 0
+    assert captured_env["LD_LIBRARY_PATH"] == "/host/lib"
+    assert captured_env["XDG_DATA_DIRS"] == "/usr/local/share:/usr/share"
+    assert captured_env["WAYLAND_DISPLAY"] == "wayland-0"
+    assert captured_env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    for key in (
+        "APPDIR",
+        "APPIMAGE",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONNOUSERSITE",
+        "GI_TYPELIB_PATH",
+        "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR",
+        "GIO_MODULE_DIR",
+        "XKB_CONFIG_ROOT",
+    ):
+        assert key not in captured_env
+
+
+@pytest.mark.asyncio
+async def test_action_handler_execute_command_keeps_non_appimage_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = ActionHandler()
+    captured_env: dict[str, str] = {}
+
+    monkeypatch.delenv("APPDIR", raising=False)
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/custom/lib")
+    monkeypatch.setenv("PYTHONHOME", "/custom/python")
+    monkeypatch.setenv("XDG_DATA_DIRS", "/custom/share:/usr/share")
+
+    async def _create_subprocess_shell(*_args: Any, **kwargs: Any) -> _FakeProcess:
+        captured_env.update(kwargs["env"])
+        return _FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", _create_subprocess_shell)
+
+    result = await handler.execute_command("custom-command")
+
+    assert result == 0
+    assert captured_env["LD_LIBRARY_PATH"] == "/custom/lib"
+    assert captured_env["PYTHONHOME"] == "/custom/python"
+    assert captured_env["XDG_DATA_DIRS"] == "/custom/share:/usr/share"
+
+
+@pytest.mark.asyncio
 async def test_action_handler_execute_command_kills_timed_out_process(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

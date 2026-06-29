@@ -132,7 +132,8 @@ differentiator is the compositor/session environment itself.
   `hyprland`, `wayland`, `wayland-wlr`, `wayland-layer-shell`, `kde`,
   `cosmic`, and `niri`
 - On unsupported compositors, GUI `slurp` capture is not used
-- Path resolution checks the embedded build path first, then `/usr/bin/slurp`,
+- AppImage builds bundle `slurp` and prefer the extracted AppImage runtime path
+- Other builds check the embedded build path first, then `/usr/bin/slurp`,
   `/run/current-system/sw/bin/slurp`, and finally `PATH`
 - `SLURP_PATH` overrides auto-detection entirely:
   set it to an absolute path to force that binary, or set it to an empty string

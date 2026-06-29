@@ -32,6 +32,7 @@ The repository currently maintains these package outputs:
 | Fedora COPR | Fedora systems | `packaging/rpm/` | COPR-hosted RPM repository |
 | Fedora project-hosted RPM | Fedora systems | `packaging/rpm/` | `.fc<release>.noarch.rpm` |
 | openSUSE RPM | openSUSE systems | `packaging/rpm/` | `.opensuse.x86_64.rpm` |
+| AnyLinux AppImage | SteamOS and other systemd distros without a native package | `packaging/appimage/` | `Keymasq-<version>-x86_64.AppImage` |
 
 ## Release channels
 
@@ -188,6 +189,48 @@ include the distro package that provides `setfacl` (`acl` on the maintained
 Debian, Arch, Fedora, openSUSE, and Nix packaging paths).
 
 ## Available package definitions
+
+### AnyLinux AppImage for SteamOS
+
+The AppImage path lives under `packaging/appimage/`. It targets SteamOS first
+and currently builds x86_64 only. The AppImage bundles Python, Keymasq, Python
+dependencies, GTK4/libadwaita, and GObject introspection data using AnyLinux
+`quick-sharun`.
+
+Build inside an Arch environment:
+
+```bash
+bash packaging/appimage/get-dependencies.sh
+bash packaging/appimage/make-appimage.sh
+bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
+```
+
+The output is written to `dist/appimage/`. The GitHub Actions package workflow
+does this in `archlinux:base-devel`, installing dependencies with `pacman` and
+downloading the pinned AnyLinux `quick-sharun` helper from
+`pkgforge-dev/Anylinux-AppImages`.
+
+The AppImage installs the signed payload at `/opt/keymasq/Keymasq.AppImage`,
+extracts it once into `/opt/keymasq/runtime/<sha256>`, points
+`/opt/keymasq/runtime/current` at that extracted runtime, installs stable
+wrappers in `/opt/keymasq/bin` and the target user's `~/.local/bin`, writes
+system integration under `/etc`, and creates
+`/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc` integration
+files across atomic OS updates. `/opt/keymasq` is installed under SteamOS'
+persistent `/opt` offload mount, not managed by the atomic update keep-list. It
+runs `systemd-sysusers` and `systemd-tmpfiles --create` once during install;
+after SteamOS updates, the normal boot-time systemd units reapply the persisted
+sysusers/tmpfiles configuration. Installed services and CLI wrappers run from
+`/opt/keymasq/runtime/current`, so daemon restarts do not re-extract the
+AppImage into a private temp directory. See `docs/STEAMOS.md` for the full
+layout and update semantics.
+
+Stable repository publishing copies the AppImage to
+`https://repo.keymasq.tools/appimage/`, writes `latest-x86_64.json`, and signs
+that manifest with the same GitHub Actions-only package signing key used for
+repository metadata and RPM packages. The self-updater refuses signed manifest
+replays that would downgrade the installed version unless
+`--allow-downgrade` is passed explicitly.
 
 ### Nix package and NixOS module
 

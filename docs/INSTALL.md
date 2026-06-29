@@ -150,6 +150,22 @@ effect after reboot. Locally layered RPMs are not updated automatically by the
 Keymasq repository, so prefer the repository-backed install unless you are
 testing a specific release artifact.
 
+### SteamOS and other distros (AppImage)
+
+SteamOS and other distributions without a native Keymasq package are covered by
+the AnyLinux AppImage path. The AppImage installs a self-contained runtime
+under `/opt/keymasq`. On systemd systems, it also enables the daemon and session
+services. On non-systemd systems, it installs the core files and writes
+service-manager instructions for the missing daemon supervisor:
+
+```bash
+chmod +x Keymasq-*-x86_64.AppImage
+./Keymasq-*-x86_64.AppImage --install
+```
+
+For the full layout, update, and uninstall behavior, see
+[STEAMOS.md](STEAMOS.md).
+
 ### openSUSE Tumbleweed / Leap
 
 Add the Keymasq repository and install:
@@ -170,7 +186,7 @@ The signing key used for repository metadata and RPM packages is available at
 `https://repo.keymasq.tools/gpg-key.asc`. The current fingerprint is:
 
 ```text
-AC46 70B9 328E B2EA 468E  8FFF E3FD 12BD B158 EBE4
+3B7E C801 343B 3BCF 4739  FD13 1F7F 3E2D 32AA A393
 ```
 
 ### NixOS

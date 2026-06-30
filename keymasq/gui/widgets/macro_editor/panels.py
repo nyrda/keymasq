@@ -27,6 +27,8 @@ _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("hold", "While Held"),
     ("toggle", "Toggle"),
 )
+_REL_MOVE_COORDINATE_RANGE = (-10000, 10000)
+_ABS_MOVE_COORDINATE_RANGE = (-100000, 100000)
 
 
 def _build_option_dropdown(
@@ -876,8 +878,13 @@ class MacroEditorPanelsMixin:
             self._move_y_label.set_visible(True)
             self._move_y_spin.set_visible(True)
             self._move_y_spin.set_sensitive(True)
-            self._move_x_spin.set_range(-10000, 10000)
-            self._move_y_spin.set_range(-10000, 10000)
+            coord_min, coord_max = (
+                _ABS_MOVE_COORDINATE_RANGE
+                if move.mode in {"abs", "natural"}
+                else _REL_MOVE_COORDINATE_RANGE
+            )
+            self._move_x_spin.set_range(coord_min, coord_max)
+            self._move_y_spin.set_range(coord_min, coord_max)
 
             self._updating_props = True
             try:

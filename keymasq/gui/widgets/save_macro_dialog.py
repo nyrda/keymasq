@@ -37,6 +37,7 @@ class SaveMacroDialog(Adw.Dialog):
         self._later_btn: Gtk.Button | None = None
         self._save_edit_btn: Gtk.Button | None = None
         self._edit_after_save = False
+        self._submitted_save_name = ""
         self._build_ui()
         GLib.idle_add(self._load_existing_macro_names)
 
@@ -293,6 +294,7 @@ class SaveMacroDialog(Adw.Dialog):
             return
 
         payload = self._save_payload(name)
+        self._submitted_save_name = name
         self._submit_save(payload)
 
     def _save_payload(self, name: str) -> dict:
@@ -400,7 +402,7 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_save_finished(self, result: dict | None) -> bool:
         if result and result.get("status") == "ok":
-            saved_name = str(result.get("name") or self._name_entry.get_text().strip())
+            saved_name = str(result.get("name") or self._submitted_save_name)
             edit_after_save = self._edit_after_save and bool(saved_name)
             self._saved = True
             self._closing_after_resolution = True

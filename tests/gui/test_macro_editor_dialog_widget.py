@@ -592,6 +592,36 @@ def test_macro_editor_move_modify_button_only_for_natural(monkeypatch) -> None:
     assert dialog._move_capture_btn.get_visible() is True
 
 
+def test_macro_editor_absolute_move_controls_use_screen_coordinate_range(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    move = EditableMove(mode="natural", t_us=0, x=25_000, y=-24_000)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+
+    dialog._on_selection_changed(move)
+
+    assert dialog._move_x_spin.get_value_as_int() == 25_000
+    assert dialog._move_y_spin.get_value_as_int() == -24_000
+    assert dialog._move_x_spin.get_adjustment().get_lower() == -100_000
+    assert dialog._move_x_spin.get_adjustment().get_upper() == 100_000
+    payload = dialog._build_macro_payload("demo_macro")
+    assert payload["events"][0]["macro_action"] == "mouse_move_natural_abs"
+    assert payload["events"][0]["x"] == 25_000
+    assert payload["events"][0]["y"] == -24_000
+
+
+def test_macro_editor_relative_move_controls_keep_compact_coordinate_range(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    move = EditableMove(mode="rel", t_us=0, x=100, y=-100)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+
+    dialog._on_selection_changed(move)
+
+    assert dialog._move_x_spin.get_adjustment().get_lower() == -10_000
+    assert dialog._move_x_spin.get_adjustment().get_upper() == 10_000
+
+
 def test_macro_editor_repeated_abs_move_capture_updates_every_run(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)

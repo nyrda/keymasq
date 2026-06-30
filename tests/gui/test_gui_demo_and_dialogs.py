@@ -768,6 +768,64 @@ class TestSaveMacroDialog:
         assert captured["select_initial_event"] is True
         assert captured["present_parent"] is parent
 
+    def test_save_macro_dialog_save_edit_uses_submitted_name_when_response_omits_name(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: callback(*args) or 0)
+        captured: dict[str, object] = {}
+
+        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+            if payload["command"] == "list_macros":
+                callback({"status": "ok", "macros": []})
+                return
+            captured["save_payload"] = payload
+            if on_start:
+                on_start()
+            callback({"status": "ok"})
+            if on_done:
+                on_done()
+
+        class DummyEditorDialog:
+            def __init__(self, parent, name, *, select_initial_event=True):
+                captured["editor_name"] = name
+                captured["select_initial_event"] = select_initial_event
+
+            def present(self, parent):
+                captured["present_parent"] = parent
+
+        monkeypatch.setattr(
+            save_macro_dialog_module,
+            "session_request_async",
+            fake_session_request_async,
+        )
+        monkeypatch.setattr(macro_editor_dialog_module, "MacroEditorDialog", DummyEditorDialog)
+
+        parent = Gtk.Window()
+        dialog = SaveMacroDialog(
+            parent,
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+                "pending_save_token": "pending-1",
+            },
+        )
+        dialog._name_entry.set_text(".macro.v1_")
+
+        dialog._on_save_edit_clicked(dialog._save_edit_btn)
+
+        assert captured["save_payload"]["name"] == "macro.v1"
+        assert captured["editor_name"] == "macro.v1"
+        assert captured["select_initial_event"] is True
+        assert captured["present_parent"] is parent
+
     def test_save_macro_dialog_keeps_footer_anchored_after_unlock(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

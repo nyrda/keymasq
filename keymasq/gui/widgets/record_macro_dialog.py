@@ -126,7 +126,7 @@ class RecordMacroDialog(Adw.Dialog):
         self._record_start_pos_check.connect("toggled", self._on_record_options_changed)
         start_pos_row = Adw.ActionRow(
             title="Record initial mouse position",
-            subtitle="For 'move to start' playback",
+            subtitle="Adds an editable first cursor move event",
         )
         start_pos_row.add_prefix(self._record_start_pos_check)
         start_pos_row.set_activatable_widget(self._record_start_pos_check)

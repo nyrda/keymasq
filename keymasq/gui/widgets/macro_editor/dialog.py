@@ -38,6 +38,7 @@ from keymasq.gui.widgets.macro_editor.model import (  # noqa: F401
     MacroEvent,
     _describe_compositor_control,
     _describe_passthrough_event,
+    _get_editor_order,
     _get_key_name,
     _passthrough_track,
     parse_events,
@@ -90,6 +91,35 @@ def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
     return width, height
 
 
+def _selection_order(item: object) -> tuple[int, int, int]:
+    if isinstance(item, EditableEvent):
+        original_order = item.original_press_order
+        if original_order is None:
+            original_order = item.original_release_order
+        return _selection_order_tuple(original_order, item.press_t_us, 0)
+    if isinstance(item, EditableMove):
+        return _selection_order_tuple(item.original_order, item.t_us, 1)
+    if isinstance(item, EditableControl):
+        return _selection_order_tuple(item.original_order, item.t_us, 2)
+    if isinstance(item, dict):
+        return _selection_order_tuple(
+            _get_editor_order(item),
+            int(item.get("t_us", 0) or 0),
+            3,
+        )
+    return (1, 2**63 - 1, 4)
+
+
+def _selection_order_tuple(
+    original_order: int | None,
+    t_us: int,
+    priority: int,
+) -> tuple[int, int, int]:
+    if original_order is not None:
+        return (0, int(original_order), int(priority))
+    return (1, int(t_us), int(priority))
+
+
 # ---------------------------------------------------------------------------
 # Main editor dialog
 # ---------------------------------------------------------------------------
@@ -104,7 +134,13 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
     changes through session API calls.
     """
 
-    def __init__(self, parent: Gtk.Window, macro_name: str):
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        macro_name: str,
+        *,
+        select_initial_event: bool = True,
+    ):
         dialog_width, dialog_height = _compute_macro_editor_dialog_size(parent)
         super().__init__(
             title=f"Edit macro ({macro_name})",
@@ -113,6 +149,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         )
         self._parent = parent
         self._macro_name = macro_name
+        self._select_initial_event = bool(select_initial_event)
         self._macro_data: dict = {}
         self._events: list[EditableEvent] = []
         self._rel_events: list[MacroEvent] = []
@@ -123,6 +160,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._macro_loop_mode: str = "none"
         self._macro_loop_count: int = 1
         self._macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+        self._macro_has_legacy_move_to_start: bool = False
         self._macro_move_to_start: bool = False
         self._macro_start_x: int = 0
         self._macro_start_y: int = 0
@@ -298,6 +336,8 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             self._sync_macro_settings_controls()
             self._initial_macro_data = self._current_macro_payload()
             self._refresh_loaded_macro_state()
+            if self._select_initial_event:
+                self._select_first_event()
         else:
             self._initial_macro_data = self._current_macro_payload()
         self._initial_state_loaded = True
@@ -308,6 +348,21 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._update_stats()
         self._timeline.queue_draw()
         self._update_canvas_width()
+
+    def _select_first_event(self) -> None:
+        candidates: list[object] = [
+            *self._events,
+            *self._rel_events,
+            *self._passthrough_events,
+            *self._synthetic_moves,
+            *self._control_events,
+        ]
+        if not candidates:
+            return
+        selected = min(candidates, key=_selection_order)
+        self._timeline._selected = selected
+        self._on_selection_changed(selected)
+        self._timeline.queue_draw()
 
     def _current_macro_payload(self) -> dict:
         name = (
@@ -349,6 +404,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             self._control_events,
         ) = parse_events(raw_events)
         self._duration_us = int(self._macro_data.get("duration_us", 0) or 0)
+        self._macro_has_legacy_move_to_start = "move_to_start" in self._macro_data
         self._macro_move_to_start = bool(self._macro_data.get("move_to_start", False))
         self._macro_start_x = int(self._macro_data.get("start_x", 0) or 0)
         self._macro_start_y = int(self._macro_data.get("start_y", 0) or 0)
@@ -667,7 +723,11 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
             self._timeline._selected = None
             self._revealer.set_reveal_child(False)
             return
-        if isinstance(selected, dict) and selected not in self._passthrough_events:
+        if (
+            isinstance(selected, dict)
+            and selected not in self._rel_events
+            and selected not in self._passthrough_events
+        ):
             self._timeline._selected = None
             self._revealer.set_reveal_child(False)
 
@@ -1118,9 +1178,14 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         data["loop_stop_behavior"] = (
             "finish_run" if self._macro_loop_finish_check.get_active() else "cancel_run"
         )
-        data["move_to_start"] = bool(self._macro_move_to_start_check.get_active())
-        data["start_x"] = int(self._macro_start_x_spin.get_value())
-        data["start_y"] = int(self._macro_start_y_spin.get_value())
+        if self._macro_has_legacy_move_to_start:
+            data["move_to_start"] = bool(self._macro_move_to_start_check.get_active())
+            data["start_x"] = int(self._macro_start_x_spin.get_value())
+            data["start_y"] = int(self._macro_start_y_spin.get_value())
+        else:
+            data.pop("move_to_start", None)
+            data.pop("start_x", None)
+            data.pop("start_y", None)
         data["block_mouse_movement"] = bool(self._macro_block_mouse_check.get_active())
         if raw_events != self._macro_data.get("events", []):
             for key in (

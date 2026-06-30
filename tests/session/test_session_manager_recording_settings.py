@@ -308,6 +308,36 @@ async def test_start_recording_preserves_include_other_device_selection() -> Non
 
 
 @pytest.mark.asyncio
+async def test_start_recording_sends_captured_start_position_to_daemon_start() -> None:
+    manager = SessionManager()
+    sent_payloads: list[dict[str, object]] = []
+
+    async def send_command(command):
+        sent_payloads.append(dict(command.data or {}))
+        if command.command == CommandType.LIST_DEVICES:
+            return Response(status="ok", data={"devices": []})
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
+    manager.compositor_state.window_listener = SimpleNamespace(
+        get_cursor_position=AsyncMock(return_value=(123, 456))
+    )
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": True,
+        "device_overrides": {},
+    }
+
+    result = await session_recording_module.start_recording(manager)
+
+    assert result == {"status": "ok", "recording_slot": 1}
+    assert sent_payloads[1]["record_start_position"] is True
+    assert sent_payloads[1]["start_x"] == 123
+    assert sent_payloads[1]["start_y"] == 456
+
+
+@pytest.mark.asyncio
 async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> None:
     manager = SessionManager()
     manager.profile_state.grabbed_interfaces["045e:02a1"] = {

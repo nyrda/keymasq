@@ -170,6 +170,8 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_start_y_spin.get_value_as_int() == 240
     assert dialog._macro_start_x_spin.get_sensitive() is True
     assert dialog._macro_start_y_spin.get_sensitive() is True
+    assert dialog._legacy_move_to_start_row.get_visible() is True
+    assert dialog._legacy_move_to_start_capture_row.get_visible() is True
     assert dialog._macro_block_mouse_check.get_active() is True
 
 
@@ -590,6 +592,36 @@ def test_macro_editor_move_modify_button_only_for_natural(monkeypatch) -> None:
     assert dialog._move_capture_btn.get_visible() is True
 
 
+def test_macro_editor_absolute_move_controls_use_screen_coordinate_range(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    move = EditableMove(mode="natural", t_us=0, x=25_000, y=-24_000)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+
+    dialog._on_selection_changed(move)
+
+    assert dialog._move_x_spin.get_value_as_int() == 25_000
+    assert dialog._move_y_spin.get_value_as_int() == -24_000
+    assert dialog._move_x_spin.get_adjustment().get_lower() == -100_000
+    assert dialog._move_x_spin.get_adjustment().get_upper() == 100_000
+    payload = dialog._build_macro_payload("demo_macro")
+    assert payload["events"][0]["macro_action"] == "mouse_move_natural_abs"
+    assert payload["events"][0]["x"] == 25_000
+    assert payload["events"][0]["y"] == -24_000
+
+
+def test_macro_editor_relative_move_controls_keep_compact_coordinate_range(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    move = EditableMove(mode="rel", t_us=0, x=100, y=-100)
+    dialog._synthetic_moves = [move]
+    dialog._timeline._selected = move
+
+    dialog._on_selection_changed(move)
+
+    assert dialog._move_x_spin.get_adjustment().get_lower() == -10_000
+    assert dialog._move_x_spin.get_adjustment().get_upper() == 10_000
+
+
 def test_macro_editor_repeated_abs_move_capture_updates_every_run(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
@@ -801,9 +833,9 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     assert payload["loop_count"] == 2
     assert payload["loop_stop_behavior"] == "finish_run"
     assert dialog._macro_loop_finish_check.get_visible() is True
-    assert payload["move_to_start"] is True
-    assert payload["start_x"] == 10
-    assert payload["start_y"] == 20
+    assert "move_to_start" not in payload
+    assert "start_x" not in payload
+    assert "start_y" not in payload
     assert payload["block_mouse_movement"] is True
     assert payload["device_types"] == ["keyboard", "mouse"]
     assert {
@@ -895,6 +927,69 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
     assert reloads == [True]
     assert closed == []
     assert apply_btn.get_sensitive() is True
+
+
+def test_macro_editor_can_select_first_event_on_initial_load(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+
+    dialog._on_initial_state_loaded(
+        GuiTaskResult(
+            value={
+                "timeout_max": 30000,
+                "compositor_status": {},
+                "macro": {
+                    "name": "demo_macro",
+                    "events": [
+                        {
+                            "device_type": "mouse",
+                            "type": evdev.ecodes.EV_REL,
+                            "code": evdev.ecodes.REL_X,
+                            "value": 5,
+                            "t_us": 0,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 1,
+                            "t_us": 0,
+                        },
+                        {
+                            "device_type": "macro",
+                            "type": 0,
+                            "code": 0,
+                            "value": 0,
+                            "t_us": 0,
+                            "macro_action": "mouse_move_natural_abs",
+                            "x": 123,
+                            "y": 456,
+                            "speed": 100_000.0,
+                            "jitter": 0.0,
+                            "curve": "linear",
+                            "tolerance": 2,
+                            "max_duration_ms": 3000,
+                            "stop_on_failure": False,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 0,
+                            "t_us": 1000,
+                        },
+                    ],
+                    "duration_us": 1000,
+                },
+            }
+        )
+    )
+
+    selected = dialog._timeline._selected
+    assert isinstance(selected, dict)
+    assert selected["type"] == evdev.ecodes.EV_REL
+    assert selected["code"] == evdev.ecodes.REL_X
 
 
 def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
@@ -1167,6 +1262,8 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
 
+    assert dialog._legacy_move_to_start_row.get_visible() is False
+    assert dialog._legacy_move_to_start_capture_row.get_visible() is False
     dialog._macro_block_mouse_check.set_active(True)
     assert dialog.get_can_close() is False
 

@@ -12,7 +12,16 @@ from typing import Any
 import evdev
 import tomli_w
 
+from keymasq.common.models import (
+    DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+    DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+)
 from keymasq.keymasqd.macro_store import MacroStore
+from keymasq.keymasqd.recording import (
+    START_MOUSE_MOVE_CURVE,
+    START_MOUSE_MOVE_JITTER,
+    START_MOUSE_MOVE_SPEED,
+)
 
 Json = dict[str, Any]
 
@@ -247,6 +256,25 @@ def _macro_mouse_event(t_us: int, code: str, value: int) -> Json:
         "type": evdev.ecodes.EV_KEY,
         "code": int(getattr(evdev.ecodes, code)),
         "value": value,
+    }
+
+
+def _macro_start_mouse_move_event(t_us: int, x: int, y: int) -> Json:
+    return {
+        "t_us": t_us,
+        "device_type": "macro",
+        "type": 0,
+        "code": 0,
+        "value": 0,
+        "macro_action": "mouse_move_natural_abs",
+        "x": x,
+        "y": y,
+        "speed": START_MOUSE_MOVE_SPEED,
+        "jitter": START_MOUSE_MOVE_JITTER,
+        "curve": START_MOUSE_MOVE_CURVE,
+        "tolerance": DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+        "max_duration_ms": DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
+        "stop_on_failure": False,
     }
 
 
@@ -954,13 +982,10 @@ def _seed_settings(config_dir: Path) -> None:
     _write_toml(
         config_dir / "recording_settings.toml",
         {
-            "recording": {
-                "move_to_start": True,
-                "start_x": 640,
-                "start_y": 360,
-                "block_mouse_movement": True,
-                "selected_devices": ["35ef:0021", "1532:00b4"],
-            }
+            "include_mouse_movement": True,
+            "include_mouse_clicks": True,
+            "record_start_position": True,
+            "device_overrides": {},
         },
     )
 
@@ -975,7 +1000,6 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
         {
             "name": "volume_up",
             "created_at": CREATED_AT,
-            "move_to_start": False,
             "block_mouse_movement": False,
             "loop_mode": "none",
             "events": [
@@ -986,7 +1010,6 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
         {
             "name": "volume_down",
             "created_at": CREATED_AT,
-            "move_to_start": False,
             "block_mouse_movement": False,
             "loop_mode": "none",
             "events": [
@@ -997,12 +1020,10 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
         {
             "name": "open_docs_search",
             "created_at": CREATED_AT,
-            "move_to_start": True,
-            "start_x": 640,
-            "start_y": 360,
             "block_mouse_movement": True,
             "loop_mode": "none",
             "events": [
+                _macro_start_mouse_move_event(0, 640, 360),
                 _macro_key_event(0, "KEY_LEFTCTRL", 1),
                 _macro_key_event(10000, "KEY_L", 1),
                 _macro_key_event(70000, "KEY_L", 0),
@@ -1015,13 +1036,11 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
         {
             "name": "timing_tools_demo",
             "created_at": CREATED_AT,
-            "move_to_start": True,
-            "start_x": 360,
-            "start_y": 240,
             "block_mouse_movement": True,
             "loop_mode": "count",
             "loop_count": 3,
             "events": [
+                _macro_start_mouse_move_event(0, 360, 240),
                 _macro_key_event(0, "KEY_LEFTCTRL", 1),
                 _macro_key_event(15000, "KEY_C", 1),
                 _macro_key_event(80000, "KEY_C", 0),
@@ -1038,13 +1057,6 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
         duration_us = max(int(event.get("t_us", 0) or 0) for event in events) if events else 0
         payload = dict(macro)
         payload["duration_us"] = duration_us
-        payload["device_types"] = sorted(
-            {
-                str(event.get("device_type", "control") or "control")
-                for event in events
-                if isinstance(event, dict)
-            }
-        )
         store.create(payload)
 
     if owner:

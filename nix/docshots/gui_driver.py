@@ -990,6 +990,13 @@ class DocshotRunner:
         )
         profiles._apply_profile_runtime_state(self.window, self._docshot_profile_runtime_state())
 
+    def _settle_runtime_state(self) -> None:
+        if self.window is None:
+            return
+        self._apply_runtime_state()
+        _drain_events()
+        self._apply_runtime_state()
+
     def _runtime_profiles_for_shot(self, shot: Json) -> list[str]:
         target = str(shot.get("target", "") or "")
         if target == "welcome":
@@ -1050,9 +1057,7 @@ class DocshotRunner:
         path = _shot_path(self.output_root, mode, shot)
         try:
             _drain_events()
-            if self.window is not None:
-                self._apply_runtime_state()
-                _drain_events()
+            self._settle_runtime_state()
 
             if self.capture_root_window:
                 self._capture_current_root_window(path, shot)
@@ -1079,6 +1084,7 @@ class DocshotRunner:
 
         _park_pointer()
         _drain_events()
+        self._settle_runtime_state()
         window_id = _widget_window_id(self.window) or _active_window_id()
         _capture_root_window_area(
             path,
@@ -1506,9 +1512,7 @@ class DocshotRunner:
             {
                 "recording_slot": 1,
                 "pending_save_token": "docshot",
-                "move_to_start": True,
-                "start_x": 640,
-                "start_y": 360,
+                "start_position_recorded": True,
                 "block_mouse_movement": True,
             },
         )
@@ -1520,7 +1524,7 @@ class DocshotRunner:
         assert self.window is not None
         target = str(shot.get("target", "") or "")
         macro = str(shot.get("macro", "volume_up") or "volume_up")
-        dialog = MacroEditorDialog(self.window, macro)
+        dialog = MacroEditorDialog(self.window, macro, select_initial_event=False)
         dialog.present(self.window)
         self.current_dialog = dialog
         if target == "macro_editor_timing_tools":

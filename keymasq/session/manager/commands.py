@@ -616,9 +616,6 @@ async def _handle_recording_commands(
         save_result = await runtime_recording.save_recording(
             manager,
             name,
-            move_to_start=bool(request.get("move_to_start", False)),
-            start_x=coerce_int(request.get("start_x"), 0),
-            start_y=coerce_int(request.get("start_y"), 0),
             block_mouse_movement=bool(request.get("block_mouse_movement", False)),
             recording_slot=coerce_int(request.get("recording_slot"), 0),
             pending_save_token=pending_save_token,

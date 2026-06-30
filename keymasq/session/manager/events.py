@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
-from keymasq.common.coercion import coerce_int, coerce_str
+from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.models import (
     MAX_MACRO_RECORDING_SLOTS,
@@ -281,9 +281,7 @@ async def handle_event(
         recording_data = dict(data)
         recording_data["recording_slot"] = recording_slot
         if manager.recording_state.start_cursor:
-            recording_data["start_x"] = int(manager.recording_state.start_cursor[0])
-            recording_data["start_y"] = int(manager.recording_state.start_cursor[1])
-            recording_data["move_to_start"] = True
+            recording_data["start_position_recorded"] = True
         pending_save_token = await runtime_recording.store_pending_macro_save(
             manager,
             recording_data,
@@ -292,22 +290,20 @@ async def handle_event(
         _notify_recording_stopped(manager, recording_slot, recording_data)
         manager.recording_state.start_cursor = None
         manager.recording_state.active_slot = 0
-        manager.broadcast_to_session_clients(
-            {
-                "event": "recording_stopped",
-                "pending_save_token": pending_save_token,
-                "recording_slot": recording_slot,
-                "duration_ms": recording_data.get("duration_ms", 0),
-                "event_count": coerce_int(
-                    recording_data.get("event_count"),
-                    0,
-                ),
-                "device_types": recording_data.get("device_types", []),
-                "start_x": recording_data.get("start_x"),
-                "start_y": recording_data.get("start_y"),
-                "move_to_start": recording_data.get("move_to_start", False),
-            }
-        )
+        stopped_payload: JsonObject = {
+            "event": "recording_stopped",
+            "pending_save_token": pending_save_token,
+            "recording_slot": recording_slot,
+            "duration_ms": recording_data.get("duration_ms", 0),
+            "event_count": coerce_int(
+                recording_data.get("event_count"),
+                0,
+            ),
+            "device_types": recording_data.get("device_types", []),
+        }
+        if coerce_bool(recording_data.get("start_position_recorded"), False):
+            stopped_payload["start_position_recorded"] = True
+        manager.broadcast_to_session_clients(stopped_payload)
         return
 
     if event_type == CommandType.RECORDING_PROGRESS:

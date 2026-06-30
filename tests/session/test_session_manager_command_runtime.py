@@ -1095,6 +1095,7 @@ async def test_recording_stopped_event_notifies_user_with_slot_summary() -> None
     manager = SessionManager()
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.recording_state.start_cursor = (123, 456)
 
     await session_events_module.handle_event(
         manager,
@@ -1117,7 +1118,9 @@ async def test_recording_stopped_event_notifies_user_with_slot_summary() -> None
     assert broadcast["recording_slot"] == 2
     assert broadcast["duration_ms"] == 1300
     assert broadcast["event_count"] == 3
+    assert broadcast["start_position_recorded"] is True
     assert manager.recording_state.pending_slots[2].data["pending_recording_id"] == "recording-2"
+    assert manager.recording_state.pending_slots[2].data["start_position_recorded"] is True
 
 
 @pytest.mark.asyncio
@@ -1154,9 +1157,7 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
         manager,
         {
             "pending_recording_id": "recording-4",
-            "move_to_start": True,
-            "start_x": 120,
-            "start_y": 240,
+            "start_position_recorded": True,
             "block_mouse_movement": True,
         },
         slot=4,
@@ -1187,9 +1188,6 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
         "loop_mode": "none",
         "loop_count": 1,
         "loop_stop_behavior": "finish_run",
-        "move_to_start": True,
-        "start_x": 120,
-        "start_y": 240,
         "block_mouse_movement": True,
         "source_device": "kbd",
         "source_button": "key_f13",
@@ -2643,9 +2641,9 @@ async def test_save_recording_keeps_pending_macro_save_slot(
     sent_command = manager.client.send_command.await_args.args[0]
     assert sent_command.command == CommandType.MACRO_SAVE_RECORDING
     assert sent_command.data["pending_recording_id"] == "recording-1"
-    assert sent_command.data["move_to_start"] is True
-    assert sent_command.data["start_x"] == 100
-    assert sent_command.data["start_y"] == 200
+    assert "move_to_start" not in sent_command.data
+    assert "start_x" not in sent_command.data
+    assert "start_y" not in sent_command.data
     assert sent_command.data["block_mouse_movement"] is True
     assert manager.recording_state.pending_save is not None
     assert manager.recording_state.pending_save.token == "pending-1"
@@ -2658,9 +2656,6 @@ async def test_save_recording_keeps_pending_macro_save_slot(
         "event_count": 1,
         "recording_slot": 1,
         "pending_save_token": "pending-1",
-        "move_to_start": True,
-        "start_x": 100,
-        "start_y": 200,
         "block_mouse_movement": True,
     }
 

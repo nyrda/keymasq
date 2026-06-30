@@ -107,6 +107,7 @@ target = "save_macro_dialog"
 name = "keymasq_edit_macro_1"
 target = "macro_editor"
 macro = "volume_up"
+window_width = 1220
 
 [[shot]]
 name = "keymasq_type_macro_creation"
@@ -132,11 +133,13 @@ selector_tab = "macro"
 name = "keymasq_macro_edit_loop_modes"
 target = "macro_editor_loop_menu"
 macro = "volume_up"
+window_width = 1220
 
 [[shot]]
 name = "macro_edit_wait_wait_random_markers"
 target = "macro_editor"
 macro = "timing_tools_demo"
+window_width = 1220
 
 [[shot]]
 name = "macro_edit_timing_tools"
@@ -289,6 +292,7 @@ window_height = 1080
 name = "examples/macro_editor_volume_up"
 target = "macro_editor"
 macro = "volume_up"
+window_width = 1220
 
 [[shot]]
 name = "examples/superkey_volume_rocker_actions"

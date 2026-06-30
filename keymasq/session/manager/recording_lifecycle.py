@@ -434,9 +434,7 @@ async def stop_recording(
         if result_data is not None:
             recording_data = dict(result_data)
             if manager.recording_state.start_cursor:
-                recording_data["start_x"] = int(manager.recording_state.start_cursor[0])
-                recording_data["start_y"] = int(manager.recording_state.start_cursor[1])
-                recording_data["move_to_start"] = True
+                recording_data["start_position_recorded"] = True
             recording_data["recording_slot"] = slot
             pending_save_token = await store_pending_macro_save(
                 manager,
@@ -514,9 +512,6 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
         "loop_mode": "none",
         "loop_count": 1,
         "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-        "move_to_start": coerce_bool(pending_data.get("move_to_start"), False),
-        "start_x": coerce_int(pending_data.get("start_x"), 0),
-        "start_y": coerce_int(pending_data.get("start_y"), 0),
         "block_mouse_movement": coerce_bool(pending_data.get("block_mouse_movement"), False),
         "source_device": str(data.get("source_device", "") or ""),
         "source_button": str(data.get("source_button", "") or ""),
@@ -692,6 +687,8 @@ async def start_recording(
             result_data = json_object(result.data)
             if result.status == "ok" and result_data is not None:
                 recording_data = dict(result_data)
+                if manager.recording_state.start_cursor:
+                    recording_data["start_position_recorded"] = True
                 recording_data["recording_slot"] = slot
                 await store_pending_macro_save(
                     manager,
@@ -702,6 +699,7 @@ async def start_recording(
             log.debug("Failed to stop active recording before starting a new one", exc_info=True)
         manager.recording_state.active = False
         manager.recording_state.active_slot = 0
+        manager.recording_state.start_cursor = None
         _clear_active_recording_owner(manager)
 
     replace_pending_slot = has_pending_macro_save(manager, recording_slot=slot)
@@ -752,17 +750,20 @@ async def start_recording(
         log.debug("Recording start: record_start_position is disabled")
 
     try:
+        start_payload: JsonObject = {
+            "recording_slot": slot,
+            "devices": devices,
+            "include_mouse_movement": include_mouse_movement,
+            "include_mouse_clicks": include_mouse_clicks,
+        }
+        if manager.recording_state.start_cursor is not None:
+            start_payload["record_start_position"] = True
+            start_payload["start_x"] = start_x
+            start_payload["start_y"] = start_y
         result = await manager.client.send_command(
             Command(
                 command=CommandType.START_RECORDING,
-                data={
-                    "recording_slot": slot,
-                    "devices": devices,
-                    "include_mouse_movement": include_mouse_movement,
-                    "include_mouse_clicks": include_mouse_clicks,
-                    "start_x": start_x,
-                    "start_y": start_y,
-                },
+                data=start_payload,
             )
         )
     except (OSError, TimeoutError, EOFError):
@@ -797,9 +798,6 @@ async def start_recording(
 async def save_recording(
     manager: "SessionManager",
     name: str,
-    move_to_start: bool = False,
-    start_x: int = 0,
-    start_y: int = 0,
     block_mouse_movement: bool = False,
     recording_slot: int = 0,
     pending_save_token: str = "",
@@ -830,9 +828,6 @@ async def save_recording(
         "name": safe_name,
         "created_at": datetime.now().isoformat(),
         "pending_recording_id": pending_recording_id,
-        "move_to_start": bool(move_to_start),
-        "start_x": int(start_x),
-        "start_y": int(start_y),
         "block_mouse_movement": bool(block_mouse_movement),
     }
     try:
@@ -852,9 +847,6 @@ async def save_recording(
         if created is not None:
             created_name = str(created.get("name", safe_name))
 
-    data["move_to_start"] = bool(move_to_start)
-    data["start_x"] = int(start_x)
-    data["start_y"] = int(start_y)
     data["block_mouse_movement"] = bool(block_mouse_movement)
     _sync_pending_macro_save(manager)
     manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
@@ -872,24 +864,22 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
         duration_us = coerce_int(data.get("duration_us"), duration_ms * 1000)
         device_types = [str(value) for value in json_list(data.get("device_types"))]
         event_count = coerce_int(data.get("event_count"), 0)
-        out.append(
-            {
-                "kind": "recording_slot",
-                "name": f"__recording_slot_{slot}",
-                "display_name": f"Slot {slot}",
-                "recording_slot": int(slot),
-                "pending_save_token": token,
-                "pending": True,
-                "editable": False,
-                "playable": True,
-                "duration_us": duration_us,
-                "duration_ms": duration_ms,
-                "device_types": device_types,
-                "event_count": event_count,
-                "move_to_start": coerce_bool(data.get("move_to_start"), False),
-                "start_x": coerce_int(data.get("start_x"), 0),
-                "start_y": coerce_int(data.get("start_y"), 0),
-                "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
-            }
-        )
+        item: JsonObject = {
+            "kind": "recording_slot",
+            "name": f"__recording_slot_{slot}",
+            "display_name": f"Slot {slot}",
+            "recording_slot": int(slot),
+            "pending_save_token": token,
+            "pending": True,
+            "editable": False,
+            "playable": True,
+            "duration_us": duration_us,
+            "duration_ms": duration_ms,
+            "device_types": device_types,
+            "event_count": event_count,
+            "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
+        }
+        if coerce_bool(data.get("start_position_recorded"), False):
+            item["start_position_recorded"] = True
+        out.append(item)
     return out

@@ -462,6 +462,7 @@ class SuperkeyDialog(Adw.Dialog):
         self._selection_warning_dialog: Adw.AlertDialog | None = None
         self._active_selection_key: tuple[str, str | None] | None = None
         self._pending_selection_key: tuple[str, str | None] | None = None
+        self._pending_new_superkey_after_warning = False
         self._suppress_selection_guard = False
         self._mode_items = [SuperkeyMode.PATTERN, SuperkeyMode.OVERLOAD]
         self.new_superkey_row: Gtk.ListBoxRow | None = None
@@ -883,11 +884,15 @@ class SuperkeyDialog(Adw.Dialog):
             and selection_key != self._active_selection_key
         ):
             self._pending_selection_key = selection_key
+            self._pending_new_superkey_after_warning = selection_key == ("new", None)
             self._restore_active_selection()
             self._show_unsaved_selection_warning()
             return
 
         if getattr(row, "_is_new_superkey", False):
+            if self._new_superkey_reset_needs_warning():
+                self._queue_new_superkey_warning()
+                return
             self._begin_new_superkey()
             return
 
@@ -1059,6 +1064,15 @@ class SuperkeyDialog(Adw.Dialog):
         self.name_entry.grab_focus()
 
     def _on_new_clicked(self, _button) -> None:
+        self._request_new_superkey()
+
+    def _request_new_superkey(self) -> None:
+        if self._new_superkey_reset_needs_warning():
+            self._queue_new_superkey_warning()
+            return
+        self._select_or_begin_new_superkey()
+
+    def _select_or_begin_new_superkey(self) -> None:
         if (
             self.new_superkey_row is not None
             and self.list_box.get_selected_row() is not self.new_superkey_row
@@ -1066,6 +1080,41 @@ class SuperkeyDialog(Adw.Dialog):
             self.list_box.select_row(self.new_superkey_row)
         else:
             self._begin_new_superkey()
+
+    def _new_superkey_reset_needs_warning(self) -> bool:
+        if not self._modified:
+            return False
+        if self._active_selection_key != ("new", None):
+            return True
+        return not self._is_pristine_new_superkey_draft()
+
+    def _is_pristine_new_superkey_draft(self) -> bool:
+        default = SuperkeyConfig(name="New Super Key")
+        return (
+            self.name_entry.get_text() == default.name
+            and self.desc_entry.get_text() == ""
+            and self._current_mode() == default.mode
+            and not self.tap_row._action_items
+            and not self.double_tap_row._action_items
+            and not self.hold_row._action_items
+            and not self.tap_hold_row._action_items
+            and not self.overload_row._action_items
+            and not self.overload_down_row._action_items
+            and not self.overload_up_row._action_items
+            and self.tap_timeout_spin.get_value_as_int() == default.tap_timeout_ms
+            and (
+                self.double_tap_window_spin.get_value_as_int()
+                == default.double_tap_window_ms
+            )
+            and self.hold_threshold_spin.get_value_as_int() == default.hold_threshold_ms
+        )
+
+    def _queue_new_superkey_warning(self) -> None:
+        if self._selection_warning_dialog is not None:
+            return
+        self._pending_selection_key = ("new", None)
+        self._pending_new_superkey_after_warning = True
+        self._show_unsaved_selection_warning()
 
     def start_new_superkey(self) -> None:
         self._on_new_clicked(None)
@@ -1275,7 +1324,11 @@ class SuperkeyDialog(Adw.Dialog):
 
         dialog = Adw.AlertDialog()
         dialog.set_heading("Unsaved Super Key Changes")
-        dialog.set_body("Save your changes before switching, or discard them?")
+        dialog.set_body(
+            "Save your changes before starting a new Super Key, or discard them?"
+            if self._pending_new_superkey_after_warning
+            else "Save your changes before switching, or discard them?"
+        )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("discard", "Discard")
         dialog.add_response("save", "Save")
@@ -1289,15 +1342,23 @@ class SuperkeyDialog(Adw.Dialog):
 
     def _on_unsaved_selection_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
         pending_key = self._pending_selection_key
+        pending_new_superkey = self._pending_new_superkey_after_warning
         self._selection_warning_dialog = None
         self._pending_selection_key = None
+        self._pending_new_superkey_after_warning = False
         if response == "discard":
             self._modified = False
             self._update_buttons()
-            self._select_selection_key(pending_key)
+            if pending_new_superkey:
+                self._select_or_begin_new_superkey()
+            else:
+                self._select_selection_key(pending_key)
             return
         if response == "save" and self._save_current_superkey():
-            self._select_selection_key(pending_key)
+            if pending_new_superkey:
+                self._select_or_begin_new_superkey()
+            else:
+                self._select_selection_key(pending_key)
 
     def _on_superkeys_docs_clicked(self, _button: Gtk.Button) -> None:
         url = _superkeys_docs_url()

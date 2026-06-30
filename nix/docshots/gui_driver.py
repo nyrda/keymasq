@@ -1524,7 +1524,7 @@ class DocshotRunner:
         assert self.window is not None
         target = str(shot.get("target", "") or "")
         macro = str(shot.get("macro", "volume_up") or "volume_up")
-        dialog = MacroEditorDialog(self.window, macro)
+        dialog = MacroEditorDialog(self.window, macro, select_initial_event=False)
         dialog.present(self.window)
         self.current_dialog = dialog
         if target == "macro_editor_timing_tools":

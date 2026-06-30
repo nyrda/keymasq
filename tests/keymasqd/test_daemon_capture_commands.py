@@ -267,6 +267,8 @@ async def test_macro_save_recording_does_not_create_start_move_on_save(daemon_te
     assert stored_payloads[0]["event_count"] == 1
     assert stored_payloads[0]["device_types"] == ["keyboard"]
     assert "move_to_start" not in stored_payloads[0]
+    assert "start_x" not in stored_payloads[0]
+    assert "start_y" not in stored_payloads[0]
     assert stored_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
 
 
@@ -416,8 +418,18 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
     )
 
 
+@pytest.mark.parametrize(
+    "extra_payload",
+    [
+        {"record_start_position": True},
+        {"move_to_start": True},
+    ],
+)
 @pytest.mark.asyncio
-async def test_start_recording_forwards_start_position_to_recording_manager(daemon_testbed):
+async def test_start_recording_forwards_requested_start_position_to_recording_manager(
+    daemon_testbed,
+    extra_payload,
+):
     daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
 
     result = await daemon._handle_command(
@@ -427,6 +439,7 @@ async def test_start_recording_forwards_start_position_to_recording_manager(daem
             "recording_slot": 1,
             "start_x": 123,
             "start_y": 456,
+            **extra_payload,
         },
     )
 
@@ -437,6 +450,42 @@ async def test_start_recording_forwards_start_position_to_recording_manager(daem
         include_mouse_clicks=False,
         recording_slot=1,
         start_position=(123, 456),
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_payload",
+    [
+        {},
+        {"record_start_position": False},
+        {"move_to_start": False},
+    ],
+)
+@pytest.mark.asyncio
+async def test_start_recording_ignores_unrequested_start_coordinates(
+    daemon_testbed,
+    extra_payload,
+):
+    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.START_RECORDING,
+        {
+            "devices": [],
+            "recording_slot": 1,
+            "start_x": 123,
+            "start_y": 456,
+            **extra_payload,
+        },
+    )
+
+    assert result == {"recording": "started"}
+    recording_manager.start.assert_awaited_once_with(
+        [],
+        include_mouse_movement=False,
+        include_mouse_clicks=False,
+        recording_slot=1,
+        start_position=None,
     )
 
 

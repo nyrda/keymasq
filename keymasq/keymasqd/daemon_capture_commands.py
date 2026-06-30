@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import Protocol, cast
 
-from keymasq.common.coercion import coerce_float, coerce_int
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject, JsonObjectList
@@ -140,6 +140,11 @@ async def handle_capture_command(
 
 
 def _start_position_from_data(data: JsonObject) -> tuple[int, int] | None:
+    if not (
+        coerce_bool(data.get("record_start_position"), False)
+        or coerce_bool(data.get("move_to_start"), False)
+    ):
+        return None
     if "start_x" not in data or "start_y" not in data:
         return None
     return coerce_int(data.get("start_x"), 0), coerce_int(data.get("start_y"), 0)

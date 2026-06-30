@@ -1,3 +1,5 @@
+import re
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -7,6 +9,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.session_client import session_request_async
+
+_MACRO_NAME_SAFE_RE = re.compile(r"[^a-zA-Z0-9_.-]")
+
+
+def _normalized_macro_name(name: str) -> str:
+    return _MACRO_NAME_SAFE_RE.sub("_", name.strip()).strip("._")
 
 
 class SaveMacroDialog(Adw.Dialog):
@@ -226,9 +234,9 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_existing_macro_names_loaded(self, result: dict | None) -> bool:
         self._existing_macro_names = {
-            str(m.get("name", ""))
+            normalized
             for m in (result or {}).get("macros", [])
-            if str(m.get("name", ""))
+            if (normalized := _normalized_macro_name(str(m.get("name", ""))))
         }
         current_name = self._name_entry.get_text()
         if current_name:
@@ -238,27 +246,21 @@ class SaveMacroDialog(Adw.Dialog):
         return False
 
     def _on_name_changed(self, entry: Gtk.Entry) -> None:
-        self._validate_name(entry.get_text().strip())
+        self._validate_name(entry.get_text())
 
     def _on_name_activated(self, entry: Gtk.Entry) -> None:
         if self._save_btn.get_sensitive():
             self._on_save_clicked(self._save_btn)
 
     def _validate_name(self, name: str) -> None:
-        if not name:
+        normalized_name = _normalized_macro_name(name)
+        if not normalized_name:
             self._show_error("Name cannot be empty")
             self._set_submit_buttons_sensitive(False)
             return
 
-        import re
-
-        if not re.match(r"^[a-zA-Z0-9_\-]+$", name):
-            self._show_error("Only letters, numbers, underscores and hyphens allowed")
-            self._set_submit_buttons_sensitive(False)
-            return
-
-        if name in self._existing_macro_names:
-            self._show_error(f"A macro named '{name}' already exists")
+        if normalized_name in self._existing_macro_names:
+            self._show_error(f"A macro named '{normalized_name}' already exists")
             self._set_submit_buttons_sensitive(False)
             return
 
@@ -268,7 +270,7 @@ class SaveMacroDialog(Adw.Dialog):
         )
 
     def _refresh_submit_state(self) -> None:
-        self._validate_name(self._name_entry.get_text().strip())
+        self._validate_name(self._name_entry.get_text())
 
     def _show_error(self, message: str) -> None:
         self._error_label.set_label(message)
@@ -286,7 +288,7 @@ class SaveMacroDialog(Adw.Dialog):
         self._save_current_name()
 
     def _save_current_name(self) -> None:
-        name = self._name_entry.get_text().strip()
+        name = _normalized_macro_name(self._name_entry.get_text())
         if not name or not self._persist_unlock_ready():
             return
 
@@ -419,7 +421,7 @@ class SaveMacroDialog(Adw.Dialog):
     def _present_saved_macro_editor(self, name: str) -> bool:
         from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
 
-        dialog = MacroEditorDialog(self._parent, name)
+        dialog = MacroEditorDialog(self._parent, name, select_initial_event=True)
         dialog.present(self._parent)
         return False
 

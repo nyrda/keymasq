@@ -757,6 +757,7 @@ async def start_recording(
             "include_mouse_clicks": include_mouse_clicks,
         }
         if manager.recording_state.start_cursor is not None:
+            start_payload["record_start_position"] = True
             start_payload["start_x"] = start_x
             start_payload["start_y"] = start_y
         result = await manager.client.send_command(

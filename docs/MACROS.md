@@ -112,7 +112,7 @@ reach them will be captured too, which is rarely what you want.
 
 | Option | What it does |
 |---|---|
-| Move to start | Add an editable natural mouse move at the start of the macro that returns the cursor to the position it was at when recording began. |
+| Move to start | When enabled before recording starts, Keymasq records the cursor position automatically and stores it as an editable first event. The save dialog only reports whether a start position was recorded. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
 **Recording sources:** the recording settings dialog separates Keymasq output

@@ -924,6 +924,37 @@ class TestSaveMacroDialog:
         assert dialog._name_entry.get_text() == "custom_macro"
         assert dialog._save_btn.get_sensitive() is True
 
+    def test_save_macro_dialog_name_validation_matches_backend_normalization(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+
+        dialog = SaveMacroDialog(
+            Gtk.Window(),
+            {
+                "duration_ms": 100,
+                "event_count": 2,
+                "device_types": ["keyboard"],
+            },
+        )
+        dialog._on_existing_macro_names_loaded({"macros": [{"name": "macro.v1"}]})
+
+        dialog._name_entry.set_text("macro.v2")
+        assert dialog._save_btn.get_sensitive() is True
+
+        dialog._name_entry.set_text("_")
+        assert dialog._save_btn.get_sensitive() is False
+        assert dialog._error_label.get_label() == "Name cannot be empty"
+
+        dialog._name_entry.set_text(".macro.v1_")
+        assert dialog._save_btn.get_sensitive() is False
+        assert dialog._error_label.get_label() == "A macro named 'macro.v1' already exists"
+
     def test_save_macro_dialog_later_keeps_pending_slot(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

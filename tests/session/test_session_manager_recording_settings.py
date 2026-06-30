@@ -332,6 +332,7 @@ async def test_start_recording_sends_captured_start_position_to_daemon_start() -
     result = await session_recording_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
+    assert sent_payloads[1]["record_start_position"] is True
     assert sent_payloads[1]["start_x"] == 123
     assert sent_payloads[1]["start_y"] == 456
 

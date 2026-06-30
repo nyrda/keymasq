@@ -108,11 +108,11 @@ reach them will be captured too, which is rarely what you want.
 > Manager, then **Stop** in the GUI, but be aware that interacting with the GUI
 > during a recording will capture those inputs.
 
-**Options available when saving:**
+**Recording and save options:**
 
 | Option | What it does |
 |---|---|
-| Move to start | When enabled before recording starts, Keymasq records the cursor position automatically and stores it as an editable first event. The save dialog only reports whether a start position was recorded. |
+| Record initial mouse position | When enabled before recording starts, Keymasq records the cursor position automatically and stores it as an editable first cursor move event. The save dialog only reports whether a start position was recorded. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
 
 **Recording sources:** the recording settings dialog separates Keymasq output
@@ -133,7 +133,7 @@ Recording preferences are stored in
 `~/.config/keymasq/recording_settings.toml`. Device-specific overrides use
 stable recording IDs instead of volatile `/dev/input/eventN` paths.
 
-![Recording settings — Move to start and Block mouse movement options](assets/screenshots/keymasq_macro_recording_settings.png)
+![Recording settings — initial mouse position and source options](assets/screenshots/keymasq_macro_recording_settings.png)
 
 ![Save dialog — name your recorded macro before saving](assets/screenshots/keymasq_save_macro_dialog.png)
 

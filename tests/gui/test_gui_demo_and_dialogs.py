@@ -821,7 +821,9 @@ class TestSaveMacroDialog:
 
         dialog._on_save_edit_clicked(dialog._save_edit_btn)
 
-        assert captured["save_payload"]["name"] == "macro.v1"
+        save_payload = captured["save_payload"]
+        assert isinstance(save_payload, dict)
+        assert save_payload["name"] == "macro.v1"
         assert captured["editor_name"] == "macro.v1"
         assert captured["select_initial_event"] is True
         assert captured["present_parent"] is parent

@@ -88,8 +88,10 @@ class TimelineWidget(Gtk.DrawingArea):
 
         # Erase-mode drag state. Left-drag bands are clamped to the track the
         # drag started in; a right-drag ripple band uses the sentinel "all".
+        # The anchor is kept in time-space so edge auto-scroll can shift the
+        # visible slice without the band's fixed end drifting with it.
         self._erase_track: str | None = None
-        self._erase_anchor_x: float = 0.0
+        self._erase_anchor_t_us: int = 0
         self._erase_x0: float | None = None
         self._erase_x1: float | None = None
         self._erase_pending: list[object] = []
@@ -476,7 +478,7 @@ class TimelineWidget(Gtk.DrawingArea):
             # In erase mode a drag sweeps a delete band instead of moving events;
             # clicks below the drag threshold still select as usual.
             self._erase_track = self._get_track_at_y(start_y)
-            self._erase_anchor_x = start_x
+            self._erase_anchor_t_us = self._x_to_time_us(start_x)
             self._drag_event = None
             self._drag_move = None
             self._drag_control = None
@@ -503,15 +505,9 @@ class TimelineWidget(Gtk.DrawingArea):
                 if abs(offset_x) < 4:
                     return
                 self._in_drag = True
-            x_end = self._erase_anchor_x + offset_x
-            self._erase_x0 = min(self._erase_anchor_x, x_end)
-            self._erase_x1 = max(self._erase_anchor_x, x_end)
-            self._erase_pending = self._collect_erase_hits(
-                self._erase_track,
-                self._erase_x0,
-                self._erase_x1,
-            )
-            self.queue_draw()
+            self._drag_last_offset_x = float(offset_x)
+            self._apply_erase_band()
+            self._update_autoscroll(self._drag_start_x + float(offset_x))
             return
         if (
             self._drag_event is None and self._drag_move is None and self._drag_control is None
@@ -551,6 +547,28 @@ class TimelineWidget(Gtk.DrawingArea):
             self._drag_control.t_us = new_t
             self._editor._control_events.sort(key=lambda c: c.t_us)
             self._editor._on_selection_changed(self._drag_control)
+        self.queue_draw()
+
+    def _apply_erase_band(self) -> None:
+        """Recompute the erase band between the time-space anchor and the
+        pointer, so the fixed end stays put while edge auto-scroll shifts
+        the visible slice."""
+        if self._erase_track is None:
+            return
+        anchor_x = self._time_to_x(self._erase_anchor_t_us)
+        pointer_x = self._drag_start_x + self._drag_last_offset_x
+        self._erase_x0 = min(anchor_x, pointer_x)
+        self._erase_x1 = max(anchor_x, pointer_x)
+        if self._erase_track == "all":
+            t0_us = max(0, self._x_to_time_us(self._erase_x0))
+            t1_us = max(t0_us, self._x_to_time_us(self._erase_x1))
+            self._erase_pending = self._collect_ripple_hits(t0_us, t1_us)
+        else:
+            self._erase_pending = self._collect_erase_hits(
+                self._erase_track,
+                self._erase_x0,
+                self._erase_x1,
+            )
         self.queue_draw()
 
     def _edge_autoscroll_velocity(self, pointer_x: float) -> float:
@@ -602,7 +620,10 @@ class TimelineWidget(Gtk.DrawingArea):
             self._autoscroll_tick_id = 0
             self._autoscroll_velocity = 0.0
             return GLib.SOURCE_REMOVE
-        self._apply_drag_position()
+        if self._erase_track is not None:
+            self._apply_erase_band()
+        else:
+            self._apply_drag_position()
         return GLib.SOURCE_CONTINUE
 
     def _on_drag_end(self, gesture, offset_x, offset_y) -> None:
@@ -644,8 +665,11 @@ class TimelineWidget(Gtk.DrawingArea):
         if not self._editor._erase_mode:
             return
         self._reset_erase_drag()
+        self._stop_autoscroll()
         self._erase_track = "all"
-        self._erase_anchor_x = start_x
+        self._erase_anchor_t_us = self._x_to_time_us(start_x)
+        self._drag_start_x = float(start_x)
+        self._drag_last_offset_x = 0.0
         self._right_press_x = start_x
         self._right_press_y = start_y
         self._in_drag = False
@@ -657,15 +681,12 @@ class TimelineWidget(Gtk.DrawingArea):
             if abs(offset_x) < 4:
                 return
             self._in_drag = True
-        x_end = self._erase_anchor_x + offset_x
-        self._erase_x0 = min(self._erase_anchor_x, x_end)
-        self._erase_x1 = max(self._erase_anchor_x, x_end)
-        t0_us = max(0, self._x_to_time_us(self._erase_x0))
-        t1_us = max(t0_us, self._x_to_time_us(self._erase_x1))
-        self._erase_pending = self._collect_ripple_hits(t0_us, t1_us)
-        self.queue_draw()
+        self._drag_last_offset_x = float(offset_x)
+        self._apply_erase_band()
+        self._update_autoscroll(self._drag_start_x + float(offset_x))
 
     def _on_right_drag_end(self, gesture, offset_x, offset_y) -> None:
+        self._stop_autoscroll()
         if not self._editor._erase_mode or self._erase_track != "all":
             return
         x0 = self._erase_x0

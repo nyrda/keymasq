@@ -2045,6 +2045,77 @@ def test_macro_editor_erase_mode_click_still_selects_and_never_moves(monkeypatch
     assert keyboard not in dialog._events
 
 
+def test_macro_editor_edge_autoscroll_velocity_ramps_at_edges(monkeypatch) -> None:
+    dialog, *_ = _build_erase_mode_dialog(monkeypatch)
+    timeline = dialog._timeline
+    timeline.get_width = lambda: 800  # pretend a realized 800px viewport
+
+    margin = timeline.EDGE_SCROLL_MARGIN
+    assert timeline._edge_autoscroll_velocity(400.0) == 0.0
+    assert timeline._edge_autoscroll_velocity(timeline.LABEL_WIDTH + margin + 1.0) == 0.0
+    assert timeline._edge_autoscroll_velocity(timeline.LABEL_WIDTH + 4.0) < 0.0
+    assert timeline._edge_autoscroll_velocity(800.0 - margin + 4.0) > 0.0
+    # Fully at (or past) the edge scrolls at the maximum speed.
+    assert timeline._edge_autoscroll_velocity(0.0) == -timeline.EDGE_SCROLL_MAX_SPEED
+    assert timeline._edge_autoscroll_velocity(820.0) == timeline.EDGE_SCROLL_MAX_SPEED
+
+    # An unrealized (zero-width) widget never auto-scrolls.
+    timeline.get_width = lambda: 0
+    assert timeline._edge_autoscroll_velocity(820.0) == 0.0
+
+
+def test_macro_editor_move_drag_folds_autoscroll_into_position(monkeypatch) -> None:
+    dialog, keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    dialog._erase_btn.set_active(False)
+    dialog._drag_locked = False
+    timeline = dialog._timeline
+    timeline.get_width = lambda: 800
+
+    x_press = timeline._time_to_x(keyboard.press_t_us) + 2.0
+    timeline._on_drag_begin(None, x_press, timeline._kb_y + 12)
+    timeline._on_drag_update(None, 10.0, 0.0)
+    assert timeline._in_drag
+    press_after_drag = keyboard.press_t_us
+    assert press_after_drag > 50_000
+
+    # Simulate edge auto-scroll advancing the visible slice under a stationary
+    # pointer: reapplying the drag must fold the scroll delta into the time.
+    timeline.set_scroll_offset(timeline._scroll_offset + 20.0)
+    timeline._apply_drag_position()
+    scrolled_delta_us = int(20.0 / timeline._pps * 1e6)
+    assert keyboard.press_t_us == press_after_drag + scrolled_delta_us
+
+    timeline._on_drag_end(None, 10.0, 0.0)
+    assert timeline._autoscroll_tick_id == 0
+    assert keyboard.press_t_us == press_after_drag + scrolled_delta_us
+
+
+def test_macro_editor_move_drag_arms_autoscroll_only_at_edges(monkeypatch) -> None:
+    dialog, keyboard, *_ = _build_erase_mode_dialog(monkeypatch)
+    dialog._erase_btn.set_active(False)
+    dialog._drag_locked = False
+    timeline = dialog._timeline
+    timeline.get_width = lambda: 800
+
+    x_press = timeline._time_to_x(keyboard.press_t_us) + 2.0
+    timeline._on_drag_begin(None, x_press, timeline._kb_y + 12)
+
+    # Pointer in the middle of the slice: no auto-scroll.
+    timeline._on_drag_update(None, 300.0 - x_press, 0.0)
+    assert timeline._autoscroll_tick_id == 0
+
+    # Pointer parked at the right edge: the auto-scroll tick arms.
+    timeline._on_drag_update(None, 799.0 - x_press, 0.0)
+    assert timeline._autoscroll_tick_id != 0
+    assert timeline._autoscroll_velocity > 0.0
+
+    # Back inside the slice: the tick disarms.
+    timeline._on_drag_update(None, 300.0 - x_press, 0.0)
+    assert timeline._autoscroll_tick_id == 0
+
+    timeline._on_drag_end(None, 300.0 - x_press, 0.0)
+
+
 def test_macro_editor_erase_band_draws_with_pending_highlights(monkeypatch) -> None:
     import cairo
 

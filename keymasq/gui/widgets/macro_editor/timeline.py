@@ -7,7 +7,7 @@ gi.require_version("Gtk", "4.0")
 from typing import Any
 
 import evdev
-from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.widgets.macro_editor import timeline_render
 from keymasq.gui.widgets.macro_editor.model import (
@@ -46,6 +46,8 @@ class TimelineWidget(Gtk.DrawingArea):
     TRACK_HEIGHT = 88  # minimum track height; expands when lanes > 2
     LANE_HEIGHT_MIN = 32  # minimum height per sub-lane
     MIN_EVENT_WIDTH = 4
+    EDGE_SCROLL_MARGIN = 36  # px zone at each viewport edge that triggers auto-scroll
+    EDGE_SCROLL_MAX_SPEED = 900.0  # px/s at the deepest point of the margin
 
     def __init__(self, editor: Any):
         super().__init__()
@@ -73,6 +75,16 @@ class TimelineWidget(Gtk.DrawingArea):
         self._drag_orig_press: int = 0
         self._drag_orig_release: int = 0
         self._in_drag: bool = False
+
+        # Edge auto-scroll while dragging an event past the visible slice.
+        # The drag delta is gesture-relative, so the scroll movement since
+        # drag-begin has to be folded into the applied time delta.
+        self._drag_start_x: float = 0.0
+        self._drag_scroll_origin: float = 0.0
+        self._drag_last_offset_x: float = 0.0
+        self._autoscroll_velocity: float = 0.0
+        self._autoscroll_tick_id: int = 0
+        self._autoscroll_last_time: int | None = None
 
         # Erase-mode drag state. Left-drag bands are clamped to the track the
         # drag started in; a right-drag ripple band uses the sentinel "all".
@@ -455,6 +467,10 @@ class TimelineWidget(Gtk.DrawingArea):
         # Always hit-test on press; actual movement only starts after threshold.
         hit = self._hit_test(start_x, start_y)
         self._drag_selected_obj = hit
+        self._drag_start_x = float(start_x)
+        self._drag_scroll_origin = self._scroll_offset
+        self._drag_last_offset_x = 0.0
+        self._stop_autoscroll()
         self._reset_erase_drag()
         if self._editor._erase_mode:
             # In erase mode a drag sweeps a delete band instead of moving events;
@@ -506,7 +522,16 @@ class TimelineWidget(Gtk.DrawingArea):
                 return
             self._in_drag = True
 
-        delta_us = int(offset_x / self._pps * 1e6)
+        self._drag_last_offset_x = float(offset_x)
+        self._apply_drag_position()
+        self._update_autoscroll(self._drag_start_x + float(offset_x))
+
+    def _apply_drag_position(self) -> None:
+        """Move the dragged item to match the pointer, folding in any scroll
+        movement since drag-begin (edge auto-scroll shifts time under the
+        stationary pointer)."""
+        scroll_delta_px = self._scroll_offset - self._drag_scroll_origin
+        delta_us = int((self._drag_last_offset_x + scroll_delta_px) / self._pps * 1e6)
         if self._drag_event is not None:
             new_press = self._drag_orig_press + delta_us
             duration = self._drag_orig_release - self._drag_orig_press
@@ -528,7 +553,60 @@ class TimelineWidget(Gtk.DrawingArea):
             self._editor._on_selection_changed(self._drag_control)
         self.queue_draw()
 
+    def _edge_autoscroll_velocity(self, pointer_x: float) -> float:
+        """Scroll velocity in px/s for a pointer position, ramping up as the
+        pointer nears (or passes) either edge of the visible slice."""
+        width = self.get_width()
+        margin = float(self.EDGE_SCROLL_MARGIN)
+        if width < self.LABEL_WIDTH + 3 * margin:
+            return 0.0
+        left_edge = self.LABEL_WIDTH + margin
+        right_edge = width - margin
+        if pointer_x < left_edge:
+            depth = min((left_edge - pointer_x) / margin, 1.0)
+            return -depth * self.EDGE_SCROLL_MAX_SPEED
+        if pointer_x > right_edge:
+            depth = min((pointer_x - right_edge) / margin, 1.0)
+            return depth * self.EDGE_SCROLL_MAX_SPEED
+        return 0.0
+
+    def _update_autoscroll(self, pointer_x: float) -> None:
+        self._autoscroll_velocity = self._edge_autoscroll_velocity(pointer_x)
+        if self._autoscroll_velocity == 0.0:
+            self._stop_autoscroll()
+        elif self._autoscroll_tick_id == 0:
+            self._autoscroll_last_time = None
+            self._autoscroll_tick_id = self.add_tick_callback(self._on_autoscroll_tick)
+
+    def _stop_autoscroll(self) -> None:
+        if self._autoscroll_tick_id != 0:
+            self.remove_tick_callback(self._autoscroll_tick_id)
+            self._autoscroll_tick_id = 0
+        self._autoscroll_velocity = 0.0
+        self._autoscroll_last_time = None
+
+    def _on_autoscroll_tick(self, widget, frame_clock) -> bool:
+        if not self._in_drag or self._autoscroll_velocity == 0.0:
+            self._autoscroll_tick_id = 0
+            return GLib.SOURCE_REMOVE
+        now = frame_clock.get_frame_time()
+        last = self._autoscroll_last_time
+        self._autoscroll_last_time = now
+        if last is None:
+            return GLib.SOURCE_CONTINUE
+        dt_s = max(0.0, (now - last) / 1e6)
+        before = self._scroll_offset
+        self._editor._scroll_timeline_by(self._autoscroll_velocity * dt_s)
+        if abs(self._scroll_offset - before) < 0.01:
+            # Clamped at a timeline boundary; a later drag-update re-arms us.
+            self._autoscroll_tick_id = 0
+            self._autoscroll_velocity = 0.0
+            return GLib.SOURCE_REMOVE
+        self._apply_drag_position()
+        return GLib.SOURCE_CONTINUE
+
     def _on_drag_end(self, gesture, offset_x, offset_y) -> None:
+        self._stop_autoscroll()
         if self._erase_track is not None and self._in_drag:
             pending = self._erase_pending
             self._reset_erase_drag()

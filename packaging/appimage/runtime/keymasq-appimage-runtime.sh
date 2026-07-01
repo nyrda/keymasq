@@ -100,11 +100,26 @@ install_file() {
 	install -Dm "$mode" "$src" "$dst"
 }
 
+write_file_atomic() {
+	mode=$1
+	dst=$2
+	dir=$(dirname "$dst")
+	base=$(basename "$dst")
+	install -d -m 0755 "$dir"
+	tmp=$(mktemp "$dir/.${base}.tmp.XXXXXX") || die "failed to create temporary file for $dst"
+	if cat >"$tmp"; then
+		chmod "$mode" "$tmp"
+		mv -Tf "$tmp" "$dst"
+	else
+		rm -f "$tmp"
+		die "failed to write $dst"
+	fi
+}
+
 write_wrapper() {
 	name=$1
 	dst=$2
-	install -d -m 0755 "$(dirname "$dst")"
-	cat >"$dst" <<EOF
+	write_file_atomic 0755 "$dst" <<EOF
 #!/bin/sh
 APPDIR=\${KEYMASQ_APPDIR:-$INSTALL_DIR/$RUNTIME_DIR_NAME/$CURRENT_RUNTIME_NAME}
 if [ ! -x "\$APPDIR/bin/$name" ]; then
@@ -114,7 +129,6 @@ fi
 export APPDIR
 exec "\$APPDIR/bin/$name" "\$@"
 EOF
-	chmod 0755 "$dst"
 }
 
 runtime_root_path() {
@@ -472,8 +486,7 @@ install_session_autostart() {
 	home=$(resolve_user_home "$user")
 	autostart_dir=$(root_path "$home/.config/autostart")
 	autostart_file="$autostart_dir/tools.keymasq.keymasq-session.desktop"
-	install -d -m 0755 "$autostart_dir"
-	cat >"$autostart_file" <<'EOF'
+	write_file_atomic 0644 "$autostart_file" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Keymasq Session
@@ -483,7 +496,6 @@ Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
-	chmod 0644 "$autostart_file"
 	chown "$user:$user" "$autostart_file" 2>/dev/null || true
 }
 

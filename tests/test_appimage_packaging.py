@@ -396,6 +396,48 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     assert "systemd-tmpfiles" not in command_log
 
 
+def test_appimage_install_does_not_follow_existing_user_file_symlinks(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "generic"
+    current_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+    fake_home = fake_root / current_home.relative_to("/")
+    wrapper = fake_home / ".local/bin/keymasq"
+    autostart = fake_home / ".config/autostart/tools.keymasq.keymasq-session.desktop"
+    wrapper_target = tmp_path / "wrapper-target"
+    autostart_target = tmp_path / "autostart-target"
+    wrapper_target.write_text("keep-wrapper\n", encoding="utf-8")
+    autostart_target.write_text("keep-autostart\n", encoding="utf-8")
+    wrapper.parent.mkdir(parents=True)
+    autostart.parent.mkdir(parents=True)
+    wrapper.symlink_to(wrapper_target)
+    autostart.symlink_to(autostart_target)
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install"],
+        check=True,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert wrapper_target.read_text(encoding="utf-8") == "keep-wrapper\n"
+    assert autostart_target.read_text(encoding="utf-8") == "keep-autostart\n"
+    assert not wrapper.is_symlink()
+    assert not autostart.is_symlink()
+    assert 'exec "$APPDIR/bin/keymasq" "$@"' in wrapper.read_text(encoding="utf-8")
+    assert "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" in autostart.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     tmp_path: Path,
 ) -> None:

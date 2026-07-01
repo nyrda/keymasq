@@ -442,48 +442,111 @@ run_user_systemctl() {
 	fi
 }
 
+install_user_dir_chain() {
+	user=$1
+	home=$2
+	shift 2
+	current=$(root_path "$home")
+	ensure_user_home_dir "$current"
+	for component in "$@"; do
+		current="$current/$component"
+		ensure_user_dir "$user" "$current"
+	done
+}
+
+ensure_user_home_dir() {
+	dir=$1
+	if [ -L "$dir" ]; then
+		die "refusing to write through symlinked user home: $dir"
+	fi
+	if [ -e "$dir" ]; then
+		[ -d "$dir" ] || die "expected user home directory but found non-directory: $dir"
+		return 0
+	fi
+	if [ -z "${KEYMASQ_APPIMAGE_ROOT:-}" ]; then
+		die "target user home directory does not exist: $dir"
+	fi
+	parent=$(dirname "$dir")
+	[ -d "$parent" ] || install -d -m 0755 "$parent"
+	mkdir "$dir"
+	chmod 0755 "$dir"
+}
+
+chown_user_required() {
+	user=$1
+	path=$2
+	if ! chown "$user:" "$path" 2>/dev/null; then
+		die "failed to set $path ownership to $user"
+	fi
+}
+
+chown_user_best_effort() {
+	user=$1
+	path=$2
+	chown "$user:" "$path" 2>/dev/null || true
+}
+
+ensure_user_dir() {
+	user=$1
+	dir=$2
+	if [ -L "$dir" ]; then
+		die "refusing to write through symlinked user directory: $dir"
+	fi
+	if [ -e "$dir" ]; then
+		[ -d "$dir" ] || die "expected user directory but found non-directory: $dir"
+	else
+		parent=$(dirname "$dir")
+		[ -d "$parent" ] || install -d -m 0755 "$parent"
+		mkdir "$dir"
+		chmod 0755 "$dir"
+	fi
+	chown_user_required "$user" "$dir"
+}
+
 install_desktop_files() {
 	user=$1
 	home=$(resolve_user_home "$user")
 	assets=$(asset_dir)
+	install_user_dir_chain "$user" "$home" .local share applications
+	install_user_dir_chain "$user" "$home" .local share icons hicolor scalable apps
 	desktop_dir=$(root_path "$home/.local/share/applications")
 	icon_dir=$(root_path "$home/.local/share/icons/hicolor/scalable/apps")
-	install -d -m 0755 "$desktop_dir" "$icon_dir"
 	desktop_file="$desktop_dir/tools.keymasq.keymasq.desktop"
 	install_file 0644 "$assets/keymasq.desktop" "$desktop_file"
 	sed -i 's|^Exec=.*$|Exec=/opt/keymasq/bin/keymasq|' "$desktop_file"
+	chown_user_best_effort "$user" "$desktop_file"
 	if [ -f "$assets/tools.keymasq.keymasq.svg" ]; then
-		install_file 0644 "$assets/tools.keymasq.keymasq.svg" \
-			"$icon_dir/tools.keymasq.keymasq.svg"
+		icon_file="$icon_dir/tools.keymasq.keymasq.svg"
+		install_file 0644 "$assets/tools.keymasq.keymasq.svg" "$icon_file"
+		chown_user_best_effort "$user" "$icon_file"
 	fi
-	chown -R "$user:$user" "$(root_path "$home/.local/share/applications")" \
-		"$(root_path "$home/.local/share/icons")" 2>/dev/null || true
 }
 
 install_user_service() {
 	user=$1
 	home=$(resolve_user_home "$user")
 	assets=$(asset_dir)
+	install_user_dir_chain "$user" "$home" .config systemd user
 	unit_dir=$(root_path "$home/.config/systemd/user")
-	install -d -m 0755 "$unit_dir"
 	install_file 0644 "$assets/keymasq-session.service" "$unit_dir/keymasq-session.service"
-	chown "$user:$user" "$unit_dir/keymasq-session.service" 2>/dev/null || true
+	chown_user_best_effort "$user" "$unit_dir/keymasq-session.service"
 }
 
 install_user_wrappers() {
 	user=$1
 	home=$(resolve_user_home "$user")
+	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
-	install -d -m 0755 "$bin_dir"
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		write_wrapper "$name" "$bin_dir/$name"
+		chown_user_best_effort "$user" "$bin_dir/$name"
 	done
-	chown -R "$user:$user" "$bin_dir" 2>/dev/null || true
 }
 
 install_session_autostart() {
 	user=$1
 	home=$(resolve_user_home "$user")
+	install_user_dir_chain "$user" "$home" .config autostart
 	autostart_dir=$(root_path "$home/.config/autostart")
 	autostart_file="$autostart_dir/tools.keymasq.keymasq-session.desktop"
 	write_file_atomic 0644 "$autostart_file" <<'EOF'
@@ -496,7 +559,7 @@ Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
-	chown "$user:$user" "$autostart_file" 2>/dev/null || true
+	chown_user_best_effort "$user" "$autostart_file"
 }
 
 reload_udev_rules() {
@@ -580,6 +643,8 @@ Install a service for the privileged daemon with these requirements:
 
 Before starting the daemon, grant device ACLs:
 
+  install -d -o keymasq -g keymasq -m 0755 /run/keymasq
+  install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq
   setfacl -m u:keymasq:rw /dev/uinput
   for p in /dev/input/event*; do [ -e "\$p" ] && setfacl -m u:keymasq:rw "\$p"; done
 

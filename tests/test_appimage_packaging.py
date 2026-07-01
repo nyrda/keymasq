@@ -23,6 +23,9 @@ def _fake_command_dir(tmp_path: Path) -> tuple[Path, Path]:
     fake = """#!/bin/sh
 printf '%s %s\\n' "${0##*/}" "$*" >> "$KEYMASQ_COMMAND_LOG"
 name=${0##*/}
+if [ "$name" = chown ] && [ "${KEYMASQ_FAKE_CHOWN_STATUS:-0}" != 0 ]; then
+  exit "$KEYMASQ_FAKE_CHOWN_STATUS"
+fi
 if [ "$name" = systemctl ] && [ "${1:-}" = is-active ]; then
   exit "${KEYMASQ_FAKE_SYSTEMD_ACTIVE_STATUS:-3}"
 fi
@@ -35,7 +38,14 @@ if [ "$name" = runuser ]; then
 fi
 exit 0
 """
-    for name in ("systemd-sysusers", "systemd-tmpfiles", "udevadm", "systemctl", "runuser"):
+    for name in (
+        "chown",
+        "systemd-sysusers",
+        "systemd-tmpfiles",
+        "udevadm",
+        "systemctl",
+        "runuser",
+    ):
         _write_executable(bin_dir / name, fake)
     return bin_dir, log_path
 
@@ -346,6 +356,95 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
     assert "systemctl try-restart keymasqd.service" not in command_log
 
 
+def test_appimage_install_chowns_systemd_user_dir_before_enabling(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    current_user = pwd.getpwuid(os.getuid()).pw_name
+    current_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install"],
+        check=True,
+        env=env,
+    )
+
+    fake_home = fake_root / current_home.relative_to("/")
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    assert f"chown {current_user}: {fake_home}\n" not in command_log
+    for directory in (
+        fake_home / ".config",
+        fake_home / ".config/systemd",
+        fake_home / ".config/systemd/user",
+    ):
+        assert f"chown {current_user}: {directory}" in command_log
+    assert command_log.index(
+        f"chown {current_user}: {fake_home / '.config/systemd/user'}"
+    ) < command_log.index("systemctl --user enable --now keymasq-session.service")
+
+
+def test_appimage_install_refuses_symlinked_user_directories(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    current_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    fake_home = fake_root / current_home.relative_to("/")
+    applications = fake_home / ".local/share/applications"
+    symlink_target = tmp_path / "applications-target"
+    symlink_target.mkdir()
+    applications.parent.mkdir(parents=True)
+    applications.symlink_to(symlink_target)
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "refusing to write through symlinked user directory" in result.stderr
+    assert applications.is_symlink()
+    assert not (symlink_target / "tools.keymasq.keymasq.desktop").exists()
+
+
+def test_appimage_install_fails_when_user_dir_ownership_cannot_be_set(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    env["KEYMASQ_FAKE_CHOWN_STATUS"] = "1"
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "failed to set" in result.stderr
+
+
 def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     tmp_path: Path,
 ) -> None:
@@ -386,6 +485,8 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     assert "command: /opt/keymasq/bin/keymasqd" in instructions
     assert "user: keymasq" in instructions
     assert "restart policy: restart on failure" in instructions
+    assert "install -d -o keymasq -g keymasq -m 0755 /run/keymasq" in instructions
+    assert "install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq" in instructions
     assert "setfacl -m u:keymasq:rw /dev/uinput" in instructions
     assert current_user in instructions
     assert "systemd was not detected" in result.stderr

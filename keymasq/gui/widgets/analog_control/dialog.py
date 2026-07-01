@@ -105,6 +105,7 @@ class AnalogControlDialog(Adw.Dialog):
         self._selection_warning_dialog: Adw.AlertDialog | None = None
         self._active_selection_key: tuple[str, str | None] | None = None
         self._pending_selection_key: tuple[str, str | None] | None = None
+        self._pending_new_control_after_warning = False
         self._suppress_selection_guard = False
         self._editing_new_control = False
         self._syncing_mouse_speed = False
@@ -1123,6 +1124,7 @@ class AnalogControlDialog(Adw.Dialog):
             and selection_key != self._active_selection_key
         ):
             self._pending_selection_key = selection_key
+            self._pending_new_control_after_warning = selection_key == ("new", None)
             self._restore_active_selection()
             self._show_unsaved_selection_warning()
             return
@@ -1324,6 +1326,15 @@ class AnalogControlDialog(Adw.Dialog):
         self.name_entry.grab_focus()
 
     def _on_add_clicked(self, _button=None) -> None:
+        self._request_new_control()
+
+    def _request_new_control(self) -> None:
+        if self._new_control_reset_needs_warning():
+            self._queue_new_control_warning()
+            return
+        self._select_or_begin_new_control()
+
+    def _select_or_begin_new_control(self) -> None:
         if (
             self.new_control_row is not None
             and self.list_box.get_selected_row() is not self.new_control_row
@@ -1331,6 +1342,60 @@ class AnalogControlDialog(Adw.Dialog):
             self.list_box.select_row(self.new_control_row)
         else:
             self._begin_new_control()
+
+    def _new_control_reset_needs_warning(self) -> bool:
+        if not self._modified:
+            return False
+        if self._active_selection_key != ("new", None):
+            return True
+        return not self._is_pristine_new_control_draft()
+
+    def _is_pristine_new_control_draft(self) -> bool:
+        default = AnalogControlConfig(
+            name="New Analog Control",
+            gamepad_output=AnalogGamepadOutputConfig(output_id=SAME_DEVICE_OUTPUT_ID),
+        )
+        mouse = default.mouse_motion
+        gamepad = default.gamepad_output
+        return (
+            self._editing_new_control
+            and self.name_entry.get_text() == default.name
+            and self.description_entry.get_text() == ""
+            and self._current_input_type() == default.input_type
+            and self._current_mode() == self._mode_value(default)
+            and not self._thresholds
+            and self.speed_row.get_value() == mouse.speed
+            and self.speed_x_row.get_value() == mouse.speed_x
+            and self.speed_y_row.get_value() == mouse.speed_y
+            and self.area_radius_x_row.get_value() == mouse.area_radius_x
+            and self.area_radius_y_row.get_value() == mouse.area_radius_y
+            and self.area_start_enabled_row.get_active() == mouse.area_start_enabled
+            and self._entry_int_value(self.area_start_x_entry) == mouse.area_start_x
+            and self._entry_int_value(self.area_start_y_entry) == mouse.area_start_y
+            and self.deadzone_row.get_value() == mouse.deadzone
+            and self.mouse_sensitivity_row.get_value() == mouse.sensitivity
+            and self.mouse_response_curve_row.get_value() == mouse.response_curve
+            and self._current_mouse_direction() == mouse.direction
+            and self.invert_x_btn.get_active() == mouse.invert_x
+            and self.invert_y_btn.get_active() == mouse.invert_y
+            and self._selected_gamepad_output_id == gamepad.output_id
+            and self.gamepad_output_deadzone_row.get_value() == gamepad.deadzone * 100.0
+            and self._current_gamepad_output_target() == gamepad.target
+            and self._current_gamepad_output_target_analog_id() == gamepad.target_analog_id
+            and int(self.gamepad_output_rest_row.get_value()) == (gamepad.output_rest or 0)
+            and self._current_gamepad_output_direction() == gamepad.output_direction
+            and self.gamepad_output_invert_x_btn.get_active() == gamepad.output_invert_x
+            and self.gamepad_output_invert_y_btn.get_active() == gamepad.output_invert_y
+            and self.gamepad_output_sensitivity_row.get_value() == gamepad.sensitivity
+            and self.gamepad_output_response_curve_row.get_value() == gamepad.response_curve
+        )
+
+    def _queue_new_control_warning(self) -> None:
+        if self._selection_warning_dialog is not None:
+            return
+        self._pending_selection_key = ("new", None)
+        self._pending_new_control_after_warning = True
+        self._show_unsaved_selection_warning()
 
     def _open_threshold_actions_dialog(self, index: int) -> None:
         if not 0 <= index < len(self._thresholds):
@@ -1467,7 +1532,11 @@ class AnalogControlDialog(Adw.Dialog):
 
         dialog = Adw.AlertDialog()
         dialog.set_heading("Unsaved Analog Control Changes")
-        dialog.set_body("Save your changes before switching, or discard them?")
+        dialog.set_body(
+            "Save your changes before starting a new Analog Control, or discard them?"
+            if self._pending_new_control_after_warning
+            else "Save your changes before switching, or discard them?"
+        )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("discard", "Discard")
         dialog.add_response("save", "Save")
@@ -1481,15 +1550,23 @@ class AnalogControlDialog(Adw.Dialog):
 
     def _on_unsaved_selection_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
         pending_key = self._pending_selection_key
+        pending_new_control = self._pending_new_control_after_warning
         self._selection_warning_dialog = None
         self._pending_selection_key = None
+        self._pending_new_control_after_warning = False
         if response == "discard":
             self._modified = False
             self._update_buttons()
-            self._select_selection_key(pending_key)
+            if pending_new_control:
+                self._select_or_begin_new_control()
+            else:
+                self._select_selection_key(pending_key)
             return
         if response == "save" and self._save_current_control():
-            self._select_selection_key(pending_key)
+            if pending_new_control:
+                self._select_or_begin_new_control()
+            else:
+                self._select_selection_key(pending_key)
 
     def _on_analog_controls_docs_clicked(self, _button: Gtk.Button) -> None:
         url = _analog_controls_docs_url()

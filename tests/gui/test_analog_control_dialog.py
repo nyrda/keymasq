@@ -207,6 +207,44 @@ def test_analog_control_dialog_unsaved_selection_warns_and_can_discard(
     assert dialog._modified is False
 
 
+def test_analog_control_dialog_add_button_warns_before_resetting_dirty_new_draft(
+    temp_config_dir,
+    monkeypatch,
+) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.analog_control_dialog as analog_dialog
+
+    alerts: list[tuple[object, object]] = []
+    monkeypatch.setattr(
+        analog_dialog.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append((alert, parent)),
+    )
+
+    dialog = analog_dialog.AnalogControlDialog(Gtk.Window())
+    assert dialog.list_box.get_selected_row() is dialog.new_control_row
+
+    dialog.name_entry.set_text("Edited Draft")
+    dialog._on_add_clicked(Gtk.Button())
+
+    assert len(alerts) == 1
+    alert = alerts[0][0]
+    assert alerts[0][1] is dialog
+    assert alert.get_heading() == "Unsaved Analog Control Changes"
+    assert alert.get_body() == (
+        "Save your changes before starting a new Analog Control, or discard them?"
+    )
+    assert dialog.name_entry.get_text() == "Edited Draft"
+
+    dialog._on_unsaved_selection_response(alert, "discard")
+
+    assert dialog.list_box.get_selected_row() is dialog.new_control_row
+    assert dialog.name_entry.get_text() == "New Analog Control"
+    assert dialog._modified is True
+
+
 def test_analog_control_dialog_failed_delete_keeps_state(
     temp_config_dir,
 ) -> None:

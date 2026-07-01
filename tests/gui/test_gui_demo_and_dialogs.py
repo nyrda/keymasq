@@ -1463,6 +1463,77 @@ class TestDialogConstruction:
         assert dialog._current_config.name == "Beta"
         assert dialog._modified is False
 
+    def test_superkey_dialog_new_button_warns_before_resetting_dirty_new_draft(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        assert dialog.list_box.get_selected_row() is dialog.new_superkey_row
+
+        dialog.name_entry.set_text("Edited Draft")
+        dialog._on_new_clicked(Gtk.Button())
+
+        assert len(alerts) == 1
+        alert = alerts[0][0]
+        assert alerts[0][1] is dialog
+        assert alert.get_heading() == "Unsaved Super Key Changes"
+        assert alert.get_body() == (
+            "Save your changes before starting a new Super Key, or discard them?"
+        )
+        assert dialog.name_entry.get_text() == "Edited Draft"
+
+        dialog._on_unsaved_selection_response(alert, "discard")
+
+        assert dialog.list_box.get_selected_row() is dialog.new_superkey_row
+        assert dialog.name_entry.get_text() == "New Super Key"
+        assert dialog._modified is True
+
+    def test_superkey_dialog_add_row_warns_before_resetting_dirty_new_draft(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        new_row = dialog.new_superkey_row
+        assert new_row is not None
+        assert dialog.list_box.get_selected_row() is new_row
+
+        dialog.name_entry.set_text("Edited Draft")
+        dialog._on_superkey_selected(dialog.list_box, new_row)
+
+        assert len(alerts) == 1
+        assert alerts[0][1] is dialog
+        assert dialog.name_entry.get_text() == "Edited Draft"
+
+        dialog._on_unsaved_selection_response(alerts[0][0], "discard")
+
+        assert dialog.list_box.get_selected_row() is new_row
+        assert dialog.name_entry.get_text() == "New Super Key"
+        assert dialog._modified is True
+
     def test_superkey_dialog_select_superkey_by_name_selects_saved_superkey(
         self, temp_config_dir
     ):

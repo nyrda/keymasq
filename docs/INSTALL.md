@@ -163,6 +163,9 @@ chmod +x Keymasq-*-x86_64.AppImage
 ./Keymasq-*-x86_64.AppImage --install
 ```
 
+The installer asks for your password. A stock Steam Deck has no user password
+yet — set one first with `passwd`.
+
 For the full layout, update, and uninstall behavior, see
 [STEAMOS.md](STEAMOS.md).
 

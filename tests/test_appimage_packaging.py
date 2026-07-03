@@ -23,6 +23,13 @@ def _fake_command_dir(tmp_path: Path) -> tuple[Path, Path]:
     fake = """#!/bin/sh
 printf '%s %s\\n' "${0##*/}" "$*" >> "$KEYMASQ_COMMAND_LOG"
 name=${0##*/}
+if [ -n "${KEYMASQ_COMMAND_ENV_LOG:-}" ]; then
+  {
+    printf '%s PYTHONHOME=%s\\n' "$name" "${PYTHONHOME-unset}"
+    printf '%s LD_LIBRARY_PATH=%s\\n' "$name" "${LD_LIBRARY_PATH-unset}"
+    printf '%s PYTHONPATH=%s\\n' "$name" "${PYTHONPATH-unset}"
+  } >> "$KEYMASQ_COMMAND_ENV_LOG"
+fi
 if [ "$name" = chown ] && [ "${KEYMASQ_FAKE_CHOWN_STATUS:-0}" != 0 ]; then
   exit "$KEYMASQ_FAKE_CHOWN_STATUS"
 fi
@@ -211,6 +218,56 @@ def test_appimage_verifier_accepts_standard_extraction_roots(tmp_path: Path) -> 
         assert log_path.read_text(encoding="utf-8").rstrip().endswith(f"/{root_name}")
 
 
+def test_appimage_privilege_escalation_uses_installed_root_appimage(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    installed_appimage = fake_root / "opt/keymasq/Keymasq.AppImage"
+    installed_appimage.parent.mkdir(parents=True)
+    _write_executable(installed_appimage, "#!/bin/sh\nexit 99\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    pkexec_log = tmp_path / "pkexec.log"
+    _write_executable(
+        fake_bin / "id",
+        """#!/bin/sh
+if [ "${1:-}" = -u ]; then
+  printf '1000\\n'
+  exit 0
+fi
+exit 1
+""",
+    )
+    _write_executable(
+        fake_bin / "pkexec",
+        """#!/bin/sh
+printf '%s\\n' "$*" > "$KEYMASQ_PKEXEC_LOG"
+exit 0
+""",
+    )
+    _write_executable(fake_bin / "keymasq", "#!/bin/sh\nexit 88\n")
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "KEYMASQ_APPIMAGE_ROOT": str(fake_root),
+            "KEYMASQ_PKEXEC_LOG": str(pkexec_log),
+        }
+    )
+    env.pop("APPIMAGE", None)
+    env.pop("KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK", None)
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--self-update", "--user", "root"],
+        check=True,
+        env=env,
+    )
+
+    assert pkexec_log.read_text(encoding="utf-8") == (
+        f"{installed_appimage} --self-update --user root\n"
+    )
+
+
 def test_appimage_builder_does_not_force_software_rendering_by_default() -> None:
     builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(
         encoding="utf-8"
@@ -314,6 +371,43 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "systemctl daemon-reload" in command_log
     assert "systemctl enable --now keymasqd.service" in command_log
     assert "systemctl try-restart keymasqd.service" not in command_log
+
+
+def test_appimage_install_scopes_bundled_python_environment_to_python_helpers(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    appdir = tmp_path / "AppDir"
+    (appdir / "shared/bin").mkdir(parents=True)
+    (appdir / "lib").mkdir()
+    (appdir / "share").mkdir()
+    _write_executable(appdir / "shared/bin/python3.12", "#!/bin/sh\nexit 99\n")
+    _write_executable(appdir / "lib/ld-linux-x86-64.so.2", "#!/bin/sh\nexit 0\n")
+    env_log = tmp_path / "command-env.log"
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["APPDIR"] = str(appdir)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "generic"
+    env["KEYMASQ_COMMAND_ENV_LOG"] = str(env_log)
+    env["PYTHONPATH"] = "/host/pythonpath"
+    env.pop("LD_LIBRARY_PATH", None)
+    env.pop("PYTHONHOME", None)
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    command_env = env_log.read_text(encoding="utf-8")
+    assert "udevadm PYTHONHOME=unset" in command_env
+    assert "udevadm LD_LIBRARY_PATH=unset" in command_env
+    assert "udevadm PYTHONPATH=/host/pythonpath" in command_env
 
 
 def test_appimage_installer_restarts_services_that_were_already_active(

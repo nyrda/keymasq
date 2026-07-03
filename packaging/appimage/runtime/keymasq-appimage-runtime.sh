@@ -42,7 +42,10 @@ require_root_or_pkexec() {
 
 	appimage=${APPIMAGE:-}
 	if [ -z "$appimage" ]; then
-		appimage=$(command -v keymasq 2>/dev/null || true)
+		installed_appimage=$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")
+		if [ -x "$installed_appimage" ]; then
+			appimage=$installed_appimage
+		fi
 	fi
 	[ -n "$appimage" ] || die "cannot locate AppImage for privilege escalation"
 
@@ -1093,7 +1096,6 @@ self_update() {
 
 resolve_appdir_python() {
 	if [ -n "${APPDIR:-}" ]; then
-		setup_appimage_python_environment
 		python_bin=
 		for candidate in "$APPDIR"/shared/bin/python3.* "$APPDIR"/shared/bin/python3 "$APPDIR"/shared/bin/python; do
 			if [ -x "$candidate" ]; then
@@ -1116,7 +1118,10 @@ resolve_appdir_python() {
 
 run_python() {
 	if resolve_appdir_python; then
-		"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
+		(
+			setup_appimage_python_environment
+			"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
+		)
 		return $?
 	fi
 	python -P "$@"
@@ -1162,6 +1167,7 @@ run_python_module() {
 	module=$1
 	shift
 	if resolve_appdir_python; then
+		setup_appimage_python_environment
 		exec "$loader" --library-path "$APPDIR/lib" "$python_bin" -P -m "$module" "$@"
 	fi
 	exec python -P -m "$module" "$@"

@@ -11,6 +11,7 @@ DIST_DIR="${OUTPATH:-$REPO_ROOT/dist/appimage}"
 ARCH="$(uname -m)"
 ANYLINUX_REV="${KEYMASQ_APPIMAGE_ANYLINUX_REV:-b3a9e985cdedf7efa81d172f182cd13983743147}"
 QUICK_SHARUN_URL="${KEYMASQ_APPIMAGE_QUICK_SHARUN_URL:-https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$ANYLINUX_REV/useful-tools/quick-sharun.sh}"
+QUICK_SHARUN_SHA256="${KEYMASQ_APPIMAGE_QUICK_SHARUN_SHA256:-4b765d0b38621852f5fc6cbf460641fcce6103b548582d58942abc65ab7dbd93}"
 
 download_to() {
   local url="$1"
@@ -78,17 +79,35 @@ PY
 
 resolve_quick_sharun() {
   local dst="$BUILD_ROOT/quick-sharun"
+  local candidate
   if [[ -n "${KEYMASQ_APPIMAGE_QUICK_SHARUN:-}" ]]; then
+    verify_quick_sharun "$KEYMASQ_APPIMAGE_QUICK_SHARUN"
     printf '%s\n' "$KEYMASQ_APPIMAGE_QUICK_SHARUN"
     return 0
   fi
   if command -v quick-sharun >/dev/null 2>&1; then
-    command -v quick-sharun
+    candidate="$(command -v quick-sharun)"
+    verify_quick_sharun "$candidate"
+    printf '%s\n' "$candidate"
     return 0
   fi
   download_to "$QUICK_SHARUN_URL" "$dst"
+  verify_quick_sharun "$dst"
   chmod 0755 "$dst"
   printf '%s\n' "$dst"
+}
+
+verify_quick_sharun() {
+  local path="$1"
+  local actual
+
+  actual="$(sha256sum "$path" | awk '{print $1}')"
+  if [[ "$actual" != "$QUICK_SHARUN_SHA256" ]]; then
+    echo "quick-sharun checksum mismatch for $path" >&2
+    echo "expected: $QUICK_SHARUN_SHA256" >&2
+    echo "actual:   $actual" >&2
+    exit 1
+  fi
 }
 
 require_python_modules() {

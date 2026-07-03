@@ -1,8 +1,8 @@
 [Unit]
 Description=Keymasq Session Manager
 Documentation=https://keymasq.tools/docs/latest/
-After=default.target
-PartOf=default.target
+After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
@@ -14,3 +14,4 @@ KillMode=mixed
 
 [Install]
 WantedBy=default.target
+WantedBy=graphical-session.target

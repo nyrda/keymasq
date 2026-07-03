@@ -100,12 +100,18 @@ for archive in dist/*.tar.gz; do
 done
 
 appimage_count=0
-latest_appimage=""
+declare -A latest_appimage_by_arch=()
 for appimage in dist/*.AppImage; do
     [ -f "$appimage" ] || continue
+    name="$(basename "$appimage")"
+    if [[ ! "$name" =~ ^Keymasq-(.+)-(x86_64|aarch64)\.AppImage$ ]]; then
+        echo "Could not infer version and architecture from AppImage name: $name" >&2
+        exit 1
+    fi
+    appimage_arch="${BASH_REMATCH[2]}"
     cp "$appimage" "$APPIMAGE_DIR/"
-    latest_appimage="$APPIMAGE_DIR/$(basename "$appimage")"
-    echo "Added $(basename "$appimage") to appimage repo"
+    latest_appimage_by_arch["$appimage_arch"]="$APPIMAGE_DIR/$name"
+    echo "Added $name to appimage repo"
     appimage_count=$((appimage_count + 1))
 done
 
@@ -156,24 +162,26 @@ done < <(find "$FEDORA_ROOT" "$OPENSUSE_DIR" -mindepth 0 -maxdepth 1 -type d -pr
 # -- Rebuild AppImage update manifest --
 
 if [[ $appimage_count -gt 0 ]]; then
-    name="$(basename "$latest_appimage")"
-    if [[ ! "$name" =~ ^Keymasq-(.+)-(x86_64|aarch64)\.AppImage$ ]]; then
-        echo "Could not infer version and architecture from AppImage name: $name" >&2
-        exit 1
-    fi
-    appimage_version="${BASH_REMATCH[1]}"
-    appimage_arch="${BASH_REMATCH[2]}"
-    manifest="$APPIMAGE_DIR/latest-${appimage_arch}.json"
-    appimage_base_url="${KEYMASQ_APPIMAGE_BASE_URL:-$REPO_UPLOAD_URL/appimage}"
-    appimage_url="${appimage_base_url%/}/$name"
-    appimage_sha256="$(sha256sum "$latest_appimage" | awk '{print $1}')"
+    for appimage_arch in x86_64 aarch64; do
+        latest_appimage="${latest_appimage_by_arch[$appimage_arch]:-}"
+        [ -n "$latest_appimage" ] || continue
+        name="$(basename "$latest_appimage")"
+        if [[ ! "$name" =~ ^Keymasq-(.+)-${appimage_arch}\.AppImage$ ]]; then
+            echo "Could not infer version and architecture from AppImage name: $name" >&2
+            exit 1
+        fi
+        appimage_version="${BASH_REMATCH[1]}"
+        manifest="$APPIMAGE_DIR/latest-${appimage_arch}.json"
+        appimage_base_url="${KEYMASQ_APPIMAGE_BASE_URL:-$REPO_UPLOAD_URL/appimage}"
+        appimage_url="${appimage_base_url%/}/$name"
+        appimage_sha256="$(sha256sum "$latest_appimage" | awk '{print $1}')"
 
-    APPIMAGE_VERSION="$appimage_version" \
-    APPIMAGE_ARCH="$appimage_arch" \
-    APPIMAGE_URL="$appimage_url" \
-    APPIMAGE_SHA256="$appimage_sha256" \
-    MANIFEST_PATH="$manifest" \
-    python3 - <<'PY'
+        APPIMAGE_VERSION="$appimage_version" \
+        APPIMAGE_ARCH="$appimage_arch" \
+        APPIMAGE_URL="$appimage_url" \
+        APPIMAGE_SHA256="$appimage_sha256" \
+        MANIFEST_PATH="$manifest" \
+        python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -189,9 +197,10 @@ Path(os.environ["MANIFEST_PATH"]).write_text(
     encoding="utf-8",
 )
 PY
-    gpg --batch --yes --detach-sign --armor \
-        --output "$manifest.sig" "$manifest"
-    echo "AppImage update manifest signed for $name"
+        gpg --batch --yes --detach-sign --armor \
+            --output "$manifest.sig" "$manifest"
+        echo "AppImage update manifest signed for $name"
+    done
 fi
 
 # -- Export public key --

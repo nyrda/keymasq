@@ -97,6 +97,9 @@ install_file() {
 	mode=$1
 	src=$2
 	dst=$3
+	if [ -L "$dst" ]; then
+		die "refusing to install through symlinked destination: $dst"
+	fi
 	install -Dm "$mode" "$src" "$dst"
 }
 
@@ -395,15 +398,13 @@ refuse_downgrade_unless_allowed() {
 
 install_path_profile() {
 	dst=$(root_path /etc/profile.d/keymasq.sh)
-	install -d -m 0755 "$(dirname "$dst")"
-	cat >"$dst" <<'EOF'
+	write_file_atomic 0644 "$dst" <<'EOF'
 case ":$PATH:" in
 	*:/opt/keymasq/bin:*) ;;
 	*) PATH="/opt/keymasq/bin:$PATH" ;;
 esac
 export PATH
 EOF
-	chmod 0644 "$dst"
 }
 
 install_atomic_keep_list() {
@@ -413,7 +414,7 @@ install_atomic_keep_list() {
 	# the home/var partition), not the read-only A/B rootfs, so it persists
 	# across atomic updates on its own. Only third-party /etc files need a keep
 	# entry, since /etc is governed by the atomic-update allow list.
-	cat >"$dst" <<'EOF'
+	write_file_atomic 0644 "$dst" <<'EOF'
 /etc/atomic-update.conf.d/keymasq.conf
 /etc/keymasq/**
 /etc/profile.d/keymasq.sh
@@ -423,7 +424,6 @@ install_atomic_keep_list() {
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 EOF
-	chmod 0644 "$dst"
 }
 
 run_user_systemctl() {
@@ -567,7 +567,9 @@ reload_udev_rules() {
 		warn "udevadm was not found; reload udev rules manually before using Keymasq"
 		return 0
 	fi
-	udevadm control --reload-rules
+	if ! udevadm control --reload-rules; then
+		warn "could not reload udev rules; device permissions may not update until udev is reloaded"
+	fi
 	udevadm trigger --subsystem-match=input --action=add || true
 	udevadm trigger --subsystem-match=misc --action=add || true
 }
@@ -597,6 +599,16 @@ steamos_detected() {
 	grep -qiE '^(ID|ID_LIKE)=.*steamos' "$os_release"
 }
 
+resolve_nologin_shell() {
+	for candidate in /usr/sbin/nologin /sbin/nologin /usr/bin/nologin; do
+		if [ -x "$candidate" ]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+	die "nologin shell was not found"
+}
+
 ensure_keymasq_user_and_dirs() {
 	if [ -z "${KEYMASQ_APPIMAGE_ROOT:-}" ]; then
 		if ! getent group keymasq >/dev/null 2>&1; then
@@ -606,12 +618,13 @@ ensure_keymasq_user_and_dirs() {
 
 		if ! getent passwd keymasq >/dev/null 2>&1; then
 			command -v useradd >/dev/null 2>&1 || die "useradd is required to create the keymasq user"
+			nologin_shell=$(resolve_nologin_shell)
 			if getent group input >/dev/null 2>&1; then
 				useradd --system --gid keymasq --groups input --home-dir /var/lib/keymasq \
-					--shell /usr/bin/nologin --comment "Keymasq daemon user" keymasq
+					--shell "$nologin_shell" --comment "Keymasq daemon user" keymasq
 			else
 				useradd --system --gid keymasq --home-dir /var/lib/keymasq \
-					--shell /usr/bin/nologin --comment "Keymasq daemon user" keymasq
+					--shell "$nologin_shell" --comment "Keymasq daemon user" keymasq
 				warn "input group was not found; relying on udev ACL rules for device access"
 			fi
 		elif getent group input >/dev/null 2>&1; then
@@ -628,8 +641,7 @@ write_generic_service_instructions() {
 	target_user=$1
 	install_root=$(root_path "$INSTALL_DIR")
 	instructions="$install_root/share/keymasq/non-systemd-services.txt"
-	install -d -m 0755 "$(dirname "$instructions")"
-	cat >"$instructions" <<EOF
+	write_file_atomic 0644 "$instructions" <<EOF
 Keymasq was installed without systemd service activation.
 
 Install a service for the privileged daemon with these requirements:
@@ -658,7 +670,6 @@ It runs:
 
 The daemon is not supervised until you add the service for your init system.
 EOF
-	chmod 0644 "$instructions"
 }
 
 print_generic_service_instructions() {
@@ -668,28 +679,11 @@ print_generic_service_instructions() {
 	fi
 }
 
-install_common_payload() {
+refresh_common_integration() {
 	target_user=$1
 	assets=$(asset_dir)
-	appimage_src=${KEYMASQ_APPIMAGE_SOURCE:-${APPIMAGE:-}}
-	[ -n "$appimage_src" ] || die "APPIMAGE is not set; cannot install payload"
-	[ -f "$appimage_src" ] || die "AppImage source does not exist: $appimage_src"
-
 	install_root=$(root_path "$INSTALL_DIR")
 	install -d -m 0755 "$install_root/bin" "$install_root/share/keymasq"
-	appimage_dst="$install_root/$APPIMAGE_NAME"
-	if [ "$(readlink -f "$appimage_src")" != "$(readlink -f "$appimage_dst" 2>/dev/null || printf '%s' "$appimage_dst")" ]; then
-		install_file 0755 "$appimage_src" "$appimage_dst"
-	else
-		chmod 0755 "$appimage_dst"
-	fi
-	appimage_sha256=$(sha256sum "$appimage_dst" | awk '{print $1}')
-	previous_runtime=$(current_runtime_id || true)
-	prepare_runtime_from_appimage "$appimage_dst" "$appimage_sha256"
-	activate_runtime "$appimage_sha256"
-	appimage_version=$(appdir_version "$(runtime_path_for_sha256 "$appimage_sha256")" 2>/dev/null || true)
-	write_installed_version "$appimage_version"
-	prune_old_runtimes "$appimage_sha256" "$previous_runtime"
 
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		write_wrapper "$name" "$install_root/bin/$name"
@@ -712,10 +706,79 @@ install_common_payload() {
 	install_desktop_files "$target_user"
 }
 
-install_systemd_integration() {
+install_common_payload() {
+	target_user=$1
+	appimage_src=${KEYMASQ_APPIMAGE_SOURCE:-${APPIMAGE:-}}
+	[ -n "$appimage_src" ] || die "APPIMAGE is not set; cannot install payload"
+	[ -f "$appimage_src" ] || die "AppImage source does not exist: $appimage_src"
+
+	install_root=$(root_path "$INSTALL_DIR")
+	install -d -m 0755 "$install_root/bin" "$install_root/share/keymasq"
+	appimage_dst="$install_root/$APPIMAGE_NAME"
+	if [ "$(readlink -f "$appimage_src")" != "$(readlink -f "$appimage_dst" 2>/dev/null || printf '%s' "$appimage_dst")" ]; then
+		install_file 0755 "$appimage_src" "$appimage_dst"
+	else
+		chmod 0755 "$appimage_dst"
+	fi
+	appimage_sha256=$(sha256sum "$appimage_dst" | awk '{print $1}')
+	previous_runtime=$(current_runtime_id || true)
+	prepare_runtime_from_appimage "$appimage_dst" "$appimage_sha256"
+	activate_runtime "$appimage_sha256"
+	appimage_version=$(appdir_version "$(runtime_path_for_sha256 "$appimage_sha256")" 2>/dev/null || true)
+	write_installed_version "$appimage_version"
+	prune_old_runtimes "$appimage_sha256" "$previous_runtime"
+
+	refresh_common_integration "$target_user"
+}
+
+write_systemd_integration_files() {
 	target_user=$1
 	install_keep_list=$2
 	assets=$(asset_dir)
+
+	install_file 0644 "$assets/keymasq-sysusers.conf" "$(root_path /etc/sysusers.d/keymasq.conf)"
+	install_file 0644 "$assets/keymasq-tmpfiles.conf" "$(root_path /etc/tmpfiles.d/keymasq.conf)"
+	install_file 0644 "$assets/keymasqd.service" "$(root_path /etc/systemd/system/keymasqd.service)"
+	install_user_service "$target_user"
+	if [ "$install_keep_list" = 1 ]; then
+		install_atomic_keep_list
+	fi
+}
+
+refresh_systemd_integration() {
+	target_user=$1
+	install_keep_list=$2
+	keymasqd_was_enabled=0
+	session_was_enabled=0
+
+	if systemctl is-enabled --quiet keymasqd.service; then
+		keymasqd_was_enabled=1
+	fi
+	if run_user_systemctl "$target_user" is-enabled --quiet keymasq-session.service; then
+		session_was_enabled=1
+	fi
+
+	write_systemd_integration_files "$target_user" "$install_keep_list"
+
+	systemd-sysusers "$(root_path /etc/sysusers.d/keymasq.conf)"
+	systemd-tmpfiles --create "$(root_path /etc/tmpfiles.d/keymasq.conf)"
+	reload_udev_rules
+	systemctl daemon-reload
+	if [ "$keymasqd_was_enabled" = 1 ] && ! systemctl reenable keymasqd.service; then
+		warn "could not reenable keymasqd.service"
+	fi
+	if ! run_user_systemctl "$target_user" daemon-reload; then
+		warn "could not reload user systemd for $target_user"
+	fi
+	if [ "$session_was_enabled" = 1 ] && \
+		! run_user_systemctl "$target_user" reenable keymasq-session.service; then
+		warn "could not reenable user keymasq-session for $target_user"
+	fi
+}
+
+install_systemd_integration() {
+	target_user=$1
+	install_keep_list=$2
 	keymasqd_was_active=0
 	session_was_active=0
 
@@ -726,24 +789,10 @@ install_systemd_integration() {
 		session_was_active=1
 	fi
 
-	install_file 0644 "$assets/keymasq-sysusers.conf" "$(root_path /etc/sysusers.d/keymasq.conf)"
-	install_file 0644 "$assets/keymasq-tmpfiles.conf" "$(root_path /etc/tmpfiles.d/keymasq.conf)"
-	install_file 0644 "$assets/keymasqd.service" "$(root_path /etc/systemd/system/keymasqd.service)"
-	install_user_service "$target_user"
-	if [ "$install_keep_list" = 1 ]; then
-		install_atomic_keep_list
-	fi
-
-	systemd-sysusers "$(root_path /etc/sysusers.d/keymasq.conf)"
-	systemd-tmpfiles --create "$(root_path /etc/tmpfiles.d/keymasq.conf)"
-	reload_udev_rules
-	systemctl daemon-reload
+	refresh_systemd_integration "$target_user" "$install_keep_list"
 	systemctl enable --now keymasqd.service
 	if [ "$keymasqd_was_active" = 1 ]; then
 		systemctl try-restart keymasqd.service
-	fi
-	if ! run_user_systemctl "$target_user" daemon-reload; then
-		warn "could not reload user systemd for $target_user"
 	fi
 	if run_user_systemctl "$target_user" enable --now keymasq-session.service; then
 		if [ "$session_was_active" = 1 ] && ! run_user_systemctl "$target_user" try-restart keymasq-session.service; then
@@ -754,15 +803,48 @@ install_systemd_integration() {
 	fi
 }
 
-install_generic_integration() {
+refresh_generic_integration() {
 	target_user=$1
 
 	ensure_keymasq_user_and_dirs
 	install_session_autostart "$target_user"
 	reload_udev_rules
 	write_generic_service_instructions "$target_user"
+}
+
+install_generic_integration() {
+	target_user=$1
+
+	refresh_generic_integration "$target_user"
 	warn "systemd was not detected; keymasqd was not enabled"
 	print_generic_service_instructions
+}
+
+refresh_installed_integration() {
+	target_user=$1
+	runtime_id=$2
+	new_asset_dir="$(runtime_path_for_sha256 "$runtime_id")/share/keymasq/appimage"
+	[ -d "$new_asset_dir" ] || die "updated runtime missing AppImage integration assets: $new_asset_dir"
+	KEYMASQ_APPIMAGE_ASSET_DIR=$new_asset_dir
+	export KEYMASQ_APPIMAGE_ASSET_DIR
+
+	refresh_common_integration "$target_user"
+
+	home=$(resolve_user_home "$target_user")
+	install_keep_list=0
+	if [ -f "$(root_path /etc/atomic-update.conf.d/keymasq.conf)" ] || steamos_detected; then
+		install_keep_list=1
+	fi
+
+	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] || \
+		[ -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")" ]; then
+		refresh_systemd_integration "$target_user" "$install_keep_list"
+	elif [ -f "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")" ] || \
+		[ -f "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")" ]; then
+		refresh_generic_integration "$target_user"
+	else
+		reload_udev_rules
+	fi
 }
 
 install_auto() {
@@ -840,7 +922,6 @@ uninstall_keymasq() {
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
-		remove_path "$(root_path "/usr/local/bin/$name")"
 		remove_path "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
@@ -1000,6 +1081,7 @@ self_update() {
 		mv -f "$target.new" "$target"
 		activate_runtime "$actual_sha256"
 		write_installed_version "$version"
+		refresh_installed_integration "$target_user" "$actual_sha256"
 		prune_old_runtimes "$actual_sha256" "$previous_runtime"
 	) 9>"$lock_path"
 
@@ -1009,7 +1091,7 @@ self_update() {
 	log "$APP_NAME updated${version:+ to $version}"
 }
 
-run_python() {
+resolve_appdir_python() {
 	if [ -n "${APPDIR:-}" ]; then
 		setup_appimage_python_environment
 		python_bin=
@@ -1026,10 +1108,16 @@ run_python() {
 				break
 			fi
 		done
-		if [ -n "$python_bin" ] && [ -n "$loader" ]; then
-			"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
-			return $?
-		fi
+		[ -n "$python_bin" ] && [ -n "$loader" ]
+		return $?
+	fi
+	return 1
+}
+
+run_python() {
+	if resolve_appdir_python; then
+		"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
+		return $?
 	fi
 	python -P "$@"
 }
@@ -1038,6 +1126,7 @@ setup_appimage_python_environment() {
 	export LD_LIBRARY_PATH="$APPDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	export PYTHONHOME="$APPDIR"
 	export PYTHONNOUSERSITE=true
+	unset PYTHONPATH
 	if [ -d "$APPDIR/lib/girepository-1.0" ]; then
 		export GI_TYPELIB_PATH="$APPDIR/lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 	fi
@@ -1072,25 +1161,8 @@ setup_appimage_python_environment() {
 run_python_module() {
 	module=$1
 	shift
-	if [ -n "${APPDIR:-}" ]; then
-		setup_appimage_python_environment
-		python_bin=
-		for candidate in "$APPDIR"/shared/bin/python3.* "$APPDIR"/shared/bin/python3 "$APPDIR"/shared/bin/python; do
-			if [ -x "$candidate" ]; then
-				python_bin=$candidate
-				break
-			fi
-		done
-		loader=
-		for candidate in "$APPDIR"/lib/ld-linux-x86-64.so.2 "$APPDIR"/lib/ld-linux-aarch64.so.1; do
-			if [ -x "$candidate" ]; then
-				loader=$candidate
-				break
-			fi
-		done
-		if [ -n "$python_bin" ] && [ -n "$loader" ]; then
-			exec "$loader" --library-path "$APPDIR/lib" "$python_bin" -P -m "$module" "$@"
-		fi
+	if resolve_appdir_python; then
+		exec "$loader" --library-path "$APPDIR/lib" "$python_bin" -P -m "$module" "$@"
 	fi
 	exec python -P -m "$module" "$@"
 }

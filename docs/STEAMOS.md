@@ -121,7 +121,8 @@ repository, verifies the manifest with the public key installed under
 AppImage, checks its SHA-256, extracts it into
 `/opt/keymasq/runtime/<sha256>`, atomically replaces
 `/opt/keymasq/Keymasq.AppImage`, atomically repoints
-`/opt/keymasq/runtime/current`, and restarts services.
+`/opt/keymasq/runtime/current`, refreshes installed host integration files, and
+restarts services.
 
 Signed manifest replays cannot downgrade an installed build by default: the
 updater compares the manifest version with the installed Keymasq version and

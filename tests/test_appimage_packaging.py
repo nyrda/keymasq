@@ -26,13 +26,24 @@ name=${0##*/}
 if [ "$name" = chown ] && [ "${KEYMASQ_FAKE_CHOWN_STATUS:-0}" != 0 ]; then
   exit "$KEYMASQ_FAKE_CHOWN_STATUS"
 fi
+if [ "$name" = udevadm ] && [ "${1:-}" = control ]; then
+  if [ "${KEYMASQ_FAKE_UDEVADM_CONTROL_STATUS:-0}" != 0 ]; then
+    exit "$KEYMASQ_FAKE_UDEVADM_CONTROL_STATUS"
+  fi
+fi
 if [ "$name" = systemctl ] && [ "${1:-}" = is-active ]; then
   exit "${KEYMASQ_FAKE_SYSTEMD_ACTIVE_STATUS:-3}"
+fi
+if [ "$name" = systemctl ] && [ "${1:-}" = is-enabled ]; then
+  exit "${KEYMASQ_FAKE_SYSTEMD_ENABLED_STATUS:-1}"
 fi
 if [ "$name" = runuser ]; then
   case " $* " in
     *" systemctl --user is-active --quiet keymasq-session.service "*)
       exit "${KEYMASQ_FAKE_USER_SYSTEMD_ACTIVE_STATUS:-3}"
+      ;;
+    *" systemctl --user is-enabled --quiet keymasq-session.service "*)
+      exit "${KEYMASQ_FAKE_USER_SYSTEMD_ENABLED_STATUS:-1}"
       ;;
   esac
 fi
@@ -65,18 +76,26 @@ def _asset_dir(tmp_path: Path) -> Path:
     return assets
 
 
-def _fake_extracted_appdir(tmp_path: Path) -> Path:
+def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
     appdir = tmp_path / "fake-appdir"
     bin_dir = appdir / "bin"
     bin_dir.mkdir(parents=True)
-    for name in ("keymasq", "keymasqd", "keymasq-session", "keymasq-record", "slurp", "waypipe"):
+    for name in (
+        "keymasq",
+        "keymasqd",
+        "keymasq-session",
+        "keymasq-record",
+        "slurp",
+        "waypipe",
+    ):
         _write_executable(bin_dir / name, f"#!/bin/sh\nprintf '%s\\n' {name}\n")
+    shutil.copytree(assets, appdir / "share/keymasq/appimage")
     return appdir
 
 
 def _env(tmp_path: Path, fake_root: Path, assets: Path, source_appimage: Path) -> dict[str, str]:
     fake_bin, command_log = _fake_command_dir(tmp_path)
-    fake_appdir = _fake_extracted_appdir(tmp_path)
+    fake_appdir = _fake_extracted_appdir(tmp_path, assets)
     env = os.environ.copy()
     env.update(
         {
@@ -153,6 +172,8 @@ case "${1:-}" in
     chmod 0755 "$root/shared/bin/python3.12"
     printf '#!/bin/sh\\nexit 0\\n' > "$root/bin/slurp"
     chmod 0755 "$root/bin/slurp"
+    printf '#!/bin/sh\\nexit 0\\n' > "$root/bin/waypipe"
+    chmod 0755 "$root/bin/waypipe"
     cat > "$root/lib/ld-linux-x86-64.so.2" <<'LOADER'
 #!/bin/sh
 printf '%s\\n' "$APPDIR" > "$KEYMASQ_FAKE_VERIFY_APPDIR_LOG"
@@ -266,9 +287,12 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "/opt/keymasq" not in next(
         line for line in keymasqd_unit.splitlines() if line.startswith("ReadWritePaths=")
     )
-    assert "KillMode=mixed" in (
+    keymasq_session_unit = (
         fake_root / "root/.config/systemd/user/keymasq-session.service"
     ).read_text(encoding="utf-8")
+    assert "KillMode=mixed" in keymasq_session_unit
+    assert "WantedBy=default.target" in keymasq_session_unit
+    assert "WantedBy=graphical-session.target" in keymasq_session_unit
     assert (fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc").is_file()
     assert "unlock_required = false" in (
         fake_root / "etc/keymasq/security.toml"
@@ -455,6 +479,7 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     source_appimage.chmod(0o755)
     env = _env(tmp_path, fake_root, assets, source_appimage)
     env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "generic"
+    env["KEYMASQ_FAKE_UDEVADM_CONTROL_STATUS"] = "1"
     current_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
     current_user = pwd.getpwuid(os.getuid()).pw_name
 
@@ -490,6 +515,7 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     assert "setfacl -m u:keymasq:rw /dev/uinput" in instructions
     assert current_user in instructions
     assert "systemd was not detected" in result.stderr
+    assert "could not reload udev rules" in result.stderr
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "udevadm control --reload-rules" in command_log
     assert "systemctl" not in command_log
@@ -560,6 +586,9 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     macro_path = fake_root / "var/lib/keymasq/macros/example.kmacro.xz"
     macro_path.parent.mkdir(parents=True)
     macro_path.write_text("macro\n", encoding="utf-8")
+    local_wrapper = fake_root / "usr/local/bin/keymasq"
+    local_wrapper.parent.mkdir(parents=True)
+    local_wrapper.write_text("admin-managed\n", encoding="utf-8")
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
@@ -574,6 +603,7 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert not (fake_root / "root/.local/bin/keymasq").exists()
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
     assert not (fake_root / "opt/keymasq/runtime").exists()
+    assert local_wrapper.read_text(encoding="utf-8") == "admin-managed\n"
     assert (fake_root / "etc/keymasq/security.toml").exists()
     assert macro_path.read_text(encoding="utf-8") == "macro\n"
 
@@ -604,6 +634,7 @@ def test_appimage_runtime_exports_gtk_introspection_environment(tmp_path: Path) 
   printf 'XDG_DATA_DIRS=%s\\n' "$XDG_DATA_DIRS"
   printf 'PYTHONHOME=%s\\n' "$PYTHONHOME"
   printf 'PYTHONNOUSERSITE=%s\\n' "$PYTHONNOUSERSITE"
+  printf 'PYTHONPATH=%s\\n' "${PYTHONPATH-unset}"
   printf 'LD_LIBRARY_PATH=%s\\n' "$LD_LIBRARY_PATH"
   printf 'GSK_RENDERER=%s\\n' "${GSK_RENDERER:-}"
   printf 'GDK_DISABLE=%s\\n' "${GDK_DISABLE:-}"
@@ -619,6 +650,7 @@ exit 0
         {
             "APPDIR": str(appdir),
             "KEYMASQ_RUNTIME_ENV_LOG": str(log_path),
+            "PYTHONPATH": "/host/pythonpath",
             "XDG_DATA_DIRS": "/usr/local/share:/usr/share",
         }
     )
@@ -639,6 +671,7 @@ exit 0
     assert f"XDG_DATA_DIRS={appdir}/share:/usr/local/share:/usr/share" in runtime_env
     assert f"PYTHONHOME={appdir}" in runtime_env
     assert "PYTHONNOUSERSITE=true" in runtime_env
+    assert "PYTHONPATH=unset" in runtime_env
     assert f"LD_LIBRARY_PATH={appdir}/lib" in runtime_env
     assert "GSK_RENDERER=\n" in runtime_env
     assert "GDK_DISABLE=\n" in runtime_env
@@ -690,10 +723,25 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     source_appimage = tmp_path / "source.AppImage"
     source_appimage.write_text("source\n", encoding="utf-8")
     env = _env(tmp_path, fake_root, assets, source_appimage)
+    new_assets = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "share/keymasq/appimage"
+    (new_assets / "appimage-update.gpg.asc").write_text(
+        "new-update-public-key\n",
+        encoding="utf-8",
+    )
     target = fake_root / "opt/keymasq/Keymasq.AppImage"
     target.parent.mkdir(parents=True)
     target.write_text("old\n", encoding="utf-8")
     target.chmod(0o755)
+    stale_paths = (
+        fake_root / "etc/systemd/system/keymasqd.service",
+        fake_root / "root/.config/systemd/user/keymasq-session.service",
+        fake_root / "etc/atomic-update.conf.d/keymasq.conf",
+        fake_root / "opt/keymasq/bin/keymasq",
+        fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc",
+    )
+    for path in stale_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("stale\n", encoding="utf-8")
 
     public_key = tmp_path / "update-public.asc"
     public_key.write_text("test-public-key\n", encoding="utf-8")
@@ -708,6 +756,8 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
     env["KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY"] = str(public_key)
     env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+    env["KEYMASQ_FAKE_SYSTEMD_ENABLED_STATUS"] = "0"
+    env["KEYMASQ_FAKE_USER_SYSTEMD_ENABLED_STATUS"] = "0"
 
     runtime_link = tmp_path / "keymasq"
     runtime_link.symlink_to(RUNTIME_SCRIPT)
@@ -717,6 +767,24 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     assert (fake_root / "opt/keymasq/runtime/current").readlink() == Path(sha256)
     assert (fake_root / f"opt/keymasq/runtime/{sha256}/bin/keymasq").is_file()
     assert (fake_root / "opt/keymasq/version").read_text(encoding="utf-8") == "9.9.9\n"
+    assert "ExecStart=/opt/keymasq/bin/keymasqd" in (
+        fake_root / "etc/systemd/system/keymasqd.service"
+    ).read_text(encoding="utf-8")
+    assert "WantedBy=graphical-session.target" in (
+        fake_root / "root/.config/systemd/user/keymasq-session.service"
+    ).read_text(encoding="utf-8")
+    assert (
+        fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc"
+    ).read_text(encoding="utf-8") == "new-update-public-key\n"
+    assert 'exec "$APPDIR/bin/keymasq" "$@"' in (
+        fake_root / "opt/keymasq/bin/keymasq"
+    ).read_text(encoding="utf-8")
+    assert "/etc/systemd/system/keymasqd.service" in (
+        fake_root / "etc/atomic-update.conf.d/keymasq.conf"
+    ).read_text(encoding="utf-8")
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    assert "systemctl reenable keymasqd.service" in command_log
+    assert "systemctl --user reenable keymasq-session.service" in command_log
 
 
 def test_appimage_self_update_rejects_signed_downgrade(tmp_path: Path) -> None:

@@ -131,3 +131,7 @@ keymasq --self-update --allow-unsigned
 
 This still checks the AppImage SHA-256 from the manifest. Do not use unsigned
 updates for published channels.
+
+Self-update extracts the new runtime before switching `/opt/keymasq/runtime/current`
+and refreshes the installed wrappers, rules, service files, desktop files, and
+update public key from that extracted runtime.

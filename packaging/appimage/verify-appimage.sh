@@ -69,6 +69,10 @@ if [[ ! -x "$appdir/bin/slurp" ]]; then
   echo "bundled slurp launcher was not found in extracted AppImage" >&2
   exit 1
 fi
+if [[ ! -x "$appdir/bin/waypipe" ]]; then
+  echo "bundled waypipe launcher was not found in extracted AppImage" >&2
+  exit 1
+fi
 
 export APPDIR="$appdir"
 export LD_LIBRARY_PATH="$appdir/lib"
@@ -101,3 +105,4 @@ from gi.repository import Adw, Gtk  # noqa: F401,E402
 PY
 
 "$appdir/bin/slurp" -h >/dev/null
+"$appdir/bin/waypipe" --help >/dev/null

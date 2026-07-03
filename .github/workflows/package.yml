@@ -284,18 +284,23 @@ jobs:
       - version-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Apply prerelease Python version
         if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
+        env:
+          KEYMASQ_PRERELEASE_PYTHON_VERSION: ${{ needs.version-metadata.outputs.python_version }}
         run: |
           python3 scripts/rewrite-build-metadata.py \
-            --python-version "${{ needs.version-metadata.outputs.python_version }}"
+            --python-version "$KEYMASQ_PRERELEASE_PYTHON_VERSION"
 
       - name: Build AppImage in Arch container
         run: |

@@ -46,7 +46,11 @@ def _require_privileged_caller() -> int:
 
 def _authorize_target_uid(target_uid: int, caller_euid: int) -> None:
     pkexec_uid = os.environ.get("PKEXEC_UID", "").strip()
-    if caller_euid == 0 and pkexec_uid:
+    keymasq_uid = _keymasq_uid()
+    trusted_pkexec_euid = caller_euid == 0 or (
+        keymasq_uid is not None and int(caller_euid) == keymasq_uid
+    )
+    if pkexec_uid and trusted_pkexec_euid:
         try:
             authorized_uid = int(pkexec_uid)
         except ValueError as exc:
@@ -55,7 +59,6 @@ def _authorize_target_uid(target_uid: int, caller_euid: int) -> None:
             raise PermissionError("Target uid does not match authorized user")
         return
 
-    keymasq_uid = _keymasq_uid()
     if keymasq_uid is not None and int(caller_euid) == keymasq_uid:
         return
 

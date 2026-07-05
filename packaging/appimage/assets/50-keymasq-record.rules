@@ -1,0 +1,21 @@
+function isKeymasqRecordHelper(action) {
+  return action.lookup("program") == "/opt/keymasq/bin/keymasq-record" &&
+    (action.id == "org.freedesktop.policykit.exec" ||
+     action.id == "com.keymasq.record-macro");
+}
+
+polkit.addRule(function(action, subject) {
+  if (!isKeymasqRecordHelper(action)) {
+    return null;
+  }
+  if (action.lookup("user") != "root") {
+    return polkit.Result.NO;
+  }
+  if (action.id == "com.keymasq.record-macro") {
+    return null;
+  }
+  if (subject.local && subject.active) {
+    return polkit.Result.AUTH_SELF;
+  }
+  return polkit.Result.AUTH_ADMIN;
+});

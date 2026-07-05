@@ -37,6 +37,25 @@ def test_authorize_target_uid_rejects_pkexec_uid_mismatch(
         record._authorize_target_uid(1001, 0)
 
 
+def test_authorize_target_uid_rejects_keymasq_pkexec_uid_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PKEXEC_UID", "1000")
+    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+
+    with pytest.raises(PermissionError, match="Target uid"):
+        record._authorize_target_uid(1001, 777)
+
+
+def test_authorize_target_uid_allows_keymasq_pkexec_uid_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PKEXEC_UID", "1000")
+    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+
+    record._authorize_target_uid(1000, 777)
+
+
 def test_authorize_target_uid_rejects_non_root_caller_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

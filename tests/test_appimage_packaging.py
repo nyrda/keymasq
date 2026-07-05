@@ -356,11 +356,27 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "unlock_required = false" in (
         fake_root / "etc/keymasq/security.toml"
     ).read_text(encoding="utf-8")
+    security_toml = (fake_root / "etc/keymasq/security.toml").read_text(encoding="utf-8")
+    assert "client = []" in security_toml
+    assert "gui = []" not in security_toml
+    assert "cli = []" not in security_toml
+    record_rule = (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").read_text(
+        encoding="utf-8"
+    )
+    assert "/opt/keymasq/bin/keymasq-record" in record_rule
+    assert 'action.lookup("user") != "root"' in record_rule
+    assert "com.keymasq.record-macro" in record_rule
+    assert "polkit.Result.AUTH_SELF" in record_rule
+    assert "AUTH_SELF_KEEP" not in record_rule
+    assert not (
+        fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    ).exists()
     atomic_keep_list = (fake_root / "etc/atomic-update.conf.d/keymasq.conf").read_text(
         encoding="utf-8"
     )
     assert "/opt/keymasq/**" not in atomic_keep_list
     assert "/etc/atomic-update.conf.d/keymasq.conf" in atomic_keep_list
+    assert "/etc/polkit-1/rules.d/50-keymasq-record.rules" in atomic_keep_list
     assert "/etc/profile.d/keymasq.sh" in atomic_keep_list
     assert "/etc/tmpfiles.d/keymasq.conf" in atomic_keep_list
     assert "Exec=/opt/keymasq/bin/keymasq" in (
@@ -465,6 +481,12 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
 
     assert (fake_root / "etc/systemd/system/keymasqd.service").is_file()
     assert (fake_root / "root/.config/systemd/user/keymasq-session.service").is_file()
+    record_policy = (
+        fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    ).read_text(encoding="utf-8")
+    assert "/opt/keymasq/bin/keymasq-record" in record_policy
+    assert "auth_self_keep" in record_policy
+    assert (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").is_file()
     assert not (fake_root / "etc/atomic-update.conf.d/keymasq.conf").exists()
     assert not (
         fake_root / "root/.config/autostart/tools.keymasq.keymasq-session.desktop"
@@ -696,6 +718,10 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert not (fake_root / "etc/tmpfiles.d/keymasq.conf").exists()
     assert not (fake_root / "etc/profile.d/keymasq.sh").exists()
     assert not (fake_root / "etc/udev/rules.d/91-keymasq-acl.rules").exists()
+    assert not (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").exists()
+    assert not (
+        fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    ).exists()
     assert not (fake_root / "root/.local/bin/keymasq").exists()
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
     assert not (fake_root / "opt/keymasq/runtime").exists()

@@ -106,6 +106,21 @@ install_file() {
 	install -Dm "$mode" "$src" "$dst"
 }
 
+try_install_file() {
+	mode=$1
+	src=$2
+	dst=$3
+	if [ -L "$dst" ]; then
+		warn "refusing to install through symlinked destination: $dst"
+		return 1
+	fi
+	if install -Dm "$mode" "$src" "$dst"; then
+		return 0
+	fi
+	warn "could not install $dst"
+	return 1
+}
+
 write_file_atomic() {
 	mode=$1
 	dst=$2
@@ -415,11 +430,12 @@ install_atomic_keep_list() {
 	install -d -m 0755 "$(dirname "$dst")"
 	# /opt/keymasq is on the SteamOS offload area (/home/.steamos/offload/opt,
 	# the home/var partition), not the read-only A/B rootfs, so it persists
-	# across atomic updates on its own. Only third-party /etc files need a keep
-	# entry, since /etc is governed by the atomic-update allow list.
+	# across atomic updates on its own. Third-party /etc files need a keep entry,
+	# since /etc is governed by the atomic-update allow list.
 	write_file_atomic 0644 "$dst" <<'EOF'
 /etc/atomic-update.conf.d/keymasq.conf
 /etc/keymasq/**
+/etc/polkit-1/rules.d/50-keymasq-record.rules
 /etc/profile.d/keymasq.sh
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
@@ -682,6 +698,17 @@ print_generic_service_instructions() {
 	fi
 }
 
+install_polkit_integration() {
+	assets=$1
+	install_file 0644 "$assets/50-keymasq-record.rules" \
+		"$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
+	if steamos_detected; then
+		return 0
+	fi
+	try_install_file 0644 "$assets/com.keymasq.record-macro.policy" \
+		"$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)" || true
+}
+
 refresh_common_integration() {
 	target_user=$1
 	assets=$(asset_dir)
@@ -696,6 +723,7 @@ refresh_common_integration() {
 		"$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	install_file 0644 "$assets/99-keymasq-hide-grabbed.rules" \
 		"$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
+	install_polkit_integration "$assets"
 	install_file 0644 "$assets/appimage-update.gpg.asc" \
 		"$install_root/share/keymasq/appimage-update.gpg.asc"
 
@@ -918,6 +946,8 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/profile.d/keymasq.sh)"
 	remove_path "$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
+	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
+	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
 	remove_path "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
 	remove_path "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"

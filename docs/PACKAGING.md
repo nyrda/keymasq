@@ -216,8 +216,11 @@ extracts it once into `/opt/keymasq/runtime/<sha256>`, points
 wrappers in `/opt/keymasq/bin` and the target user's `~/.local/bin`, writes
 system integration under `/etc`, and creates
 `/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc` integration
-files across atomic OS updates. `/opt/keymasq` is installed under SteamOS'
-persistent `/opt` offload mount, not managed by the atomic update keep-list. It
+files across atomic OS updates. On mutable non-SteamOS hosts, it also installs
+the `/opt/keymasq/bin/keymasq-record` polkit action under
+`/usr/share/polkit-1/actions` when that directory is writable. `/opt/keymasq` is
+installed under SteamOS' persistent `/opt` offload mount, not managed by the
+atomic update keep-list. It
 runs `systemd-sysusers` and `systemd-tmpfiles --create` once during install;
 after SteamOS updates, the normal boot-time systemd units reapply the persisted
 sysusers/tmpfiles configuration. Installed services and CLI wrappers run from

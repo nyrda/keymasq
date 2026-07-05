@@ -14,8 +14,7 @@ unlock_required = false
 macro_edit_requires_unlock = false
 
 [session_command_acl]
-gui = []
-cli = []
+client = []
 
 [daemon_command_acl]
 session = []

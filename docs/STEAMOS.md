@@ -50,8 +50,8 @@ The install lives in two places:
 - `/opt/keymasq`: the application itself — the AppImage, the extracted
   runtime it runs from, and the commands under `/opt/keymasq/bin`
 - `/etc`: the system integration — the `keymasqd` service, udev rules,
-  `/etc/keymasq/security.toml`, `/etc/profile.d/keymasq.sh`, and the SteamOS
-  keep-list
+  macro-recording polkit rule, `/etc/keymasq/security.toml`,
+  `/etc/profile.d/keymasq.sh`, and the SteamOS keep-list
 
 The desktop entry, the `keymasq-session` user service, and the `~/.local/bin`
 wrappers are installed for the invoking desktop user. The installer enables

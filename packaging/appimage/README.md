@@ -62,6 +62,7 @@ KEYMASQ_APPIMAGE_RENDERING=software keymasq
 /etc/systemd/system/keymasqd.service
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
+/etc/polkit-1/rules.d/50-keymasq-record.rules
 /etc/keymasq/security.toml
 /etc/profile.d/keymasq.sh
 /etc/atomic-update.conf.d/keymasq.conf
@@ -70,7 +71,9 @@ KEYMASQ_APPIMAGE_RENDERING=software keymasq
 plus the desktop entry and the `keymasq-session` user unit under the target
 user's home directory. The target user is the invoking desktop user;
 `--install --user USER` overrides it. `/etc/profile.d/keymasq.sh` puts
-`/opt/keymasq/bin` on the login `PATH`.
+`/opt/keymasq/bin` on the login `PATH`. On non-SteamOS systems with a writable
+polkit action directory, the installer also writes the matching
+`/usr/share/polkit-1/actions/com.keymasq.record-macro.policy`.
 
 `Keymasq.AppImage` remains the signed update payload. The installer extracts
 it once into `/opt/keymasq/runtime/<sha256>` and the wrappers run commands

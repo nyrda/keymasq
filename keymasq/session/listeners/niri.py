@@ -11,6 +11,7 @@ from typing import cast
 
 from keymasq.common.coercion import coerce_int
 from keymasq.common.coercion import json_object as _json_object
+from keymasq.common.subprocess_env import host_subprocess_environment
 from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners._socket_helpers import unix_socket_connectable
@@ -731,7 +732,7 @@ class NiriListener(WindowListener):
             except ValueError as exc:
                 return False, f"invalid Niri dispatcher arguments: {exc}"
 
-        env = os.environ.copy()
+        env = host_subprocess_environment()
         env["NIRI_SOCKET"] = socket_path
 
         try:

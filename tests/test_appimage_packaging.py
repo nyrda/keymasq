@@ -261,6 +261,8 @@ exit 0
         ["sh", str(RUNTIME_SCRIPT), "--self-update", "--user", "root"],
         check=True,
         env=env,
+        stderr=subprocess.PIPE,
+        text=True,
     )
 
     assert pkexec_log.read_text(encoding="utf-8") == (

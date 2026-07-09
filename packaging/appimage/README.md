@@ -20,7 +20,10 @@ non-systemd systems.
 
 The build scripts are intended to run in an Arch environment. The GitHub
 Actions package workflow uses `archlinux:base-devel`, installs dependencies
-with `pacman`, then downloads the pinned AnyLinux `quick-sharun` helper.
+with `pacman`, then downloads the pinned AnyLinux `quick-sharun` helper. The
+build also downloads checksum-pinned `sharun`, `appimagetool`, `uruntime`,
+`mkdwarfs`, and `anylinux.c` inputs up front; the helper is prevented from
+fetching moving, unverified, or optional inputs during the build.
 
 ```bash
 bash packaging/appimage/get-dependencies.sh
@@ -28,6 +31,45 @@ bash packaging/appimage/make-appimage.sh
 ```
 
 The output is written to `dist/appimage/`.
+
+### Updating pinned build helpers
+
+Review the helper pins before every stable Keymasq release. If releases are
+farther apart, review them at least quarterly, and update immediately for an
+upstream security advisory or a toolchain compatibility break.
+
+Keep each version/revision and its checksums in
+`packaging/appimage/make-appimage.sh` in one change:
+
+- `ANYLINUX_REV`, `QUICK_SHARUN_SHA256`, and `ANYLINUX_SOURCE_SHA256`
+- `SHARUN_VERSION` and the x86_64/aarch64 `SHARUN_SHA256` values
+- `APPIMAGETOOL_VERSION` and the x86_64/aarch64 `APPIMAGETOOL_SHA256` values
+- `URUNTIME_VERSION` and the x86_64/aarch64 `URUNTIME_SHA256` values
+- `DWARFS_VERSION` and the x86_64/aarch64 `DWARFS_SHA256` values
+
+Resolve exact upstream tags/commits, never moving `main` or `latest` URLs, and
+calculate every value from the downloaded bytes:
+
+```bash
+curl -fsSL <exact-url> | sha256sum
+```
+
+The matching `KEYMASQ_APPIMAGE_*` URL, version, revision, and checksum
+environment variables can be used to trial a complete candidate pin set
+without editing the script. A checksum override must accompany every URL or
+version override. After updating, run the complete build and extracted-runtime
+verification in a clean Arch environment:
+
+```bash
+bash packaging/appimage/get-dependencies.sh
+bash packaging/appimage/make-appimage.sh
+bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
+```
+
+Review the helper diff for new network fetches whenever `ANYLINUX_REV` changes;
+the build deliberately disables optional hooks, GTK class fixes, and static
+launcher/path-mapping optimization so those paths cannot introduce unverified
+downloads.
 
 ## Graphics Policy
 

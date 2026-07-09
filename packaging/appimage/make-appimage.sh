@@ -12,6 +12,12 @@ ARCH="$(uname -m)"
 ANYLINUX_REV="${KEYMASQ_APPIMAGE_ANYLINUX_REV:-b3a9e985cdedf7efa81d172f182cd13983743147}"
 QUICK_SHARUN_URL="${KEYMASQ_APPIMAGE_QUICK_SHARUN_URL:-https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$ANYLINUX_REV/useful-tools/quick-sharun.sh}"
 QUICK_SHARUN_SHA256="${KEYMASQ_APPIMAGE_QUICK_SHARUN_SHA256:-4b765d0b38621852f5fc6cbf460641fcce6103b548582d58942abc65ab7dbd93}"
+ANYLINUX_SOURCE_URL="${KEYMASQ_APPIMAGE_ANYLINUX_SOURCE_URL:-https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$ANYLINUX_REV/useful-tools/lib/anylinux.c}"
+ANYLINUX_SOURCE_SHA256="${KEYMASQ_APPIMAGE_ANYLINUX_SOURCE_SHA256:-f29196b8c8e1ad8c76002eed1b9a7149000b40442514074262ede01a4f60ae05}"
+SHARUN_VERSION="${KEYMASQ_APPIMAGE_SHARUN_VERSION:-2.2.3}"
+APPIMAGETOOL_VERSION="${KEYMASQ_APPIMAGE_APPIMAGETOOL_VERSION:-0.3.2}"
+URUNTIME_VERSION="${KEYMASQ_APPIMAGE_URUNTIME_VERSION:-0.5.8}"
+DWARFS_VERSION="${KEYMASQ_APPIMAGE_DWARFS_VERSION:-0.15.3}"
 
 download_to() {
   local url="$1"
@@ -21,9 +27,37 @@ download_to() {
   elif command -v wget >/dev/null 2>&1; then
     wget -qO "$dst" "$url"
   else
-    echo "curl or wget is required to download quick-sharun" >&2
+    echo "curl or wget is required to download AppImage build inputs" >&2
     exit 1
   fi
+}
+
+verify_sha256() {
+  local label="$1"
+  local path="$2"
+  local expected="$3"
+  local actual
+
+  actual="$(sha256sum "$path" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "$label checksum mismatch for $path" >&2
+    echo "expected: $expected" >&2
+    echo "actual:   $actual" >&2
+    exit 1
+  fi
+}
+
+download_verified() {
+  local label="$1"
+  local url="$2"
+  local expected="$3"
+  local dst="$4"
+  local tmp="$dst.download"
+
+  rm -f "$tmp"
+  download_to "$url" "$tmp"
+  verify_sha256 "$label" "$tmp" "$expected"
+  mv -f "$tmp" "$dst"
 }
 
 resolve_bundle_python() {
@@ -91,23 +125,71 @@ resolve_quick_sharun() {
     printf '%s\n' "$candidate"
     return 0
   fi
-  download_to "$QUICK_SHARUN_URL" "$dst"
-  verify_quick_sharun "$dst"
+  download_verified quick-sharun "$QUICK_SHARUN_URL" "$QUICK_SHARUN_SHA256" "$dst"
   chmod 0755 "$dst"
   printf '%s\n' "$dst"
 }
 
 verify_quick_sharun() {
   local path="$1"
-  local actual
 
-  actual="$(sha256sum "$path" | awk '{print $1}')"
-  if [[ "$actual" != "$QUICK_SHARUN_SHA256" ]]; then
-    echo "quick-sharun checksum mismatch for $path" >&2
-    echo "expected: $QUICK_SHARUN_SHA256" >&2
-    echo "actual:   $actual" >&2
-    exit 1
-  fi
+  verify_sha256 quick-sharun "$path" "$QUICK_SHARUN_SHA256"
+}
+
+prepare_verified_appimage_inputs() {
+  local vendor_dir="$BUILD_ROOT/verified-inputs"
+  local anylinux_source="$vendor_dir/anylinux.c"
+  local sharun="$vendor_dir/sharun"
+  local appimagetool="$vendor_dir/appimagetool"
+  local uruntime="$vendor_dir/uruntime"
+  local mkdwarfs="$vendor_dir/mkdwarfs"
+  local sharun_url
+  local sharun_sha256
+  local appimagetool_url
+  local appimagetool_sha256
+  local uruntime_url
+  local uruntime_sha256
+  local mkdwarfs_url
+  local mkdwarfs_sha256
+
+  case "$ARCH" in
+    x86_64)
+      sharun_sha256="${KEYMASQ_APPIMAGE_SHARUN_SHA256:-9befc93354f595bf1b6d2898cf745aab93838079a63400af1136d6b072ec13fa}"
+      appimagetool_sha256="${KEYMASQ_APPIMAGE_APPIMAGETOOL_SHA256:-44bedf8868cf6ff9f90654ad7260e6d1c0966d20276dced41fa8450f18eb2214}"
+      uruntime_sha256="${KEYMASQ_APPIMAGE_URUNTIME_SHA256:-7edba92a430f71a2dcfe161ef9d143d0379894443666769ecf8884f41034d236}"
+      mkdwarfs_sha256="${KEYMASQ_APPIMAGE_DWARFS_SHA256:-30c868737fdf7b4167b35650839bcbce0fd73d203f83702bc0afa7eaa2e1bded}"
+      ;;
+    aarch64)
+      sharun_sha256="${KEYMASQ_APPIMAGE_SHARUN_SHA256:-3b4bfc45fe13634fbcf8d647e08ef4ac69bc55b38234944e00da588820e4090c}"
+      appimagetool_sha256="${KEYMASQ_APPIMAGE_APPIMAGETOOL_SHA256:-c7c7678c1370f9390fd4d4d3beb08109680090dcdb673ee212367c6872084201}"
+      uruntime_sha256="${KEYMASQ_APPIMAGE_URUNTIME_SHA256:-6031dade6e86841a3bfa0d11fe2ae51611f242b7f670a5e3e4f4e7d3e89280d1}"
+      mkdwarfs_sha256="${KEYMASQ_APPIMAGE_DWARFS_SHA256:-87a514821c762371a50dac7a271a6c78af3a23cc0c7cc47571713f8fb6707684}"
+      ;;
+    *)
+      echo "No verified AppImage helper inputs are configured for $ARCH." >&2
+      exit 1
+      ;;
+  esac
+
+  sharun_url="${KEYMASQ_APPIMAGE_SHARUN_URL:-https://github.com/pkgforge-dev/sharun/releases/download/$SHARUN_VERSION/sharun-$ARCH}"
+  appimagetool_url="${KEYMASQ_APPIMAGE_APPIMAGETOOL_URL:-https://github.com/pkgforge-dev/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$ARCH-linux}"
+  uruntime_url="${KEYMASQ_APPIMAGE_URUNTIME_URL:-https://github.com/VHSgunzo/uruntime/releases/download/v$URUNTIME_VERSION/uruntime-appimage-dwarfs-lite-$ARCH}"
+  mkdwarfs_url="${KEYMASQ_APPIMAGE_DWARFS_URL:-https://github.com/mhx/dwarfs/releases/download/v$DWARFS_VERSION/dwarfs-universal-$DWARFS_VERSION-Linux-$ARCH}"
+
+  install -d -m 0755 "$vendor_dir" "$APPDIR/lib"
+  download_verified anylinux.c "$ANYLINUX_SOURCE_URL" "$ANYLINUX_SOURCE_SHA256" "$anylinux_source"
+  download_verified sharun "$sharun_url" "$sharun_sha256" "$sharun"
+  download_verified appimagetool "$appimagetool_url" "$appimagetool_sha256" "$appimagetool"
+  download_verified uruntime "$uruntime_url" "$uruntime_sha256" "$uruntime"
+  download_verified mkdwarfs "$mkdwarfs_url" "$mkdwarfs_sha256" "$mkdwarfs"
+
+  install -m 0755 "$sharun" "$APPDIR/sharun"
+  cc -shared -fPIC -O2 "$anylinux_source" -o "$APPDIR/lib/anylinux.so"
+  chmod 0755 "$appimagetool" "$uruntime" "$mkdwarfs"
+  APPIMAGETOOL="$appimagetool"
+  RUNTIME="$uruntime"
+  DWARFS_CMD="$mkdwarfs"
+  export APPIMAGETOOL RUNTIME DWARFS_CMD
 }
 
 require_python_modules() {
@@ -335,6 +417,7 @@ fi
 rm -rf "$BUILD_ROOT"
 mkdir -p "$WORKDIR" "$APPDIR/bin" "$APPDIR/share/keymasq/appimage" "$APPIMAGE_OUT" "$DIST_DIR"
 quick_sharun="$(resolve_quick_sharun)"
+prepare_verified_appimage_inputs
 
 copy_source_tree
 "$PYTHON_EXE" -m build --wheel --no-isolation --outdir "$WORKDIR/wheel" "$WORKDIR/source"
@@ -355,6 +438,10 @@ export DEPLOY_VULKAN=0
 export ALWAYS_SOFTWARE="${KEYMASQ_APPIMAGE_ALWAYS_SOFTWARE:-${ALWAYS_SOFTWARE:-0}}"
 export VERSION="$version"
 export STRACE_MODE="${STRACE_MODE:-0}"
+export ADD_HOOKS=
+export GTK_CLASS_FIX=0
+export OPTIMIZE_LAUNCH=0
+export PATH_MAPPING=
 
 "$quick_sharun" \
   "$APPDIR/bin/keymasq" \

@@ -44,6 +44,9 @@ fi
 if [ "$name" = systemctl ] && [ "${1:-}" = is-enabled ]; then
   exit "${KEYMASQ_FAKE_SYSTEMD_ENABLED_STATUS:-1}"
 fi
+if [ "$name" = systemctl ] && [ "${1:-}" = try-restart ]; then
+  exit "${KEYMASQ_FAKE_SYSTEMD_RESTART_STATUS:-0}"
+fi
 if [ "$name" = runuser ]; then
   case " $* " in
     *" systemctl --user is-active --quiet keymasq-session.service "*)
@@ -52,7 +55,24 @@ if [ "$name" = runuser ]; then
     *" systemctl --user is-enabled --quiet keymasq-session.service "*)
       exit "${KEYMASQ_FAKE_USER_SYSTEMD_ENABLED_STATUS:-1}"
       ;;
+    *" systemctl --user try-restart keymasq-session.service "*)
+      exit "${KEYMASQ_FAKE_USER_SYSTEMD_RESTART_STATUS:-0}"
+      ;;
   esac
+
+  case " $* " in
+    *" systemctl --user "*)
+      exit 0
+      ;;
+  esac
+
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+    shift
+  done
+  if [ "${1:-}" = -- ]; then
+    shift
+  fi
+  exec "$@"
 fi
 exit 0
 """
@@ -291,6 +311,27 @@ def test_appimage_builder_does_not_force_software_rendering_by_default() -> None
     assert 'ALWAYS_SOFTWARE:-1' not in builder
 
 
+def test_appimage_builder_verifies_transitive_inputs() -> None:
+    builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "prepare_verified_appimage_inputs" in builder
+    assert "ANYLINUX_SOURCE_SHA256" in builder
+    assert "KEYMASQ_APPIMAGE_SHARUN_SHA256" in builder
+    assert "KEYMASQ_APPIMAGE_APPIMAGETOOL_SHA256" in builder
+    assert "KEYMASQ_APPIMAGE_URUNTIME_SHA256" in builder
+    assert "KEYMASQ_APPIMAGE_DWARFS_SHA256" in builder
+    assert 'RUNTIME="$uruntime"' in builder
+    assert 'DWARFS_CMD="$mkdwarfs"' in builder
+    assert "/releases/latest/" not in builder
+    assert "refs/heads/main" not in builder
+    assert 'export ADD_HOOKS=' in builder
+    assert "export GTK_CLASS_FIX=0" in builder
+    assert "export OPTIMIZE_LAUNCH=0" in builder
+    assert 'export PATH_MAPPING=' in builder
+
+
 def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     fake_root = tmp_path / "root"
     (fake_root / "etc").mkdir(parents=True)
@@ -498,7 +539,7 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
     assert "systemctl try-restart keymasqd.service" not in command_log
 
 
-def test_appimage_install_chowns_systemd_user_dir_before_enabling(
+def test_appimage_install_creates_systemd_user_dir_without_root_chown(
     tmp_path: Path,
 ) -> None:
     fake_root = tmp_path / "root"
@@ -519,16 +560,12 @@ def test_appimage_install_chowns_systemd_user_dir_before_enabling(
 
     fake_home = fake_root / current_home.relative_to("/")
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
-    assert f"chown {current_user}: {fake_home}\n" not in command_log
-    for directory in (
-        fake_home / ".config",
-        fake_home / ".config/systemd",
-        fake_home / ".config/systemd/user",
-    ):
-        assert f"chown {current_user}: {directory}" in command_log
-    assert command_log.index(
-        f"chown {current_user}: {fake_home / '.config/systemd/user'}"
-    ) < command_log.index("systemctl --user enable --now keymasq-session.service")
+    assert "chown " not in command_log
+    user_dir_command = f"runuser -u {current_user} -- mkdir {fake_home / '.config'}"
+    assert user_dir_command in command_log
+    assert command_log.index(user_dir_command) < command_log.index(
+        "systemctl --user enable --now keymasq-session.service"
+    )
 
 
 def test_appimage_install_refuses_symlinked_user_directories(
@@ -563,7 +600,7 @@ def test_appimage_install_refuses_symlinked_user_directories(
     assert not (symlink_target / "tools.keymasq.keymasq.desktop").exists()
 
 
-def test_appimage_install_fails_when_user_dir_ownership_cannot_be_set(
+def test_appimage_install_does_not_use_root_chown_for_user_directories(
     tmp_path: Path,
 ) -> None:
     fake_root = tmp_path / "root"
@@ -575,16 +612,10 @@ def test_appimage_install_fails_when_user_dir_ownership_cannot_be_set(
     env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
     env["KEYMASQ_FAKE_CHOWN_STATUS"] = "1"
 
-    result = subprocess.run(
-        ["sh", str(RUNTIME_SCRIPT), "--install"],
-        check=False,
-        env=env,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    subprocess.run(["sh", str(RUNTIME_SCRIPT), "--install"], check=True, env=env)
 
-    assert result.returncode != 0
-    assert "failed to set" in result.stderr
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    assert "chown " not in command_log
 
 
 def test_appimage_install_generic_fallback_writes_manual_service_instructions(
@@ -948,6 +979,109 @@ def test_appimage_self_update_rejects_signed_downgrade(tmp_path: Path) -> None:
     assert "refusing to downgrade from 9.9.9 to 9.8.0" in result.stderr
     assert target.read_text(encoding="utf-8") == "old\n"
     assert not (fake_root / "opt/keymasq/runtime/current").exists()
+
+
+def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "source.AppImage"
+    source_appimage.write_text("source\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+
+    install_root = fake_root / "opt/keymasq"
+    runtime_root = install_root / "runtime"
+    old_runtime = runtime_root / "old-runtime"
+    old_runtime.mkdir(parents=True)
+    (runtime_root / "current").symlink_to("old-runtime")
+    target = install_root / "Keymasq.AppImage"
+    target.write_text("old\n", encoding="utf-8")
+    target.chmod(0o755)
+    version_file = install_root / "version"
+    version_file.write_text("1.0.0\n", encoding="utf-8")
+
+    blocked_user_dir = fake_root / "root/.local"
+    blocked_user_dir.parent.mkdir(parents=True)
+    blocked_user_dir.symlink_to(tmp_path)
+
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    new_appimage = update_dir / "Keymasq-2.0.0-x86_64.AppImage"
+    new_appimage.write_text("new\n", encoding="utf-8")
+    _write_update_manifest(update_dir, new_appimage, "2.0.0")
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+
+    runtime_link = tmp_path / "keymasq"
+    runtime_link.symlink_to(RUNTIME_SCRIPT)
+    result = subprocess.run(
+        [
+            str(runtime_link),
+            "--self-update",
+            "--allow-unsigned",
+            "--user",
+            "root",
+        ],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "refusing to write through symlinked user directory" in result.stderr
+    assert target.read_text(encoding="utf-8") == "old\n"
+    assert (runtime_root / "current").readlink() == Path("old-runtime")
+    assert version_file.read_text(encoding="utf-8") == "1.0.0\n"
+    assert not list(install_root.glob("Keymasq.AppImage.new.*"))
+
+
+def test_appimage_self_update_reports_service_restart_failure(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "source.AppImage"
+    source_appimage.write_text("source\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+
+    target = fake_root / "opt/keymasq/Keymasq.AppImage"
+    target.parent.mkdir(parents=True)
+    target.write_text("old\n", encoding="utf-8")
+    target.chmod(0o755)
+    (fake_root / "etc/systemd/system").mkdir(parents=True)
+    (fake_root / "etc/systemd/system/keymasqd.service").write_text(
+        "stale\n", encoding="utf-8"
+    )
+
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    new_appimage = update_dir / "Keymasq-2.0.0-x86_64.AppImage"
+    new_appimage.write_text("new\n", encoding="utf-8")
+    _write_update_manifest(update_dir, new_appimage, "2.0.0")
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+    env["KEYMASQ_FAKE_SYSTEMD_RESTART_STATUS"] = "1"
+
+    runtime_link = tmp_path / "keymasq"
+    runtime_link.symlink_to(RUNTIME_SCRIPT)
+    result = subprocess.run(
+        [
+            str(runtime_link),
+            "--self-update",
+            "--allow-unsigned",
+            "--user",
+            "root",
+        ],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert "could not restart keymasqd.service after update" in result.stderr
+    assert "files were updated to 2.0.0" in result.stderr
+    assert "Keymasq updated to 2.0.0" not in result.stdout
 
 
 def test_appimage_self_update_allows_explicit_downgrade(tmp_path: Path) -> None:

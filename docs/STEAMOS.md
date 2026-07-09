@@ -124,6 +124,10 @@ AppImage, checks its SHA-256, extracts it into
 `/opt/keymasq/runtime/current`, refreshes installed host integration files, and
 restarts services.
 
+If either systemd service cannot be restarted, the updater exits with an error
+that states the files were installed but service recovery is required; it does
+not report the update as fully successful.
+
 Signed manifest replays cannot downgrade an installed build by default: the
 updater compares the manifest version with the installed Keymasq version and
 refuses older versions. For an intentional rollback, use:

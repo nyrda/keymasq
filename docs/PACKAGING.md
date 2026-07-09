@@ -208,7 +208,10 @@ bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppIm
 The output is written to `dist/appimage/`. The GitHub Actions package workflow
 does this in `archlinux:base-devel`, installing dependencies with `pacman` and
 downloading the pinned AnyLinux `quick-sharun` helper from
-`pkgforge-dev/Anylinux-AppImages`.
+`pkgforge-dev/Anylinux-AppImages`. The helper's `sharun`, `appimagetool`, and
+`uruntime`, `mkdwarfs`, and `anylinux.c` inputs are separately
+version/checksum-pinned and prepared before the helper runs, so release builds
+do not consume moving or unverified transitive inputs.
 
 The AppImage installs the signed payload at `/opt/keymasq/Keymasq.AppImage`,
 extracts it once into `/opt/keymasq/runtime/<sha256>`, points

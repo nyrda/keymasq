@@ -152,6 +152,57 @@ exec "\$APPDIR/bin/$name" "\$@"
 EOF
 }
 
+run_as_user() {
+	keymasq_run_user=$1
+	shift
+	if [ "$keymasq_run_user" = root ]; then
+		"$@"
+	elif command -v runuser >/dev/null 2>&1; then
+		runuser -u "$keymasq_run_user" -- "$@"
+	elif command -v sudo >/dev/null 2>&1; then
+		sudo -u "$keymasq_run_user" -- "$@"
+	else
+		die "runuser or sudo is required to install files for $keymasq_run_user"
+	fi
+}
+
+write_user_file_atomic() {
+	keymasq_write_user=$1
+	keymasq_write_mode=$2
+	keymasq_write_dst=$3
+	if ! run_as_user "$keymasq_write_user" sh -c '
+		set -eu
+		mode=$1
+		dst=$2
+		dir=$(dirname "$dst")
+		base=$(basename "$dst")
+		tmp=$(mktemp "$dir/.${base}.tmp.XXXXXX")
+		trap '\''rm -f "$tmp"'\'' EXIT HUP INT TERM
+		cat >"$tmp"
+		chmod "$mode" "$tmp"
+		mv -Tf "$tmp" "$dst"
+		trap - EXIT HUP INT TERM
+	' sh "$keymasq_write_mode" "$keymasq_write_dst"; then
+		die "failed to write $keymasq_write_dst as $keymasq_write_user"
+	fi
+}
+
+write_user_wrapper() {
+	keymasq_wrapper_user=$1
+	keymasq_wrapper_name=$2
+	keymasq_wrapper_dst=$3
+	write_user_file_atomic "$keymasq_wrapper_user" 0755 "$keymasq_wrapper_dst" <<EOF
+#!/bin/sh
+APPDIR=\${KEYMASQ_APPDIR:-$INSTALL_DIR/$RUNTIME_DIR_NAME/$CURRENT_RUNTIME_NAME}
+if [ ! -x "\$APPDIR/bin/$keymasq_wrapper_name" ]; then
+	echo "error: Keymasq runtime is not installed at \$APPDIR" >&2
+	exit 1
+fi
+export APPDIR
+exec "\$APPDIR/bin/$keymasq_wrapper_name" "\$@"
+EOF
+}
+
 runtime_root_path() {
 	root_path "$INSTALL_DIR/$RUNTIME_DIR_NAME"
 }
@@ -491,20 +542,6 @@ ensure_user_home_dir() {
 	chmod 0755 "$dir"
 }
 
-chown_user_required() {
-	user=$1
-	path=$2
-	if ! chown "$user:" "$path" 2>/dev/null; then
-		die "failed to set $path ownership to $user"
-	fi
-}
-
-chown_user_best_effort() {
-	user=$1
-	path=$2
-	chown "$user:" "$path" 2>/dev/null || true
-}
-
 ensure_user_dir() {
 	user=$1
 	dir=$2
@@ -515,11 +552,14 @@ ensure_user_dir() {
 		[ -d "$dir" ] || die "expected user directory but found non-directory: $dir"
 	else
 		parent=$(dirname "$dir")
-		[ -d "$parent" ] || install -d -m 0755 "$parent"
-		mkdir "$dir"
-		chmod 0755 "$dir"
+		[ -d "$parent" ] || die "parent user directory does not exist: $parent"
+		if ! run_as_user "$user" mkdir "$dir"; then
+			die "failed to create $dir as $user"
+		fi
+		if ! run_as_user "$user" chmod 0755 "$dir"; then
+			die "failed to set $dir permissions as $user"
+		fi
 	fi
-	chown_user_required "$user" "$dir"
 }
 
 install_desktop_files() {
@@ -531,13 +571,13 @@ install_desktop_files() {
 	desktop_dir=$(root_path "$home/.local/share/applications")
 	icon_dir=$(root_path "$home/.local/share/icons/hicolor/scalable/apps")
 	desktop_file="$desktop_dir/tools.keymasq.keymasq.desktop"
-	install_file 0644 "$assets/keymasq.desktop" "$desktop_file"
-	sed -i 's|^Exec=.*$|Exec=/opt/keymasq/bin/keymasq|' "$desktop_file"
-	chown_user_best_effort "$user" "$desktop_file"
+	write_user_file_atomic "$user" 0644 "$desktop_file" < "$assets/keymasq.desktop"
+	if ! run_as_user "$user" sed -i 's|^Exec=.*$|Exec=/opt/keymasq/bin/keymasq|' "$desktop_file"; then
+		die "failed to update desktop launcher as $user"
+	fi
 	if [ -f "$assets/tools.keymasq.keymasq.svg" ]; then
 		icon_file="$icon_dir/tools.keymasq.keymasq.svg"
-		install_file 0644 "$assets/tools.keymasq.keymasq.svg" "$icon_file"
-		chown_user_best_effort "$user" "$icon_file"
+		write_user_file_atomic "$user" 0644 "$icon_file" < "$assets/tools.keymasq.keymasq.svg"
 	fi
 }
 
@@ -547,8 +587,7 @@ install_user_service() {
 	assets=$(asset_dir)
 	install_user_dir_chain "$user" "$home" .config systemd user
 	unit_dir=$(root_path "$home/.config/systemd/user")
-	install_file 0644 "$assets/keymasq-session.service" "$unit_dir/keymasq-session.service"
-	chown_user_best_effort "$user" "$unit_dir/keymasq-session.service"
+	write_user_file_atomic "$user" 0644 "$unit_dir/keymasq-session.service" < "$assets/keymasq-session.service"
 }
 
 install_user_wrappers() {
@@ -557,8 +596,7 @@ install_user_wrappers() {
 	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
-		write_wrapper "$name" "$bin_dir/$name"
-		chown_user_best_effort "$user" "$bin_dir/$name"
+		write_user_wrapper "$user" "$name" "$bin_dir/$name"
 	done
 }
 
@@ -568,7 +606,7 @@ install_session_autostart() {
 	install_user_dir_chain "$user" "$home" .config autostart
 	autostart_dir=$(root_path "$home/.config/autostart")
 	autostart_file="$autostart_dir/tools.keymasq.keymasq-session.desktop"
-	write_file_atomic 0644 "$autostart_file" <<'EOF'
+	write_user_file_atomic "$user" 0644 "$autostart_file" <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Keymasq Session
@@ -578,7 +616,6 @@ Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
-	chown_user_best_effort "$user" "$autostart_file"
 }
 
 reload_udev_rules() {
@@ -917,6 +954,14 @@ remove_path() {
 	fi
 }
 
+remove_user_path() {
+	keymasq_remove_user=$1
+	keymasq_remove_path=$2
+	if ! run_as_user "$keymasq_remove_user" rm -rf -- "$keymasq_remove_path"; then
+		die "failed to remove $keymasq_remove_path as $keymasq_remove_user"
+	fi
+}
+
 uninstall_keymasq() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -940,7 +985,7 @@ uninstall_keymasq() {
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
 	remove_path "$(root_path /etc/systemd/system/keymasqd.service)"
-	remove_path "$(root_path "$home/.config/systemd/user/keymasq-session.service")"
+	remove_user_path "$target_user" "$(root_path "$home/.config/systemd/user/keymasq-session.service")"
 	remove_path "$(root_path /etc/sysusers.d/keymasq.conf)"
 	remove_path "$(root_path /etc/tmpfiles.d/keymasq.conf)"
 	remove_path "$(root_path /etc/profile.d/keymasq.sh)"
@@ -949,13 +994,13 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
 	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
-	remove_path "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
-	remove_path "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"
-	remove_path "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
+	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
+	remove_user_path "$target_user" "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"
+	remove_user_path "$target_user" "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
-		remove_path "$(root_path "$home/.local/bin/$name")"
+		remove_user_path "$target_user" "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
 	remove_path "$(root_path "$INSTALL_DIR/$RUNTIME_DIR_NAME")"
@@ -1098,8 +1143,6 @@ self_update() {
 	[ -n "$appimage_url" ] || die "update manifest missing appimage_url"
 	[ -n "$sha256" ] || die "update manifest missing sha256"
 	[ -n "$version" ] || die "update manifest missing version"
-	current_version=$(installed_version) || die "could not determine installed Keymasq version; refusing update"
-	refuse_downgrade_unless_allowed "$current_version" "$version" "$allow_downgrade"
 
 	download_to "$appimage_url" "$new_appimage"
 	actual_sha256=$(sha256sum "$new_appimage" | awk '{print $1}')
@@ -1108,18 +1151,36 @@ self_update() {
 
 	(
 		flock 9
+		current_version=$(installed_version) || die "could not determine installed Keymasq version; refusing update"
+		refuse_downgrade_unless_allowed "$current_version" "$version" "$allow_downgrade"
 		previous_runtime=$(current_runtime_id || true)
-		install -m 0755 "$new_appimage" "$target.new"
-		prepare_runtime_from_appimage "$target.new" "$actual_sha256"
-		mv -f "$target.new" "$target"
+		staged_target="$target.new.$$"
+		trap 'rm -f "$staged_target"' EXIT HUP INT TERM
+		install_file 0755 "$new_appimage" "$staged_target"
+		prepare_runtime_from_appimage "$staged_target" "$actual_sha256"
+		refresh_installed_integration "$target_user" "$actual_sha256"
+		mv -Tf "$staged_target" "$target"
+		trap - EXIT HUP INT TERM
 		activate_runtime "$actual_sha256"
 		write_installed_version "$version"
-		refresh_installed_integration "$target_user" "$actual_sha256"
 		prune_old_runtimes "$actual_sha256" "$previous_runtime"
 	) 9>"$lock_path"
 
-	systemctl try-restart keymasqd.service 2>/dev/null || true
-	run_user_systemctl "$target_user" try-restart keymasq-session.service 2>/dev/null || true
+	restart_failed=0
+	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] && \
+		! systemctl try-restart keymasqd.service; then
+		warn "could not restart keymasqd.service after update"
+		restart_failed=1
+	fi
+	home=$(resolve_user_home "$target_user")
+	if [ -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")" ] && \
+		! run_user_systemctl "$target_user" try-restart keymasq-session.service; then
+		warn "could not restart keymasq-session.service for $target_user after update"
+		restart_failed=1
+	fi
+	if [ "$restart_failed" = 1 ]; then
+		die "$APP_NAME files were updated${version:+ to $version}, but one or more services failed to restart"
+	fi
 
 	log "$APP_NAME updated${version:+ to $version}"
 }

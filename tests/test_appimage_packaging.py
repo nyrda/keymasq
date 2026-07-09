@@ -72,7 +72,7 @@ if [ "$name" = runuser ]; then
   if [ "${1:-}" = -- ]; then
     shift
   fi
-  exec "$@"
+  exec "$@" </dev/null
 fi
 exit 0
 """
@@ -81,6 +81,7 @@ exit 0
         "systemd-sysusers",
         "systemd-tmpfiles",
         "udevadm",
+        "setfacl",
         "systemctl",
         "runuser",
     ):
@@ -695,13 +696,9 @@ def test_appimage_install_does_not_follow_existing_user_file_symlinks(
     fake_home = fake_root / current_home.relative_to("/")
     wrapper = fake_home / ".local/bin/keymasq"
     autostart = fake_home / ".config/autostart/tools.keymasq.keymasq-session.desktop"
-    wrapper_target = tmp_path / "wrapper-target"
     autostart_target = tmp_path / "autostart-target"
-    wrapper_target.write_text("keep-wrapper\n", encoding="utf-8")
     autostart_target.write_text("keep-autostart\n", encoding="utf-8")
-    wrapper.parent.mkdir(parents=True)
     autostart.parent.mkdir(parents=True)
-    wrapper.symlink_to(wrapper_target)
     autostart.symlink_to(autostart_target)
 
     subprocess.run(
@@ -712,14 +709,42 @@ def test_appimage_install_does_not_follow_existing_user_file_symlinks(
         text=True,
     )
 
-    assert wrapper_target.read_text(encoding="utf-8") == "keep-wrapper\n"
     assert autostart_target.read_text(encoding="utf-8") == "keep-autostart\n"
-    assert not wrapper.is_symlink()
     assert not autostart.is_symlink()
+    assert "# Managed by Keymasq AppImage" in wrapper.read_text(encoding="utf-8")
     assert 'exec "$APPDIR/bin/keymasq" "$@"' in wrapper.read_text(encoding="utf-8")
     assert "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" in autostart.read_text(
         encoding="utf-8"
     )
+
+
+def test_appimage_install_preserves_non_keymasq_user_wrapper(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "generic"
+    current_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+    wrapper = fake_root / current_home.relative_to("/") / ".local/bin/waypipe"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\necho user-waypipe\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert f"refusing to replace non-Keymasq user command: {wrapper}" in result.stderr
+    assert wrapper.read_text(encoding="utf-8") == "#!/bin/sh\necho user-waypipe\n"
+    assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
 
 
 def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
@@ -746,6 +771,22 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     local_wrapper = fake_root / "usr/local/bin/keymasq"
     local_wrapper.parent.mkdir(parents=True)
     local_wrapper.write_text("admin-managed\n", encoding="utf-8")
+    user_waypipe = fake_root / "root/.local/bin/waypipe"
+    user_waypipe.write_text("#!/bin/sh\necho user-waypipe\n", encoding="utf-8")
+    user_waypipe.chmod(0o755)
+    hidden_flag = fake_root / "run/keymasq/hidden/event0"
+    hidden_hardware_flag = fake_root / "run/keymasq/hidden-hardware/28de:1205"
+    hidden_flag.parent.mkdir(parents=True, exist_ok=True)
+    hidden_hardware_flag.parent.mkdir(parents=True, exist_ok=True)
+    hidden_flag.touch()
+    hidden_hardware_flag.touch()
+    uinput = fake_root / "dev/uinput"
+    event = fake_root / "dev/input/event0"
+    joystick = fake_root / "dev/input/js0"
+    event.parent.mkdir(parents=True)
+    uinput.touch()
+    event.touch()
+    joystick.touch()
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
@@ -762,11 +803,22 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
         fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
     ).exists()
     assert not (fake_root / "root/.local/bin/keymasq").exists()
+    assert user_waypipe.read_text(encoding="utf-8") == "#!/bin/sh\necho user-waypipe\n"
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
     assert not (fake_root / "opt/keymasq/runtime").exists()
     assert local_wrapper.read_text(encoding="utf-8") == "admin-managed\n"
     assert (fake_root / "etc/keymasq/security.toml").exists()
     assert macro_path.read_text(encoding="utf-8") == "macro\n"
+    assert not hidden_flag.parent.exists()
+    assert not hidden_hardware_flag.parent.exists()
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    assert "udevadm control --reload-rules" in command_log
+    assert "udevadm trigger --action=change --subsystem-match=input" in command_log
+    assert "udevadm trigger --action=change --sysname-match=uinput" in command_log
+    assert "udevadm settle" in command_log
+    assert f"setfacl -x u:keymasq {uinput}" in command_log
+    assert f"setfacl -x u:keymasq {event}" in command_log
+    assert f"setfacl -x u:keymasq {joystick}" in command_log
 
 
 def test_appimage_runtime_exports_gtk_introspection_environment(tmp_path: Path) -> None:

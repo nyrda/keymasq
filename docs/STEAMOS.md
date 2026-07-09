@@ -57,6 +57,11 @@ The desktop entry, the `keymasq-session` user service, and the `~/.local/bin`
 wrappers are installed for the invoking desktop user. The installer enables
 and starts both services.
 
+Existing commands in `~/.local/bin` are never replaced unless they are
+recognizable wrappers from an earlier Keymasq AppImage install. This includes
+`waypipe`; move or rename a conflicting user-managed command before installing
+if you want Keymasq to create its wrapper there.
+
 The full file layout and the runtime extraction model are documented in
 `packaging/appimage/README.md`.
 
@@ -146,6 +151,10 @@ published at `https://repo.keymasq.tools/gpg-key.asc`.
 keymasq --uninstall
 ```
 
-Uninstall removes AppImage integration, systemd units, udev rules, wrappers,
-desktop files, and the SteamOS keep-list. It intentionally leaves
-`/etc/keymasq`, `/var/lib/keymasq`, and user configuration/macros in place.
+Uninstall removes AppImage integration, systemd units, udev rules,
+Keymasq-managed wrappers, desktop files, and the SteamOS keep-list. It
+preserves user-managed commands with the same names. Existing input devices
+are retriggered after hidden-source flags and Keymasq ACL entries are removed,
+so uninstall does not require a reboot or device replug. It intentionally
+leaves `/etc/keymasq`, `/var/lib/keymasq`, and user configuration/macros in
+place.

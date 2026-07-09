@@ -9,6 +9,7 @@ CURRENT_RUNTIME_NAME=current
 VERSION_FILE_NAME=version
 UPDATE_MANIFEST_NAME=latest-x86_64.json
 DEFAULT_UPDATE_BASE_URL=https://repo.keymasq.tools/appimage
+USER_WRAPPER_MARKER='# Managed by Keymasq AppImage'
 
 log() {
 	printf '%s\n' "$*"
@@ -166,26 +167,34 @@ run_as_user() {
 	fi
 }
 
-write_user_file_atomic() {
+write_user_file_atomic() (
 	keymasq_write_user=$1
 	keymasq_write_mode=$2
 	keymasq_write_dst=$3
+	keymasq_write_stage=$(mktemp -d /tmp/keymasq-user-write.XXXXXX) || \
+		die "failed to create temporary user-file staging directory"
+	trap 'rm -rf "$keymasq_write_stage"' EXIT HUP INT TERM
+	keymasq_write_source="$keymasq_write_stage/content"
+	cat > "$keymasq_write_source" || die "failed to stage $keymasq_write_dst"
+	chmod 0644 "$keymasq_write_source"
+	chmod 0755 "$keymasq_write_stage"
 	if ! run_as_user "$keymasq_write_user" sh -c '
 		set -eu
 		mode=$1
 		dst=$2
+		src=$3
 		dir=$(dirname "$dst")
 		base=$(basename "$dst")
 		tmp=$(mktemp "$dir/.${base}.tmp.XXXXXX")
 		trap '\''rm -f "$tmp"'\'' EXIT HUP INT TERM
-		cat >"$tmp"
+		cat "$src" >"$tmp"
 		chmod "$mode" "$tmp"
 		mv -Tf "$tmp" "$dst"
 		trap - EXIT HUP INT TERM
-	' sh "$keymasq_write_mode" "$keymasq_write_dst"; then
+	' sh "$keymasq_write_mode" "$keymasq_write_dst" "$keymasq_write_source"; then
 		die "failed to write $keymasq_write_dst as $keymasq_write_user"
 	fi
-}
+)
 
 write_user_wrapper() {
 	keymasq_wrapper_user=$1
@@ -193,6 +202,7 @@ write_user_wrapper() {
 	keymasq_wrapper_dst=$3
 	write_user_file_atomic "$keymasq_wrapper_user" 0755 "$keymasq_wrapper_dst" <<EOF
 #!/bin/sh
+$USER_WRAPPER_MARKER
 APPDIR=\${KEYMASQ_APPDIR:-$INSTALL_DIR/$RUNTIME_DIR_NAME/$CURRENT_RUNTIME_NAME}
 if [ ! -x "\$APPDIR/bin/$keymasq_wrapper_name" ]; then
 	echo "error: Keymasq runtime is not installed at \$APPDIR" >&2
@@ -201,6 +211,37 @@ fi
 export APPDIR
 exec "\$APPDIR/bin/$keymasq_wrapper_name" "\$@"
 EOF
+}
+
+user_wrapper_is_managed() {
+	keymasq_wrapper_user=$1
+	keymasq_wrapper_name=$2
+	keymasq_wrapper_path=$3
+	keymasq_wrapper_appdir="APPDIR=\${KEYMASQ_APPDIR:-$INSTALL_DIR/$RUNTIME_DIR_NAME/$CURRENT_RUNTIME_NAME}"
+	keymasq_wrapper_exec="exec \"\$APPDIR/bin/$keymasq_wrapper_name\" \"\$@\""
+	run_as_user "$keymasq_wrapper_user" sh -c '
+		path=$1
+		marker=$2
+		expected_appdir=$3
+		expected_exec=$4
+		[ -f "$path" ] && [ ! -L "$path" ] || exit 1
+		grep -Fqx "$marker" "$path" && exit 0
+		grep -Fqx "$expected_appdir" "$path" && grep -Fqx "$expected_exec" "$path"
+	' sh "$keymasq_wrapper_path" "$USER_WRAPPER_MARKER" \
+		"$keymasq_wrapper_appdir" "$keymasq_wrapper_exec"
+}
+
+validate_user_wrapper_destinations() {
+	keymasq_wrapper_user=$1
+	keymasq_wrapper_home=$(resolve_user_home "$keymasq_wrapper_user")
+	keymasq_wrapper_dir=$(root_path "$keymasq_wrapper_home/.local/bin")
+	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
+		keymasq_wrapper_path="$keymasq_wrapper_dir/$keymasq_wrapper_name"
+		if { [ -e "$keymasq_wrapper_path" ] || [ -L "$keymasq_wrapper_path" ]; } && \
+			! user_wrapper_is_managed "$keymasq_wrapper_user" "$keymasq_wrapper_name" "$keymasq_wrapper_path"; then
+			die "refusing to replace non-Keymasq user command: $keymasq_wrapper_path"
+		fi
+	done
 }
 
 runtime_root_path() {
@@ -593,6 +634,7 @@ install_user_service() {
 install_user_wrappers() {
 	user=$1
 	home=$(resolve_user_home "$user")
+	validate_user_wrapper_destinations "$user"
 	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
@@ -628,6 +670,52 @@ reload_udev_rules() {
 	fi
 	udevadm trigger --subsystem-match=input --action=add || true
 	udevadm trigger --subsystem-match=misc --action=add || true
+}
+
+clear_keymasq_udev_state() {
+	keymasq_udev_failed=0
+	remove_path "$(root_path /run/keymasq/hidden)"
+	remove_path "$(root_path /run/keymasq/hidden-hardware)"
+
+	if ! command -v udevadm >/dev/null 2>&1; then
+		warn "udevadm was not found; existing input device state could not be restored"
+		keymasq_udev_failed=1
+	else
+		if ! udevadm control --reload-rules; then
+			warn "could not reload udev rules during uninstall"
+			keymasq_udev_failed=1
+		fi
+		if ! udevadm trigger --action=change --subsystem-match=input; then
+			warn "could not retrigger input devices during uninstall"
+			keymasq_udev_failed=1
+		fi
+		if ! udevadm trigger --action=change --sysname-match=uinput; then
+			warn "could not retrigger uinput during uninstall"
+			keymasq_udev_failed=1
+		fi
+		if ! udevadm settle; then
+			warn "udev did not settle during uninstall"
+			keymasq_udev_failed=1
+		fi
+	fi
+
+	if ! command -v setfacl >/dev/null 2>&1; then
+		warn "setfacl was not found; Keymasq device ACLs could not be removed"
+		keymasq_udev_failed=1
+	else
+		for keymasq_device in \
+			"$(root_path /dev/uinput)" \
+			"$(root_path /dev/input)"/event* \
+			"$(root_path /dev/input)"/js*; do
+			[ -e "$keymasq_device" ] || continue
+			if ! setfacl -x u:keymasq "$keymasq_device" 2>/dev/null; then
+				warn "could not remove the Keymasq ACL from $keymasq_device"
+				keymasq_udev_failed=1
+			fi
+		done
+	fi
+
+	[ "$keymasq_udev_failed" = 0 ]
 }
 
 systemd_available() {
@@ -932,6 +1020,7 @@ install_auto() {
 
 	target_user=$(resolve_target_user "$target_user")
 	require_root_or_pkexec --install --user "$target_user"
+	validate_user_wrapper_destinations "$target_user"
 	install_common_payload "$target_user"
 
 	if systemd_available; then
@@ -959,6 +1048,20 @@ remove_user_path() {
 	keymasq_remove_path=$2
 	if ! run_as_user "$keymasq_remove_user" rm -rf -- "$keymasq_remove_path"; then
 		die "failed to remove $keymasq_remove_path as $keymasq_remove_user"
+	fi
+}
+
+remove_user_wrapper_if_managed() {
+	keymasq_remove_user=$1
+	keymasq_remove_name=$2
+	keymasq_remove_path=$3
+	if [ ! -e "$keymasq_remove_path" ] && [ ! -L "$keymasq_remove_path" ]; then
+		return 0
+	fi
+	if user_wrapper_is_managed "$keymasq_remove_user" "$keymasq_remove_name" "$keymasq_remove_path"; then
+		remove_user_path "$keymasq_remove_user" "$keymasq_remove_path"
+	else
+		warn "preserving non-Keymasq user command: $keymasq_remove_path"
 	fi
 }
 
@@ -991,6 +1094,7 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/profile.d/keymasq.sh)"
 	remove_path "$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
+	clear_keymasq_udev_state || die "failed to clear Keymasq state from existing input devices"
 	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
 	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
@@ -1000,7 +1104,7 @@ uninstall_keymasq() {
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
 	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
-		remove_user_path "$target_user" "$(root_path "$home/.local/bin/$name")"
+		remove_user_wrapper_if_managed "$target_user" "$name" "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
 	remove_path "$(root_path "$INSTALL_DIR/$RUNTIME_DIR_NAME")"
@@ -1009,7 +1113,6 @@ uninstall_keymasq() {
 	remove_path "$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")"
 	rmdir "$(root_path "$INSTALL_DIR")" 2>/dev/null || true
 
-	udevadm control --reload-rules 2>/dev/null || true
 	systemctl daemon-reload 2>/dev/null || true
 	run_user_systemctl "$target_user" daemon-reload 2>/dev/null || true
 
@@ -1114,6 +1217,7 @@ self_update() {
 	require_root_or_pkexec "$@"
 
 	target_user=$(resolve_target_user "$target_user" 2>/dev/null || printf '%s' root)
+	validate_user_wrapper_destinations "$target_user"
 	arch=${KEYMASQ_APPIMAGE_ARCH:-$(uname -m)}
 	[ "$arch" = x86_64 ] || die "self-update is currently supported only on x86_64"
 	base_url=${KEYMASQ_APPIMAGE_UPDATE_BASE_URL:-$DEFAULT_UPDATE_BASE_URL}

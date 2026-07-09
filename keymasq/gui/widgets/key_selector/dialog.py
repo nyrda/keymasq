@@ -31,7 +31,7 @@ from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
 from .analog_tab import AnalogTabMixin
-from .compat import detect_compositor_sync, get_slurp_capture, session_request_async
+from .compat import get_slurp_capture, session_compositor_id, session_request_async
 from .gamepad_axis import GamepadAxisControlsMixin
 from .macro_tab import MacroTabMixin
 from .options_panel import MappingOptionsPanelMixin
@@ -203,7 +203,7 @@ class KeySelectorDialog(
         self._capture_status_label: Gtk.Label | None = None
         self._capture_button: Gtk.Button | None = None
         self._slurp_capture = get_slurp_capture()
-        self._slurp_capture.set_compositor(detect_compositor_sync())
+        self._slurp_capture.set_compositor(session_compositor_id())
         self._slurp_available = self._slurp_capture.available
         self._position_capture = PositionCaptureController(
             slurp_capture=self._slurp_capture,

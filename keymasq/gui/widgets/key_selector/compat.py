@@ -6,6 +6,7 @@ from typing import Any
 
 from keymasq import __version__ as _package_version
 from keymasq.common.slurp import get_slurp_capture as _get_slurp_capture
+from keymasq.gui.compositor_state import session_compositor_id as _session_compositor_id
 from keymasq.gui.session_client import (
     JsonDict,
 )
@@ -16,7 +17,6 @@ from keymasq.gui.session_reload import notify_session_reload_async as _notify_se
 from keymasq.gui.widgets.gamepad_output_choices import (
     virtual_gamepad_count as _virtual_gamepad_count,
 )
-from keymasq.session.compositor import detect_compositor_sync as _detect_compositor_sync
 from keymasq.session.hardware import HardwareManager as _HardwareManager
 
 _SHIM_MODULE = "keymasq.gui.widgets.key_selector_dialog"
@@ -61,8 +61,8 @@ def get_slurp_capture() -> Any:
     return func()
 
 
-def detect_compositor_sync() -> str | None:
-    func = _shim_attr("detect_compositor_sync", _detect_compositor_sync)
+def session_compositor_id() -> str | None:
+    func = _shim_attr("session_compositor_id", _session_compositor_id)
     return func()
 
 

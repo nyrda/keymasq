@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 
+from keymasq.common.subprocess_env import host_subprocess_environment
 from keymasq.common.types import JsonObject
 
 log = logging.getLogger("keymasq-session.actions")
@@ -55,6 +56,7 @@ class ActionHandler:
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=host_subprocess_environment(),
                 start_new_session=True,
             )
         except (OSError, RuntimeError, ValueError) as e:

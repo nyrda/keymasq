@@ -111,7 +111,11 @@ def resolve_slurp_path() -> str | None:
             return str(env_path)
         return None
 
-    candidates: list[Path] = [SLURP_PATH, *SLURP_FALLBACK_PATHS]
+    candidates: list[Path] = []
+    appdir = os.environ.get("APPDIR")
+    if appdir:
+        candidates.append(Path(appdir) / "bin" / "slurp")
+    candidates.extend((SLURP_PATH, *SLURP_FALLBACK_PATHS))
     path_slurp = shutil.which("slurp")
     if path_slurp:
         candidates.append(Path(path_slurp))

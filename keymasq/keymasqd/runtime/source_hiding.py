@@ -19,6 +19,17 @@ UDEVADM_FALLBACK_PATHS = (
 )
 TRIGGER_TIMEOUT_S = 2.0
 RECONCILE_TIMEOUT_S = 5.0
+HOST_TOOL_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+HOST_TOOL_ENV_PASSTHROUGH = (
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_MESSAGES",
+    "SYSTEMD_COLORS",
+    "SYSTEMD_LOG_LEVEL",
+    "SYSTEMD_LOG_TARGET",
+    "TERM",
+)
 
 
 def node_kernel_names(resolved_event_path: str) -> list[str]:
@@ -154,6 +165,16 @@ def resolve_udevadm_path() -> str | None:
     return None
 
 
+def host_tool_environment() -> dict[str, str]:
+    env = {
+        key: value
+        for key in HOST_TOOL_ENV_PASSTHROUGH
+        if (value := os.environ.get(key))
+    }
+    env["PATH"] = HOST_TOOL_PATH
+    return env
+
+
 def hardware_flag_name(hardware_id: object) -> str | None:
     flag_name = hardware_model_id_key(hardware_id)
     if flag_name is None:
@@ -287,6 +308,7 @@ async def _run_udevadm(args: Sequence[str], *, timeout_s: float, context: str) -
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=host_tool_environment(),
         )
         _stdout, stderr = await asyncio.wait_for(
             process.communicate(),

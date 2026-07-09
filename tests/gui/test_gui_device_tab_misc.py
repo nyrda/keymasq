@@ -2873,7 +2873,7 @@ def test_key_selector_dialog_compositor_set_cursor_reuses_position_capture(monke
             callback(_Result(640, 480))
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "gnome")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "gnome")
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -3146,7 +3146,7 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
             callback(_Result(640, 480))
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -3211,7 +3211,7 @@ def test_key_selector_dialog_repeated_delayed_capture_ignores_stale_response(mon
         requests.append(callback)
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
     monkeypatch.setattr(dialog_module.GLib, "timeout_add", fake_timeout_add)
     monkeypatch.setattr(dialog_module.GLib, "source_remove", fake_source_remove)
     monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)

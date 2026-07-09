@@ -15,6 +15,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq import __version__
 from keymasq.common.slurp import get_slurp_capture
+from keymasq.gui.compositor_state import session_compositor_id
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.session_reload import notify_session_reload_async
 from keymasq.gui.widgets.gamepad_output_choices import virtual_gamepad_count
@@ -52,7 +53,6 @@ from keymasq.gui.widgets.key_selector.targets import (
     _resolve_gamepad_axis_target,
     _resolve_gamepad_button_target,
 )
-from keymasq.session.compositor import detect_compositor_sync
 from keymasq.session.hardware import HardwareManager
 
 __all__ = [
@@ -93,7 +93,7 @@ __all__ = [
     "session_request_async",
     "notify_session_reload_async",
     "get_slurp_capture",
-    "detect_compositor_sync",
+    "session_compositor_id",
     "HardwareManager",
     "virtual_gamepad_count",
     "__version__",

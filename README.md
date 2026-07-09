@@ -132,6 +132,22 @@ Then [start the services](#start-the-services).
 See [docs/INSTALL.md](docs/INSTALL.md) for full instructions, including the
 service setup.
 
+### SteamOS / Steam Deck
+
+SteamOS and other distros without a native package are supported through an
+AppImage that installs itself. On systemd systems it starts the services for
+you; on non-systemd systems it writes the missing service-manager instructions.
+
+```bash
+chmod +x Keymasq-*-x86_64.AppImage
+./Keymasq-*-x86_64.AppImage --install
+```
+
+The installer asks for your password. A stock Steam Deck has no user password
+yet — set one first with `passwd`.
+
+See [docs/STEAMOS.md](docs/STEAMOS.md) for details.
+
 ### Start the services
 
 The commands are the same on every distro. Start the daemon, start the

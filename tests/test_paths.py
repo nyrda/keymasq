@@ -116,6 +116,28 @@ def test_resolve_slurp_path_honors_environment_override(
     assert paths.resolve_slurp_path() == str(slurp)
 
 
+def test_resolve_slurp_path_prefers_appdir_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keymasq.common.paths as paths
+
+    appdir_slurp = tmp_path / "AppDir/bin/slurp"
+    appdir_slurp.parent.mkdir(parents=True)
+    appdir_slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    appdir_slurp.chmod(0o755)
+    build_slurp = tmp_path / "build-slurp"
+    build_slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    build_slurp.chmod(0o755)
+
+    monkeypatch.delenv("SLURP_PATH", raising=False)
+    monkeypatch.setenv("APPDIR", str(tmp_path / "AppDir"))
+    monkeypatch.setattr(paths, "SLURP_PATH", build_slurp)
+    monkeypatch.setattr(paths, "SLURP_FALLBACK_PATHS", ())
+    monkeypatch.setattr(paths.shutil, "which", lambda _name: None)
+
+    assert paths.resolve_slurp_path() == str(appdir_slurp)
+
+
 def test_resolve_slurp_path_empty_environment_override_disables_slurp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

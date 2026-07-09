@@ -26,9 +26,9 @@ from keymasq.gui.widgets.analog_control.compat import (
     analog_controls_docs_url as _analog_controls_docs_url,
 )
 from keymasq.gui.widgets.analog_control.compat import (
-    detect_compositor_sync,
     get_slurp_capture,
     hardware_manager,
+    session_compositor_id,
     virtual_gamepad_count,
 )
 from keymasq.gui.widgets.analog_control.groups import (
@@ -139,7 +139,7 @@ class AnalogControlDialog(Adw.Dialog):
         self._capture_status_label: Gtk.Label | None = None
         self._capture_button: Gtk.Button | None = None
         self._slurp_capture = get_slurp_capture()
-        self._slurp_capture.set_compositor(detect_compositor_sync())
+        self._slurp_capture.set_compositor(session_compositor_id())
         self._slurp_available = self._slurp_capture.available
         self._position_capture = PositionCaptureController(
             slurp_capture=self._slurp_capture,

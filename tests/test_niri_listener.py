@@ -564,6 +564,40 @@ async def test_dispatch_falls_back_to_niri_msg_action_for_custom_dispatchers(mon
 
 
 @pytest.mark.asyncio
+async def test_dispatch_scrubs_appimage_environment_for_niri_msg(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    monkeypatch.setenv("APPDIR", str(appdir))
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "Keymasq.AppImage"))
+    monkeypatch.setenv("LD_LIBRARY_PATH", f"{appdir / 'lib'}:/host/lib")
+    monkeypatch.setenv("PYTHONHOME", str(appdir))
+    monkeypatch.setenv("PYTHONPATH", "/host/pythonpath")
+    monkeypatch.setenv("XDG_DATA_DIRS", f"{appdir / 'share'}:/host/share")
+    recorded: dict[str, object] = {}
+
+    async def _create_subprocess_exec(*_cmd: object, **kwargs: object) -> _FakeProcess:
+        recorded["env"] = kwargs.get("env")
+        return _FakeProcess()
+
+    listener = NiriListener(_noop_callback)
+    listener.socket_path = "/tmp/niri.sock"
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    ok, message = await listener.dispatch("toggle-overview")
+
+    assert ok is True
+    assert message == "ok"
+    assert isinstance(recorded["env"], dict)
+    assert recorded["env"]["NIRI_SOCKET"] == "/tmp/niri.sock"
+    assert recorded["env"]["LD_LIBRARY_PATH"] == "/host/lib"
+    assert recorded["env"]["XDG_DATA_DIRS"] == "/host/share"
+    for key in ("APPDIR", "APPIMAGE", "PYTHONHOME", "PYTHONPATH"):
+        assert key not in recorded["env"]
+
+
+@pytest.mark.asyncio
 async def test_dispatch_accepts_prefixed_niri_msg_action_syntax(monkeypatch) -> None:
     recorded: dict[str, object] = {}
 

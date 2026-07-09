@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -210,6 +211,73 @@ def test_capture_point_async_returns_parsed_result_and_calls_on_ready(monkeypatc
 
     assert result == SlurpResult(x=50, y=60)
     assert events == ["spawn", "sleep", "ready", "communicate"]
+
+
+def test_capture_point_async_keeps_environment_for_bundled_slurp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    bundled_slurp = appdir / "bin/slurp"
+    bundled_slurp.parent.mkdir(parents=True)
+    bundled_slurp.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled_slurp.chmod(0o755)
+    capture = SlurpCapture()
+    capture._available = True
+    capture._slurp_path = str(bundled_slurp)
+    captured_kwargs: dict[str, Any] = {}
+
+    monkeypatch.setenv("APPDIR", str(appdir))
+    monkeypatch.setenv("LD_LIBRARY_PATH", f"{appdir / 'lib'}:/host/lib")
+    monkeypatch.setenv("PYTHONHOME", str(appdir))
+
+    async def _create_subprocess_exec(*_args: Any, **kwargs: Any) -> _FakeSlurpProcess:
+        captured_kwargs.update(kwargs)
+        return _FakeSlurpProcess(stdout=b"50,60\n")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    result = asyncio.run(capture.capture_point_async())
+
+    assert result == SlurpResult(x=50, y=60)
+    assert "env" not in captured_kwargs
+
+
+def test_capture_point_async_scrubs_appimage_environment_for_host_slurp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    appdir.mkdir()
+    capture = SlurpCapture()
+    capture._available = True
+    capture._slurp_path = "/usr/bin/slurp"
+    captured_env: dict[str, str] = {}
+
+    monkeypatch.setenv("APPDIR", str(appdir))
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "Keymasq.AppImage"))
+    monkeypatch.setenv("LD_LIBRARY_PATH", f"{appdir / 'lib'}:/host/lib")
+    monkeypatch.setenv("PYTHONHOME", str(appdir))
+    monkeypatch.setenv("PYTHONPATH", str(appdir / "pythonpath"))
+    monkeypatch.setenv("XDG_DATA_DIRS", f"{appdir / 'share'}:/usr/local/share:/usr/share")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+
+    async def _create_subprocess_exec(*_args: Any, **kwargs: Any) -> _FakeSlurpProcess:
+        captured_env.update(kwargs["env"])
+        return _FakeSlurpProcess(stdout=b"50,60\n")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
+
+    result = asyncio.run(capture.capture_point_async())
+
+    assert result == SlurpResult(x=50, y=60)
+    assert captured_env["LD_LIBRARY_PATH"] == "/host/lib"
+    assert captured_env["XDG_DATA_DIRS"] == "/usr/local/share:/usr/share"
+    assert captured_env["WAYLAND_DISPLAY"] == "wayland-0"
+    assert captured_env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    for key in ("APPDIR", "APPIMAGE", "PYTHONHOME", "PYTHONPATH"):
+        assert key not in captured_env
 
 
 def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch) -> None:

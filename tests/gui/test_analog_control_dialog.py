@@ -500,7 +500,7 @@ def test_stick_mouse_area_exposes_radius_and_start_capture(
             callback(_Result(640, 480))
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
 
     dialog = AnalogControlDialog(Gtk.Window())
     dialog.name_entry.set_text("Stick Area")
@@ -557,7 +557,7 @@ def test_mouse_area_capture_is_cancelled_when_selection_changes(
             callbacks.append(callback)
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
 
     manager = AnalogControlManager()
     manager.save_analog_control(
@@ -701,7 +701,7 @@ def test_mouse_area_capture_failure_uses_error_status(temp_config_dir, monkeypat
             callback(None)
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
-    monkeypatch.setattr(dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
 
     dialog = AnalogControlDialog(Gtk.Window())
     _select_mode(dialog, "mouse_area")

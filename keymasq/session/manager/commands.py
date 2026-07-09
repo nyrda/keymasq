@@ -493,6 +493,7 @@ async def _handle_compositor_commands(
             "compositor_name": compositor_status["compositor_name"],
             "compositor_supported": bool(compositor_status["supported"]),
             "compositor_details": compositor_details,
+            "compositor_capabilities": compositor_status["capabilities"],
             "listener_active": compositor_status["listener_active"],
             "listener_name": compositor_status["listener_name"],
             "compositor_dispatch_available": compositor_status["compositor_dispatch_available"],

@@ -20,13 +20,7 @@ from keymasq.gui.session_client import (
     session_request_async,
     unregister_session_event_callback,
 )
-from keymasq.session.compositor import (
-    detect_compositor_sync,
-    get_compositor_capabilities,
-    get_compositor_name,
-    get_compositor_support_details_sync,
-    is_compositor_supported_sync,
-)
+from keymasq.session.compositor import get_compositor_name
 
 
 def remove_timeout_source(source_id: int) -> int:

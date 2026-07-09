@@ -139,6 +139,15 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
             if isinstance(details, dict):
                 window._compositor_support_details = details
                 window._compositor_supported = bool(details.get("supported", False))
+            capabilities = data.get("compositor_capabilities")
+            if isinstance(capabilities, list) and capabilities != window._compositor_capabilities:
+                window._compositor_capabilities = list(capabilities)
+                if window.combo_tab is not None:
+                    window.combo_tab._compositor_capabilities = window._compositor_capabilities
+                    window.combo_tab.refresh_profiles(
+                        preferred_profile_name=window._selected_profile_name,
+                        publish_selection=False,
+                    )
             compositor._update_compositor_warning_banner(window)
             compositor._update_compositor_status(window)
             gnome_setup._close_gnome_setup_dialog_if_ready(window)

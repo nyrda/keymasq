@@ -269,6 +269,7 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
     )
 
     assert result["status"] == "ok"
+    assert result["compositor_capabilities"] == []
     assert result["recording_unlocked"] is True
     assert result["recording_unlock_required"] is True
     assert result["emergency_cancel_combo_enabled"] is False

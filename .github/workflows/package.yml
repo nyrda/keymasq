@@ -14,9 +14,11 @@ on:
       - "debian/**"
       - "docs/PACKAGING.md"
       - "docs/INSTALL.md"
+      - "docs/STEAMOS.md"
       - "examples/**"
       - "keymasq/**"
       - "keymasq.install"
+      - "packaging/appimage/**"
       - "packaging/aur/**"
       - "packaging/debian/**"
       - "packaging/pacman/**"
@@ -276,6 +278,51 @@ jobs:
               bash packaging/pacman/ci-test-installed.sh \
                 "$(echo dist/arch/keymasq-*.pkg.tar.*)"
             '
+
+  build-appimage:
+    needs:
+      - version-metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Apply prerelease Python version
+        if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
+        env:
+          KEYMASQ_PRERELEASE_PYTHON_VERSION: ${{ needs.version-metadata.outputs.python_version }}
+        run: |
+          python3 scripts/rewrite-build-metadata.py \
+            --python-version "$KEYMASQ_PRERELEASE_PYTHON_VERSION"
+
+      - name: Build AppImage in Arch container
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              bash packaging/appimage/get-dependencies.sh
+              bash packaging/appimage/make-appimage.sh
+              bash packaging/appimage/verify-appimage.sh \
+                "$(echo dist/appimage/Keymasq-*.AppImage)"
+            '
+
+      - name: Upload AppImage
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: appimage-package
+          path: dist/appimage/*.AppImage
+          if-no-files-found: error
 
   build-deb:
     needs: version-metadata
@@ -613,6 +660,7 @@ jobs:
       - build-source-tarball
       - build-pacman-arch
       - test-pacman-arch
+      - build-appimage
       - build-deb
       - test-deb
       - sign-rpm-packages
@@ -643,16 +691,23 @@ jobs:
           name: rpm-signed-packages
           path: dist/
 
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: appimage-package
+          path: dist/
+
       - name: Generate release checksums
         run: |
           cd dist
-          sha256sum ./*.deb ./*.rpm ./*.tar.gz ./rpm-signing-key.asc > SHA256SUMS
+          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz ./rpm-signing-key.asc > SHA256SUMS
 
       - name: Generate artifact attestations
         if: ${{ github.event.repository.private == false }}
         uses: actions/attest@v4
         with:
           subject-path: |
+            dist/*.AppImage
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
@@ -663,6 +718,7 @@ jobs:
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
+            dist/*.AppImage
             dist/*.deb
             dist/*.changes
             dist/*.buildinfo
@@ -678,6 +734,7 @@ jobs:
       - build-source-tarball
       - build-pacman-arch
       - test-pacman-arch
+      - build-appimage
       - build-deb
       - test-deb
       - build-rpm-fedora
@@ -692,6 +749,7 @@ jobs:
         needs.build-source-tarball.result == 'success' &&
         needs.build-pacman-arch.result == 'success' &&
         needs.test-pacman-arch.result == 'success' &&
+        needs.build-appimage.result == 'success' &&
         needs.build-deb.result == 'success' &&
         needs.test-deb.result == 'success' &&
         needs.build-rpm-fedora.result == 'success' &&
@@ -730,16 +788,23 @@ jobs:
           name: rpm-opensuse-package
           path: dist/
 
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: appimage-package
+          path: dist/
+
       - name: Generate prerelease checksums
         run: |
           cd dist
-          sha256sum ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
+          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
 
       - name: Generate prerelease artifact attestations
         if: ${{ github.event.repository.private == false }}
         uses: actions/attest@v4
         with:
           subject-path: |
+            dist/*.AppImage
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
@@ -760,6 +825,7 @@ jobs:
             Commit: https://github.com/${{ github.repository }}/commit/${{ needs.version-metadata.outputs.checkout_sha }}
             Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           files: |
+            dist/*.AppImage
             dist/*.deb
             dist/*.changes
             dist/*.buildinfo
@@ -771,6 +837,7 @@ jobs:
     needs:
       - version-metadata
       - build-source-tarball
+      - build-appimage
       - release
     if: needs.release.result == 'success' && vars.ENABLE_REPO_PUBLISH == 'true'
     runs-on: ubuntu-24.04
@@ -785,7 +852,7 @@ jobs:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
 
       - name: Install repo tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg dpkg-dev apt-utils createrepo-c
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg dpkg-dev apt-utils createrepo-c python3
 
       - name: Download Debian package
         uses: actions/download-artifact@v8
@@ -797,6 +864,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: rpm-signed-packages
+          path: dist/
+
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: appimage-package
           path: dist/
 
       - name: Download source tarball

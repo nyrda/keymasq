@@ -330,6 +330,9 @@ def test_appimage_builder_verifies_transitive_inputs() -> None:
     assert "export GTK_CLASS_FIX=0" in builder
     assert "export OPTIMIZE_LAUNCH=0" in builder
     assert 'export PATH_MAPPING=' in builder
+    assert "remove_generated_hardcoded_path_mapping" in builder
+    assert 'hook="$APPDIR/bin/01-path-mapping-hardcoded.hook"' in builder
+    assert "hook.unlink()" in builder
 
 
 def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:

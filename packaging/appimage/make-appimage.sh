@@ -192,6 +192,63 @@ prepare_verified_appimage_inputs() {
   export APPIMAGETOOL RUNTIME DWARFS_CMD
 }
 
+remove_generated_hardcoded_path_mapping() {
+  local hook="$APPDIR/bin/01-path-mapping-hardcoded.hook"
+  [[ -f "$hook" ]] || return 0
+
+  "$PYTHON_EXE" - "$APPDIR" "$hook" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+appdir = Path(sys.argv[1])
+hook = Path(sys.argv[2])
+hook_text = hook.read_text(encoding="utf-8")
+replacements: list[tuple[bytes, bytes]] = []
+
+for kind in ("bin", "lib", "share"):
+    match = re.search(rf"^_tmp_{kind}=(.*)$", hook_text, re.MULTILINE)
+    if match is None:
+        continue
+    token = match.group(1).strip().strip("\"'")
+    if not token:
+        continue
+    generated = f"/tmp/{token}".encode()
+    original = f"/usr/{kind}".encode()
+    if len(generated) != len(original):
+        raise SystemExit(
+            f"cannot restore quick-sharun {kind} mapping with unequal path lengths"
+        )
+    replacements.append((generated, original))
+
+for root in (appdir / "lib", appdir / "shared/bin"):
+    if not root.is_dir():
+        continue
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        content = path.read_bytes()
+        restored = content
+        for generated, original in replacements:
+            restored = restored.replace(generated, original)
+        if restored != content:
+            path.write_bytes(restored)
+
+hook.unlink()
+
+for root in (appdir / "lib", appdir / "shared/bin"):
+    if not root.is_dir():
+        continue
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        content = path.read_bytes()
+        for generated, _original in replacements:
+            if generated in content:
+                raise SystemExit(f"quick-sharun path mapping remains in {path}")
+PY
+}
+
 require_python_modules() {
   "$PYTHON_EXE" - <<'PY'
 import build
@@ -454,6 +511,7 @@ export PATH_MAPPING=
   "$(command -v waypipe)"
 
 chmod -R u+w "$APPDIR"
+remove_generated_hardcoded_path_mapping
 ensure_bundled_python_command
 
 python_lib_dir="$(find_bundled_python_lib_dir)"

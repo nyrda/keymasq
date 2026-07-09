@@ -120,7 +120,7 @@ class TestMainWindow:
         def fail_system_probe(*args, **kwargs):
             raise AssertionError("demo startup should not probe the real system")
 
-        monkeypatch.setattr(window_module._runtime, "detect_compositor_sync", fail_system_probe)
+        monkeypatch.setattr(window_module._runtime, "session_request", fail_system_probe)
         monkeypatch.setattr(window_module.HardwareManager, "list_hardware", fail_system_probe)
         monkeypatch.setattr(window_module._runtime, "run_gui_task", fail_system_probe)
         monkeypatch.setattr(
@@ -864,6 +864,91 @@ class TestMainWindow:
         assert finished is False
         assert window._startup_probe_done is False
         assert window._compositor_id is None
+
+    def test_main_window_startup_probe_asks_session_for_compositor(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        requests: list[dict] = []
+
+        def fake_session_request(payload, timeout=5.0):
+            requests.append(payload)
+            return {
+                "compositor_id": "niri",
+                "compositor_name": "Niri",
+                "supported": True,
+                "capabilities": ["window_tags"],
+                "details": {"supported": True, "warning": ""},
+                "listener_active": True,
+                "listener_name": "niri",
+                "compositor_dispatch_available": True,
+            }
+
+        monkeypatch.setattr(window_module._runtime, "session_request", fake_session_request)
+        monkeypatch.setattr(window.hardware_manager, "list_hardware", lambda: [])
+
+        state, devices = compositor._probe_startup_state(window)
+
+        assert requests == [{"command": "get_compositor"}]
+        assert state == {
+            "compositor_id": "niri",
+            "support_details": {"supported": True, "warning": ""},
+            "supported": True,
+            "capabilities": ["window_tags"],
+        }
+        assert devices == []
+
+    def test_main_window_startup_probe_without_session_reports_unknown_compositor(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.gui import window as window_module
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.demo_mode = False
+        monkeypatch.setattr(
+            window_module._runtime, "session_request", lambda payload, timeout=5.0: None
+        )
+        monkeypatch.setattr(window.hardware_manager, "list_hardware", lambda: [])
+
+        state, devices = compositor._probe_startup_state(window)
+
+        assert state == {
+            "compositor_id": None,
+            "support_details": {"supported": False, "warning": ""},
+            "supported": False,
+            "capabilities": [],
+        }
+        assert devices == []
+
+    def test_main_window_compositor_state_updates_shared_session_cache(self, temp_config_dir):
+        from keymasq.gui.compositor_state import session_compositor_id
+        from keymasq.gui.window import MainWindow
+
+        window = MainWindow(demo_mode=True)
+
+        compositor._apply_compositor_state(
+            window,
+            {
+                "compositor_id": "hyprland",
+                "support_details": {"supported": True, "warning": ""},
+                "supported": True,
+                "capabilities": ["window_tags"],
+            },
+        )
+
+        assert session_compositor_id() == "hyprland"
+
+        compositor._update_compositor_dispatch_state(
+            window,
+            {"status": "ok", "compositor_id": "niri", "listener_name": "niri"},
+        )
+
+        assert session_compositor_id() == "niri"
 
     def test_main_window_profiles_changed_event_updates_tabs_without_polling(self, temp_config_dir):
         from keymasq.common.models import (

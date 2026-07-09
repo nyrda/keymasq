@@ -21,6 +21,7 @@ from keymasq.common.models import (
     normalize_macro_loop_stop_behavior,
 )
 from keymasq.common.slurp import get_slurp_capture
+from keymasq.gui.compositor_state import session_compositor_id
 from keymasq.gui.session_client import (
     GuiTaskResult,
     JsonDict,
@@ -54,7 +55,6 @@ from keymasq.gui.widgets.macro_editor.panels import (  # noqa: F401
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
 from keymasq.gui.widgets.position_capture import PositionCaptureController
-from keymasq.session.compositor import detect_compositor_sync
 
 __all__ = [
     "GLib",
@@ -173,7 +173,7 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorPanelsMixin, MacroEditorAddPopove
         self._move_capture_pending: bool = False
         self._move_capture_request_id: int = 0
         self._slurp_capture = get_slurp_capture()
-        self._slurp_capture.set_compositor(detect_compositor_sync())
+        self._slurp_capture.set_compositor(session_compositor_id())
         self._slurp_available = self._slurp_capture.available
         self._start_position_capture = PositionCaptureController(
             slurp_capture=self._slurp_capture,

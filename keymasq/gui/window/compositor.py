@@ -3,36 +3,46 @@
 from __future__ import annotations
 
 from keymasq.common.models import HardwareConfig
+from keymasq.gui.compositor_state import update_session_compositor_id
 
 from . import _runtime, device_tabs, gnome_setup
 
 
+def _unknown_compositor_state() -> dict[str, object]:
+    return {
+        "compositor_id": None,
+        "support_details": {"supported": False, "warning": ""},
+        "supported": False,
+        "capabilities": [],
+    }
+
+
 def _probe_startup_state(window) -> tuple[dict[str, object], list[HardwareConfig]]:
     if window.demo_mode:
-        return (
-            {
-                "compositor_id": None,
-                "support_details": {"supported": False, "warning": ""},
-                "supported": False,
-                "capabilities": [],
-            },
-            [],
-        )
+        return (_unknown_compositor_state(), [])
 
-    compositor_id = _runtime.detect_compositor_sync()
-    support_details = _runtime.get_compositor_support_details_sync(compositor_id)
-    supported = bool(support_details.get("supported", False))
-    if compositor_id != "gnome":
-        supported = _runtime.is_compositor_supported_sync(compositor_id)
+    # keymasq-session is the authority on the running compositor; the GUI
+    # environment can differ (AppImage, bundled waypipe), so never probe here.
+    payload = _runtime.session_request({"command": "get_compositor"})
     return (
-        {
-            "compositor_id": compositor_id,
-            "support_details": support_details,
-            "supported": supported,
-            "capabilities": _runtime.get_compositor_capabilities(compositor_id),
-        },
+        _compositor_state_from_session_payload(payload),
         window.hardware_manager.list_hardware(),
     )
+
+
+def _compositor_state_from_session_payload(payload: object) -> dict[str, object]:
+    if not isinstance(payload, dict) or "compositor_id" not in payload:
+        return _unknown_compositor_state()
+    details = payload.get("details")
+    capabilities = payload.get("capabilities")
+    return {
+        "compositor_id": payload.get("compositor_id"),
+        "support_details": (
+            details if isinstance(details, dict) else {"supported": False, "warning": ""}
+        ),
+        "supported": bool(payload.get("supported", False)),
+        "capabilities": list(capabilities) if isinstance(capabilities, list) else [],
+    }
 
 
 def _start_startup_probe(window) -> None:
@@ -74,6 +84,7 @@ def _on_startup_probe_finished(
 def _apply_compositor_state(window, state: dict[str, object]) -> None:
     compositor_id = state.get("compositor_id")
     window._compositor_id = compositor_id if isinstance(compositor_id, str) else None
+    update_session_compositor_id(window._compositor_id)
     details = state.get("support_details")
     window._compositor_support_details = (
         details
@@ -107,6 +118,7 @@ def _update_compositor_dispatch_state(window, status_data: dict | None) -> None:
         compositor_id = status_data.get("compositor_id")
         if compositor_id is not None:
             window._compositor_id = compositor_id
+            update_session_compositor_id(compositor_id)
         return
 
     window._listener_name = ""

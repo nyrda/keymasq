@@ -35,7 +35,7 @@ class _FakeSlurpCapture:
 def _build_macro_dialog(monkeypatch, *, slurp_available: bool = False) -> MacroEditorDialog:
     fake_slurp = _FakeSlurpCapture(available=slurp_available)
     monkeypatch.setattr(macro_editor_dialog_module, "get_slurp_capture", lambda: fake_slurp)
-    monkeypatch.setattr(macro_editor_dialog_module, "detect_compositor_sync", lambda: "hyprland")
+    monkeypatch.setattr(macro_editor_dialog_module, "session_compositor_id", lambda: "hyprland")
     monkeypatch.setattr(
         macro_editor_dialog_module,
         "_compute_macro_editor_dialog_size",

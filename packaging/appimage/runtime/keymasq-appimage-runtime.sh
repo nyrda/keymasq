@@ -1140,9 +1140,13 @@ self_update() {
 	appimage_url=$(parse_manifest_field "$manifest" appimage_url)
 	sha256=$(parse_manifest_field "$manifest" sha256)
 	version=$(parse_manifest_field "$manifest" version)
+	manifest_architecture=$(parse_manifest_field "$manifest" architecture)
 	[ -n "$appimage_url" ] || die "update manifest missing appimage_url"
 	[ -n "$sha256" ] || die "update manifest missing sha256"
 	[ -n "$version" ] || die "update manifest missing version"
+	[ -n "$manifest_architecture" ] || die "update manifest missing architecture"
+	[ "$manifest_architecture" = "$arch" ] || \
+		die "update manifest architecture $manifest_architecture does not match system architecture $arch"
 
 	download_to "$appimage_url" "$new_appimage"
 	actual_sha256=$(sha256sum "$new_appimage" | awk '{print $1}')

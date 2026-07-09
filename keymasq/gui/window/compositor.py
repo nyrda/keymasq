@@ -115,10 +115,10 @@ def _update_compositor_dispatch_state(window, status_data: dict | None) -> None:
         window._compositor_dispatch_available = bool(
             status_data.get("compositor_dispatch_available", False)
         )
-        compositor_id = status_data.get("compositor_id")
-        if compositor_id is not None:
-            window._compositor_id = compositor_id
-            update_session_compositor_id(compositor_id)
+        if "compositor_id" in status_data:
+            compositor_id = status_data.get("compositor_id")
+            window._compositor_id = compositor_id if isinstance(compositor_id, str) else None
+            update_session_compositor_id(window._compositor_id)
         return
 
     window._listener_name = ""

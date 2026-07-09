@@ -139,14 +139,19 @@ def _env(tmp_path: Path, fake_root: Path, assets: Path, source_appimage: Path) -
     return env
 
 
-def _write_update_manifest(update_dir: Path, appimage: Path, version: str) -> str:
+def _write_update_manifest(
+    update_dir: Path,
+    appimage: Path,
+    version: str,
+    architecture: str = "x86_64",
+) -> str:
     sha256 = subprocess.check_output(["sha256sum", str(appimage)], text=True).split()[0]
     manifest = update_dir / "latest-x86_64.json"
     manifest.write_text(
         json.dumps(
             {
                 "version": version,
-                "architecture": "x86_64",
+                "architecture": architecture,
                 "appimage_url": appimage.as_uri(),
                 "sha256": sha256,
             }
@@ -941,6 +946,65 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "systemctl reenable keymasqd.service" in command_log
     assert "systemctl --user reenable keymasq-session.service" in command_log
+
+
+def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "source.AppImage"
+    source_appimage.write_text("source\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    target = fake_root / "opt/keymasq/Keymasq.AppImage"
+    target.parent.mkdir(parents=True)
+    target.write_text("old\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    public_key = tmp_path / "update-public.asc"
+    public_key.write_text("test-public-key\n", encoding="utf-8")
+
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    wrong_arch_appimage = update_dir / "Keymasq-9.9.9-aarch64.AppImage"
+    wrong_arch_appimage.write_text("wrong architecture\n", encoding="utf-8")
+    _write_update_manifest(
+        update_dir,
+        wrong_arch_appimage,
+        "9.9.9",
+        architecture="aarch64",
+    )
+    wrong_arch_appimage.unlink()
+    (update_dir / "latest-x86_64.json.sig").write_text(
+        "trusted-signature\n",
+        encoding="utf-8",
+    )
+    _install_fake_gpg(env)
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+    env["KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY"] = str(public_key)
+    env["KEYMASQ_APPIMAGE_ARCH"] = "x86_64"
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+
+    runtime_link = tmp_path / "keymasq"
+    runtime_link.symlink_to(RUNTIME_SCRIPT)
+    result = subprocess.run(
+        [str(runtime_link), "--self-update", "--user", "root"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert (
+        "update manifest architecture aarch64 does not match system architecture x86_64"
+        in result.stderr
+    )
+    assert "gpg --homedir" in Path(env["KEYMASQ_COMMAND_LOG"]).read_text(
+        encoding="utf-8"
+    )
+    assert target.read_text(encoding="utf-8") == "old\n"
+    assert not (fake_root / "opt/keymasq/runtime/current").exists()
 
 
 def test_appimage_self_update_rejects_signed_downgrade(tmp_path: Path) -> None:

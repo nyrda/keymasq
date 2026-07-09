@@ -950,6 +950,22 @@ class TestMainWindow:
 
         assert session_compositor_id() == "niri"
 
+        compositor._update_compositor_dispatch_state(
+            window,
+            {"status": "ok", "listener_name": "niri"},
+        )
+
+        assert window._compositor_id == "niri"
+        assert session_compositor_id() == "niri"
+
+        compositor._update_compositor_dispatch_state(
+            window,
+            {"status": "ok", "compositor_id": None, "listener_name": ""},
+        )
+
+        assert window._compositor_id is None
+        assert session_compositor_id() is None
+
     def test_main_window_profiles_changed_event_updates_tabs_without_polling(self, temp_config_dir):
         from keymasq.common.models import (
             ButtonDefinition,

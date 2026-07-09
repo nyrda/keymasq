@@ -117,8 +117,9 @@ The update verifier uses the host `gpg` command, which SteamOS provides.
 
 The updater downloads a JSON manifest and detached signature from the Keymasq
 repository, verifies the manifest with the public key installed under
-`/opt/keymasq/share/keymasq/appimage-update.gpg.asc`, downloads the referenced
-AppImage, checks its SHA-256, extracts it into
+`/opt/keymasq/share/keymasq/appimage-update.gpg.asc`, verifies that the manifest
+architecture matches the running system, downloads the referenced AppImage,
+checks its SHA-256, extracts it into
 `/opt/keymasq/runtime/<sha256>`, atomically replaces
 `/opt/keymasq/Keymasq.AppImage`, atomically repoints
 `/opt/keymasq/runtime/current`, refreshes installed host integration files, and

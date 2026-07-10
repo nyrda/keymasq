@@ -406,10 +406,6 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "unlock_required = false" in (
         fake_root / "etc/keymasq/security.toml"
     ).read_text(encoding="utf-8")
-    security_toml = (fake_root / "etc/keymasq/security.toml").read_text(encoding="utf-8")
-    assert "client = []" in security_toml
-    assert "gui = []" not in security_toml
-    assert "cli = []" not in security_toml
     record_rule = (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").read_text(
         encoding="utf-8"
     )

@@ -372,9 +372,6 @@
                   unlock_required = true;
                   macro_edit_requires_unlock = false;
                 };
-                session_command_acl.gui = [ ];
-                session_command_acl.cli = [ ];
-                daemon_command_acl.session = [ ];
               };
               description = "Security policy configuration (rendered to /etc/keymasq/security.toml)";
             };

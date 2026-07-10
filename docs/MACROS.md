@@ -527,18 +527,6 @@ do not need to change these — they are intended for system administrators:
   emergency_cancel_combo_enabled = false
   ```
 
-- **Block recording entirely** for GUI/CLI users:
-
-  ```toml
-  [session_command_acl]
-  client = [
-    "deny:start_recording",
-    "deny:stop_recording",
-    "deny:save_recording",
-    "deny:delete_recording_slot",
-  ]
-  ```
-
 ## Best Practices
 
 - **Name macros clearly.** Use descriptive, stable names like

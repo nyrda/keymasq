@@ -12,9 +12,3 @@ emergency_cancel_combo_enabled = true
 # unlock is disabled because the package already installs a system daemon.
 unlock_required = false
 macro_edit_requires_unlock = false
-
-[session_command_acl]
-client = []
-
-[daemon_command_acl]
-session = []

@@ -110,5 +110,4 @@ def client_context(
         pid=pid,
         uid=uid,
         gid=uid,
-        client_class="session",
     )

@@ -11,6 +11,11 @@ import evdev
 
 from keymasq.keymasqd.runtime.adapters import ASYNCIO_RUNTIME, AsyncioRuntimeAdapter
 
+# EV_FF passthrough writes to the grabbed physical gamepad node, which
+# 99-keymasq-hide-grabbed.rules resets to root:root 0600 while hidden. The
+# daemon's CAP_DAC_OVERRIDE (see keymasqd.service) keeps that node usable
+# across the reset, including before the udev ACL re-grant lands.
+
 log = logging.getLogger("keymasqd.force_feedback")
 _UINPUT_BEGIN_UPLOAD: Final[str] = "_uinput_begin_upload"
 _UINPUT_BEGIN_ERASE: Final[str] = "_uinput_begin_erase"

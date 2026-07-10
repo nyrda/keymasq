@@ -202,6 +202,97 @@ What to verify:
 - no other input remapping tool has already grabbed the device — only one program can exclusively
   hold a device at a time
 
+### Missing CAP_DAC_OVERRIDE capability
+
+`keymasqd` needs the `CAP_DAC_OVERRIDE` capability for gamepad source
+hide/restore and force-feedback passthrough (see
+[SECURITY.md](SECURITY.md)). The shipped `keymasqd.service` grants it; a local
+override or hand-written unit that drops `AmbientCapabilities` breaks exactly
+those features while everything else keeps working.
+
+Symptoms: grabbed gamepads stay visible to games (or stay hidden after
+release), and logs show `udevadm trigger failed ... permission denied` with a
+hint pointing at this section — while remapping, macros, and grabbing work
+normally.
+
+Checks:
+
+```bash
+systemctl show keymasqd -p AmbientCapabilities -p CapabilityBoundingSet
+systemctl cat keymasqd   # look for drop-in overrides removing the capability
+```
+
+Both values should be `cap_dac_override`. If a drop-in override in
+`/etc/systemd/system/keymasqd.service.d/` clears them, remove or fix the
+override and run `systemctl daemon-reload && systemctl restart keymasqd`. Do
+not widen the set beyond `CAP_DAC_OVERRIDE`; no Keymasq feature needs more.
+
+### Daemon ownership conflicts
+
+`keymasqd` accepts exactly one `keymasq-session` connection at a time. The
+first allowed session connection becomes the daemon owner; every later client
+is rejected until the owner disconnects. See the Daemon Single-Owner Model in
+[SECURITY.md](SECURITY.md).
+
+Symptoms:
+
+- `keymasq-session` logs show it connecting to `keymasqd` and immediately
+  disconnecting, in a retry loop
+- the GUI reports no daemon connection even though `keymasqd` is running
+- `keymasqd` logs show `Denied client ... owner already held by ...`
+
+Checks:
+
+```bash
+journalctl -u keymasqd -n 100 | grep -i "owner"
+systemctl --user status keymasq-session
+```
+
+The daemon logs every ownership transition with `uid`, `pid`, and
+`connection`. The denial line names both the rejected client and the current
+owner, so the owner's `pid` tells you exactly which process is holding the
+daemon:
+
+```bash
+ps -o user,pid,cmd -p <owner_pid>
+```
+
+Common causes:
+
+**Fast user switching.** The first user's `keymasq-session` keeps daemon
+ownership while their session is still alive in the background, so the second
+user's broker is rejected and retries until the first user logs out fully.
+This is the intended single-seat behavior. Switching users without logging out
+does not hand over the daemon.
+
+**Stale session process.** A leftover `keymasq-session` from a previous
+desktop session (crashed logout, lingering user services, a manually started
+`dev-session.sh` run) still holds ownership. Identify it with the owner `pid`
+from the denial log line, then stop it:
+
+```bash
+systemctl --user stop keymasq-session   # as the user owning the stale process
+# or, for a manually started process:
+kill <owner_pid>
+```
+
+The daemon releases devices and frees ownership on that disconnect, and your
+current session's broker reconnects automatically within its retry backoff
+(at most 30 seconds).
+
+**Repeated systemd restarts.** If `keymasqd` restarts, every session broker is
+disconnected and reconnects with backoff; the first one back claims ownership.
+If `keymasq-session` restarts repeatedly (crash loop), ownership churns with
+it — check `journalctl --user -u keymasq-session` for the underlying crash
+rather than treating the ownership messages as the fault. Paired
+claim/release lines with increasing `connection` numbers are the normal trace
+of restarts, not a conflict.
+
+A short passthrough window after an owner disconnect is expected: the daemon
+clears the runtime capture unlock, discards pending recordings, and releases
+all grabbed devices before the next owner can claim, and remapping resumes
+when the session reconnects and reapplies profiles.
+
 ### Duplicate hardware cannot be identified reliably
 
 Some devices do not expose enough stable identity data for Linux to distinguish

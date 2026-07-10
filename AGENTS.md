@@ -53,5 +53,7 @@ compositor-aware behavior through three processes:
 
 Before handing off Python code changes, run `./scripts/check.sh`. It includes
 `ruff`, `basedpyright`, and the relevant pytest suite in the pinned Nix environment.
+`./scripts/check.sh` is the full handoff gate for agent work; nothing beyond it
+is expected.
 
 Run Python commands and tooling through `nix develop -c`.

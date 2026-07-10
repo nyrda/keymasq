@@ -17,6 +17,17 @@ UINPUT_PERMISSION_ERROR_MARKERS = (
     "not permitted",
     "access denied",
 )
+CAPABILITY_TROUBLESHOOTING_REF = (
+    "docs/TROUBLESHOOTING.md#missing-cap_dac_override-capability"
+)
+CAPABILITY_PERMISSION_HINT = (
+    "Check that keymasqd.service grants AmbientCapabilities=CAP_DAC_OVERRIDE; see "
+    f"{CAPABILITY_TROUBLESHOOTING_REF}."
+)
+CAPABILITY_PERMISSION_ERROR_MARKERS = (
+    "permission denied",
+    "operation not permitted",
+)
 
 
 def is_permission_error(exc: BaseException) -> bool:
@@ -41,6 +52,11 @@ def has_permission_hint(message: object) -> bool:
     return PERMISSION_TROUBLESHOOTING_REF in text
 
 
+def is_capability_permission_failure(stderr_text: object) -> bool:
+    text = str(stderr_text).lower()
+    return any(marker in text for marker in CAPABILITY_PERMISSION_ERROR_MARKERS)
+
+
 def input_device_permission_message(message: str) -> str:
     return _append_hint(message, INPUT_DEVICE_PERMISSION_HINT)
 
@@ -49,7 +65,20 @@ def uinput_permission_message(message: str) -> str:
     return _append_hint(message, UINPUT_PERMISSION_HINT)
 
 
-def _append_hint(message: str, hint: str) -> str:
-    if has_permission_hint(message):
+def capability_permission_message(message: str) -> str:
+    return _append_hint(
+        message,
+        CAPABILITY_PERMISSION_HINT,
+        ref=CAPABILITY_TROUBLESHOOTING_REF,
+    )
+
+
+def _append_hint(
+    message: str,
+    hint: str,
+    *,
+    ref: str = PERMISSION_TROUBLESHOOTING_REF,
+) -> str:
+    if ref in message:
         return message
     return f"{message}. {hint}"

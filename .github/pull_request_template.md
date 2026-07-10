@@ -5,9 +5,15 @@
 
 ## Testing
 
+VM integration suites are manual gates, not CI. Pick the required suites from
+the change-category matrix in `docs/VM_TESTING.md`.
+
 - [ ] `./scripts/check.sh`
-- [ ] Integration tests: `./scripts/integration.sh <suite>` / not run:
-- [ ] Screenshot check: `scripts/check-doc-screenshots` / not applicable:
+- [ ] Required VM suites per `docs/VM_TESTING.md` ran and passed.
+  - Suites run: `./scripts/integration.sh <suite ...>`
+  - Suites skipped, with reason:
+- [ ] GUI changes: `scripts/check-doc-screenshots` passed, or the regenerated
+      screenshots are part of this PR / not applicable:
 - [ ] Other testing:
 
 ## Notes

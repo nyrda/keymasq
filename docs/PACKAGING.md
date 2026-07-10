@@ -46,6 +46,21 @@ The repository uses two packaging channels:
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
 
+## Release checklist
+
+Before tagging a stable `v*` release, run the manual VM gates from
+[VM_TESTING.md](VM_TESTING.md) in full, regardless of what changed since the
+last tag:
+
+- [ ] `./scripts/check.sh full`
+- [ ] `./scripts/integration.sh daemon-session`
+- [ ] `./scripts/integration.sh listeners`
+- [ ] `scripts/check-doc-screenshots`
+
+These suites are manual gates and are not run by CI. Prereleases should meet
+the same bar unless the prerelease exists specifically to test packaging
+changes.
+
 ## Version bump workflow
 
 Use `scripts/release-version.py` as the single entrypoint for release-version
@@ -178,10 +193,13 @@ The Python module path differs by package family:
 - Arch packages follow Arch's Python package layout
 - Nix packages install into the Nix store
 
-The runtime dependency set also includes `uvloop`. Keymasq uses it as the
+`uvloop` is an optional Python speedup declared in the `speedups` extra of
+`pyproject.toml`, not a required base dependency. Keymasq uses it as the
 default `asyncio` policy for `keymasqd` and `keymasq-session` when available,
-but those processes still fall back to the stdlib loop with a warning if the
-package is missing or broken.
+and falls back to the stdlib loop with a warning if it is missing or broken.
+Most maintained packages still install it by default (hard dependency on
+Arch and Debian, bundled in the AppImage and Nix builds, weak dependency on
+the RPM targets); see `docs/DEPENDENCIES.md`.
 
 Source-hiding udev rules call `setfacl` from the ACL utilities when hiding a
 grabbed physical gamepad source. Source builds and downstream packages must

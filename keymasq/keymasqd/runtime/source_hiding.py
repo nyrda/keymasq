@@ -7,6 +7,14 @@ from pathlib import Path
 
 from keymasq.common.devices import hardware_model_id_key
 from keymasq.common.paths import RUN_DIR
+from keymasq.keymasqd.permission_hints import (
+    capability_permission_message,
+    is_capability_permission_failure,
+)
+
+# `udevadm trigger` writes root-owned sysfs uevent files, so hide/restore
+# depends on the ambient CAP_DAC_OVERRIDE granted by keymasqd.service; without
+# it every trigger fails with a sysfs permission error.
 
 log = logging.getLogger("keymasqd.source_hiding")
 
@@ -332,12 +340,13 @@ async def _run_udevadm(args: Sequence[str], *, timeout_s: float, context: str) -
 
     if process.returncode != 0:
         stderr_text = stderr.decode(errors="replace").strip() if stderr else ""
-        log.warning(
-            "udevadm trigger failed for %s: returncode=%s stderr=%s",
-            context,
-            process.returncode,
-            stderr_text,
+        message = (
+            f"udevadm trigger failed for {context}: "
+            f"returncode={process.returncode} stderr={stderr_text}"
         )
+        if is_capability_permission_failure(stderr_text):
+            message = capability_permission_message(message)
+        log.warning("%s", message)
         return False
     return True
 

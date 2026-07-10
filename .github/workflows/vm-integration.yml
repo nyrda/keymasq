@@ -1,0 +1,80 @@
+# Manual VM integration gate.
+#
+# The VM suites are deliberate manual gates before PRs, merges, and releases
+# (see docs/VM_TESTING.md). They are too resource-heavy for the regular CI
+# flow, so this workflow only runs via workflow_dispatch and must never gain
+# push or pull_request triggers. Local KVM runs remain the primary path; use
+# this when a local KVM host is unavailable.
+name: VM Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Integration suite to run
+        type: choice
+        required: true
+        default: daemon-session
+        options:
+          - daemon-session
+          - listeners
+          - all
+          - gnome-bridge
+          - gnome
+          - kde
+          - hyprland
+          - niri
+          - xfce
+          - cosmic
+          - sway
+      extra_args:
+        description: Extra arguments for scripts/integration.sh, for example "--scenario hotplug-replug" or "--repeat 3"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  vm-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Free Runner Disk Space
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Enable KVM Access
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm-runner.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --sysname-match=kvm
+          ls -l /dev/kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Run Integration Suite
+        env:
+          SUITE: ${{ inputs.suite }}
+          EXTRA_ARGS: ${{ inputs.extra_args }}
+        run: |
+          set -euo pipefail
+          read -r -a extra_args <<< "$EXTRA_ARGS"
+          ./scripts/integration.sh "$SUITE" "${extra_args[@]}"

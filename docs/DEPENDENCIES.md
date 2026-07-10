@@ -6,11 +6,17 @@ packaging, and for development. It complements `docs/INSTALL.md` and
 
 ## Scope
 
-There are three different dependency layers in this project:
+There are four different dependency layers in this project:
 
-- Python package dependencies declared in `pyproject.toml`
-- System packages required to make those Python packages usable on a desktop
-- Feature-specific tools or desktop components that enable optional behavior
+- required Python package dependencies declared in `pyproject.toml`, plus
+  optional Python extras such as the `speedups` extra for `uvloop`
+- system packages required to make those Python packages usable on a desktop
+  (GTK4, libadwaita, introspection data, polkit)
+- packaged dependencies: what each maintained package family actually
+  installs, which may promote an optional Python package to
+  installed-by-default
+- optional compositor helpers that enable specific desktop features, such as
+  `slurp` and the GNOME Shell bridge extension
 
 If you are packaging Keymasq, check the package definitions directly:
 
@@ -36,7 +42,6 @@ Defined in `pyproject.toml` under `[project].dependencies`:
 - `PyGObject>=3.42.0`
 - `dbus-next>=0.2.3`
 - `evdev>=1.6.0`
-- `uvloop`
 - `python-xlib>=0.33`
 - `tomli-w>=1.0.0`
 
@@ -46,9 +51,28 @@ What they are used for:
 - `dbus-next`: session D-Bus access for notifications and compositor/session
   integrations
 - `evdev`: input device access, recording, capture, and remap runtime
-- `uvloop`: default `asyncio` event loop policy
 - `python-xlib`: X11 listener support, including cursor position read/write
 - `tomli-w`: writing profile, hardware, and superkey TOML files
+
+### Optional Python speedup: uvloop
+
+`uvloop` is not a required base dependency. It is declared in the `speedups`
+extra in `pyproject.toml`. When it is importable, `keymasqd` and
+`keymasq-session` install `uvloop.EventLoopPolicy` as the default `asyncio`
+policy; when it is missing or broken, they log a warning and fall back to the
+stdlib event loop. No feature is lost without it — only latency/jitter
+headroom (see `docs/PERFORMANCE.md`).
+
+Most maintained packages install it by default anyway:
+
+| Package family | uvloop |
+| -------------- | ------ |
+| Arch / AUR | hard dependency (`python-uvloop`) |
+| Debian | hard dependency (`python3-uvloop`) |
+| Fedora RPM | weak dependency (`Recommends: python3dist(uvloop)`) |
+| openSUSE RPM | weak dependency (versioned `pythonXYZ-uvloop`) |
+| AppImage / SteamOS | bundled |
+| Nix / NixOS | included in the wrapped Python environment |
 
 ### python-evdev compatibility lanes
 
@@ -163,7 +187,6 @@ Defined in `pyproject.toml` under `[project.optional-dependencies]`:
   - `pytest-cov>=5.0.0`
 - `dev`
   - `basedpyright>=1.38.2`
-  - `mypy>=1.0.0`
   - `pytest>=8.0.0`
   - `pytest-asyncio>=0.23.0`
   - `pytest-cov>=5.0.0`
@@ -174,84 +197,41 @@ run the test suite and quality checks locally.
 
 ## Packaged Runtime Dependencies
 
-This section is a quick packaging summary, not the authoritative source. The
-package manifests listed above remain authoritative.
+The package manifests are authoritative, and this document intentionally does
+not duplicate their full dependency lists. Check them directly:
 
-### Arch package
+- Arch / AUR: `PKGBUILD` and `packaging/aur/PKGBUILD` (`depends`)
+- Debian: `debian/control` (`Depends` / `Recommends` / `Suggests`)
+- Fedora / openSUSE: `packaging/rpm/build-fedora-rpm.sh` and
+  `packaging/rpm/build-opensuse-rpm.sh` (driven by
+  `packaging/rpm/metadata.env`)
+- AppImage / SteamOS: `packaging/appimage/get-dependencies.sh`
+- Nix / NixOS: `flake.nix`
 
-Defined in `PKGBUILD` under `depends`:
+Every family covers the same required core: the base Python dependencies
+above, GTK4 and libadwaita with their introspection data, polkit/pkexec,
+systemd and udev integration, and `acl` for the `setfacl`-based device access
+rules. The families differ only in how they classify the optional pieces:
 
-- `acl`
-- `slurp`
-- `python>=3.12`
-- `python-dbus-next>=0.2.3`
-- `python-evdev>=1.6.0`
-- `python-gobject>=3.42.0`
-- `python-cairo`
-- `python-uvloop`
-- `python-tomli-w>=1.0.0`
-- `python-xlib>=0.33`
-- `gtk4`
-- `libadwaita`
-- `polkit`
-- `systemd`
+| Package family | `uvloop` | `slurp` |
+| -------------- | -------- | ------- |
+| Arch / AUR | hard dependency | hard dependency |
+| Debian | hard dependency | `Recommends` |
+| Fedora RPM | `Recommends` | `Recommends` |
+| openSUSE RPM | `Recommends` | `Recommends` |
+| AppImage / SteamOS | bundled | bundled |
+| Nix / NixOS | in the wrapped Python environment | path-stamped into the build |
 
-### Debian package
+Debian additionally `Suggests: gnome-shell` for the GNOME bridge extension
+use case.
 
-Defined in `debian/control`:
+### RPM packaging notes
 
-- `acl`
-- `gir1.2-adw-1`
-- `gir1.2-gtk-4.0`
-- `pkexec`
-- `python3-dbus-next`
-- `python3-evdev`
-- `python3-gi`
-- `python3-gi-cairo`
-- `python3-tomli-w`
-- `python3-uvloop`
-- `python3-xlib`
-- `systemd`
-- `udev`
-
-Defined in `debian/control` under `Recommends`:
-
-- `slurp`
-
-Defined in `debian/control` under `Suggests`:
-
-- `gnome-shell`
-
-### Fedora / openSUSE RPM packaging
-
-Defined by `packaging/rpm/metadata.env` and the distro-specific RPM build
-scripts. Fedora additionally relies on Fedora's `%pyproject_*` macros, so it
-is built per Fedora release rather than as one cross-release RPM:
-
-- `acl`
-- `python3 >= 3.12`
-- distro-specific Python package names for:
-  - `evdev`
-  - `tomli-w`
-  - `dbus-next`
-  - `python-xlib`
-  - `PyGObject`
-  - PyGObject Cairo bindings where split from `PyGObject`
-- distro-specific GTK4 and libadwaita package names
-- `polkit`
-- `systemd`
-
-Defined in the generated RPM spec under weak dependencies:
-
-- `slurp`
-- distro-specific `uvloop` package name
-
-Verified current RPM dependency naming:
-
-- Fedora metadata uses `python3dist(uvloop)`, which is provided by
-  `python3-uvloop`
-- openSUSE metadata follows the versioned Python package pattern, for example
-  `python313-uvloop`
+Fedora relies on Fedora's `%pyproject_*` macros, so RPMs are built per Fedora
+release rather than as one cross-release RPM. Fedora resolves `uvloop`
+through `python3dist(uvloop)` metadata (provided by `python3-uvloop`);
+openSUSE follows its versioned Python package pattern, for example
+`python313-uvloop`.
 
 Keymasq keeps `uvloop` as a weak RPM dependency instead of a hard one because
 Fedora 43 does not currently expose a stable `python3-uvloop` package in the
@@ -260,25 +240,9 @@ and the runtime falls back cleanly with a warning when it is unavailable.
 
 ### Nix package and NixOS module
 
-Defined in `flake.nix`:
-
-- Python runtime packages:
-  - `dbus-next`
-  - `evdev`
-  - `tomli-w`
-  - `uvloop`
-  - `xlib`
-  - `pygobject3`
-- GUI/system libraries:
-  - `gtk4`
-  - `libadwaita`
-  - icon themes for the wrapped GUI
-- build/runtime integration:
-  - `gobject-introspection`
-  - `wrapGAppsHook4`
-- helper path stamping:
-  - `slurp` path is embedded into the build
-  - `keymasq-record` helper path is embedded into the build
+Beyond the Python environment, the Nix build wraps the GUI with
+`gobject-introspection` / `wrapGAppsHook4` and icon themes, and embeds the
+`slurp` and `keymasq-record` helper paths into the build.
 
 The NixOS module also provisions:
 

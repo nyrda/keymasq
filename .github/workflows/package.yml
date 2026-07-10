@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload source tarball
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: source-tarball
           path: dist/*.tar.gz
@@ -247,7 +247,7 @@ jobs:
 
       - name: Upload Arch package
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pacman-arch-package
           path: dist/arch/*.pkg.tar.*
@@ -325,7 +325,7 @@ jobs:
 
       - name: Upload AppImage
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: appimage-package
           path: dist/appimage/*.AppImage
@@ -376,7 +376,7 @@ jobs:
 
       - name: Upload Debian artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: debian-package
           path: |
@@ -476,7 +476,7 @@ jobs:
 
       - name: Upload Fedora RPM
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rpm-fedora-fc${{ matrix.fedora_release }}-package
           path: dist/*fc${{ matrix.fedora_release }}*.rpm
@@ -541,7 +541,7 @@ jobs:
 
       - name: Upload openSUSE RPM
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rpm-opensuse-package
           path: dist/*.opensuse.*.rpm
@@ -592,7 +592,7 @@ jobs:
           bash packaging/rpm/sign-rpms.sh dist/*.rpm
 
       - name: Upload signed RPM artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rpm-signed-packages
           path: |

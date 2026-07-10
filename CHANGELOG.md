@@ -4,25 +4,27 @@
 
 ### Added
 
-- Added a Type tab to the key selector and expanded type macro inline
-  controls with named keys, keyboard shortcuts, mouse actions, and natural
-  mouse movement.
+- Added a Type tab to the key selector and expanded type macro editing with
+  named keys, keyboard shortcuts, mouse actions, and natural mouse movement.
+- Added a hardware settings dialog for managing attached event devices,
+  including stable-path and product-ID detection.
 - Added a SteamOS AppImage with installation and update support.
 
 ### Improved
 
 - Improved macro recording and editing with recorded start positions,
-  timeline edge scrolling, and safer save and discard flows.
-
-### Fixed
-
-- Fixed mapping commits after profile reloads and matching of numbered device
-  instances.
-- Fixed compositor actions on Hyprland.
-- Prevented deletion of the last profile.
+  timeline edge scrolling while dragging, and safer save and discard flows.
 - Added confirmation before discarding unsaved Super Key or Analog Control
   changes.
 - Improved permission error messages for input and uinput access.
+
+### Fixed
+
+- Fixed applying mapping changes after a profile reload, and matching when
+  several identical devices use numbered IDs.
+- Fixed compositor actions on Hyprland.
+- Prevented deletion of the last profile.
+- Restored the placeholder tab when no devices are configured.
 
 ## 0.18.0 - 2026-06-14
 

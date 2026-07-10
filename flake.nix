@@ -1,5 +1,5 @@
 {
-  description = "Keymasq - key remapping tool";
+  description = "Keymasq - input remapper for keyboards, mice, and game controllers";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

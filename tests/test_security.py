@@ -116,7 +116,7 @@ def test_uid_allowlist_optional_and_enforced(tmp_path: Path) -> None:
     policy_path.write_text(
         "\n".join(
             [
-                "daemon_allowed_uids = [1000, 1001]",
+                'daemon_allowed_uids = [1000, "1001"]',
                 "session_allowed_uids = [1000]",
             ]
         )
@@ -127,3 +127,23 @@ def test_uid_allowlist_optional_and_enforced(tmp_path: Path) -> None:
     assert policy.session_allowed_uids == [1000]
     assert uid_allowed(1000, policy.daemon_allowed_uids)
     assert not uid_allowed(2000, policy.daemon_allowed_uids)
+
+
+@pytest.mark.parametrize(
+    ("setting_name", "setting_value"),
+    [
+        ("daemon_allowed_uids", '[1000, "invalid"]'),
+        ("session_allowed_uids", "[true]"),
+        ("daemon_allowed_uids", '"1000"'),
+    ],
+)
+def test_load_security_policy_rejects_malformed_uid_allowlists(
+    tmp_path: Path,
+    setting_name: str,
+    setting_value: str,
+) -> None:
+    policy_path = tmp_path / "security.toml"
+    policy_path.write_text(f"{setting_name} = {setting_value}\n")
+
+    with pytest.raises(SecurityPolicyError, match=setting_name):
+        load_security_policy(policy_path)

@@ -30,18 +30,21 @@ class SecurityPolicyError(RuntimeError):
     """Raised when the security policy file exists but cannot be loaded."""
 
 
-def _to_int_list(value: Any) -> list[int]:
-    if not isinstance(value, list):
+def _to_int_list(value: Any, setting_name: str) -> list[int]:
+    if value is None:
         return []
+    if not isinstance(value, list):
+        raise SecurityPolicyError(f"{setting_name} must be a list of integer UIDs")
+
     items = cast(list[object], value)
     out: list[int] = []
     for item in items:
-        if not isinstance(item, int | str):
-            continue
+        if isinstance(item, bool) or not isinstance(item, int | str):
+            raise SecurityPolicyError(f"{setting_name} contains invalid UID {item!r}")
         try:
             out.append(int(item))
-        except (TypeError, ValueError):
-            continue
+        except ValueError as exc:
+            raise SecurityPolicyError(f"{setting_name} contains invalid UID {item!r}") from exc
     return out
 
 
@@ -60,8 +63,14 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     except tomllib.TOMLDecodeError as exc:
         raise SecurityPolicyError(f"Invalid security policy TOML at {config_path}: {exc}") from exc
 
-    policy.daemon_allowed_uids = _to_int_list(raw.get("daemon_allowed_uids"))
-    policy.session_allowed_uids = _to_int_list(raw.get("session_allowed_uids"))
+    policy.daemon_allowed_uids = _to_int_list(
+        raw.get("daemon_allowed_uids"),
+        "daemon_allowed_uids",
+    )
+    policy.session_allowed_uids = _to_int_list(
+        raw.get("session_allowed_uids"),
+        "session_allowed_uids",
+    )
 
     macro_cfg = raw.get("macro")
     if isinstance(macro_cfg, dict):
@@ -118,6 +127,6 @@ def get_peer_credentials(transport_socket: Any) -> PeerCredentials | None:
 
 
 def uid_allowed(uid: int, allowed_uids: list[int]) -> bool:
-    if not allowed_uids:
+    if allowed_uids == []:
         return True
     return uid in set(allowed_uids)

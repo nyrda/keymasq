@@ -348,6 +348,9 @@ class TestSocketServer:
         assert response.status == "ok"
         assert len(contexts) == 1
         assert contexts[0].connection_id == 1
+        assert contexts[0].pid == os.getpid()
+        assert contexts[0].uid == os.geteuid()
+        assert contexts[0].gid == os.getegid()
 
         writer.close()
         await writer.wait_closed()

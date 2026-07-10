@@ -227,7 +227,7 @@ class Daemon:
         client: ClientContext | None = None,
     ) -> JsonObject:
         if client and self.security_policy:
-            self._ensure_sensitive_command_allowed(command_type, client)
+            await self._ensure_sensitive_command_allowed(command_type, client)
 
         if self.verbosity >= 1:
             log.debug(f"Command: {command_type.value} -> {self._log_view(data)}")
@@ -285,19 +285,16 @@ class Daemon:
 
         raise ValueError(f"Unknown command: {command_type}")
 
-    def _ensure_sensitive_command_allowed(
+    async def _ensure_sensitive_command_allowed(
         self,
         command_type: CommandType,
         client: ClientContext,
     ) -> None:
         if command_type == CommandType.START_RECORDING:
-            self._ensure_macro_recording_enabled(client.uid)
+            await asyncio.to_thread(self._ensure_macro_recording_enabled, client.uid)
             return
 
         policy = self.security_policy
-        if policy is None or not policy.recording_unlock_required:
-            return
-
         tier1_commands = {
             CommandType.CAPTURE_BEGIN,
             CommandType.CAPTURE_READ,
@@ -314,23 +311,34 @@ class Daemon:
             CommandType.MACRO_UPDATE,
         }
 
-        requires_unlock = command_type in tier1_commands
+        is_tier1_command = command_type in tier1_commands
+        if is_tier1_command:
+            self._ensure_sensitive_owner(
+                command_type,
+                client,
+                claim_if_missing=command_type != CommandType.CAPTURE_END,
+            )
+
+        if policy is None or not policy.recording_unlock_required:
+            return
+
+        requires_unlock = is_tier1_command
         if not requires_unlock and policy.macro_edit_requires_unlock:
             requires_unlock = command_type in tier2_commands
 
         if not requires_unlock:
             return
 
-        self._ensure_sensitive_owner(
-            command_type,
-            client,
-            claim_if_missing=command_type != CommandType.CAPTURE_END,
-        )
+        if not is_tier1_command:
+            self._ensure_sensitive_owner(command_type, client)
 
         if command_type == CommandType.CAPTURE_END:
             return
 
-        unlocked, expires_at, source = self._recording_unlocked_for_uid(client.uid)
+        unlocked, expires_at, source = await asyncio.to_thread(
+            self._recording_unlocked_for_uid,
+            client.uid,
+        )
         if unlocked:
             return
 

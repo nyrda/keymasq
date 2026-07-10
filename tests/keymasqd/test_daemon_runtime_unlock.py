@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -132,7 +133,14 @@ async def test_device_inspector_commands_forward_to_device_manager(daemon_testbe
 async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, monkeypatch):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
-    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+    event_loop_thread = threading.get_ident()
+    resolver_threads: list[int] = []
+
+    def recording_unlocked_for_uid(_uid: int) -> tuple[bool, int, str]:
+        resolver_threads.append(threading.get_ident())
+        return False, 0, "none"
+
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", recording_unlocked_for_uid)
 
     with pytest.raises(PermissionError, match="recording_locked"):
         await daemon._handle_command(
@@ -140,6 +148,9 @@ async def test_device_inspector_start_requires_recording_unlock(daemon_testbed, 
             {"hardware_id": "1234:5678"},
             client=client_context(),
         )
+
+    assert len(resolver_threads) == 1
+    assert resolver_threads[0] != event_loop_thread
 
 
 @pytest.mark.asyncio
@@ -237,10 +248,17 @@ async def test_macro_exec_complete_forwards_wait_id_and_returncode(daemon_testbe
     device_manager.complete_macro_exec_wait.assert_called_once_with("99", 7)
 
 
+@pytest.mark.parametrize("recording_unlock_required", [True, False])
 @pytest.mark.asyncio
-async def test_sensitive_command_owner_mismatch_is_denied(daemon_testbed, monkeypatch):
+async def test_sensitive_command_owner_mismatch_is_denied(
+    daemon_testbed,
+    monkeypatch,
+    recording_unlock_required: bool,
+):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    daemon.security_policy = SecurityPolicy(
+        recording_unlock_required=recording_unlock_required,
+    )
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (True, 0, "runtime"))
 
     first_client = client_context(uid=2000, pid=111, connection_id=10)

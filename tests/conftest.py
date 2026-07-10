@@ -303,6 +303,7 @@ _COMMON_ROOT_TEST_FILES = (
     "test_devices.py",
     "test_entrypoints_and_cli.py",
     "test_ipc.py",
+    "test_integration_runner.py",
     "test_paths.py",
     "test_recording_guard.py",
     "test_release_version.py",

@@ -37,7 +37,8 @@ listener matrix. All VM suites want a Linux host with KVM acceleration.
 | GNOME Shell extension | `gnome-extension/**` | `gnome-bridge` and `gnome` |
 | Nix/VM infrastructure | `flake.nix`, `flake.lock`, `nix/**` | `daemon-session` and the full `listeners` matrix |
 | Services, udev, packaging payload | `systemd/**`, `udev/**`, `sysusers.d/**`, `tmpfiles.d/**`, `polkit/**`, and packaged copies of these payloads (for example `packaging/appimage/assets/**`) | `daemon-session` |
-| Docs, packaging metadata, CI tooling only | `docs/**`, `.github/**`, `scripts/**` (non-runtime), and `packaging/**` metadata that does not ship service/udev payloads | None |
+| Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself: `daemon-session` plus at least one listener suite for `integration.sh`; `scripts/check-doc-screenshots` for the screenshot scripts |
+| Docs, packaging metadata, unrelated tooling only | `docs/**`, `.github/**`, `scripts/**` not listed above, and `packaging/**` metadata that does not ship service/udev payloads | None |
 
 Multi-category changes take the union of the rows they touch. If a change does
 not fit a row cleanly, treat it as shared code.

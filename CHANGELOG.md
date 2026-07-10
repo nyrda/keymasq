@@ -4,14 +4,15 @@
 
 ### Added
 
-- Added a Type selector tab and expanded compact type macros with named keys,
-  shortcuts, mouse actions, and natural mouse movement tokens.
+- Added a Type tab to the key selector and expanded type macro inline
+  controls with named keys, keyboard shortcuts, mouse actions, and natural
+  mouse movement.
 - Added a SteamOS AppImage with installation and update support.
 
 ### Improved
 
-- Improved macro recording and editing with recorded start positions, edge
-  auto-scroll, and safer save and discard flows.
+- Improved macro recording and editing with recorded start positions,
+  timeline edge scrolling, and safer save and discard flows.
 
 ### Fixed
 
@@ -21,7 +22,7 @@
 - Prevented deletion of the last profile.
 - Added confirmation before discarding unsaved Super Key or Analog Control
   changes.
-- Improved permission errors for input and uinput access.
+- Improved permission error messages for input and uinput access.
 
 ## 0.18.0 - 2026-06-14
 

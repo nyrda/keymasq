@@ -4,8 +4,6 @@
 
 ### Added
 
-- Added hardware configuration and product-ID-aware device matching, with a
-  dedicated settings dialog and guided setup flow.
 - Added a Type selector tab and expanded compact type macros with named keys,
   shortcuts, mouse actions, and natural mouse movement tokens.
 - Added SteamOS AppImage packaging, installation, updating, and repository

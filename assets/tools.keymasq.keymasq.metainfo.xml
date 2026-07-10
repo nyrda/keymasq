@@ -37,6 +37,12 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.19.0" date="2026-07-10">
+      <description>
+        <p>Adds product-ID-aware hardware configuration, richer typed macros, and SteamOS AppImage distribution.</p>
+        <p>Improves runtime concurrency, compositor integration, macro editing, profile safety, device matching, and release security.</p>
+      </description>
+    </release>
     <release version="0.18.0" date="2026-06-14">
       <description>
         <p>Expands game controller support with remappable sticks, triggers, wheels, generic axes, reusable Analog Controls, and configurable virtual gamepad outputs.</p>

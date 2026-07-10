@@ -37,14 +37,13 @@ async def test_handle_mpris_trigger_uses_session_controller() -> None:
 async def test_session_mpris_command_uses_session_controller() -> None:
     controller = _FakeMprisController()
     manager = SimpleNamespace(
-        security_policy=SecurityPolicy(session_command_acl={"client": []}),
+        security_policy=SecurityPolicy(),
         mpris_controller=controller,
     )
 
     result = await session_commands.handle_session_request(
         manager,  # type: ignore[arg-type]
         {"command": "mpris", "mpris_command": "play-pause"},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         None,  # type: ignore[arg-type]
     )
@@ -59,18 +58,15 @@ async def test_session_mpris_command_uses_session_controller() -> None:
 
 @pytest.mark.asyncio
 async def test_session_mpris_command_reports_controller_failure() -> None:
-    controller = _FakeMprisController(
-        MprisDBusError("", "session D-Bus transport failed: no bus")
-    )
+    controller = _FakeMprisController(MprisDBusError("", "session D-Bus transport failed: no bus"))
     manager = SimpleNamespace(
-        security_policy=SecurityPolicy(session_command_acl={"client": []}),
+        security_policy=SecurityPolicy(),
         mpris_controller=controller,
     )
 
     result = await session_commands.handle_session_request(
         manager,  # type: ignore[arg-type]
         {"command": "mpris", "mpris_command": "play"},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         None,  # type: ignore[arg-type]
     )
@@ -85,17 +81,16 @@ async def test_session_mpris_command_reports_controller_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_mpris_status_uses_mpris_acl_path() -> None:
+async def test_session_mpris_status_uses_session_controller() -> None:
     controller = _FakeMprisController()
     manager = SimpleNamespace(
-        security_policy=SecurityPolicy(session_command_acl={"client": []}),
+        security_policy=SecurityPolicy(),
         mpris_controller=controller,
     )
 
     result = await session_commands.handle_session_request(
         manager,  # type: ignore[arg-type]
         {"command": "mpris", "mpris_command": "status"},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         None,  # type: ignore[arg-type]
     )
@@ -112,14 +107,13 @@ async def test_session_mpris_status_uses_mpris_acl_path() -> None:
 async def test_session_mpris_command_rejects_unknown_command() -> None:
     controller = _FakeMprisController()
     manager = SimpleNamespace(
-        security_policy=SecurityPolicy(session_command_acl={"client": []}),
+        security_policy=SecurityPolicy(),
         mpris_controller=controller,
     )
 
     result = await session_commands.handle_session_request(
         manager,  # type: ignore[arg-type]
         {"command": "mpris", "mpris_command": "shuffle"},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         None,  # type: ignore[arg-type]
     )

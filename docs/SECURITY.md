@@ -35,7 +35,7 @@ GUI and CLI do not access kernel input devices directly.
 
 ## Target Environment
 
-Keymasq is designed for single-user Linux desktops. The default security policy reflects this: open access with optional hardening via ACL and UID allowlists for multi-user systems.
+Keymasq is designed for single-user Linux desktops. The default security policy reflects this: open access with optional UID allowlists for multi-user systems.
 
 ## Connection Chain
 
@@ -85,17 +85,11 @@ In practice:
 
 This prevents a second local process from concurrently issuing privileged daemon commands while a legitimate session broker is connected.
 
-## Peer Identity and ACL
+## Peer Identity and Admission
 
 On each accepted Unix socket connection, Keymasq reads `SO_PEERCRED` (`pid`, `uid`, `gid`).
 
-Authorization is then layered as:
-
-- optional UID allowlists
-- session command ACL
-- daemon command ACL
-
-This prevents bypass when a local process attempts to talk directly to the daemon socket.
+Optional UID allowlists can restrict which local users may connect to the session and daemon sockets.
 
 ## Recording Guard
 
@@ -152,7 +146,7 @@ The runtime TTL remains a bounded fallback, but normal and abnormal disconnect p
 
 ## Sensitive Command Binding
 
-Sensitive commands are bound to the active recording owner, not just to UID/ACL permission.
+Sensitive commands are bound to the active recording owner, not just to UID admission.
 
 Session-side sensitive commands currently include:
 
@@ -193,7 +187,6 @@ This is important because combo capture is effectively a short-lived privileged 
 In practice, this means:
 
 - an unlocked lease alone is not enough if another process owns the sensitive-command chain
-- ACL permission alone is not enough if capture is locked
 - GUI capture of combos is intentionally tied to the capture unlock owner chain
 
 ## Compositor Dispatch
@@ -222,8 +215,6 @@ Security policy path:
 
 Relevant controls:
 
-- `session_command_acl`
-- `daemon_command_acl`
 - `session_allowed_uids`
 - `daemon_allowed_uids`
 - `[macro]`
@@ -237,10 +228,6 @@ Relevant controls:
   - `macro_edit_requires_unlock`
 
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
-
-`session_command_acl` applies to the single session-side client class: `client`. The session socket is a same-user endpoint, so Keymasq does not model GUI and CLI as separate enforceable trust classes there.
-
-Command ACLs are denylists, not allowlists. Supported deny forms are `!command`, `-command`, or `deny:command`. Commands not explicitly denied for the caller's client class are allowed. Positive entries (entries without a deny prefix) are ignored and should not be used to express allow-only policy. Unconfigured or unknown client classes default to allow unless separately blocked by UID policy, unlock state, or owner binding.
 
 `[recording_guard].unlock_required` controls whether sensitive original-input
 observation flows require an explicit unlock before they are allowed.
@@ -299,7 +286,7 @@ The daemon socket is world-accessible because `keymasqd` starts as a system serv
 
 The session socket is restricted to the owning user via `XDG_RUNTIME_DIR` permissions and explicit `0o700` on the socket directory.
 
-Socket permissions only gate connection attempts. Actual command authority still depends on peer identity, ACL, unlock state, and owner binding.
+Socket permissions only gate connection attempts. Sensitive command authority still depends on peer identity, unlock state, and owner binding.
 
 ## Security Goal
 
@@ -308,7 +295,7 @@ Default operation should avoid repeated auth prompts while still protecting priv
 The effective security model is:
 
 - peer credential checks on every socket connection
-- layered ACL enforcement at session and daemon boundaries
+- optional UID admission controls at session and daemon boundaries
 - owner-bound runtime unlock refresh
 - owner-bound sensitive command execution
 - recording guard for original-input observation features

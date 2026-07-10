@@ -31,7 +31,6 @@ from keymasq.common.security import (
     PeerCredentials,
     SecurityPolicy,
     SecurityPolicyError,
-    command_allowed,
     load_security_policy,
     uid_allowed,
 )
@@ -228,15 +227,6 @@ class Daemon:
         client: ClientContext | None = None,
     ) -> JsonObject:
         if client and self.security_policy:
-            if not command_allowed(
-                command_type.value,
-                self.security_policy.daemon_command_acl,
-                client.client_class,
-            ):
-                raise PermissionError(
-                    f"{client.client_class} is not allowed to call {command_type.value}"
-                )
-
             self._ensure_sensitive_command_allowed(command_type, client)
 
         if self.verbosity >= 1:
@@ -355,9 +345,7 @@ class Daemon:
         if enabled:
             return
         if source == "none":
-            raise PermissionError(
-                "macro_recording_disabled: macro recording opt-in required"
-            )
+            raise PermissionError("macro_recording_disabled: macro recording opt-in required")
         raise PermissionError(f"macro_recording_disabled: opt-in expired at {expires_at}")
 
     def _macro_recording_enabled_for_uid(self, uid: int) -> tuple[bool, int, str]:
@@ -755,14 +743,14 @@ class Daemon:
         except OSError as exc:
             raise RuntimeError(f"Failed to remove daemon socket path {SOCKET_PATH}: {exc}") from exc
 
-    def _validate_peer(self, peer: PeerCredentials) -> tuple[bool, str, str]:
+    def _validate_peer(self, peer: PeerCredentials) -> tuple[bool, str]:
         if self.security_policy is None:
-            return False, "unknown", "security policy not loaded"
+            return False, "security policy not loaded"
 
         if not uid_allowed(peer.uid, self.security_policy.daemon_allowed_uids):
-            return False, "unknown", f"uid {peer.uid} is not allowed by daemon policy"
+            return False, f"uid {peer.uid} is not allowed by daemon policy"
 
-        return True, "session", "peer uid allowed"
+        return True, "peer uid allowed"
 
 
 def main() -> None:

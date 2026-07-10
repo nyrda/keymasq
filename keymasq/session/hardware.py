@@ -46,6 +46,16 @@ def _hardware_storage_stem(hardware_id: str) -> str:
     return (safe or "hardware").lower()
 
 
+def _hardware_id_sort_key(hardware_id: str) -> tuple[str, int, int, str]:
+    normalized = str(hardware_id or "").strip().lower()
+    model_id, separator, suffix = normalized.partition("@")
+    if not separator:
+        return model_id, 0, 0, ""
+    if suffix.isdecimal():
+        return model_id, 1, int(suffix), suffix
+    return model_id, 2, 0, suffix
+
+
 @dataclass
 class _HardwareEntry:
     path: Path
@@ -205,10 +215,13 @@ class HardwareManager:
         self._cache = hardware.copy()
 
     def list_hardware(self) -> list[HardwareConfig]:
-        return [entry.config for entry in self._cache.values()]
+        return [
+            self._cache[hardware_id].config
+            for hardware_id in sorted(self._cache, key=_hardware_id_sort_key)
+        ]
 
     def list_hardware_ids(self) -> list[str]:
-        return list(self._cache.keys())
+        return sorted(self._cache, key=_hardware_id_sort_key)
 
     def _hardware_storage_path_candidate(self, hardware_id: str, attempt: int) -> Path:
         stem = _hardware_storage_stem(hardware_id)

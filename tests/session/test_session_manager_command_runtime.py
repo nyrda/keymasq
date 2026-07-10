@@ -581,6 +581,88 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
     ]
 
 
+def test_build_active_profiles_payload_keeps_numbered_grabbed_paths_distinct() -> None:
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = SessionManager()
+    hardware_ids = ["28de:11ff", "28de:11ff@2"]
+    hardware = {
+        hardware_id: HardwareConfig(
+            vendor_id="28de",
+            product_id="11ff",
+            name=f"Pad {index}",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:28de:11ff",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                )
+            ],
+            buttons=[],
+            id=hardware_id if index > 0 else None,
+        )
+        for index, hardware_id in enumerate(hardware_ids)
+    }
+    manager.connected = True
+    manager.hardware.get_hardware = lambda hardware_id: hardware.get(  # type: ignore[assignment]
+        hardware_id
+    )
+    manager.profile_state.active_profile_names = ["Default"]
+    manager.profile_state.resolved_devices = {
+        hardware_id: ResolvedDeviceProfile(
+            hardware_id=hardware_id,
+            active_profile_names=["Default"],
+            always_grab_all=True,
+        )
+        for hardware_id in hardware_ids
+    }
+    manager.profile_state.grabbed_devices.update(hardware_ids)
+    manager.profile_state.device_runtime_status = {
+        "status": "ok",
+        "interfaces": [
+            {
+                "hardware_id": "28de:11ff",
+                "path": path,
+                "stable_path": path,
+                "interface_id": "gamepad",
+                "device_type": "gamepad",
+            }
+            for path in ("/dev/input/event18", "/dev/input/event19")
+        ],
+        "grabbed_interfaces": [
+            {
+                "hardware_id": hardware_id,
+                "interface_id": "gamepad",
+                "path": path,
+                "resolved_path": path,
+                "stable_path": path,
+                "device_type": "gamepad",
+            }
+            for hardware_id, path in zip(
+                hardware_ids,
+                ("/dev/input/event18", "/dev/input/event19"),
+                strict=True,
+            )
+        ],
+    }
+
+    payload = session_profiles_module.build_active_profiles_payload(manager)
+
+    devices = cast(dict[str, dict[str, object]], payload["devices"])
+    paths = {
+        hardware_id: cast(
+            list[dict[str, object]],
+            cast(dict[str, object], devices[hardware_id]["device_status"])["interfaces"],
+        )[0]["current_path"]
+        for hardware_id in hardware_ids
+    }
+    assert paths == {
+        "28de:11ff": "/dev/input/event18",
+        "28de:11ff@2": "/dev/input/event19",
+    }
+
+
 @pytest.mark.asyncio
 async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> None:
     from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction

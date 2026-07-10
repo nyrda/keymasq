@@ -439,6 +439,41 @@ def test_hardware_manager_preserves_explicit_hardware_id(temp_config_dir) -> Non
     assert reloaded == config
 
 
+def test_hardware_manager_lists_instances_in_natural_order(temp_config_dir) -> None:
+    manager = HardwareManager()
+    configs = [
+        HardwareConfig(
+            vendor_id="28de",
+            product_id="11ff",
+            name=name,
+            evdev_devices=[],
+            buttons=[],
+            id=hardware_id,
+        )
+        for name, hardware_id in (
+            ("Pad 10", "28de:11ff@10"),
+            ("Named interface", "28de:11ff@gamepad"),
+            ("Pad 2", "28de:11ff@2"),
+            ("Pad 0", None),
+        )
+    ]
+    for config in configs:
+        manager.save_hardware(config)
+
+    assert manager.list_hardware_ids() == [
+        "28de:11ff",
+        "28de:11ff@2",
+        "28de:11ff@10",
+        "28de:11ff@gamepad",
+    ]
+    assert [config.name for config in manager.list_hardware()] == [
+        "Pad 0",
+        "Pad 2",
+        "Pad 10",
+        "Named interface",
+    ]
+
+
 def test_hardware_manager_suffixes_colliding_sanitized_hardware_ids(temp_config_dir) -> None:
     manager = HardwareManager()
     first = HardwareConfig(

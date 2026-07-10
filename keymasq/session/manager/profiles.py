@@ -270,6 +270,7 @@ def build_device_status_payload(
     grabbed_interfaces = _runtime_interfaces_for_hardware(
         runtime_status.get("grabbed_interfaces"),
         hardware_id,
+        exact_hardware_id=True,
     )
     interface_statuses = [
         _configured_interface_status(
@@ -344,17 +345,29 @@ def _unknown_configured_interface_payloads(
     return payloads
 
 
-def _runtime_interfaces_for_hardware(raw_interfaces: object, hardware_id: str) -> list[JsonObject]:
+def _runtime_interfaces_for_hardware(
+    raw_interfaces: object,
+    hardware_id: str,
+    *,
+    exact_hardware_id: bool = False,
+) -> list[JsonObject]:
     interfaces: list[JsonObject] = []
+    configured_exact_id = str(hardware_id or "").strip().lower()
     for raw in _json_list(raw_interfaces):
         if not isinstance(raw, dict):
             continue
         item = cast(JsonObject, raw)
-        if _runtime_hardware_matches(
-            hardware_id,
-            str(item.get("hardware_id", "") or ""),
-            interface_id=str(item.get("interface_id", "") or ""),
-        ):
+        runtime_hardware_id = str(item.get("hardware_id", "") or "")
+        matches = (
+            runtime_hardware_id.strip().lower() == configured_exact_id
+            if exact_hardware_id
+            else _runtime_hardware_matches(
+                hardware_id,
+                runtime_hardware_id,
+                interface_id=str(item.get("interface_id", "") or ""),
+            )
+        )
+        if matches:
             interfaces.append(item)
     return interfaces
 

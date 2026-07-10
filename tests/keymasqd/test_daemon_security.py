@@ -58,15 +58,13 @@ def test_validate_peer_behavior(daemon_testbed, expected_allowed: bool):
     )
 
     peer = SimpleNamespace(uid=1111 if expected_allowed else 2222, pid=1, gid=1)
-    allowed, peer_class, reason = daemon._validate_peer(peer)
+    allowed, reason = daemon._validate_peer(peer)
 
     if expected_allowed:
         assert allowed is True
-        assert peer_class == "session"
         assert reason == "peer uid allowed"
     else:
         assert allowed is False
-        assert peer_class == "unknown"
         assert "not allowed" in reason
 
 

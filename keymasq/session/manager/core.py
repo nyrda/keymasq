@@ -360,13 +360,10 @@ class SessionManager:
             await self._close_session_writer(writer, peer)
             return
 
-        client_class = "client"
-
         log.debug(
-            "Session client connected pid=%s uid=%s class=%s",
+            "Session client connected pid=%s uid=%s",
             peer.pid,
             peer.uid,
-            client_class,
         )
         self.session_clients.add(writer)
         self.session_client_peers[writer] = peer
@@ -401,7 +398,6 @@ class SessionManager:
                         try:
                             response = await self._handle_session_request(
                                 request,
-                                client_class,
                                 peer,
                                 writer,
                             )
@@ -443,14 +439,12 @@ class SessionManager:
     async def _handle_session_request(
         self,
         request: JsonObject,
-        client_class: str,
         peer: PeerCredentials,
         writer: asyncio.StreamWriter,
     ) -> JsonObject:
         return await session_commands.handle_session_request(
             self,
             request,
-            client_class,
             peer,
             writer,
         )
@@ -588,9 +582,7 @@ class SessionManager:
         try:
             await asyncio.to_thread(self.reload_config_from_disk)
         except Exception as exc:
-            log.exception(
-                "Failed to reload user config from disk; keeping previous active config"
-            )
+            log.exception("Failed to reload user config from disk; keeping previous active config")
             self.send_notification(
                 "Keymasq Config Error",
                 "Failed to reload config; keeping the previous active config. See logs.",

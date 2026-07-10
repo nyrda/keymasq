@@ -18,8 +18,6 @@ class PeerCredentials:
 
 @dataclass
 class SecurityPolicy:
-    session_command_acl: dict[str, list[str]] = field(default_factory=dict)
-    daemon_command_acl: dict[str, list[str]] = field(default_factory=dict)
     daemon_allowed_uids: list[int] = field(default_factory=list)
     session_allowed_uids: list[int] = field(default_factory=list)
     macro_exec_timeout_max_ms: int = 30000
@@ -32,49 +30,26 @@ class SecurityPolicyError(RuntimeError):
     """Raised when the security policy file exists but cannot be loaded."""
 
 
-def _to_str_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
+def _to_int_list(value: Any, setting_name: str) -> list[int]:
+    if value is None:
         return []
-    items = cast(list[object], value)
-    out: list[str] = []
-    for item in items:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip())
-    return out
-
-
-def _to_acl_map(value: Any) -> dict[str, list[str]]:
-    if not isinstance(value, dict):
-        return {}
-    raw_acl = cast(dict[object, object], value)
-    out: dict[str, list[str]] = {}
-    for client_class, commands in raw_acl.items():
-        if not isinstance(client_class, str):
-            continue
-        out[client_class] = _to_str_list(commands)
-    return out
-
-
-def _to_int_list(value: Any) -> list[int]:
     if not isinstance(value, list):
-        return []
+        raise SecurityPolicyError(f"{setting_name} must be a list of integer UIDs")
+
     items = cast(list[object], value)
     out: list[int] = []
     for item in items:
-        if not isinstance(item, int | str):
-            continue
+        if isinstance(item, bool) or not isinstance(item, int | str):
+            raise SecurityPolicyError(f"{setting_name} contains invalid UID {item!r}")
         try:
             out.append(int(item))
-        except (TypeError, ValueError):
-            continue
+        except ValueError as exc:
+            raise SecurityPolicyError(f"{setting_name} contains invalid UID {item!r}") from exc
     return out
 
 
 def load_security_policy(config_path: Path) -> SecurityPolicy:
-    policy = SecurityPolicy(
-        session_command_acl={"client": []},
-        daemon_command_acl={"session": []},
-    )
+    policy = SecurityPolicy()
 
     try:
         config_text = config_path.read_text()
@@ -88,16 +63,14 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     except tomllib.TOMLDecodeError as exc:
         raise SecurityPolicyError(f"Invalid security policy TOML at {config_path}: {exc}") from exc
 
-    session_acl = _to_acl_map(raw.get("session_command_acl"))
-    if session_acl:
-        policy.session_command_acl = session_acl
-
-    daemon_acl = _to_acl_map(raw.get("daemon_command_acl"))
-    if daemon_acl:
-        policy.daemon_command_acl = daemon_acl
-
-    policy.daemon_allowed_uids = _to_int_list(raw.get("daemon_allowed_uids"))
-    policy.session_allowed_uids = _to_int_list(raw.get("session_allowed_uids"))
+    policy.daemon_allowed_uids = _to_int_list(
+        raw.get("daemon_allowed_uids"),
+        "daemon_allowed_uids",
+    )
+    policy.session_allowed_uids = _to_int_list(
+        raw.get("session_allowed_uids"),
+        "session_allowed_uids",
+    )
 
     macro_cfg = raw.get("macro")
     if isinstance(macro_cfg, dict):
@@ -153,27 +126,7 @@ def get_peer_credentials(transport_socket: Any) -> PeerCredentials | None:
     return PeerCredentials(pid=pid, uid=uid, gid=gid)
 
 
-def command_allowed(command: str, acl: dict[str, list[str]], client_class: str) -> bool:
-    entries = acl.get(client_class, [])
-
-    for raw in entries:
-        token = raw.strip()
-        if token.startswith("!"):
-            denied = token[1:].strip()
-        elif token.startswith("-"):
-            denied = token[1:].strip()
-        elif token.lower().startswith("deny:"):
-            denied = token[5:].strip()
-        else:
-            continue
-
-        if denied in {"*", command}:
-            return False
-
-    return True
-
-
 def uid_allowed(uid: int, allowed_uids: list[int]) -> bool:
-    if not allowed_uids:
+    if allowed_uids == []:
         return True
     return uid in set(allowed_uids)

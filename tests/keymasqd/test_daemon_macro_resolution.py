@@ -1,3 +1,4 @@
+import threading
 from typing import cast
 
 import pytest
@@ -415,11 +416,17 @@ async def test_handle_command_start_recording_requires_macro_recording_opt_in(
 ):
     daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    event_loop_thread = threading.get_ident()
+    resolver_threads: list[int] = []
+
+    def resolve_status(_uid: int) -> dict[str, object]:
+        resolver_threads.append(threading.get_ident())
+        return {"unlocked": False, "source": "none", "expires_at": 0}
 
     monkeypatch.setattr(
         daemon_module,
         "resolve_macro_recording_status",
-        lambda _uid: {"unlocked": False, "source": "none", "expires_at": 0},
+        resolve_status,
     )
 
     with pytest.raises(PermissionError, match="macro_recording_disabled"):
@@ -428,6 +435,9 @@ async def test_handle_command_start_recording_requires_macro_recording_opt_in(
             {},
             client=client_context(uid=1000, pid=111, connection_id=7),
         )
+
+    assert len(resolver_threads) == 1
+    assert resolver_threads[0] != event_loop_thread
 
 
 def test_macro_recording_enabled_cache_rechecks_persistent_opt_in(

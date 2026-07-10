@@ -135,7 +135,7 @@ class TestSocketServer:
         server = SocketServer(
             str(paths.SOCKET_PATH),
             cmd_handler.handle,
-            peer_validator=lambda _peer: (False, "unknown", "denied for test"),
+            peer_validator=lambda _peer: (False, "denied for test"),
         )
         await server.start()
 
@@ -348,7 +348,9 @@ class TestSocketServer:
         assert response.status == "ok"
         assert len(contexts) == 1
         assert contexts[0].connection_id == 1
-        assert contexts[0].client_class == "session"
+        assert contexts[0].pid == os.getpid()
+        assert contexts[0].uid == os.geteuid()
+        assert contexts[0].gid == os.getegid()
 
         writer.close()
         await writer.wait_closed()
@@ -495,7 +497,6 @@ class TestSocketServer:
             pid=100,
             uid=1000,
             gid=1000,
-            client_class="session",
         )
         server.clients.add(owner_writer)
         server._buffer[owner_writer] = b""

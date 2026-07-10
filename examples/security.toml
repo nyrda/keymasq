@@ -13,14 +13,3 @@ emergency_cancel_combo_enabled = true
 unlock_required = true
 # Tier 2 (optional): require unlock for macro get/create/update APIs.
 macro_edit_requires_unlock = false
-
-[session_command_acl]
-# ACL entries are deny rules only.
-# Supported forms: "!command", "-command", or "deny:command".
-# Empty list means allow all commands for that client class.
-gui = []
-cli = []
-
-[daemon_command_acl]
-# Same deny-rule semantics as [session_command_acl].
-session = []

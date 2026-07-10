@@ -72,7 +72,6 @@ async def test_handle_session_request_get_compositor_reports_kde_dispatch_availa
 
     result = await manager._handle_session_request(
         {"command": "get_compositor"},
-        "client",
         peer,
         object(),
     )
@@ -100,7 +99,6 @@ async def test_handle_session_request_set_settings_does_not_broadcast_on_daemon_
 
     result = await manager._handle_session_request(
         {"command": "set_settings", "virtual_gamepad_count": 2},
-        "client",
         peer,
         object(),
     )
@@ -130,7 +128,6 @@ async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon
 
     result = await manager._handle_session_request(
         {"command": "set_virtual_gamepads", "count": 2},
-        "client",
         peer,
         object(),
     )
@@ -149,9 +146,7 @@ async def test_release_device_command_forwards_to_daemon_and_clears_runtime_stat
     manager = SessionManager()
     hardware_id = "045e:02a1"
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.profile_state.grab_waiting_devices.add(hardware_id)
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
@@ -162,7 +157,6 @@ async def test_release_device_command_forwards_to_daemon_and_clears_runtime_stat
 
     result = await manager._handle_session_request(
         {"command": "release_device", "hardware_id": hardware_id},
-        "client",
         peer,
         object(),
     )
@@ -189,7 +183,6 @@ async def test_handle_session_request_refresh_compositor_forces_binding_retry(
 
     result = await manager._handle_session_request(
         {"command": "refresh_compositor"},
-        "client",
         peer,
         object(),
     )
@@ -218,7 +211,6 @@ async def test_handle_session_request_run_compositor_setup_action(
             "compositor": "gnome",
             "action": "enable_bridge",
         },
-        "client",
         peer,
         object(),
     )
@@ -263,7 +255,6 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
 
     result = await manager._handle_session_request(
         {"command": "get_status"},
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -456,7 +447,6 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
 
     result = await manager._handle_session_request(
         {"command": "get_active_profiles"},
-        "client",
         peer,
         object(),
     )
@@ -581,6 +571,88 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
     ]
 
 
+def test_build_active_profiles_payload_keeps_numbered_grabbed_paths_distinct() -> None:
+    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.session.profiles import ResolvedDeviceProfile
+
+    manager = SessionManager()
+    hardware_ids = ["28de:11ff", "28de:11ff@2"]
+    hardware = {
+        hardware_id: HardwareConfig(
+            vendor_id="28de",
+            product_id="11ff",
+            name=f"Pad {index}",
+            evdev_devices=[
+                EvdevDevice(
+                    path="keymasq:28de:11ff",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                )
+            ],
+            buttons=[],
+            id=hardware_id if index > 0 else None,
+        )
+        for index, hardware_id in enumerate(hardware_ids)
+    }
+    manager.connected = True
+    manager.hardware.get_hardware = lambda hardware_id: hardware.get(  # type: ignore[assignment]
+        hardware_id
+    )
+    manager.profile_state.active_profile_names = ["Default"]
+    manager.profile_state.resolved_devices = {
+        hardware_id: ResolvedDeviceProfile(
+            hardware_id=hardware_id,
+            active_profile_names=["Default"],
+            always_grab_all=True,
+        )
+        for hardware_id in hardware_ids
+    }
+    manager.profile_state.grabbed_devices.update(hardware_ids)
+    manager.profile_state.device_runtime_status = {
+        "status": "ok",
+        "interfaces": [
+            {
+                "hardware_id": "28de:11ff",
+                "path": path,
+                "stable_path": path,
+                "interface_id": "gamepad",
+                "device_type": "gamepad",
+            }
+            for path in ("/dev/input/event18", "/dev/input/event19")
+        ],
+        "grabbed_interfaces": [
+            {
+                "hardware_id": hardware_id,
+                "interface_id": "gamepad",
+                "path": path,
+                "resolved_path": path,
+                "stable_path": path,
+                "device_type": "gamepad",
+            }
+            for hardware_id, path in zip(
+                hardware_ids,
+                ("/dev/input/event18", "/dev/input/event19"),
+                strict=True,
+            )
+        ],
+    }
+
+    payload = session_profiles_module.build_active_profiles_payload(manager)
+
+    devices = cast(dict[str, dict[str, object]], payload["devices"])
+    paths = {
+        hardware_id: cast(
+            list[dict[str, object]],
+            cast(dict[str, object], devices[hardware_id]["device_status"])["interfaces"],
+        )[0]["current_path"]
+        for hardware_id in hardware_ids
+    }
+    assert paths == {
+        "28de:11ff": "/dev/input/event18",
+        "28de:11ff@2": "/dev/input/event19",
+    }
+
+
 @pytest.mark.asyncio
 async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> None:
     from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
@@ -604,7 +676,7 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
                         )
                     ],
                     timeout_ms=500,
-                )
+                ),
             ],
             action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
             recall_trigger_keys=True,
@@ -619,7 +691,6 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
 
     result = await manager._handle_session_request(
         {"command": "get_combo_inspector_snapshot"},
-        "client",
         peer,
         object(),
     )
@@ -668,7 +739,6 @@ async def test_get_combo_inspector_snapshot_preserves_profile_deactivation() -> 
 
     result = await manager._handle_session_request(
         {"command": "get_combo_inspector_snapshot"},
-        "client",
         peer,
         object(),
     )
@@ -713,7 +783,6 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only(
 
     result = await manager._handle_session_request(
         {"command": "get_recording_settings"},
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -754,7 +823,6 @@ async def test_play_macro_payload_forwards_sanitized_events() -> None:
             ],
             "speed": 1.5,
         },
-        "client",
         peer,
         object(),
     )
@@ -793,7 +861,6 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
             "pause_ms": 0,
             "speed": 1.25,
         },
-        "client",
         peer,
         object(),
     )
@@ -833,7 +900,6 @@ async def test_play_compact_macro_compiles_in_thread_and_forwards_events(
             "tokens": ["key_a", "wait:10:20", "btn_left"],
             "speed": 0.5,
         },
-        "client",
         peer,
         object(),
     )
@@ -859,7 +925,6 @@ async def test_play_macro_payload_requires_events() -> None:
 
     result = await manager._handle_session_request(
         {"command": "play_macro_payload", "macro_events": []},
-        "client",
         peer,
         object(),
     )
@@ -880,7 +945,6 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
 
     result = await manager._handle_session_request(
         {"command": "start_recording", "recording_slot": 1},
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -908,7 +972,6 @@ async def test_start_recording_command_requires_explicit_slot(
 
     result = await manager._handle_session_request(
         {"command": "start_recording"},
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -1226,9 +1289,7 @@ async def test_play_macro_slot_trigger_refreshes_empty_cache_before_playback() -
     )
 
     assert result == {"status": "ok", "played": True}
-    sent_commands = [
-        call.args[0].command for call in manager.client.send_command.await_args_list
-    ]
+    sent_commands = [call.args[0].command for call in manager.client.send_command.await_args_list]
     assert sent_commands == [
         CommandType.MACRO_LIST_RECORDINGS,
         CommandType.MACRO_PLAY_RECORDING,
@@ -1264,14 +1325,11 @@ async def test_list_macros_include_slots_syncs_slots_from_daemon() -> None:
 
     result = await manager._handle_session_request(
         {"command": "list_macros", "include_slots": True},
-        "client",
         peer,
         object(),
     )
 
-    sent_commands = [
-        call.args[0].command for call in manager.client.send_command.await_args_list
-    ]
+    sent_commands = [call.args[0].command for call in manager.client.send_command.await_args_list]
     macros = cast(list[dict[str, object]], result["macros"])
     assert sent_commands == [CommandType.MACRO_LIST_META, CommandType.MACRO_LIST_RECORDINGS]
     assert manager.recording_state.pending_slots[3].data["pending_recording_id"] == "recording-3"
@@ -1407,7 +1465,6 @@ async def test_reevaluate_profiles_command_invalidates_runtime_payload_signature
 
     result = await manager._handle_session_request(
         {"command": "reevaluate_profiles"},
-        "client",
         peer,
         object(),
     )
@@ -1440,7 +1497,6 @@ async def test_reevaluate_profiles_command_runs_fresh_reload_after_running_confi
 
     result = await manager._handle_session_request(
         {"command": "reevaluate_profiles"},
-        "client",
         peer,
         object(),
     )
@@ -1471,7 +1527,6 @@ async def test_reevaluate_profiles_command_runs_fresh_reload_after_failed_runnin
 
     result = await manager._handle_session_request(
         {"command": "reevaluate_profiles"},
-        "client",
         peer,
         object(),
     )
@@ -1525,7 +1580,6 @@ async def test_device_inspector_disable_session_command_forwards_reason() -> Non
             "hardware_id": "1234:5678",
             "reason": "key_esc",
         },
-        "client",
         peer,
         object(),  # type: ignore[arg-type]
     )
@@ -1731,9 +1785,7 @@ async def test_clear_device_inspectors_for_writer_continues_after_stop_failure(
 
     assert stopped == ["bad", "good"]
     assert manager.device_inspector_state.owners_by_hardware_id["bad"] == set()
-    assert (
-        "Failed to stop device inspector for disconnected owner hardware_id=bad" in caplog.text
-    )
+    assert "Failed to stop device inspector for disconnected owner hardware_id=bad" in caplog.text
     assert "stop failed" in caplog.text
 
 
@@ -1819,9 +1871,7 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
     manager.profile_state.resolved_devices[hardware_id] = ResolvedDeviceProfile(
         hardware_id=hardware_id,
         active_profile_names=["Desktop"],
-        mappings={
-            "btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_space")
-        },
+        mappings={"btn_south": MappingAction(action_type=ActionType.KEYBOARD, target="key_space")},
         mapping_profile_names={"btn_south": "Desktop"},
     )
     manager.client.send_command = AsyncMock(
@@ -1835,7 +1885,6 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
 
     result = await manager._handle_session_request(
         {"command": "start_device_inspector", "hardware_id": hardware_id},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         object(),  # type: ignore[arg-type]
     )
@@ -1887,7 +1936,6 @@ async def test_enable_device_inspector_suppression_requires_successful_grab(
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         writer,  # type: ignore[arg-type]
     )
@@ -1934,7 +1982,6 @@ async def test_enable_device_inspector_suppression_rolls_back_on_daemon_error(
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         writer,  # type: ignore[arg-type]
     )
@@ -1985,7 +2032,6 @@ async def test_enable_device_inspector_suppression_preserves_existing_inspector_
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
-        "client",
         PeerCredentials(pid=1, uid=1000, gid=1000),
         writer,  # type: ignore[arg-type]
     )
@@ -2038,7 +2084,6 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
 
     result = await manager._handle_session_request(
         {"command": "get_status"},
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -2062,7 +2107,6 @@ async def test_capture_commands_with_owner_return_error_on_missing_hardware_id(
 
     result = await manager._handle_session_request(
         {"command": command},
-        "client",
         peer,
         writer,
     )
@@ -2100,7 +2144,6 @@ async def test_end_capture_allows_owner_after_unlock_expiry(
 
     result = await manager._handle_session_request(
         {"command": "end_capture", "hardware_id": "1234:5678"},
-        "client",
         peer,
         writer,
     )
@@ -2130,13 +2173,11 @@ async def test_begin_capture_rejects_duplicate_for_same_hardware(
 
     first = await manager._handle_session_request(
         {"command": "begin_capture", "hardware_id": hardware_id},
-        "client",
         peer,
         writer,
     )
     second = await manager._handle_session_request(
         {"command": "begin_capture", "hardware_id": hardware_id},
-        "client",
         peer,
         writer,
     )
@@ -2176,7 +2217,6 @@ async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
             "hardware_id": hardware_id,
             "end_on_disconnect": True,
         },
-        "client",
         peer,
         writer,
     )
@@ -2222,7 +2262,6 @@ async def test_begin_capture_for_numbered_hardware_uses_configured_paths(
 
     result = await manager._handle_session_request(
         {"command": "begin_capture", "hardware_id": hardware_id},
-        "client",
         peer,
         writer,
     )
@@ -2253,7 +2292,6 @@ async def test_begin_capture_default_lifetime_survives_request_writer_disconnect
 
     result = await manager._handle_session_request(
         {"command": "begin_capture", "hardware_id": hardware_id},
-        "client",
         peer,
         writer,
     )
@@ -2370,7 +2408,6 @@ async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted(
             "evdev_paths": ["keymasq:2dc8:3106"],
             "mode": "analog",
         },
-        "client",
         peer,
         writer,
     )
@@ -2424,7 +2461,6 @@ async def test_begin_capture_with_explicit_path_does_not_use_saved_interface(
             "hardware_id": hardware_id,
             "evdev_paths": ["/dev/input/event17"],
         },
-        "client",
         peer,
         writer,
     )
@@ -2475,7 +2511,6 @@ async def test_begin_capture_with_duplicate_logical_paths_preserves_interfaces(
             "hardware_id": hardware_id,
             "evdev_paths": ["keymasq:2dc8:3106", "keymasq:2dc8:3106"],
         },
-        "client",
         peer,
         writer,
     )
@@ -2519,7 +2554,6 @@ async def test_begin_capture_for_numbered_hardware_requires_configured_paths(
 
     result = await manager._handle_session_request(
         {"command": "begin_capture", "hardware_id": hardware_id},
-        "client",
         peer,
         writer,
     )
@@ -2551,7 +2585,6 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     result = await manager._handle_session_request(
         {"command": "create_macro", "macro": {"name": "Speedrun"}},
-        "client",
         peer,
         object(),
     )
@@ -2571,7 +2604,6 @@ async def test_handle_session_request_list_macros_reports_daemon_connection_erro
 
     result = await manager._handle_session_request(
         {"command": "list_macros"},
-        "client",
         peer,
         object(),
     )
@@ -2588,7 +2620,6 @@ async def test_handle_session_request_list_macros_does_not_mask_runtime_errors()
     with pytest.raises(RuntimeError, match="request bug"):
         await manager._handle_session_request(
             {"command": "list_macros"},
-            "client",
             peer,
             object(),
         )
@@ -2633,7 +2664,6 @@ async def test_save_recording_keeps_pending_macro_save_slot(
             "start_y": 200,
             "block_mouse_movement": True,
         },
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -2684,7 +2714,6 @@ async def test_save_recording_rejects_empty_sanitized_macro_name(
             "name": "!!!",
             "pending_save_token": "pending-1",
         },
-        "client",
         peer,
         writer,  # type: ignore[arg-type]
     )
@@ -2719,7 +2748,6 @@ async def test_save_recording_requires_active_unlock_owner() -> None:
             "name": "Saved",
             "pending_save_token": "pending-1",
         },
-        "client",
         peer,
         object(),
     )
@@ -2741,7 +2769,6 @@ async def test_delete_recording_slot_rejects_stale_pending_macro_save_token() ->
 
     result = await manager._handle_session_request(
         {"command": "delete_recording_slot", "pending_save_token": "stale"},
-        "client",
         peer,
         object(),
     )
@@ -2820,7 +2847,6 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
     ):
         result = await manager._handle_session_request(
             request,
-            "client",
             peer,
             object(),
         )
@@ -2864,7 +2890,6 @@ async def test_delete_recording_slot_keeps_state_when_daemon_delete_fails() -> N
 
     result = await manager._handle_session_request(
         {"command": "delete_recording_slot", "pending_save_token": "pending-1"},
-        "client",
         peer,
         object(),
     )
@@ -2887,7 +2912,6 @@ async def test_delete_recording_slot_clears_pending_macro_save_state() -> None:
 
     result = await manager._handle_session_request(
         {"command": "delete_recording_slot", "pending_save_token": "pending-1"},
-        "client",
         peer,
         object(),
     )
@@ -2916,7 +2940,6 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     result = await manager._handle_session_request(
         {"command": "update_macro", "name": "Speedrun", "macro": {"name": "Speedrun"}},
-        "client",
         peer,
         object(),
     )
@@ -2945,7 +2968,6 @@ async def test_handle_session_request_delete_macro_broadcasts_deleted_event(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     result = await manager._handle_session_request(
         {"command": "delete_macro", "name": "Speedrun"},
-        "client",
         peer,
         object(),
     )
@@ -2977,31 +2999,26 @@ async def test_profile_commands_cover_simple_and_error_branches(
 
     listed = await manager._handle_session_request(
         {"command": "list_profiles"},
-        "client",
         peer,
         object(),
     )
     missing = await manager._handle_session_request(
         {"command": "enable_profile"},
-        "client",
         peer,
         object(),
     )
     enabled = await manager._handle_session_request(
         {"command": "enable_profile", "profile_name": "Base"},
-        "client",
         peer,
         object(),
     )
     toggled = await manager._handle_session_request(
         {"command": "toggle_profile", "profile_name": "Base"},
-        "client",
         peer,
         object(),
     )
     ping = await manager._handle_session_request(
         {"command": "ping"},
-        "client",
         peer,
         object(),
     )
@@ -3025,13 +3042,11 @@ async def test_profile_commands_report_reload_and_release_failures() -> None:
 
     reload_result = await manager._handle_session_request(
         {"command": "reload"},
-        "client",
         peer,
         object(),
     )
     missing_release = await manager._handle_session_request(
         {"command": "release_device"},
-        "client",
         peer,
         object(),
     )
@@ -3039,7 +3054,6 @@ async def test_profile_commands_report_reload_and_release_failures() -> None:
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     unavailable_release = await manager._handle_session_request(
         {"command": "release_device", "hardware_id": "1234:5678"},
-        "client",
         peer,
         object(),
     )
@@ -3049,7 +3063,6 @@ async def test_profile_commands_report_reload_and_release_failures() -> None:
     )
     rejected_release = await manager._handle_session_request(
         {"command": "release_device", "hardware_id": "1234:5678", "immediate": False},
-        "client",
         peer,
         object(),
     )
@@ -3058,7 +3071,6 @@ async def test_profile_commands_report_reload_and_release_failures() -> None:
     manager.send_notification = Mock()  # type: ignore[method-assign]
     reevaluate = await manager._handle_session_request(
         {"command": "reevaluate_profiles"},
-        "client",
         peer,
         object(),
     )
@@ -3088,13 +3100,11 @@ async def test_settings_and_virtual_gamepad_commands_cover_success_and_unavailab
 
     virtuals = await manager._handle_session_request(
         {"command": "get_virtual_gamepads"},
-        "client",
         peer,
         object(),
     )
     settings = await manager._handle_session_request(
         {"command": "get_settings"},
-        "client",
         peer,
         object(),
     )
@@ -3103,23 +3113,18 @@ async def test_settings_and_virtual_gamepad_commands_cover_success_and_unavailab
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     virtual_unavailable = await manager._handle_session_request(
         {"command": "set_virtual_gamepads", "count": 3},
-        "client",
         peer,
         object(),
     )
     settings_unavailable = await manager._handle_session_request(
         {"command": "set_settings", "virtual_gamepad_count": 3},
-        "client",
         peer,
         object(),
     )
 
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"count": 4})
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={"count": 4}))
     settings_saved = await manager._handle_session_request(
         {"command": "set_settings", "virtual_gamepad_count": 3},
-        "client",
         peer,
         object(),
     )
@@ -3192,8 +3197,7 @@ async def test_macro_commands_cover_remaining_daemon_variants(
         {"command": "cancel_macro_playback"},
     ]
     results = [
-        await manager._handle_session_request(request, "client", peer, object())
-        for request in requests
+        await manager._handle_session_request(request, peer, object()) for request in requests
     ]
 
     assert results == [
@@ -3244,31 +3248,26 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
 
     create_missing = await manager._handle_session_request(
         {"command": "create_macro"},
-        "client",
         peer,
         object(),
     )
     update_missing = await manager._handle_session_request(
         {"command": "update_macro", "name": "Demo"},
-        "client",
         peer,
         object(),
     )
     type_text_error = await manager._handle_session_request(
         {"command": "type_text", "text": "Hi"},
-        "client",
         peer,
         object(),
     )
     compact_empty = await manager._handle_session_request(
         {"command": "play_compact_macro", "tokens": []},
-        "client",
         peer,
         object(),
     )
     compact_error = await manager._handle_session_request(
         {"command": "play_compact_macro", "tokens": ["key_a"]},
-        "client",
         peer,
         object(),
     )
@@ -3290,12 +3289,12 @@ async def test_adhoc_macro_payload_reports_daemon_failures() -> None:
     }
 
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
-    unavailable = await manager._handle_session_request(payload, "client", peer, object())
+    unavailable = await manager._handle_session_request(payload, peer, object())
 
     manager.client.send_command = AsyncMock(
         return_value=Response(status="error", error="play failed")
     )
-    failed = await manager._handle_session_request(payload, "client", peer, object())
+    failed = await manager._handle_session_request(payload, peer, object())
 
     assert unavailable == {"status": "error", "message": "Daemon unavailable"}
     assert failed == {"status": "error", "message": "play failed"}
@@ -3331,7 +3330,6 @@ async def test_list_devices_for_recording_coerces_include_other(
 
     result = await manager._handle_session_request(
         {"command": "list_devices_for_recording", "include_other": value},
-        "client",
         peer,
         object(),
     )
@@ -3367,19 +3365,16 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
 
     devices = await manager._handle_session_request(
         {"command": "list_devices_for_recording", "include_other": True},
-        "client",
         peer,
         writer,
     )
     read = await manager._handle_session_request(
         {"command": "capture_read", "hardware_id": "1234:5678"},
-        "client",
         peer,
         writer,
     )
     combo_missing = await manager._handle_session_request(
         {"command": "capture_combo"},
-        "client",
         peer,
         writer,
     )
@@ -3387,7 +3382,6 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     diagnostics_unavailable = await manager._handle_session_request(
         {"command": "set_diagnostics", "enabled": True},
-        "client",
         peer,
         writer,
     )
@@ -3402,7 +3396,6 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
             "interval": 2,
             "categories": ["runtime", "", "devices"],
         },
-        "client",
         peer,
         writer,
     )
@@ -3420,7 +3413,6 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     )
     diagnostics_error = await manager._handle_session_request(
         {"command": "set_diagnostics"},
-        "client",
         peer,
         writer,
     )
@@ -3484,7 +3476,6 @@ async def test_capture_combo_session_command_round_trip(
 
     capture = await manager._handle_session_request(
         {"command": "capture_combo", "profile_name": "Desktop"},
-        "client",
         peer,
         writer,
     )

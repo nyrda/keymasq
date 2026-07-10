@@ -14,7 +14,7 @@ from keymasq.common.models import (
     normalize_macro_recording_slot,
     parse_mpris_command,
 )
-from keymasq.common.security import PeerCredentials, SecurityPolicy, command_allowed
+from keymasq.common.security import PeerCredentials
 from keymasq.common.settings import GlobalSettings
 from keymasq.common.virtual_devices import (
     MAX_VIRTUAL_GAMEPADS,
@@ -76,18 +76,11 @@ async def _send_daemon_request(
 async def handle_session_request(
     manager: "SessionManager",
     request: JsonObject,
-    client_class: str,
     peer: PeerCredentials,
     writer: asyncio.StreamWriter,
 ) -> JsonObject:
     command = coerce_str(request.get("command"), "")
     policy = manager.security_policy
-
-    if not command_allowed(command, policy.session_command_acl, client_class):
-        return {
-            "status": "error",
-            "message": f"{client_class} is not allowed to call '{command}'",
-        }
 
     if runtime_recording.is_sensitive_session_command(
         manager, command, policy
@@ -103,7 +96,7 @@ async def handle_session_request(
             "message": "Sensitive command denied: caller is not active GUI owner",
         }
 
-    result = await _handle_profile_commands(manager, command, request, client_class, policy)
+    result = await _handle_profile_commands(manager, command, request)
     if result is not None:
         return result
 
@@ -111,7 +104,6 @@ async def handle_session_request(
         manager,
         command,
         request,
-        client_class,
         peer,
         writer,
     )
@@ -152,26 +144,12 @@ async def _handle_profile_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
-    client_class: str,
-    policy: SecurityPolicy,
 ) -> JsonObject | None:
     if command == "get_active_profiles":
         await runtime_profiles.refresh_device_runtime_status(manager)
         return runtime_profiles.build_active_profiles_payload(manager)
 
     if command == "get_combo_inspector_snapshot":
-        if not command_allowed(
-            "get_active_profiles",
-            policy.session_command_acl,
-            client_class,
-        ):
-            return {
-                "status": "error",
-                "message": (
-                    f"{client_class} is not allowed to call "
-                    "'get_combo_inspector_snapshot' while 'get_active_profiles' is denied"
-                ),
-            }
         return runtime_combo_inspector.build_combo_inspector_snapshot(manager)
 
     if command == "list_profiles":
@@ -405,11 +383,9 @@ async def _handle_compositor_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
-    client_class: str,
     peer: PeerCredentials,
     writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
-    _ = peer, writer
     if command == "get_compositor":
         return await runtime_compositor.build_compositor_payload(manager)
 
@@ -483,8 +459,7 @@ async def _handle_compositor_commands(
         compositor_status = await runtime_compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
-        if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
-            await runtime_profiles.refresh_device_runtime_status(manager)
+        await runtime_profiles.refresh_device_runtime_status(manager)
         profile_payload = runtime_profiles.build_active_profiles_payload(manager)
         status_payload: JsonObject = {
             "status": "ok",
@@ -512,14 +487,11 @@ async def _handle_compositor_commands(
                 ),
             ),
             **runtime_recording.serialize_macro_recording_state(macro_recording_status),
+            "mpris": manager.mpris_controller.status_snapshot(),
+            "active_profiles": profile_payload["active_profiles"],
+            "devices": profile_payload["devices"],
+            "window": manager.compositor_state.current_window,
         }
-        if command_allowed("mpris", policy.session_command_acl, client_class):
-            status_payload["mpris"] = manager.mpris_controller.status_snapshot()
-        if command_allowed("get_active_profiles", policy.session_command_acl, client_class):
-            status_payload["active_profiles"] = profile_payload["active_profiles"]
-            status_payload["devices"] = profile_payload["devices"]
-        if command_allowed("get_active_window", policy.session_command_acl, client_class):
-            status_payload["window"] = manager.compositor_state.current_window
         return status_payload
 
     return None

@@ -23,7 +23,6 @@ class ClientContext:
     pid: int
     uid: int
     gid: int
-    client_class: str
 
 
 class CommandHandler(Protocol):
@@ -40,7 +39,7 @@ class DisconnectHandler(Protocol):
 
 
 class PeerValidator(Protocol):
-    def __call__(self, peer: PeerCredentials) -> tuple[bool, str, str]: ...
+    def __call__(self, peer: PeerCredentials) -> tuple[bool, str]: ...
 
 
 class SocketServer:
@@ -138,10 +137,7 @@ class SocketServer:
             log.warning(f"Failed to inspect {description}: {exc}")
             return
 
-        if (
-            current_stat.st_dev != socket_stat.st_dev
-            or current_stat.st_ino != socket_stat.st_ino
-        ):
+        if current_stat.st_dev != socket_stat.st_dev or current_stat.st_ino != socket_stat.st_ino:
             return
 
         try:
@@ -193,11 +189,10 @@ class SocketServer:
             return
 
         allowed = True
-        client_class = "session"
         deny_reason = ""
         if self.peer_validator:
             try:
-                allowed, client_class, deny_reason = self.peer_validator(peer)
+                allowed, deny_reason = self.peer_validator(peer)
             except Exception as exc:
                 log.exception("Peer validator failed")
                 allowed = False
@@ -219,7 +214,6 @@ class SocketServer:
             pid=peer.pid,
             uid=peer.uid,
             gid=peer.gid,
-            client_class=client_class,
         )
         self._next_connection_id += 1
 
@@ -250,13 +244,7 @@ class SocketServer:
                 await writer.wait_closed()
                 return
 
-        log.info(
-            "Client connected pid=%s uid=%s class=%s addr=%s",
-            context.pid,
-            context.uid,
-            context.client_class,
-            addr,
-        )
+        log.info("Client connected pid=%s uid=%s addr=%s", context.pid, context.uid, addr)
 
         self.clients.add(writer)
         self._buffer[writer] = b""
@@ -419,10 +407,9 @@ class SocketServer:
                 log.warning("Timed out waiting for client socket to close")
             else:
                 log.warning(
-                    "Timed out waiting for client socket to close pid=%s uid=%s class=%s",
+                    "Timed out waiting for client socket to close pid=%s uid=%s",
                     peer.pid,
                     peer.uid,
-                    peer.client_class,
                 )
             transport = getattr(writer, "transport", None)
             if transport is not None:

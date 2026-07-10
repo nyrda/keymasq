@@ -4,9 +4,9 @@ from keymasq.common.asyncio_runtime import ensure_uvloop
 def main() -> None:
     ensure_uvloop()
 
-    from keymasq.session.manager import main as manager_main
+    from keymasq.session.manager import core
 
-    manager_main()
+    core.main()
 
 
 if __name__ == "__main__":

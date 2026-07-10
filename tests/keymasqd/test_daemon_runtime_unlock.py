@@ -534,9 +534,7 @@ async def test_async_runtime_unlock_cleanup_offloads_file_io(
 @pytest.mark.asyncio
 async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
-    recording_manager.discard_all_pending_recordings.side_effect = RuntimeError(
-        "discard failed"
-    )
+    recording_manager.discard_all_pending_recordings.side_effect = RuntimeError("discard failed")
 
     await daemon._on_client_disconnect()
 

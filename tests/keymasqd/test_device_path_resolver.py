@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import evdev
 
 from keymasq.common.devices import detect_input_classes, primary_input_class
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.runtime.device_path_resolver import (
     DeviceCache,
     DevicePathResolverDeps,
@@ -119,9 +119,7 @@ def test_evdev_device_path_resolver_deps_wires_shared_helpers(monkeypatch) -> No
 
     assert deps.device_paths_fn() == ["/dev/input/event1"]
     assert deps.device_input_fn is device_input
-    assert deps.detect_input_classes_fn(_FakeDevice("/dev/input/event1")) == [
-        "gamepad"
-    ]
+    assert deps.detect_input_classes_fn(_FakeDevice("/dev/input/event1")) == ["gamepad"]
     assert deps.primary_input_class_fn(["keyboard"]) == DeviceType.KEYBOARD
     assert deps.resolve_stable_path_fn is not None
 

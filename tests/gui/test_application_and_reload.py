@@ -12,7 +12,7 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     import keymasq.gui.widgets.diagnostics_dialog as diagnostics_module
     import keymasq.gui.widgets.feedback_dialog as feedback_module
     import keymasq.gui.widgets.macro_manager_dialog as macro_manager_module
-    import keymasq.gui.widgets.superkey_dialog as superkey_module
+    import keymasq.gui.widgets.superkey_editor.dialog as superkey_module
     from keymasq.gui.application import Application
 
     class _Window:

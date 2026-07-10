@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import evdev
 
+from keymasq import __version__
 from keymasq.common.devices import resolve_evdev_code
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     REPEAT_CATEGORY_GAMEPAD,
     REPEAT_CATEGORY_KEYBOARD,
     REPEAT_CATEGORY_MACRO,
@@ -13,8 +14,6 @@ from keymasq.common.models import (
 )
 from keymasq.gui.widgets.docs_links import actions_docs_url
 from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS
-
-from . import compat
 
 _PROFILE_LIFETIME_PRESETS_ENABLE: tuple[tuple[str, str], ...] = (
     ("until_changed", "Persistent"),
@@ -298,6 +297,7 @@ def _keyboard_target_allows_rapidfire(evdev_name: str) -> bool:
 def _keyboard_target_allows_tap(evdev_name: str) -> bool:
     return evdev_name not in MEDIA_KEY_TARGETS
 
+
 ACTION_DOC_LINKS = {
     "analog_presets": ("analog-controls", "Analog Controls"),
     "analog_control": ("analog-controls", "Analog Controls"),
@@ -341,7 +341,7 @@ EVDEV_TO_GAMEPAD = {v: k for k, v in GAMEPAD_BUTTONS.items()}
 
 
 def _actions_docs_url(anchor: str) -> str:
-    return actions_docs_url(anchor, version=compat.package_version())
+    return actions_docs_url(anchor, version=__version__)
 
 
 _GAMEPAD_AXIS_CUSTOM_SLOT = "custom"

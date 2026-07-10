@@ -5,10 +5,10 @@ from unittest.mock import Mock
 import evdev
 import pytest
 
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common import devices
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.combo import events, lifecycle
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_event_runtime_kwargs,
@@ -100,10 +100,10 @@ class TestCombos:
         press_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=1)
         press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
 
-        await gde.process_event(device, press_alt, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_alt, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, press_v, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard.writes == [
@@ -200,7 +200,7 @@ class TestCombos:
         ]
 
         for event in events:
-            await gde.process_event(device, event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, event, deps=grabbed_event_processing_deps())
             await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -306,7 +306,7 @@ class TestCombos:
         ]
 
         for event in events:
-            await gde.process_event(device, event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, event, deps=grabbed_event_processing_deps())
             await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -366,7 +366,7 @@ class TestCombos:
         ]
 
         for event in events:
-            await gde.process_event(device, event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, event, deps=grabbed_event_processing_deps())
             await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -428,7 +428,7 @@ class TestCombos:
         ]
 
         for event in events:
-            await gde.process_event(device, event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, event, deps=grabbed_event_processing_deps())
             await asyncio.sleep(0)
 
         assert passthrough.writes.count((evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 1)) == 1
@@ -474,11 +474,11 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
         result = await asyncio.wait_for(
-            cdm.on_device_event(
+            events.on_device_event(
                 manager,
                 "1234:5678",
                 "/dev/input/by-id/test-mouse",
@@ -535,8 +535,8 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "")
 
         action_task_waiting = asyncio.Event()
         release_action_task = asyncio.Event()
@@ -564,7 +564,7 @@ class TestCombos:
         )
         press_b_task = None
         try:
-            await cdm.on_device_event(
+            await events.on_device_event(
                 manager,
                 "1234:5678",
                 "/dev/input/by-id/test-kbd-a",
@@ -576,7 +576,7 @@ class TestCombos:
                 **kwargs,
             )
             press_b_task = asyncio.create_task(
-                cdm.on_device_event(
+                events.on_device_event(
                     manager,
                     "1234:5678",
                     "/dev/input/by-id/test-kbd-b",
@@ -590,7 +590,7 @@ class TestCombos:
             )
             await asyncio.wait_for(action_task_waiting.wait(), timeout=1.0)
 
-            await cdm.on_device_event(
+            await events.on_device_event(
                 manager,
                 "1234:5678",
                 "/dev/input/by-id/test-kbd-b",
@@ -611,7 +611,7 @@ class TestCombos:
             if press_b_task is not None and not press_b_task.done():
                 press_b_task.cancel()
                 await asyncio.gather(press_b_task, return_exceptions=True)
-            await cdm.clear_combo_runtime(manager, deps=combo_runtime_deps())
+            await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
             for task in action_tasks:
                 if not task.done():
                     task.cancel()
@@ -643,10 +643,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -657,7 +657,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        released = await cdm.on_device_event(
+        released = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -713,10 +713,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -728,7 +728,7 @@ class TestCombos:
             **combo_event_runtime_kwargs(),
         )
         await asyncio.sleep(0)
-        await cdm.clear_combo_runtime(manager, deps=combo_runtime_deps())
+        await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
 
         assert pressed is not None and pressed.consume_current_event is True
         assert manager.output_state.keyboard_uinput.writes == [
@@ -770,10 +770,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -784,7 +784,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        decision = await cdm.on_device_event(
+        decision = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -836,10 +836,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        decision = await cdm.on_device_event(
+        decision = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -901,10 +901,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        decision = await cdm.on_device_event(
+        decision = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -969,10 +969,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        decision = await cdm.on_device_event(
+        decision = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1024,10 +1024,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        consumed = await cdm.on_device_event(
+        consumed = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1038,7 +1038,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        unmapped = await cdm.on_device_event(
+        unmapped = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1090,10 +1090,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        idle_high_res = await cdm.on_device_event(
+        idle_high_res = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1104,7 +1104,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        idle_low_res = await cdm.on_device_event(
+        idle_low_res = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1115,7 +1115,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1126,7 +1126,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        completing_high_res = await cdm.on_device_event(
+        completing_high_res = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1137,7 +1137,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        completing_low_res = await cdm.on_device_event(
+        completing_low_res = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -1193,10 +1193,10 @@ class TestCombos:
         }
 
         await manager.set_combos([combo_payload])
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",
@@ -1218,7 +1218,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         ]
 
-        released = await cdm.on_device_event(
+        released = await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",
@@ -1288,11 +1288,11 @@ class TestCombos:
         }
 
         await manager.set_combos([combo_payload])
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
         for code in (evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTALT, evdev.ecodes.KEY_1):
-            await cdm.on_device_event(
+            await events.on_device_event(
                 manager,
                 hardware_id,
                 "/dev/input/by-id/test-kbd",
@@ -1318,7 +1318,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 0),
         ]
 
-        released = await cdm.on_device_event(
+        released = await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",
@@ -1367,10 +1367,10 @@ class TestCombos:
         }
 
         await manager.set_combos([combo_payload])
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",
@@ -1411,10 +1411,10 @@ class TestCombos:
         }
 
         await manager.set_combos([combo_payload])
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",
@@ -1432,7 +1432,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         ]
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             hardware_id,
             "/dev/input/by-id/test-kbd",

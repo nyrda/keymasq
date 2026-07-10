@@ -37,9 +37,7 @@ class _RecordingContext:
         self._pending_arcs: list[tuple[float, float, float]] = []
         self._current_point: tuple[float, float] | None = None
 
-    def set_source_rgba(
-        self, _red: float, _green: float, _blue: float, _alpha: float
-    ) -> None:
+    def set_source_rgba(self, _red: float, _green: float, _blue: float, _alpha: float) -> None:
         pass
 
     def new_sub_path(self) -> None:

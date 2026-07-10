@@ -6,11 +6,14 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keymasq.session.manager.events as session_events_module
-import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
+import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.ipc import Command, CommandType, Response
-from keymasq.common.models import ProfileConfig, ProfileDeactivationPolicy
+from keymasq.common.model.actions import ProfileDeactivationPolicy
+from keymasq.common.model.profiles import ProfileConfig
 from keymasq.session.listeners.hyprland import HyprlandListener
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator, runtime_state, runtime_status
 from keymasq.session.manager.state import ExecBinding, RuntimeProfileActivation
 
 
@@ -126,7 +129,7 @@ async def test_handle_event_dispatches_action_trigger_variants(
     monkeypatch.setattr(session_events_module, "handle_start_macro_trigger", handlers["start"])
     monkeypatch.setattr(session_events_module, "handle_stop_macro_trigger", handlers["stop"])
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_lifecycle_module,
         "play_macro_slot_trigger",
         handlers["slot"],
     )
@@ -799,7 +802,7 @@ async def test_explicit_profile_disable_cancels_runtime_activation(
     )
     activation = manager.profile_state.runtime_profile_activations["Nav"]
 
-    result = await session_profiles_module.set_profile_enabled(manager, "Nav", False)
+    result = await coordinator.set_profile_enabled(manager, "Nav", False)
 
     assert result["status"] == "ok"
     assert result["enabled"] is False
@@ -829,12 +832,12 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
     )
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "reevaluate_profiles",
         reevaluate_profiles,
     )
 
-    result = await session_profiles_module.set_profile_enabled(manager, "Nav", False)
+    result = await coordinator.set_profile_enabled(manager, "Nav", False)
 
     assert result["status"] == "ok"
     assert result["enabled"] is False
@@ -946,13 +949,13 @@ async def test_macro_recording_trigger_edge_branches(
 
     manager.recording_state.active = False
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         AsyncMock(return_value={"unlocked": False, "source": "disabled"}),
     )
     notify_disabled = Mock()
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_lifecycle_module,
         "notify_macro_recording_disabled",
         notify_disabled,
     )
@@ -979,7 +982,7 @@ async def test_macro_recording_trigger_reports_failed_start_results(
     manager = SessionManager()
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         AsyncMock(return_value={"unlocked": True}),
     )
@@ -991,14 +994,14 @@ async def test_macro_recording_trigger_reports_failed_start_results(
     )
     notify_disabled = Mock()
     notify_unlock = Mock()
-    monkeypatch.setattr(session_events_module.runtime_recording, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_lifecycle_module,
         "notify_macro_recording_disabled",
         notify_disabled,
     )
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_unlock_module,
         "notify_recording_unlock_required",
         notify_unlock,
     )
@@ -1024,7 +1027,7 @@ async def test_stop_macro_trigger_edge_and_error_branches(
     manager = SessionManager()
     stop_recording = AsyncMock(side_effect=[OSError("daemon down"), RuntimeError("bug")])
     monkeypatch.setattr(
-        session_events_module.runtime_recording,
+        recording_lifecycle_module,
         "stop_recording",
         stop_recording,
     )
@@ -1062,8 +1065,7 @@ async def test_cancel_and_emergency_triggers_tolerate_daemon_failures() -> None:
     await session_events_module.handle_emergency_reset_trigger(manager)
 
     assert [
-        call_args.args[0].command
-        for call_args in manager.client.send_command.await_args_list
+        call_args.args[0].command for call_args in manager.client.send_command.await_args_list
     ] == [
         CommandType.CANCEL_MACRO_PLAYBACK,
         CommandType.CANCEL_MACRO_PLAYBACK,
@@ -1080,7 +1082,7 @@ async def test_runtime_reset_reports_reapply_failures(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     manager.send_notification = Mock()  # type: ignore[method-assign]
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "reevaluate_profiles",
         AsyncMock(side_effect=OSError("daemon down")),
     )
@@ -1088,7 +1090,7 @@ async def test_runtime_reset_reports_reapply_failures(
     await session_events_module.handle_runtime_reset_event(manager, {"reason": "test"})
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "reevaluate_profiles",
         AsyncMock(side_effect=RuntimeError("bug")),
     )
@@ -1123,7 +1125,7 @@ async def test_device_topology_events_schedule_known_hardware_refresh(
         return Mock()
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "schedule_topology_refresh",
         schedule_topology_refresh,
     )
@@ -1209,7 +1211,7 @@ async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_e
         },
     )
     activation_id = manager.profile_state.runtime_profile_activations["Nav"].activation_id
-    real_set_profile_enabled = session_events_module.runtime_profiles.set_profile_enabled
+    real_set_profile_enabled = session_events_module.coordinator.set_profile_enabled
     activation_cancelled_before_persist = False
 
     async def observe_set_profile_enabled(
@@ -1224,7 +1226,7 @@ async def test_no_lifetime_toggle_cancels_runtime_activation_before_persisting_e
         return await real_set_profile_enabled(manager_arg, profile_name, enabled)
 
     monkeypatch.setattr(
-        session_events_module.runtime_profiles,
+        session_events_module.coordinator,
         "set_profile_enabled",
         observe_set_profile_enabled,
     )
@@ -1260,12 +1262,12 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
         7: ExecBinding(cmd="echo device", owner="device", hardware_id="1234:5678"),
         8: ExecBinding(cmd="echo combo", owner="combo"),
     }
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", AsyncMock())
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
 
     async def instant_sleep(_delay: float) -> None:
         return
 
-    monkeypatch.setattr(session_profiles_module.asyncio, "sleep", instant_sleep)
+    monkeypatch.setattr(runtime_state.asyncio, "sleep", instant_sleep)
 
     await session_events_module.handle_event(
         manager,
@@ -1282,7 +1284,7 @@ async def test_device_disconnect_event_invalidates_cached_grabs_and_reevaluates(
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
     assert manager.exec_state.exec_refs == {}
-    session_profiles_module.reevaluate_profiles.assert_awaited_once()  # type: ignore[attr-defined]
+    coordinator.reevaluate_profiles.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 def test_handle_device_grab_status_waiting_notifies_once_and_broadcasts() -> None:
@@ -1327,7 +1329,7 @@ def test_handle_device_grab_status_ready_reapplies_waiting_device(
 
     monkeypatch.setattr(session_events_module, "create_event_task", create_event_task)
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     hardware_id = "1234:5678"
     event = {"hardware_id": hardware_id, "state": "ready"}
     manager.profile_state.grab_waiting_devices.add(hardware_id)
@@ -1345,7 +1347,7 @@ def test_handle_device_grab_status_ready_reapplies_waiting_device(
     profiles_event = {
         "event": "profiles_changed",
         "runtime_only": True,
-        **session_profiles_module.build_active_profiles_payload(manager),
+        **runtime_status.build_active_profiles_payload(manager),
     }
     manager.broadcast_to_session_clients.assert_has_calls(  # type: ignore[attr-defined]
         [
@@ -1363,7 +1365,7 @@ def test_handle_device_grab_status_timeout_notifies_and_schedules_retry(
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     schedule_grab_retry = Mock()
-    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", schedule_grab_retry)
     manager.profile_state.grab_waiting_devices.add("1234:5678")
 
     event = {

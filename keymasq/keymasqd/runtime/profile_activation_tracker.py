@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from keymasq.common.models import ProfileDeactivationPolicy
+from keymasq.common.model.actions import ProfileDeactivationPolicy
 from keymasq.common.types import JsonObject
 
 type BroadcastDeactivateRequest = Callable[[JsonObject], None]
@@ -86,9 +86,7 @@ class ProfileActivationTracker:
         normalized_activation_id = str(activation_id or "").strip()
         normalized_profile_name = str(profile_name or "").strip()
         if not normalized_activation_id and normalized_profile_name:
-            normalized_activation_id = self._activation_by_profile.get(
-                normalized_profile_name, ""
-            )
+            normalized_activation_id = self._activation_by_profile.get(normalized_profile_name, "")
         if not normalized_activation_id:
             return
 

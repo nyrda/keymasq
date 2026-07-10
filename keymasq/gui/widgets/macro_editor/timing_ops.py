@@ -215,9 +215,7 @@ def trim_startpoint(
 
     kept_events = [ev for ev in events if ev.press_t_us >= at_us]
     kept_rel_events = [ev for ev in rel_events if int(ev.get("t_us", 0)) >= at_us]
-    kept_passthrough_events = [
-        ev for ev in passthrough_events if int(ev.get("t_us", 0)) >= at_us
-    ]
+    kept_passthrough_events = [ev for ev in passthrough_events if int(ev.get("t_us", 0)) >= at_us]
     kept_synthetic_moves = [move for move in synthetic_moves if move.t_us >= at_us]
     kept_control_events = [control for control in control_events if control.t_us >= at_us]
 
@@ -269,9 +267,7 @@ def trim_endpoint(
         kept_events.append(ev)
 
     kept_rel_events = [ev for ev in rel_events if int(ev.get("t_us", 0)) <= at_us]
-    kept_passthrough_events = [
-        ev for ev in passthrough_events if int(ev.get("t_us", 0)) <= at_us
-    ]
+    kept_passthrough_events = [ev for ev in passthrough_events if int(ev.get("t_us", 0)) <= at_us]
     kept_synthetic_moves = [move for move in synthetic_moves if move.t_us <= at_us]
     kept_control_events = [control for control in control_events if control.t_us <= at_us]
     sort_timeline_items(
@@ -316,9 +312,7 @@ def ripple_delete_range(
         or ev.press_t_us > t1_us
         or (ev.press_t_us < t0_us and ev.release_t_us > t1_us)
     ]
-    kept_rel_events = [
-        ev for ev in rel_events if not t0_us <= int(ev.get("t_us", 0)) <= t1_us
-    ]
+    kept_rel_events = [ev for ev in rel_events if not t0_us <= int(ev.get("t_us", 0)) <= t1_us]
     kept_passthrough_events = [
         ev for ev in passthrough_events if not t0_us <= int(ev.get("t_us", 0)) <= t1_us
     ]

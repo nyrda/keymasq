@@ -75,28 +75,27 @@ def detect_devices_via_session(
     hardware_manager: object,
     show_raw_evdev_devices: bool,
 ) -> bool:
-    result = session_request(
-        {
-            "command": "list_devices_for_recording",
-            "include_other": show_raw_evdev_devices,
-        },
-        timeout=3.0,
-    ) or {}
+    result = (
+        session_request(
+            {
+                "command": "list_devices_for_recording",
+                "include_other": show_raw_evdev_devices,
+            },
+            timeout=3.0,
+        )
+        or {}
+    )
     if result.get("status") != "ok":
         return False
 
     used_hardware_ids = inventory.configured_hardware_ids(hardware_manager)
-    configured_identity_hardware_ids = inventory.configured_identity_hardware_ids(
-        hardware_manager
-    )
+    configured_identity_hardware_ids = inventory.configured_identity_hardware_ids(hardware_manager)
     pending_identity_hardware_ids: dict[str, str] = {}
     has_config_inventory = callable(getattr(hardware_manager, "list_hardware", None))
 
     raw_devices = result.get("devices", [])
     session_devices: list[dict[str, Any]] = [
-        cast(dict[str, Any], dev)
-        for dev in raw_devices
-        if isinstance(dev, dict)
+        cast(dict[str, Any], dev) for dev in raw_devices if isinstance(dev, dict)
     ]
     session_devices.sort(
         key=lambda dev: (
@@ -219,14 +218,14 @@ def detect_devices_via_session(
                     cast(
                         DetectedInterface,
                         {
-                        "path": path,
-                        "stable_path": stable_path,
-                        "name": name,
-                        "phys": phys,
-                        "device_type": dtype,
-                        "device_types": device_types,
-                        **source_fields,
-                        **configured_fields,
+                            "path": path,
+                            "stable_path": stable_path,
+                            "name": name,
+                            "phys": phys,
+                            "device_type": dtype,
+                            "device_types": device_types,
+                            **source_fields,
+                            **configured_fields,
                         },
                     )
                 )

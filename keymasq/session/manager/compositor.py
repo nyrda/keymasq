@@ -15,8 +15,8 @@ from keymasq.session.compositor import (
 )
 from keymasq.session.listeners.gnome import GnomeListener
 
-from . import profiles as runtime_profiles
 from .common import JsonObject, json_list, merge_support_details
+from .profile import coordinator
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -161,7 +161,7 @@ async def get_active_window_payload(manager: "SessionManager") -> JsonObject:
     previous_window = dict(manager.compositor_state.current_window)
     window_info = await refresh_current_window_from_listener(manager)
     if previous_window != manager.compositor_state.current_window:
-        await runtime_profiles.reevaluate_profiles(manager, reason="active window changed")
+        await coordinator.reevaluate_profiles(manager, reason="active window changed")
     if window_info is not None:
         return {"status": "ok", **window_info}
 
@@ -394,7 +394,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     ):
         if not listener_retry_ready(manager, compositor_id):
             if clear_current_window(manager):
-                await runtime_profiles.reevaluate_profiles(
+                await coordinator.reevaluate_profiles(
                     manager,
                     reason="compositor changed",
                 )
@@ -421,7 +421,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
         if previous is not None:
             log.info("Compositor transitioned %s -> none (headless mode)", previous)
         if binding_changed or had_listener or window_cleared:
-            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
+            await coordinator.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     compositor_name = get_compositor_name(compositor_id)
@@ -442,7 +442,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
             ),
         )
         if binding_changed or had_listener or window_cleared:
-            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
+            await coordinator.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     await start_window_listener(manager)
@@ -453,7 +453,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
             manager.compositor_state.last_listener_start_error,
         )
         if binding_changed or had_listener or window_cleared:
-            await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
+            await coordinator.reevaluate_profiles(manager, reason="compositor changed")
         return
 
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
@@ -464,7 +464,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     window_changed = previous_window != manager.compositor_state.current_window
     listener_changed = not had_listener
     if binding_changed or listener_changed or window_cleared or window_changed:
-        await runtime_profiles.reevaluate_profiles(manager, reason="compositor changed")
+        await coordinator.reevaluate_profiles(manager, reason="compositor changed")
 
     if previous != compositor_id:
         log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)
@@ -628,7 +628,7 @@ async def on_window_change(
         )
 
     manager.compositor_state.current_window = cast(JsonObject, window_info)
-    await runtime_profiles.reevaluate_profiles(manager, reason="window changed")
+    await coordinator.reevaluate_profiles(manager, reason="window changed")
 
 
 def compositor_dispatch_available(manager: "SessionManager") -> bool:

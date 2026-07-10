@@ -7,15 +7,16 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, MappingAction, SuperkeyConfig
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.superkeys import SuperkeyConfig
+from keymasq.gui.session_reload import notify_session_reload_async
 from keymasq.gui.widgets.fuzzy_search import (
     fuzzy_query_matches,
     install_listbox_fuzzy_filter,
     superkey_search_text,
 )
 from keymasq.session.superkeys import SuperkeyManager
-
-from .compat import notify_session_reload_async
 
 
 class SuperkeyTabMixin:
@@ -78,7 +79,7 @@ class SuperkeyTabMixin:
         self._open_superkey_manager()
 
     def _open_superkey_manager(self, select_name: str | None = None) -> None:
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         root = self.get_root()
         profile_manager = self._profile_manager_for_child_dialog()
@@ -169,9 +170,7 @@ class SuperkeyTabMixin:
             )
             noun = "action" if count == 1 else "actions"
             suffix = (
-                " · down/up"
-                if config.overload_down_actions or config.overload_up_actions
-                else ""
+                " · down/up" if config.overload_down_actions or config.overload_up_actions else ""
             )
             return f"Overload{suffix} · {count} {noun}"
 

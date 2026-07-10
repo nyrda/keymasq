@@ -112,9 +112,7 @@ class CaptureManager:
         else:
             matched = self._find_devices(*self._parse_hardware_id(hardware_id))
         if not matched:
-            raise ValueError(
-                input_device_permission_message(f"No devices found for {hardware_id}")
-            )
+            raise ValueError(input_device_permission_message(f"No devices found for {hardware_id}"))
 
         grabbed: list[_CaptureInputDevice] = []
         warnings: list[str] = []
@@ -189,9 +187,7 @@ class CaptureManager:
 
         path_sources: dict[str, str] = {}
         if hardware_interfaces:
-            path_hardware_ids, path_sources = self._hardware_interface_lookup(
-                hardware_interfaces
-            )
+            path_hardware_ids, path_sources = self._hardware_interface_lookup(hardware_interfaces)
         else:
             path_hardware_ids = _hardware_path_lookup(hardware_paths or {})
         matched = self._find_combo_devices(
@@ -201,9 +197,7 @@ class CaptureManager:
         )
         if not matched and not allow_empty:
             raise ValueError(
-                input_device_permission_message(
-                    "No keyboard devices found for combo capture"
-                )
+                input_device_permission_message("No keyboard devices found for combo capture")
             )
 
         devices = list(matched)
@@ -706,10 +700,13 @@ def _hardware_id_for_device(
     device: _CaptureInputDevice,
     path_hardware_ids: Mapping[str, str],
 ) -> str:
-    return _hardware_id_for_path(
-        device.path,
-        path_hardware_ids,
-    ) or f"{device.info.vendor:04x}:{device.info.product:04x}"
+    return (
+        _hardware_id_for_path(
+            device.path,
+            path_hardware_ids,
+        )
+        or f"{device.info.vendor:04x}:{device.info.product:04x}"
+    )
 
 
 def _capture_mode(mode: str) -> str:

@@ -10,7 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import resolve_evdev_code
-from keymasq.common.models import (
+from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
     HardwareConfig,

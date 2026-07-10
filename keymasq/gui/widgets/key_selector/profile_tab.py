@@ -7,9 +7,10 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, MappingAction, ProfileDeactivationPolicy
+from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+from keymasq.common.model.core import ActionType
+from keymasq.gui.session_client import session_request_async
 
-from .compat import session_request_async
 from .targets import _PROFILE_LIFETIME_PRESETS_ENABLE, _PROFILE_LIFETIME_PRESETS_TOGGLE
 
 
@@ -29,14 +30,9 @@ class ProfileTabMixin:
         self._profile_custom_timeout = policy.timeout_ms is not None
 
         simple_trigger = (
-            policy.on_trigger_end
-            and policy.after_actions is None
-            and policy.timeout_ms is None
+            policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms is None
         )
-        one_shot = (
-            not policy.on_trigger_end
-            and policy.after_actions == 1
-        )
+        one_shot = not policy.on_trigger_end and policy.after_actions == 1
         simple_count = (
             not policy.on_trigger_end
             and policy.after_actions is not None
@@ -522,9 +518,7 @@ class ProfileTabMixin:
             else None
         )
         timeout_ms = (
-            max(1, int(self._profile_lifetime_timeout_ms))
-            if self._profile_custom_timeout
-            else None
+            max(1, int(self._profile_lifetime_timeout_ms)) if self._profile_custom_timeout else None
         )
         policy = ProfileDeactivationPolicy(
             on_trigger_end=(

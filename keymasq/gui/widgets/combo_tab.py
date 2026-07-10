@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ComboConfig
+from keymasq.common.model.profiles import ComboConfig
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names, resolve_icon_name
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog, combo_trigger_signature
@@ -21,7 +21,8 @@ from keymasq.gui.widgets.combo_presentation import (
     create_combo_summary_row,
 )
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
-from keymasq.session.profiles import ProfileInfo, ProfileManager
+from keymasq.session.profile.manager import ProfileManager
+from keymasq.session.profile.types import ProfileInfo
 
 _DUPLICATE_COMBO_TRIGGER_MESSAGE = "A combo with the same trigger already exists in this profile."
 _STALE_COMBO_EDIT_MESSAGE = (

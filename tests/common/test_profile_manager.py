@@ -7,18 +7,20 @@ import pytest
 import tomli_w
 
 from keymasq.common import config_files as config_files_module
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import (
+    MappingAction,
+    ProfileDeactivationPolicy,
+)
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import (
     ComboConfig,
     ComboEvent,
     ComboStep,
     DeviceProfileLayer,
-    MappingAction,
     ProfileConfig,
-    ProfileDeactivationPolicy,
     WindowRule,
 )
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 
 
 def _write_profile_toml(
@@ -272,9 +274,7 @@ macro_name = "Example"
                             "btn_middle": MappingAction(
                                 action_type=ActionType.PROFILE_DISABLE,
                                 profile_name="Nav Layer",
-                                profile_deactivation=ProfileDeactivationPolicy(
-                                    on_trigger_end=True
-                                ),
+                                profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
                             ),
                         },
                     )
@@ -421,9 +421,7 @@ macro_name = "Example"
         )
         manager.save_profile(profile)
 
-        text = (temp_config_dir / "profiles" / "Portable_Combo.toml").read_text(
-            encoding="utf-8"
-        )
+        text = (temp_config_dir / "profiles" / "Portable_Combo.toml").read_text(encoding="utf-8")
         assert "hardware_id" not in text
 
         reloaded = ProfileManager()
@@ -470,9 +468,9 @@ macro_name = "Example"
         )
         manager.save_profile(profile)
 
-        text = (
-            temp_config_dir / "profiles" / "Portable_Captured_Combo.toml"
-        ).read_text(encoding="utf-8")
+        text = (temp_config_dir / "profiles" / "Portable_Captured_Combo.toml").read_text(
+            encoding="utf-8"
+        )
         assert "match_across_devices = true" in text
         assert 'hardware_id = "1234:5678"' in text
         assert 'source = "kbd"' in text
@@ -621,7 +619,7 @@ macro_name = "Example"
 
         manager.set_profile_enabled("Integration Analog Gamepad", False)
 
-        assert 'enabled = false' in fixture_path.read_text(encoding="utf-8")
+        assert "enabled = false" in fixture_path.read_text(encoding="utf-8")
         assert not (profiles_dir / "Integration_Analog_Gamepad.toml").exists()
 
     def test_set_profile_enabled_serializes_against_reload(
@@ -821,7 +819,7 @@ macro_name = "Example"
         manager = ProfileManager()
 
         monkeypatch.setattr(
-            "keymasq.session.profiles.MAX_PROFILE_PATH_ATTEMPTS",
+            "keymasq.session.profile.repository.MAX_PATH_ATTEMPTS",
             3,
         )
         monkeypatch.setattr(Path, "exists", lambda self: True)

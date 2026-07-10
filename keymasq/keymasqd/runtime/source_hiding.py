@@ -174,11 +174,7 @@ def resolve_udevadm_path() -> str | None:
 
 
 def host_tool_environment() -> dict[str, str]:
-    env = {
-        key: value
-        for key in HOST_TOOL_ENV_PASSTHROUGH
-        if (value := os.environ.get(key))
-    }
+    env = {key: value for key in HOST_TOOL_ENV_PASSTHROUGH if (value := os.environ.get(key))}
     env["PATH"] = HOST_TOOL_PATH
     return env
 

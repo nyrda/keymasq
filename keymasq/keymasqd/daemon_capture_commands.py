@@ -68,17 +68,14 @@ class _CaptureCommandCaptureManager(Protocol):
     def end(self, token: str) -> JsonObject: ...
 
 
-class _CaptureCommandDaemon(Protocol):
+class CaptureCommandDaemon(Protocol):
     device_manager: _CaptureCommandDeviceManager
     recording_manager: _CaptureCommandRecordingManager
     capture_manager: _CaptureCommandCaptureManager
 
 
-CaptureCommandDaemon = _CaptureCommandDaemon
-
-
 async def handle_capture_command(
-    daemon: _CaptureCommandDaemon,
+    daemon: CaptureCommandDaemon,
     command_type: CommandType,
     data: JsonObject,
 ) -> JsonObject | None:
@@ -151,7 +148,7 @@ def _start_position_from_data(data: JsonObject) -> tuple[int, int] | None:
 
 
 async def resolve_recording_devices(
-    daemon: _CaptureCommandDaemon,
+    daemon: CaptureCommandDaemon,
     recording_ids: list[str],
 ) -> JsonObjectList:
     wanted = {str(recording_id) for recording_id in recording_ids if str(recording_id)}
@@ -168,7 +165,7 @@ async def resolve_recording_devices(
 
 
 async def capture_combo(
-    daemon: _CaptureCommandDaemon,
+    daemon: CaptureCommandDaemon,
     hardware_ids: set[str],
     timeout_s: float,
     hardware_paths: dict[str, list[str]] | None = None,
@@ -220,9 +217,7 @@ async def capture_combo(
             raw_value = event.get("value")
             value = coerce_int(raw_value, -1) if raw_value is not None else -1
             is_pulse = is_combo_pulse_evdev(evdev_name)
-            if not (
-                evdev_name.startswith(("key_", "btn_")) or is_pulse
-            ) or value not in {0, 1}:
+            if not (evdev_name.startswith(("key_", "btn_")) or is_pulse) or value not in {0, 1}:
                 continue
 
             if value == 1:
@@ -315,7 +310,7 @@ def _hardware_interfaces(value: object) -> dict[str, JsonObjectList]:
 
 
 async def read_capture_combo_event(
-    daemon: _CaptureCommandDaemon,
+    daemon: CaptureCommandDaemon,
     token: str,
     notify_event: asyncio.Event,
     deadline: float,
@@ -345,7 +340,7 @@ async def read_capture_combo_event(
 
 
 def drain_capture_combo_event_sources(
-    daemon: _CaptureCommandDaemon,
+    daemon: CaptureCommandDaemon,
     token: str,
 ) -> JsonObject | None:
     event = daemon.device_manager.read_combo_capture(token).get("event")

@@ -120,8 +120,7 @@ def gamepad_output_choices_for(
             )
 
     if selected_id and all(
-        not gamepad_output_choice_matches(output_id, selected_id)
-        for output_id, _label in choices
+        not gamepad_output_choice_matches(output_id, selected_id) for output_id, _label in choices
     ):
         choices.append((selected_id, _format_current_virtual_output_choice(selected_id)))
     return choices

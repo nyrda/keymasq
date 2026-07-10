@@ -6,7 +6,7 @@ from typing import cast
 import evdev
 
 from keymasq.common.coercion import coerce_bool
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     NATURAL_MOUSE_MOVE_CURVES,
@@ -314,8 +314,7 @@ def _parse_type_macro_named_key_control(tag: str) -> tuple[str, int] | None:
     repeat_count = _parse_positive_int(parts[1], f"{name} repeat count")
     if repeat_count > _TYPE_MACRO_MAX_REPEAT_COUNT:
         raise ValueError(
-            f"{name} repeat count must be less than or equal to "
-            f"{_TYPE_MACRO_MAX_REPEAT_COUNT}"
+            f"{name} repeat count must be less than or equal to {_TYPE_MACRO_MAX_REPEAT_COUNT}"
         )
     return name, repeat_count
 

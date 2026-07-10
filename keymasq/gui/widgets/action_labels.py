@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from keymasq.common.gamepad_axes import gamepad_axis_range
-from keymasq.common.models import ActionType, MappingAction, normalize_mpris_command
+from keymasq.common.model.actions import MappingAction, normalize_mpris_command
+from keymasq.common.model.core import ActionType
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 from keymasq.gui.widgets.mouse_move_units import format_natural_move_speed
 

@@ -7,7 +7,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import SuperkeyConfig
+from keymasq.common.model.superkeys import SuperkeyConfig
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
@@ -105,13 +105,15 @@ def install_listbox_fuzzy_filter(
     search_entry: Gtk.Editable,
     *,
     row_text_attr: str = "_search_text",
+    row_text: Callable[[Gtk.ListBoxRow], object] | None = None,
     before_filter_changed: Callable[[], None] | None = None,
     after_filter_changed: Callable[[], None] | None = None,
 ) -> None:
     state = {"query": search_entry.get_text()}
 
     def filter_row(row: Gtk.ListBoxRow) -> bool:
-        return fuzzy_query_matches(state["query"], getattr(row, row_text_attr, ""))
+        text = row_text(row) if row_text is not None else getattr(row, row_text_attr, "")
+        return fuzzy_query_matches(state["query"], text)
 
     def on_search_changed(entry: Gtk.Editable) -> None:
         state["query"] = entry.get_text()

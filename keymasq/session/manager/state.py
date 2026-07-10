@@ -2,9 +2,12 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from keymasq.common.models import ProfileDeactivationPolicy
+from keymasq.common.model.actions import ProfileDeactivationPolicy
 from keymasq.session.listeners.base import WindowListener
-from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
+from keymasq.session.profile.types import (
+    ResolvedCombo,
+    ResolvedDeviceProfile,
+)
 
 from .common import JsonObject
 
@@ -98,9 +101,7 @@ class ProfileRuntimeState:
     active_profile_names: list[str] = field(default_factory=list)
     resolved_devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)
     resolved_combos: list[ResolvedCombo] = field(default_factory=list)
-    runtime_profile_activations: dict[str, "RuntimeProfileActivation"] = field(
-        default_factory=dict
-    )
+    runtime_profile_activations: dict[str, "RuntimeProfileActivation"] = field(default_factory=dict)
     runtime_profile_activation_seq: int = 0
     apply_generation: int = 0
     apply_task: asyncio.Task[None] | None = None

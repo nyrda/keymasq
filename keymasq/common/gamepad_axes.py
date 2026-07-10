@@ -55,9 +55,7 @@ def normalize_gamepad_axis_target(value: object) -> str | None:
         return target
     if target.startswith("abs"):
         target = f"abs_{target.removeprefix('abs').lstrip('_')}"
-    normalized = GAMEPAD_AXIS_ALIASES.get(
-        target, target if target in GAMEPAD_AXIS_RANGES else None
-    )
+    normalized = GAMEPAD_AXIS_ALIASES.get(target, target if target in GAMEPAD_AXIS_RANGES else None)
     if normalized is not None:
         return normalized
     # Advanced: accept any valid custom ABS axis code outside the template.

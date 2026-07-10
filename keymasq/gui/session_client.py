@@ -1,7 +1,7 @@
 import json
 import logging
 import queue
-import socket as _socket
+import socket
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -35,7 +35,7 @@ def _gui_task_error_payload(error: Exception) -> JsonDict:
 
 class _PersistentSessionConnection:
     def __init__(self) -> None:
-        self._sock: _socket.socket | None = None
+        self._sock: socket.socket | None = None
         self._reader_thread: threading.Thread | None = None
         self._buffer = b""
         self._state_lock = threading.Lock()
@@ -105,9 +105,9 @@ class _PersistentSessionConnection:
                 if self._sock is not None:
                     return True
 
-            sock: _socket.socket | None = None
+            sock: socket.socket | None = None
             try:
-                sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.settimeout(timeout)
                 sock.connect(str(SESSION_SOCKET_PATH))
                 sock.settimeout(None)
@@ -130,7 +130,7 @@ class _PersistentSessionConnection:
 
     def _reader_loop(self) -> None:
         while True:
-            sock: _socket.socket | None = None
+            sock: socket.socket | None = None
             try:
                 with self._state_lock:
                     sock = self._sock
@@ -252,7 +252,7 @@ class _PersistentSessionConnection:
             except queue.Full:
                 pass
 
-    def _close_connection_if_current(self, sock: _socket.socket) -> bool:
+    def _close_connection_if_current(self, sock: socket.socket) -> bool:
         response_queue: queue.Queue[JsonDict | None] | None = None
         with self._state_lock:
             if sock is self._sock:

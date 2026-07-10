@@ -10,20 +10,19 @@ import evdev
 
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
-    ActionType,
     MappingAction,
     ProfileDeactivationPolicy,
-    SuperkeyMode,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
     normalize_mpris_command,
     normalize_profile_deactivation_policy,
-    superkey_action_shared_kwargs,
 )
-from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
+from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.common.model.superkeys import superkey_action_shared_kwargs
+from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.runtime.adapters import WritableUInput, identity_uinput_writer
 from keymasq.keymasqd.runtime.mouse_actions import (
     emit_relative_pulse,
@@ -36,7 +35,7 @@ from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_TAP,
     SUPERKEY_SLOT_TAP_HOLD,
 )
-from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
+from keymasq.keymasqd.task_helpers import fire_and_observe
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps
@@ -170,7 +169,7 @@ def _default_action_deps() -> "ActionExecutionDeps":
 
     return ActionExecutionDeps(
         asyncio_mod=cast(Any, asyncio),
-        fire_and_observe_fn=_fire_and_observe,
+        fire_and_observe_fn=fire_and_observe,
         evdev_mod=cast(Any, evdev),
         uinput_writer=identity_uinput_writer,
     )
@@ -223,7 +222,7 @@ class SuperkeyMachine:
         self._rapidfire_tasks: list[asyncio.Task[None]] = []
         self._rapidfire_active = False
         self._running = True
-        from keymasq.keymasqd.runtime.action_runner import ActionRuntimeContext
+        from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
 
         self._action_runtime = ActionRuntimeContext(
             path=f"superkey:{event_name}",
@@ -536,14 +535,18 @@ class SuperkeyMachine:
         action_event_name: str | None = None,
     ) -> None:
         from keymasq.keymasqd.runtime import action_runner
+        from keymasq.keymasqd.runtime.action.state import (
+            ActionExecutionHandle,
+            drain_action_tasks,
+        )
 
         event_name = action_event_name or self.event_name
         started = asyncio.Event()
-        handle = action_runner.ActionExecutionHandle(started=started)
+        handle = ActionExecutionHandle(started=started)
         await action_runner.execute_action(
             self._action_runtime,
             self._mapping_action(action),
-            _SyntheticInputEvent(evdev.ecodes.EV_KEY, 0, value),
+            SyntheticInputEvent(evdev.ecodes.EV_KEY, 0, value),
             event_name,
             deps=self.action_deps,
             shared_output_tracker=self.key_event_tracker,
@@ -553,7 +556,7 @@ class SuperkeyMachine:
         )
         await started.wait()
         if self.await_action_tasks:
-            await action_runner.drain_action_tasks(handle)
+            await drain_action_tasks(handle)
 
     def _child_event_name(self, action: SuperkeyActionData, index: int) -> str:
         if not action.rapidfire_enabled:

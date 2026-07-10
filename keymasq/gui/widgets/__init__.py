@@ -1,3 +1,1 @@
-from keymasq.gui.widgets.device_tab import DeviceTab
-
-__all__ = ["DeviceTab"]
+"""Reusable GTK widgets and dialogs."""

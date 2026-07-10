@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from keymasq.common.coercion import require_json_object as _json_object
+from keymasq.common.coercion import require_json_object
 from keymasq.common.config_files import write_config_atomically
-from keymasq.common.models import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
 
 MACRO_FILE_SUFFIX = ".kmacro.xz"
@@ -109,7 +109,7 @@ def read_macro_meta(path: Path) -> MacroFileMeta:
         first_line = f.readline()
     if not first_line:
         raise ValueError("Empty macro file")
-    record = _json_object(json.loads(first_line))
+    record = require_json_object(json.loads(first_line))
     _validate_meta_record(record)
     return MacroFileMeta.from_payload(record)
 
@@ -119,12 +119,12 @@ def iter_macro_events(path: Path) -> Iterator[MacroEvent]:
         first_line = f.readline()
         if not first_line:
             raise ValueError("Empty macro file")
-        _validate_meta_record(_json_object(json.loads(first_line)))
+        _validate_meta_record(require_json_object(json.loads(first_line)))
         for line in f:
             stripped = line.strip()
             if not stripped:
                 continue
-            event = _json_object(json.loads(stripped))
+            event = require_json_object(json.loads(stripped))
             yield event
 
 

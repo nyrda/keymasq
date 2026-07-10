@@ -1,13 +1,19 @@
 import pytest
 
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import (
     MappingAction,
-    ProfileConfig,
-    ProfileState,
-    SuperkeyAction,
-    WindowRule,
     is_protected_button,
+)
+from keymasq.common.model.core import (
+    ActionType,
+    ProfileState,
+)
+from keymasq.common.model.profiles import (
+    ProfileConfig,
+    WindowRule,
+)
+from keymasq.common.model.superkeys import (
+    SuperkeyAction,
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
@@ -106,7 +112,7 @@ class TestMappingAction:
             rapidfire_wait_ms=0,
         )
         default_action = MappingAction(action_type=ActionType.REPEAT)
-        with caplog.at_level("WARNING", logger="keymasq.common.models"):
+        with caplog.at_level("WARNING", logger="keymasq.common.model.actions"):
             invalid_action = MappingAction(
                 action_type=ActionType.REPEAT,
                 repeat_categories=["invalid"],

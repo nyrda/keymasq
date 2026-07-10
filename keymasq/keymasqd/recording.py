@@ -20,7 +20,7 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     normalize_macro_recording_slot,
@@ -538,9 +538,7 @@ class RecordingManager:
             if snapshot is None:
                 raise FileNotFoundError("Pending recording not found")
             self._claimed_recordings[recording_id] = snapshot
-            self._claimed_recording_created_at[recording_id] = (
-                asyncio.get_running_loop().time()
-            )
+            self._claimed_recording_created_at[recording_id] = asyncio.get_running_loop().time()
             self._claimed_recording_discard_requested.discard(recording_id)
             return snapshot
 
@@ -563,9 +561,7 @@ class RecordingManager:
             else:
                 self._pending_recordings[recording_id] = snapshot
                 self._pending_recording_created_at[recording_id] = (
-                    created_at
-                    if created_at is not None
-                    else asyncio.get_running_loop().time()
+                    created_at if created_at is not None else asyncio.get_running_loop().time()
                 )
 
         if cleanup_snapshot is not None:
@@ -609,9 +605,7 @@ class RecordingManager:
 
             for recording_id in expired_pending_ids:
                 snapshot = self._pending_recordings.pop(recording_id, None)
-                if snapshot is not None and normalize_macro_recording_slot(
-                    snapshot.recording_slot
-                ):
+                if snapshot is not None and normalize_macro_recording_slot(snapshot.recording_slot):
                     self._pending_recordings[recording_id] = snapshot
                     continue
                 if snapshot is not None:
@@ -692,7 +686,7 @@ class RecordingManager:
                     "event_count": event_count,
                     "duration_ms": duration_ms,
                 },
-        )
+            )
 
 
 def _open_recording_input_device(path: str) -> _RecordingInputDevice:

@@ -10,19 +10,16 @@ import tomli_w
 from keymasq.common import paths
 from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.config_files import write_config_atomically
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import (
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
-    MappingAction,
     normalize_analog_control_features,
     validate_analog_control_config,
 )
-from keymasq.session.action_toml import (
-    UnknownActionTypeError as UnknownActionTypeError,
-)
+from keymasq.common.model.core import ActionType
 from keymasq.session.action_toml import (
     mapping_action_from_toml,
     mapping_action_to_toml,

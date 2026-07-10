@@ -8,7 +8,8 @@ import pytest
 
 import keymasq.common.paths as paths_module
 import keymasq.session.manager.core as core_module
-from keymasq.session.manager import SessionManager
+import keymasq.session.manager.service.server as session_server_module
+from keymasq.session.manager.core import SessionManager
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def session_socket_path(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         socket_path = Path(runtime_dir) / "session.sock"
         monkeypatch.setattr(paths_module, "SESSION_SOCKET_PATH", socket_path)
         monkeypatch.setattr(core_module, "SESSION_SOCKET_PATH", socket_path)
+        monkeypatch.setattr(session_server_module, "SESSION_SOCKET_PATH", socket_path)
         yield socket_path
 
 
@@ -65,7 +67,7 @@ async def test_start_session_server_replaces_stale_socket(session_socket_path) -
 
         assert manager._session_socket_owned is True
         assert session_socket_path.exists()
-        assert await core_module._session_socket_accepts_connections()
+        assert await session_server_module.session_socket_accepts_connections()
     finally:
         if manager.session_server is not None:
             manager.session_server.close()

@@ -5,18 +5,20 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
-import keymasq.common.paths as paths
-import keymasq.keymasqd.recording as recording_module
+from keymasq.common import paths
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, DeviceProfileLayer, MappingAction, ProfileConfig
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+from keymasq.keymasqd import recording
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import macros as mdm
-from keymasq.session.profiles import ProfileManager
+from keymasq.keymasqd.runtime.macro import loops
+from keymasq.session.profile.manager import ProfileManager
 
 
 async def _wait_for_no_running_macros(manager: DeviceManager) -> None:
-    while mdm.running_macro_instance_ids(manager):
+    while loops.running_macro_instance_ids(manager.macro_state):
         await asyncio.sleep(0.005)
 
 
@@ -29,12 +31,12 @@ async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeyp
 
     async def fake_to_thread(func, /, *args, **kwargs):
         assert kwargs == {}
-        if func is recording_module._open_recording_input_device:
+        if func is recording._open_recording_input_device:
             calls.append((func, args))
             return SimpleNamespace(close=MagicMock())
         return func(*args)
 
-    monkeypatch.setattr(recording_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(recording.asyncio, "to_thread", fake_to_thread)
 
     result = await recorder.start(
         [{"path": "/dev/input/event0", "device_type": "keyboard"}],
@@ -44,7 +46,7 @@ async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeyp
     await recorder.stop()
 
     assert result == {"status": "ok", "recording_slot": 4}
-    assert calls == [(recording_module._open_recording_input_device, ("/dev/input/event0",))]
+    assert calls == [(recording._open_recording_input_device, ("/dev/input/event0",))]
     assert broadcast_callback.await_args_list[0].args == (
         CommandType.RECORDING_STARTED,
         {"status": "ok", "recording_slot": 4},
@@ -240,7 +242,7 @@ async def test_empty_toggle_macro_does_not_create_playback_task() -> None:
     await asyncio.sleep(0)
 
     assert result["status"] == "ok"
-    assert mdm.running_macro_instance_ids(manager) == []
+    assert loops.running_macro_instance_ids(manager.macro_state) == []
     assert manager.macro_state.tasks == {}
     assert manager.macro_state.instance_meta == {}
 
@@ -371,7 +373,7 @@ async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
     await start_instance("b", evdev.ecodes.KEY_I)
 
     await asyncio.sleep(0.02)
-    assert len(mdm.running_macro_instance_ids(manager)) >= 2
+    assert len(loops.running_macro_instance_ids(manager.macro_state)) >= 2
 
     result = await manager.cancel_macro_playback()
     assert result["status"] == "ok"
@@ -388,7 +390,7 @@ async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
 
     assert result["status"] == "ok"
     device.release_tracked_outputs.assert_called_once()
-    assert mdm.running_macro_instance_ids(manager) == []
+    assert loops.running_macro_instance_ids(manager.macro_state) == []
 
 
 def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatch) -> None:

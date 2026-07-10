@@ -9,7 +9,9 @@ gi.require_version("Gtk", "4.0")
 def test_create_combo_summary_row_supports_readonly_and_trailing_widget() -> None:
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import ComboEvent, ComboStep
     from keymasq.gui.widgets.combo_presentation import create_combo_summary_row
 
     trailing = Gtk.Button(icon_name="user-trash-symbolic")
@@ -52,9 +54,5 @@ def test_create_combo_summary_row_supports_readonly_and_trailing_widget() -> Non
     ]
     assert labels[-1].get_text().endswith("key_f5")
 
-    pills = [
-        label
-        for label in labels
-        if "combo-step-pill" in set(label.get_css_classes())
-    ]
+    pills = [label for label in labels if "combo-step-pill" in set(label.get_css_classes())]
     assert [pill.get_tooltip_text() for pill in pills] == ["Keyboard chord", "Follow-up key"]

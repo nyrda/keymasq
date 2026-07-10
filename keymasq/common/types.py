@@ -15,13 +15,3 @@ class SyntheticInputEvent:
         self.type = int(event_type)
         self.code = int(code)
         self.value = int(value)
-
-
-_SyntheticInputEvent = SyntheticInputEvent
-
-__all__ = [
-    "JsonObject",
-    "JsonObjectList",
-    "SyntheticInputEvent",
-    "_SyntheticInputEvent",
-]

@@ -9,7 +9,8 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, SuperkeyAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.superkeys import SuperkeyAction
 
 from .gamepad_axis import GamepadAxisControlsMixin
 from .macro_tab import SuperkeyMacroTabMixin

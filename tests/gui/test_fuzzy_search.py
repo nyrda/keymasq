@@ -100,8 +100,8 @@ def test_key_selector_macro_search_clears_hidden_selection(monkeypatch) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
@@ -140,8 +140,8 @@ def test_key_selector_macro_refresh_clears_missing_selection(monkeypatch) -> Non
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
@@ -176,15 +176,12 @@ def test_key_selector_superkey_search_clears_hidden_selection(
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        SuperkeyConfig,
-        SuperkeyMode,
-    )
+    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType, SuperkeyMode
+    from keymasq.common.model.superkeys import SuperkeyConfig
     from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
     from keymasq.session.superkeys import SuperkeyManager
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
@@ -245,9 +242,10 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Adw, Gtk
 
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
@@ -287,9 +285,7 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
     assert "Cards" not in toggle_labels
 
     labels = {
-        label.get_label()
-        for label in collect_widgets(macro_tab, Gtk.Label)
-        if label.get_label()
+        label.get_label() for label in collect_widgets(macro_tab, Gtk.Label) if label.get_label()
     }
     assert "Macro Slots" not in labels
     assert "Macro Library" in labels
@@ -327,8 +323,8 @@ def test_key_selector_macro_slots_show_disabled_placeholder(monkeypatch) -> None
     gi.require_version("Gtk", "4.0")
     from gi.repository import Adw, Gtk
 
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
@@ -353,9 +349,7 @@ def test_key_selector_macro_slots_show_disabled_placeholder(monkeypatch) -> None
     macro_tab = dialog.stack.get_child_by_name("macro")
     assert macro_tab is not None
     labels = {
-        label.get_label()
-        for label in collect_widgets(macro_tab, Gtk.Label)
-        if label.get_label()
+        label.get_label() for label in collect_widgets(macro_tab, Gtk.Label) if label.get_label()
     }
     assert "Macro recording is disabled" in labels
     assert "Macro Library" in labels
@@ -387,7 +381,7 @@ def test_hardware_setup_search_and_raw_toggle_controls(monkeypatch) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gdk, Gtk
 
-    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+    from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
     monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
     dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
@@ -411,11 +405,11 @@ def test_hardware_setup_search_clears_hidden_selected_device(monkeypatch) -> Non
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+    from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
     monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
     dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
-    dialog.detected_devices = {
+    dialog._discovery_state.detected_devices = {
         "keyboard": {
             "name": "Keyboard",
             "vendor_id": "1111",
@@ -431,12 +425,15 @@ def test_hardware_setup_search_clears_hidden_selected_device(monkeypatch) -> Non
     dialog.device_list.select_row(row)
     dialog.next_btn.set_sensitive(True)
 
-    assert dialog.selected_device is dialog.detected_devices["keyboard"]
+    assert (
+        dialog._discovery_state.selected_device
+        is dialog._discovery_state.detected_devices["keyboard"]
+    )
 
     dialog.device_search_entry.set_text("mouse")
     dialog._after_device_search_filter_changed()
 
-    assert dialog.selected_device is None
+    assert dialog._discovery_state.selected_device is None
     assert dialog.next_btn.get_sensitive() is False
 
 
@@ -447,17 +444,17 @@ def test_superkey_dialog_search_is_revealed_by_button_and_ctrl_f(
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gdk, Gtk
 
-    from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+    from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
     dialog = SuperkeyDialog(Gtk.Window())
 
-    assert dialog.search_button.get_icon_name() == "system-search-symbolic"
-    assert dialog.search_entry.get_visible() is False
+    assert dialog.shell.search_button.get_icon_name() == "system-search-symbolic"
+    assert dialog.shell.search_entry.get_visible() is False
 
-    dialog.search_button.emit("clicked")
-    assert dialog.search_entry.get_visible() is True
+    dialog.shell.search_button.emit("clicked")
+    assert dialog.shell.search_entry.get_visible() is True
 
-    dialog._hide_search()
+    dialog.shell.hide_search()
     handled = dialog._on_key_pressed(
         Gtk.EventControllerKey(),
         Gdk.KEY_f,
@@ -466,7 +463,7 @@ def test_superkey_dialog_search_is_revealed_by_button_and_ctrl_f(
     )
 
     assert handled is True
-    assert dialog.search_entry.get_visible() is True
+    assert dialog.shell.search_entry.get_visible() is True
 
 
 def test_analog_control_dialog_search_is_revealed_by_button_and_ctrl_f(
@@ -476,17 +473,17 @@ def test_analog_control_dialog_search_is_revealed_by_button_and_ctrl_f(
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gdk, Gtk
 
-    from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+    from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
 
     dialog = AnalogControlDialog(Gtk.Window())
 
-    assert dialog.search_button.get_icon_name() == "system-search-symbolic"
-    assert dialog.search_entry.get_visible() is False
+    assert dialog.shell.search_button.get_icon_name() == "system-search-symbolic"
+    assert dialog.shell.search_entry.get_visible() is False
 
-    dialog.search_button.emit("clicked")
-    assert dialog.search_entry.get_visible() is True
+    dialog.shell.search_button.emit("clicked")
+    assert dialog.shell.search_entry.get_visible() is True
 
-    dialog._hide_search()
+    dialog.shell.hide_search()
     handled = dialog._on_key_pressed(
         Gtk.EventControllerKey(),
         Gdk.KEY_f,
@@ -495,4 +492,4 @@ def test_analog_control_dialog_search_is_revealed_by_button_and_ctrl_f(
     )
 
     assert handled is True
-    assert dialog.search_entry.get_visible() is True
+    assert dialog.shell.search_entry.get_visible() is True

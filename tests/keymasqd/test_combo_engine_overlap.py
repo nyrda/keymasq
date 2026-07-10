@@ -1,4 +1,5 @@
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.combo_engine import (
     ComboEngine,
     RuntimeCombo,

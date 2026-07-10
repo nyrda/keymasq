@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from keymasq.common.models import MappingAction
+from keymasq.common.model.actions import MappingAction
 
 from .compositors import COMPOSITOR_ACTION_DEFINITIONS
 from .core import (

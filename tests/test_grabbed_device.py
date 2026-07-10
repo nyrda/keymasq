@@ -9,10 +9,10 @@ from evdev.uinput import UInputError
 
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import outputs as gdo
-from keymasq.keymasqd.runtime.grabbed_device import repeat as gdr
+from keymasq.keymasqd.runtime import adapters
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device import outputs, repeat
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
@@ -41,7 +41,7 @@ class TestGrabbedDevice:
 
         assert grabbed.device is not None
         assert grabbed.uinput is not None
-        assert grabbed._running is True
+        assert grabbed.running is True
 
         await grabbed.release()
 
@@ -60,7 +60,7 @@ class TestGrabbedDevice:
         await grabbed.grab()
         await grabbed.release()
 
-        assert grabbed._running is False
+        assert grabbed.running is False
 
     @pytest.mark.asyncio
     async def test_event_callback_called(self, virtual_mouse, event_callback, mapping_getter):
@@ -105,9 +105,9 @@ async def test_grab_failure_closes_opened_input_device(monkeypatch):
     async def fail_wait(*args, **kwargs):
         raise RuntimeError("grab preflight failed")
 
-    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
-    monkeypatch.setattr(gdm.evdev, "UInput", lambda **kwargs: passthrough_uinput)
-    monkeypatch.setattr(gdm.runtime_grab, "wait_for_active_keys_to_clear", fail_wait)
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", lambda **kwargs: passthrough_uinput)
+    monkeypatch.setattr(grabbed_device.grab, "wait_for_active_keys_to_clear", fail_wait)
 
     grabbed = GrabbedDevice(
         path="/dev/input/event-test",
@@ -147,10 +147,10 @@ async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
     def fail_uinput_creation(**kwargs):
         raise RuntimeError("passthrough creation failed")
 
-    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
-    monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", fail_uinput_creation)
     monkeypatch.setattr(
-        gdm.runtime_grab,
+        grabbed_device.grab,
         "wait_for_active_keys_to_clear",
         wait_for_active_keys_to_clear,
     )
@@ -193,8 +193,8 @@ async def test_grab_uinput_error_mentions_uinput_when_passthrough_creation_fails
     def fail_uinput_creation(**kwargs):
         raise UInputError('"/dev/uinput" cannot be opened for writing')
 
-    monkeypatch.setattr(gdm, "_device_input", lambda path: fake_device)
-    monkeypatch.setattr(gdm.evdev, "UInput", fail_uinput_creation)
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", fail_uinput_creation)
 
     grabbed = GrabbedDevice(
         path="/dev/input/event-test",
@@ -244,13 +244,13 @@ class TestActionExecution:
         grabbed.uinput.syn = MagicMock()
         grabbed.keyboard_uinput = grabbed.uinput
 
-        await gdr.tap_key(
+        await repeat.tap_key(
             grabbed,
             evdev.ecodes.KEY_A,
             hold_ms=1,
             event_name="test_key",
             uinput_dev=grabbed.uinput,
-            asyncio_mod=gdm.ASYNCIO_RUNTIME,
+            asyncio_mod=adapters.ASYNCIO_RUNTIME,
         )
 
         assert grabbed.uinput.write.call_count == 2
@@ -272,13 +272,13 @@ class TestActionExecution:
         started = asyncio.Event()
 
         with pytest.raises(RuntimeError, match="write failed"):
-            await gdr.tap_key(
+            await repeat.tap_key(
                 grabbed,
                 evdev.ecodes.KEY_A,
                 hold_ms=1,
                 event_name="test_key",
                 uinput_dev=grabbed.uinput,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
                 started=started,
             )
 
@@ -297,11 +297,11 @@ class TestActionExecution:
         grabbed.uinput = MagicMock()
         grabbed.uinput.write.side_effect = RuntimeError("write failed")
         grabbed.keyboard_uinput = grabbed.uinput
-        grabbed._running = True
+        grabbed.running = True
         event_name = "test_key"
         grabbed.state.rapidfire_active[event_name] = True
         grabbed.state.rapidfire_tasks[event_name] = asyncio.current_task()
-        grabbed.state.rapidfire_outputs[event_name] = gdr.RapidfireOutputState(
+        grabbed.state.rapidfire_outputs[event_name] = repeat.RapidfireOutputState(
             kind="key",
             code=evdev.ecodes.KEY_A,
             uinput=grabbed.uinput,
@@ -309,14 +309,14 @@ class TestActionExecution:
         started = asyncio.Event()
 
         with pytest.raises(RuntimeError, match="write failed"):
-            await gdr.rapidfire_key(
+            await repeat.rapidfire_key(
                 grabbed,
                 evdev.ecodes.KEY_A,
                 hold_ms=1,
                 wait_ms=1,
                 event_name=event_name,
                 uinput_dev=grabbed.uinput,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
                 started=started,
             )
 
@@ -340,7 +340,7 @@ def test_release_all_keys_resets_abs_only_dynamic_gamepad_output():
     )
     grabbed.state.held_output_abs["gamepad:pad2"] = {evdev.ecodes.ABS_X}
 
-    gdo.release_all_keys(
+    outputs.release_all_keys(
         grabbed,
         evdev_mod=evdev,
         uinput_writer=lambda device: device,
@@ -378,7 +378,7 @@ class TestPassthrough:
             10,
         )
 
-        gdo.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
+        outputs.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_not_called()
 
     def test_relative_mouse_movement_is_not_suppressed_without_filter(self):
@@ -402,5 +402,5 @@ class TestPassthrough:
             12,
         )
 
-        gdo.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
+        outputs.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_called_once_with(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 12)

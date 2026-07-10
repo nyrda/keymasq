@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 from typing import cast
 
+from keymasq.session.manager.payload import action as action_payload
+from keymasq.session.manager.payload import combo as combo_serializer
+from keymasq.session.manager.payload import mapping as mapping_payload
+
 
 def _manager_with_superkeys(*configs, analog_controls=()):
     from keymasq.session.manager.state import ExecRuntimeState, ProfileRuntimeState
@@ -18,9 +22,13 @@ def _manager_with_superkeys(*configs, analog_controls=()):
 
 
 def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
-    from keymasq.common.models import ActionType, MappingAction, SuperkeyConfig, SuperkeyMode
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import (
+        ActionType,
+        SuperkeyMode,
+    )
+    from keymasq.common.model.superkeys import SuperkeyConfig
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     superkey = SuperkeyConfig(
         name="launcher",
@@ -92,7 +100,7 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
         },
     )
 
-    mapping = payloads.profile_to_mapping(manager, resolved, "kbd")
+    mapping = mapping_payload.serialize(manager, resolved, "kbd")
 
     assert mapping["a"] == {
         "action": "keyboard",
@@ -146,14 +154,13 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
 
 
 def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None:
-    from keymasq.common.models import (
-        ActionType,
+    from keymasq.common.model.actions import (
         MappingAction,
         ProfileDeactivationPolicy,
     )
-    from keymasq.session.manager import payloads
+    from keymasq.common.model.core import ActionType
 
-    assert payloads.serialize_mapping_action(
+    assert action_payload.serialize_mapping_action(
         MappingAction(
             action_type=ActionType.MACRO,
             macro_name="paste",
@@ -179,7 +186,7 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         "start_y": 20,
         "block_mouse_movement": False,
     }
-    assert payloads.serialize_mapping_action(
+    assert action_payload.serialize_mapping_action(
         MappingAction(
             action_type=ActionType.PROFILE_ENABLE,
             profile_name="Gaming",
@@ -193,7 +200,7 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         "target": "Gaming",
         "deactivation": {"after_actions": 1},
     }
-    assert payloads.serialize_mapping_action(
+    assert action_payload.serialize_mapping_action(
         MappingAction(
             action_type=ActionType.GAMEPAD_AXIS,
             target="x",
@@ -206,13 +213,13 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         "output_id": "virtual-gamepad-2",
         "value": 123,
     }
-    assert payloads.serialize_mapping_action(
+    assert action_payload.serialize_mapping_action(
         MappingAction(action_type=ActionType.REPEAT, repeat_categories=["keyboard"])
     ) == {
         "action": "repeat",
         "repeat_categories": ["keyboard"],
     }
-    assert payloads.serialize_mapping_action(
+    assert action_payload.serialize_mapping_action(
         MappingAction(action_type=ActionType.PLAY_MACRO_SLOT, macro_recording_slot=2)
     ) == {
         "action": "play_macro_slot",
@@ -223,16 +230,16 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         analog_control_name="Legacy Control",
     )
     analog_action.analog_control_names = []
-    assert payloads.serialize_mapping_action(analog_action) == {
+    assert action_payload.serialize_mapping_action(analog_action) == {
         "action": "analog_control",
         "analog_control_name": "Legacy Control",
     }
 
 
 def test_shared_action_serializer_preserves_mode_specific_policies() -> None:
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = _manager_with_superkeys()
     exec_action = MappingAction(action_type=ActionType.EXEC, cmd="echo hi")
@@ -242,24 +249,24 @@ def test_shared_action_serializer_preserves_mode_specific_policies() -> None:
         compositor_args="2",
     )
 
-    mapping = payloads.profile_to_mapping(
+    mapping = mapping_payload.serialize(
         manager,
         ResolvedDeviceProfile(hardware_id="kbd", mappings={"exec": exec_action}),
         "kbd",
     )
     exec_mapping = cast(dict[str, object], mapping["exec"])
-    combo_payload = payloads.combo_action_to_payload(
+    combo_payload = action_payload.combo_action_to_payload(
         manager,
         dispatch_action,
         step_count=1,
     )
-    combo_signature = payloads.combo_action_signature_payload(
+    combo_signature = action_payload.combo_action_signature_payload(
         manager,
         dispatch_action,
         step_count=1,
     )
 
-    assert payloads.action_signature_payload(manager, exec_action, "kbd") == {
+    assert action_payload.action_signature_payload(manager, exec_action, "kbd") == {
         "action": "exec",
         "cmd": "echo hi",
     }
@@ -277,9 +284,16 @@ def test_shared_action_serializer_preserves_mode_specific_policies() -> None:
 
 
 def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import (
+        ResolvedCombo,
+        ResolvedDeviceProfile,
+    )
 
     manager = _manager_with_superkeys()
     action = MappingAction(
@@ -289,11 +303,11 @@ def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
     )
     resolved = ResolvedDeviceProfile(hardware_id="pad", mappings={"x": action})
 
-    mapping = payloads.profile_to_mapping(manager, resolved, "pad")
+    mapping = mapping_payload.serialize(manager, resolved, "pad")
     mapped_action = cast(dict[str, object], mapping["x"])
     assert mapped_action["output_id"] == "virtual-gamepad-2"
 
-    combo_payload = payloads.resolved_combos_payload(
+    combo_payload = combo_serializer.serialize_all(
         manager,
         [
             ResolvedCombo(
@@ -307,7 +321,7 @@ def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
     combo_action = cast(dict[str, object], combo_payload[0]["action"])
     assert combo_action["output_id"] == "virtual-gamepad-2"
 
-    default_sig = payloads.resolved_mapping_signature(
+    default_sig = mapping_payload.signature(
         manager,
         ResolvedDeviceProfile(
             hardware_id="pad",
@@ -315,17 +329,21 @@ def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
         ),
         "pad",
     )
-    routed_sig = payloads.resolved_mapping_signature(manager, resolved, "pad")
+    routed_sig = mapping_payload.signature(manager, resolved, "pad")
     assert default_sig != routed_sig
 
 
 def test_repeat_combo_payload_includes_categories_and_rapidfire() -> None:
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedCombo
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import ResolvedCombo
 
     manager = _manager_with_superkeys()
-    combo_payload = payloads.resolved_combos_payload(
+    combo_payload = combo_serializer.serialize_all(
         manager,
         [
             ResolvedCombo(
@@ -353,9 +371,10 @@ def test_repeat_combo_payload_includes_categories_and_rapidfire() -> None:
 
 
 def test_profile_to_mapping_serializes_multiple_analog_controls() -> None:
-    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.analog import AnalogControlConfig
+    from keymasq.common.model.core import ActionType
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = _manager_with_superkeys(
         analog_controls=[
@@ -373,7 +392,7 @@ def test_profile_to_mapping_serializes_multiple_analog_controls() -> None:
         },
     )
 
-    mapping = payloads.profile_to_mapping(manager, resolved, "pad")
+    mapping = mapping_payload.serialize(manager, resolved, "pad")
     action = cast(dict[str, object], mapping["left_stick"])
     controls = cast(list[dict[str, object]], action["analog_controls"])
 
@@ -382,15 +401,14 @@ def test_profile_to_mapping_serializes_multiple_analog_controls() -> None:
 
 
 def test_profile_to_mapping_normalizes_obsolete_mouse_plus_digital() -> None:
-    from keymasq.common.models import (
-        ActionType,
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.analog import (
         AnalogActionThreshold,
         AnalogControlConfig,
         AnalogMouseMotionConfig,
-        MappingAction,
     )
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.common.model.core import ActionType
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = _manager_with_superkeys(
         analog_controls=[
@@ -404,9 +422,7 @@ def test_profile_to_mapping_normalizes_obsolete_mouse_plus_digital() -> None:
                         trigger_max=1.0,
                         release_min=0.55,
                         release_max=1.0,
-                        actions=[
-                            MappingAction(action_type=ActionType.KEYBOARD, target="key_e")
-                        ],
+                        actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_e")],
                     )
                 ],
             ),
@@ -422,7 +438,7 @@ def test_profile_to_mapping_normalizes_obsolete_mouse_plus_digital() -> None:
         },
     )
 
-    mapping = payloads.profile_to_mapping(manager, resolved, "pad")
+    mapping = mapping_payload.serialize(manager, resolved, "pad")
     action = cast(dict[str, object], mapping["left_stick"])
     control = cast(dict[str, object], action["analog_control"])
     mouse_motion = cast(dict[str, object], control["mouse_motion"])
@@ -433,17 +449,20 @@ def test_profile_to_mapping_normalizes_obsolete_mouse_plus_digital() -> None:
 
 
 def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
-    from keymasq.common.models import (
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import (
         ActionType,
-        ComboEvent,
-        ComboStep,
-        MappingAction,
-        SuperkeyAction,
-        SuperkeyConfig,
         SuperkeyMode,
     )
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedCombo
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.common.model.superkeys import (
+        SuperkeyAction,
+        SuperkeyConfig,
+    )
+    from keymasq.session.profile.types import ResolvedCombo
 
     superkey = SuperkeyConfig(
         name="pattern",
@@ -505,7 +524,7 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
         ),
     ]
 
-    combo_payload = payloads.resolved_combos_payload(manager, combos)
+    combo_payload = combo_serializer.serialize_all(manager, combos)
 
     assert [combo["id"] for combo in combo_payload] == ["dispatch", "super"]
     assert combo_payload[0] == {
@@ -551,9 +570,13 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
 
 
 def test_combo_payload_and_signature_include_match_across_devices() -> None:
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedCombo
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import ResolvedCombo
 
     manager = _manager_with_superkeys()
     base_combo = ResolvedCombo(
@@ -571,9 +594,9 @@ def test_combo_payload_and_signature_include_match_across_devices() -> None:
         match_across_devices=True,
     )
 
-    base_signature = payloads.resolved_combos_signature(manager, [base_combo])
-    any_device_signature = payloads.resolved_combos_signature(manager, [any_device_combo])
-    combo_payload = payloads.resolved_combo_payload(manager, any_device_combo)
+    base_signature = combo_serializer.signature(manager, [base_combo])
+    any_device_signature = combo_serializer.signature(manager, [any_device_combo])
+    combo_payload = combo_serializer.serialize(manager, any_device_combo)
 
     assert base_signature != any_device_signature
     assert '"match_across_devices":false' in base_signature
@@ -583,9 +606,16 @@ def test_combo_payload_and_signature_include_match_across_devices() -> None:
 
 
 def test_payload_signatures_and_log_view_are_stable() -> None:
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-    from keymasq.session.manager import payloads
-    from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import (
+        ResolvedCombo,
+        ResolvedDeviceProfile,
+    )
 
     manager = _manager_with_superkeys()
     resolved = ResolvedDeviceProfile(
@@ -614,9 +644,9 @@ def test_payload_signatures_and_log_view_are_stable() -> None:
         action=MappingAction(action_type=ActionType.MACRO, macro_name="typed"),
     )
 
-    mapping_signature = payloads.resolved_mapping_signature(manager, resolved, "kbd")
-    combo_signature = payloads.resolved_combos_signature(manager, [combo])
-    log_view = payloads.mapping_log_view(
+    mapping_signature = mapping_payload.signature(manager, resolved, "kbd")
+    combo_signature = combo_serializer.signature(manager, [combo])
+    log_view = mapping_payload.log_view(
         {
             "macro": {
                 "action": "macro",

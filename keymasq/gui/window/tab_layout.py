@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from keymasq.common.models import HardwareConfig
+from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.preferences import save_selected_tab, save_tab_layout
 from keymasq.gui.widgets.combo_tab import ComboTab
-from keymasq.gui.widgets.device_tab import DeviceTab
+from keymasq.gui.widgets.device_tab.tab import DeviceTab
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 
 from . import _runtime, chrome, device_tabs

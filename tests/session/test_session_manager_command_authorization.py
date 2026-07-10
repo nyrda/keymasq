@@ -4,11 +4,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
-import keymasq.session.manager.recording as session_recording_module
 import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.security import PeerCredentials
 from keymasq.session.listeners.hyprland import HyprlandListener
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 from tests.session.support import grant_recording_refresh_owner
 
 
@@ -22,7 +21,7 @@ async def test_sensitive_command_requires_active_recording_owner(
     other_writer = object()
 
     lock_recording_unlock = AsyncMock(return_value={"status": "ok"})
-    monkeypatch.setattr(session_recording_module, "lock_recording_unlock", lock_recording_unlock)
+    monkeypatch.setattr(recording_unlock_module, "lock_recording_unlock", lock_recording_unlock)
     grant_recording_refresh_owner(
         manager,
         peer,

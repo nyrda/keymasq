@@ -19,8 +19,8 @@ from keymasq.gui.window import (
 
 class TestMainWindow:
     def test_main_window_does_not_seed_default_profile_for_first_device(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
 
@@ -48,13 +48,9 @@ class TestMainWindow:
         assert not (temp_config_dir / "profiles" / "Default.toml").exists()
 
     def test_main_window_demo_mode(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
 
@@ -114,17 +110,18 @@ class TestMainWindow:
     def test_main_window_demo_mode_uses_sample_startup_without_system_probe(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window import core as window_core
+        from keymasq.gui.window.core import MainWindow
 
         def fail_system_probe(*args, **kwargs):
             raise AssertionError("demo startup should not probe the real system")
 
-        monkeypatch.setattr(window_module._runtime, "session_request", fail_system_probe)
-        monkeypatch.setattr(window_module.HardwareManager, "list_hardware", fail_system_probe)
-        monkeypatch.setattr(window_module._runtime, "run_gui_task", fail_system_probe)
+        monkeypatch.setattr(window_runtime, "session_request", fail_system_probe)
+        monkeypatch.setattr(window_core.HardwareManager, "list_hardware", fail_system_probe)
+        monkeypatch.setattr(window_runtime, "run_gui_task", fail_system_probe)
         monkeypatch.setattr(
-            window_module.GLib,
+            window_runtime.GLib,
             "idle_add",
             lambda callback, *args: callback(*args),
         )
@@ -139,7 +136,7 @@ class TestMainWindow:
     def test_main_window_add_device_action_does_not_require_unlock(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         add_calls: list[bool] = []
@@ -160,8 +157,8 @@ class TestMainWindow:
         assert unlock_calls == []
 
     def test_main_window_device_inspector_uses_unlock_flow(self, temp_config_dir, monkeypatch):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -192,9 +189,9 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.widgets import device_inspector_window as inspector_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -253,7 +250,7 @@ class TestMainWindow:
         monkeypatch,
     ):
         from keymasq.gui.widgets import combo_inspector_window as inspector_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -298,7 +295,7 @@ class TestMainWindow:
 
     def test_main_window_menu_reflects_saved_appearance(self, temp_config_dir):
         from keymasq.gui.preferences import save_appearance_mode
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         save_appearance_mode("dark")
 
@@ -310,9 +307,9 @@ class TestMainWindow:
     def test_main_window_unlock_uses_runtime_polkit_without_prompt(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
+        from keymasq.gui.window import _runtime as window_runtime
         from keymasq.gui.session_client import GuiTaskResult
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -321,12 +318,12 @@ class TestMainWindow:
         success_calls: list[bool] = []
 
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "resolve_keymasq_record_helper_path",
             lambda: "/usr/bin/keymasq-record",
         )
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "run_gui_task",
             lambda worker, callback: callback(GuiTaskResult(value=worker())),
         )
@@ -335,9 +332,9 @@ class TestMainWindow:
             commands.append(cmd)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(window_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(window_runtime.subprocess, "run", fake_run)
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "session_request",
             lambda payload, timeout=3.0: {
                 "status": "ok",
@@ -350,7 +347,7 @@ class TestMainWindow:
             },
         )
         monkeypatch.setattr(
-            window_module.Adw.AlertDialog,
+            window_runtime.Adw.AlertDialog,
             "present",
             lambda self, root: alerts.append(self),
         )
@@ -363,7 +360,7 @@ class TestMainWindow:
                 "/usr/bin/keymasq-record",
                 "unlock-runtime",
                 "--uid",
-                str(window_module.os.getuid()),
+                str(window_runtime.os.getuid()),
                 "--ttl",
                 "60",
             ]
@@ -374,13 +371,9 @@ class TestMainWindow:
         assert alerts == []
 
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -436,10 +429,11 @@ class TestMainWindow:
         assert tab2._selected_profile.config.name == "Desktop"
 
     def test_created_profile_is_selected_and_reloaded(self, temp_config_dir, monkeypatch):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets import profile_managed_tab as profile_tab_module
-        from keymasq.gui.window import MainWindow
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.gui.window.core import MainWindow
+        from keymasq.session.profile.manager import ProfileManager
 
         reload_calls = []
         monkeypatch.setattr(
@@ -478,8 +472,8 @@ class TestMainWindow:
         assert window.combo_tab._selected_profile.config.name == "Gaming"
 
     def test_main_window_update_device_display_name_updates_stack_page(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         device = HardwareConfig(
@@ -500,9 +494,9 @@ class TestMainWindow:
         assert page.get_title() == "Desk Mouse"
 
     def test_main_window_persists_user_tab_order(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import load_tab_order
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         devices = [
@@ -537,9 +531,9 @@ class TestMainWindow:
         assert load_tab_order() == expected_order
 
     def test_main_window_applies_saved_tab_order_on_load(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import save_tab_layout
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         devices = [
             HardwareConfig(
@@ -574,9 +568,9 @@ class TestMainWindow:
         assert window.tab_view.get_n_pages() == 4
 
     def test_main_window_persists_selected_tab(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import load_selected_tab
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         devices = [
@@ -608,9 +602,9 @@ class TestMainWindow:
         assert load_selected_tab() == "combos"
 
     def test_main_window_applies_saved_selected_device_tab_on_load(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import save_selected_tab, save_tab_layout
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         devices = [
             HardwareConfig(
@@ -639,9 +633,9 @@ class TestMainWindow:
         )
 
     def test_main_window_applies_saved_selected_combo_tab_on_load(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import save_selected_tab, save_tab_layout
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -662,9 +656,9 @@ class TestMainWindow:
         )
 
     def test_main_window_invalid_selected_tab_falls_back_to_saved_order(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import load_selected_tab, save_selected_tab, save_tab_layout
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         devices = [
             HardwareConfig(
@@ -694,9 +688,9 @@ class TestMainWindow:
         assert load_selected_tab() == devices[1].hardware_id
 
     def test_main_window_hides_and_restores_combo_tab_from_menu(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.preferences import load_hidden_tabs, load_tab_order
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         devices = [
@@ -752,8 +746,8 @@ class TestMainWindow:
         assert load_hidden_tabs() == set()
 
     def test_main_window_tab_close_requests_device_delete(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         device = HardwareConfig(
@@ -779,15 +773,10 @@ class TestMainWindow:
         assert tab_layout._page_for_hardware_id(window, device.hardware_id) is page
 
     def test_main_window_startup_probe_applies_compositor_state_and_devices(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-            WindowRule,
-        )
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig, WindowRule
         from keymasq.gui.session_client import GuiTaskResult
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -841,7 +830,7 @@ class TestMainWindow:
 
     def test_main_window_startup_probe_ignores_result_after_destroy(self, temp_config_dir):
         from keymasq.gui.session_client import GuiTaskResult
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window._destroyed = True
@@ -868,8 +857,8 @@ class TestMainWindow:
     def test_main_window_startup_probe_asks_session_for_compositor(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -888,7 +877,7 @@ class TestMainWindow:
                 "compositor_dispatch_available": True,
             }
 
-        monkeypatch.setattr(window_module._runtime, "session_request", fake_session_request)
+        monkeypatch.setattr(window_runtime, "session_request", fake_session_request)
         monkeypatch.setattr(window.hardware_manager, "list_hardware", lambda: [])
 
         state, devices = compositor._probe_startup_state(window)
@@ -905,13 +894,13 @@ class TestMainWindow:
     def test_main_window_startup_probe_without_session_reports_unknown_compositor(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
         monkeypatch.setattr(
-            window_module._runtime, "session_request", lambda payload, timeout=5.0: None
+            window_runtime, "session_request", lambda payload, timeout=5.0: None
         )
         monkeypatch.setattr(window.hardware_manager, "list_hardware", lambda: [])
 
@@ -927,7 +916,7 @@ class TestMainWindow:
 
     def test_main_window_compositor_state_updates_shared_session_cache(self, temp_config_dir):
         from keymasq.gui.compositor_state import session_compositor_id
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
 
@@ -967,13 +956,9 @@ class TestMainWindow:
         assert session_compositor_id() is None
 
     def test_main_window_profiles_changed_event_updates_tabs_without_polling(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -1031,27 +1016,23 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceType,
-            EvdevDevice,
-            HardwareConfig,
-        )
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
-        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(window_runtime, "run_gui_task", lambda worker, callback: None)
         monkeypatch.setattr(
-            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+            window_runtime, "session_request_async", lambda *args, **kwargs: None
         )
         monkeypatch.setattr(
-            window_module._runtime, "register_session_event_callback", lambda *args: None
+            window_runtime, "register_session_event_callback", lambda *args: None
         )
         monkeypatch.setattr(
-            window_module._runtime, "unregister_session_event_callback", lambda *args: None
+            window_runtime, "unregister_session_event_callback", lambda *args: None
         )
-        monkeypatch.setattr(window_module.GLib, "timeout_add", lambda *args: 0)
-        monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda *args: 0)
+        monkeypatch.setattr(window_runtime.GLib, "timeout_add", lambda *args: 0)
+        monkeypatch.setattr(window_runtime.GLib, "timeout_add_seconds", lambda *args: 0)
 
         window = MainWindow(demo_mode=False)
         device = HardwareConfig(
@@ -1119,19 +1100,15 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui import window as window_module
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window import _runtime as window_runtime
         from keymasq.gui.session_client import GuiTaskResult
-        from keymasq.gui.window import MainWindow
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.gui.window.core import MainWindow
+        from keymasq.session.profile.manager import ProfileManager
 
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "run_gui_task",
             lambda worker, callback, **kwargs: callback(GuiTaskResult(value=worker())),
         )
@@ -1183,31 +1160,35 @@ class TestMainWindow:
     def test_main_window_destroy_removes_repeating_timeout_sources(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         removed: list[int] = []
         registered: list[tuple[str, object]] = []
         unregistered: list[tuple[str, object]] = []
 
-        monkeypatch.setattr(window_module._runtime, "run_gui_task", lambda worker, callback: None)
+        monkeypatch.setattr(window_runtime, "run_gui_task", lambda worker, callback: None)
         monkeypatch.setattr(
-            window_module._runtime, "session_request_async", lambda *args, **kwargs: None
+            window_runtime, "session_request_async", lambda *args, **kwargs: None
         )
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "register_session_event_callback",
             lambda event, callback: registered.append((event, callback)),
         )
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "unregister_session_event_callback",
             lambda event, callback: unregistered.append((event, callback)),
         )
-        monkeypatch.setattr(window_module.GLib, "timeout_add", lambda interval, cb: 11)
-        monkeypatch.setattr(window_module.GLib, "timeout_add_seconds", lambda interval, cb: 22)
+        monkeypatch.setattr(window_runtime.GLib, "timeout_add", lambda interval, cb: 11)
         monkeypatch.setattr(
-            window_module.GLib,
+            window_runtime.GLib,
+            "timeout_add_seconds",
+            lambda interval, cb: 22,
+        )
+        monkeypatch.setattr(
+            window_runtime.GLib,
             "source_remove",
             lambda source_id: removed.append(source_id),
         )
@@ -1225,8 +1206,8 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         requests: list[tuple[dict[str, object], float]] = []
 
@@ -1242,7 +1223,7 @@ class TestMainWindow:
             )
 
         monkeypatch.setattr(
-            window_module._runtime, "session_request_async", fake_session_request_async
+            window_runtime, "session_request_async", fake_session_request_async
         )
 
         window = MainWindow(demo_mode=True)
@@ -1257,13 +1238,9 @@ class TestMainWindow:
         assert called == [True]
 
     def test_main_window_status_error_keeps_last_runtime_profile_state(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -1306,7 +1283,7 @@ class TestMainWindow:
         assert tab.status_label.get_text() == "active"
 
     def test_main_window_partial_runtime_state_preserves_omitted_keys(self, temp_config_dir):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         profiles._apply_profile_runtime_state(
@@ -1344,7 +1321,7 @@ class TestMainWindow:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -1378,7 +1355,7 @@ class TestMainWindow:
         assert reloads == [window]
 
     def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         captured: dict[str, object] = {}
@@ -1393,7 +1370,7 @@ class TestMainWindow:
         assert captured["reason"] == "recording_locked"
 
     def test_main_window_recording_started_closes_tracked_dialogs(self):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         closed: list[str] = []
@@ -1424,7 +1401,7 @@ class TestMainWindow:
 
     def test_main_window_recording_stopped_tracks_single_save_macro_dialog(self, monkeypatch):
         import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         created: list[dict] = []
@@ -1464,7 +1441,7 @@ class TestMainWindow:
         assert window._save_macro_dialog is None
 
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window._status_query_id = 1
@@ -1481,8 +1458,8 @@ class TestMainWindow:
     def test_main_window_uses_gnome_setup_dialog_instead_of_warning_banner(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -1498,7 +1475,7 @@ class TestMainWindow:
         presented: list[object] = []
 
         monkeypatch.setattr(
-            window_module.Adw.Dialog,
+            window_runtime.Adw.Dialog,
             "present",
             lambda self, parent: presented.append((self, parent)),
         )
@@ -1515,8 +1492,8 @@ class TestMainWindow:
     ):
         from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -1532,7 +1509,7 @@ class TestMainWindow:
         presented: list[object] = []
 
         monkeypatch.setattr(
-            window_module.Adw.Dialog,
+            window_runtime.Adw.Dialog,
             "present",
             lambda self, parent: presented.append((self, parent)),
         )
@@ -1713,20 +1690,20 @@ class TestMainWindow:
     def test_gnome_setup_action_starts_status_poll_without_gui_refresh_command(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         requests: list[dict] = []
         polls: list[object] = []
 
         monkeypatch.setattr(
-            window_module._runtime,
+            window_runtime,
             "session_request_async",
             lambda payload, callback, timeout=5.0: requests.append(payload),
         )
         monkeypatch.setattr(
-            window_module.GLib,
+            window_runtime.GLib,
             "timeout_add",
             lambda *_args: polls.append(True) or 9,
         )
@@ -1740,8 +1717,8 @@ class TestMainWindow:
     def test_gnome_setup_dialog_closes_when_gnome_support_becomes_ready(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui import window as window_module
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
@@ -1757,12 +1734,12 @@ class TestMainWindow:
         removed: list[int] = []
 
         monkeypatch.setattr(
-            window_module.Adw.Dialog,
+            window_runtime.Adw.Dialog,
             "present",
             lambda self, parent: None,
         )
         monkeypatch.setattr(
-            window_module.GLib,
+            window_runtime.GLib,
             "source_remove",
             lambda source_id: removed.append(source_id),
         )
@@ -1795,7 +1772,7 @@ class TestMainWindow:
     ):
         from keymasq.gui.icons import resolve_icon_name, device_icon_names
         from keymasq.gui.preferences import save_selected_tab
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         save_selected_tab("combos")
         window = MainWindow(demo_mode=False)
@@ -1823,9 +1800,8 @@ class TestMainWindow:
         device_tabs._check_empty_state(window)
 
         assert tab_layout._page_for_child(window, window.placeholder) is not None
-        assert (
-            window.tab_view.get_selected_page()
-            is tab_layout._page_for_child(window, window.placeholder)
+        assert window.tab_view.get_selected_page() is tab_layout._page_for_child(
+            window, window.placeholder
         )
         assert window._placeholder_title.get_label() == "No devices configured"
         assert window._placeholder_subtitle.get_label() == "Click + to add a new device"
@@ -1841,7 +1817,7 @@ class TestMainWindow:
     def test_main_window_status_response_updates_labels_for_all_status_paths(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.gui.window import MainWindow
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         issues: list[str | None] = []

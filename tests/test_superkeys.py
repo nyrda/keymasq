@@ -4,33 +4,39 @@ from types import SimpleNamespace
 import pytest
 
 from keymasq.common import paths
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
+    MappingAction,
+    ProfileDeactivationPolicy,
+)
+from keymasq.common.model.core import (
     ActionType,
+    SuperkeyMode,
+)
+from keymasq.common.model.profiles import (
     ComboConfig,
     ComboEvent,
     ComboStep,
-    MappingAction,
     ProfileConfig,
-    ProfileDeactivationPolicy,
+)
+from keymasq.common.model.superkeys import (
     SuperkeyAction,
     SuperkeyConfig,
-    SuperkeyMode,
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
-from keymasq.keymasqd.runtime.actions import (
+from keymasq.keymasqd.runtime.action_parser import (
     parse_action,
     parse_superkey_action,
     parse_superkey_config,
 )
-from keymasq.session.manager.payloads import (
-    clear_combo_exec_refs,
+from keymasq.session.manager.payload.action import (
     combo_action_signature_payload,
     combo_action_to_payload,
-    serialize_superkey,
 )
+from keymasq.session.manager.payload.references import clear_combos
+from keymasq.session.manager.payload.superkey import serialize
 from keymasq.session.manager.state import ExecBinding, ExecRuntimeState
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.superkeys import SuperkeyManager
 
 
@@ -190,6 +196,25 @@ def test_superkey_manager_rejects_rename_to_sanitized_storage_collision(
     ]
     assert manager.get_superkey("Other") is not None
     assert manager.get_superkey("A_B") is None
+
+
+def test_superkey_manager_save_rejects_rename_to_existing_name(
+    superkeys_dir: Path,
+) -> None:
+    manager = SuperkeyManager()
+    manager.save_superkey(_pattern_superkey("Old", "key_a"))
+    manager.save_superkey(_pattern_superkey("Taken", "key_b"))
+
+    with pytest.raises(ValueError, match="Superkey 'Taken' already exists"):
+        manager.save_superkey(
+            _pattern_superkey("Taken", "key_c"),
+            replacing_name="Old",
+        )
+
+    assert manager.get_superkey("Old") is not None
+    taken = manager.get_superkey("Taken")
+    assert taken is not None
+    assert taken.tap_actions[0].target == "key_b"
 
 
 def test_superkey_manager_same_storage_path_rename_does_not_delete_file(
@@ -711,7 +736,7 @@ def test_superkey_runtime_payload_round_trips_overload_actions() -> None:
         ],
     )
 
-    payload = serialize_superkey(manager, config, "1234:5678")
+    payload = serialize(manager, config, "1234:5678")
     parsed = _parse_runtime_superkey_payload(payload)
 
     assert parsed.mode == SuperkeyMode.OVERLOAD
@@ -746,7 +771,7 @@ def test_superkey_runtime_payload_round_trips_split_overload_actions() -> None:
         ],
     )
 
-    payload = serialize_superkey(manager, config, "1234:5678")
+    payload = serialize(manager, config, "1234:5678")
     parsed = _parse_runtime_superkey_payload(payload)
 
     assert parsed.mode == SuperkeyMode.OVERLOAD
@@ -859,7 +884,7 @@ def test_clear_combo_exec_refs_clears_combo_owned_exec_refs() -> None:
         )
     )
 
-    clear_combo_exec_refs(manager)
+    clear_combos(manager)
 
     assert manager.exec_state.combo_exec_refs == set()
     assert manager.exec_state.exec_refs == {}
@@ -947,7 +972,7 @@ def test_superkey_payload_serializer_rejects_nested_overload_superkeys() -> None
     ]
 
     with pytest.raises(ValueError, match="nested superkeys are not allowed"):
-        serialize_superkey(manager, config, "1234:5678")
+        serialize(manager, config, "1234:5678")
 
 
 def test_superkey_payload_serializer_rejects_repeat_overload_superkeys() -> None:
@@ -961,7 +986,7 @@ def test_superkey_payload_serializer_rejects_repeat_overload_superkeys() -> None
     ]
 
     with pytest.raises(ValueError, match="repeat is not allowed inside overload superkeys"):
-        serialize_superkey(manager, config, "1234:5678")
+        serialize(manager, config, "1234:5678")
 
 
 def test_profile_manager_finds_and_replaces_combo_superkey_references(
@@ -999,3 +1024,36 @@ def test_profile_manager_finds_and_replaces_combo_superkey_references(
     assert updated is not None
     assert updated.config.combos[0].action is not None
     assert updated.config.combos[0].action.action_type == ActionType.SUPPRESS
+
+
+def test_profile_manager_renames_combo_superkey_references(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profiles_dir = temp_config_dir / "profiles"
+    profiles_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(paths, "PROFILES_DIR", profiles_dir)
+
+    manager = ProfileManager()
+    manager.save_profile(
+        ProfileConfig(
+            name="Desktop",
+            combos=[
+                ComboConfig(
+                    id="combo-1",
+                    action=MappingAction(
+                        action_type=ActionType.SUPERKEY,
+                        superkey_name="Old Superkey",
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert manager.rename_superkey_references("Old Superkey", "New Superkey") == 1
+
+    reloaded = ProfileManager().get_profile("Desktop")
+    assert reloaded is not None
+    action = reloaded.config.combos[0].action
+    assert action is not None
+    assert action.superkey_name == "New Superkey"

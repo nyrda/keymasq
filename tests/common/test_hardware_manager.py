@@ -32,4 +32,3 @@ class TestHardwareManager:
 
     def test_hardware_id_format(self, sample_hardware_config):
         assert sample_hardware_config.hardware_id == "1234:5678"
-

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from keymasq.gui.widgets.device_tab import DeviceTab
+from keymasq.gui.widgets.device_tab.tab import DeviceTab
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 
 from . import _runtime, device_tabs, tab_layout
 

@@ -605,9 +605,7 @@ def test_parse_discards_ev_syn_events() -> None:
     assert len(editable) == 1
     assert passthrough == []
 
-    rebuilt = reconstruct_events(
-        editable, rel_events, passthrough, synthetic_moves, control_events
-    )
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
     assert all(int(ev["type"]) != evdev.ecodes.EV_SYN for ev in rebuilt)
 
 

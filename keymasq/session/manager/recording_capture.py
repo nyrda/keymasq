@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
 from keymasq.common.ipc import Command, CommandType
-from keymasq.session.profiles import ResolvedDeviceProfile
+from keymasq.session.profile.types import ResolvedDeviceProfile
 
-from . import profiles as runtime_profiles
 from .common import JsonObject, json_list, json_object
+from .profile import application, coordinator
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -31,7 +31,7 @@ async def _begin_capture(
 
     released = False
     if hardware_id in manager.profile_state.grabbed_devices:
-        await runtime_profiles.deactivate_profile(manager, hardware_id, immediate=True)
+        await application.deactivate_profile(manager, hardware_id, immediate=True)
         released = True
 
     return {
@@ -55,10 +55,7 @@ async def capture_begin_for_paths(
     mode: str = "button",
     owner_writer: asyncio.StreamWriter | None = None,
 ) -> JsonObject:
-    if (
-        hardware_id in manager.capture_state.tokens
-        or hardware_id in manager.capture_state.locks
-    ):
+    if hardware_id in manager.capture_state.tokens or hardware_id in manager.capture_state.locks:
         return {
             "status": "error",
             "error_code": "capture_already_active",
@@ -86,11 +83,7 @@ async def capture_begin_for_paths(
                     "hardware_id": hardware_id,
                     **({"mode": mode} if mode != "button" else {}),
                     **({"evdev_paths": evdev_paths} if evdev_paths else {}),
-                    **(
-                        {"evdev_interfaces": evdev_interfaces}
-                        if evdev_interfaces
-                        else {}
-                    ),
+                    **({"evdev_interfaces": evdev_interfaces} if evdev_interfaces else {}),
                 },
             )
         )
@@ -208,7 +201,7 @@ async def _end_capture(manager: "SessionManager", hardware_id: str) -> JsonObjec
     if not was_locked:
         return {"status": "ok", "hardware_id": hardware_id, "resumed": False}
 
-    await runtime_profiles.reevaluate_profiles(manager, reason=f"capture ended for {hardware_id}")
+    await coordinator.reevaluate_profiles(manager, reason=f"capture ended for {hardware_id}")
     active_names = list(
         manager.profile_state.resolved_devices.get(
             hardware_id,
@@ -319,9 +312,7 @@ def _hardware_evdev_paths(manager: "SessionManager", hardware_id: str) -> list[s
     ]
 
 
-def _hardware_evdev_interfaces(
-    manager: "SessionManager", hardware_id: str
-) -> list[JsonObject]:
+def _hardware_evdev_interfaces(manager: "SessionManager", hardware_id: str) -> list[JsonObject]:
     hardware = manager.hardware.get_hardware(hardware_id)
     if hardware is None:
         return []

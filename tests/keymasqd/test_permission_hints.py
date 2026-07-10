@@ -9,8 +9,7 @@ from keymasq.keymasqd.permission_hints import (
 
 def test_uinput_permission_message_appends_hint_when_error_mentions_devnode() -> None:
     message = uinput_permission_message(
-        'Failed to create keyboard uinput device: "/dev/uinput" '
-        "cannot be opened for writing"
+        'Failed to create keyboard uinput device: "/dev/uinput" cannot be opened for writing'
     )
 
     assert UINPUT_PERMISSION_HINT in message

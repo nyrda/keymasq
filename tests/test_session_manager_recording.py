@@ -3,11 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_capture as recording_capture_module
+import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
 import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.security import PeerCredentials
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 
 
 @pytest.mark.asyncio
@@ -24,7 +25,7 @@ async def test_owner_disconnect_cleans_runtime_unlock() -> None:
     }
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    await session_recording_module.clear_recording_refresh_owner_if_writer(
+    await recording_unlock_module.clear_recording_refresh_owner_if_writer(
         manager,
         peer,
         writer,  # type: ignore[arg-type]
@@ -54,7 +55,7 @@ async def test_owner_disconnect_clears_persistent_owner_without_daemon_cleanup()
     manager.unlock_state.refresh_owner = owner
     manager.client.send_command = AsyncMock()
 
-    await session_recording_module.clear_recording_refresh_owner_if_writer(
+    await recording_unlock_module.clear_recording_refresh_owner_if_writer(
         manager,
         peer,
         writer,  # type: ignore[arg-type]
@@ -72,7 +73,7 @@ def test_owner_disconnect_clears_active_recording_owner() -> None:
     manager.recording_state.active_owner_pid = 111
     manager.recording_state.active_owner_uid = 1000
 
-    session_recording_module.clear_active_recording_owner_if_writer(
+    recording_lifecycle_module.clear_active_recording_owner_if_writer(
         manager,
         writer,  # type: ignore[arg-type]
     )
@@ -86,7 +87,7 @@ def test_owner_disconnect_clears_active_recording_owner() -> None:
 @pytest.mark.asyncio
 async def test_start_recording_keeps_pending_slot_when_daemon_start_fails() -> None:
     manager = SessionManager()
-    session_recording_module.begin_pending_macro_save(
+    recording_lifecycle_module.begin_pending_macro_save(
         manager,
         {"pending_recording_id": "recording-1", "duration_ms": 10},
         recording_slot=1,
@@ -95,7 +96,7 @@ async def test_start_recording_keeps_pending_slot_when_daemon_start_fails() -> N
         return_value=Response(status="error", error="recording_locked")
     )
 
-    result = await session_recording_module.start_recording(manager, recording_slot=1)
+    result = await recording_lifecycle_module.start_recording(manager, recording_slot=1)
 
     assert result == {
         "status": "error",
@@ -110,7 +111,7 @@ async def test_start_recording_keeps_pending_slot_when_daemon_start_fails() -> N
 @pytest.mark.asyncio
 async def test_start_recording_clears_replaced_pending_slot_after_success() -> None:
     manager = SessionManager()
-    session_recording_module.begin_pending_macro_save(
+    recording_lifecycle_module.begin_pending_macro_save(
         manager,
         {"pending_recording_id": "recording-1", "duration_ms": 10},
         recording_slot=1,
@@ -123,7 +124,7 @@ async def test_start_recording_clears_replaced_pending_slot_after_success() -> N
         ]
     )
 
-    result = await session_recording_module.start_recording(manager, recording_slot=1)
+    result = await recording_lifecycle_module.start_recording(manager, recording_slot=1)
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert manager.recording_state.pending_slots == {}
@@ -157,7 +158,7 @@ async def test_last_client_disconnect_cleans_runtime_unlock_without_owner(
     )
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    await session_recording_module.clear_recording_refresh_owner_if_writer(
+    await recording_unlock_module.clear_recording_refresh_owner_if_writer(
         manager,
         peer,
         writer,  # type: ignore[arg-type]
@@ -191,7 +192,7 @@ async def test_capture_combo_uses_all_known_hardware_ids_not_just_profile_layers
         )
     )
 
-    result = await session_recording_module.capture_combo(manager, "Work", 15.0)
+    result = await recording_capture_module.capture_combo(manager, "Work", 15.0)
 
     assert result == {
         "status": "ok",
@@ -227,7 +228,7 @@ async def test_claim_recording_unlock_refresh_creates_runtime_lease(
 
     manager.client.send_command = AsyncMock(return_value=Response(status="ok"))
 
-    result = await session_recording_module.claim_recording_unlock_refresh(manager, peer, writer)
+    result = await recording_unlock_module.claim_recording_unlock_refresh(manager, peer, writer)
 
     assert result["status"] == "ok"
     assert result["recording_refresh_owner"] is True
@@ -251,9 +252,9 @@ async def test_claim_recording_unlock_refresh_blocks_reclaimed_runtime_lease(
     def resolve(_uid: int) -> dict:
         return {"unlocked": True, "source": "runtime", "expires_at": 5000}
 
-    monkeypatch.setattr(recording_unlock_module, "resolve_unlock_status", resolve)
+    monkeypatch.setattr(recording_unlock_module.recording_guard, "resolve_unlock_status", resolve)
 
-    result = await session_recording_module.claim_recording_unlock_refresh(manager, peer, writer)
+    result = await recording_unlock_module.claim_recording_unlock_refresh(manager, peer, writer)
 
     assert result == {
         "status": "error",
@@ -284,7 +285,7 @@ async def test_refresh_recording_unlock_clears_owner_when_daemon_rejects_lease()
         )
     )
 
-    result = await session_recording_module.refresh_recording_unlock(
+    result = await recording_unlock_module.refresh_recording_unlock(
         manager,
         peer,
         writer,  # type: ignore[arg-type]
@@ -320,7 +321,7 @@ async def test_refresh_recording_unlock_skips_daemon_for_persistent_owner(
     )
     manager.client.send_command = AsyncMock()
 
-    result = await session_recording_module.refresh_recording_unlock(
+    result = await recording_unlock_module.refresh_recording_unlock(
         manager,
         peer,
         writer,  # type: ignore[arg-type]

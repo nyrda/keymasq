@@ -31,9 +31,7 @@ class TestRecordMacroDialog:
         )
         assert dialog._unlock_btn.get_visible() is True
         assert dialog._unlock_status.get_label() == "Save access locked"
-        assert "saving temporary recording slots" in (
-            dialog._unlock_btn.get_tooltip_text() or ""
-        )
+        assert "saving temporary recording slots" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
             {
@@ -44,9 +42,7 @@ class TestRecordMacroDialog:
         )
         assert dialog._unlock_btn.get_visible() is True
         assert dialog._unlock_status.get_label() == "Unlocked in another session"
-        assert "saving temporary recording slots" in (
-            dialog._unlock_btn.get_tooltip_text() or ""
-        )
+        assert "saving temporary recording slots" in (dialog._unlock_btn.get_tooltip_text() or "")
 
         dialog._apply_unlock_state(
             {
@@ -82,8 +78,7 @@ class TestRecordMacroDialog:
         def button_label(button: Gtk.Button) -> str:
             child = button.get_child()
             return " ".join(
-                label.get_text()
-                for label in collect_widgets(child, Gtk.Label, include_self=True)
+                label.get_text() for label in collect_widgets(child, Gtk.Label, include_self=True)
             )
 
         dialog = RecordMacroDialog(Parent())
@@ -128,10 +123,7 @@ class TestRecordMacroDialog:
         dialog = RecordMacroDialog(Gtk.Window())
 
         assert dialog.recording_docs_btn.get_label() == "?"
-        assert (
-            dialog.recording_docs_btn.get_tooltip_text()
-            == "Open macro recording documentation"
-        )
+        assert dialog.recording_docs_btn.get_tooltip_text() == "Open macro recording documentation"
         assert record_macro_dialog_module._macro_recording_docs_url() == (
             "https://keymasq.tools/docs/v1.2.3/MACROS/#live-recording"
         )
@@ -457,9 +449,7 @@ class TestRecordMacroDialog:
 
         dialog = RecordMacroDialog(Gtk.Window())
         dialog._settings_loaded = True
-        dialog._device_overrides = {
-            "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
-        }
+        dialog._device_overrides = {"physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True}
 
         dialog._sync_settings_async()
         assert first_started.wait(2.0)
@@ -675,9 +665,7 @@ class TestSaveMacroDialog:
         assert requests[0]["command"] == "save_recording"
         assert requests[0]["pending_save_token"] == "pending-1"
 
-    def test_save_macro_dialog_shows_recorded_start_position_without_save_fields(
-        self, monkeypatch
-    ):
+    def test_save_macro_dialog_shows_recorded_start_position_without_save_fields(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
@@ -702,13 +690,11 @@ class TestSaveMacroDialog:
         assert "start_x" not in payload
         assert "start_y" not in payload
 
-    def test_save_macro_dialog_save_edit_opens_editor_with_first_event_selected(
-        self, monkeypatch
-    ):
+    def test_save_macro_dialog_save_edit_opens_editor_with_first_event_selected(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
-        import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        import keymasq.gui.widgets.macro_editor.dialog as macro_editor_dialog_module
         import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
@@ -774,7 +760,7 @@ class TestSaveMacroDialog:
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
-        import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        import keymasq.gui.widgets.macro_editor.dialog as macro_editor_dialog_module
         import keymasq.gui.widgets.save_macro_dialog as save_macro_dialog_module
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
@@ -984,9 +970,7 @@ class TestSaveMacroDialog:
         assert dialog._name_entry.get_text() == "custom_macro"
         assert dialog._save_btn.get_sensitive() is True
 
-    def test_save_macro_dialog_name_validation_matches_backend_normalization(
-        self, monkeypatch
-    ):
+    def test_save_macro_dialog_name_validation_matches_backend_normalization(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
@@ -1113,6 +1097,7 @@ class TestSaveMacroDialog:
         assert dialog._closing_after_resolution is True
         assert dialog._saved is False
 
+
 class TestDialogConstruction:
     def test_about_dialog_uses_packaged_app_identity(self, monkeypatch):
         from keymasq import __version__
@@ -1157,13 +1142,13 @@ class TestDialogConstruction:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk
 
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(Gtk.Window())
 
         assert dialog.get_child() is not None
-        assert dialog.right_box.get_parent() is not None
-        assert isinstance(dialog.tap_row, Adw.ExpanderRow)
+        assert dialog.shell.right_box.get_parent() is not None
+        assert isinstance(dialog.editor.tap_slot.row, Adw.ExpanderRow)
 
     def test_superkey_dialog_action_expanders_render_empty_and_populated_rows(
         self, temp_config_dir
@@ -1171,83 +1156,84 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, SuperkeyAction
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.superkeys import SuperkeyAction
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(Gtk.Window())
+        slot = dialog.editor.tap_slot
 
-        dialog._populate_action_row(dialog.tap_row, [])
+        slot.set_actions([])
 
-        assert dialog.tap_row.get_enable_expansion() is False
-        assert "(none)" in dialog.tap_row.get_subtitle()
-        assert dialog.tap_row._child_rows == []
+        assert slot.row.get_enable_expansion() is False
+        assert "(none)" in slot.row.get_subtitle()
+        assert slot.child_rows == ()
 
-        dialog._populate_action_row(
-            dialog.tap_row,
+        slot.set_actions(
             [
                 SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a"),
                 SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             ],
         )
 
-        assert dialog.tap_row.get_enable_expansion() is True
-        assert dialog.tap_row.get_expanded() is True
-        assert "2 actions" in dialog.tap_row.get_subtitle()
-        assert len(dialog.tap_row._child_rows) == 2
-        assert dialog.tap_row._child_rows[0].get_title().startswith("1. ")
-        assert dialog.tap_row._child_rows[1].get_title().startswith("2. ")
-        assert dialog.tap_row._child_rows[0].get_use_markup() is False
+        assert slot.row.get_enable_expansion() is True
+        assert slot.row.get_expanded() is True
+        assert "2 actions" in slot.row.get_subtitle()
+        assert len(slot.child_rows) == 2
+        assert slot.child_rows[0].get_title().startswith("1. ")
+        assert slot.child_rows[1].get_title().startswith("2. ")
+        assert slot.child_rows[0].get_use_markup() is False
 
     def test_superkey_dialog_clear_removes_expander_child_rows(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, SuperkeyAction
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.superkeys import SuperkeyAction
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(Gtk.Window())
-        dialog._populate_action_row(
-            dialog.tap_row,
+        slot = dialog.editor.tap_slot
+        slot.set_actions(
             [SuperkeyAction(action_type=ActionType.KEYBOARD, target="key_a")],
         )
 
-        assert dialog.tap_row._child_rows
+        assert slot.child_rows
 
-        dialog._on_clear_action_clicked(Gtk.Button(), dialog.tap_row)
+        slot.clear()
 
-        assert dialog.tap_row._action_items == []
-        assert dialog.tap_row.get_enable_expansion() is False
-        assert dialog.tap_row._child_rows == []
+        assert slot.actions == []
+        assert slot.row.get_enable_expansion() is False
+        assert slot.child_rows == ()
 
-    def test_superkey_dialog_overload_expanders_keep_static_descriptions(
-        self, temp_config_dir
-    ):
+    def test_superkey_dialog_overload_expanders_keep_static_descriptions(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, MappingAction
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(Gtk.Window())
+        slot = dialog.editor.overload_slot
 
-        dialog._populate_action_row(dialog.overload_row, [])
+        slot.set_actions([])
 
-        assert dialog.overload_row.get_tooltip_text() == (
+        assert slot.row.get_tooltip_text() == (
             "Main Actions start before On Press and stay held until after On Release, "
             "so they can provide a held modifier or context for both press/release lists."
         )
-        assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
-        assert "(none)" in dialog.overload_row.get_subtitle()
+        assert "Held while pressed, released when you let go" in slot.row.get_subtitle()
+        assert "(none)" in slot.row.get_subtitle()
 
-        dialog._populate_action_row(
-            dialog.overload_row,
+        slot.set_actions(
             [MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")],
         )
 
-        assert "Held while pressed, released when you let go" in dialog.overload_row.get_subtitle()
-        assert "1 action" in dialog.overload_row.get_subtitle()
-        assert dialog.overload_down_row.get_subtitle() == "(none)"
-        assert dialog.overload_up_row.get_subtitle() == "(none)"
+        assert "Held while pressed, released when you let go" in slot.row.get_subtitle()
+        assert "1 action" in slot.row.get_subtitle()
+        assert dialog.editor.overload_down_slot.row.get_subtitle() == "(none)"
+        assert dialog.editor.overload_up_slot.row.get_subtitle() == "(none)"
 
     def test_superkey_dialog_overload_saves_press_and_release_actions(
         self, temp_config_dir, monkeypatch
@@ -1256,31 +1242,32 @@ class TestDialogConstruction:
         from gi.repository import Gtk
 
         from keymasq.common import paths
-        from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.core import ActionType, SuperkeyMode
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
 
         dialog = SuperkeyDialog(Gtk.Window())
-        dialog.mode_dropdown.set_selected(1)
-        dialog.overload_row._action_items = [
-            MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")
-        ]
-        dialog.overload_down_row._action_items = [
-            MappingAction(action_type=ActionType.KEYBOARD, target="key_a")
-        ]
-        dialog.overload_up_row._action_items = [
-            MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
-        ]
-        dialog.name_entry.set_text("Split Overload")
-        dialog._on_save_clicked(Gtk.Button())
+        dialog.editor.mode_dropdown.set_selected(1)
+        dialog.editor.overload_slot.set_actions(
+            [MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl")]
+        )
+        dialog.editor.overload_down_slot.set_actions(
+            [MappingAction(action_type=ActionType.KEYBOARD, target="key_a")]
+        )
+        dialog.editor.overload_up_slot.set_actions(
+            [MappingAction(action_type=ActionType.KEYBOARD, target="key_b")]
+        )
+        dialog.editor.name_entry.set_text("Split Overload")
+        dialog.shell.save_button.emit("clicked")
 
         saved = dialog.manager.get_superkey("Split Overload")
         assert saved is not None
         assert saved.mode == SuperkeyMode.OVERLOAD
-        assert dialog.overload_row.get_title() == "Main Actions"
-        assert dialog.overload_down_row.get_visible() is True
-        assert dialog.overload_up_row.get_visible() is True
+        assert dialog.editor.overload_slot.row.get_title() == "Main Actions"
+        assert dialog.editor.overload_down_slot.row.get_visible() is True
+        assert dialog.editor.overload_up_slot.row.get_visible() is True
         assert [action.target for action in saved.overload_actions] == ["key_leftctrl"]
         assert [action.target for action in saved.overload_down_actions] == ["key_a"]
         assert [action.target for action in saved.overload_up_actions] == ["key_b"]
@@ -1290,9 +1277,10 @@ class TestDialogConstruction:
         from gi.repository import Gtk
 
         from keymasq.common import paths
-        from keymasq.common.models import ActionType, SuperkeyAction, SuperkeyConfig, SuperkeyMode
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.core import ActionType, SuperkeyMode
+        from keymasq.common.model.superkeys import SuperkeyAction, SuperkeyConfig
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
 
@@ -1312,7 +1300,7 @@ class TestDialogConstruction:
         )
 
         dialog.start_new_superkey()
-        dialog.name_entry.set_text("A_B")
+        dialog.editor.name_entry.set_text("A_B")
 
         assert dialog._save_current_superkey() is False
         assert len(alerts) == 1
@@ -1321,6 +1309,33 @@ class TestDialogConstruction:
         assert "conflicts with existing superkey 'A B'" in alert.get_body()
         assert dialog.manager.get_superkey("A_B") is None
 
+    def test_new_superkey_save_does_not_replace_persisted_placeholder(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common import paths
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.session.superkeys import SuperkeyManager
+
+        monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
+        SuperkeyManager().save_superkey(
+            SuperkeyConfig(name="New Super Key", description="Persisted")
+        )
+
+        dialog = SuperkeyDialog(Gtk.Window())
+        dialog.start_new_superkey()
+
+        dialog.editor.name_entry.set_text("Fresh Super Key")
+        assert dialog._save_current_superkey() is True
+
+        persisted = dialog.manager.get_superkey("New Super Key")
+        assert persisted is not None
+        assert persisted.description == "Persisted"
+        assert dialog.manager.get_superkey("Fresh Super Key") is not None
+
     def test_superkey_dialog_empty_state_starts_new_draft_and_keeps_close_available(
         self, temp_config_dir, monkeypatch
     ):
@@ -1328,8 +1343,9 @@ class TestDialogConstruction:
         from gi.repository import Gdk, Gtk
 
         from keymasq.common import paths
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
 
         monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
 
@@ -1343,33 +1359,31 @@ class TestDialogConstruction:
             lambda alert, parent: alerts.append((alert, parent)),
         )
 
-        new_row = dialog.new_superkey_row
+        new_row = dialog.shell.row_for_selection(EditorSelection.new_item())
         assert new_row is not None
-        assert new_row is dialog.new_superkey_row
-        assert getattr(new_row, "_is_new_superkey", False) is True
-        assert new_row.has_css_class("superkey-add-row") is True
+        assert new_row.has_css_class("managed-editor-add-row") is True
         assert new_row.get_tooltip_text() == "Add a new Super Key"
-        assert dialog.list_box.get_selected_row() is new_row
-        assert dialog.name_entry.get_text() == "New Super Key"
-        assert dialog.editor_box.get_sensitive() is True
-        assert dialog.delete_btn.get_sensitive() is False
-        assert dialog.right_box.get_sensitive() is True
-        assert dialog.close_btn.get_sensitive() is True
+        assert dialog.shell.list_box.get_selected_row() is new_row
+        assert dialog.editor.name_entry.get_text() == "New Super Key"
+        assert dialog.shell.editor_container.get_sensitive() is True
+        assert dialog.shell.delete_button.get_sensitive() is False
+        assert dialog.shell.right_box.get_sensitive() is True
+        assert dialog.shell.close_button.get_sensitive() is True
         assert dialog.get_can_close() is False
 
-        dialog.close_btn.emit("clicked")
+        dialog.shell.close_button.emit("clicked")
         assert closed == []
         assert len(alerts) == 1
         assert alerts[0][1] is dialog
 
-        dialog._on_unsaved_close_response(alerts[0][0], "cancel")
+        alerts[0][0].emit("response", "cancel")
         assert closed == []
 
         assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, 0) is True
         assert closed == []
         assert len(alerts) == 2
 
-        dialog._on_unsaved_close_response(alerts[1][0], "discard")
+        alerts[1][0].emit("response", "discard")
         assert closed == [True]
         assert dialog.get_can_close() is True
 
@@ -1380,8 +1394,8 @@ class TestDialogConstruction:
         from gi.repository import Gtk
 
         from keymasq.common import paths
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         monkeypatch.setattr(paths, "SUPERKEYS_DIR", temp_config_dir / "superkeys")
 
@@ -1397,13 +1411,13 @@ class TestDialogConstruction:
         )
         dialog.connect("superkey-saved", lambda _dialog, name: saved.append(name))
 
-        dialog.name_entry.set_text("close_saved")
+        dialog.editor.name_entry.set_text("close_saved")
         dialog._request_close()
 
         assert closed == []
         assert len(alerts) == 1
 
-        dialog._on_unsaved_close_response(alerts[0][0], "save")
+        alerts[0][0].emit("response", "save")
 
         assert closed == [True]
         assert saved == ["close_saved"]
@@ -1416,9 +1430,10 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.common.models import SuperkeyConfig
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
         from keymasq.session.superkeys import SuperkeyManager
 
         manager = SuperkeyManager()
@@ -1434,34 +1449,83 @@ class TestDialogConstruction:
 
         dialog = SuperkeyDialog(Gtk.Window())
 
-        def row_for(name: str):
-            idx = 0
-            while row := dialog.list_box.get_row_at_index(idx):
-                if getattr(row, "_superkey_name", None) == name:
-                    return row
-                idx += 1
-            raise AssertionError(f"missing row {name}")
+        alpha_row = dialog.shell.row_for_selection(EditorSelection.saved_item("Alpha"))
+        beta_row = dialog.shell.row_for_selection(EditorSelection.saved_item("Beta"))
+        assert alpha_row is not None
+        assert beta_row is not None
+        assert dialog.shell.list_box.get_selected_row() is alpha_row
 
-        alpha_row = row_for("Alpha")
-        beta_row = row_for("Beta")
-        assert dialog.list_box.get_selected_row() is alpha_row
-
-        dialog.desc_entry.set_text("dirty")
-        dialog.list_box.select_row(beta_row)
+        dialog.editor.description_entry.set_text("dirty")
+        dialog.shell.list_box.select_row(beta_row)
 
         assert len(alerts) == 1
         assert alerts[0][1] is dialog
-        assert dialog.list_box.get_selected_row() is alpha_row
+        assert dialog.shell.list_box.get_selected_row() is alpha_row
         assert dialog._current_config is not None
         assert dialog._current_config.name == "Alpha"
-        assert dialog.desc_entry.get_text() == "dirty"
+        assert dialog.editor.description_entry.get_text() == "dirty"
 
-        dialog._on_unsaved_selection_response(alerts[0][0], "discard")
+        alerts[0][0].emit("response", "discard")
 
-        assert dialog.list_box.get_selected_row() is beta_row
+        assert dialog.shell.list_box.get_selected_row() is beta_row
         assert dialog._current_config is not None
         assert dialog._current_config.name == "Beta"
-        assert dialog._modified is False
+        assert dialog.state.is_dirty is False
+
+    def test_superkey_dialog_missing_queued_selection_falls_back_to_none(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.session.superkeys import SuperkeyManager
+
+        manager = SuperkeyManager()
+        manager.save_superkey(SuperkeyConfig(name="Alpha"))
+        manager.save_superkey(SuperkeyConfig(name="Beta"))
+        alerts: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            superkey_dialog_module.Adw.AlertDialog,
+            "present",
+            lambda alert, parent: alerts.append((alert, parent)),
+        )
+        dialog = SuperkeyDialog(Gtk.Window())
+        beta_selection = EditorSelection.saved_item("Beta")
+        beta_row = dialog.shell.row_for_selection(beta_selection)
+        assert beta_row is not None
+
+        dialog.editor.description_entry.set_text("dirty")
+        dialog.shell.list_box.select_row(beta_row)
+        assert len(alerts) == 1
+        alpha_selection = EditorSelection.saved_item("Alpha")
+        dialog.state.begin_selection_sync()
+        try:
+            dialog.shell.clear_rows()
+            dialog.shell.append_text_row(
+                alpha_selection,
+                label="Alpha",
+                search_text="Alpha",
+            )
+            dialog.shell.append_text_row(
+                EditorSelection.new_item(),
+                label="+ Add",
+                search_text="add new super key",
+            )
+            dialog.shell.select(alpha_selection)
+        finally:
+            dialog.state.end_selection_sync()
+
+        alerts[0][0].emit("response", "discard")
+
+        assert dialog.shell.list_box.get_selected_row() is None
+        assert dialog.state.active_selection is None
+        assert dialog._current_config is None
+        assert dialog.state.is_dirty is False
+        assert dialog.shell.editor_container.get_sensitive() is False
 
     def test_superkey_dialog_new_button_warns_before_resetting_dirty_new_draft(
         self, temp_config_dir, monkeypatch
@@ -1469,8 +1533,9 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
 
         alerts: list[tuple[object, object]] = []
         monkeypatch.setattr(
@@ -1480,10 +1545,11 @@ class TestDialogConstruction:
         )
 
         dialog = SuperkeyDialog(Gtk.Window())
-        assert dialog.list_box.get_selected_row() is dialog.new_superkey_row
+        new_row = dialog.shell.row_for_selection(EditorSelection.new_item())
+        assert dialog.shell.list_box.get_selected_row() is new_row
 
-        dialog.name_entry.set_text("Edited Draft")
-        dialog._on_new_clicked(Gtk.Button())
+        dialog.editor.name_entry.set_text("Edited Draft")
+        dialog.shell.add_button.emit("clicked")
 
         assert len(alerts) == 1
         alert = alerts[0][0]
@@ -1492,13 +1558,13 @@ class TestDialogConstruction:
         assert alert.get_body() == (
             "Save your changes before starting a new Super Key, or discard them?"
         )
-        assert dialog.name_entry.get_text() == "Edited Draft"
+        assert dialog.editor.name_entry.get_text() == "Edited Draft"
 
-        dialog._on_unsaved_selection_response(alert, "discard")
+        alert.emit("response", "discard")
 
-        assert dialog.list_box.get_selected_row() is dialog.new_superkey_row
-        assert dialog.name_entry.get_text() == "New Super Key"
-        assert dialog._modified is True
+        assert dialog.shell.list_box.get_selected_row() is new_row
+        assert dialog.editor.name_entry.get_text() == "New Super Key"
+        assert dialog.state.is_dirty is True
 
     def test_superkey_dialog_add_row_warns_before_resetting_dirty_new_draft(
         self, temp_config_dir, monkeypatch
@@ -1506,8 +1572,9 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
 
         alerts: list[tuple[object, object]] = []
         monkeypatch.setattr(
@@ -1517,31 +1584,31 @@ class TestDialogConstruction:
         )
 
         dialog = SuperkeyDialog(Gtk.Window())
-        new_row = dialog.new_superkey_row
+        new_selection = EditorSelection.new_item()
+        new_row = dialog.shell.row_for_selection(new_selection)
         assert new_row is not None
-        assert dialog.list_box.get_selected_row() is new_row
+        assert dialog.shell.list_box.get_selected_row() is new_row
 
-        dialog.name_entry.set_text("Edited Draft")
-        dialog._on_superkey_selected(dialog.list_box, new_row)
+        dialog.editor.name_entry.set_text("Edited Draft")
+        dialog._on_selection_changed(new_selection)
 
         assert len(alerts) == 1
         assert alerts[0][1] is dialog
-        assert dialog.name_entry.get_text() == "Edited Draft"
+        assert dialog.editor.name_entry.get_text() == "Edited Draft"
 
-        dialog._on_unsaved_selection_response(alerts[0][0], "discard")
+        alerts[0][0].emit("response", "discard")
 
-        assert dialog.list_box.get_selected_row() is new_row
-        assert dialog.name_entry.get_text() == "New Super Key"
-        assert dialog._modified is True
+        assert dialog.shell.list_box.get_selected_row() is new_row
+        assert dialog.editor.name_entry.get_text() == "New Super Key"
+        assert dialog.state.is_dirty is True
 
-    def test_superkey_dialog_select_superkey_by_name_selects_saved_superkey(
-        self, temp_config_dir
-    ):
+    def test_superkey_dialog_select_superkey_by_name_selects_saved_superkey(self, temp_config_dir):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import SuperkeyConfig
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
         from keymasq.session.superkeys import SuperkeyManager
 
         manager = SuperkeyManager()
@@ -1550,21 +1617,145 @@ class TestDialogConstruction:
 
         dialog = SuperkeyDialog(Gtk.Window())
 
-        def row_for(name: str):
-            idx = 0
-            while row := dialog.list_box.get_row_at_index(idx):
-                if getattr(row, "_superkey_name", None) == name:
-                    return row
-                idx += 1
-            raise AssertionError(f"missing row {name}")
-
         dialog.select_superkey_by_name("Beta")
 
-        beta_row = row_for("Beta")
-        assert dialog.list_box.get_selected_row() is beta_row
+        beta_row = dialog.shell.row_for_selection(EditorSelection.saved_item("Beta"))
+        assert beta_row is not None
+        assert dialog.shell.list_box.get_selected_row() is beta_row
         assert dialog._current_config is not None
         assert dialog._current_config.name == "Beta"
-        assert dialog.name_entry.get_text() == "Beta"
+        assert dialog.editor.name_entry.get_text() == "Beta"
+
+    def test_superkey_dialog_rename_updates_store_profiles_and_selection(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.managed_editor.state import EditorSelection
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.session.profile.manager import ProfileManager
+        from keymasq.session.superkeys import SuperkeyManager
+
+        manager = SuperkeyManager()
+        manager.save_superkey(SuperkeyConfig(name="Old", description="Before"))
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(
+            ProfileConfig(
+                name="Desktop",
+                device_layers={
+                    "keyboard": DeviceProfileLayer(
+                        hardware_id="keyboard",
+                        mappings={
+                            "key_capslock": MappingAction(
+                                action_type=ActionType.SUPERKEY,
+                                superkey_name="Old",
+                            )
+                        },
+                    )
+                },
+                combos=[
+                    ComboConfig(
+                        id="launcher",
+                        action=MappingAction(
+                            action_type=ActionType.SUPERKEY,
+                            superkey_name="Old",
+                        ),
+                    )
+                ],
+            )
+        )
+        store_writes: list[tuple[str, str | None, str | None]] = []
+        save_superkey = manager.save_superkey
+
+        def track_save(
+            config: SuperkeyConfig,
+            *,
+            replacing_name: str | None = None,
+        ) -> None:
+            store_writes.append((config.name, replacing_name, config.description))
+            save_superkey(config, replacing_name=replacing_name)
+
+        monkeypatch.setattr(manager, "save_superkey", track_save)
+        dialog = SuperkeyDialog(Gtk.Window(), profile_manager, manager=manager)
+        dialog.editor.name_entry.set_text("New")
+        dialog.editor.description_entry.set_text("After")
+
+        assert dialog._save_current_superkey() is True
+
+        assert store_writes == [("New", "Old", "After")]
+        assert dialog.manager.get_superkey("Old") is None
+        saved = dialog.manager.get_superkey("New")
+        assert saved is not None
+        assert saved.description == "After"
+
+        profile = ProfileManager().get_profile("Desktop")
+        assert profile is not None
+        mapping = profile.config.device_layers["keyboard"].mappings["key_capslock"]
+        combo_action = profile.config.combos[0].action
+        assert mapping.superkey_name == "New"
+        assert combo_action is not None
+        assert combo_action.superkey_name == "New"
+
+        old_selection = EditorSelection.saved_item("Old")
+        new_selection = EditorSelection.saved_item("New")
+        new_row = dialog.shell.row_for_selection(new_selection)
+        assert dialog.shell.row_for_selection(old_selection) is None
+        assert new_row is not None
+        assert dialog.shell.list_box.get_selected_row() is new_row
+        assert dialog.state.active_selection == new_selection
+
+    def test_selecting_active_superkey_by_name_preserves_dirty_draft(self, temp_config_dir):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.session.superkeys import SuperkeyManager
+
+        SuperkeyManager().save_superkey(SuperkeyConfig(name="Alpha"))
+        dialog = SuperkeyDialog(Gtk.Window())
+        dialog.editor.description_entry.set_text("Unsaved description")
+
+        dialog.select_superkey_by_name("Alpha")
+
+        assert dialog.editor.description_entry.get_text() == "Unsaved description"
+        assert dialog.state.is_dirty is True
+
+    def test_failed_superkey_delete_keeps_profiles_and_dialog_state(
+        self, temp_config_dir, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.model.superkeys import SuperkeyConfig
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+        from keymasq.session.superkeys import SuperkeyManager
+
+        class ProfileReferences:
+            def __init__(self):
+                self.replaced: list[str] = []
+
+            def replace_superkey_with_suppress(self, name: str) -> int:
+                self.replaced.append(name)
+                return 1
+
+        SuperkeyManager().save_superkey(SuperkeyConfig(name="Alpha"))
+        profiles = ProfileReferences()
+        dialog = SuperkeyDialog(Gtk.Window(), profiles)
+        deleted: list[str] = []
+        dialog.connect("superkey-deleted", lambda _dialog, name: deleted.append(name))
+        monkeypatch.setattr(dialog.manager, "delete_superkey", lambda _name: False)
+
+        assert dialog._delete("Alpha") is False
+
+        assert profiles.replaced == []
+        assert deleted == []
+        assert dialog.manager.get_superkey("Alpha") is not None
 
     def test_superkey_dialog_docs_button_links_to_superkeys_docs(
         self, temp_config_dir, monkeypatch
@@ -1572,17 +1763,16 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         monkeypatch.setattr(superkey_dialog_module, "__version__", "1.2.3")
 
         dialog = SuperkeyDialog(Gtk.Window())
 
-        assert dialog.superkeys_docs_btn.get_label() == "?"
+        assert dialog.shell.documentation_button.get_label() == "?"
         assert (
-            dialog.superkeys_docs_btn.get_tooltip_text()
-            == "Open Super Keys documentation"
+            dialog.shell.documentation_button.get_tooltip_text() == "Open Super Keys documentation"
         )
         assert superkey_dialog_module._superkeys_docs_url() == (
             "https://keymasq.tools/docs/v1.2.3/SUPERKEYS/"
@@ -1595,7 +1785,7 @@ class TestDialogConstruction:
 
     def test_application_presents_superkey_dialog_on_main_window(self, monkeypatch):
         import keymasq.gui.application as application_module
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
 
         captured: dict[str, object] = {}
         window = SimpleNamespace(profile_manager=object())
@@ -1627,13 +1817,13 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         captured: dict[str, object] = {}
         parent = Gtk.Window()
 
-        class DummyActionListDialog:
+        class DummyActionSequenceDialog:
             def __init__(self, *args, **kwargs):
                 captured["args"] = args
                 captured["kwargs"] = kwargs
@@ -1645,10 +1835,14 @@ class TestDialogConstruction:
             def present(self, parent):
                 captured["present_parent"] = parent
 
-        monkeypatch.setattr(superkey_dialog_module, "ActionListDialog", DummyActionListDialog)
+        monkeypatch.setattr(
+            superkey_dialog_module,
+            "ActionSequenceDialog",
+            DummyActionSequenceDialog,
+        )
 
         dialog = SuperkeyDialog(parent)
-        dialog._on_edit_action_clicked(Gtk.Button(), dialog.tap_row)
+        dialog._edit_pattern_slot(dialog.editor.tap_slot)
 
         assert captured["present_parent"] is parent
         assert captured["signal_name"] == "actions-selected"
@@ -1657,9 +1851,13 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, SuperkeyAction
-        import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.superkeys import SuperkeyAction
+        import keymasq.gui.widgets.key_selector.dialog as key_selector_dialog_module
+        from keymasq.gui.widgets.action_sequence import (
+            ActionSequenceDialog,
+            ActionSequenceMode,
+        )
 
         captured: dict[str, object] = {}
 
@@ -1682,7 +1880,12 @@ class TestDialogConstruction:
 
         monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
 
-        dialog = ActionListDialog(parent, "Hold Actions", "pattern", action_key="hold")
+        dialog = ActionSequenceDialog(
+            parent,
+            "Hold Actions",
+            ActionSequenceMode.SUPERKEY_PATTERN,
+            action_key="hold",
+        )
         dialog._open_child_editor(
             SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             2,
@@ -1710,9 +1913,13 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, MappingAction
-        import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
-        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.actions import MappingAction
+        import keymasq.gui.widgets.key_selector.dialog as key_selector_dialog_module
+        from keymasq.gui.widgets.action_sequence import (
+            ActionSequenceDialog,
+            ActionSequenceMode,
+        )
 
         captured: dict[str, object] = {}
         parent = Gtk.Window()
@@ -1734,7 +1941,11 @@ class TestDialogConstruction:
 
         monkeypatch.setattr(key_selector_dialog_module, "KeySelectorDialog", DummyDialog)
 
-        dialog = ActionListDialog(parent, "Overload Actions", "overload")
+        dialog = ActionSequenceDialog(
+            parent,
+            "Overload Actions",
+            ActionSequenceMode.MAPPING,
+        )
         dialog._open_child_editor(
             MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             1,
@@ -1759,19 +1970,22 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
-        from keymasq.gui.widgets.superkey_dialog import ActionListDialog
+        from keymasq.gui.widgets.action_sequence import (
+            ActionSequenceDialog,
+            ActionSequenceMode,
+        )
 
         parent = Gtk.Window()
-        down_dialog = ActionListDialog(
+        down_dialog = ActionSequenceDialog(
             parent,
             "Edit On Press",
-            "overload",
+            ActionSequenceMode.MAPPING,
             action_key="overload_down",
         )
-        up_dialog = ActionListDialog(
+        up_dialog = ActionSequenceDialog(
             parent,
             "Edit On Release",
-            "overload",
+            ActionSequenceMode.MAPPING,
             action_key="overload_up",
         )
 
@@ -1786,10 +2000,11 @@ class TestDialogConstruction:
         )
 
     def test_pattern_superkey_action_summary_formats_without_label_rewrite(self):
-        from keymasq.common.models import ActionType, SuperkeyAction
-        from keymasq.gui.widgets.superkey_dialog import _describe_pattern_superkey_action
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.superkeys import SuperkeyAction
+        from keymasq.gui.widgets.action_sequence_labels import describe_pattern_action
 
-        label = _describe_pattern_superkey_action(
+        label = describe_pattern_action(
             SuperkeyAction(action_type=ActionType.PROFILE_TOGGLE, profile_name="Gaming"),
             exec_limit=20,
             exec_prefix="exec ",
@@ -1797,7 +2012,7 @@ class TestDialogConstruction:
             target_separator=" -> ",
             title_case_target_type=True,
         )
-        lower_label = _describe_pattern_superkey_action(
+        lower_label = describe_pattern_action(
             SuperkeyAction(
                 action_type=ActionType.MOUSE_MOVE_REL,
                 move_x=12,
@@ -1825,15 +2040,12 @@ class TestDialogConstruction:
 
         assert dialog.get_child() is not None
         assert callable(dialog._on_close_clicked)
-        dialog._macro_recording_enabled = False
+        dialog._recording_state.enabled = False
         dialog._sync_record_button_state()
         assert dialog._record_btn.get_visible() is False
         assert dialog._slot_dropdown is not None
         assert dialog._slot_dropdown.get_visible() is False
-        assert (
-            dialog.playback_stop_hint.get_label()
-            == "Interrupt macro playback: Ctrl+Alt+Esc"
-        )
+        assert dialog.playback_stop_hint.get_label() == "Interrupt macro playback: Ctrl+Alt+Esc"
         assert dialog.playback_stop_hint.get_halign() == Gtk.Align.CENTER
 
     def test_macro_manager_dialog_docs_button_links_to_macros_docs(self, monkeypatch):
@@ -1909,8 +2121,7 @@ class TestDialogConstruction:
         assert dialog.unicode_check.get_visible() is True
         assert dialog.unicode_check.get_active() is True
         assert (
-            dialog.unicode_check.get_label()
-            == "Use Ctrl+Shift+U for detected Unicode characters"
+            dialog.unicode_check.get_label() == "Use Ctrl+Shift+U for detected Unicode characters"
         )
 
     def test_type_macro_builder_can_emit_unicode_input_sequence(self):
@@ -1952,7 +2163,7 @@ class TestDialogConstruction:
 
         dialog._on_recording_started({"event": "recording_started"})
 
-        assert dialog._recording_active is True
+        assert dialog._recording_state.active is True
         assert closed == [True]
 
     def test_macro_manager_opens_locked_recording_mode_after_recording_locked(
@@ -1989,7 +2200,7 @@ class TestDialogConstruction:
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
-        import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
+        import keymasq.gui.widgets.macro_editor.dialog as macro_editor_dialog_module
         from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
 
         monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
@@ -2058,8 +2269,8 @@ class TestDialogConstruction:
         )
 
         assert dialog._on_initial_state_loaded(result) is False
-        assert dialog._recording_unlocked is True
-        assert dialog._macro_recording_enabled is True
+        assert dialog._recording_state.unlocked is True
+        assert dialog._recording_state.enabled is True
         assert dialog._empty_label.get_visible() is False
         assert dialog._listbox.get_first_child() is not None
         assert dialog._record_btn.get_visible() is True
@@ -2108,7 +2319,7 @@ class TestDialogConstruction:
 
         assert dialog._on_macros_loaded({"status": "error", "message": "boom"}) is False
 
-        assert dialog._macros[0]["name"] == "stored"
+        assert dialog._catalog.macros[0]["name"] == "stored"
         assert dialog._listbox.get_row_at_index(0) is not None
         assert dialog._empty_label.get_visible() is False
         assert len(alerts) == 1
@@ -2125,7 +2336,7 @@ class TestDialogConstruction:
         )
 
         assert dialog._on_initial_state_loaded(result) is False
-        assert dialog._macros[0]["name"] == "stored"
+        assert dialog._catalog.macros[0]["name"] == "stored"
         assert dialog._listbox.get_row_at_index(0) is not None
         assert dialog._empty_label.get_visible() is False
         assert len(alerts) == 2
@@ -2159,7 +2370,7 @@ class TestDialogConstruction:
 
         monkeypatch.setattr(macro_manager_dialog_module, "session_request", fake_session_request)
         dialog = MacroManagerDialog(Gtk.Window())
-        dialog._macros = [{"name": "copy"}, {"name": "copy_1"}]
+        dialog._catalog.macros = [{"name": "copy"}, {"name": "copy_1"}]
 
         assert dialog._duplicate_macro_request("copy") == {"status": "ok"}
 
@@ -2294,8 +2505,8 @@ class TestDialogConstruction:
         opened_names: list[str] = []
         monkeypatch.setattr(dialog, "_open_empty_macro_editor", opened_names.append)
 
-        dialog._recording_active = False
-        dialog._macro_recording_enabled = False
+        dialog._recording_state.active = False
+        dialog._recording_state.enabled = False
         dialog._sync_record_button_state()
         dialog._on_empty_macro_names_loaded({"macros": [{"name": "macro"}]})
 
@@ -2304,14 +2515,14 @@ class TestDialogConstruction:
         assert dialog._slot_dropdown.get_visible() is False
         assert opened_names == ["macro_1"]
 
-        dialog._recording_active = False
-        dialog._macro_recording_enabled = True
+        dialog._recording_state.active = False
+        dialog._recording_state.enabled = True
         dialog._sync_record_button_state()
         assert dialog._record_btn.get_visible() is True
         assert dialog._slot_dropdown is not None
         assert dialog._slot_dropdown.get_visible() is True
         dialog._on_record_new(dialog._record_btn)
-        dialog._recording_active = True
+        dialog._recording_state.active = True
         dialog._sync_record_button_state()
         assert dialog._slot_dropdown.get_sensitive() is False
         dialog._on_record_new(dialog._record_btn)
@@ -2344,18 +2555,18 @@ class TestDialogConstruction:
         )
 
         dialog = MacroManagerDialog(Gtk.Window())
-        dialog._macro_recording_enabled = True
+        dialog._recording_state.enabled = True
         assert dialog._slot_dropdown is not None
         dialog._slot_dropdown.set_selected(2)
         dialog._sync_record_button_state()
         dialog._on_record_new(dialog._record_btn)
 
-        dialog._recording_active = True
+        dialog._recording_state.active = True
         dialog._sync_record_button_state()
         dialog._slot_dropdown.set_selected(1)
         dialog._on_record_new(dialog._record_btn)
 
-        assert dialog._recording_slot == 3
+        assert dialog._recording_state.selected_slot == 3
         assert requests == [
             {"command": "start_recording", "recording_slot": 3},
             {"command": "stop_recording", "recording_slot": 3},

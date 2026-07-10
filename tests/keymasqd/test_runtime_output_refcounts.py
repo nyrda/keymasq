@@ -1,10 +1,9 @@
 from types import SimpleNamespace
 from typing import Any, cast
 
-from keymasq.keymasqd.runtime import (
-    analog_controls,
-    combos,
-)
+from keymasq.keymasqd.runtime.analog import thresholds
+from keymasq.keymasqd.runtime.combo import actions
+from keymasq.keymasqd.runtime.combo.state import ComboRuntimeState
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.types import GrabbedDeviceState
 
@@ -150,16 +149,16 @@ def test_analog_threshold_key_output_uses_refcount_lifecycle() -> None:
     state = GrabbedDeviceState()
     device = cast(Any, SimpleNamespace(state=state))
 
-    assert analog_controls._track_threshold_output(device, "keyboard", 30, 1)
-    assert not analog_controls._track_threshold_output(device, "keyboard", 30, 1)
+    assert thresholds.track_threshold_output(device, "keyboard", 30, 1)
+    assert not thresholds.track_threshold_output(device, "keyboard", 30, 1)
     assert state.analog_threshold_output_refcounts["keyboard"] == {30: 2}
     assert state.held_output_keys["keyboard"] == {30}
 
-    assert not analog_controls._track_threshold_output(device, "keyboard", 30, 0)
+    assert not thresholds.track_threshold_output(device, "keyboard", 30, 0)
     assert state.analog_threshold_output_refcounts["keyboard"] == {30: 1}
     assert state.held_output_keys["keyboard"] == {30}
 
-    assert analog_controls._track_threshold_output(device, "keyboard", 30, 0)
+    assert thresholds.track_threshold_output(device, "keyboard", 30, 0)
     assert state.analog_threshold_output_refcounts["keyboard"] == {}
     assert state.held_output_keys["keyboard"] == set()
 
@@ -168,33 +167,33 @@ def test_analog_threshold_abs_output_uses_refcount_lifecycle() -> None:
     state = GrabbedDeviceState()
     device = cast(Any, SimpleNamespace(state=state))
 
-    assert analog_controls._track_threshold_abs_output(device, "gamepad", 2, 255)
-    assert not analog_controls._track_threshold_abs_output(device, "gamepad", 2, -255)
+    assert thresholds.track_threshold_abs_output(device, "gamepad", 2, 255)
+    assert not thresholds.track_threshold_abs_output(device, "gamepad", 2, -255)
     assert state.analog_threshold_abs_refcounts["gamepad"] == {2: 2}
     assert state.held_output_abs["gamepad"] == {2}
 
-    assert not analog_controls._track_threshold_abs_output(device, "gamepad", 2, 0)
+    assert not thresholds.track_threshold_abs_output(device, "gamepad", 2, 0)
     assert state.analog_threshold_abs_refcounts["gamepad"] == {2: 1}
     assert state.held_output_abs["gamepad"] == {2}
 
-    assert analog_controls._track_threshold_abs_output(device, "gamepad", 2, 0)
+    assert thresholds.track_threshold_abs_output(device, "gamepad", 2, 0)
     assert state.analog_threshold_abs_refcounts["gamepad"] == {}
     assert state.held_output_abs["gamepad"] == set()
 
 
 def test_combo_superkey_output_uses_refcount_lifecycle() -> None:
-    combo_state = combos.ComboRuntimeState()
+    combo_state = ComboRuntimeState()
     manager = cast(Any, SimpleNamespace(combo_state=combo_state))
 
-    assert combos.track_combo_superkey_output(manager, "keyboard", 30, 1)
-    assert not combos.track_combo_superkey_output(manager, "keyboard", 30, 1)
+    assert actions.track_combo_superkey_output(manager, "keyboard", 30, 1)
+    assert not actions.track_combo_superkey_output(manager, "keyboard", 30, 1)
     assert combo_state.superkey_output_refcounts["keyboard"] == {30: 2}
     assert combo_state.held_output_keys["keyboard"] == {30}
 
-    assert not combos.track_combo_superkey_output(manager, "keyboard", 30, 0)
+    assert not actions.track_combo_superkey_output(manager, "keyboard", 30, 0)
     assert combo_state.superkey_output_refcounts["keyboard"] == {30: 1}
     assert combo_state.held_output_keys["keyboard"] == {30}
 
-    assert combos.track_combo_superkey_output(manager, "keyboard", 30, 0)
+    assert actions.track_combo_superkey_output(manager, "keyboard", 30, 0)
     assert combo_state.superkey_output_refcounts["keyboard"] == {}
     assert combo_state.held_output_keys["keyboard"] == set()

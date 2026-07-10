@@ -1,26 +1,25 @@
 import logging
 import struct
 
-from keymasq.session.wayland_protocols import client_transport as _transport
-from keymasq.session.wayland_protocols.wlr_foreign_toplevel_manager import (
-    WlrForeignToplevelManagerTracker,
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
+from keymasq.session.wayland_protocols.client_transport import (
+    WaylandClientTransport,
+    WaylandDisplayError,
+    decode_array,
+    decode_string,
+    decode_uint_array,
 )
 
-WL_DISPLAY_OBJECT_ID = _transport.WL_DISPLAY_OBJECT_ID
 WLR_FOREIGN_TOPLEVEL_MANAGER_INTERFACE = "zwlr_foreign_toplevel_manager_v1"
-_pack_uint = _transport.pack_uint
-_encode_string = _transport.encode_string
-_decode_string = _transport.decode_string
-_decode_array = _transport.decode_array
-_decode_uint_array = _transport.decode_uint_array
+WLR_TOPLEVEL_STATE_ACTIVATED = 2
 
 log = logging.getLogger("keymasq-session.wayland.wlr_foreign_toplevel")
 
 
-class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
+class WlrForeignToplevelWaylandClient(WaylandClientTransport):
     def __init__(
         self,
-        tracker: WlrForeignToplevelManagerTracker,
+        tracker: ActiveWindowTracker,
         socket_path: str | None = None,
     ) -> None:
         super().__init__(socket_path)
@@ -30,9 +29,7 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
 
     def _check_required_globals(self) -> None:
         if self._manager_id is None:
-            raise RuntimeError(
-                "zwlr_foreign_toplevel_manager_v1 is unavailable on this compositor"
-            )
+            raise RuntimeError("zwlr_foreign_toplevel_manager_v1 is unavailable on this compositor")
 
     async def stop(self) -> None:
         self._running = False
@@ -44,7 +41,7 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
                 self._toplevel_handles.clear()
                 try:
                     await self._send_request(self._manager_id, 0, b"")
-                except (OSError, _transport.WaylandDisplayError):
+                except (OSError, WaylandDisplayError):
                     log.debug("Failed to destroy wlr foreign toplevel manager", exc_info=True)
                 except Exception:
                     log.exception("Unexpected failure destroying wlr foreign toplevel manager")
@@ -105,7 +102,7 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
     async def _destroy_toplevel_handle(self, object_id: int) -> None:
         try:
             await self._send_request(object_id, 7, b"")
-        except (OSError, _transport.WaylandDisplayError):
+        except (OSError, WaylandDisplayError):
             log.debug("Failed to destroy wlr foreign toplevel handle", exc_info=True)
         except Exception:
             log.exception(
@@ -118,16 +115,16 @@ class WlrForeignToplevelWaylandClient(_transport.WaylandClientTransport):
     async def _handle_toplevel_event(self, object_id: int, opcode: int, payload: bytes) -> None:
         handle_id = str(object_id)
         if opcode == 0:
-            title, _ = _decode_string(payload, 0)
+            title, _ = decode_string(payload, 0)
             self._tracker.update_title(handle_id, title)
             return
         if opcode == 1:
-            app_id, _ = _decode_string(payload, 0)
+            app_id, _ = decode_string(payload, 0)
             self._tracker.update_app_id(handle_id, app_id)
             return
         if opcode == 4:
-            state_data, _ = _decode_array(payload, 0)
-            self._tracker.update_state(handle_id, _decode_uint_array(state_data))
+            state_data, _ = decode_array(payload, 0)
+            self._tracker.update_state(handle_id, decode_uint_array(state_data))
             return
         if opcode == 6:
             self._tracker.close_toplevel(handle_id)

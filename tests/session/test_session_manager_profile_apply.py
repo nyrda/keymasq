@@ -4,20 +4,27 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import keymasq.session.manager as session_manager_module
-import keymasq.session.manager.payloads as session_payloads_module
-import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.constants as manager_constants
+import keymasq.session.manager.payload.mapping as mapping_payload
+import keymasq.session.manager.profile.application as profile_application
+import keymasq.session.manager.profile.grab_plan as grab_plan
+import keymasq.session.manager.profile.lifecycle as profile_lifecycle
 from keymasq.common.ipc import CommandType, Response
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import (
     ComboEvent,
     ComboStep,
     DeviceProfileLayer,
-    MappingAction,
     ProfileConfig,
 )
-from keymasq.session.manager import SessionManager
-from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
+from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator
+from keymasq.session.profile.types import (
+    ResolvedCombo,
+    ResolvedDeviceProfile,
+    ResolvedProfiles,
+)
 
 
 @pytest.mark.asyncio
@@ -83,8 +90,8 @@ async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
         ]
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -117,16 +124,21 @@ async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> Non
         ]
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     sent = manager.client.send_command.await_args_list
     assert sent[0].args[0].command == CommandType.GRAB_DEVICE
-    assert sent[0].kwargs["timeout"] == session_manager_module.GRAB_DEVICE_TIMEOUT_S
+    assert sent[0].kwargs["timeout"] == manager_constants.GRAB_DEVICE_TIMEOUT_S
 
 
 @pytest.mark.asyncio
 async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_inspector() -> None:
-    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import (
+        ButtonDefinition,
+        EvdevDevice,
+        HardwareConfig,
+    )
 
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -165,7 +177,7 @@ async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_insp
         ]
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -221,9 +233,9 @@ def test_grab_device_payload_signature_includes_interface_descriptors() -> None:
         ],
     }
 
-    assert session_profiles_module.grab_device_payload_signature(
+    assert grab_plan.grab_device_payload_signature(
         payload
-    ) != session_profiles_module.grab_device_payload_signature(changed_payload)
+    ) != grab_plan.grab_device_payload_signature(changed_payload)
 
 
 def test_grab_device_payload_signature_normalizes_interface_order() -> None:
@@ -239,9 +251,9 @@ def test_grab_device_payload_signature_normalizes_interface_order() -> None:
         "evdev_interfaces": list(reversed(first["evdev_interfaces"])),
     }
 
-    assert session_profiles_module.grab_device_payload_signature(
+    assert grab_plan.grab_device_payload_signature(
         first
-    ) == session_profiles_module.grab_device_payload_signature(second)
+    ) == grab_plan.grab_device_payload_signature(second)
 
 
 def test_grab_device_payload_signature_normalizes_interface_capability_order() -> None:
@@ -265,9 +277,9 @@ def test_grab_device_payload_signature_normalizes_interface_capability_order() -
         ],
     }
 
-    assert session_profiles_module.grab_device_payload_signature(
+    assert grab_plan.grab_device_payload_signature(
         first
-    ) == session_profiles_module.grab_device_payload_signature(second)
+    ) == grab_plan.grab_device_payload_signature(second)
 
 
 @pytest.mark.asyncio
@@ -290,9 +302,9 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout(
     manager.client.send_command = AsyncMock(side_effect=TimeoutError())
     manager.send_notification = Mock()  # type: ignore[method-assign]
     schedule_grab_retry = Mock()
-    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", schedule_grab_retry)
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
         "Keymasq: Grab Timed Out",
@@ -304,7 +316,7 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout(
     schedule_grab_retry.assert_called_once_with(
         manager,
         hardware_id,
-        delay_s=session_profiles_module.GRAB_RETRY_DELAY_S,
+        delay_s=manager_constants.GRAB_RETRY_DELAY_S,
     )
 
 
@@ -329,10 +341,10 @@ async def test_apply_resolved_device_profile_logs_unexpected_grab_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("grab bug"))
     manager.send_notification = Mock()  # type: ignore[method-assign]
     schedule_grab_retry = Mock()
-    monkeypatch.setattr(session_profiles_module, "schedule_grab_retry", schedule_grab_retry)
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", schedule_grab_retry)
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session"):
-        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+        await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     assert "Unexpected failure grabbing device 1234:5678" in caplog.text
     assert "grab bug" in caplog.text
@@ -359,7 +371,7 @@ async def test_apply_resolved_device_profile_waits_when_daemon_reports_no_live_i
         return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.client.send_command.assert_awaited_once()
     assert hardware_id not in manager.profile_state.grabbed_devices
@@ -404,8 +416,8 @@ async def test_apply_resolved_device_profile_skips_unchanged_waiting_device() ->
         return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.client.send_command.assert_awaited_once()
     assert hardware_id in manager.profile_state.grab_waiting_devices
@@ -450,17 +462,17 @@ async def test_apply_resolved_device_profile_clears_waiting_cache_across_inactiv
         return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, mapped)
     manager.profile_state.grab_status[hardware_id] = {
         "state": "waiting",
         "path": "keymasq:1234:5678",
     }
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, inactive)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, inactive)
     assert hardware_id not in manager.profile_state.grab_waiting_devices
     assert hardware_id not in manager.profile_state.grab_status
     assert hardware_id not in manager.profile_state.last_sent_grab_signatures
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, mapped)
 
     assert manager.client.send_command.await_count == 2
     assert hardware_id in manager.profile_state.grab_waiting_devices
@@ -508,8 +520,8 @@ async def test_apply_resolved_device_profile_resends_waiting_device_when_payload
         return_value=Response(status="ok", data={"grabbed_count": 0, "waiting_for_device": True})
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, mapped)
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, changed)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, mapped)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, changed)
 
     assert manager.client.send_command.await_count == 2
     assert hardware_id in manager.profile_state.grab_waiting_devices
@@ -545,8 +557,8 @@ async def test_apply_resolved_device_profile_does_not_grab_empty_interface_selec
     manager.client.send_command = AsyncMock()
 
     with caplog.at_level(logging.WARNING, logger="keymasq-session"):
-        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
-        await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+        await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
+        await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     manager.client.send_command.assert_not_awaited()
     assert "No configured interfaces selected for 1234:5678@2" in caplog.text
@@ -578,26 +590,26 @@ async def test_apply_resolved_device_profile_skips_same_interface_noop_without_m
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
-    grab_payload = session_profiles_module.build_grab_device_payload(
+    grab_payload = grab_plan.build_grab_device_payload(
         manager,
         hardware_id,
         manager.hardware.get_hardware(hardware_id),
         resolved,
         {"mouse": "/dev/input/event10"},
     )
-    manager.profile_state.last_sent_grab_signatures[
-        hardware_id
-    ] = session_profiles_module.grab_device_payload_signature(grab_payload)
-    manager.profile_state.last_sent_mapping_signatures[
-        hardware_id
-    ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+        grab_plan.grab_device_payload_signature(grab_payload)
+    )
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
+        mapping_payload.signature(manager, resolved, hardware_id)
+    )
     update_mapping = AsyncMock(return_value=True)
     maybe_notify = Mock()
-    monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
-    monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
+    monkeypatch.setattr(profile_application, "update_mapping", update_mapping)
+    monkeypatch.setattr(profile_lifecycle, "maybe_notify_profile_activation", maybe_notify)
 
     with caplog.at_level("INFO", logger="keymasq-session"):
-        await session_profiles_module.apply_resolved_device_profile(
+        await coordinator.apply_resolved_device_profile(
             manager,
             hardware_id,
             resolved,
@@ -634,26 +646,26 @@ async def test_apply_resolved_device_profile_skips_profile_only_change_without_m
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
-    grab_payload = session_profiles_module.build_grab_device_payload(
+    grab_payload = grab_plan.build_grab_device_payload(
         manager,
         hardware_id,
         manager.hardware.get_hardware(hardware_id),
         resolved,
         {"mouse": "/dev/input/event10"},
     )
-    manager.profile_state.last_sent_grab_signatures[
-        hardware_id
-    ] = session_profiles_module.grab_device_payload_signature(grab_payload)
-    manager.profile_state.last_sent_mapping_signatures[
-        hardware_id
-    ] = session_payloads_module.resolved_mapping_signature(manager, resolved, hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+        grab_plan.grab_device_payload_signature(grab_payload)
+    )
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
+        mapping_payload.signature(manager, resolved, hardware_id)
+    )
     update_mapping = AsyncMock(return_value=True)
     maybe_notify = Mock()
-    monkeypatch.setattr(session_profiles_module, "update_mapping", update_mapping)
-    monkeypatch.setattr(session_profiles_module, "maybe_notify_profile_activation", maybe_notify)
+    monkeypatch.setattr(profile_application, "update_mapping", update_mapping)
+    monkeypatch.setattr(profile_lifecycle, "maybe_notify_profile_activation", maybe_notify)
 
     with caplog.at_level("INFO", logger="keymasq-session"):
-        await session_profiles_module.apply_resolved_device_profile(
+        await coordinator.apply_resolved_device_profile(
             manager,
             hardware_id,
             resolved,
@@ -706,19 +718,19 @@ async def test_apply_resolved_device_profile_refreshes_same_interface_grab_confi
     manager.profile_state.resolved_devices[hardware_id] = old_resolved
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
-    old_grab_payload = session_profiles_module.build_grab_device_payload(
+    old_grab_payload = grab_plan.build_grab_device_payload(
         manager,
         hardware_id,
         old_hardware,
         old_resolved,
         {"mouse": "/dev/input/event10"},
     )
-    manager.profile_state.last_sent_grab_signatures[
-        hardware_id
-    ] = session_profiles_module.grab_device_payload_signature(old_grab_payload)
-    manager.profile_state.last_sent_mapping_signatures[
-        hardware_id
-    ] = session_payloads_module.resolved_mapping_signature(manager, old_resolved, hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = (
+        grab_plan.grab_device_payload_signature(old_grab_payload)
+    )
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
+        mapping_payload.signature(manager, old_resolved, hardware_id)
+    )
     manager.client.send_command = AsyncMock(
         side_effect=[
             Response(status="ok", data={"grabbed_count": 1}),
@@ -726,7 +738,7 @@ async def test_apply_resolved_device_profile_refreshes_same_interface_grab_confi
         ]
     )
 
-    await session_profiles_module.apply_resolved_device_profile(manager, hardware_id, resolved)
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -738,5 +750,5 @@ async def test_apply_resolved_device_profile_refreshes_same_interface_grab_confi
     assert grab_data["button_codes"]["wheel_up"] == 8
     assert grab_data["button_values"]["wheel_up"] == 1
     assert manager.profile_state.last_sent_grab_signatures[hardware_id] == (
-        session_profiles_module.grab_device_payload_signature(grab_data)
+        grab_plan.grab_device_payload_signature(grab_data)
     )

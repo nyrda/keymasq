@@ -24,7 +24,7 @@ from keymasq.common.devices import (
     primary_input_class,
     resolve_stable_path,
 )
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 
 
 def test_get_interface_id_appends_event_suffix_for_if_ids() -> None:
@@ -179,8 +179,7 @@ def test_config_path_for_detected_event_uses_keymasq_path_without_by_id(
     )
 
     assert (
-        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106")
-        == "keymasq:2dc8:3106"
+        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106") == "keymasq:2dc8:3106"
     )
 
 

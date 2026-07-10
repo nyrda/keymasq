@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from keymasq.common.models import ProfileDeactivationPolicy
+from keymasq.common.model.actions import ProfileDeactivationPolicy
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 
 

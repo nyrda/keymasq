@@ -6,7 +6,7 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from keymasq.common.models import normalize_natural_mouse_move_curve
+from keymasq.common.model.actions import normalize_natural_mouse_move_curve
 from keymasq.keymasqd.output_helpers import emit_mouse_move
 from keymasq.keymasqd.runtime.adapters import WritableUInput
 
@@ -292,8 +292,7 @@ def _updated_response_gain(
         1.0,
         min(
             _MAX_RESPONSE_GAIN,
-            (float(response_gain) * (1.0 - _GAIN_SMOOTHING))
-            + (observed_gain * _GAIN_SMOOTHING),
+            (float(response_gain) * (1.0 - _GAIN_SMOOTHING)) + (observed_gain * _GAIN_SMOOTHING),
         ),
     )
 

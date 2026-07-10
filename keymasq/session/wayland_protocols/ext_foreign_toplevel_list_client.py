@@ -1,25 +1,23 @@
 import logging
 import struct
 
-from keymasq.session.wayland_protocols import client_transport as _transport
-from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
-    ExtForeignToplevelListTracker,
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
+from keymasq.session.wayland_protocols.client_transport import (
+    WaylandClientTransport,
+    WaylandDisplayError,
+    decode_string,
 )
 
-WL_DISPLAY_OBJECT_ID = _transport.WL_DISPLAY_OBJECT_ID
 EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE = "ext_foreign_toplevel_list_v1"
 EXT_FOREIGN_TOPLEVEL_HANDLE_INTERFACE = "ext_foreign_toplevel_handle_v1"
-_pack_uint = _transport.pack_uint
-_encode_string = _transport.encode_string
-_decode_string = _transport.decode_string
 
 log = logging.getLogger("keymasq-session.wayland.ext_foreign_toplevel")
 
 
-class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
+class ExtForeignToplevelListClientBase(WaylandClientTransport):
     def __init__(
         self,
-        tracker: ExtForeignToplevelListTracker,
+        tracker: ActiveWindowTracker,
         socket_path: str | None = None,
     ) -> None:
         super().__init__(socket_path)
@@ -45,7 +43,7 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
                 await self._destroy_toplevel_handle(handle_id)
             try:
                 await self._send_request(self._list_id, 1, b"")
-            except (OSError, _transport.WaylandDisplayError):
+            except (OSError, WaylandDisplayError):
                 log.debug("Failed to destroy ext foreign toplevel list", exc_info=True)
             except Exception:
                 log.exception("Unexpected failure destroying ext foreign toplevel list")
@@ -137,7 +135,7 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
         await self._before_destroy_toplevel_handle(object_id)
         try:
             await self._send_request(object_id, 0, b"")
-        except (OSError, _transport.WaylandDisplayError):
+        except (OSError, WaylandDisplayError):
             log.debug("Failed to destroy ext foreign toplevel handle", exc_info=True)
         except Exception:
             log.exception(
@@ -159,12 +157,12 @@ class ExtForeignToplevelListClientBase(_transport.WaylandClientTransport):
             return
 
         if opcode == 2:
-            title, _ = _decode_string(payload, 0)
+            title, _ = decode_string(payload, 0)
             self._tracker.update_title(handle_id, title)
             return
 
         if opcode == 3:
-            app_id, _ = _decode_string(payload, 0)
+            app_id, _ = decode_string(payload, 0)
             self._tracker.update_app_id(handle_id, app_id)
             return
 

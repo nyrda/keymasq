@@ -9,7 +9,7 @@ from dbus_next.message import Message
 
 import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.security import PeerCredentials
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 
 
 def dbus_reply(body: list[object] | None = None, *, signature: str = "") -> Message:

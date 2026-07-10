@@ -7,14 +7,18 @@ from unittest import mock
 import evdev
 import pytest
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import (
     ActionType,
-    ButtonDefinition,
-    DeviceProfileLayer,
     DeviceType,
+)
+from keymasq.common.model.hardware import (
+    ButtonDefinition,
     EvdevDevice,
     HardwareConfig,
-    MappingAction,
+)
+from keymasq.common.model.profiles import (
+    DeviceProfileLayer,
     ProfileConfig,
 )
 

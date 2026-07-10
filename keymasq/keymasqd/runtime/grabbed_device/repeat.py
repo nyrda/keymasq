@@ -3,12 +3,12 @@ import contextlib
 
 import evdev
 
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import (
     MappingAction,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
 )
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.runtime.adapters import (
     AsyncioEvent,
     UInputWriter,
@@ -28,7 +28,6 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     OutputTracker,
     RapidfireOutputState,
     TaskFactory,
-    runtime_is_running,
 )
 from keymasq.keymasqd.runtime.mouse_actions import (
     rapidfire_relative_pulses,
@@ -128,9 +127,7 @@ async def stop_rapidfire_async(
             await task
 
 
-def finish_rapidfire_task(
-    device_runtime: ActionRuntime, event_name: str, task: object
-) -> None:
+def finish_rapidfire_task(device_runtime: ActionRuntime, event_name: str, task: object) -> None:
     active_task = device_runtime.state.rapidfire_tasks.get(event_name)
     if active_task is not task:
         return
@@ -226,8 +223,7 @@ async def rapidfire_abs_axis(
 
     try:
         while (
-            device_runtime.state.rapidfire_active.get(event_name, False)
-            and runtime_is_running(device_runtime)
+            device_runtime.state.rapidfire_active.get(event_name, False) and device_runtime.running
         ):
             gamepad_uinput = uinput_writer(uinput_dev)
             if gamepad_uinput is None:
@@ -377,8 +373,7 @@ async def rapidfire_key(
 
     try:
         while (
-            device_runtime.state.rapidfire_active.get(event_name, False)
-            and runtime_is_running(device_runtime)
+            device_runtime.state.rapidfire_active.get(event_name, False) and device_runtime.running
         ):
             should_emit = True
             state = device_runtime.state.rapidfire_outputs.get(event_name)
@@ -516,7 +511,7 @@ async def rapidfire_relative(
             emit_pulse=emit_started_pulse,
             is_active=lambda: (
                 device_runtime.state.rapidfire_active.get(event_name, False)
-                and runtime_is_running(device_runtime)
+                and device_runtime.running
             ),
             hold_s=hold,
             wait_s=wait,
@@ -585,8 +580,7 @@ async def rapidfire_move(
 
     try:
         while (
-            device_runtime.state.rapidfire_active.get(event_name, False)
-            and runtime_is_running(device_runtime)
+            device_runtime.state.rapidfire_active.get(event_name, False) and device_runtime.running
         ):
             await emit_move_action(device_runtime, action)
             if not started_set:

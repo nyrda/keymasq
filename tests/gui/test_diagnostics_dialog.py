@@ -85,9 +85,7 @@ def test_diagnostics_dialog_sends_settings_and_renders_snapshot(monkeypatch) -> 
 
     session.requests.clear()
     dialog._on_closed(dialog)
-    assert session.unregistered == [
-        ("diagnostics_snapshot", dialog._on_diagnostics_snapshot)
-    ]
+    assert session.unregistered == [("diagnostics_snapshot", dialog._on_diagnostics_snapshot)]
     assert session.requests == [
         {
             "command": "set_diagnostics",

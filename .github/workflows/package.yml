@@ -54,6 +54,9 @@ concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   KEYMASQ_CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
@@ -74,9 +77,10 @@ jobs:
       release_name: ${{ steps.meta.outputs.release_name }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ env.KEYMASQ_CHECKOUT_REF }}
+          persist-credentials: false
 
       - name: Compute build version metadata
         id: meta
@@ -173,9 +177,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Apply prerelease Python version
         if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
@@ -193,7 +198,7 @@ jobs:
 
       - name: Upload source tarball
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: source-tarball
           path: dist/*.tar.gz
@@ -208,13 +213,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download source tarball
         if: ${{ !env.ACT }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/
@@ -241,7 +247,7 @@ jobs:
 
       - name: Upload Arch package
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: pacman-arch-package
           path: dist/arch/*.pkg.tar.*
@@ -256,13 +262,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download Arch package
         if: ${{ !env.ACT }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: pacman-arch-package
           path: dist/arch
@@ -289,7 +296,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
           persist-credentials: false
@@ -318,7 +325,7 @@ jobs:
 
       - name: Upload AppImage
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: appimage-package
           path: dist/appimage/*.AppImage
@@ -331,9 +338,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Apply prerelease Debian build metadata
         if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
@@ -368,7 +376,7 @@ jobs:
 
       - name: Upload Debian artifacts
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: debian-package
           path: |
@@ -386,13 +394,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download Debian artifacts
         if: ${{ !env.ACT }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: debian-package
           path: dist/debian
@@ -420,9 +429,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Apply prerelease RPM build metadata
         if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
@@ -466,7 +476,7 @@ jobs:
 
       - name: Upload Fedora RPM
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: rpm-fedora-fc${{ matrix.fedora_release }}-package
           path: dist/*fc${{ matrix.fedora_release }}*.rpm
@@ -479,9 +489,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Apply prerelease RPM build metadata
         if: needs.version-metadata.outputs.is_manual_prerelease == 'true'
@@ -530,7 +541,7 @@ jobs:
 
       - name: Upload openSUSE RPM
         if: ${{ !env.ACT }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: rpm-opensuse-package
           path: dist/*.opensuse.*.rpm
@@ -544,12 +555,15 @@ jobs:
     if: needs.version-metadata.outputs.is_stable_release == 'true' && github.actor != 'nektos/act'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Install RPM signing tools
         run: |
@@ -557,14 +571,14 @@ jobs:
           sudo apt-get install -y gnupg rpm
 
       - name: Download Fedora RPM
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: rpm-fedora-fc*-package
           path: dist/
           merge-multiple: true
 
       - name: Download openSUSE RPM
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rpm-opensuse-package
           path: dist/
@@ -578,7 +592,7 @@ jobs:
           bash packaging/rpm/sign-rpms.sh dist/*.rpm
 
       - name: Upload signed RPM artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: rpm-signed-packages
           path: |
@@ -639,7 +653,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
           persist-credentials: false
@@ -674,25 +688,25 @@ jobs:
 
     steps:
       - name: Download source tarball
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/
 
       - name: Download Debian artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: debian-package
           path: dist/
 
       - name: Download signed RPM artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rpm-signed-packages
           path: dist/
 
       - name: Download AppImage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: appimage-package
           path: dist/
@@ -704,7 +718,7 @@ jobs:
 
       - name: Generate artifact attestations
         if: ${{ github.event.repository.private == false }}
-        uses: actions/attest@v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: |
             dist/*.AppImage
@@ -764,32 +778,32 @@ jobs:
 
     steps:
       - name: Download source tarball
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/
 
       - name: Download Debian artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: debian-package
           path: dist/
 
       - name: Download Fedora RPM artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: rpm-fedora-fc*-package
           path: dist/
           merge-multiple: true
 
       - name: Download openSUSE RPM artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rpm-opensuse-package
           path: dist/
 
       - name: Download AppImage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: appimage-package
           path: dist/
@@ -801,7 +815,7 @@ jobs:
 
       - name: Generate prerelease artifact attestations
         if: ${{ github.event.repository.private == false }}
-        uses: actions/attest@v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: |
             dist/*.AppImage
@@ -842,38 +856,41 @@ jobs:
     if: needs.release.result == 'success' && vars.ENABLE_REPO_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
     concurrency:
       group: publish-repos
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Install repo tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnupg dpkg-dev apt-utils createrepo-c python3
 
       - name: Download Debian package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: debian-package
           path: dist/
 
       - name: Download signed RPM packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: rpm-signed-packages
           path: dist/
 
       - name: Download AppImage artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: appimage-package
           path: dist/
 
       - name: Download source tarball
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/
@@ -893,17 +910,20 @@ jobs:
     if: needs.release.result == 'success' && vars.ENABLE_COPR_PUBLISH == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
     concurrency:
       group: publish-copr
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download source tarball
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/
@@ -952,12 +972,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Download source tarball
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
           path: dist/

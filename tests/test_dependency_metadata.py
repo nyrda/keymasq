@@ -137,3 +137,6 @@ def test_slurp_packaging_classification_matches_docs() -> None:
         content = _read(rel_path)
         assert re.search(r"^Recommends:\s+slurp", content, flags=re.MULTILINE)
         assert not re.search(r"^Requires:\s+slurp", content, flags=re.MULTILINE)
+
+    # Nix: path-stamped into the build.
+    assert 'SLURP_PATH = "${pkgs.slurp}/bin/slurp"' in _read("flake.nix")

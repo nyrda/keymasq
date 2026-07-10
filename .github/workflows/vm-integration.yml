@@ -60,7 +60,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm-runner.rules
           sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          sudo udevadm trigger --sysname-match=kvm
           ls -l /dev/kvm
 
       - name: Install Nix
@@ -76,5 +76,5 @@ jobs:
           EXTRA_ARGS: ${{ inputs.extra_args }}
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2086
-          ./scripts/integration.sh "$SUITE" $EXTRA_ARGS
+          read -r -a extra_args <<< "$EXTRA_ARGS"
+          ./scripts/integration.sh "$SUITE" "${extra_args[@]}"

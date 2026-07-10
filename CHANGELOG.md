@@ -6,35 +6,22 @@
 
 - Added a Type selector tab and expanded compact type macros with named keys,
   shortcuts, mouse actions, and natural mouse movement tokens.
-- Added SteamOS AppImage packaging, installation, updating, and repository
-  publishing support.
+- Added a SteamOS AppImage with installation and update support.
 
 ### Improved
 
-- Improved daemon and session concurrency around profile state, combo output,
-  force feedback, device grabbing, and configuration reloads.
 - Improved macro recording and editing with recorded start positions, edge
   auto-scroll, and safer save and discard flows.
-- Refactored the main window, hardware setup wizard, grabbed-device runtime,
-  and profile application paths into smaller, more maintainable components.
-- Improved compositor support, including Lua dispatchers for Hyprland and
-  shared VM infrastructure for compositor integration testing.
-- Added compatibility test lanes for python-evdev 1.6.x and 1.7.0.
 
 ### Fixed
 
 - Fixed mapping commits after profile reloads and matching of numbered device
   instances.
-- Prevented deletion of the last profile and moved default-profile creation to
-  the session broker.
+- Fixed compositor actions on Hyprland.
+- Prevented deletion of the last profile.
 - Added confirmation before discarding unsaved Super Key or Analog Control
   changes.
 - Improved permission errors for input and uinput access.
-
-### Security
-
-- Removed the daemon/session command ACL layer and hardened release workflows
-  with pinned actions and reduced permissions.
 
 ## 0.18.0 - 2026-06-14
 

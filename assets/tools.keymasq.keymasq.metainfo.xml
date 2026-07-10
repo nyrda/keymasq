@@ -39,8 +39,8 @@
   <releases>
     <release version="0.19.0" date="2026-07-10">
       <description>
-        <p>Adds richer typed macros and SteamOS AppImage distribution.</p>
-        <p>Improves runtime concurrency, compositor integration, macro editing, profile safety, device instance handling, and release security.</p>
+        <p>Adds richer typed macros and a SteamOS AppImage with installation and update support.</p>
+        <p>Improves macro editing, profile safety, device instance handling, Hyprland actions, and permission diagnostics.</p>
       </description>
     </release>
     <release version="0.18.0" date="2026-06-14">

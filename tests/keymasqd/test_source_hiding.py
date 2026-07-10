@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from keymasq.keymasqd.permission_hints import CAPABILITY_PERMISSION_HINT
 from keymasq.keymasqd.runtime import source_hiding
 from tests.async_fakes import FakeProcess as _FakeProcess
 
@@ -125,6 +126,39 @@ async def test_hide_source_returns_written_flags_when_udev_trigger_fails(
     assert hidden_names == ["event22"]
     assert (hidden_dir / "event22").exists()
     assert "udevadm trigger failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_udev_permission_failure_logs_capability_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _configure_paths(monkeypatch, tmp_path)
+    _fake_udevadm(
+        monkeypatch,
+        returncode=1,
+        stderr=b"Failed to write 'change' to uevent: Permission denied",
+    )
+
+    await source_hiding.hide_source("/dev/input/event22")
+
+    assert CAPABILITY_PERMISSION_HINT in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_udev_non_permission_failure_omits_capability_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _configure_paths(monkeypatch, tmp_path)
+    _fake_udevadm(monkeypatch, returncode=1, stderr=b"device is busy")
+
+    await source_hiding.hide_source("/dev/input/event22")
+
+    assert "udevadm trigger failed" in caplog.text
+    assert CAPABILITY_PERMISSION_HINT not in caplog.text
 
 
 @pytest.mark.asyncio

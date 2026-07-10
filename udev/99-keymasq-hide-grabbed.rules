@@ -1,4 +1,7 @@
 # Final hide for grabbed physical gamepad sources after later input rules run.
+# Hidden nodes are reset to root:root 0600 with the keymasq ACL re-granted;
+# keymasqd's CAP_DAC_OVERRIDE (see keymasqd.service) covers the window before
+# the re-grant and lets `udevadm trigger` re-evaluate these rules.
 
 ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", TEST=="/run/keymasq/hidden/%k", ENV{ID_INPUT_JOYSTICK}="", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="uaccess", OWNER="root", GROUP="root", MODE="0600", RUN+="/usr/bin/setfacl -b /dev/input/%k", RUN+="/usr/bin/chmod 0600 /dev/input/%k", RUN+="/usr/bin/setfacl -m u:keymasq:rw /dev/input/%k"
 ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="js*",    TEST=="/run/keymasq/hidden/%k", ENV{ID_INPUT_JOYSTICK}="", ENV{LIBINPUT_IGNORE_DEVICE}="1", TAG-="uaccess", OWNER="root", GROUP="root", MODE="0600", RUN+="/usr/bin/setfacl -b /dev/input/%k", RUN+="/usr/bin/chmod 0600 /dev/input/%k", RUN+="/usr/bin/setfacl -m u:keymasq:rw /dev/input/%k"

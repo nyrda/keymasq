@@ -421,7 +421,11 @@
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
-                # Required for udevadm trigger to write sysfs uevent files during source hide/restore.
+                # CAP_DAC_OVERRIDE, the only granted capability: udevadm
+                # trigger writes root-owned sysfs uevent files during source
+                # hide/restore, and hidden nodes reset to root:root 0600 must
+                # stay usable for grabs and force-feedback passthrough. Do not
+                # add capabilities in any variant; see docs/SECURITY.md.
                 AmbientCapabilities = [ "CAP_DAC_OVERRIDE" ];
                 CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" ];
                 ProtectSystem = "strict";

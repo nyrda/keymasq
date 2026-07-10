@@ -99,6 +99,10 @@ nix develop -c basedpyright
 
 ## Running Integration Tests
 
+The VM integration suites are manual gates before PRs, merges, and releases;
+they are intentionally not part of CI. `docs/VM_TESTING.md` defines which
+suites are required for each change category.
+
 Keymasq has two NixOS VM integration suites:
 
 - listener VM tests for compositor/window tracking under GNOME, KDE, Hyprland,
@@ -124,7 +128,8 @@ new or uncommitted VM files are included during local development. These tests
 are VM-heavy; a Linux host with KVM acceleration is strongly recommended.
 
 For detailed behavior and debugging notes, see `docs/LISTENER_VM_TESTS.md` and
-`docs/DAEMON_SESSION_INTEGRATION_TEST.md`.
+`docs/DAEMON_SESSION_INTEGRATION_TEST.md`. For the gate policy and the
+change-category matrix, see `docs/VM_TESTING.md`.
 
 ## Local Test Input Suppression
 

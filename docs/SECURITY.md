@@ -79,11 +79,132 @@ In practice:
 
 `keymasqd` allows exactly one active session-side client connection at a time.
 
-- The first accepted daemon client becomes the active owner (`uid`, `pid`, `connection_id`).
+- The first daemon client connection that passes peer validation becomes the
+  active owner, identified by (`uid`, `pid`, `connection_id`).
 - Additional daemon client connections are denied while that owner is alive.
-- Ownership is released on disconnect.
+  They are closed immediately at accept time, before any command is processed.
+- Ownership is released only when the owning connection disconnects. There is
+  no takeover, transfer, or preemption path.
 
 This prevents a second local process from concurrently issuing privileged daemon commands while a legitimate session broker is connected.
+
+### First-valid-session ownership is intentional
+
+Keymasq targets single-seat desktops, and first-valid-session ownership is the
+deliberate design for that target — not a placeholder for something smarter:
+
+- Ownership is **not** bound to an "installing user". Package installation
+  cannot identify a reliable desktop owner: installs commonly run as root,
+  through configuration-management automation, inside an image build, or as
+  declarative NixOS configuration. None of those contexts name the human who
+  will sit at the machine, and several produce systems with no such user at
+  install time at all.
+- Ownership does **not** infer an "active seat". Seat/session inference
+  (logind seats, active-VT tracking, greeter sessions) is brittle across
+  display managers, fast user switching, and headless or nested sessions, and
+  would turn ownership into a moving target.
+
+On a single-seat desktop, the first allowed `keymasq-session` to connect is the
+logged-in user's broker, which is exactly the process that should own the
+daemon. For unusual shared-system installations, `daemon_allowed_uids` in
+`/etc/keymasq/security.toml` is the explicit control: it restricts which UIDs
+may connect at all, so ownership can only ever be claimed by a listed user.
+This remains the supported mechanism; do not rely on install-time or
+seat-inference behavior that Keymasq intentionally does not have.
+
+### Ownership lifecycle and cleanup
+
+When the owning connection disconnects — clean shutdown, crash, or daemon
+restart of `keymasq-session` — `keymasqd` runs disconnect cleanup before the
+next client can claim ownership:
+
+1. The runtime capture unlock held by that owner is cleared.
+2. All pending (unsaved) recordings are discarded.
+3. All grabbed input devices are released, so hardware returns to passthrough.
+
+Ownership release is then logged and the owner slot becomes free. The
+per-user `keymasq-session` broker reconnects automatically with exponential
+backoff (1 s doubling up to 30 s), reclaims ownership, and reapplies active
+profiles. A brief passthrough window between disconnect and reconnection is
+expected behavior, not a fault.
+
+### Ownership diagnostics
+
+`keymasqd` logs every ownership transition with the full owner identity
+(`uid`, `pid`, `connection`):
+
+```text
+Daemon owner claimed uid=1000 pid=1234 connection=1
+Denied client uid=1001 pid=5678 connection=2: owner already held by uid=1000 pid=1234 connection=1
+Daemon owner released uid=1000 pid=1234 connection=1
+```
+
+View them with `journalctl -u keymasqd`. The denial line identifies both the
+rejected client and the current owner, which is usually enough to find a stale
+or competing `keymasq-session` process. See the ownership section in
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) for conflict scenarios such as fast
+user switching and stale session processes.
+
+## Daemon Capability and Service Hardening
+
+`keymasqd` runs as the dedicated `keymasq` system user inside a hardened
+systemd service, with exactly one Linux capability:
+
+```ini
+NoNewPrivileges=true
+AmbientCapabilities=CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/keymasq /var/lib/keymasq
+```
+
+`CAP_DAC_OVERRIDE` is an accepted, deliberate part of the trusted runtime —
+not leftover privilege. It exists for the physical-source management and
+force-feedback passthrough design, and these are the exact operations that
+require it:
+
+- **sysfs uevent writes for source hide/restore.** Hiding or restoring a
+  grabbed physical source runs `udevadm trigger`, which writes root-owned
+  `/sys/.../uevent` files so `99-keymasq-hide-grabbed.rules` re-evaluates the
+  node. The daemon is the unprivileged `keymasq` user, so the `udevadm` child
+  relies on the inherited ambient capability. This covers per-node hide and
+  restore, hardware-level hotplug hiding, and the startup/shutdown
+  reconciliation pass (`keymasq/keymasqd/runtime/source_hiding.py`).
+- **Device permission resets on hidden nodes.** The hide rules deliberately
+  reset hidden `event*`/`js*` nodes to `root:root` mode `0600`, strip ACLs,
+  and then re-grant the `keymasq` ACL. The capability guarantees the daemon
+  keeps opening and writing those nodes across that reset, including the
+  window before the udev `RUN` ACL re-grant lands on a freshly hidden or
+  hotplugged node.
+- **Force-feedback passthrough.** Rumble proxying writes `EV_FF` uploads,
+  erases, and play events to the grabbed physical gamepad node
+  (`keymasq/keymasqd/runtime/force_feedback.py`) — which is exactly such a
+  hidden, permission-reset node while a game is running.
+
+What does **not** rely on the capability: normal input device reads and
+`/dev/uinput` access are granted through explicit ACLs (`setfacl` in
+`ExecStartPre` and `91-keymasq-acl.rules`), and the daemon's writable state
+lives in its own `RuntimeDirectory`/`StateDirectory`. Failure messages are
+distinct per mechanism, so a missing input ACL, missing uinput access, and a
+missing capability are directly distinguishable in the logs (see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
+
+The containment around the capability is retained deliberately: dedicated
+service user, `NoNewPrivileges`, bounding set limited to this single
+capability, protected system and home paths, and writable directories
+restricted to `/run/keymasq` and `/var/lib/keymasq`. All maintained package
+formats (Debian, RPM, Arch/AUR, AppImage/SteamOS, NixOS module) grant this
+same minimal set; none adds any other ambient or bounding capability. The
+service files carry matching comments so the grant and its consumers stay in
+sync.
+
+A narrower design — delegating the udev trigger and hidden-node access to a
+separate root helper so the daemon itself drops the capability — remains a
+future option only. It adds IPC surface and failure modes of its own, so it
+is not worth adopting unless a concrete security or operational problem with
+the current single-capability model justifies that complexity.
 
 ## Peer Identity and ACL
 

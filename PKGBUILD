@@ -5,7 +5,7 @@
 pkgname=keymasq
 pkgver=0.19.0
 pkgrel=1
-pkgdesc="Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros"
+pkgdesc="Input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
 arch=(
     'any'
 )

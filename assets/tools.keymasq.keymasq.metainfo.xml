@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Keymasq</name>
-  <summary>Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros</summary>
+  <summary>Customize keyboards, mice, and gamepads</summary>
   <developer id="tools.keymasq">
     <name>nyrda</name>
   </developer>
@@ -13,13 +13,13 @@
   <update_contact>nyrda@keymasq.tools</update_contact>
   <description>
     <p>
-      Keyboard and mouse remapper with GUI configuration, per-window profiles,
-      and macros.
+      Keymasq is an input remapper for keyboards, mice, and game controllers.
+      Customize keys, buttons, clicks, wheels, sticks, and triggers with
+      layered profiles, window-aware activation, macros, superkeys, and
+      combos.
     </p>
     <p>
-      Keymasq supports keyboard, mouse, and gamepad remapping with layered
-      profiles, window-aware activation, macros, superkeys, and combos. Use it
-      for workflows like a Linux autoclicker, game auto-fire, app-specific
+      Use it for workflows like an autoclicker, game auto-fire, app-specific
       shortcuts, and multi-step automation.
     </p>
   </description>
@@ -31,7 +31,9 @@
     <keyword>keyboard</keyword>
     <keyword>mouse</keyword>
     <keyword>gamepad</keyword>
+    <keyword>controller</keyword>
     <keyword>remap</keyword>
+    <keyword>customize</keyword>
     <keyword>macro</keyword>
     <keyword>combo</keyword>
   </keywords>

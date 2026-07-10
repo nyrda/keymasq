@@ -177,7 +177,7 @@
           '';
 
           meta = {
-            description = "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros";
+            description = "Input remapper for keyboards, mice, and game controllers, with layered profiles and macros";
             homepage = "https://keymasq.tools";
             changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md";
             sourceProvenance = [ lib.sourceTypes.fromSource ];

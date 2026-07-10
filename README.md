@@ -5,11 +5,12 @@
 
 [keymasq.tools](https://keymasq.tools/) — project website and rendered documentation.
 
-Keymasq is a Linux input remapper for keyboards, mice, and game controllers.
-One tool covers keys, buttons, clicks, wheels, sticks, and triggers: remap a
-single key, turn a stick into mouse movement, send a keyboard key to a virtual
-gamepad, and switch bindings automatically based on the focused app — all from
-the same layered profiles.
+Keymasq is an input customization tool for Linux, built around a full input
+remapper for keyboards, mice, and game controllers. One tool covers keys,
+buttons, clicks, wheels, sticks, and triggers: remap a single key, turn a
+stick into mouse movement, send a keyboard key to a virtual gamepad, and
+switch bindings automatically based on the focused app — all from the same
+layered profiles.
 
 ![Keymasq main window showing a mouse profile with mapped side buttons](docs/assets/screenshots/keymasq_profile.png)
 

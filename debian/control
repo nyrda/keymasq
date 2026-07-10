@@ -37,9 +37,9 @@ Recommends:
  slurp
 Suggests:
  gnome-shell
-Description: Linux input remapper with GUI profiles and macros
+Description: Input remapper for keyboards, mice, and game controllers
  Keymasq provides a privileged remapping daemon, a per-user session manager,
- and a GTK4 configuration interface for Linux input remapping.
+ and a GTK4 configuration interface for input remapping.
  .
  It supports global layered profiles, macros, superkeys, combos, window-based
  profile activation, and desktop-specific window tracking integrations.

@@ -15,7 +15,7 @@ COMMON_METADATA = {
     "pkgname": "keymasq",
     "pkgrel": "1",
     "pkgdesc": (
-        "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros"
+        "Input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
     ),
     "arch": ["any"],
     "url": "https://keymasq.tools",

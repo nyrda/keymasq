@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "python-keymasq"
 version = "0.19.0"
-description = "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros"
+description = "Linux input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
 readme = "README.md"
 authors = [{ name = "nyrda", email = "nyrda@keymasq.tools" }]
 license = "MIT"
@@ -18,6 +18,7 @@ keywords = [
     "keyboard",
     "mouse",
     "gamepad",
+    "controller",
     "macro",
     "wayland",
     "x11",

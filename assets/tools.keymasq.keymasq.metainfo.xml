@@ -39,7 +39,7 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.19.0" date="2026-07-10">
+    <release version="0.19.0" date="2026-07-12">
       <description>
         <p>Adds a Type tab for type macros, a hardware settings dialog, and a SteamOS AppImage with installation and update support.</p>
         <p>Improves macro editing, profile safety, and permission diagnostics, and fixes device instance matching and Hyprland compositor actions.</p>

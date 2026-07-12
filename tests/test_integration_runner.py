@@ -29,6 +29,7 @@ def _fake_nix(tmp_path: Path) -> tuple[dict[str, str], Path]:
         """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$KEYMASQ_TEST_NIX_LOG"
+echo "nix progress" >&2
 if [[ "${KEYMASQ_TEST_REBUILD_MISSING:-0}" == "1" && "$*" == *"--rebuild"* ]]; then
   echo "error: some outputs are not valid, so checking is not possible" >&2
   exit 1
@@ -56,19 +57,25 @@ def _run_script(tmp_path: Path, *args: str) -> tuple[subprocess.CompletedProcess
     return result, calls
 
 
-def test_all_integration_checks_are_rebuilt_and_logged(tmp_path: Path) -> None:
+def test_all_integration_checks_are_rebuilt_without_streaming_build_logs(
+    tmp_path: Path,
+) -> None:
     result, calls = _run_script(tmp_path, "all")
 
     assert result.returncode == 0, result.stderr
+    assert all(line.startswith("integration: ") for line in result.stdout.splitlines())
+    assert "nix progress" not in result.stdout
+    assert result.stderr.count("nix progress") == len(EXPECTED_CHECKS)
     assert len(calls) == len(EXPECTED_CHECKS)
     assert {
         call.rsplit(".", 1)[-1]
         for call in calls
     } == EXPECTED_CHECKS
-    assert all("build --no-link --print-build-logs --rebuild" in call for call in calls)
+    assert all("build --no-link --rebuild" in call for call in calls)
+    assert all("--print-build-logs" not in call for call in calls)
 
 
-def test_missing_rebuild_output_falls_back_to_a_fresh_logged_build(tmp_path: Path) -> None:
+def test_missing_rebuild_output_falls_back_to_a_fresh_quiet_build(tmp_path: Path) -> None:
     env, log_path = _fake_nix(tmp_path)
     env["KEYMASQ_TEST_REBUILD_MISSING"] = "1"
 
@@ -86,7 +93,7 @@ def test_missing_rebuild_output_falls_back_to_a_fresh_logged_build(tmp_path: Pat
     assert len(calls) == 2
     assert "--rebuild" in calls[0]
     assert "--rebuild" not in calls[1]
-    assert "--print-build-logs" in calls[1]
+    assert all("--print-build-logs" not in call for call in calls)
 
 
 def test_daemon_scenario_registry_has_unique_selectable_keys_and_full_module_coverage() -> None:

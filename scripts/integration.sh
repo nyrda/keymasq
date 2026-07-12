@@ -43,8 +43,8 @@ usage() {
 Usage: ./scripts/integration.sh [--evdev current|1.6.1|1.7.0] [test ...]
 
 Runs Keymasq NixOS VM integration checks through nix build.
-Each selected check is rebuilt and streams its VM log; cached store results are
-not treated as a test execution.
+Each selected check is rebuilt, so cached store results are not treated as a
+test execution. Nix keeps successful VM build logs out of the console.
 
 Tests:
 EOF
@@ -163,9 +163,9 @@ run_check() {
 
   log_file="$(mktemp)"
   set +e
-  nix build --no-link --print-build-logs --rebuild \
-    "${nix_args[@]}" "$target" 2>&1 | tee "$log_file"
-  status=${PIPESTATUS[0]}
+  nix build --no-link --rebuild \
+    "${nix_args[@]}" "$target" 2> >(tee "$log_file" >&2)
+  status=$?
   set -e
 
   if [[ "$status" -eq 0 ]]; then
@@ -175,7 +175,7 @@ run_check() {
 
   if grep -q "not valid, so checking is not possible" "$log_file"; then
     rm -f "$log_file"
-    nix build --no-link --print-build-logs "${nix_args[@]}" "$target"
+    nix build --no-link "${nix_args[@]}" "$target"
     return
   fi
 

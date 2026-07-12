@@ -1,3 +1,20 @@
+keymasq (0.19.0-1) unstable; urgency=medium
+
+  * Add a Type tab to the key selector and expand type macro editing with
+    named keys, keyboard shortcuts, mouse actions, and natural mouse movement.
+  * Add a hardware settings dialog for managing attached event devices,
+    including stable-path and product-ID detection.
+  * Improve macro recording and editing with recorded start positions,
+    timeline edge scrolling while dragging, and safer save and discard flows.
+  * Add confirmation before discarding unsaved Super Key or Analog Control
+    changes, and clearer input and uinput permission errors.
+  * Fix applying mapping changes after a profile reload, and matching when
+    several identical devices use numbered IDs.
+  * Fix compositor actions on Hyprland, prevent deletion of the last profile,
+    and restore the placeholder tab when no devices are configured.
+
+ -- nyrda <nyrda@keymasq.tools>  Sun, 12 Jul 2026 00:00:00 +0000
+
 keymasq (0.18.0-1) unstable; urgency=medium
 
   * Expand game controller support with remappable sticks, triggers, wheels,

@@ -59,7 +59,7 @@ cat <<SPEC_HEAD
 Name: keymasq
 Version: $VERSION
 Release: $RELEASE
-Summary: Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
+Summary: Input remapper for keyboards, mice, and game controllers, with layered profiles and macros
 License: MIT
 URL: https://keymasq.tools
 Vendor: nyrda
@@ -83,7 +83,8 @@ Source0: keymasq-root.tar.gz
 Source1: keymasq.files
 
 %description
-Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
+Input remapper for keyboards, mice, and game controllers, with layered
+profiles and macros.
 
 %prep
 

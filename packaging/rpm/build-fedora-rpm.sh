@@ -72,7 +72,7 @@ cat <<SPEC_HEAD
 Name:           keymasq
 Version:        $VERSION
 Release:        ${RELEASE}%{?dist}
-Summary:        Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
+Summary:        Input remapper for keyboards, mice, and game controllers, with layered profiles and macros
 
 License:        MIT
 URL:            https://keymasq.tools
@@ -97,7 +97,8 @@ Recommends:     python3dist(uvloop)
 %pyproject_buildrequires
 
 %description
-Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros
+Input remapper for keyboards, mice, and game controllers, with layered
+profiles and macros.
 
 %prep
 %autosetup -n %{buildsubdir}

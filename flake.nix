@@ -1,5 +1,5 @@
 {
-  description = "Keymasq - key remapping tool";
+  description = "Keymasq - input remapper for keyboards, mice, and game controllers";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -111,7 +111,7 @@
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keymasq";
-          version = "0.18.0";
+          version = "0.19.0";
           pyproject = true;
 
           src = mkCleanSrc pkgs;
@@ -177,7 +177,7 @@
           '';
 
           meta = {
-            description = "Keyboard and mouse remapper with GUI configuration, per-window profiles, and macros";
+            description = "Input remapper for keyboards, mice, and game controllers, with layered profiles and macros";
             homepage = "https://keymasq.tools";
             changelog = "https://github.com/nyrda/keymasq/blob/master/CHANGELOG.md";
             sourceProvenance = [ lib.sourceTypes.fromSource ];

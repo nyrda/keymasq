@@ -1,12 +1,12 @@
 [Desktop Entry]
 Version=1.0
 Name=Keymasq
-GenericName=Key Remapping Tool
-Comment=Configure keyboard and mouse button remapping
+GenericName=Input Customization Tool
+Comment=Customize keyboard, mouse, and gamepad input
 Exec=keymasq
 Icon=tools.keymasq.keymasq
 Terminal=false
 Type=Application
 Categories=Settings;HardwareSettings;
 StartupNotify=true
-Keywords=keyboard;mouse;remap;mapping;gamepad;
+Keywords=keyboard;mouse;gamepad;controller;remap;mapping;macro;customize;

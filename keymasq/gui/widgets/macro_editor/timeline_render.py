@@ -24,6 +24,7 @@ _ERASE_BAND_BORDER_RGBA = (1.0, 0.45, 0.45, 0.85)
 @dataclass(frozen=True)
 class TimelineRenderState:
     LABEL_WIDTH: int
+    TIMELINE_PAD: int
     RULER_HEIGHT: int
     TRACK_HEIGHT: int
     MIN_EVENT_WIDTH: int
@@ -56,10 +57,12 @@ class TimelineRenderState:
     _erase_pending_ids: frozenset[int]
 
     def _time_to_x(self, t_us: int) -> float:
-        return self.LABEL_WIDTH + t_us / 1e6 * self._pps - self._scroll_offset
+        return self.LABEL_WIDTH + self.TIMELINE_PAD + t_us / 1e6 * self._pps - self._scroll_offset
 
     def _x_to_time_us(self, x: float) -> int:
-        return int((x - self.LABEL_WIDTH + self._scroll_offset) / self._pps * 1e6)
+        return int(
+            (x - self.LABEL_WIDTH - self.TIMELINE_PAD + self._scroll_offset) / self._pps * 1e6
+        )
 
     def _draw_ruler(self, cr, width: int, duration_us: int) -> None:
         _draw_ruler(cr, self, width, duration_us)
@@ -566,22 +569,22 @@ def get_passthrough_marker_layouts(
         return []
 
     stack_per_x: dict[int, int] = {}
-    base_y = y_top + track_h - 10
+    base_y = y_top + track_h - 11
     max_stack = 6
     layouts: list[tuple[MacroEvent, float, float, float]] = []
 
     for ev in unknown_events:
         x = state._time_to_x(int(ev.get("t_us", 0)))
-        if x < state.LABEL_WIDTH - 4 or x > width + 4:
+        if x < state.LABEL_WIDTH - 8 or x > width + 8:
             continue
 
         x_px = int(x)
         stack_idx = stack_per_x.get(x_px, 0)
         stack_per_x[x_px] = min(stack_idx + 1, max_stack)
 
-        y = base_y - (stack_idx % max_stack) * 5
+        y = base_y - (stack_idx % max_stack) * 7
         is_press = int(ev.get("value", -1)) == 1
-        size = 4.2 if is_press else 3.2
+        size = 5.5 if is_press else 4.4
         layouts.append((ev, x, y, size))
 
     return layouts
@@ -618,6 +621,16 @@ def _draw_labels(cr, state: TimelineRenderState, height: int) -> None:
         cr.show_text(label)
 
 
+def _draw_track_time_tick(cr, state: TimelineRenderState, x: float, rgba) -> None:
+    """Faint full-height line on the ≈ track marking a point-marker's exact time."""
+    cr.set_source_rgba(rgba[0], rgba[1], rgba[2], 0.22)
+    cr.set_line_width(1.0)
+    xi = int(x) + 0.5
+    cr.move_to(xi, state._wave_y + 2)
+    cr.line_to(xi, state._wave_y + state.TRACK_HEIGHT - 2)
+    cr.stroke()
+
+
 def _draw_synthetic_move_markers(cr, state: TimelineRenderState, width: int) -> None:
     moves = state.synthetic_moves
     if not moves:
@@ -629,35 +642,42 @@ def _draw_synthetic_move_markers(cr, state: TimelineRenderState, width: int) -> 
 
     for move in moves:
         x = state._time_to_x(move.t_us)
-        if x < state.LABEL_WIDTH - 4 or x > width + 4:
+        if x < state.LABEL_WIDTH - 8 or x > width + 8:
             continue
 
         if move.mode == "natural":
-            cr.set_source_rgba(0.55, 0.75, 1.00, 0.95)
+            rgba = (0.55, 0.75, 1.00, 0.95)
         elif move.mode == "abs":
-            cr.set_source_rgba(0.30, 0.90, 1.00, 0.95)
+            rgba = (0.30, 0.90, 1.00, 0.95)
         else:
-            cr.set_source_rgba(1.00, 0.80, 0.20, 0.95)
+            rgba = (1.00, 0.80, 0.20, 0.95)
 
-        radius = 4.4
-        cr.arc(x, base_y, radius, 0, 6.283185307179586)
+        _draw_track_time_tick(cr, state, x, rgba)
+
+        size = 7.0
+        cr.set_source_rgba(*rgba)
+        cr.move_to(x, base_y - size)
+        cr.line_to(x + size, base_y)
+        cr.line_to(x, base_y + size)
+        cr.line_to(x - size, base_y)
+        cr.close_path()
         cr.fill()
 
         if id(move) in state._erase_pending_ids:
             cr.set_source_rgba(*_ERASE_PENDING_BORDER_RGBA)
             cr.set_line_width(1.6)
-            cr.arc(x, base_y, radius + 2.0, 0, 6.283185307179586)
+            cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
         elif move is state._selected:
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.95)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.98)
             cr.set_line_width(1.2)
-            cr.arc(x, base_y, radius + 2.0, 0, 6.283185307179586)
+            cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
 
         label = "N" if move.mode == "natural" else "A" if move.mode == "abs" else "R"
         extents = cr.text_extents(label)
-        cr.set_source_rgba(0.05, 0.05, 0.05, 1.0)
-        cr.move_to(x - extents[2] / 2 - extents[0], base_y + extents[3] / 2)
+        cr.set_source_rgba(0.94, 0.94, 0.94, 0.95)
+        cr.move_to(x - extents[2] / 2 - extents[0], base_y + 18)
         cr.show_text(label)
 
 
@@ -672,29 +692,32 @@ def _draw_control_markers(cr, state: TimelineRenderState, width: int) -> None:
 
     for control in controls:
         x = state._time_to_x(control.t_us)
-        if x < state.LABEL_WIDTH - 4 or x > width + 4:
+        if x < state.LABEL_WIDTH - 8 or x > width + 8:
             continue
 
         if control.mode == "wait":
-            cr.set_source_rgba(0.25, 0.85, 0.95, 0.95)
+            rgba = (0.25, 0.85, 0.95, 0.95)
             label = "W"
         elif control.mode == "wait_random":
-            cr.set_source_rgba(0.35, 0.95, 0.45, 0.95)
+            rgba = (0.35, 0.95, 0.45, 0.95)
             label = "WR"
         elif control.mode == "exec_sync":
-            cr.set_source_rgba(1.00, 0.62, 0.12, 0.95)
+            rgba = (1.00, 0.62, 0.12, 0.95)
             label = "XS"
         elif control.mode == "exec_async":
-            cr.set_source_rgba(0.95, 0.50, 0.15, 0.95)
+            rgba = (0.95, 0.50, 0.15, 0.95)
             label = "XA"
         elif control.mode == "compositor_dispatch":
-            cr.set_source_rgba(0.70, 0.45, 1.00, 0.95)
+            rgba = (0.70, 0.45, 1.00, 0.95)
             label = "C"
         else:
-            cr.set_source_rgba(0.65, 0.65, 0.65, 0.95)
+            rgba = (0.65, 0.65, 0.65, 0.95)
             label = "?"
 
+        _draw_track_time_tick(cr, state, x, rgba)
+
         size = 7.0
+        cr.set_source_rgba(*rgba)
         cr.move_to(x, base_y - size)
         cr.line_to(x + size, base_y)
         cr.line_to(x, base_y + size)
@@ -705,6 +728,11 @@ def _draw_control_markers(cr, state: TimelineRenderState, width: int) -> None:
         if id(control) in state._erase_pending_ids:
             cr.set_source_rgba(*_ERASE_PENDING_BORDER_RGBA)
             cr.set_line_width(1.6)
+            cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
+            cr.stroke()
+        elif control is state._selected:
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.98)
+            cr.set_line_width(1.2)
             cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
 

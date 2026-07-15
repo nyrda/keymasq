@@ -71,8 +71,8 @@ class SuperkeyEditorView(Gtk.Box):
             edit_overload_slot,
         )
 
-        actions_group = Adw.PreferencesGroup()
-        actions_group.set_title("Actions")
+        self.actions_group = Adw.PreferencesGroup()
+        self.actions_group.set_title("Actions")
         for slot in (
             self.tap_slot,
             self.double_tap_slot,
@@ -80,8 +80,8 @@ class SuperkeyEditorView(Gtk.Box):
             self.tap_hold_slot,
             self.overload_slot,
         ):
-            actions_group.add(slot.row)
-        self.append(actions_group)
+            self.actions_group.add(slot.row)
+        self.append(self.actions_group)
 
         self.overload_pulse_group = Adw.PreferencesGroup()
         self.overload_pulse_group.set_title("On Press / Release")

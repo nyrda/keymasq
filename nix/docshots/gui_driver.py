@@ -1598,7 +1598,7 @@ class DocshotRunner:
         dialog.present(self.window)
         self.current_dialog = dialog
         self._set_dialog_crop(dialog, shot)
-        self._apply_declared_crop_widget(dialog, shot)
+        self._apply_declared_crop_widget(dialog.editor, shot)
 
     def _prepare_analog_controls_manager(self, shot: Json) -> None:
         assert self.window is not None

@@ -68,7 +68,9 @@ class TimelineControllerMixin:
             self._timeline._pps = 300.0
             return
 
-        available_px = float(max(viewport_width - TimelineWidget.LABEL_WIDTH - 4, 1))
+        available_px = float(
+            max(viewport_width - TimelineWidget.LABEL_WIDTH - TimelineWidget.TIMELINE_PAD - 4, 1)
+        )
         fit_pps = available_px / (end_us / 1e6)
         self._timeline._pps = max(
             self._auto_zoom_min_pps,
@@ -95,7 +97,12 @@ class TimelineControllerMixin:
         self._apply_auto_zoom(viewport_width)
 
         duration_s = self._timeline_end_us() / 1e6
-        content_width = int(TimelineWidget.LABEL_WIDTH + duration_s * self._timeline._pps + 4)
+        content_width = int(
+            TimelineWidget.LABEL_WIDTH
+            + TimelineWidget.TIMELINE_PAD
+            + duration_s * self._timeline._pps
+            + 4
+        )
         canvas_width = max(viewport_width, 1)
         self._timeline_scroll_max = max(float(content_width - viewport_width), 0.0)
 

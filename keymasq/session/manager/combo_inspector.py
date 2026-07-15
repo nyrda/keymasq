@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
-from keymasq.session.profiles import ResolvedCombo
+from keymasq.session.profile.types import ResolvedCombo
 
 from .common import JsonObject
-from .payloads import serialize_mapping_action
+from .payload.action import serialize_mapping_action
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -32,11 +32,7 @@ def _serialize_combo(
         "order": index,
         "steps": [
             {
-                **(
-                    {"timeout_ms": int(step.timeout_ms)}
-                    if step.timeout_ms is not None
-                    else {}
-                ),
+                **({"timeout_ms": int(step.timeout_ms)} if step.timeout_ms is not None else {}),
                 "events": [
                     {
                         "evdev": event.evdev,

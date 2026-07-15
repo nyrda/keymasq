@@ -4,11 +4,14 @@ from collections.abc import Callable
 import evdev
 import pytest
 
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice, log
+from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import (
+    build_event_processing_deps,
+    process_event,
+)
 
 
 class _FakeUInput:
@@ -32,6 +35,9 @@ class _DummyGrabbedDevice:
 
     def release_tracked_outputs(self) -> None:
         self.cleaned = True
+
+    async def stop_event_loop(self) -> None:
+        return
 
     async def release(self) -> None:
         self.released = True
@@ -65,10 +71,10 @@ async def _noop_event_callback(*_args, **_kwargs) -> None:
 
 
 async def _process_event(device: GrabbedDevice, event: evdev.InputEvent) -> None:
-    await gde.process_event(
+    await process_event(
         device,
         event,
-        deps=gde.build_event_processing_deps(log=gdm.log),
+        deps=build_event_processing_deps(log=log),
     )
 
 
@@ -86,7 +92,7 @@ def _build_grabbed_device(mapping_ref: dict) -> tuple[GrabbedDevice, _FakeUInput
         gamepad_uinput=_FakeUInput(),
     )
     device.uinput = passthrough
-    device._running = True
+    device.running = True
     return device, keyboard
 
 
@@ -202,9 +208,7 @@ async def test_release_device_uses_grace_period_and_cleans_outputs() -> None:
     assert result["scheduled"] is True
     assert dummy.cleaned is False
 
-    await _wait_until(
-        lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices
-    )
+    await _wait_until(lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices)
 
     assert dummy.released is True
     assert "1234:5678" not in manager.grabbed_devices
@@ -230,9 +234,7 @@ async def test_release_device_retries_when_source_button_is_held() -> None:
     assert dummy.released is False
 
     dummy.held = False
-    await _wait_until(
-        lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices
-    )
+    await _wait_until(lambda: dummy.released is True and "1234:5678" not in manager.grabbed_devices)
 
     assert dummy.released is True
     assert "1234:5678" not in manager.grabbed_devices

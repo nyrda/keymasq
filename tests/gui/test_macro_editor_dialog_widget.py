@@ -13,9 +13,10 @@ import evdev
 
 from gi.repository import Gtk
 
-from keymasq.common.models import ActionType, MappingAction
-from keymasq.gui.widgets import macro_editor_dialog as macro_editor_dialog_module
-from keymasq.gui.widgets.macro_editor_dialog import (
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.actions import MappingAction
+from keymasq.gui.widgets.macro_editor import dialog as macro_editor_dialog_module
+from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
     EditableMove,
@@ -23,6 +24,13 @@ from keymasq.gui.widgets.macro_editor_dialog import (
     parse_events,
     reconstruct_events,
 )
+from keymasq.gui.widgets.macro_editor.panel.controls import _set_entry_text_if_needed
+from keymasq.gui.widgets.macro_editor.panel.settings import (
+    _LOOP_MODE_OPTIONS,
+    _get_dropdown_selected_id,
+    _set_dropdown_selected_id,
+)
+import keymasq.gui.widgets.position_capture as position_capture_module
 from tests.gui.macro_editor_dialog_support import _build_macro_dialog
 from tests.gui.support import collect_widgets, iter_widget_children
 
@@ -49,8 +57,8 @@ def _install_delayed_cursor_position_capture_harness(
         assert payload == {"command": "get_cursor_position"}
         requests.append(callback)
 
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "timeout_add", fake_timeout_add)
-    monkeypatch.setattr(macro_editor_dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(position_capture_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(position_capture_module.GLib, "source_remove", fake_source_remove)
     monkeypatch.setattr(
         macro_editor_dialog_module,
         "session_request_async",
@@ -154,9 +162,9 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._control_timeout_spin.get_adjustment().get_upper() == 45000
     assert dialog._name_entry.get_text() == "demo_macro"
     assert (
-        macro_editor_dialog_module._get_dropdown_selected_id(
+        _get_dropdown_selected_id(
             dialog._macro_loop_mode_combo,
-            macro_editor_dialog_module._LOOP_MODE_OPTIONS,
+            _LOOP_MODE_OPTIONS,
             "none",
         )
         == "count"
@@ -170,8 +178,8 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_start_y_spin.get_value_as_int() == 240
     assert dialog._macro_start_x_spin.get_sensitive() is True
     assert dialog._macro_start_y_spin.get_sensitive() is True
-    assert dialog._legacy_move_to_start_row.get_visible() is True
-    assert dialog._legacy_move_to_start_capture_row.get_visible() is True
+    assert dialog._move_to_start_row.get_visible() is True
+    assert dialog._move_to_start_capture_row.get_visible() is True
     assert dialog._macro_block_mouse_check.get_active() is True
 
 
@@ -657,10 +665,10 @@ def test_set_entry_text_if_needed_skips_redundant_updates() -> None:
 
     entry = _FakeEntry("echo hi")
 
-    macro_editor_dialog_module._set_entry_text_if_needed(entry, "echo hi")
+    _set_entry_text_if_needed(entry, "echo hi")
     assert entry.set_calls == []
 
-    macro_editor_dialog_module._set_entry_text_if_needed(entry, "echo bye")
+    _set_entry_text_if_needed(entry, "echo bye")
     assert entry.set_calls == ["echo bye"]
 
 
@@ -690,9 +698,9 @@ def test_macro_editor_exec_command_edit_does_not_refresh_control_panel(monkeypat
 def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
 
-    macro_editor_dialog_module._set_dropdown_selected_id(
+    _set_dropdown_selected_id(
         dialog._macro_loop_mode_combo,
-        macro_editor_dialog_module._LOOP_MODE_OPTIONS,
+        _LOOP_MODE_OPTIONS,
         "count",
     )
     dialog._on_macro_loop_mode_changed(dialog._macro_loop_mode_combo)
@@ -721,13 +729,12 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
     assert dialog._macro_capture_status.get_text() == "Captured: 640, 480"
 
     dialog._on_capture_start_position_response(
-        dialog._capture_request_id,
-        {"status": "error", "message": "Unknown command: get_cursor_position"}
+        dialog._start_position_capture.request_id,
+        {"status": "error", "message": "Unknown command: get_cursor_position"},
     )
 
     assert (
-        dialog._macro_capture_status.get_text()
-        == "Please restart Keymasq Session, then try again"
+        dialog._macro_capture_status.get_text() == "Please restart Keymasq Session, then try again"
     )
 
 
@@ -750,9 +757,7 @@ def test_macro_editor_repeated_start_capture_updates_every_run(monkeypatch) -> N
 
 
 def test_macro_editor_delayed_start_capture_ignores_stale_response(monkeypatch) -> None:
-    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(
-        monkeypatch
-    )
+    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(monkeypatch)
     dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
     dialog._macro_move_to_start_check.set_active(True)
     dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
@@ -766,9 +771,7 @@ def test_macro_editor_delayed_start_capture_ignores_stale_response(monkeypatch) 
 
 
 def test_macro_editor_delayed_abs_move_capture_ignores_stale_response(monkeypatch) -> None:
-    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(
-        monkeypatch
-    )
+    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(monkeypatch)
     dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
     dialog._synthetic_moves = [move]
@@ -797,9 +800,9 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     ]
     dialog._macro_data = {"revision": 2}
     dialog._duration_us = 15000
-    macro_editor_dialog_module._set_dropdown_selected_id(
+    _set_dropdown_selected_id(
         dialog._macro_loop_mode_combo,
-        macro_editor_dialog_module._LOOP_MODE_OPTIONS,
+        _LOOP_MODE_OPTIONS,
         "toggle",
     )
     dialog._on_macro_loop_mode_changed(dialog._macro_loop_mode_combo)
@@ -862,8 +865,7 @@ def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
     assert footer_spacer.get_vexpand() is True
     assert footer.get_halign() == Gtk.Align.END
     assert [
-        button.get_label()
-        for button in collect_widgets(footer, Gtk.Button, include_self=True)
+        button.get_label() for button in collect_widgets(footer, Gtk.Button, include_self=True)
     ] == ["Cancel", "Save as Copy…", "Apply", "Save Changes"]
 
 
@@ -1262,8 +1264,8 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
 
-    assert dialog._legacy_move_to_start_row.get_visible() is False
-    assert dialog._legacy_move_to_start_capture_row.get_visible() is False
+    assert dialog._move_to_start_row.get_visible() is False
+    assert dialog._move_to_start_capture_row.get_visible() is False
     dialog._macro_block_mouse_check.set_active(True)
     assert dialog.get_can_close() is False
 
@@ -1337,9 +1339,9 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
 
     dialog._apply_macro_state(dialog._initial_macro_data)
     dialog._events[0].press_t_us = 9000
-    macro_editor_dialog_module._set_dropdown_selected_id(
+    _set_dropdown_selected_id(
         dialog._macro_loop_mode_combo,
-        macro_editor_dialog_module._LOOP_MODE_OPTIONS,
+        _LOOP_MODE_OPTIONS,
         "count",
     )
     dialog._macro_loop_count_spin.set_value(5)
@@ -1350,11 +1352,14 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     dialog._on_undo_all_changes(None)
 
     assert dialog._events[0].press_t_us == 1000
-    assert macro_editor_dialog_module._get_dropdown_selected_id(
-        dialog._macro_loop_mode_combo,
-        macro_editor_dialog_module._LOOP_MODE_OPTIONS,
-        "none",
-    ) == "hold"
+    assert (
+        _get_dropdown_selected_id(
+            dialog._macro_loop_mode_combo,
+            _LOOP_MODE_OPTIONS,
+            "none",
+        )
+        == "hold"
+    )
     assert dialog._macro_loop_count_spin.get_value_as_int() == 1
     assert dialog._macro_loop_finish_check.get_visible() is True
     assert dialog._macro_loop_finish_check.get_active() is False
@@ -1512,7 +1517,7 @@ def test_macro_editor_add_move_selects_zeroed_event_for_editing(monkeypatch) -> 
 
 
 def test_macro_editor_add_key_dialog_starts_on_requested_device_type(monkeypatch) -> None:
-    import keymasq.gui.widgets.key_selector_dialog as key_selector_dialog_module
+    import keymasq.gui.widgets.key_selector.dialog as key_selector_dialog_module
 
     captured_actions: list[MappingAction] = []
     captured_times: list[int] = []
@@ -1620,12 +1625,15 @@ def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> Non
         },
     ]
 
-    assert dialog._shift_timeline_for_gap(
-        at_us=1000,
-        delta_us=500,
-        scope="movement",
-        exclude_control=excluded,
-    ) is True
+    assert (
+        dialog._shift_timeline_for_gap(
+            at_us=1000,
+            delta_us=500,
+            scope="movement",
+            exclude_control=excluded,
+        )
+        is True
+    )
     assert keyboard.press_t_us == 1000
     assert mouse.press_t_us == 1000
     assert gamepad.press_t_us == 1000
@@ -1636,23 +1644,29 @@ def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> Non
     assert dialog._passthrough_events[0]["t_us"] == 1000
     assert dialog._passthrough_events[1]["t_us"] == 1500
 
-    assert dialog._shift_timeline_for_gap(
-        at_us=1000,
-        delta_us=-750,
-        scope="keyboard",
-        exclude_control=None,
-    ) is True
+    assert (
+        dialog._shift_timeline_for_gap(
+            at_us=1000,
+            delta_us=-750,
+            scope="keyboard",
+            exclude_control=None,
+        )
+        is True
+    )
     assert keyboard.press_t_us == 250
     assert keyboard.release_t_us == 1250
     assert mouse.press_t_us == 1000
     assert dialog._passthrough_events[0]["t_us"] == 250
 
-    assert dialog._shift_timeline_for_gap(
-        at_us=1000,
-        delta_us=500,
-        scope="gamepad",
-        exclude_control=None,
-    ) is True
+    assert (
+        dialog._shift_timeline_for_gap(
+            at_us=1000,
+            delta_us=500,
+            scope="gamepad",
+            exclude_control=None,
+        )
+        is True
+    )
     assert keyboard.press_t_us == 250
     assert mouse.press_t_us == 1000
     assert gamepad.press_t_us == 1500
@@ -1733,26 +1747,41 @@ def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> No
     assert timeline._get_track_at_y(timeline._m_y + 5) == "mouse"
     assert timeline._get_track_at_y(timeline._g_y + 5) == "gamepad"
     assert timeline._get_track_at_y(timeline._wave_y + 5) == "movement"
-    assert timeline._hit_test(
-        timeline._time_to_x(keyboard.press_t_us) + 2,
-        timeline._kb_y + 12,
-    ) is keyboard
-    assert timeline._hit_test(
-        timeline._time_to_x(mouse.press_t_us) + 2,
-        timeline._m_y + 12,
-    ) is mouse
-    assert timeline._hit_test(
-        timeline._time_to_x(gamepad.press_t_us) + 2,
-        timeline._g_y + 12,
-    ) is gamepad
-    assert timeline._hit_test_move(
-        timeline._time_to_x(move.t_us),
-        timeline._wave_y + 14,
-    ) is move
-    assert timeline._hit_test_control(
-        timeline._time_to_x(compositor.t_us),
-        timeline._wave_y + timeline.TRACK_HEIGHT - 14,
-    ) is compositor
+    assert (
+        timeline._hit_test(
+            timeline._time_to_x(keyboard.press_t_us) + 2,
+            timeline._kb_y + 12,
+        )
+        is keyboard
+    )
+    assert (
+        timeline._hit_test(
+            timeline._time_to_x(mouse.press_t_us) + 2,
+            timeline._m_y + 12,
+        )
+        is mouse
+    )
+    assert (
+        timeline._hit_test(
+            timeline._time_to_x(gamepad.press_t_us) + 2,
+            timeline._g_y + 12,
+        )
+        is gamepad
+    )
+    assert (
+        timeline._hit_test_move(
+            timeline._time_to_x(move.t_us),
+            timeline._wave_y + 14,
+        )
+        is move
+    )
+    assert (
+        timeline._hit_test_control(
+            timeline._time_to_x(compositor.t_us),
+            timeline._wave_y + timeline.TRACK_HEIGHT - 14,
+        )
+        is compositor
+    )
 
 
 def _build_erase_mode_dialog(monkeypatch):
@@ -1872,9 +1901,7 @@ def test_macro_editor_erase_drag_on_movement_track_deletes_rel_in_span(monkeypat
 
     assert dialog._synthetic_moves == []
     assert dialog._control_events == []
-    assert all(
-        _passthrough_track(ev) != "movement" for ev in dialog._passthrough_events
-    )
+    assert all(_passthrough_track(ev) != "movement" for ev in dialog._passthrough_events)
     # Recorded EV_REL movement inside the span is erased; movement outside and
     # the keyboard/mouse lanes stay untouched.
     assert [int(ev["t_us"]) for ev in dialog._rel_events] == [400_000]

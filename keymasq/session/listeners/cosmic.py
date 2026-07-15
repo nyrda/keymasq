@@ -8,9 +8,9 @@ from keymasq.session.listeners._socket_helpers import (
 )
 from keymasq.session.listeners.base import WindowChangeCallback
 from keymasq.session.listeners.wayland_toplevel import WaylandToplevelListener
-from keymasq.session.wayland_protocols import (
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
+from keymasq.session.wayland_protocols.cosmic_toplevel_info_client import (
     CosmicToplevelInfoWaylandClient,
-    ExtForeignToplevelListTracker,
 )
 from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
 
@@ -18,7 +18,7 @@ log = logging.getLogger("keymasq-session.listeners.cosmic")
 
 
 class CosmicListener(
-    WaylandToplevelListener[ExtForeignToplevelListTracker, CosmicToplevelInfoWaylandClient]
+    WaylandToplevelListener[ActiveWindowTracker, CosmicToplevelInfoWaylandClient]
 ):
     _logger = log
     _listener_error_label = "COSMIC listener"
@@ -32,7 +32,7 @@ class CosmicListener(
         client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
-        super().__init__(callback, ExtForeignToplevelListTracker(), client, dbus=dbus)
+        super().__init__(callback, ActiveWindowTracker(), client, dbus=dbus)
 
     @property
     def name(self) -> str:

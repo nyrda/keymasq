@@ -436,7 +436,7 @@ button.actions-docs-button {
   background: alpha(@accent_color, 0.14);
 }
 
-.superkey-add-row {
+.managed-editor-add-row {
   border: 1.5px solid transparent;
   border-radius: 8px;
   padding: 10px 16px;
@@ -445,13 +445,13 @@ button.actions-docs-button {
   min-height: 0;
 }
 
-.superkey-add-row:hover {
+.managed-editor-add-row:hover {
   opacity: 1;
   border-color: @accent_color;
   background: alpha(@accent_color, 0.08);
 }
 
-.superkey-add-row:selected {
+.managed-editor-add-row:selected {
   opacity: 1;
   border-color: @accent_color;
 }

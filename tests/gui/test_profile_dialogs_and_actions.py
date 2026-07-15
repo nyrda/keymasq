@@ -5,9 +5,9 @@ pytest.importorskip("gi")
 
 class TestProfileCreateDialog:
     def test_new_profile_defaults_to_permanent(self, temp_config_dir):
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.wizards.profile_create import ProfileCreateDialog
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -78,10 +78,10 @@ class TestProfileManagedTab:
     def test_rename_updates_copy_name_collision_cache(self, monkeypatch):
         from pathlib import Path
 
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
         from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
-        from keymasq.session.profiles import ProfileInfo
+        from keymasq.session.profile.types import ProfileInfo
 
         old_profile = ProfileInfo(Path("old.toml"), ProfileConfig(name="Old"))
         other_profile = ProfileInfo(Path("project.toml"), ProfileConfig(name="Project"))
@@ -136,10 +136,10 @@ class TestProfileManagedTab:
     def test_delete_last_profile_is_blocked(self, monkeypatch):
         from pathlib import Path
 
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
         from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
-        from keymasq.session.profiles import ProfileInfo
+        from keymasq.session.profile.types import ProfileInfo
 
         only_profile = ProfileInfo(Path("base.toml"), ProfileConfig(name="Base"))
 
@@ -187,7 +187,7 @@ class TestProfileManagedTab:
 
 class TestProfileActions:
     def test_action_types(self):
-        from keymasq.common.models import ActionType
+        from keymasq.common.model.core import ActionType
 
         assert ActionType.PASSTHROUGH.value == "passthrough"
         assert ActionType.KEYBOARD.value == "keyboard"

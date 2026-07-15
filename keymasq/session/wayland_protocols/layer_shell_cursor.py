@@ -11,7 +11,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from keymasq.session.cursor_position import trigger_cursor_position_sample
-from keymasq.session.wayland_protocols import client_transport as _transport
+from keymasq.session.wayland_protocols.client_transport import (
+    WaylandClientTransport,
+    WaylandDisplayError,
+    decode_string,
+    encode_string,
+    pack_uint,
+)
 
 if TYPE_CHECKING:
     from keymasq.session.client import KeymasqdClient
@@ -142,7 +148,7 @@ class CursorSample:
     received_at: float
 
 
-class LayerShellCursorTracker(_transport.WaylandClientTransport):
+class LayerShellCursorTracker(WaylandClientTransport):
     def __init__(
         self,
         daemon_client: KeymasqdClient | None = None,
@@ -202,8 +208,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             missing.append(WL_SEAT_INTERFACE)
         if missing:
             raise RuntimeError(
-                "Wayland layer-shell cursor tracking is unavailable; missing "
-                + ", ".join(missing)
+                "Wayland layer-shell cursor tracking is unavailable; missing " + ", ".join(missing)
             )
 
     def _after_start_sync(self) -> None:
@@ -227,12 +232,12 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             for output in list(self._outputs_by_object.values()):
                 await self._destroy_output(output)
             if self._xdg_output_manager_id is not None:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(self._xdg_output_manager_id, 0, b"")
                 self._objects.pop(self._xdg_output_manager_id, None)
                 self._xdg_output_manager_id = None
             if self._layer_shell_id is not None and self._layer_shell_id in self._objects:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(self._layer_shell_id, 1, b"")
                 self._objects.pop(self._layer_shell_id, None)
                 self._layer_shell_id = None
@@ -273,7 +278,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         if destroyed_surfaces:
             try:
                 await self._roundtrip(timeout=SURFACE_DESTROY_SYNC_TIMEOUT_S)
-            except (OSError, RuntimeError, TimeoutError, _transport.WaylandDisplayError):
+            except (OSError, RuntimeError, TimeoutError, WaylandDisplayError):
                 log.debug("Failed to sync layer-shell cursor surface teardown", exc_info=True)
             if nudge_after_stop:
                 log.debug("Nudging pointer after layer-shell cursor surfaces were destroyed")
@@ -372,7 +377,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
                 self._sample_event = asyncio.Event()
         except asyncio.CancelledError:
             raise
-        except (OSError, RuntimeError, _transport.WaylandDisplayError):
+        except (OSError, RuntimeError, WaylandDisplayError):
             log.debug("Failed to unmap layer-shell cursor surfaces", exc_info=True)
         finally:
             if self._unmap_task is asyncio.current_task():
@@ -460,30 +465,30 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         self._surfaces_by_layer_surface[layer_surface_id] = surface
         self._surfaces_by_output[output_id] = surface
 
-        await self._send_request(self._compositor_id, 0, _transport.pack_uint(surface_id))
+        await self._send_request(self._compositor_id, 0, pack_uint(surface_id))
         await self._send_request(
             self._layer_shell_id,
             0,
-            _transport.pack_uint(layer_surface_id)
-            + _transport.pack_uint(surface_id)
-            + _transport.pack_uint(output_id)
-            + _transport.pack_uint(WLR_LAYER_OVERLAY)
-            + _transport.encode_string("keymasq-cursor-position"),
+            pack_uint(layer_surface_id)
+            + pack_uint(surface_id)
+            + pack_uint(output_id)
+            + pack_uint(WLR_LAYER_OVERLAY)
+            + encode_string("keymasq-cursor-position"),
         )
-        await self._send_request(layer_surface_id, 0, _transport.pack_uint(0) * 2)
-        await self._send_request(layer_surface_id, 1, _transport.pack_uint(WLR_LAYER_ANCHOR_ALL))
+        await self._send_request(layer_surface_id, 0, pack_uint(0) * 2)
+        await self._send_request(layer_surface_id, 1, pack_uint(WLR_LAYER_ANCHOR_ALL))
         await self._send_request(layer_surface_id, 2, _pack_int(-1))
         await self._send_request(
             layer_surface_id,
             4,
-            _transport.pack_uint(WLR_LAYER_KEYBOARD_INTERACTIVITY_NONE),
+            pack_uint(WLR_LAYER_KEYBOARD_INTERACTIVITY_NONE),
         )
         await self._send_request(surface_id, 6, b"")
 
     async def _map_configured_surface(self, surface: _SurfaceState, serial: int) -> None:
         if surface.closed:
             return
-        await self._send_request(surface.layer_surface_id, 6, _transport.pack_uint(serial))
+        await self._send_request(surface.layer_surface_id, 6, pack_uint(serial))
         width = max(1, int(surface.width))
         height = max(1, int(surface.height))
         buffer_id, mapping = await self._create_transparent_buffer(width, height)
@@ -502,7 +507,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         await self._send_request(
             surface.surface_id,
             1,
-            _transport.pack_uint(buffer_id) + _pack_int(0) + _pack_int(0),
+            pack_uint(buffer_id) + _pack_int(0) + _pack_int(0),
         )
         await self._send_request(
             surface.surface_id,
@@ -525,7 +530,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             await self._send_request_with_fds(
                 self._shm_id,
                 0,
-                _transport.pack_uint(pool_id) + _pack_int(size),
+                pack_uint(pool_id) + _pack_int(size),
                 [fd],
             )
         finally:
@@ -535,12 +540,12 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         await self._send_request(
             pool_id,
             0,
-            _transport.pack_uint(buffer_id)
+            pack_uint(buffer_id)
             + _pack_int(0)
             + _pack_int(width)
             + _pack_int(height)
             + _pack_int(stride)
-            + _transport.pack_uint(WL_SHM_FORMAT_ARGB8888),
+            + pack_uint(WL_SHM_FORMAT_ARGB8888),
         )
         await self._send_request(pool_id, 1, b"")
         self._objects.pop(pool_id, None)
@@ -565,21 +570,21 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         )
         if self._socket is not None:
             if surface.surface_id in self._objects:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(
                         surface.surface_id,
                         1,
-                        _transport.pack_uint(0) + _pack_int(0) + _pack_int(0),
+                        pack_uint(0) + _pack_int(0) + _pack_int(0),
                     )
                     await self._send_request(surface.surface_id, 6, b"")
             if surface.layer_surface_id in self._objects:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(surface.layer_surface_id, 7, b"")
             if surface.surface_id in self._objects:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(surface.surface_id, 0, b"")
             if surface.buffer_id is not None and surface.buffer_id in self._objects:
-                with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+                with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                     await self._send_request(surface.buffer_id, 0, b"")
         self._objects.pop(surface.layer_surface_id, None)
         self._objects.pop(surface.surface_id, None)
@@ -598,11 +603,11 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         if surface is not None:
             await self._destroy_surface(surface)
         if output.xdg_output_id is not None and output.xdg_output_id in self._objects:
-            with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+            with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                 await self._send_request(output.xdg_output_id, 0, b"")
             self._objects.pop(output.xdg_output_id, None)
         if output.output_id in self._objects:
-            with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+            with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                 await self._send_request(output.output_id, 0, b"")
             self._objects.pop(output.output_id, None)
         self._outputs_by_global.pop(output.global_name, None)
@@ -617,7 +622,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             return
         self._pointer_id = None
         if pointer_id in self._objects and self._socket is not None:
-            with contextlib.suppress(OSError, RuntimeError, _transport.WaylandDisplayError):
+            with contextlib.suppress(OSError, RuntimeError, WaylandDisplayError):
                 await self._send_request(pointer_id, 1, b"")
         self._objects.pop(pointer_id, None)
 
@@ -744,7 +749,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         await self._send_request(
             self._xdg_output_manager_id,
             1,
-            _transport.pack_uint(xdg_output_id) + _transport.pack_uint(output.output_id),
+            pack_uint(xdg_output_id) + pack_uint(output.output_id),
         )
 
     def _handle_output_event(self, object_id: int, opcode: int, payload: bytes) -> None:
@@ -755,7 +760,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             self._publish_output_geometry(output)
             return
         if opcode == 4:
-            name, _offset = _transport.decode_string(payload, 0)
+            name, _offset = decode_string(payload, 0)
             output.name = name
 
     def _handle_xdg_output_event(self, object_id: int, opcode: int, payload: bytes) -> None:
@@ -776,7 +781,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
             self._publish_output_geometry(output)
             return
         if opcode == 3:
-            name, _offset = _transport.decode_string(payload, 0)
+            name, _offset = decode_string(payload, 0)
             output.name = name
 
     def _publish_output_geometry(self, output: _OutputState) -> None:
@@ -800,7 +805,7 @@ class LayerShellCursorTracker(_transport.WaylandClientTransport):
         has_pointer = bool(capabilities & WL_SEAT_CAPABILITY_POINTER)
         if has_pointer and self._pointer_id is None:
             pointer_id = self._allocate_object_id(WL_POINTER_INTERFACE)
-            await self._send_request(object_id, 0, _transport.pack_uint(pointer_id))
+            await self._send_request(object_id, 0, pack_uint(pointer_id))
             self._pointer_id = pointer_id
             return
         if not has_pointer and self._pointer_id is not None:

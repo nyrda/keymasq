@@ -1,20 +1,20 @@
 from typing import cast
 
 from keymasq.common.coercion import bool_value, coerce_float, coerce_int
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
-    ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
     normalize_natural_mouse_move_curve,
     parse_profile_deactivation_policy,
 )
+from keymasq.common.model.core import ActionType
 
 _PROFILE_ACTION_TYPES = {
     ActionType.PROFILE_ENABLE,

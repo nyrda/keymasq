@@ -29,8 +29,8 @@ class TestDeviceTabWidget:
     def test_device_tab_creation(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -60,8 +60,9 @@ class TestDeviceTabWidget:
         assert v_policy == Gtk.PolicyType.AUTOMATIC
 
     def test_analog_learning_is_available_for_unknown_raw_devices(self):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -82,8 +83,9 @@ class TestDeviceTabWidget:
         assert tab._supports_analog_learning() is True
 
     def test_analog_learning_stays_hidden_for_plain_keyboard_devices(self):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -104,8 +106,9 @@ class TestDeviceTabWidget:
         assert tab._supports_analog_learning() is False
 
     def test_device_tab_inspect_button_delegates_to_main_window(self):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         calls = []
 
@@ -140,8 +143,9 @@ class TestDeviceTabWidget:
     def test_device_tab_header_includes_hardware_settings_button(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
         from tests.gui.support import collect_widgets
 
         class _HardwareManager:
@@ -177,8 +181,9 @@ class TestDeviceTabWidget:
         assert "Delete device" not in tooltips
 
     def test_numbered_hardware_id_header_keeps_path_in_tooltip(self):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         stable_path = (
             "/dev/input/by-id/"
@@ -209,15 +214,15 @@ class TestDeviceTabWidget:
         )
 
     def test_header_caption_keeps_button_and_analog_counts_consistent(self):
-        from keymasq.common.models import (
+        from keymasq.common.model.hardware import (
             AnalogAxisDefinition,
             AnalogInputDefinition,
             ButtonDefinition,
-            DeviceType,
             EvdevDevice,
             HardwareConfig,
         )
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -268,18 +273,12 @@ class TestDeviceTabWidget:
         assert tab._header_caption_label.get_text() == expected_caption
 
     def test_live_header_caption_lists_interface_state_and_mappings(self, temp_config_dir):
-        from keymasq.common.models import (
-            ActionType,
-            ButtonDefinition,
-            DeviceProfileLayer,
-            DeviceType,
-            EvdevDevice,
-            HardwareConfig,
-            MappingAction,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.core import ActionType, DeviceType
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -352,8 +351,8 @@ class TestDeviceTabWidget:
     def test_keyboard_left_layout_does_not_request_seventh_column(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         left_keyboard_ids = [
             "key_esc",
@@ -421,8 +420,8 @@ class TestDeviceTabWidget:
     def test_keyboard_right_modifier_order(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         right_keyboard_ids = [
             "key_backspace",
@@ -483,14 +482,10 @@ class TestDeviceTabWidget:
         raise AssertionError("Keyboard (Right) section not found")
 
     def test_device_tab_initial_profile_selection(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -522,9 +517,9 @@ class TestDeviceTabWidget:
         assert tab.settings_frame.get_sensitive() is True
 
     def test_device_tab_does_not_start_active_profile_polling(self, monkeypatch):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         def fail_timeout(*args, **kwargs):
             raise AssertionError("DeviceTab should not schedule active profile polling")
@@ -546,14 +541,10 @@ class TestDeviceTabWidget:
         )
 
     def test_device_tab_refresh_profiles_picks_up_new_global_profile(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -595,16 +586,12 @@ class TestDeviceTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
 
     def test_device_tab_greys_out_overridden_mapping(self, temp_config_dir):
-        from keymasq.common.models import (
-            ActionType,
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            MappingAction,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -672,14 +659,10 @@ class TestDeviceTabWidget:
         assert overlay_widget.has_css_class("button-card-mapped-active") is True
 
     def test_device_tab_always_grab_toggle_persists_selected_layer(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -717,21 +700,17 @@ class TestDeviceTabWidget:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import (
-            ActionType,
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            MappingAction,
-            ProfileConfig,
-        )
-        import keymasq.gui.widgets.profile_managed_tab as profile_managed_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
+        import keymasq.gui.widgets.device_tab.tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         requests: list[dict] = []
         monkeypatch.setattr(
-            profile_managed_tab_module,
+            device_tab_module,
             "session_request_async",
             lambda payload, _callback: requests.append(payload),
         )
@@ -773,17 +752,13 @@ class TestDeviceTabWidget:
         from collections.abc import Callable
         from typing import cast
 
-        from keymasq.common.models import (
-            ActionType,
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         import keymasq.gui.widgets.device_tab.tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         dialogs: list[object] = []
         scheduled: list[tuple[int, Callable[[], bool]]] = []
@@ -881,18 +856,13 @@ class TestDeviceTabWidget:
         from collections.abc import Callable
         from typing import cast
 
-        from keymasq.common.models import (
-            ActionType,
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         import keymasq.gui.widgets.device_tab.tab as device_tab_module
-        import keymasq.gui.widgets.profile_managed_tab as profile_managed_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         dialogs: list[object] = []
         scheduled: list[tuple[int, Callable[[], bool]]] = []
@@ -919,7 +889,7 @@ class TestDeviceTabWidget:
             lambda delay_ms, callback: scheduled.append((delay_ms, callback)) or 123,
         )
         monkeypatch.setattr(
-            profile_managed_tab_module,
+            device_tab_module,
             "session_request_async",
             lambda payload, _callback: requests.append(payload),
         )
@@ -970,9 +940,9 @@ class TestDeviceTabWidget:
     ):
         from collections.abc import Callable
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         import keymasq.gui.widgets.device_tab.tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         scheduled: list[Callable[[], bool]] = []
         removed: list[int] = []
@@ -999,8 +969,8 @@ class TestDeviceTabWidget:
         assert scheduled == [tab._run_pending_selector_commit]
         assert removed == [123]
         assert commits == [True]
-        assert tab._pending_selector_commit is None
-        assert tab._selector_commit_source_id == 0
+        assert tab._commit_state.pending is None
+        assert tab._commit_state.source_id == 0
 
     def test_device_tab_selector_pending_commits_chain_in_order(
         self,
@@ -1008,9 +978,9 @@ class TestDeviceTabWidget:
     ):
         from collections.abc import Callable
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         import keymasq.gui.widgets.device_tab.tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         scheduled: list[Callable[[], bool]] = []
         removed: list[int] = []
@@ -1040,12 +1010,13 @@ class TestDeviceTabWidget:
         assert scheduled[-1]() is False
 
         assert commits == ["first", "second"]
-        assert tab._pending_selector_commit is None
-        assert tab._selector_commit_source_id == 0
+        assert tab._commit_state.pending is None
+        assert tab._commit_state.source_id == 0
 
     def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         assert window.profile_manager is not None
@@ -1091,9 +1062,9 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -1179,9 +1150,9 @@ class TestDeviceTabWidget:
     def test_device_tab_delete_keeps_config_when_release_fails(self, temp_config_dir, monkeypatch):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -1258,9 +1229,9 @@ class TestDeviceTabWidget:
     def test_device_tab_rename_device_updates_hardware_runtime_and_header(
         self, temp_config_dir, monkeypatch
     ):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
         from keymasq.session.hardware import HardwareManager
 
         class _MainWindow:
@@ -1311,9 +1282,9 @@ class TestDeviceTabWidget:
         assert reload_requests == [{"command": "reload"}]
 
     def test_device_tab_rename_without_hardware_manager_does_not_mutate(self, monkeypatch):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1347,9 +1318,9 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -1416,14 +1387,10 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Gdk
 
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         class _Click:
             def __init__(self, button: int) -> None:
@@ -1504,8 +1471,8 @@ class TestDeviceTabWidget:
     def test_device_tab_protected_buttons_show_info_indicator(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1532,16 +1499,11 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            DeviceType,
-            EvdevDevice,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.widgets.device_tab import DeviceTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -1627,7 +1589,8 @@ class TestDeviceTabWidget:
     ):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1687,8 +1650,8 @@ class TestDeviceTabWidget:
     def test_device_tab_add_inputs_dialog_requires_unlock_before_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1763,9 +1726,9 @@ class TestDeviceTabWidget:
         assert "Add inputs reads raw key events before remapping." in privilege_status.get_text()
 
     def test_device_tab_finish_add_keys_reloads_session_runtime(self, temp_config_dir, monkeypatch):
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
         from keymasq.gui.widgets.device_tab.add_inputs_flow import AddInputsResult
 
         class _HardwareManager:
@@ -1809,9 +1772,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_adds_evdev_devices_and_reloads(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -1885,9 +1849,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_switches_evdev_detection_to_product_id(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self, device: HardwareConfig) -> None:
@@ -1950,9 +1915,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_denies_product_id_detection_conflict(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self, devices: list[HardwareConfig]) -> None:
@@ -2017,9 +1983,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_denies_product_id_add_conflict(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self, devices: list[HardwareConfig]) -> None:
@@ -2096,9 +2063,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_switches_evdev_detection_to_stable_path(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -2154,9 +2122,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_migrates_event_path_to_runtime_stable_path(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -2215,9 +2184,10 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_stable_detection_reports_missing_by_id(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -2267,8 +2237,7 @@ class TestDeviceTabWidget:
 
         assert available is False
         assert tooltip == (
-            "Stable Path is unavailable because this event device has no "
-            "/dev/input/by-id path."
+            "Stable Path is unavailable because this event device has no /dev/input/by-id path."
         )
         assert ok is False
         assert message == tooltip
@@ -2277,7 +2246,8 @@ class TestDeviceTabWidget:
         assert reload_requests == []
 
     def test_append_unique_evdev_devices_allows_logical_path_with_distinct_metadata(self):
-        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
             append_unique_evdev_devices,
         )
@@ -2323,7 +2293,8 @@ class TestDeviceTabWidget:
         assert config.evdev_devices[-1].phys == "usb-test/input1"
 
     def test_append_unique_evdev_devices_treats_real_path_as_duplicate(self):
-        from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
             append_unique_evdev_devices,
         )
@@ -2364,7 +2335,8 @@ class TestDeviceTabWidget:
 
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
             HardwareSettingsDialog,
         )
@@ -2456,7 +2428,8 @@ class TestDeviceTabWidget:
 
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
             HardwareSettingsDialog,
         )
@@ -2479,8 +2452,7 @@ class TestDeviceTabWidget:
             buttons=[ButtonDefinition(id="btn_south", label="A", evdev="btn_south")],
         )
         stable_tooltip = (
-            "Stable Path is unavailable because this event device has no "
-            "/dev/input/by-id path."
+            "Stable Path is unavailable because this event device has no /dev/input/by-id path."
         )
         dialog = HardwareSettingsDialog(
             None,
@@ -2511,8 +2483,9 @@ class TestDeviceTabWidget:
 
         from gi.repository import Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
             HardwareSettingsDialog,
         )
@@ -2549,8 +2522,7 @@ class TestDeviceTabWidget:
             ]
         }
         stable_tooltip = (
-            "Stable Path is unavailable because this event device has no "
-            "/dev/input/by-id path."
+            "Stable Path is unavailable because this event device has no /dev/input/by-id path."
         )
         dialog = HardwareSettingsDialog(
             None,
@@ -2609,16 +2581,16 @@ class TestDeviceTabWidget:
     def test_device_tab_hardware_settings_deletes_evdev_device_controls_and_mappings(
         self, monkeypatch, temp_config_dir
     ):
-        from keymasq.common.models import (
+        from keymasq.common.model.hardware import (
             AnalogAxisDefinition,
             AnalogInputDefinition,
             ButtonDefinition,
-            DeviceType,
             EvdevDevice,
             HardwareConfig,
         )
-        from keymasq.gui.widgets import device_tab as device_tab_module
-        from keymasq.gui.widgets.device_tab import DeviceTab
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
         class _HardwareManager:
             def __init__(self) -> None:
@@ -2718,7 +2690,7 @@ class TestDeviceTabWidget:
 
         import evdev
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2766,7 +2738,7 @@ class TestDeviceTabWidget:
 
         import evdev
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2815,7 +2787,7 @@ class TestDeviceTabWidget:
 
         import evdev
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2858,7 +2830,8 @@ class TestDeviceTabWidget:
     def test_device_tab_duplicate_key_esc_cancels_capture(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2893,7 +2866,8 @@ class TestDeviceTabWidget:
     def test_mouse_device_tab_add_inputs_accepts_keyboard_keys(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2939,7 +2913,7 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gdk, Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -2976,7 +2950,7 @@ class TestDeviceTabWidget:
         gi.require_version("Adw", "1")
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -3023,7 +2997,8 @@ class TestDeviceTabWidget:
     def test_gamepad_device_tab_add_buttons_capture_sets_gamepad_type(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -3084,7 +3059,8 @@ class TestDeviceTabWidget:
     def test_gamepad_device_tab_rejects_alias_duplicate_by_code(self, temp_config_dir):
         from gi.repository import Adw, Gtk
 
-        from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.core import DeviceType
 
         device = HardwareConfig(
             vendor_id="1234",

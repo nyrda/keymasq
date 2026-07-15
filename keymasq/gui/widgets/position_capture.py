@@ -189,9 +189,7 @@ class PositionCaptureController:
 
         if not response or response.get("status") != "ok":
             message = (
-                (response or {}).get("message")
-                or (response or {}).get("error")
-                or "Capture failed"
+                (response or {}).get("message") or (response or {}).get("error") or "Capture failed"
             )
             if "Unknown command: get_cursor_position" in message:
                 message = active_messages.unknown_command

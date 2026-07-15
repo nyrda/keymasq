@@ -69,10 +69,7 @@ class _FakeBus(FakeDBusBus):
                         PLAYBACK_STATUS_PROPERTY: Variant("s", status),
                         METADATA_PROPERTY: Variant(
                             "a{sv}",
-                            {
-                                name: _metadata_variant(value)
-                                for name, value in metadata.items()
-                            },
+                            {name: _metadata_variant(value) for name, value in metadata.items()},
                         ),
                         CAN_GO_NEXT_PROPERTY: Variant(
                             "b",

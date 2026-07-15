@@ -73,9 +73,7 @@ class AsyncioRuntimeAdapter:
     def get_running_loop(self) -> AsyncioLoop:
         return cast(AsyncioLoop, asyncio.get_running_loop())
 
-    def gather(
-        self, *aws: Awaitable[object], return_exceptions: bool = False
-    ) -> Awaitable[object]:
+    def gather(self, *aws: Awaitable[object], return_exceptions: bool = False) -> Awaitable[object]:
         return cast(
             Awaitable[object],
             asyncio.gather(*aws, return_exceptions=return_exceptions),

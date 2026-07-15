@@ -10,18 +10,21 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
     DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
     DEFAULT_REPEAT_CATEGORIES,
-    ActionType,
-    AnalogControlConfig,
     MappingAction,
-    SuperkeyConfig,
 )
+from keymasq.common.model.analog import AnalogControlConfig
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.superkeys import SuperkeyConfig
+from keymasq.common.slurp import get_slurp_capture
+from keymasq.gui.compositor_state import session_compositor_id
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_verbose
 from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
@@ -31,7 +34,6 @@ from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
 from .analog_tab import AnalogTabMixin
-from .compat import get_slurp_capture, session_compositor_id, session_request_async
 from .gamepad_axis import GamepadAxisControlsMixin
 from .macro_tab import MacroTabMixin
 from .options_panel import MappingOptionsPanelMixin
@@ -195,21 +197,12 @@ class KeySelectorDialog(
         self._mouse_move_tolerance: int = DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
         self._mouse_move_max_duration_ms: int = DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
         self._mouse_move_stop_on_failure: bool = False
-        self._capture_delay_seconds: float = 2.0
-        self._capture_timeout_id: int = 0
-        self._capture_pending: bool = False
-        self._capture_request_id: int = 0
-        self._capture_apply: PositionCallback | None = None
-        self._capture_status_label: Gtk.Label | None = None
-        self._capture_button: Gtk.Button | None = None
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(session_compositor_id())
-        self._slurp_available = self._slurp_capture.available
         self._position_capture = PositionCaptureController(
             slurp_capture=self._slurp_capture,
-            slurp_available=self._slurp_available,
+            slurp_available=self._slurp_capture.available,
             request_async=session_request_async,
-            on_state_changed=self._sync_position_capture_legacy_state,
         )
 
         if current_action:
@@ -231,9 +224,7 @@ class KeySelectorDialog(
                 if not self._selected_analog_controls and current_action.analog_control_name:
                     self._selected_analog_controls = [current_action.analog_control_name]
                 self._selected_analog_control = (
-                    self._selected_analog_controls[0]
-                    if self._selected_analog_controls
-                    else None
+                    self._selected_analog_controls[0] if self._selected_analog_controls else None
                 )
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
@@ -275,12 +266,8 @@ class KeySelectorDialog(
                     self._mouse_move_jitter = float(current_action.move_jitter)
                     self._mouse_move_curve = str(current_action.move_curve)
                     self._mouse_move_tolerance = int(current_action.move_tolerance)
-                    self._mouse_move_max_duration_ms = int(
-                        current_action.move_max_duration_ms
-                    )
-                    self._mouse_move_stop_on_failure = bool(
-                        current_action.move_stop_on_failure
-                    )
+                    self._mouse_move_max_duration_ms = int(current_action.move_max_duration_ms)
+                    self._mouse_move_stop_on_failure = bool(current_action.move_stop_on_failure)
         if not self._allow_rapidfire:
             self._rapidfire_enabled = False
         if not self._allow_tap:
@@ -489,10 +476,7 @@ class KeySelectorDialog(
             repeat_btn.add_css_class("key-button")
             repeat_btn.set_size_request(200, 50)
             repeat_btn.set_active(
-                bool(
-                    self._current_action
-                    and self._current_action.action_type == ActionType.REPEAT
-                )
+                bool(self._current_action and self._current_action.action_type == ActionType.REPEAT)
             )
             repeat_btn.connect("toggled", self._on_repeat_button_toggled)
             repeat_btn.set_tooltip_text("Replay the last remembered mapped action")
@@ -578,12 +562,7 @@ class KeySelectorDialog(
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
         self.map_btn.set_visible(
-            is_superkey
-            or is_analog_control
-            or is_type
-            or is_macro
-            or is_profile
-            or is_mouse_move
+            is_superkey or is_analog_control or is_type or is_macro or is_profile or is_mouse_move
         )
         self.map_btn.set_label(self._mouse_move_commit_label if is_mouse_move else "Map")
         if self._cancel_macro_playback_btn is not None:
@@ -643,9 +622,7 @@ class KeySelectorDialog(
                 move_curve=curve,
                 move_tolerance=int(self.mouse_move_tolerance_spin.get_value()),
                 move_max_duration_ms=int(self.mouse_move_duration_spin.get_value()),
-                move_stop_on_failure=bool(
-                    self.mouse_move_stop_on_failure_check.get_active()
-                )
+                move_stop_on_failure=bool(self.mouse_move_stop_on_failure_check.get_active())
                 if hasattr(self, "mouse_move_stop_on_failure_check")
                 else False,
             )
@@ -707,15 +684,6 @@ class KeySelectorDialog(
             callback,
         )
 
-    def _sync_position_capture_legacy_state(self) -> None:
-        self._capture_timeout_id = self._position_capture.timeout_id
-        self._capture_pending = self._position_capture.pending
-        self._capture_request_id = self._position_capture.request_id
-        self._capture_apply = self._position_capture.apply
-        self._capture_status_label = self._position_capture.status_label
-        self._capture_button = self._position_capture.button
-        self._capture_delay_seconds = self._position_capture.delay_seconds
-
     def _begin_position_capture(
         self,
         button: Gtk.Button | None,
@@ -725,7 +693,7 @@ class KeySelectorDialog(
         delay_seconds = (
             float(self.mouse_move_capture_delay_spin.get_value())
             if hasattr(self, "mouse_move_capture_delay_spin")
-            else self._capture_delay_seconds
+            else self._position_capture.delay_seconds
         )
         self._position_capture.begin(
             button=button,
@@ -733,25 +701,20 @@ class KeySelectorDialog(
             delay_seconds=delay_seconds,
             apply_position=apply_position,
         )
-        self._sync_position_capture_legacy_state()
 
     def _on_slurp_capture_result(self, request_id: int, result) -> None:
         self._position_capture.on_slurp_result(request_id, result)
-        self._sync_position_capture_legacy_state()
 
     def _capture_position_after_delay(self, request_id: int) -> bool:
         result = self._position_capture.capture_after_delay(request_id)
-        self._sync_position_capture_legacy_state()
         return result
 
     def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
         result = self._position_capture.on_response(request_id, response)
-        self._sync_position_capture_legacy_state()
         return result
 
     def _cancel_capture_position(self, status_text: str) -> None:
         self._position_capture.cancel(status_text)
-        self._sync_position_capture_legacy_state()
 
     def _on_map_clicked(self, btn) -> None:
         child_name = self.stack.get_visible_child_name()

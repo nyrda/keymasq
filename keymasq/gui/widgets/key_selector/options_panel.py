@@ -9,13 +9,13 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     MIN_RAPIDFIRE_HOLD_MS,
     MIN_RAPIDFIRE_WAIT_MS,
-    ActionType,
     MappingAction,
     action_type_supports_rapidfire,
 )
+from keymasq.common.model.core import ActionType
 
 from .targets import (
     DEFAULT_RAPIDFIRE_TOOLTIP,
@@ -23,7 +23,7 @@ from .targets import (
     REPEAT_RAPIDFIRE_TOOLTIP,
 )
 
-log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
+log = logging.getLogger(__name__)
 
 
 class RapidfireWarningMixin:
@@ -282,9 +282,7 @@ class MappingOptionsPanelMixin(RapidfireWarningMixin):
     def _on_repeat_map_clicked(self, _btn: Gtk.Button) -> None:
         if not self._repeat_categories:
             return
-        rapidfire_enabled = bool(
-            self._allow_rapidfire and self.repeat_rapidfire_check.get_active()
-        )
+        rapidfire_enabled = bool(self._allow_rapidfire and self.repeat_rapidfire_check.get_active())
         action = MappingAction(
             action_type=ActionType.REPEAT,
             repeat_categories=list(self._repeat_categories),

@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import INPUT_CLASS_ORDER, input_class_label
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 from keymasq.gui.wizards.hardware_setup.identity import device_search_text
 from keymasq.gui.wizards.hardware_setup.templates import interface_device_types
 
@@ -153,9 +153,7 @@ def build_detected_device_row(
     iface_text = "interface" if iface_count == 1 else "interfaces"
 
     model_id = str(dev_info.get("model_id", hardware_id))
-    vidpid = Gtk.Label(
-        label=f"{model_id} · {iface_count} evdev {iface_text} · {type_text}"
-    )
+    vidpid = Gtk.Label(label=f"{model_id} · {iface_count} evdev {iface_text} · {type_text}")
     vidpid.add_css_class("dim-label")
     vidpid.add_css_class("caption")
     vidpid.set_halign(Gtk.Align.START)

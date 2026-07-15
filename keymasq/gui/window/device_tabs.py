@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from keymasq.common.models import HardwareConfig
+from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.icons import combo_icon_names, device_icon_names, resolve_icon_name
 from keymasq.gui.widgets.combo_tab import ComboTab
-from keymasq.gui.widgets.device_tab import DeviceTab
+from keymasq.gui.widgets.device_tab.tab import DeviceTab
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 
 from . import _runtime, chrome, profiles, tab_layout
@@ -121,7 +121,8 @@ def _apply_loaded_devices(window, devices: list[HardwareConfig]) -> None:
 
 
 def _load_demo_devices(window) -> None:
-    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
 
     demo_device = HardwareConfig(
         vendor_id="1234",
@@ -252,7 +253,7 @@ def _on_add_device(window, button: _runtime.Gtk.Button) -> None:
         _show_demo_notification(window, "Device setup not available in demo mode")
         return
 
-    from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+    from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
     dialog = HardwareSetupDialog(window, window.hardware_manager)
 

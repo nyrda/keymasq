@@ -2,16 +2,22 @@ from unittest.mock import Mock
 
 import pytest
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
+    MappingAction,
+    ProfileDeactivationPolicy,
+)
+from keymasq.common.model.core import (
     ActionType,
-    ButtonDefinition,
-    DeviceProfileLayer,
     DeviceType,
+)
+from keymasq.common.model.hardware import (
+    ButtonDefinition,
     EvdevDevice,
     HardwareConfig,
-    MappingAction,
+)
+from keymasq.common.model.profiles import (
+    DeviceProfileLayer,
     ProfileConfig,
-    ProfileDeactivationPolicy,
     WindowRule,
 )
 from keymasq.session.action_toml import (
@@ -22,7 +28,7 @@ from keymasq.session.action_toml import (
     mapping_action_type_from_toml,
 )
 from keymasq.session.hardware import HardwareManager
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 
 
 def _parse_mapping_action_toml(data: dict[str, object]) -> MappingAction:
@@ -135,9 +141,7 @@ def test_mapping_action_toml_round_trips_natural_mouse_move() -> None:
 def test_mapping_action_toml_round_trips_macro_recording_slot_actions(
     action_type: ActionType,
 ) -> None:
-    parsed = _parse_mapping_action_toml(
-        {"action": action_type.value, "recording_slot": 2}
-    )
+    parsed = _parse_mapping_action_toml({"action": action_type.value, "recording_slot": 2})
     emitted = mapping_action_to_toml(parsed, rapidfire_warning_context="test config")
 
     assert parsed.action_type == action_type
@@ -424,9 +428,9 @@ class TestProfileTOML:
         assert manager.replace_analog_control_with_suppress("Mouse") == 1
 
         reloaded = ProfileManager()
-        action = reloaded.list_profiles()[0].config.device_layers["1234:5678"].mappings[
-            "left_stick"
-        ]
+        action = (
+            reloaded.list_profiles()[0].config.device_layers["1234:5678"].mappings["left_stick"]
+        )
         assert action.action_type == ActionType.ANALOG_CONTROL
         assert action.analog_control_names == ["New Control"]
         assert action.analog_control_name == "New Control"
@@ -500,7 +504,7 @@ class TestProfileTOML:
         assert action.rapidfire_enabled is True
         assert action.tap_enabled is True
         assert 'action = "gamepad_axis"' in content
-        assert 'value = -32768' in content
+        assert "value = -32768" in content
 
     def test_profile_gamepad_axis_missing_value_defaults_to_max(self, temp_config_dir):
         profile_path = temp_config_dir / "profiles" / "axis.toml"
@@ -519,9 +523,11 @@ target = "abs_z"
 
         manager = ProfileManager()
 
-        action = manager.get_profile("Axis Default").config.device_layers[
-            "1234:5678"
-        ].mappings["btn_side"]
+        action = (
+            manager.get_profile("Axis Default")
+            .config.device_layers["1234:5678"]
+            .mappings["btn_side"]
+        )
         assert action.axis_value == 255
 
     def test_profile_file_is_human_readable(self, temp_config_dir, sample_profile_config):
@@ -532,7 +538,7 @@ target = "abs_z"
         content = config_file.read_text()
 
         assert "[profile]" in content
-        assert "[devices.\"1234:5678\"]" in content
+        assert '[devices."1234:5678"]' in content
         assert "mapping" in content
 
     def test_profile_manual_unsupported_rapidfire_warns_and_strips(

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     MAX_MACRO_RECORDING_SLOTS,
     normalize_macro_loop_stop_behavior,
@@ -236,7 +236,7 @@ def begin_pending_macro_save(
     state.pending_slots[slot] = PendingSlot(
         data=recording_data,
         token=token,
-        # Owner fields are retained for status compatibility, not cleanup.
+        # Pending-save status reports owner identity; cleanup does not depend on it.
         owner_writer_id=state.active_owner_writer_id,
         owner_pid=state.active_owner_pid,
         owner_uid=state.active_owner_uid,

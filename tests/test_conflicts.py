@@ -1,13 +1,13 @@
 from datetime import datetime, timedelta
 
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import (
     DeviceProfileLayer,
-    MappingAction,
     ProfileConfig,
     WindowRule,
 )
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 
 
 def _profile(
@@ -31,9 +31,7 @@ def _profile(
         priority=priority,
         created_at=created_at,
         window_rules=rules or [],
-        device_layers={
-            "1234:5678": DeviceProfileLayer(hardware_id="1234:5678", mappings=mappings)
-        },
+        device_layers={"1234:5678": DeviceProfileLayer(hardware_id="1234:5678", mappings=mappings)},
     )
 
 

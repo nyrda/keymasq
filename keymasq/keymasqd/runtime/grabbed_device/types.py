@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final, Protocol, TypeVar
 import evdev
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import MappingAction
+from keymasq.common.model.actions import MappingAction
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime.adapters import (
@@ -272,7 +272,7 @@ class ActionRuntime(Protocol):
     def repeat_state(self) -> RepeatRuntimeState | None: ...
 
     @property
-    def _running(self) -> bool: ...
+    def running(self) -> bool: ...
 
     def resolve_gamepad_output(self, output_id: str | None, context: str) -> object | None: ...
 
@@ -370,7 +370,3 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     async def reset_superkeys(self) -> None: ...
 
     async def reset_analog_controls(self) -> None: ...
-
-
-def runtime_is_running(device_runtime: ActionRuntime) -> bool:
-    return device_runtime._running  # pyright: ignore[reportPrivateUsage]

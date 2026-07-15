@@ -4,17 +4,17 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import (
+from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
 )
 from keymasq.common.security import PeerCredentials
-from keymasq.session.profiles import ResolvedDeviceProfile
+from keymasq.session.profile.types import ResolvedDeviceProfile
 
-from . import profiles as runtime_profiles
 from .common import JsonObject, json_object
-from .payloads import serialize_mapping_action
+from .payload.action import serialize_mapping_action
+from .profile import coordinator
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -98,7 +98,7 @@ async def start_device_inspector(
         return result
 
     update_status_from_daemon_event(manager, result)
-    await runtime_profiles.reevaluate_profiles(
+    await coordinator.reevaluate_profiles(
         manager,
         reason=f"device inspector start {normalized}",
     )
@@ -155,7 +155,7 @@ async def enable_device_inspector_suppression(
     owners.add(writer_id)
     manager.device_inspector_state.active_hardware_ids.add(normalized)
 
-    await runtime_profiles.reevaluate_profiles(
+    await coordinator.reevaluate_profiles(
         manager,
         reason=f"device inspector suppression grab {normalized}",
     )
@@ -257,7 +257,7 @@ async def _stop_device_inspector_unlocked(
         manager.device_inspector_state.owners_by_hardware_id.pop(hardware_id, None)
         manager.device_inspector_state.active_hardware_ids.discard(hardware_id)
         manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
-        await runtime_profiles.reevaluate_profiles(manager, reason=reason)
+        await coordinator.reevaluate_profiles(manager, reason=reason)
         update_status_from_daemon_event(manager, result)
         return {
             "status": "ok",
@@ -292,7 +292,7 @@ async def _rollback_suppression_enable_state(
     if not was_active:
         manager.device_inspector_state.active_hardware_ids.discard(hardware_id)
         manager.device_inspector_state.suppressed_hardware_ids.discard(hardware_id)
-        await runtime_profiles.reevaluate_profiles(
+        await coordinator.reevaluate_profiles(
             manager,
             reason=f"device inspector suppression rollback {hardware_id}",
         )
@@ -373,8 +373,7 @@ def _serialize_interface(device: object) -> JsonObject:
         "type": str(device_type_value or ""),
         "phys": coerce_str(getattr(device, "phys", ""), ""),
         "capabilities": [
-            str(item)
-            for item in cast(list[object], getattr(device, "capabilities", []) or [])
+            str(item) for item in cast(list[object], getattr(device, "capabilities", []) or [])
         ],
     }
 

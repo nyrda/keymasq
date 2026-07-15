@@ -8,7 +8,7 @@ from keymasq.common.combos import (
     is_combo_pulse_evdev,
     normalize_combo_evdev,
 )
-from keymasq.common.models import MappingAction
+from keymasq.common.model.actions import MappingAction
 
 DEFAULT_COMBO_STEP_TIMEOUT_MS = 600
 GENERIC_MODIFIERS = frozenset(GENERIC_MODIFIER_MAP.values())
@@ -120,15 +120,9 @@ class ComboEngine:
         self._held_bindings: set[RuntimeComboBinding] = set()
         self._held_press_order: dict[RuntimeComboBinding, int] = {}
         self._held_binding_index: dict[tuple[str, str, str], set[RuntimeComboBinding]] = {}
-        self._held_binding_any_source_index: dict[
-            tuple[str, str], set[RuntimeComboBinding]
-        ] = {}
-        self._held_binding_any_hardware_index: dict[
-            tuple[str, str], set[RuntimeComboBinding]
-        ] = {}
-        self._held_binding_any_hardware_any_source_index: dict[
-            str, set[RuntimeComboBinding]
-        ] = {}
+        self._held_binding_any_source_index: dict[tuple[str, str], set[RuntimeComboBinding]] = {}
+        self._held_binding_any_hardware_index: dict[tuple[str, str], set[RuntimeComboBinding]] = {}
+        self._held_binding_any_hardware_any_source_index: dict[str, set[RuntimeComboBinding]] = {}
 
     def set_combos(
         self,
@@ -285,8 +279,10 @@ class ComboEngine:
 
         if expired and had_candidates and not self._candidates:
             decision.reset_candidates = True
-        elif had_candidates and not self._candidates and (
-            decision.consume_current_event or decision.passthrough_current_event
+        elif (
+            had_candidates
+            and not self._candidates
+            and (decision.consume_current_event or decision.passthrough_current_event)
         ):
             decision.reset_candidates = True
         if not self._candidates and not self._held_bindings:
@@ -377,11 +373,7 @@ class ComboEngine:
                         ComboActionTransition(
                             combo_id=candidate.combo.id,
                             action=candidate.combo.action,
-                            kind=(
-                                "pulse"
-                                if self._binding_is_pulse(event.binding)
-                                else "press"
-                            ),
+                            kind=("pulse" if self._binding_is_pulse(event.binding) else "press"),
                             trigger_binding=event.binding,
                             trigger_bindings=self._trigger_bindings(candidate),
                         )
@@ -393,10 +385,14 @@ class ComboEngine:
                 if not self._binding_is_pulse(event.binding):
                     self._track_press(candidate, event.binding, passed_through=True)
 
-        decision.consume_current_event = bool(transitions) or completed_step or any(
-            self._candidates[combo_id].releasing
-            for combo_id in matching_ids
-            if combo_id in self._candidates
+        decision.consume_current_event = (
+            bool(transitions)
+            or completed_step
+            or any(
+                self._candidates[combo_id].releasing
+                for combo_id in matching_ids
+                if combo_id in self._candidates
+            )
         )
         if partial_match and not decision.consume_current_event:
             decision.passthrough_current_event = True
@@ -554,9 +550,7 @@ class ComboEngine:
         is_final: bool,
         passed_through: bool = False,
     ) -> None:
-        if not any(
-            tracked.binding == completing_binding for tracked in candidate.tracked_presses
-        ):
+        if not any(tracked.binding == completing_binding for tracked in candidate.tracked_presses):
             self._track_press(candidate, completing_binding, passed_through=passed_through)
         if (
             not self._binding_is_pulse(completing_binding)
@@ -604,8 +598,7 @@ class ComboEngine:
             if combo.id in self._candidates:
                 candidate = self._candidates[combo.id]
                 matched_existing_or_activated = (
-                    matched_existing_or_activated
-                    or event.binding in candidate.pressed_bindings
+                    matched_existing_or_activated or event.binding in candidate.pressed_bindings
                 )
                 continue
             held_bindings = self._held_bindings_for_step(combo.steps[0], event.binding)
@@ -637,11 +630,7 @@ class ComboEngine:
                     ComboActionTransition(
                         combo_id=combo.id,
                         action=combo.action,
-                        kind=(
-                            "pulse"
-                            if self._binding_is_pulse(event.binding)
-                            else "press"
-                        ),
+                        kind=("pulse" if self._binding_is_pulse(event.binding) else "press"),
                         trigger_binding=event.binding,
                         trigger_bindings=self._trigger_bindings(candidate),
                     )
@@ -727,9 +716,7 @@ class ComboEngine:
         expected: RuntimeComboBinding,
         actual: RuntimeComboBinding,
     ) -> bool:
-        expected_hardware_id, expected_evdev, expected_source = _normalized_binding_parts(
-            expected
-        )
+        expected_hardware_id, expected_evdev, expected_source = _normalized_binding_parts(expected)
         actual_hardware_id, actual_evdev, actual_source = _normalized_binding_parts(actual)
         return (
             (not expected_hardware_id or expected_hardware_id == actual_hardware_id)
@@ -852,9 +839,7 @@ class ComboEngine:
         ) = self._held_binding_index_keys(binding)
         self._held_binding_index.setdefault(specific_key, set()).add(binding)
         self._held_binding_any_source_index.setdefault(generic_key, set()).add(binding)
-        self._held_binding_any_hardware_index.setdefault(any_hardware_key, set()).add(
-            binding
-        )
+        self._held_binding_any_hardware_index.setdefault(any_hardware_key, set()).add(binding)
         self._held_binding_any_hardware_any_source_index.setdefault(
             any_hardware_any_source_key,
             set(),
@@ -886,10 +871,8 @@ class ComboEngine:
             if not any_hardware_bucket:
                 self._held_binding_any_hardware_index.pop(any_hardware_key, None)
 
-        any_hardware_any_source_bucket = (
-            self._held_binding_any_hardware_any_source_index.get(
-                any_hardware_any_source_key
-            )
+        any_hardware_any_source_bucket = self._held_binding_any_hardware_any_source_index.get(
+            any_hardware_any_source_key
         )
         if any_hardware_any_source_bucket is not None:
             any_hardware_any_source_bucket.discard(binding)
@@ -971,10 +954,7 @@ class ComboEngine:
         bindings.update(tracked.binding for tracked in candidate.tracked_presses)
         if candidate.final_completing_binding is not None:
             bindings.add(candidate.final_completing_binding)
-        return any(
-            self._binding_in_scope(binding, hardware_id, source)
-            for binding in bindings
-        )
+        return any(self._binding_in_scope(binding, hardware_id, source) for binding in bindings)
 
     def _binding_in_scope(
         self,

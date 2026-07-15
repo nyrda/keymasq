@@ -7,16 +7,14 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
-    ActionType,
-    DeviceType,
+from keymasq.common.model.actions import (
+    MappingAction,
     ProfileDeactivationPolicy,
-    SuperkeyMode,
 )
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
@@ -35,7 +33,7 @@ class TestSuperkeys:
             ComboDecision(passthrough_current_event=True, reset_candidates=True),
             None,
         ]
-        mapping_state: dict[str, dm.MappingAction] = {}
+        mapping_state: dict[str, MappingAction] = {}
 
         async def event_callback(*_args):
             return decisions.pop(0)
@@ -64,13 +62,13 @@ class TestSuperkeys:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
 
         assert device.state.combo_passthrough_held == {"key_1"}
         assert "key_1" not in device.state.held_source_actions
 
         await device.reset_mapping_runtime_state()
-        mapping_state["key_1"] = dm.MappingAction(
+        mapping_state["key_1"] = MappingAction(
             action_type=ActionType.KEYBOARD,
             target="key_a",
         )
@@ -78,7 +76,7 @@ class TestSuperkeys:
         assert device.state.combo_passthrough_held == set()
         assert device.state.held_source_actions["key_1"] is None
 
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1),
@@ -109,7 +107,7 @@ class TestSuperkeys:
         passthrough = FakeUInput()
         device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
-        device._running = True
+        device.running = True
         device.state.combo_passthrough_held.add("key_x")
         device.mark_combo_recalled_binding("key_x")
 
@@ -119,14 +117,14 @@ class TestSuperkeys:
             value=2,
         )
 
-        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == []
         assert device.state.combo_passthrough_held == {"key_x"}
         assert device.state.combo_recalled_bindings == {"key_x"}
 
         device.clear_combo_recalled_binding("key_x")
-        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 2),
@@ -140,7 +138,7 @@ class TestSuperkeys:
         passthrough = FakeUInput()
         device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
-        device._running = True
+        device.running = True
         device.state.combo_passthrough_held.add("key_leftmeta")
         device.mark_combo_recalled_binding("key_leftmeta")
 
@@ -155,8 +153,8 @@ class TestSuperkeys:
             value=0,
         )
 
-        await gde.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, repeat_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough.writes == []
         assert device.state.combo_recalled_bindings == set()
@@ -171,7 +169,7 @@ class TestSuperkeys:
         passthrough = FakeUInput()
         device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
-        device._running = True
+        device.running = True
         device.event_callback = callback
         device.state.combo_passthrough_held.add("key_x")
         device.mark_combo_recalled_binding("key_x")
@@ -183,7 +181,7 @@ class TestSuperkeys:
             value=0,
         )
 
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert callback.await_count == 1
         assert passthrough.writes == []
@@ -199,7 +197,7 @@ class TestSuperkeys:
         passthrough = FakeUInput()
         device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
-        device._running = True
+        device.running = True
         device.state.combo_passthrough_held.add("key_x")
         device.mark_combo_recalled_binding("key_x")
 
@@ -218,7 +216,7 @@ class TestSuperkeys:
             value=1,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
 
         assert callback_calls["count"] == 1
         assert passthrough.writes == [
@@ -236,7 +234,7 @@ class TestSuperkeys:
         passthrough = FakeUInput()
         device = make_grabbed_device(monkeypatch)
         device.uinput = passthrough  # type: ignore[assignment]
-        device._running = True
+        device.running = True
         device.verbosity = 3
 
         key_event = SimpleNamespace(
@@ -251,8 +249,8 @@ class TestSuperkeys:
         )
 
         with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
-            await gde.process_event(device, key_event, deps=grabbed_event_processing_deps())
-            await gde.process_event(device, rel_event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, key_event, deps=grabbed_event_processing_deps())
+            await pipeline.process_event(device, rel_event, deps=grabbed_event_processing_deps())
 
         assert "[hw 1234:5678 kbd] type=1 code=45 name=key_x value=2" in caplog.text
         assert "REL_X" not in caplog.text
@@ -264,7 +262,7 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="test",
@@ -293,13 +291,13 @@ class TestSuperkeys:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
         assert "btn_side" in device.state.superkey_machines
 
         await device.reset_superkeys()
         assert device.state.superkey_machines == {}
 
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert device.state.superkey_machines == {}
 
@@ -314,11 +312,11 @@ class TestSuperkeys:
             hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
         )
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
-            "btn_extra": dm.MappingAction(
+            "btn_extra": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
@@ -356,10 +354,10 @@ class TestSuperkeys:
             value=0,
         )
 
-        await gde.process_event(device, side_press, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, side_press, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        await gde.process_event(device, extra_press, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, extra_press, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -370,7 +368,7 @@ class TestSuperkeys:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
         ]
 
-        await gde.process_event(device, side_release, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, side_release, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -378,7 +376,7 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
-        await gde.process_event(device, extra_release, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, extra_release, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard_uinput.writes == [
@@ -393,14 +391,14 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="overload",
                     mode=SuperkeyMode.OVERLOAD,
                     overload_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
                     ],
                 ),
             )
@@ -416,17 +414,17 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
             deps=grabbed_event_processing_deps(),
@@ -450,18 +448,18 @@ class TestSuperkeys:
         from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_OVERLOAD
 
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="bigA",
                     mode=SuperkeyMode.OVERLOAD,
                     overload_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftshift"),
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_leftshift"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
                     ],
                 ),
             ),
-            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+            "key_f14": MappingAction(action_type=ActionType.REPEAT),
         }
 
         keyboard_uinput = FakeUInput()
@@ -474,12 +472,12 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
             deps=grabbed_event_processing_deps(),
@@ -490,12 +488,12 @@ class TestSuperkeys:
         assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
         assert latest.superkey_slot == SUPERKEY_SLOT_OVERLOAD
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
             deps=grabbed_event_processing_deps(),
@@ -519,23 +517,23 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="repeat-split-overload",
                     mode=SuperkeyMode.OVERLOAD,
                     overload_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
                     ],
                     overload_down_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
                     ],
                     overload_up_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
                     ],
                 ),
             ),
-            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+            "key_f14": MappingAction(action_type=ActionType.REPEAT),
         }
 
         keyboard_uinput = FakeUInput()
@@ -554,7 +552,7 @@ class TestSuperkeys:
             (evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.KEY_F14, 0),
         ):
-            await gde.process_event(
+            await pipeline.process_event(
                 device,
                 SimpleNamespace(type=evdev.ecodes.EV_KEY, code=code, value=value),
                 deps=grabbed_event_processing_deps(),
@@ -583,7 +581,7 @@ class TestSuperkeys:
         from keymasq.keymasqd.runtime.repeat import SUPERKEY_SLOT_DOUBLE_TAP
 
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="wpctl_volume_rocker",
@@ -595,7 +593,7 @@ class TestSuperkeys:
                     ],
                 ),
             ),
-            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+            "key_f14": MappingAction(action_type=ActionType.REPEAT),
         }
 
         keyboard_uinput = FakeUInput()
@@ -609,7 +607,7 @@ class TestSuperkeys:
         )
 
         for value in (1, 0, 1, 0):
-            await gde.process_event(
+            await pipeline.process_event(
                 device,
                 SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=value),
                 deps=grabbed_event_processing_deps(),
@@ -620,12 +618,12 @@ class TestSuperkeys:
         assert latest.action.superkey_config is mapping_state["key_f13"].superkey_config
         assert latest.superkey_slot == SUPERKEY_SLOT_DOUBLE_TAP
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
             deps=grabbed_event_processing_deps(),
@@ -659,7 +657,7 @@ class TestSuperkeys:
 
         manager = DeviceManager(broadcast_callback=broadcast)
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="repeat-hold-profile",
@@ -674,7 +672,7 @@ class TestSuperkeys:
                     ],
                 ),
             ),
-            "key_f14": dm.MappingAction(action_type=ActionType.REPEAT),
+            "key_f14": MappingAction(action_type=ActionType.REPEAT),
         }
 
         device = make_grabbed_device(
@@ -688,13 +686,13 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
             deps=grabbed_event_processing_deps(),
         )
         await asyncio.sleep(0.01)
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
             deps=grabbed_event_processing_deps(),
@@ -704,7 +702,7 @@ class TestSuperkeys:
         assert len(action_triggers) == 1
         assert list(device.repeat_state.history) == []
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=1),
             deps=grabbed_event_processing_deps(),
@@ -713,7 +711,7 @@ class TestSuperkeys:
 
         assert len(action_triggers) == 1
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F14, value=0),
             deps=grabbed_event_processing_deps(),
@@ -744,13 +742,13 @@ class TestSuperkeys:
 
         manager = DeviceManager(broadcast_callback=broadcast)
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="overload",
                     mode=SuperkeyMode.OVERLOAD,
                     overload_actions=[
-                        dm.MappingAction(
+                        MappingAction(
                             action_type=ActionType.PROFILE_ENABLE,
                             profile_name="Nav",
                             profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
@@ -771,7 +769,7 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
             deps=grabbed_event_processing_deps(),
@@ -794,7 +792,7 @@ class TestSuperkeys:
             event for event in events if event[0] == CommandType.PROFILE_DEACTIVATE_REQUESTED
         ] == []
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
             deps=grabbed_event_processing_deps(),
@@ -816,19 +814,19 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="split-overload",
                     mode=SuperkeyMode.OVERLOAD,
                     overload_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
                     ],
                     overload_down_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
                     ],
                     overload_up_actions=[
-                        dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                        MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
                     ],
                 ),
             )
@@ -844,17 +842,17 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=2),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_F13, value=0),
             deps=grabbed_event_processing_deps(),
@@ -879,15 +877,15 @@ class TestSuperkeys:
             name="overload_shared",
             mode=SuperkeyMode.OVERLOAD,
             overload_actions=[
-                dm.MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
             ],
         )
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
-            "btn_extra": dm.MappingAction(
+            "btn_extra": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
@@ -904,17 +902,17 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
             deps=grabbed_event_processing_deps(),
@@ -925,7 +923,7 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_keys["keyboard"] == {evdev.ecodes.KEY_A}
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
             deps=grabbed_event_processing_deps(),
@@ -945,7 +943,7 @@ class TestSuperkeys:
             name="overload_shared_axis",
             mode=SuperkeyMode.OVERLOAD,
             overload_actions=[
-                dm.MappingAction(
+                MappingAction(
                     action_type=ActionType.GAMEPAD_AXIS,
                     target="abs_x",
                     axis_value=-32768,
@@ -953,11 +951,11 @@ class TestSuperkeys:
             ],
         )
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
-            "btn_extra": dm.MappingAction(
+            "btn_extra": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=shared_config,
             ),
@@ -974,17 +972,17 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
             deps=grabbed_event_processing_deps(),
@@ -995,7 +993,7 @@ class TestSuperkeys:
         ]
         assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_X}
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_EXTRA, value=0),
             deps=grabbed_event_processing_deps(),
@@ -1025,7 +1023,7 @@ class TestSuperkeys:
             ],
         )
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=config,
             ),
@@ -1042,7 +1040,7 @@ class TestSuperkeys:
             running=True,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=1),
             deps=grabbed_event_processing_deps(),
@@ -1052,7 +1050,7 @@ class TestSuperkeys:
         assert gamepad_uinput.writes == [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255)]
         assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_Z}
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.BTN_SIDE, value=0),
             deps=grabbed_event_processing_deps(),
@@ -1070,7 +1068,7 @@ class TestSuperkeys:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mapping_state = {
-            "key_f13": dm.MappingAction(
+            "key_f13": MappingAction(
                 action_type=ActionType.KEYBOARD,
                 target="key_a",
             )
@@ -1103,7 +1101,7 @@ class TestSuperkeys:
             await blocker.wait()
 
         mapping_state = {
-            "btn_side": dm.MappingAction(
+            "btn_side": MappingAction(
                 action_type=ActionType.SUPERKEY,
                 superkey_config=SuperkeyConfig(
                     name="test",
@@ -1134,11 +1132,11 @@ class TestSuperkeys:
         )
 
         await asyncio.wait_for(
-            gde.process_event(device, press_event, deps=grabbed_event_processing_deps()),
+            pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps()),
             timeout=0.05,
         )
         await asyncio.wait_for(
-            gde.process_event(device, release_event, deps=grabbed_event_processing_deps()),
+            pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps()),
             timeout=0.05,
         )
 

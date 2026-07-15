@@ -1,3 +1,0 @@
-from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
-
-ExtForeignToplevelListTracker = ActiveWindowTracker

@@ -2,7 +2,8 @@ import re
 from collections.abc import Callable, Iterable
 
 from keymasq.common.devices import is_gamepad_button_name
-from keymasq.common.models import DeviceType, HardwareConfig
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import HardwareConfig
 
 KEYBOARD_LAYOUT_KEY_THRESHOLD = 40
 _TRAILING_NUMBER_RE = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)\s*$")
@@ -18,7 +19,7 @@ POINTER_SIDE_BUTTON_IDS = {
 }
 
 
-def device_layout_kind(device: HardwareConfig) -> str:
+def resolve_device_layout_kind(device: HardwareConfig) -> str:
     key_count = sum(1 for button in device.buttons if button.id.startswith("key_"))
     if key_count >= KEYBOARD_LAYOUT_KEY_THRESHOLD:
         return "keyboard"

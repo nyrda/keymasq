@@ -437,7 +437,7 @@ def test_persistent_session_failed_connect_closes_socket(
         return _ConnectFailingSocket()
 
     monkeypatch.setattr(gui_session_client, "SESSION_SOCKET_PATH", _ExistingSessionSocketPath())
-    monkeypatch.setattr(gui_session_client._socket, "socket", _fake_socket)
+    monkeypatch.setattr(gui_session_client.socket, "socket", _fake_socket)
 
     assert connection._ensure_connected(timeout=0.5) is False  # pyright: ignore[reportPrivateUsage]
     assert connection._ensure_connected(timeout=0.5) is False  # pyright: ignore[reportPrivateUsage]
@@ -459,7 +459,7 @@ def test_persistent_session_concurrent_first_connect_uses_one_socket(
         return _ConnectBlockingSocket()
 
     monkeypatch.setattr(gui_session_client, "SESSION_SOCKET_PATH", _ExistingSessionSocketPath())
-    monkeypatch.setattr(gui_session_client._socket, "socket", _fake_socket)
+    monkeypatch.setattr(gui_session_client.socket, "socket", _fake_socket)
 
     def _connect() -> None:
         try:

@@ -4,22 +4,30 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import keymasq.session.manager as session_manager_module
-import keymasq.session.manager.payloads as session_payloads_module
-import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.constants as manager_constants
+import keymasq.session.manager.payload.combo as combo_payload
+import keymasq.session.manager.profile.application as profile_application
+import keymasq.session.manager.profile.lifecycle as profile_lifecycle
 from keymasq.common.ipc import CommandType, Response
-from keymasq.common.models import (
-    ActionType,
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import (
     ComboEvent,
     ComboStep,
     DeviceProfileLayer,
-    MappingAction,
     ProfileConfig,
+)
+from keymasq.common.model.superkeys import (
     SuperkeyAction,
     SuperkeyConfig,
 )
-from keymasq.session.manager import SessionManager
-from keymasq.session.profiles import ResolvedCombo, ResolvedDeviceProfile, ResolvedProfiles
+from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator
+from keymasq.session.profile.types import (
+    ResolvedCombo,
+    ResolvedDeviceProfile,
+    ResolvedProfiles,
+)
 
 
 @pytest.mark.asyncio
@@ -94,11 +102,11 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
         manager.profile_state.resolved_devices[hwid] = resolved
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "apply_resolved_device_profile",
         apply_resolved_device_profile,
     )
-    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
+    monkeypatch.setattr(profile_application, "update_combos", AsyncMock())
     manager.send_notification = lambda _title, _message: None  # type: ignore[method-assign]
 
     await manager.on_window_change("app", "game", [])
@@ -169,18 +177,18 @@ async def test_profile_reevaluation_interrupts_stale_apply(
         manager.profile_state.resolved_devices[hwid] = resolved
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "apply_resolved_device_profile",
         apply_resolved_device_profile,
     )
-    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
+    monkeypatch.setattr(profile_application, "update_combos", AsyncMock())
 
     manager.compositor_state.current_window = {"title": "game"}
-    stale_task = asyncio.create_task(session_profiles_module.reevaluate_profiles(manager))
+    stale_task = asyncio.create_task(coordinator.reevaluate_profiles(manager))
     await asyncio.wait_for(game_started.wait(), timeout=1.0)
 
     manager.compositor_state.current_window = {"title": "browser"}
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
     release_game.set()
     await stale_task
 
@@ -205,12 +213,12 @@ async def test_profile_reevaluation_wait_ignores_prestart_stale_cancellation(
         return cancelled_task
 
     monkeypatch.setattr(
-        session_profiles_module.asyncio,
+        coordinator.asyncio,
         "create_task",
         create_cancelled_apply,
     )
 
-    task = await session_profiles_module.request_profile_reevaluation(manager, wait=True)
+    task = await coordinator.request_profile_reevaluation(manager, wait=True)
 
     assert task is cancelled_task
 
@@ -223,27 +231,27 @@ async def test_topology_refresh_retries_after_reevaluate_failure(
     manager = SessionManager()
     sleep_calls: list[float] = []
     reevaluate_profiles = AsyncMock(side_effect=[RuntimeError("refresh boom"), None])
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
         return
 
-    monkeypatch.setattr(session_profiles_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(coordinator.asyncio, "sleep", fake_sleep)
 
     with caplog.at_level("WARNING", logger="keymasq-session"):
-        session_profiles_module.schedule_topology_refresh(
+        coordinator.schedule_topology_refresh(
             manager,
-            session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,
-            session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
+            manager_constants.TOPOLOGY_REFRESH_DEBOUNCE_S,
+            manager_constants.TOPOLOGY_REFRESH_RETRY_S,
         )
         task = manager.profile_state.topology_refresh_task
         assert task is not None
         await task
 
     assert sleep_calls == [
-        session_manager_module.TOPOLOGY_REFRESH_DEBOUNCE_S,
-        session_manager_module.TOPOLOGY_REFRESH_RETRY_S,
+        manager_constants.TOPOLOGY_REFRESH_DEBOUNCE_S,
+        manager_constants.TOPOLOGY_REFRESH_RETRY_S,
     ]
     assert "Unexpected topology refresh failure" in caplog.text
     assert "refresh boom" in caplog.text
@@ -306,7 +314,7 @@ async def test_reevaluate_profiles_sends_combo_payload_and_forces_combo_grab() -
         ]
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -348,16 +356,12 @@ async def test_reevaluate_profiles_keeps_numbered_duplicate_hardware_separate() 
             left_id: ResolvedDeviceProfile(
                 hardware_id=left_id,
                 active_profile_names=["Desktop"],
-                mappings={
-                    "key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_1")
-                },
+                mappings={"key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_1")},
             ),
             right_id: ResolvedDeviceProfile(
                 hardware_id=right_id,
                 active_profile_names=["Desktop"],
-                mappings={
-                    "key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_2")
-                },
+                mappings={"key_l": MappingAction(action_type=ActionType.KEYBOARD, target="key_2")},
             ),
         },
         combos=[],
@@ -372,7 +376,7 @@ async def test_reevaluate_profiles_keeps_numbered_duplicate_hardware_separate() 
         ]
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent[:4]] == [
@@ -417,10 +421,10 @@ def test_resolved_combo_signature_changes_when_superkey_definition_changes() -> 
     )
 
     manager.superkeys = SimpleNamespace(get_superkey=lambda _name: base_superkey)  # type: ignore[assignment]
-    base_signature = session_payloads_module.resolved_combos_signature(manager, combos)
+    base_signature = combo_payload.signature(manager, combos)
 
     manager.superkeys = SimpleNamespace(get_superkey=lambda _name: updated_superkey)  # type: ignore[assignment]
-    updated_signature = session_payloads_module.resolved_combos_signature(manager, combos)
+    updated_signature = combo_payload.signature(manager, combos)
 
     assert base_signature != updated_signature
 
@@ -446,8 +450,8 @@ def test_resolved_combo_signature_and_payload_include_trigger_recall_settings() 
         )
     ]
 
-    signature = session_payloads_module.resolved_combos_signature(manager, combos)
-    payload = session_payloads_module.resolved_combos_payload(manager, combos)
+    signature = combo_payload.signature(manager, combos)
+    payload = combo_payload.serialize_all(manager, combos)
 
     assert '"recall_trigger_keys":true' in signature
     assert '"restore_trigger_keys":["meta"]' in signature
@@ -478,7 +482,7 @@ async def test_reevaluate_profiles_broadcast_omits_window_state() -> None:
     )
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     manager.broadcast_to_session_clients.assert_called_once()  # type: ignore[attr-defined]
     payload = manager.broadcast_to_session_clients.call_args.args[0]  # type: ignore[attr-defined]
@@ -502,16 +506,14 @@ async def test_reevaluate_profiles_releases_removed_hardware_config() -> None:
         hardware_id=hardware_id
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
     manager.client.send_command = AsyncMock(
         return_value=Response(status="ok", data={"released": True})
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     sent = next(
         call.args[0]
@@ -541,16 +543,14 @@ async def test_reevaluate_profiles_keeps_stale_grab_state_when_release_fails() -
         hardware_id=hardware_id
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
     manager.client.send_command = AsyncMock(
         return_value=Response(status="error", error="release failed")
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     assert hardware_id in manager.profile_state.resolved_devices
     assert hardware_id in manager.profile_state.grabbed_devices
@@ -570,9 +570,7 @@ async def test_reevaluate_profiles_releases_removed_hardware_without_resolved_ca
         combos=[],
     )
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.profile_state.grab_waiting_devices.add(hardware_id)
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "mapping"
@@ -580,7 +578,7 @@ async def test_reevaluate_profiles_releases_removed_hardware_without_resolved_ca
         return_value=Response(status="ok", data={"released": True})
     )
 
-    await session_profiles_module.reevaluate_profiles(manager)
+    await coordinator.reevaluate_profiles(manager)
 
     sent = next(
         call.args[0]
@@ -630,10 +628,10 @@ async def test_reevaluate_profiles_plays_lifecycle_macros_once_per_transition(
         side_effect=resolved_profiles
     )
     manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
-    monkeypatch.setattr(session_profiles_module, "update_combos", AsyncMock())
+    monkeypatch.setattr(profile_application, "update_combos", AsyncMock())
 
     for _ in resolved_profiles:
-        await session_profiles_module.reevaluate_profiles(manager)
+        await coordinator.reevaluate_profiles(manager)
 
     sent = manager.client.send_command.await_args_list
     assert [call.args[0].command for call in sent] == [
@@ -658,7 +656,7 @@ async def test_profile_lifecycle_macro_logs_unexpected_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("macro bug"))
 
     with caplog.at_level("ERROR", logger="keymasq-session"):
-        await session_profiles_module.play_profile_lifecycle_macro(
+        await profile_lifecycle.play_profile_lifecycle_macro(
             manager,
             "desktop_enter",
             profile_name="Desktop",

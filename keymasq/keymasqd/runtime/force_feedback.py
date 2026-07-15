@@ -435,7 +435,7 @@ class PassthroughForceFeedbackProxy:
                     self.log.exception(
                         "Failed to finish force-feedback erase request for %s",
                         self.label,
-                )
+                    )
 
     def _discard_pending_upload(self, virtual_id: int | None) -> None:
         if virtual_id is None:

@@ -10,8 +10,8 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Gtk
 
-from keymasq.gui.widgets import macro_editor_dialog as macro_editor_dialog_module
-from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+from keymasq.gui.widgets.macro_editor import dialog as macro_editor_dialog_module
+from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 
 __all__ = [
     "_FakeSlurpCapture",

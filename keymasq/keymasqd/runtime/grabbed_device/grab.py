@@ -4,14 +4,15 @@ import logging
 import evdev
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
 )
 from keymasq.keymasqd.runtime.adapters import ErrnoModule, identity_uinput_writer
-from keymasq.keymasqd.runtime.grabbed_device import events as runtime_events
-from keymasq.keymasqd.runtime.grabbed_device import outputs as runtime_outputs
+from keymasq.keymasqd.runtime.grabbed_device import outputs
+from keymasq.keymasqd.runtime.grabbed_device.event import classification
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     AsyncioModule,
     GrabbedDeviceRuntime,
@@ -145,7 +146,7 @@ async def wait_for_active_keys_to_clear(
         active_names = [
             event_name
             for code in active_codes
-            if (event_name := runtime_events.get_key_name(int(code), evdev_mod=evdev)) is not None
+            if (event_name := classification.get_key_name(int(code), evdev_mod=evdev)) is not None
         ]
         summary = (
             ", ".join(active_names)
@@ -240,11 +241,11 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
 
     mapping = device_runtime.mapping_getter()
     for code in active_codes:
-        event_name = runtime_events.get_key_name(int(code), evdev_mod=evdev)
+        event_name = classification.get_key_name(int(code), evdev_mod=evdev)
         if not event_name or event_name in device_runtime.state.held_source_actions:
             continue
         device_runtime.state.held_source_keys.add(event_name)
-        action = runtime_events.find_action_for_code(
+        action = classification.find_action_for_code(
             device_runtime,
             evdev.ecodes.EV_KEY,
             int(code),
@@ -266,7 +267,7 @@ def reconcile_startup_held_action(
     if action.action_type == ActionType.KEYBOARD:
         code = resolve_output_code(action.target)
         if code is not None:
-            runtime_outputs.ensure_key_released(
+            outputs.ensure_key_released(
                 device_runtime,
                 code,
                 device_runtime.keyboard_uinput,
@@ -276,7 +277,7 @@ def reconcile_startup_held_action(
     if action.action_type == ActionType.MOUSE:
         code = resolve_output_code(action.target)
         if code is not None:
-            runtime_outputs.ensure_key_released(
+            outputs.ensure_key_released(
                 device_runtime,
                 code,
                 device_runtime.mouse_uinput,
@@ -286,7 +287,7 @@ def reconcile_startup_held_action(
     if action.action_type == ActionType.GAMEPAD:
         code = resolve_output_code(action.target)
         if code is not None:
-            runtime_outputs.ensure_key_released(
+            outputs.ensure_key_released(
                 device_runtime,
                 code,
                 device_runtime.gamepad_uinput,
@@ -296,7 +297,7 @@ def reconcile_startup_held_action(
     if action.action_type == ActionType.GAMEPAD_AXIS:
         axis_code = resolve_gamepad_axis_code(action.target)
         if axis_code is not None:
-            runtime_outputs.ensure_abs_axis_released(
+            outputs.ensure_abs_axis_released(
                 device_runtime,
                 axis_code,
                 evdev_mod=evdev,

@@ -8,7 +8,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import AnalogInputDefinition, ButtonDefinition
+from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition
 
 
 def present_device_rename_dialog(

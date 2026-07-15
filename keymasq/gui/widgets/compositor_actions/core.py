@@ -9,7 +9,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 
 type PositionCaptureCallback = Callable[[Gtk.Button, Gtk.Label, Callable[[int, int], None]], None]
 type CompositorActionLabeler = Callable[[MappingAction], str | None]
@@ -341,9 +342,7 @@ class _CompositorDispatchPage(Gtk.Box):
     def _update_capture_visibility(self) -> None:
         preset = self._selected_preset()
         visible = bool(
-            preset is not None
-            and preset.captures_position
-            and self._capture_position is not None
+            preset is not None and preset.captures_position and self._capture_position is not None
         )
         self._capture_row.set_visible(visible)
         if not visible:
@@ -384,10 +383,9 @@ def build_compositor_action_pages_for_definitions(
     resolved_status = dict(status or {})
     pages: list[CompositorActionPage] = []
     for definition in definitions:
-        if (
-            not _definition_matches_action(definition, current_action)
-            and not definition.is_available(current_action, resolved_status)
-        ):
+        if not _definition_matches_action(
+            definition, current_action
+        ) and not definition.is_available(current_action, resolved_status):
             continue
         pages.append(
             CompositorActionPage(
@@ -419,9 +417,8 @@ def compositor_action_tab_name_for_definitions(
             if _definition_matches_action(definition, action):
                 return definition.page_id
     for definition in definitions:
-        if (
-            action.action_type == definition.action_type
-            and definition.is_available(action, resolved_status)
+        if action.action_type == definition.action_type and definition.is_available(
+            action, resolved_status
         ):
             return definition.page_id
     return None

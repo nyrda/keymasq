@@ -6,7 +6,7 @@ import pytest
 
 from keymasq.keymasqd.permission_hints import CAPABILITY_PERMISSION_HINT
 from keymasq.keymasqd.runtime import source_hiding
-from tests.async_fakes import FakeProcess as _FakeProcess
+from tests.async_fakes import FakeProcess
 
 
 def _configure_paths(
@@ -36,9 +36,9 @@ def _fake_udevadm(
     calls: list[tuple[Any, ...]] = []
     monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
 
-    async def fake_create_subprocess_exec(*args: Any, **_kwargs: Any) -> _FakeProcess:
+    async def fake_create_subprocess_exec(*args: Any, **_kwargs: Any) -> FakeProcess:
         calls.append(args)
-        return _FakeProcess(returncode=returncode, stderr=stderr)
+        return FakeProcess(returncode=returncode, stderr=stderr)
 
     monkeypatch.setattr(
         source_hiding.asyncio,
@@ -320,10 +320,10 @@ async def test_udevadm_runs_with_host_tool_environment(
     async def fake_create_subprocess_exec(
         *_args: Any,
         **kwargs: Any,
-    ) -> _FakeProcess:
+    ) -> FakeProcess:
         nonlocal captured_env
         captured_env = kwargs.get("env")
-        return _FakeProcess(returncode=0)
+        return FakeProcess(returncode=0)
 
     monkeypatch.setattr(
         source_hiding.asyncio,
@@ -406,10 +406,10 @@ async def test_udevadm_timeout_terminates_process(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    fake_process = _FakeProcess()
+    fake_process = FakeProcess()
     monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
 
-    async def fake_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> _FakeProcess:
+    async def fake_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> FakeProcess:
         return fake_process
 
     async def fake_wait_for(awaitable: Any, **_kwargs: Any) -> None:

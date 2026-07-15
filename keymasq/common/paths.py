@@ -61,9 +61,7 @@ with contextlib.suppress(ImportError, AttributeError):
     _build_slurp_path = str(getattr(build_paths, "SLURP_PATH", _build_slurp_path))
 
 KEYMASQ_RECORD_HELPER_PATH = Path(_build_helper_path)
-KEYMASQ_RECORD_HELPER_FALLBACK_PATHS = (
-    Path("/run/current-system/sw/bin/keymasq-record"),
-)
+KEYMASQ_RECORD_HELPER_FALLBACK_PATHS = (Path("/run/current-system/sw/bin/keymasq-record"),)
 SLURP_PATH = Path(_build_slurp_path)
 SLURP_FALLBACK_PATHS = (
     Path("/usr/bin/slurp"),

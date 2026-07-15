@@ -9,7 +9,8 @@ gi.require_version("Gtk", "4.0")
 def test_inspector_keeps_many_keyboard_backed_mouse_buttons_in_mouse_layout() -> None:
     from gi.repository import Gtk
 
-    from keymasq.common.models import ButtonDefinition, DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
     from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
 
     buttons = [
@@ -114,11 +115,11 @@ def test_inspector_keeps_many_keyboard_backed_mouse_buttons_in_mouse_layout() ->
 
 
 def _device():
-    from keymasq.common.models import (
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import (
         AnalogAxisDefinition,
         AnalogInputDefinition,
         ButtonDefinition,
-        DeviceType,
         EvdevDevice,
         HardwareConfig,
     )
@@ -258,6 +259,7 @@ def _snapshot():
         ],
     }
 
+
 class _InspectorHarness:
     def __init__(self, monkeypatch) -> None:
         from gi.repository import Gtk
@@ -388,7 +390,7 @@ def test_device_inspector_buffers_events_by_category(inspector_harness) -> None:
     )
 
     assert len(window._event_rows) == 1
-    assert len(window._event_history_by_category["button"]) == 1
+    assert len(window._event_history.by_category["button"]) == 1
     assert window._copy_events_button.get_tooltip_text() == "Copy visible events"
     assert window._visible_event_export_text() == ("#1 btn_south ev_key value=1 source=pad")
 
@@ -403,8 +405,8 @@ def test_device_inspector_buffers_events_by_category(inspector_harness) -> None:
             }
         )
 
-    assert len(window._event_history_by_category["mousemove"]) == 100
-    assert len(window._event_history_by_category["button"]) == 1
+    assert len(window._event_history.by_category["mousemove"]) == 100
+    assert len(window._event_history.by_category["button"]) == 1
     assert len(window._event_rows) == 1
 
 
@@ -427,7 +429,7 @@ def test_device_inspector_updates_analog_viewers_from_events(inspector_harness) 
         }
     )
 
-    assert len(window._event_history_by_category["axis"]) == 1
+    assert len(window._event_history.by_category["axis"]) == 1
     assert len(window._event_rows) == 0
     assert window._analog_viewers["left_stick"].value_labels["x"].get_text() == (
         "x: raw  14000 | norm +0.427"
@@ -485,8 +487,8 @@ def test_device_inspector_event_filters_render_visible_history(inspector_harness
         }
     )
 
-    assert len(window._event_history_by_category["axis"]) == 1
-    assert len(window._event_history_by_category["syn"]) == 1
+    assert len(window._event_history.by_category["axis"]) == 1
+    assert len(window._event_history.by_category["syn"]) == 1
     assert len(window._event_rows) == 1
 
     window._event_filter_buttons["axis"].set_active(True)
@@ -497,9 +499,7 @@ def test_device_inspector_event_filters_render_visible_history(inspector_harness
 
     window._event_filter_buttons["syn"].set_active(True)
     assert len(window._event_rows) == 100
-    assert "#123 msc_scan ev_msc value=458792 source=pad" in (
-        window._visible_event_export_text()
-    )
+    assert "#123 msc_scan ev_msc value=458792 source=pad" in (window._visible_event_export_text())
 
     inspector_harness.emit_event(
         {
@@ -525,8 +525,8 @@ def test_device_inspector_event_filters_render_visible_history(inspector_harness
             }
         )
 
-    assert len(window._event_history_by_category["button"]) == 100
-    assert len(window._event_history_by_category["mousemove"]) == 100
+    assert len(window._event_history.by_category["button"]) == 100
+    assert len(window._event_history.by_category["mousemove"]) == 100
     assert len(window._event_rows) == 100
 
 

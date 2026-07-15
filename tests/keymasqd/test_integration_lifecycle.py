@@ -182,8 +182,10 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
         virtual_mouse.syn()
         await self._wait_until(
-            lambda: grabbed.state.rapidfire_active.get("btn_side", False) is False
-            and "btn_side" not in grabbed.state.rapidfire_tasks,
+            lambda: (
+                grabbed.state.rapidfire_active.get("btn_side", False) is False
+                and "btn_side" not in grabbed.state.rapidfire_tasks
+            ),
             reason="rapidfire stop",
         )
         await self._wait_until(
@@ -284,9 +286,11 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         )
 
         await self._wait_until(
-            lambda: "1234:5678" not in manager.grab_state.pending_hardware_release
-            and "1234:5678" in manager.grabbed_devices
-            and any(d.path == mouse_path for d in manager.grabbed_devices["1234:5678"]),
+            lambda: (
+                "1234:5678" not in manager.grab_state.pending_hardware_release
+                and "1234:5678" in manager.grabbed_devices
+                and any(d.path == mouse_path for d in manager.grabbed_devices["1234:5678"])
+            ),
             reason="pending hardware release canceled by regrab",
         )
         assert "1234:5678" in manager.grabbed_devices
@@ -357,8 +361,9 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         assert keyboard_path in paths_immediate
 
         await self._wait_until(
-            lambda: keyboard_path
-            not in {d.path for d in manager.grabbed_devices.get(hardware_id, [])},
+            lambda: (
+                keyboard_path not in {d.path for d in manager.grabbed_devices.get(hardware_id, [])}
+            ),
             reason="unused interface release after grace",
         )
 
@@ -441,10 +446,12 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
         virtual_mouse.syn()
         await self._wait_until(
-            lambda: grabbed.state.held_source_actions == {}
-            and evdev.ecodes.KEY_A not in grabbed.state.held_output_keys["keyboard"]
-            and evdev.ecodes.KEY_B not in grabbed.state.held_output_keys["keyboard"]
-            and grabbed.state.rapidfire_active.get("btn_side", False) is False,
+            lambda: (
+                grabbed.state.held_source_actions == {}
+                and evdev.ecodes.KEY_A not in grabbed.state.held_output_keys["keyboard"]
+                and evdev.ecodes.KEY_B not in grabbed.state.held_output_keys["keyboard"]
+                and grabbed.state.rapidfire_active.get("btn_side", False) is False
+            ),
             reason="held mapping release cleanup",
         )
         assert grabbed.state.held_source_actions == {}
@@ -518,8 +525,10 @@ class TestIntegrationLifecycle(IntegrationTestBase):
 
             grace_elapsed_at = asyncio.get_running_loop().time() + 0.04
             await self._wait_until(
-                lambda: asyncio.get_running_loop().time() >= grace_elapsed_at
-                and hardware_id in manager.grabbed_devices,
+                lambda: (
+                    asyncio.get_running_loop().time() >= grace_elapsed_at
+                    and hardware_id in manager.grabbed_devices
+                ),
                 reason="device remains grabbed while button is held",
             )
             assert hardware_id in manager.grabbed_devices

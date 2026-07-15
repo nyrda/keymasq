@@ -6,9 +6,13 @@ from typing import Protocol, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import normalize_macro_recording_slot
+from keymasq.common.model.actions import normalize_macro_recording_slot
 from keymasq.common.types import JsonObject, JsonObjectList
-from keymasq.keymasqd.runtime import macros as runtime_macros
+from keymasq.keymasqd.runtime.macro.options import (
+    MacroPlaybackOptions,
+    macro_playback_options_from_mapping,
+    macro_runtime_options,
+)
 
 type MacroEvent = dict[str, object]
 type ActionTransform = Callable[[JsonObject], JsonObject]
@@ -28,7 +32,7 @@ log = logging.getLogger("keymasqd.macros")
 class _MacroCommandDeviceManager(Protocol):
     async def play_macro(
         self,
-        playback_options: runtime_macros.MacroPlaybackOptions,
+        playback_options: MacroPlaybackOptions,
     ) -> JsonObject: ...
 
     async def cancel_macro_playback(self) -> JsonObject: ...
@@ -90,17 +94,14 @@ class _PendingRecording(Protocol):
     def iter_events(self) -> Iterable[MacroEvent]: ...
 
 
-class _MacroCommandDaemon(Protocol):
+class MacroCommandDaemon(Protocol):
     device_manager: _MacroCommandDeviceManager
     macro_store: _MacroCommandStore
     recording_manager: _MacroCommandRecordingManager
 
 
-MacroCommandDaemon = _MacroCommandDaemon
-
-
 async def handle_macro_command(
-    daemon: _MacroCommandDaemon,
+    daemon: MacroCommandDaemon,
     command_type: CommandType,
     data: JsonObject,
 ) -> JsonObject | None:
@@ -132,9 +133,7 @@ async def handle_macro_command(
         if not isinstance(raw_payload, dict):
             raise ValueError("macro payload must be an object")
         expected_revision = data.get("expected_revision")
-        revision = (
-            coerce_int(expected_revision, 0) if expected_revision is not None else None
-        )
+        revision = coerce_int(expected_revision, 0) if expected_revision is not None else None
         macro = await asyncio.to_thread(
             daemon.macro_store.update,
             name,
@@ -147,18 +146,14 @@ async def handle_macro_command(
         old_name = coerce_str(data.get("old_name", ""))
         new_name = coerce_str(data.get("new_name", ""))
         expected_revision = data.get("expected_revision")
-        revision = (
-            coerce_int(expected_revision, 0) if expected_revision is not None else None
-        )
+        revision = coerce_int(expected_revision, 0) if expected_revision is not None else None
         macro = await asyncio.to_thread(daemon.macro_store.rename, old_name, new_name, revision)
         return {"macro": macro}
 
     if command_type == CommandType.MACRO_DELETE:
         name = coerce_str(data.get("name", ""))
         expected_revision = data.get("expected_revision")
-        revision = (
-            coerce_int(expected_revision, 0) if expected_revision is not None else None
-        )
+        revision = coerce_int(expected_revision, 0) if expected_revision is not None else None
         await asyncio.to_thread(daemon.macro_store.delete, name, revision)
         return {"status": "ok"}
 
@@ -195,7 +190,7 @@ async def handle_macro_command(
 
 
 async def save_pending_recording(
-    daemon: _MacroCommandDaemon,
+    daemon: MacroCommandDaemon,
     data: JsonObject,
 ) -> JsonObject:
     recording_id = coerce_str(data.get("pending_recording_id", ""))
@@ -223,7 +218,7 @@ async def save_pending_recording(
 
 
 def _save_pending_recording_sync(
-    daemon: _MacroCommandDaemon,
+    daemon: MacroCommandDaemon,
     data: JsonObject,
     snapshot: _PendingRecording,
 ) -> JsonObject:
@@ -247,7 +242,7 @@ def _save_pending_recording_sync(
     return {"macro": macro}
 
 
-async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
+async def play_macro_from_payload(daemon: MacroCommandDaemon, data: JsonObject) -> JsonObject:
     macro_events = cast(JsonObjectList, data.get("macro_events", []))
     macro_name = coerce_str(data.get("macro_name", ""))
     stored_macro: JsonObject | None = None
@@ -264,7 +259,7 @@ async def play_macro_from_payload(daemon: _MacroCommandDaemon, data: JsonObject)
     )
 
 
-async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> JsonObject:
+async def play_macro_by_name(daemon: MacroCommandDaemon, data: JsonObject) -> JsonObject:
     name = coerce_str(data.get("name", ""))
     stored_macro = await asyncio.to_thread(_load_macro_meta_sync, daemon.macro_store, name)
     return await daemon.device_manager.play_macro(
@@ -273,7 +268,7 @@ async def play_macro_by_name(daemon: _MacroCommandDaemon, data: JsonObject) -> J
 
 
 async def play_pending_recording(
-    daemon: _MacroCommandDaemon,
+    daemon: MacroCommandDaemon,
     data: JsonObject,
 ) -> JsonObject:
     recording_id = coerce_str(data.get("pending_recording_id", ""))
@@ -351,7 +346,7 @@ def _macro_runtime_options(
     defaults: JsonObject | None = None,
     lenient: bool = True,
 ) -> JsonObject:
-    return runtime_macros.macro_runtime_options(
+    return macro_runtime_options(
         payload,
         defaults=defaults,
         lenient=lenient,
@@ -365,9 +360,9 @@ def _macro_playback_options(
     *,
     stored_macro: JsonObject | None = None,
     load_stored_macro: bool = True,
-) -> runtime_macros.MacroPlaybackOptions:
+) -> MacroPlaybackOptions:
     defaults = _macro_runtime_options(stored_macro) if stored_macro is not None else None
-    return runtime_macros.macro_playback_options_from_mapping(
+    return macro_playback_options_from_mapping(
         data,
         defaults=defaults,
         macro_events=macro_events,

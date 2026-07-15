@@ -1,15 +1,11 @@
 import errno
 
-PERMISSION_TROUBLESHOOTING_REF = (
-    "docs/TROUBLESHOOTING.md#uinput-or-input-device-access-problems"
-)
+PERMISSION_TROUBLESHOOTING_REF = "docs/TROUBLESHOOTING.md#uinput-or-input-device-access-problems"
 INPUT_DEVICE_PERMISSION_HINT = (
-    "Check that keymasqd can read /dev/input/event*; see "
-    f"{PERMISSION_TROUBLESHOOTING_REF}."
+    f"Check that keymasqd can read /dev/input/event*; see {PERMISSION_TROUBLESHOOTING_REF}."
 )
 UINPUT_PERMISSION_HINT = (
-    "Check that keymasqd can write /dev/uinput; see "
-    f"{PERMISSION_TROUBLESHOOTING_REF}."
+    f"Check that keymasqd can write /dev/uinput; see {PERMISSION_TROUBLESHOOTING_REF}."
 )
 UINPUT_PERMISSION_ERROR_MARKERS = (
     "cannot be opened for writing",

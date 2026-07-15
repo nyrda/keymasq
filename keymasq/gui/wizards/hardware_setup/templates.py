@@ -16,7 +16,7 @@ from keymasq.common.devices import (
     wheel_button_id,
     wheel_label,
 )
-from keymasq.common.models import (
+from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
@@ -87,9 +87,7 @@ def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice
         config_path = str(iface.get("config_path", "") or "")
         event_path = str(iface.get("path", "") or "")
         device_path = (
-            stable_path
-            if is_by_id_path(stable_path)
-            else config_path or stable_path or event_path
+            stable_path if is_by_id_path(stable_path) else config_path or stable_path or event_path
         )
         iface_id = str(iface.get("id", "") or "")
         if not device_path or not iface_id:

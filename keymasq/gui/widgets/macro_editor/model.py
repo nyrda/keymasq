@@ -6,16 +6,16 @@ from typing import Any
 import evdev
 
 from keymasq.common.coercion import bool_value, coerce_float, coerce_int
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
     DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
-    ActionType,
     MappingAction,
     normalize_natural_mouse_move_curve,
 )
+from keymasq.common.model.core import ActionType
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 
 # ---------------------------------------------------------------------------
@@ -104,7 +104,6 @@ def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
     type_name = _get_event_type_name(ev_type)
     name = _get_event_name(ev_type, code)
     return type_name, f"Raw {device_type} {type_name} {name} value {value} (code {code})"
-
 
 
 _CONTROL_MACRO_ACTIONS = {
@@ -203,9 +202,7 @@ def _move_to_mapping_action(move: EditableMove) -> MappingAction:
             move_stop_on_failure=bool(move.stop_on_failure),
         )
     return MappingAction(
-        action_type=ActionType.MOUSE_MOVE_ABS
-        if move.mode == "abs"
-        else ActionType.MOUSE_MOVE_REL,
+        action_type=ActionType.MOUSE_MOVE_ABS if move.mode == "abs" else ActionType.MOUSE_MOVE_REL,
         move_x=int(move.x),
         move_y=int(move.y),
     )

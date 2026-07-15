@@ -4,9 +4,9 @@ from keymasq.common.asyncio_runtime import ensure_uvloop
 def main() -> None:
     ensure_uvloop()
 
-    from keymasq.gui.application import main as gui_main
+    from keymasq.gui import application
 
-    gui_main()
+    application.main()
 
 
 if __name__ == "__main__":

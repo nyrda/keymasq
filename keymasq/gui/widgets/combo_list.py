@@ -23,6 +23,7 @@ _SORT_LABELS = {
     SORT_ACTION: "Action",
 }
 
+
 class SortableComboList[ItemT]:
     def __init__(
         self,

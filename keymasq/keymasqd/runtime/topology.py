@@ -7,8 +7,7 @@ from typing import Any, cast
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject
-from keymasq.keymasqd.runtime import adapters as runtime_adapters
-from keymasq.keymasqd.runtime import device_path_resolver
+from keymasq.keymasqd.runtime import adapters, device_path_resolver
 
 type Snapshot = dict[str, Any]
 type _TopologyManager = Any
@@ -35,9 +34,19 @@ class LiveInterfaceInfo:
     capabilities: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass
+class TopologyRuntimeState:
+    poll_s: float
+    debounce_s: float
+    watcher_task: asyncio.Task[None] | None = None
+    reconcile_task: asyncio.Task[None] | None = None
+    live_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
+    reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class TopologyRuntimeDeps:
-    asyncio_mod: runtime_adapters.AsyncioRuntimeAdapter
+    asyncio_mod: adapters.AsyncioRuntimeAdapter
     clear_device_path_cache_fn: ClearDevicePathCacheFn
     device_paths_fn: DevicePathsFn
     device_input_fn: DeviceInputFn
@@ -244,9 +253,7 @@ async def reconcile_topology_unlocked(
                 continue
 
             live_path = str(getattr(live_info, "path", "") or "")
-            grabbed_path = str(
-                getattr(device, "resolved_event_path", "") or device.path
-            )
+            grabbed_path = str(getattr(device, "resolved_event_path", "") or device.path)
             if live_path != grabbed_path:
                 removed.append((hardware_id, device.path))
 
@@ -295,9 +302,7 @@ def is_hidden_grabbed_source(device: Any) -> bool:
 
 def source_hidden_kernel_names(device: Any) -> set[str]:
     names = list(_kernel_name_values(getattr(device, "source_hidden_kernel_names", [])))
-    names.extend(
-        _kernel_name_values(getattr(device, "source_pending_hidden_kernel_names", []))
-    )
+    names.extend(_kernel_name_values(getattr(device, "source_pending_hidden_kernel_names", [])))
     return set(names)
 
 
@@ -348,29 +353,23 @@ def build_topology_events(
         current_info = current[stable_path]
         if not live_interface_changed(previous_info, current_info):
             continue
-        if (
-            not live_interface_is_hidden_source_churn(
-                previous_info,
-                current,
-                hidden_paths,
-            )
-            and live_interface_matches_desired(previous_info, desired_hardware_ids)
-        ):
+        if not live_interface_is_hidden_source_churn(
+            previous_info,
+            current,
+            hidden_paths,
+        ) and live_interface_matches_desired(previous_info, desired_hardware_ids):
             events.append(
                 (
                     manager._command_type.DEVICE_DISCONNECTED,
                     live_interface_payload(previous_info),
                 )
             )
-        if (
-            not live_interface_connect_is_hidden_source_churn(
-                stable_path,
-                previous,
-                current_info,
-                hidden_paths,
-            )
-            and live_interface_matches_desired(current_info, desired_hardware_ids)
-        ):
+        if not live_interface_connect_is_hidden_source_churn(
+            stable_path,
+            previous,
+            current_info,
+            hidden_paths,
+        ) and live_interface_matches_desired(current_info, desired_hardware_ids):
             events.append(
                 (
                     manager._command_type.DEVICE_CONNECTED,

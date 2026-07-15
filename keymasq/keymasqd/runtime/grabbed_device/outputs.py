@@ -3,7 +3,8 @@ from typing import cast
 
 import evdev
 
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.output_helpers import emit_mouse_move
 from keymasq.keymasqd.runtime.adapters import (
     UInputWriter,
@@ -54,11 +55,7 @@ def syn_if_passthrough_frame_closed(
     device_runtime: ActionRuntime | None = None,
     force: bool = False,
 ) -> None:
-    if (
-        force
-        or device_runtime is None
-        or not passthrough_frame_open(device_runtime, uinput_dev)
-    ):
+    if force or device_runtime is None or not passthrough_frame_open(device_runtime, uinput_dev):
         writer.syn()
 
 
@@ -78,9 +75,7 @@ def flush_passthrough_frame(
     mark_passthrough_frame_closed(device_runtime, uinput_dev)
 
 
-def bucket_for_uinput(
-    device_runtime: ActionRuntime, uinput_dev: object | None
-) -> str | None:
+def bucket_for_uinput(device_runtime: ActionRuntime, uinput_dev: object | None) -> str | None:
     if uinput_dev is None:
         return None
     if device_runtime.uinput is not None and uinput_dev is device_runtime.uinput:
@@ -381,9 +376,7 @@ def ensure_key_released(
         )
 
 
-def emit_configured_mouse_move(
-    device_runtime: ActionRuntime, action: MappingAction
-) -> None:
+def emit_configured_mouse_move(device_runtime: ActionRuntime, action: MappingAction) -> None:
     emit_mouse_move(
         cast(WritableUInput | None, device_runtime.mouse_uinput),
         int(action.move_x),

@@ -11,26 +11,25 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.x11")
 
-_x_module = None
-_expected_x_errors: tuple[type[BaseException], ...] = (OSError,)
-xdisplay: object | None
-try:
-    from Xlib import X as XLIB_X
-    from Xlib import display
-    from Xlib import error as xerror
-except ImportError:
-    xdisplay = None
-else:
-    _x_module = XLIB_X
-    xdisplay = display
-    _expected_x_errors = (
+def _load_xlib() -> tuple[
+    object | None,
+    object | None,
+    tuple[type[BaseException], ...],
+]:
+    try:
+        from Xlib import X, display, error
+    except ImportError:
+        return None, None, (OSError,)
+    expected_errors = (
         OSError,
-        cast(type[BaseException], xerror.DisplayError),
-        cast(type[BaseException], xerror.XError),
-        cast(type[BaseException], xerror.XauthError),
+        cast(type[BaseException], error.DisplayError),
+        cast(type[BaseException], error.XError),
+        cast(type[BaseException], error.XauthError),
     )
+    return X, display, expected_errors
 
-X = _x_module
+
+xlib_constants, xlib_display, _expected_x_errors = _load_xlib()
 
 
 def _is_expected_x_error(exc: BaseException) -> bool:
@@ -100,13 +99,13 @@ class _XEvent(Protocol):
 
 
 def has_x11_support() -> bool:
-    return xdisplay is not None
+    return xlib_display is not None
 
 
 def _xdisplay_module() -> _XDisplayModule | None:
-    if xdisplay is None:
+    if xlib_display is None:
         return None
-    return cast(_XDisplayModule, xdisplay)
+    return cast(_XDisplayModule, xlib_display)
 
 
 def _first_property_value(prop: _XProperty | None) -> object | None:
@@ -282,7 +281,7 @@ class X11Listener(WindowListener):
 
     def _open_display(self) -> None:
         display_mod = _xdisplay_module()
-        if display_mod is None or X is None:
+        if display_mod is None or xlib_constants is None:
             raise RuntimeError("python-xlib is unavailable")
         if not self._display_name:
             raise RuntimeError("X11 display name is not set")
@@ -301,12 +300,14 @@ class X11Listener(WindowListener):
                 self._atom_wm_class,
             }
 
-            self._root.change_attributes(event_mask=int(getattr(X, "PropertyChangeMask", 0)))
+            self._root.change_attributes(
+                event_mask=int(getattr(xlib_constants, "PropertyChangeMask", 0))
+            )
             self._sync_active_window_watch_unlocked()
             self._xdisplay.sync()
 
     def _close_display(self) -> None:
-        if X is None:
+        if xlib_constants is None:
             return
 
         with self._x_lock:
@@ -316,7 +317,7 @@ class X11Listener(WindowListener):
             if self._active_window is not None:
                 try:
                     self._active_window.change_attributes(
-                        event_mask=int(getattr(X, "NoEventMask", 0))
+                        event_mask=int(getattr(xlib_constants, "NoEventMask", 0))
                     )
                 except Exception as exc:  # noqa: BLE001 - cleanup should not block shutdown.
                     _log_x_failure("Failed to clear X11 active window event mask", exc)
@@ -365,7 +366,9 @@ class X11Listener(WindowListener):
             return changed
 
     def _handle_x_event_unlocked(self, event: _XEvent) -> bool:
-        if X is None or event.type != int(getattr(X, "PropertyNotify", -1)):
+        if xlib_constants is None or event.type != int(
+            getattr(xlib_constants, "PropertyNotify", -1)
+        ):
             return False
 
         event_window = event.window
@@ -389,7 +392,7 @@ class X11Listener(WindowListener):
         return bool(event_atom in self._window_watch_atoms)
 
     def _sync_active_window_watch_unlocked(self) -> None:
-        if X is None or self._xdisplay is None:
+        if xlib_constants is None or self._xdisplay is None:
             return
 
         next_window_id = self._query_active_window_id_unlocked()
@@ -399,7 +402,7 @@ class X11Listener(WindowListener):
         if self._active_window is not None:
             try:
                 self._active_window.change_attributes(
-                    event_mask=int(getattr(X, "NoEventMask", 0))
+                    event_mask=int(getattr(xlib_constants, "NoEventMask", 0))
                 )
             except Exception as exc:  # noqa: BLE001 - cleanup should not block watch updates.
                 _log_x_failure("Failed to clear previous X11 active window event mask", exc)
@@ -412,7 +415,9 @@ class X11Listener(WindowListener):
 
         try:
             win = self._xdisplay.create_resource_object("window", next_window_id)
-            win.change_attributes(event_mask=int(getattr(X, "PropertyChangeMask", 0)))
+            win.change_attributes(
+                event_mask=int(getattr(xlib_constants, "PropertyChangeMask", 0))
+            )
             self._active_window = win
             self._active_window_id = next_window_id
             self._xdisplay.sync()
@@ -431,12 +436,12 @@ class X11Listener(WindowListener):
         await self.callback(window_class, window_title, tags)
 
     def _query_active_window_id_unlocked(self) -> int | None:
-        if X is None or self._root is None or self._atom_active is None:
+        if xlib_constants is None or self._root is None or self._atom_active is None:
             return None
 
         prop = self._root.get_full_property(
             self._atom_active,
-            int(getattr(X, "AnyPropertyType", 0)),
+            int(getattr(xlib_constants, "AnyPropertyType", 0)),
         )
         raw_window_id = _first_property_value(prop)
         if not raw_window_id:
@@ -454,7 +459,7 @@ class X11Listener(WindowListener):
     def _query_active_window(self) -> tuple[str, str, list[str]]:
         with self._x_lock:
             if (
-                X is None
+                xlib_constants is None
                 or self._xdisplay is None
                 or self._root is None
                 or self._atom_active is None
@@ -482,7 +487,7 @@ class X11Listener(WindowListener):
                 try:
                     net_name = win.get_full_property(
                         int(self._atom_net_wm_name),
-                        int(getattr(X, "AnyPropertyType", 0)),
+                        int(getattr(xlib_constants, "AnyPropertyType", 0)),
                     )
                     if net_name and net_name.value:
                         raw = net_name.value

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from keymasq.common.models import HardwareConfig
+from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.compositor_state import update_session_compositor_id
 
 from . import _runtime, device_tabs, gnome_setup

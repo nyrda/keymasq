@@ -78,16 +78,13 @@ class _DeviceCommandMacroStore(Protocol):
     def get_meta(self, name: str) -> JsonObject: ...
 
 
-class _DeviceCommandDaemon(Protocol):
+class DeviceCommandDaemon(Protocol):
     device_manager: _DeviceCommandManager
     macro_store: _DeviceCommandMacroStore
 
 
-DeviceCommandDaemon = _DeviceCommandDaemon
-
-
 async def handle_device_command(
-    daemon: _DeviceCommandDaemon,
+    daemon: DeviceCommandDaemon,
     command_type: CommandType,
     data: JsonObject,
 ) -> JsonObject | None:

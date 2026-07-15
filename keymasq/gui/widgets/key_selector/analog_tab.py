@@ -10,16 +10,17 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import AnalogControlConfig
+from keymasq.common.model.core import ActionType
+from keymasq.gui.session_reload import notify_session_reload_async
 from keymasq.session.analog_controls import (
     AnalogControlManager,
     AnalogControlPreset,
     analog_control_presets,
 )
 
-from .compat import notify_session_reload_async
-
-log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
+log = logging.getLogger(__name__)
 
 
 class AnalogTabMixin:
@@ -155,7 +156,7 @@ class AnalogTabMixin:
         self._open_analog_control_manager()
 
     def _open_analog_control_manager(self, select_name: str | None = None) -> None:
-        from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+        from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
 
         root = self.get_root()
         profile_manager = self._profile_manager_for_child_dialog()
@@ -189,9 +190,7 @@ class AnalogTabMixin:
         manage_btn.connect("clicked", self._on_open_analog_manager_clicked)
         toolbar_row.append(manage_btn)
 
-        selection_hint = Gtk.Label(
-            label="Select one or multiple · right-click to edit"
-        )
+        selection_hint = Gtk.Label(label="Select one or multiple · right-click to edit")
         selection_hint.add_css_class("dim-label")
         selection_hint.add_css_class("caption")
         selection_hint.set_halign(Gtk.Align.START)
@@ -226,10 +225,7 @@ class AnalogTabMixin:
             config
             for name in self._analog_control_names
             if (config := configs.get(name)) is not None
-            and (
-                self._analog_input_type is None
-                or config.input_type == self._analog_input_type
-            )
+            and (self._analog_input_type is None or config.input_type == self._analog_input_type)
         ]
         self._populate_analog_control_listbox()
 
@@ -267,9 +263,7 @@ class AnalogTabMixin:
 
             right_click = Gtk.GestureClick()
             right_click.set_button(3)
-            right_click.connect(
-                "pressed", self._on_analog_control_row_right_pressed, config.name
-            )
+            right_click.connect("pressed", self._on_analog_control_row_right_pressed, config.name)
             row.add_controller(right_click)
 
             row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)

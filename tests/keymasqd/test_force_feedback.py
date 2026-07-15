@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock
 import evdev
 import pytest
 
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.runtime.force_feedback import (
     PassthroughForceFeedbackProxy,
     disable_force_feedback,
     passthrough_ff_max_effects,
 )
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
 
 class _Upload:
@@ -258,7 +258,7 @@ def test_passthrough_ff_capability_helpers() -> None:
 
 
 def test_passthrough_uinput_kwargs_can_omit_unsupported_max_effects() -> None:
-    kwargs = gdm._passthrough_uinput_kwargs(
+    kwargs = grabbed_device._passthrough_uinput_kwargs(
         caps={evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]},
         passthrough_name="pad",
         passthrough_vendor=None,
@@ -294,8 +294,8 @@ def test_uinput_supports_max_effects_detects_evdev_constructor_shapes() -> None:
             self.input_props = input_props
             self.max_effects = max_effects
 
-    assert gdm._uinput_supports_max_effects(_Evdev16StyleUInput) is False
-    assert gdm._uinput_supports_max_effects(_Evdev17StyleUInput) is True
+    assert grabbed_device._uinput_supports_max_effects(_Evdev16StyleUInput) is False
+    assert grabbed_device._uinput_supports_max_effects(_Evdev17StyleUInput) is True
 
 
 class _FakeLoop:
@@ -489,10 +489,10 @@ def test_read_eintr_does_not_stop_proxy() -> None:
 async def test_grab_starts_passthrough_force_feedback_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-    monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "pad")
-    monkeypatch.setattr(gdm.source_hiding, "node_kernel_names", lambda _path: [])
-    monkeypatch.setattr(gdm.source_hiding, "hide_source", AsyncMock(return_value=[]))
+    monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "pad")
+    monkeypatch.setattr(grabbed_device.source_hiding, "node_kernel_names", lambda _path: [])
+    monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", AsyncMock(return_value=[]))
 
     class _LifecycleInputDevice:
         ff_effects_count = 4
@@ -548,8 +548,8 @@ async def test_grab_starts_passthrough_force_feedback_proxy(
             self.stopped = True
 
     created_uinputs: list[_LifecycleUInput] = []
-    original_create_task = gdm.asyncio.create_task
-    original_sleep = gdm.asyncio.sleep
+    original_create_task = grabbed_device.asyncio.create_task
+    original_sleep = grabbed_device.asyncio.sleep
 
     def fake_create_task(coro):
         coro.close()
@@ -561,10 +561,10 @@ async def test_grab_starts_passthrough_force_feedback_proxy(
         return uinput
 
     physical = _LifecycleInputDevice()
-    monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: physical)
-    monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
-    monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
-    monkeypatch.setattr(gdm.runtime_force_feedback, "PassthroughForceFeedbackProxy", _Proxy)
+    monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: physical)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
+    monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(grabbed_device.force_feedback, "PassthroughForceFeedbackProxy", _Proxy)
 
     device = GrabbedDevice(
         path="/dev/input/event-pad",
@@ -597,10 +597,10 @@ async def test_grab_starts_passthrough_force_feedback_proxy(
 async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-    monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "pad")
-    monkeypatch.setattr(gdm.source_hiding, "node_kernel_names", lambda _path: [])
-    monkeypatch.setattr(gdm.source_hiding, "hide_source", AsyncMock(return_value=[]))
+    monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "pad")
+    monkeypatch.setattr(grabbed_device.source_hiding, "node_kernel_names", lambda _path: [])
+    monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", AsyncMock(return_value=[]))
 
     class _LifecycleInputDevice:
         ff_effects_count = 4
@@ -640,8 +640,8 @@ async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
             raise RuntimeError("reader unsupported")
 
     created_uinputs: list[_LifecycleUInput] = []
-    original_create_task = gdm.asyncio.create_task
-    original_sleep = gdm.asyncio.sleep
+    original_create_task = grabbed_device.asyncio.create_task
+    original_sleep = grabbed_device.asyncio.sleep
 
     def fake_create_task(coro):
         coro.close()
@@ -652,10 +652,12 @@ async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
         created_uinputs.append(uinput)
         return uinput
 
-    monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _LifecycleInputDevice())
-    monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
-    monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
-    monkeypatch.setattr(gdm.runtime_force_feedback, "PassthroughForceFeedbackProxy", _FailingProxy)
+    monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _LifecycleInputDevice())
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
+    monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(
+        grabbed_device.force_feedback, "PassthroughForceFeedbackProxy", _FailingProxy
+    )
 
     device = GrabbedDevice(
         path="/dev/input/event-pad",

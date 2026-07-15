@@ -1,5 +1,6 @@
 def test_action_labels_describe_all_mapping_action_types() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
     from keymasq.gui.widgets.action_labels import (
         describe_mapping_action_compact,
         describe_mapping_action_verbose,
@@ -92,7 +93,8 @@ def test_action_labels_describe_all_mapping_action_types() -> None:
 
 
 def test_action_labels_include_state_flags_and_fallbacks() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
     from keymasq.gui.widgets.action_labels import (
         describe_mapping_action_compact,
         describe_mapping_action_verbose,
@@ -111,7 +113,8 @@ def test_action_labels_include_state_flags_and_fallbacks() -> None:
 
 
 def test_action_labels_compact_hyprland_lua_dispatchers() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
     from keymasq.gui.widgets.action_labels import (
         describe_mapping_action_compact,
         describe_mapping_action_verbose,
@@ -161,13 +164,14 @@ def test_action_labels_compact_hyprland_lua_dispatchers() -> None:
     assert describe_mapping_action_compact(move_special_action) == "🪟 Move To Special"
     assert describe_mapping_action_compact(move_capitalized_special_action) == "🪟 Move To Special"
     assert describe_mapping_action_compact(custom_workspace_action) == "🪟 workspace 7"
-    assert describe_mapping_action_verbose(
-        MappingAction(action_type=ActionType.KEYBOARD),
-        keyboard_label=lambda value: f"resolved:{value}",
-    ) == "Keyboard → resolved:?"
-    assert describe_mapping_action_verbose(
-        MappingAction(action_type=ActionType.EXEC)
-    ) == "Exec → ?"
+    assert (
+        describe_mapping_action_verbose(
+            MappingAction(action_type=ActionType.KEYBOARD),
+            keyboard_label=lambda value: f"resolved:{value}",
+        )
+        == "Keyboard → resolved:?"
+    )
+    assert describe_mapping_action_verbose(MappingAction(action_type=ActionType.EXEC)) == "Exec → ?"
     assert (
         describe_mapping_action_compact(
             MappingAction(action_type=ActionType.MACRO, macro_name="type_text_demo")

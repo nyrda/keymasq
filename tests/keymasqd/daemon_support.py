@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-import keymasq.keymasqd.daemon as daemon_module
+from keymasq.keymasqd import daemon
 from keymasq.keymasqd.socket_server import ClientContext
 
 
@@ -90,13 +90,13 @@ def make_daemon_testbed(monkeypatch):
         register_combo_notifier=Mock(return_value=None),
     )
 
-    monkeypatch.setattr(daemon_module, "DeviceManager", lambda verbosity=0: device_manager)
-    monkeypatch.setattr(daemon_module, "RecordingManager", lambda: recording_manager)
-    monkeypatch.setattr(daemon_module, "MacroStore", lambda _path: macro_store)
-    monkeypatch.setattr(daemon_module, "CaptureManager", lambda: capture_manager)
+    monkeypatch.setattr(daemon, "DeviceManager", lambda verbosity=0: device_manager)
+    monkeypatch.setattr(daemon, "RecordingManager", lambda: recording_manager)
+    monkeypatch.setattr(daemon, "MacroStore", lambda _path: macro_store)
+    monkeypatch.setattr(daemon, "CaptureManager", lambda: capture_manager)
 
-    daemon = daemon_module.Daemon()
-    return daemon, device_manager, recording_manager, macro_store, capture_manager
+    daemon_instance = daemon.Daemon()
+    return daemon_instance, device_manager, recording_manager, macro_store, capture_manager
 
 
 def client_context(

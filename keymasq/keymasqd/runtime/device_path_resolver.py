@@ -18,7 +18,7 @@ from keymasq.common.devices import (
     primary_input_class,
     resolve_stable_path,
 )
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
@@ -90,9 +90,7 @@ class DeviceCache:
         device_paths_fn: Callable[[], list[str]],
         device_input_fn: Callable[[str], InputDeviceLike],
         detect_input_classes_fn: Callable[[InputDeviceLike], list[str]],
-        primary_input_class_fn: Callable[
-            [Iterable[str | DeviceType] | None], DeviceType
-        ],
+        primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
     ) -> dict[str, CachedDeviceInfo]:
         devices: dict[str, CachedDeviceInfo] = {}
         for path in sorted(device_paths_fn()):
@@ -102,9 +100,7 @@ class DeviceCache:
                 detect_input_classes_fn=detect_input_classes_fn,
                 primary_input_class_fn=primary_input_class_fn,
                 skip_log_message="Skipping device path resolver cache entry %s: %s",
-                unexpected_log_message=(
-                    "Unexpected failure caching device path resolver entry %s"
-                ),
+                unexpected_log_message=("Unexpected failure caching device path resolver entry %s"),
             )
             if cached is not None:
                 devices[path] = cached
@@ -156,9 +152,7 @@ def _probe_cached_device_info(
             product_id=f"{info.product:04x}",
             phys=str(getattr(device, "phys", "") or "").strip(),
             device_type=primary_input_class_fn(detect_input_classes_fn(device)),
-            capabilities=_normalize_capability_names(
-                capability_names_from_capabilities(caps)
-            ),
+            capabilities=_normalize_capability_names(capability_names_from_capabilities(caps)),
             is_virtual=_is_keymasq_virtual_device(device),
         )
     except OSError as exc:
@@ -203,10 +197,6 @@ def refresh_cached_devices_sync(
         detect_input_classes_fn=detect_input_classes_fn,
         primary_input_class_fn=primary_input_class_fn,
     )
-
-
-def cached_devices_snapshot() -> dict[str, CachedDeviceInfo]:
-    return _DEFAULT_CACHE.snapshot()
 
 
 def clear_cached_devices() -> None:
@@ -331,9 +321,7 @@ def _resolve_keymasq_paths(
         phys_score = int(bool(configured_phys) and cached.phys == configured_phys)
         cap_score = len(configured_caps & cached.capabilities)
         has_selector = (
-            configured_type != DeviceType.OTHER
-            or bool(configured_phys)
-            or bool(configured_caps)
+            configured_type != DeviceType.OTHER or bool(configured_phys) or bool(configured_caps)
         )
         if has_selector and not (type_match or phys_score or cap_score):
             continue
@@ -368,9 +356,7 @@ def _resolve_keymasq_paths(
             candidate.order_path,
         )
     )
-    available_candidates = [
-        candidate for candidate in candidates if not candidate.claimed
-    ]
+    available_candidates = [candidate for candidate in candidates if not candidate.claimed]
     if not available_candidates:
         log.info(
             "No unclaimed %s match from candidates %s",
@@ -436,9 +422,7 @@ def _probe_cached_device(
         detect_input_classes_fn=deps.detect_input_classes_fn,
         primary_input_class_fn=deps.primary_input_class_fn,
         skip_log_message="Skipping device path resolver probe for %s: %s",
-        unexpected_log_message=(
-            "Unexpected failure probing device path resolver candidate %s"
-        ),
+        unexpected_log_message=("Unexpected failure probing device path resolver candidate %s"),
     )
 
 

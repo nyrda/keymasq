@@ -1,4 +1,0 @@
-from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
-
-WLR_TOPLEVEL_STATE_ACTIVATED = 2
-WlrForeignToplevelManagerTracker = ActiveWindowTracker

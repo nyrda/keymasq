@@ -135,9 +135,7 @@ def test_compact_natural_move_allows_explicit_curve_for_lower_custom_speed() -> 
 
 
 def test_compact_natural_move_event_accepts_tuning_options() -> None:
-    events = build_compact_macro_events(
-        ["move:300:400:100000:0:linear:1:500:true"]
-    )
+    events = build_compact_macro_events(["move:300:400:100000:0:linear:1:500:true"])
 
     assert events == [
         {
@@ -242,8 +240,7 @@ def test_type_macro_builder_expands_enter_and_tab_controls() -> None:
 
 def test_type_macro_builder_expands_named_key_controls() -> None:
     events = build_type_macro_events(
-        "<space><esc><backspace><delete><up><down><left><right><home><end>"
-        "<pageup><pagedown>",
+        "<space><esc><backspace><delete><up><down><left><right><home><end><pageup><pagedown>",
         10,
         0,
     )
@@ -295,9 +292,7 @@ def test_type_macro_builder_expands_shortcut_controls() -> None:
     )
 
     assert [
-        (event["code"], event["value"])
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY
+        (event["code"], event["value"]) for event in events if event["type"] == evdev.ecodes.EV_KEY
     ] == [
         (evdev.ecodes.KEY_LEFTCTRL, 1),
         (evdev.ecodes.KEY_L, 1),
@@ -355,8 +350,7 @@ def test_type_macro_builder_expands_coordinate_click_control() -> None:
     assert events[0]["y"] == 180
     assert events[0]["stop_on_failure"] is True
     assert [
-        (event["device_type"], event["code"], event["value"], event["t_us"])
-        for event in events[1:]
+        (event["device_type"], event["code"], event["value"], event["t_us"]) for event in events[1:]
     ] == [
         ("mouse", evdev.ecodes.BTN_LEFT, 1, 1),
         ("mouse", evdev.ecodes.BTN_LEFT, 0, 10001),
@@ -386,8 +380,7 @@ def test_type_macro_builder_expands_coordinate_doubleclick_control() -> None:
     assert events[0]["y"] == 180
     assert events[0]["stop_on_failure"] is True
     assert [
-        (event["device_type"], event["code"], event["value"], event["t_us"])
-        for event in events[1:]
+        (event["device_type"], event["code"], event["value"], event["t_us"]) for event in events[1:]
     ] == [
         ("mouse", evdev.ecodes.BTN_LEFT, 1, 1),
         ("mouse", evdev.ecodes.BTN_LEFT, 0, 10001),
@@ -536,9 +529,7 @@ def test_type_macro_builder_unicode_input_holds_modifiers_until_confirmed() -> N
     events = build_type_macro_events("é", 10, 0, use_unicode_input=True)
 
     assert [
-        (event["code"], event["value"])
-        for event in events
-        if event["type"] == evdev.ecodes.EV_KEY
+        (event["code"], event["value"]) for event in events if event["type"] == evdev.ecodes.EV_KEY
     ] == [
         (evdev.ecodes.KEY_LEFTCTRL, 1),
         (evdev.ecodes.KEY_LEFTSHIFT, 1),

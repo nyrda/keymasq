@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_switch_compositor_clears_stale_window_and_reevaluates(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(session_compositor_module, "is_compositor_supported", unsupported)
     monkeypatch.setattr(
-        session_compositor_module.runtime_profiles,
+        session_compositor_module.coordinator,
         "reevaluate_profiles",
         reevaluate_profiles,
     )
@@ -161,7 +161,7 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
     )
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(
-        session_compositor_module.runtime_profiles,
+        session_compositor_module.coordinator,
         "reevaluate_profiles",
         reevaluate_profiles,
     )
@@ -192,7 +192,7 @@ async def test_get_active_window_reevaluates_when_listener_clears_window(
     }
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(
-        session_compositor_module.runtime_profiles,
+        session_compositor_module.coordinator,
         "reevaluate_profiles",
         reevaluate_profiles,
     )

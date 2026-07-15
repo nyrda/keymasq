@@ -15,14 +15,9 @@ from keymasq.common.combos import (
     is_emergency_cancel_combo_evdevs,
     normalize_combo_evdev,
 )
-from keymasq.common.models import (
-    PROTECTED_BUTTONS,
-    ActionType,
-    ComboConfig,
-    ComboEvent,
-    ComboStep,
-    MappingAction,
-)
+from keymasq.common.model.actions import PROTECTED_BUTTONS, MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.gui.widgets.combo_presentation import (
@@ -34,7 +29,7 @@ from keymasq.gui.widgets.combo_presentation import (
     combo_trigger_label,
 )
 from keymasq.gui.widgets.dialog_sizing import parent_constrained_dialog_width
-from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.session.superkeys import SuperkeyManager
 
 DEFAULT_STEP_TIMEOUT_MS = 600

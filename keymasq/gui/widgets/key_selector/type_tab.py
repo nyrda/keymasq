@@ -21,10 +21,9 @@ from keymasq.common.macro_compile import (
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
 )
-from keymasq.common.models import ActionType
+from keymasq.common.model.core import ActionType
 from keymasq.common.types import JsonObject
-
-from .compat import session_request_async
+from keymasq.gui.session_client import session_request_async
 
 
 class TypeTabMixin:

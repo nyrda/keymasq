@@ -7,8 +7,8 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ProfileConfig
-from keymasq.session.profiles import ProfileManager
+from keymasq.common.model.profiles import ProfileConfig
+from keymasq.session.profile.manager import ProfileManager
 
 
 class ProfileCreateDialog(Adw.Window):

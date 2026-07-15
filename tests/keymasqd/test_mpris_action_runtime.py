@@ -5,13 +5,16 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.common.types import SyntheticInputEvent
-from keymasq.keymasqd.runtime.action_runner import (
+from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     ActionRuntimeContext,
-    build_action_trigger_payload,
     drain_action_tasks,
+)
+from keymasq.keymasqd.runtime.action.triggers import build_action_trigger_payload
+from keymasq.keymasqd.runtime.action_runner import (
     execute_action,
 )
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer

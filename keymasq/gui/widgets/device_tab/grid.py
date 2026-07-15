@@ -7,19 +7,13 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import (
-    AnalogInputDefinition,
-    ButtonDefinition,
-    DeviceType,
-    HardwareConfig,
-    is_protected_button,
-)
-from keymasq.gui.widgets.device_control_layout import (
-    device_layout_kind as layout_kind_for_device,
-)
+from keymasq.common.model.actions import is_protected_button
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
 from keymasq.gui.widgets.device_control_layout import (
     group_pointer_controls,
     label_sort_key,
+    resolve_device_layout_kind,
 )
 
 _ADD_INPUTS_TOOLTIP = "Capture additional physical buttons or keys for this device"
@@ -387,7 +381,7 @@ class DeviceGridBuilder:
         return DeviceGridResult(scrolled, self.button_widgets, keyboard_layout_mode)
 
     def device_layout_kind(self) -> str:
-        return layout_kind_for_device(self.device)
+        return resolve_device_layout_kind(self.device)
 
     def _learn_label_noun(self) -> str:
         if self.device_layout_kind() == "keyboard":

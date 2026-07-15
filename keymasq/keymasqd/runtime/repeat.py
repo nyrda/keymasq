@@ -8,17 +8,16 @@ from typing import Any
 import evdev
 
 from keymasq.common.devices import high_res_wheel_low_res_code, normalize_wheel_value
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     REPEAT_CATEGORY_GAMEPAD,
     REPEAT_CATEGORY_KEYBOARD,
     REPEAT_CATEGORY_MACRO,
     REPEAT_CATEGORY_MOUSE,
     REPEAT_CATEGORY_SPECIAL,
-    ActionType,
     MappingAction,
-    SuperkeyMode,
     normalize_repeat_categories,
 )
+from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 
 REPEAT_HISTORY_LIMIT = 32

@@ -561,9 +561,7 @@ def get_passthrough_marker_layouts(
     y_top: int,
     track_h: int,
 ) -> list[tuple[MacroEvent, float, float, float]]:
-    unknown_events = [
-        ev for ev in state.passthrough_events if _passthrough_track(ev) == track
-    ]
+    unknown_events = [ev for ev in state.passthrough_events if _passthrough_track(ev) == track]
     if not unknown_events:
         return []
 

@@ -33,32 +33,35 @@ from keymasq.common.devices import (
     is_keymasq_device_path,
     make_keymasq_device_path,
 )
-from keymasq.common.models import ActionType, EvdevDevice, HardwareConfig, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.gui.application import Application
 from keymasq.gui.session_client import session_request
-from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
 from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
     HardwareSettingsDialog,
 )
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
-from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
-from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog, TypeMacroDialog
+from keymasq.gui.widgets.managed_editor.state import EditorSelection
 from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
-from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 from keymasq.gui.window import (
-    MainWindow,
     compositor,
     device_tabs,
     macro_recording,
     profiles,
     tab_layout,
 )
-from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
-from keymasq.session.profiles import ProfileInfo
+from keymasq.gui.window.core import MainWindow
+from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
+from keymasq.session.profile.types import ProfileInfo
 
 Json = dict[str, Any]
 
@@ -608,28 +611,14 @@ def _set_dialog_stack(dialog: object, tab_name: object) -> None:
 
 
 def _find_superkey_dialog_row(dialog: SuperkeyDialog, name: str) -> Gtk.ListBoxRow | None:
-    row = dialog.list_box.get_row_at_index(0)
-    index = 0
-    while row is not None:
-        if getattr(row, "_superkey_name", None) == name:
-            return row
-        index += 1
-        row = dialog.list_box.get_row_at_index(index)
-    return None
+    return dialog.shell.row_for_selection(EditorSelection.saved_item(name))
 
 
 def _find_analog_control_dialog_row(
     dialog: AnalogControlDialog,
     name: str,
 ) -> Gtk.ListBoxRow | None:
-    row = dialog.list_box.get_row_at_index(0)
-    index = 0
-    while row is not None:
-        if getattr(row, "_analog_control_name", None) == name:
-            return row
-        index += 1
-        row = dialog.list_box.get_row_at_index(index)
-    return None
+    return dialog.shell.row_for_selection(EditorSelection.saved_item(name))
 
 
 def _find_menu_button_by_label(widget: Gtk.Widget, label: str) -> Gtk.MenuButton | None:
@@ -1414,8 +1403,7 @@ class DocshotRunner:
             )
         return (
             False,
-            "Stable Path is unavailable because this event device has no "
-            "/dev/input/by-id path.",
+            "Stable Path is unavailable because this event device has no /dev/input/by-id path.",
         )
 
     def _docshot_rename_hardware(self, refresh: Callable[[], None]) -> None:
@@ -1606,11 +1594,11 @@ class DocshotRunner:
         if superkey:
             row = _find_superkey_dialog_row(dialog, superkey)
             if row is not None:
-                dialog.list_box.select_row(row)
+                dialog.shell.list_box.select_row(row)
         dialog.present(self.window)
         self.current_dialog = dialog
         self._set_dialog_crop(dialog, shot)
-        self._apply_declared_crop_widget(dialog, shot)
+        self._apply_declared_crop_widget(dialog.editor, shot)
 
     def _prepare_analog_controls_manager(self, shot: Json) -> None:
         assert self.window is not None
@@ -1621,12 +1609,12 @@ class DocshotRunner:
             row = _find_analog_control_dialog_row(dialog, analog_control)
             if row is None:
                 raise KeyError(f"analog control {analog_control!r} was not found")
-            dialog.list_box.select_row(row)
+            dialog.shell.list_box.select_row(row)
         expand_threshold = _optional_int(shot.get("expand_threshold"))
         if expand_threshold is not None:
-            rows = getattr(dialog, "_threshold_rows", [])
+            rows = dialog.editor.thresholds.rows
             if 0 <= expand_threshold < len(rows):
-                rows[expand_threshold].set_expanded(True)
+                rows[expand_threshold].row.set_expanded(True)
         expand_row_title = str(shot.get("expand_row_title", "") or "").strip()
         if expand_row_title:
             _expand_expander_row_by_title(dialog, expand_row_title)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from keymasq.common.models import MappingAction
+from keymasq.common.model.actions import MappingAction
 from keymasq.gui.widgets.compositor_actions.core import (
     CompositorActionPreset,
     build_compositor_dispatch_definition,

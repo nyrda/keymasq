@@ -11,12 +11,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.coercion import coerce_int
-from keymasq.common.models import (
-    ComboConfig,
-    ComboEvent,
-    ComboStep,
-    MappingAction,
-)
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
 from keymasq.gui.icons import combo_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
     JsonDict,

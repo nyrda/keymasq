@@ -43,6 +43,8 @@ usage() {
 Usage: ./scripts/integration.sh [--evdev current|1.6.1|1.7.0] [test ...]
 
 Runs Keymasq NixOS VM integration checks through nix build.
+Each selected check is rebuilt, so cached store results are not treated as a
+test execution. Nix keeps successful VM build logs out of the console.
 
 Tests:
 EOF
@@ -131,7 +133,6 @@ set_repeat_count() {
     exit 1
   fi
   repeat_count="$value"
-  repeat_requested=1
 }
 
 normalize_evdev_lane() {
@@ -153,23 +154,18 @@ normalize_evdev_lane() {
   esac
 }
 
-build_or_rebuild() {
+run_check() {
   local target="$1"
-  local force_rebuild="$2"
-  shift 2
+  shift
   local nix_args=("$@")
   local log_file
   local status
 
-  if [[ "$force_rebuild" != "1" ]]; then
-    nix build --no-link "${nix_args[@]}" "$target"
-    return
-  fi
-
   log_file="$(mktemp)"
   set +e
-  nix build --no-link --rebuild "${nix_args[@]}" "$target" 2>&1 | tee "$log_file"
-  status=${PIPESTATUS[0]}
+  nix build --no-link --rebuild \
+    "${nix_args[@]}" "$target" 2> >(tee "$log_file" >&2)
+  status=$?
   set -e
 
   if [[ "$status" -eq 0 ]]; then
@@ -194,7 +190,6 @@ fi
 
 scenario_filter=""
 repeat_count=""
-repeat_requested=0
 evdev_lane="current"
 raw_tests=()
 while [[ $# -gt 0 ]]; do
@@ -301,7 +296,7 @@ for index in "${!resolved_tests[@]}"; do
     (
       export KEYMASQ_INTEGRATION_SCENARIOS="$scenario_filter"
       export KEYMASQ_INTEGRATION_REPEAT="${repeat_count:-$run_count}"
-      build_or_rebuild "$target" "$repeat_requested" "${nix_args[@]}"
+      run_check "$target" "${nix_args[@]}"
     )
   else
     for iteration in $(seq 1 "$run_count"); do
@@ -310,7 +305,7 @@ for index in "${!resolved_tests[@]}"; do
       else
         echo "integration: ${test} evdev=${evdev_lane} -> ${target}"
       fi
-      build_or_rebuild "$target" "$repeat_requested"
+      run_check "$target"
     done
   fi
 done

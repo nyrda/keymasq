@@ -29,9 +29,7 @@ class SaveMacroDialog(Adw.Dialog):
         self._unlock_denied_for_save = False
         self._pending_save_token = str(recording_data.get("pending_save_token", "") or "")
         self._recording_slot = int(recording_data.get("recording_slot", 0) or 0)
-        self._start_position_recorded = bool(
-            recording_data.get("start_position_recorded", False)
-        )
+        self._start_position_recorded = bool(recording_data.get("start_position_recorded", False))
         self._block_mouse_movement = bool(recording_data.get("block_mouse_movement", False))
         self._existing_macro_names: set[str] = set()
         self._later_btn: Gtk.Button | None = None
@@ -421,7 +419,7 @@ class SaveMacroDialog(Adw.Dialog):
         return False
 
     def _present_saved_macro_editor(self, name: str) -> bool:
-        from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 
         dialog = MacroEditorDialog(self._parent, name, select_initial_event=True)
         dialog.present(self._parent)

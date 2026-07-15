@@ -42,6 +42,7 @@ class TimelineWidget(Gtk.DrawingArea):
     """
 
     LABEL_WIDTH = 28
+    TIMELINE_PAD = 10  # px gap between the label column and t=0, so edge markers stay visible
     RULER_HEIGHT = 24
     TRACK_HEIGHT = 88  # minimum track height; expands when lanes > 2
     LANE_HEIGHT_MIN = 32  # minimum height per sub-lane
@@ -206,11 +207,13 @@ class TimelineWidget(Gtk.DrawingArea):
 
     def _time_to_x(self, t_us: int) -> float:
         """Convert a time in microseconds to an x coordinate in the drawing area."""
-        return self.LABEL_WIDTH + t_us / 1e6 * self._pps - self._scroll_offset
+        return self.LABEL_WIDTH + self.TIMELINE_PAD + t_us / 1e6 * self._pps - self._scroll_offset
 
     def _x_to_time_us(self, x: float) -> int:
         """Convert a drawing-area x coordinate to microseconds."""
-        return int((x - self.LABEL_WIDTH + self._scroll_offset) / self._pps * 1e6)
+        return int(
+            (x - self.LABEL_WIDTH - self.TIMELINE_PAD + self._scroll_offset) / self._pps * 1e6
+        )
 
     # ------------------------------------------------------------------
     # Drawing
@@ -219,6 +222,7 @@ class TimelineWidget(Gtk.DrawingArea):
     def _build_render_state(self) -> timeline_render.TimelineRenderState:
         return timeline_render.TimelineRenderState(
             LABEL_WIDTH=self.LABEL_WIDTH,
+            TIMELINE_PAD=self.TIMELINE_PAD,
             RULER_HEIGHT=self.RULER_HEIGHT,
             TRACK_HEIGHT=self.TRACK_HEIGHT,
             MIN_EVENT_WIDTH=self.MIN_EVENT_WIDTH,
@@ -300,7 +304,7 @@ class TimelineWidget(Gtk.DrawingArea):
             mx = self._time_to_x(move.t_us)
             dx = x - mx
             dy = y - base_y
-            if dx * dx + dy * dy <= 9.0 * 9.0:
+            if dx * dx + dy * dy <= 14.0 * 14.0:
                 return move
         return None
 

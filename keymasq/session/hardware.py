@@ -10,11 +10,11 @@ import tomli_w
 from keymasq.common import paths
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.devices import is_gamepad_button_name
-from keymasq.common.models import (
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
-    DeviceType,
     EvdevDevice,
     HardwareConfig,
 )

@@ -47,7 +47,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
                 "action": "macro",
                 "macro_name": "combo",
             }
-        }
+        },
     )
 
     action = cast(dict[str, object], resolved["btn_side"])
@@ -108,9 +108,7 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
         "overload_down_actions",
         "overload_up_actions",
     )
-    macro_names = [f"superkey_{key}" for key in superkey_action_keys] + [
-        "analog_threshold"
-    ]
+    macro_names = [f"superkey_{key}" for key in superkey_action_keys] + ["analog_threshold"]
     loop_counts = {name: index + 1 for index, name in enumerate(macro_names)}
 
     macro_store.get_meta.side_effect = lambda name: macro_meta(

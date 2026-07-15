@@ -29,7 +29,7 @@ from keymasq.gui.preferences import (  # noqa: E402
 )
 from keymasq.gui.session_reload import notify_session_reload_async  # noqa: E402
 from keymasq.gui.widgets.docs_links import docs_page_url  # noqa: E402
-from keymasq.gui.window import MainWindow  # noqa: E402
+from keymasq.gui.window.core import MainWindow  # noqa: E402
 
 APP_VERSION = __version__
 APP_ID = "tools.keymasq.keymasq"
@@ -130,7 +130,7 @@ class Application(Adw.Application):
         if not self.window:
             return
 
-        from keymasq.gui.widgets.superkey_dialog import SuperkeyDialog
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
 
         dialog = SuperkeyDialog(self.window, self.window.profile_manager)
         dialog.connect("superkey-saved", self._on_superkey_changed)
@@ -147,7 +147,7 @@ class Application(Adw.Application):
         if not self.window:
             return
 
-        from keymasq.gui.widgets.analog_control_dialog import AnalogControlDialog
+        from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
 
         dialog = AnalogControlDialog(self.window, self.window.profile_manager)
         dialog.connect("analog-control-saved", self._on_analog_control_changed)

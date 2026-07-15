@@ -150,8 +150,7 @@ class MacroStore:
         ]
         if missing_meta:
             raise ValueError(
-                "create_from_events requires streamed macro metadata: "
-                + ", ".join(missing_meta)
+                "create_from_events requires streamed macro metadata: " + ", ".join(missing_meta)
             )
         return self._create_from_events(payload, events, return_full=return_full)
 

@@ -8,7 +8,7 @@ from typing import Protocol, cast
 
 import evdev
 
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 
 INPUT_CLASS_ORDER = ("mouse", "touchpad", "keyboard", "gamepad", "pointstick", "other")
 KEYMASQ_DEVICE_PATH_PREFIX = "keymasq:"
@@ -99,11 +99,11 @@ _GAMEPAD_BUTTON_LABELS = {
 
 
 class _CapabilityDevice(Protocol):
-    def input_props(self) -> Iterable[int]:
-        ...
+    def input_props(self) -> Iterable[int]: ...
 
-    def capabilities(self) -> Mapping[int, Sequence[object]]:
-        ...
+    def capabilities(self) -> Mapping[int, Sequence[object]]: ...
+
+
 _GAMEPAD_BUTTON_ALIASES = {
     "btn_a": "btn_south",
     "btn_b": "btn_east",

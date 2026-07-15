@@ -1,26 +1,15 @@
 import asyncio
-import contextlib
 import errno
 import logging
-import time
-from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any, Protocol, cast
 
 import evdev
 
-from keymasq.common import devices as common_devices
 from keymasq.common.coercion import (
     coerce_int,
     coerce_str,
-)
-from keymasq.common.coercion import json_list as _json_list
-from keymasq.common.coercion import json_object as _json_object
-from keymasq.common.combos import (
-    EMERGENCY_CANCEL_COMBO_EVDEVS,
-    is_emergency_cancel_combo_evdevs,
-    normalize_combo_restore_keys,
+    json_object,
 )
 from keymasq.common.devices import (
     clear_device_path_cache,
@@ -30,54 +19,57 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
-    ActionType,
-    DeviceType,
-    MappingAction,
-    SuperkeyMode,
-    parse_profile_deactivation_policy,
-)
+from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
+from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_devices import (
-    DEFAULT_VIRTUAL_GAMEPADS,
     clamp_virtual_gamepad_count,
-    is_virtual_gamepad_output_id,
 )
-from keymasq.keymasqd.combo_engine import (
-    ComboDecision,
-    RuntimeCombo,
-    RuntimeComboBinding,
-    RuntimeComboStep,
-)
-from keymasq.keymasqd.output_helpers import emit_mouse_move, resolve_output_code
+from keymasq.keymasqd import device_inventory
+from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
 )
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import actions as runtime_actions
-from keymasq.keymasqd.runtime import adapters as runtime_adapters
-from keymasq.keymasqd.runtime import combos as runtime_combos
-from keymasq.keymasqd.runtime import device_path_resolver
-from keymasq.keymasqd.runtime import grab_lifecycle as runtime_grab_lifecycle
-from keymasq.keymasqd.runtime import macros as runtime_macros
-from keymasq.keymasqd.runtime import natural_mouse as runtime_natural_mouse
-from keymasq.keymasqd.runtime import outputs as runtime_outputs
-from keymasq.keymasqd.runtime import repeat as runtime_repeat
-from keymasq.keymasqd.runtime import topology as runtime_topology
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
+from keymasq.keymasqd.runtime import (
+    adapters,
+    device_inspector,
+    device_path_resolver,
+    diagnostics,
+    outputs,
+    repeat,
+    topology,
+    virtual_gamepads,
+)
+from keymasq.keymasqd.runtime.combo import lifecycle
+from keymasq.keymasqd.runtime.grab import support
+from keymasq.keymasqd.runtime.grab.acquisition import grab_device_unlocked
+from keymasq.keymasqd.runtime.grab.mapping import set_mapping
+from keymasq.keymasqd.runtime.grab.release import (
+    release_all_devices,
+    release_device_unlocked,
+    release_interface_unlocked,
+    schedule_hardware_release_unlocked,
+)
+from keymasq.keymasqd.runtime.grab.state import (
+    DesiredGrabConfig,
+    GrabDeviceDeps,
+    GrabRequest,
+    GrabRuntimeState,
+)
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.macro.state import MacroRuntimeDeps, MacroRuntimeState
+from keymasq.keymasqd.runtime.manager_combos import ComboManagerMixin
+from keymasq.keymasqd.runtime.manager_cursor import CursorManagerMixin
+from keymasq.keymasqd.runtime.manager_macros import MacroManagerMixin
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
-from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
-from keymasq.keymasqd.task_helpers import fire_and_observe as _fire_and_observe
+from keymasq.keymasqd.task_helpers import fire_and_observe
 
 log = logging.getLogger("keymasqd.devices")
 ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
 ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
-EMERGENCY_CANCEL_COMBO_ID_PREFIX = "__keymasq_emergency_cancel:"
-EMERGENCY_CANCEL_COMBO_NAME = "Keymasq Emergency Cancel"
-EMERGENCY_CANCEL_COMBO_PROFILE = "__keymasq_internal"
-EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS = 200
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
@@ -90,7 +82,7 @@ type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
 class _ManagedInputDevice(Protocol):
     path: str
     name: str | None
-    info: runtime_adapters.DeviceInfo
+    info: adapters.DeviceInfo
 
     def grab(self) -> None: ...
 
@@ -111,9 +103,6 @@ class _ManagedInputDevice(Protocol):
     def close(self) -> None: ...
 
 
-ASYNCIO_RUNTIME = runtime_adapters.ASYNCIO_RUNTIME
-
-
 def _device_input(path: str) -> _ManagedInputDevice:
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
@@ -122,21 +111,9 @@ def _device_paths() -> list[str]:
     return cast(Callable[[], list[str]], evdev.list_devices)()
 
 
-def _uinput_device_path(uinput_dev: object | None) -> str | None:
-    input_device = getattr(uinput_dev, "device", None)
-    path = getattr(input_device, "path", None)
-    return path if isinstance(path, str) and path else None
-
-
-def _is_virtual_input(device: object) -> bool:
-    phys = str(getattr(device, "phys", "") or "").lower()
-    name = str(getattr(device, "name", "") or "").lower()
-    return phys == "py-evdev-uinput" or name.startswith("keymasq-")
-
-
-def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
-    return runtime_topology.TopologyRuntimeDeps(
-        asyncio_mod=ASYNCIO_RUNTIME,
+def _topology_runtime_deps() -> topology.TopologyRuntimeDeps:
+    return topology.TopologyRuntimeDeps(
+        asyncio_mod=adapters.ASYNCIO_RUNTIME,
         clear_device_path_cache_fn=clear_device_path_cache,
         device_paths_fn=_device_paths,
         device_input_fn=_device_input,
@@ -144,7 +121,7 @@ def _topology_runtime_deps() -> runtime_topology.TopologyRuntimeDeps:
         primary_input_class_fn=primary_input_class,
         resolve_stable_path_fn=resolve_stable_path,
         get_interface_id_fn=get_interface_id,
-        release_interface_fn=runtime_grab_lifecycle.release_interface_unlocked,
+        release_interface_fn=release_interface_unlocked,
     )
 
 
@@ -152,247 +129,18 @@ def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
     return device_path_resolver.evdev_device_path_resolver_deps(_device_input)
 
 
-def _macro_runtime_deps() -> runtime_macros.MacroRuntimeDeps:
-    return runtime_macros.MacroRuntimeDeps(
-        asyncio_mod=ASYNCIO_RUNTIME,
+def _macro_runtime_deps() -> MacroRuntimeDeps:
+    return MacroRuntimeDeps(
+        asyncio_mod=adapters.ASYNCIO_RUNTIME,
         evdev_mod=evdev,
-        uinput_writer=runtime_adapters.identity_uinput_writer,
+        uinput_writer=adapters.identity_uinput_writer,
         log=log,
         int_value_fn=coerce_int,
         str_value_fn=coerce_str,
     )
 
 
-def _combo_runtime_deps(
-    *,
-    resolve_code_fn: runtime_combos.ResolveCodeFn = resolve_output_code,
-    fire_and_observe_fn: runtime_combos.FireAndObserve = _fire_and_observe,
-) -> runtime_combos.ComboRuntimeDeps:
-    return runtime_combos.ComboRuntimeDeps(
-        asyncio_mod=ASYNCIO_RUNTIME,
-        evdev_mod=runtime_adapters.COMBO_EVDEV_RUNTIME,
-        uinput_writer=runtime_adapters.identity_uinput_writer,
-        resolve_code_fn=resolve_code_fn,
-        fire_and_observe_fn=fire_and_observe_fn,
-    )
-
-
-def combo_runtime_signature(combo: RuntimeCombo) -> tuple[object, ...]:
-    steps = tuple(
-        (
-            tuple(
-                sorted(
-                    (
-                        str(binding.hardware_id or "").lower(),
-                        str(binding.source or "").lower(),
-                        str(binding.evdev or "").lower(),
-                    )
-                    for binding in step.bindings
-                )
-            ),
-            step.timeout_ms,
-        )
-        for step in combo.steps
-    )
-    return (
-        str(combo.id or ""),
-        str(combo.profile_name or ""),
-        steps,
-        combo.action,
-        bool(combo.recall_trigger_keys),
-        tuple(combo.restore_trigger_keys),
-        bool(combo.match_across_devices),
-    )
-
-
-def combo_runtime_signatures(combos: Sequence[RuntimeCombo]) -> dict[str, tuple[object, ...]]:
-    return {
-        combo.id: combo_runtime_signature(combo)
-        for combo in combos
-        if combo.id
-    }
-
-
-def unchanged_combo_ids(
-    old_signatures: dict[str, tuple[object, ...]],
-    new_combos: Sequence[RuntimeCombo],
-) -> set[str]:
-    preserved: set[str] = set()
-    seen: set[str] = set()
-    for combo in new_combos:
-        if not combo.id or combo.id in seen:
-            continue
-        seen.add(combo.id)
-        if old_signatures.get(combo.id) == combo_runtime_signature(combo):
-            preserved.add(combo.id)
-    return preserved
-
-
-def _capability_device(
-    device: _ManagedInputDevice,
-) -> common_devices._CapabilityDevice:  # pyright: ignore[reportPrivateUsage]
-    return cast(common_devices._CapabilityDevice, device)  # pyright: ignore[reportPrivateUsage]
-
-
-LiveInterfaceInfo = runtime_topology.LiveInterfaceInfo
-
-
-@dataclass
-class DesiredGrabConfig:
-    paths: set[str]
-    button_map: dict[str, str]
-    button_codes: dict[str, int] = field(default_factory=dict)
-    button_values: dict[str, int] = field(default_factory=dict)
-    analog_inputs: dict[str, object] = field(default_factory=dict)
-    force_grab_unmapped: bool = False
-    evdev_interfaces: list[JsonObject] = field(default_factory=list)
-
-
-@dataclass
-class OutputRuntimeState:
-    device_count: int = 0
-    keyboard_uinput: runtime_adapters.ClosableUInput | None = None
-    mouse_uinput: runtime_adapters.ClosableUInput | None = None
-    virtual_gamepad_uinputs: dict[str, runtime_adapters.ClosableUInput] = field(
-        default_factory=dict
-    )
-    virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
-
-    @property
-    def gamepad_uinput(self) -> runtime_adapters.ClosableUInput | None:
-        return self.virtual_gamepad_uinputs.get("virtual-gamepad-1")
-
-    @gamepad_uinput.setter
-    def gamepad_uinput(self, value: runtime_adapters.ClosableUInput | None) -> None:
-        if value is None:
-            self.virtual_gamepad_uinputs.pop("virtual-gamepad-1", None)
-        else:
-            self.virtual_gamepad_uinputs["virtual-gamepad-1"] = value
-
-
-@dataclass(frozen=True)
-class GamepadOutputTarget:
-    output_id: str
-    uinput: object
-    bucket: str
-    is_virtual: bool
-    analog_inputs: dict[str, object] = field(default_factory=dict)
-
-
-@dataclass
-class MacroRuntimeState:
-    tasks: dict[int, asyncio.Task[None]] = field(default_factory=dict)
-    instance_meta: dict[int, dict[str, object]] = field(default_factory=dict)
-    instance_seq: int = 0
-    instance_held: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
-    held_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
-    instance_held_abs: dict[int, set[tuple[str, int]]] = field(default_factory=dict)
-    held_abs_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
-    cancel_instance_ids: set[int] = field(default_factory=set)
-    mouse_inhibit_count: int = 0
-    exec_waiters: dict[str, asyncio.Future[int]] = field(default_factory=dict)
-    mouse_rel_suppressed: bool = False
-    mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None
-
-
-@dataclass
-class DiagnosticsState:
-    enabled: bool = False
-    interval: float = 5.0
-    categories: set[str] = field(default_factory=lambda: {"mainline"})
-    task: asyncio.Task[None] | None = None
-    samples: dict[str, deque[float]] = field(default_factory=dict)
-
-
-DIAGNOSTICS_CATEGORIES = frozenset({"mainline", "combo", "internal"})
-DEFAULT_DIAGNOSTICS_CATEGORIES = frozenset({"mainline"})
-
-
-def _normalize_diagnostics_categories(categories: Sequence[object] | None) -> set[str]:
-    if not categories:
-        return set(DEFAULT_DIAGNOSTICS_CATEGORIES)
-
-    normalized = {
-        str(category or "").strip().lower()
-        for category in categories
-        if str(category or "").strip()
-    }
-    if "all" in normalized:
-        return set(DIAGNOSTICS_CATEGORIES)
-    selected = normalized & DIAGNOSTICS_CATEGORIES
-    return selected or set(DEFAULT_DIAGNOSTICS_CATEGORIES)
-
-
-def _diagnostics_label_enabled(label: str, categories: set[str]) -> bool:
-    label = str(label or "").lower()
-    if "internal" in categories and _diagnostics_label_is_internal(label):
-        return True
-    if "combo" in categories and _diagnostics_label_is_combo(label):
-        return True
-    return "mainline" in categories and _diagnostics_label_is_mainline(label)
-
-
-def _diagnostics_label_is_mainline(label: str) -> bool:
-    return (
-        label.startswith("action_")
-        or label
-        in {
-            "passthrough_fast",
-            "passthrough_mapped",
-            "passthrough_other",
-            "passthrough_syn",
-        }
-        or label == "wheel_passthrough"
-    )
-
-
-def _diagnostics_label_is_combo(label: str) -> bool:
-    return label.startswith("combo_") and not label.startswith("combo_recalled_")
-
-
-def _diagnostics_label_is_internal(label: str) -> bool:
-    return label == "syn" or label in {
-        "combo_recalled_repeat_suppressed",
-        "combo_recalled_release_suppressed",
-        "wheel_high_res_suppressed",
-    }
-
-
-def _diagnostics_int(value: object) -> int:
-    if isinstance(value, (int, float, str, bytes)):
-        return int(value)
-    return 0
-
-
-def _diagnostics_float(value: object) -> float:
-    if isinstance(value, (int, float, str, bytes)):
-        return float(value)
-    return 0.0
-
-
-@dataclass
-class GrabRuntimeState:
-    release_grace_s: float
-    held_release_retry_s: float
-    desired_paths: dict[str, set[str]] = field(default_factory=dict)
-    desired_grabs: dict[str, DesiredGrabConfig] = field(default_factory=dict)
-    pending_interface_release: dict[tuple[str, str], asyncio.Task[None]] = field(
-        default_factory=dict
-    )
-    pending_hardware_release: dict[str, asyncio.Task[None]] = field(default_factory=dict)
-
-
-@dataclass
-class TopologyRuntimeState:
-    poll_s: float
-    debounce_s: float
-    watcher_task: asyncio.Task[None] | None = None
-    reconcile_task: asyncio.Task[None] | None = None
-    live_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
-    reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
-
-
-class DeviceManager:
+class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     def __init__(
         self,
         verbosity: int = 0,
@@ -407,176 +155,100 @@ class DeviceManager:
         self.verbosity = verbosity
         self.broadcast_callback = broadcast_callback
 
-        self.output_state = OutputRuntimeState()
+        self.output_state = outputs.OutputRuntimeState()
+        self._gamepad_output_router = virtual_gamepads.GamepadOutputRouter(log)
         self.recording_manager: RecordingManager | None = None
         self.macro_store: Any | None = None
+        self._initialize_macro_runtime(_macro_runtime_deps)
         self.macro_exec_timeout_max_ms = 30000
-        self.emergency_cancel_combo_enabled = True
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
-        self._cursor_move_lock = asyncio.Lock()
-        self._cursor_request_seq = 0
-        self._cursor_position_waiters: dict[str, asyncio.Future[JsonObject]] = {}
-        self.diagnostics_state = DiagnosticsState()
+        self._initialize_cursor_runtime()
+        self._diagnostics = diagnostics.DiagnosticsRuntime(log)
+        self.diagnostics_state = self._diagnostics.state
         self.grab_state = GrabRuntimeState(
             release_grace_s=max(0.01, float(release_grace_s)),
             held_release_retry_s=max(0.01, float(held_release_retry_s)),
         )
-        self.combo_state = runtime_combos.ComboRuntimeState()
-        self.repeat_state = runtime_repeat.RepeatRuntimeState()
+        self._initialize_combo_runtime()
+        self.repeat_state = repeat.RepeatRuntimeState()
         self.profile_activation_tracker = ProfileActivationTracker(
             broadcast_deactivate_request=self._broadcast_profile_deactivate_requested,
         )
-        self._configured_combos: list[RuntimeCombo] = []
-        self.device_inspector_active_hardware_ids: set[str] = set()
-        self.device_inspector_suppressed_hardware_ids: set[str] = set()
-        self._device_inspector_event_sequence = 0
-        self.topology_state = TopologyRuntimeState(
+        self.device_inspector_state = device_inspector.DeviceInspectorState()
+        self.topology_state = topology.TopologyRuntimeState(
             poll_s=max(0.05, float(topology_poll_s)),
             debounce_s=max(0.05, float(topology_debounce_s)),
         )
         self._command_type = CommandType
         self._desired_grab_config_cls = DesiredGrabConfig
         self._device_input = _device_input
-        self._gamepad_output_warning_at: dict[tuple[str, str], float] = {}
 
     def initialize_output_devices(self) -> None:
-        runtime_outputs.create_global_uinputs(
+        outputs.create_global_uinputs(
             cast(Any, self),
             evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
             log=log,
-            uinput_writer=runtime_adapters.identity_uinput_writer,
+            uinput_writer=adapters.identity_uinput_writer,
         )
 
     def shutdown_output_devices(self) -> None:
-        runtime_outputs.destroy_global_uinputs(cast(Any, self), log=log)
+        outputs.destroy_global_uinputs(cast(Any, self), log=log)
 
     async def set_virtual_gamepads(self, count: object) -> JsonObject:
         clamped_count = clamp_virtual_gamepad_count(count)
         async with self._op_lock:
-            if clamped_count == self.output_state.virtual_gamepad_count:
-                return {"status": "ok", "count": clamped_count}
 
-            cancelled_rapidfire_tasks: list[asyncio.Task[None]] = []
-            await runtime_combos.clear_combo_runtime(
-                self,
-                deps=runtime_grab_lifecycle.combo_runtime_deps(),
-            )
-            for devices in self.grabbed_devices.values():
-                for device in devices:
-                    cancelled_rapidfire_tasks.extend(
-                        task
-                        for task in list(device.state.rapidfire_tasks.values())
-                        if not task.done()
-                    )
-                    device.release_tracked_outputs()
-                    await device.reset_mapping_runtime_state()
+            async def clear_runtime() -> None:
+                await lifecycle.clear_combo_runtime(
+                    self,
+                    deps=support.combo_runtime_deps(),
+                )
 
-            if cancelled_rapidfire_tasks:
-                unique_tasks = list(dict.fromkeys(cancelled_rapidfire_tasks))
-                for task in unique_tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*unique_tasks, return_exceptions=True)
-
-            if self.output_state.device_count > 0:
-                runtime_outputs.configure_virtual_gamepads(
+            def configure_outputs(configured_count: int) -> None:
+                outputs.configure_virtual_gamepads(
                     cast(Any, self),
-                    clamped_count,
+                    configured_count,
                     evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
                     log=log,
-                    uinput_writer=runtime_adapters.identity_uinput_writer,
+                    uinput_writer=adapters.identity_uinput_writer,
                 )
-            else:
-                self.output_state.virtual_gamepad_count = clamped_count
-            log.info("Configured %d virtual gamepad output(s)", clamped_count)
-            return {"status": "ok", "count": clamped_count}
+
+            return await virtual_gamepads.reconfigure_virtual_gamepads(
+                count=clamped_count,
+                current_count=self.output_state.virtual_gamepad_count,
+                output_devices_active=self.output_state.device_count > 0,
+                grabbed_devices=cast(Any, self.grabbed_devices),
+                clear_combo_runtime=clear_runtime,
+                configure_outputs=configure_outputs,
+                set_inactive_count=lambda value: setattr(
+                    self.output_state, "virtual_gamepad_count", value
+                ),
+                logger=log,
+            )
 
     def resolve_gamepad_output(
         self,
         output_id: str | None,
         *,
         context: str = "",
-    ) -> GamepadOutputTarget | None:
-        explicit = output_id is not None
-        resolved_id = str(output_id or "virtual-gamepad-1").strip()
-        if not resolved_id:
-            resolved_id = "virtual-gamepad-1"
-
-        if is_virtual_gamepad_output_id(resolved_id):
-            uinput = self.output_state.virtual_gamepad_uinputs.get(resolved_id)
-            if uinput is None:
-                reason = "virtual output is not configured"
-                self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
-                return None
-            return GamepadOutputTarget(
-                output_id=resolved_id,
-                uinput=uinput,
-                bucket=f"gamepad:{resolved_id}",
-                is_virtual=True,
-            )
-
-        devices = self.grabbed_devices.get(resolved_id)
-        if not devices:
-            reason = "target hardware is not grabbed"
-            self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
-            return None
-
-        for device in devices:
-            device_type = getattr(device, "device_type", None)
-            raw_device_types = getattr(device, "device_types", None)
-            device_types: set[object] = set()
-            if isinstance(raw_device_types, Sequence):
-                device_types = set(cast(Sequence[object], raw_device_types))
-            if device_type == DeviceType.GAMEPAD or DeviceType.GAMEPAD in device_types:
-                uinput = getattr(device, "uinput", None)
-                if uinput is not None:
-                    return GamepadOutputTarget(
-                        output_id=resolved_id,
-                        uinput=uinput,
-                        bucket=f"gamepad:{resolved_id}",
-                        is_virtual=False,
-                        analog_inputs=dict(getattr(device, "analog_inputs", {}) or {}),
-                    )
-        reason = "target hardware has no grabbed gamepad passthrough output"
-        self._warn_gamepad_output_unavailable(resolved_id, reason, context, explicit)
-        return None
-
-    def _warn_gamepad_output_unavailable(
-        self,
-        output_id: str,
-        reason: str,
-        context: str,
-        explicit: bool,
-    ) -> None:
-        key = (output_id, reason)
-        now = time.monotonic()
-        last = self._gamepad_output_warning_at.get(key)
-        if last is not None and now - last < 5.0:
-            return
-        self._gamepad_output_warning_at[key] = now
-        prefix = f"Gamepad output target {output_id} unavailable"
-        context_text = f" for {context}" if context else ""
-        mode_text = "" if explicit else " default"
-        log.warning("%s%s%s: %s; dropping output", prefix, mode_text, context_text, reason)
-
-    @property
-    def active_combos(self) -> list[RuntimeCombo]:
-        return self.combo_state.active_combos
-
-    @active_combos.setter
-    def active_combos(self, value: list[RuntimeCombo]) -> None:
-        self.combo_state.active_combos = value
+    ) -> virtual_gamepads.GamepadOutputTarget | None:
+        return self._gamepad_output_router.resolve(
+            self.output_state,
+            cast(Any, self.grabbed_devices),
+            output_id,
+            context=context,
+        )
 
     async def start_topology_watcher(self) -> None:
-        await runtime_topology.start_topology_watcher(
+        await topology.start_topology_watcher(
             self,
             log=log,
             deps=_topology_runtime_deps(),
         )
 
     async def stop_topology_watcher(self) -> None:
-        await runtime_topology.stop_topology_watcher(
+        await topology.stop_topology_watcher(
             self,
             deps=_topology_runtime_deps(),
         )
@@ -593,7 +265,7 @@ class DeviceManager:
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
         async with self._op_lock:
-            request = runtime_grab_lifecycle.GrabRequest(
+            request = GrabRequest(
                 hardware_id=hardware_id,
                 evdev_paths=evdev_paths,
                 button_map=button_map,
@@ -604,7 +276,7 @@ class DeviceManager:
                 evdev_interfaces=evdev_interfaces,
                 update_desired=True,
             )
-            deps = runtime_grab_lifecycle.GrabDeviceDeps(
+            deps = GrabDeviceDeps(
                 desired_grab_config_cls=DesiredGrabConfig,
                 clear_device_path_cache_fn=clear_device_path_cache,
                 resolve_stable_path_fn=resolve_stable_path,
@@ -613,10 +285,10 @@ class DeviceManager:
                 get_interface_id_fn=get_interface_id,
                 str_value_fn=coerce_str,
                 int_value_fn=coerce_int,
-                fire_and_observe_fn=_fire_and_observe,
+                fire_and_observe_fn=fire_and_observe,
                 errno_mod=errno,
             )
-            result = await runtime_grab_lifecycle.grab_device_unlocked(
+            result = await grab_device_unlocked(
                 self,
                 request,
                 deps,
@@ -632,31 +304,30 @@ class DeviceManager:
     ) -> JsonObject:
         async with self._op_lock:
             if immediate:
-                result = await runtime_grab_lifecycle.release_device_unlocked(
+                result = await release_device_unlocked(
                     self,
                     hardware_id,
                     log=log,
                 )
                 await self._refresh_combo_runtime_preserving_unchanged()
                 return result
-            return await runtime_grab_lifecycle.schedule_hardware_release_unlocked(
+            return await schedule_hardware_release_unlocked(
                 self,
                 hardware_id,
                 grace_s,
-                asyncio_mod=runtime_grab_lifecycle.ASYNCIO_RUNTIME,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
                 log=log,
             )
 
     async def release_all_devices(self) -> None:
         self.profile_activation_tracker.reset()
         self.repeat_state.history.clear()
-        await runtime_grab_lifecycle.release_all_devices(
+        await release_all_devices(
             self,
-            fire_and_observe_fn=_fire_and_observe,
+            fire_and_observe_fn=fire_and_observe,
         )
         async with self._op_lock:
-            self.device_inspector_active_hardware_ids.clear()
-            self.device_inspector_suppressed_hardware_ids.clear()
+            self.device_inspector_state.reset()
             await self._refresh_combo_runtime_unlocked()
 
     async def emergency_reset(self) -> JsonObject:
@@ -674,7 +345,7 @@ class DeviceManager:
     ) -> None:
         if self.broadcast_callback is None:
             return
-        _fire_and_observe(
+        fire_and_observe(
             self.broadcast_callback(event_type, data),
             f"{event_type.value} broadcast",
         )
@@ -734,107 +405,60 @@ class DeviceManager:
         self.profile_activation_tracker.record_action(source_profile_name, trigger_id)
 
     def device_inspector_active(self, hardware_id: str) -> bool:
-        return str(hardware_id or "").strip() in self.device_inspector_active_hardware_ids
+        return self.device_inspector_state.is_active(hardware_id)
 
     def device_inspector_suppressed(self, hardware_id: str) -> bool:
-        return str(hardware_id or "").strip() in self.device_inspector_suppressed_hardware_ids
+        return self.device_inspector_state.is_suppressed(hardware_id)
 
     def device_inspector_suppressed_hardware_ids_snapshot(self) -> set[str]:
-        return set(self.device_inspector_suppressed_hardware_ids)
+        return self.device_inspector_state.suppressed_snapshot()
 
     def broadcast_device_inspector_event(self, payload: JsonObject) -> None:
-        hardware_id = str(payload.get("hardware_id", "") or "").strip()
-        if not hardware_id or not self.device_inspector_active(hardware_id):
-            return
-        self._device_inspector_event_sequence += 1
-        event_payload = dict(payload)
-        event_payload["sequence"] = self._device_inspector_event_sequence
-        self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, event_payload)
+        event_payload = self.device_inspector_state.event_payload(payload)
+        if event_payload is not None:
+            self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, event_payload)
 
     def _broadcast_device_inspector_status(self, hardware_id: str, reason: str) -> None:
-        normalized_hardware_id = str(hardware_id or "").strip()
         self._broadcast_runtime_event(
             CommandType.DEVICE_INSPECTOR_STATUS,
-            {
-                "hardware_id": normalized_hardware_id,
-                "active": self.device_inspector_active(normalized_hardware_id),
-                "suppressed": self.device_inspector_suppressed(normalized_hardware_id),
-                "reason": str(reason or ""),
-            },
+            self.device_inspector_state.status_payload(hardware_id, reason),
         )
 
     async def start_device_inspector(self, hardware_id: str) -> JsonObject:
-        normalized_hardware_id = str(hardware_id or "").strip()
-        if not normalized_hardware_id:
-            raise ValueError("hardware_id required")
         async with self._op_lock:
-            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
-            self._broadcast_device_inspector_status(normalized_hardware_id, "start")
-        return {
-            "status": "ok",
-            "hardware_id": normalized_hardware_id,
-            "active": True,
-            "suppressed": self.device_inspector_suppressed(normalized_hardware_id),
-        }
+            transition = self.device_inspector_state.start(hardware_id)
+            self._broadcast_device_inspector_status(transition.hardware_id, "start")
+            return transition.response()
 
     async def stop_device_inspector(self, hardware_id: str) -> JsonObject:
-        normalized_hardware_id = str(hardware_id or "").strip()
-        if not normalized_hardware_id:
-            raise ValueError("hardware_id required")
         async with self._op_lock:
-            was_suppressed = self.device_inspector_suppressed(normalized_hardware_id)
-            self.device_inspector_suppressed_hardware_ids.discard(normalized_hardware_id)
-            self.device_inspector_active_hardware_ids.discard(normalized_hardware_id)
-            if was_suppressed:
-                await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+            transition = self.device_inspector_state.stop(hardware_id)
+            if transition.reset_runtime:
+                await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
                 await self._refresh_combo_runtime_unlocked()
-            self._broadcast_device_inspector_status(normalized_hardware_id, "stop")
-        return {
-            "status": "ok",
-            "hardware_id": normalized_hardware_id,
-            "active": False,
-            "suppressed": False,
-        }
+            self._broadcast_device_inspector_status(transition.hardware_id, "stop")
+            return transition.response()
 
     async def enable_device_inspector_suppression(self, hardware_id: str) -> JsonObject:
-        normalized_hardware_id = str(hardware_id or "").strip()
-        if not normalized_hardware_id:
-            raise ValueError("hardware_id required")
         async with self._op_lock:
-            self.device_inspector_active_hardware_ids.add(normalized_hardware_id)
-            self.device_inspector_suppressed_hardware_ids.add(normalized_hardware_id)
-            await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+            transition = self.device_inspector_state.enable_suppression(hardware_id)
+            await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
             await self._refresh_combo_runtime_unlocked()
-            self._broadcast_device_inspector_status(normalized_hardware_id, "enable_suppression")
-        return {
-            "status": "ok",
-            "hardware_id": normalized_hardware_id,
-            "active": True,
-            "suppressed": True,
-        }
+            self._broadcast_device_inspector_status(transition.hardware_id, "enable_suppression")
+            return transition.response()
 
     async def disable_device_inspector_suppression(
         self,
         hardware_id: str,
         reason: str = "manual",
     ) -> JsonObject:
-        normalized_hardware_id = str(hardware_id or "").strip()
-        if not normalized_hardware_id:
-            raise ValueError("hardware_id required")
         async with self._op_lock:
-            was_suppressed = normalized_hardware_id in self.device_inspector_suppressed_hardware_ids
-            self.device_inspector_suppressed_hardware_ids.discard(normalized_hardware_id)
-            if was_suppressed:
-                await self._reset_device_inspector_runtime_unlocked(normalized_hardware_id)
+            transition = self.device_inspector_state.disable_suppression(hardware_id)
+            if transition.reset_runtime:
+                await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
                 await self._refresh_combo_runtime_unlocked()
-            self._broadcast_device_inspector_status(normalized_hardware_id, reason)
-        return {
-            "status": "ok",
-            "hardware_id": normalized_hardware_id,
-            "active": self.device_inspector_active(normalized_hardware_id),
-            "suppressed": False,
-            "reason": str(reason or ""),
-        }
+            self._broadcast_device_inspector_status(transition.hardware_id, reason)
+            return transition.response(reason=str(reason or ""))
 
     async def _reset_device_inspector_runtime_unlocked(self, hardware_id: str) -> None:
         for device in self.grabbed_devices.get(hardware_id, []):
@@ -850,259 +474,19 @@ class DeviceManager:
         hardware_id: str,
         mapping: JsonObject,
     ) -> JsonObject:
-        result = await runtime_grab_lifecycle.set_mapping(
+        result = await set_mapping(
             self,
             hardware_id,
             mapping,
-            json_object_fn=_json_object,
+            json_object_fn=json_object,
             log=log,
         )
-        runtime_repeat.forget_exec_actions(
+        repeat.forget_exec_actions(
             self.repeat_state,
             source_device=hardware_id,
             exclude_source_button_prefix="combo:",
         )
         return result
-
-    async def set_combos(self, combos: Sequence[object]) -> JsonObject:
-        async with self._op_lock:
-            parsed: list[RuntimeCombo] = []
-            for combo_data in combos:
-                combo_dict = _json_object(combo_data)
-                if combo_dict is None:
-                    continue
-                action_data = combo_dict.get("action")
-                action_dict = _json_object(action_data)
-                if isinstance(action_data, str):
-                    parsed_action_data: JsonObject | str = action_data
-                elif action_dict is not None:
-                    parsed_action_data = action_dict
-                else:
-                    continue
-
-                steps_data = _json_list(combo_dict.get("steps"))
-                if not steps_data:
-                    continue
-
-                match_across_devices = bool(combo_dict.get("match_across_devices", False))
-                steps: list[RuntimeComboStep] = []
-                for step_data in steps_data:
-                    step_dict = _json_object(step_data)
-                    if step_dict is None:
-                        continue
-                    events_data = _json_list(step_dict.get("events"))
-                    if not events_data:
-                        continue
-                    bindings: list[RuntimeComboBinding] = []
-                    for event_data in events_data:
-                        event_dict = _json_object(event_data)
-                        if event_dict is None:
-                            continue
-                        hardware_id = coerce_str(event_dict.get("hardware_id"), "").lower()
-                        evdev_name = coerce_str(event_dict.get("evdev"), "").lower()
-                        source = coerce_str(event_dict.get("source"), "").lower()
-                        if not evdev_name:
-                            continue
-                        if match_across_devices:
-                            hardware_id = ""
-                            source = ""
-                        bindings.append(
-                            RuntimeComboBinding(
-                                hardware_id=hardware_id,
-                                evdev=evdev_name,
-                                source=source,
-                            )
-                        )
-                    if bindings:
-                        timeout_raw = step_dict.get("timeout_ms")
-                        timeout_ms = coerce_int(timeout_raw) if timeout_raw is not None else None
-                        steps.append(
-                            RuntimeComboStep(
-                                bindings=tuple(bindings),
-                                timeout_ms=timeout_ms,
-                            )
-                        )
-
-                if not steps:
-                    continue
-
-                parsed.append(
-                    RuntimeCombo(
-                        id=coerce_str(combo_dict.get("id"), ""),
-                        name=coerce_str(combo_dict.get("name"), ""),
-                        steps=steps,
-                        action=runtime_actions.parse_action(
-                            self,
-                            parsed_action_data,
-                        ),
-                        profile_name=coerce_str(combo_dict.get("profile_name"), ""),
-                        recall_trigger_keys=bool(combo_dict.get("recall_trigger_keys", False)),
-                        restore_trigger_keys=normalize_combo_restore_keys(
-                            _json_list(combo_dict.get("restore_trigger_keys"))
-                        ),
-                        match_across_devices=match_across_devices,
-                    )
-                )
-
-            old_active_signatures = combo_runtime_signatures(self.active_combos)
-            new_active_combos = self._with_emergency_cancel_combos(parsed)
-            unchanged_ids = unchanged_combo_ids(old_active_signatures, new_active_combos)
-            preserve_combo_ids = unchanged_ids if unchanged_ids else None
-            runtime_repeat.forget_exec_actions(
-                self.repeat_state,
-                source_button_prefix="combo:",
-            )
-            self._configured_combos = parsed
-            active_combos = await self._refresh_combo_runtime_unlocked(
-                preserve_combo_ids=preserve_combo_ids,
-            )
-            log.info(
-                "Updated combos (%d active, %d configured)",
-                len(active_combos),
-                len(parsed),
-            )
-            return {"updated": True, "combo_count": len(active_combos)}
-
-    async def _refresh_combo_runtime_unlocked(
-        self,
-        *,
-        preserve_combo_ids: set[str] | None = None,
-    ) -> list[RuntimeCombo]:
-        active_combos = self._with_emergency_cancel_combos(self._configured_combos)
-        self.active_combos = active_combos
-        if preserve_combo_ids is None:
-            await runtime_combos.clear_combo_runtime(
-                self,
-                deps=_combo_runtime_deps(),
-            )
-        else:
-            await runtime_combos.clear_combo_runtime_except(
-                self,
-                preserve_combo_ids,
-                deps=_combo_runtime_deps(),
-            )
-        async with self.combo_state.runtime_lock:
-            if preserve_combo_ids is None:
-                self.combo_state.engine.set_combos(active_combos)
-            else:
-                self.combo_state.engine.set_combos(
-                    active_combos,
-                    preserve_candidate_ids=preserve_combo_ids,
-                )
-            runtime_combos.prime_combo_engine_with_held_bindings(
-                self,
-            )
-            runtime_combos.refresh_combo_timeout_watchdog(
-                self,
-                deps=_combo_runtime_deps(),
-            )
-            return active_combos
-
-    async def _refresh_combo_runtime_preserving_unchanged(self) -> list[RuntimeCombo]:
-        unchanged_ids = unchanged_combo_ids(
-            combo_runtime_signatures(self.active_combos),
-            self._with_emergency_cancel_combos(self._configured_combos),
-        )
-        return await self._refresh_combo_runtime_unlocked(
-            preserve_combo_ids=unchanged_ids if unchanged_ids else None,
-        )
-
-    def _with_emergency_cancel_combos(
-        self,
-        combos: list[RuntimeCombo],
-    ) -> list[RuntimeCombo]:
-        if not self.emergency_cancel_combo_enabled:
-            return combos
-
-        hardware_ids = self._grabbed_keyboard_hardware_ids()
-        if not hardware_ids:
-            return combos
-
-        hardware_id_set = set(hardware_ids)
-        user_combos = [
-            combo
-            for combo in combos
-            if not self._is_emergency_cancel_duplicate(combo, hardware_id_set)
-        ]
-        emergency_combos = [
-            self._emergency_cancel_combo(hardware_id) for hardware_id in hardware_ids
-        ]
-        return [*emergency_combos, *user_combos]
-
-    def _grabbed_keyboard_hardware_ids(self) -> list[str]:
-        hardware_ids: list[str] = []
-        for raw_hardware_id, devices in self.grabbed_devices.items():
-            hardware_id = str(raw_hardware_id or "").lower()
-            if not hardware_id:
-                continue
-            if any(self._grabbed_device_is_keyboard(device) for device in devices):
-                hardware_ids.append(hardware_id)
-        return sorted(set(hardware_ids))
-
-    def _grabbed_device_is_keyboard(self, device: object) -> bool:
-        device_type = getattr(device, "device_type", None)
-        if device_type == DeviceType.KEYBOARD:
-            return True
-        if str(getattr(device_type, "value", device_type) or "").lower() == "keyboard":
-            return True
-
-        raw_types = getattr(device, "device_types", ())
-        if not isinstance(raw_types, (list, tuple, set, frozenset)):
-            return False
-        raw_type_items = cast(Sequence[object] | set[object] | frozenset[object], raw_types)
-        return any(str(raw_type or "").lower() == "keyboard" for raw_type in raw_type_items)
-
-    def _emergency_cancel_combo(self, hardware_id: str) -> RuntimeCombo:
-        bindings = tuple(
-            RuntimeComboBinding(
-                hardware_id=hardware_id,
-                evdev=evdev_name,
-                source="",
-            )
-            for evdev_name in EMERGENCY_CANCEL_COMBO_EVDEVS
-        )
-        return RuntimeCombo(
-            id=f"{EMERGENCY_CANCEL_COMBO_ID_PREFIX}{hardware_id}",
-            name=EMERGENCY_CANCEL_COMBO_NAME,
-            steps=[RuntimeComboStep(bindings=bindings)],
-            action=MappingAction(
-                action_type=ActionType.SUPERKEY,
-                superkey_config=cast(
-                    Any,
-                    SuperkeyConfig(
-                        name=EMERGENCY_CANCEL_COMBO_NAME,
-                        mode=SuperkeyMode.PATTERN,
-                        double_tap_window_ms=EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS,
-                        tap_actions=[
-                            SuperkeyActionData(action_type=ActionType.CANCEL_MACRO_PLAYBACK.value)
-                        ],
-                        double_tap_actions=[
-                            SuperkeyActionData(action_type=ActionType.EMERGENCY_RESET.value),
-                        ],
-                    ),
-                ),
-            ),
-            profile_name=EMERGENCY_CANCEL_COMBO_PROFILE,
-            recall_trigger_keys=True,
-            restore_trigger_keys=[],
-        )
-
-    def _is_emergency_cancel_duplicate(
-        self,
-        combo: RuntimeCombo,
-        keyboard_hardware_ids: set[str],
-    ) -> bool:
-        if len(combo.steps) != 1:
-            return False
-        step = combo.steps[0]
-        if not step.bindings:
-            return False
-        if not is_emergency_cancel_combo_evdevs(binding.evdev for binding in step.bindings):
-            return False
-        return all(
-            not binding.hardware_id or binding.hardware_id in keyboard_hardware_ids
-            for binding in step.bindings
-        )
 
     async def set_diagnostics(
         self,
@@ -1110,92 +494,30 @@ class DeviceManager:
         interval: float = 5.0,
         categories: Sequence[object] | None = None,
     ) -> JsonObject:
-        self.diagnostics_state.enabled = bool(enabled)
-        self.diagnostics_state.interval = max(0.5, float(interval or 5.0))
-        self.diagnostics_state.categories = _normalize_diagnostics_categories(categories)
-        self.diagnostics_state.samples.clear()
-
-        if not self.diagnostics_state.enabled:
-            if self.diagnostics_state.task:
-                self.diagnostics_state.task.cancel()
-                try:
-                    await self.diagnostics_state.task
-                except asyncio.CancelledError:
-                    pass
-                self.diagnostics_state.task = None
-            log.info("Diagnostics disabled")
-            return {
-                "enabled": False,
-                "interval": self.diagnostics_state.interval,
-                "categories": sorted(self.diagnostics_state.categories),
-            }
-
-        if self.diagnostics_state.task is None or self.diagnostics_state.task.done():
-            self.diagnostics_state.task = asyncio.create_task(self._diagnostics_loop())
-        log.info(
-            "Diagnostics enabled (interval %.2fs, categories=%s)",
-            self.diagnostics_state.interval,
-            ",".join(sorted(self.diagnostics_state.categories)),
+        return await self._diagnostics.configure(
+            enabled,
+            interval,
+            categories,
+            loop_factory=self._diagnostics_loop,
         )
-        return {
-            "enabled": True,
-            "interval": self.diagnostics_state.interval,
-            "categories": sorted(self.diagnostics_state.categories),
-        }
 
     def _record_diagnostic(self, label: str, duration_us: float) -> None:
-        if not self.diagnostics_state.enabled:
-            return
-        if not _diagnostics_label_enabled(label, self.diagnostics_state.categories):
-            return
-        bucket = self.diagnostics_state.samples.setdefault(label, deque(maxlen=20000))
-        bucket.append(float(duration_us))
+        self._diagnostics.record(label, duration_us)
 
     async def _diagnostics_loop(self) -> None:
-        try:
-            while self.diagnostics_state.enabled:
-                await asyncio.sleep(self.diagnostics_state.interval)
-                snapshot = {
-                    label: list(samples)
-                    for label, samples in self.diagnostics_state.samples.items()
-                    if samples
-                }
-                if snapshot:
-                    summary = await asyncio.to_thread(
-                        self._summarize_diagnostics_snapshot,
-                        snapshot,
-                    )
-                    self._broadcast_diagnostics_snapshot(summary)
-                    await asyncio.to_thread(self._log_diagnostics_summary, summary)
-        except asyncio.CancelledError:
-            raise
+        await self._diagnostics.run(
+            sleep=asyncio.sleep,
+            to_thread=asyncio.to_thread,
+            summarize_snapshot=self._summarize_diagnostics_snapshot,
+            publish_summary=self._broadcast_diagnostics_snapshot,
+            write_summary=self._log_diagnostics_summary,
+        )
 
     def _summarize_diagnostics_snapshot(
         self,
         snapshot: dict[str, list[float]],
     ) -> dict[str, JsonObject]:
-        if not snapshot:
-            return {}
-
-        def pct(values: list[float], p: float) -> float:
-            if not values:
-                return 0.0
-            idx = int((len(values) - 1) * p)
-            return values[max(0, min(idx, len(values) - 1))]
-
-        summary: dict[str, JsonObject] = {}
-        for label, samples in snapshot.items():
-            if not samples:
-                continue
-            values = sorted(samples)
-            summary[label] = {
-                "n": len(values),
-                "p50": pct(values, 0.50),
-                "p95": pct(values, 0.95),
-                "p99": pct(values, 0.99),
-                "max": values[-1],
-            }
-        return summary
+        return diagnostics.summarize(snapshot)
 
     def _broadcast_diagnostics_snapshot(self, summary: dict[str, JsonObject]) -> None:
         if not summary or self.broadcast_callback is None:
@@ -1210,418 +532,50 @@ class DeviceManager:
             },
         )
 
-    def _log_diagnostics_snapshot(self, snapshot: dict[str, list[float]]) -> None:
-        self._log_diagnostics_summary(self._summarize_diagnostics_snapshot(snapshot))
-
     def _log_diagnostics_summary(self, summary: dict[str, JsonObject]) -> None:
-        if not summary:
-            return
-
-        for label, stats in summary.items():
-            log.info(
-                "diagnostics[%s]: n=%d p50=%.2fus p95=%.2fus p99=%.2fus max=%.2fus",
-                label,
-                _diagnostics_int(stats.get("n", 0)),
-                _diagnostics_float(stats.get("p50", 0.0)),
-                _diagnostics_float(stats.get("p95", 0.0)),
-                _diagnostics_float(stats.get("p99", 0.0)),
-                _diagnostics_float(stats.get("max", 0.0)),
-            )
+        diagnostics.log_summary(log, summary)
 
     async def list_devices(self) -> JsonObject:
         return await asyncio.to_thread(self._list_devices_sync)
 
     async def device_runtime_status(self) -> JsonObject:
         async with self._op_lock:
-            live_interfaces: list[JsonObject] = []
-            for info in sorted(
-                self.topology_state.live_snapshot.values(),
-                key=lambda item: (item.hardware_id, item.interface_id, item.stable_path),
-            ):
-                item: JsonObject = {
-                    "hardware_id": info.hardware_id,
-                    "vendor_id": info.vendor_id,
-                    "product_id": info.product_id,
-                    "stable_path": info.stable_path,
-                    "path": info.path,
-                    "interface_id": info.interface_id,
-                }
-                if info.phys:
-                    item["phys"] = info.phys
-                if info.device_type:
-                    item["device_type"] = info.device_type
-                if info.capabilities:
-                    item["capabilities"] = list(info.capabilities)
-                live_interfaces.append(item)
-            grabbed_interfaces: list[JsonObject] = []
-            for hardware_id, devices in sorted(self.grabbed_devices.items()):
-                for device in devices:
-                    device_type = getattr(device, "device_type", "")
-                    device_type_text = getattr(device_type, "value", str(device_type or ""))
-                    grabbed_interfaces.append(
-                        {
-                            "hardware_id": str(hardware_id or ""),
-                            "interface_id": str(getattr(device, "interface_id", "") or ""),
-                            "path": str(getattr(device, "path", "") or ""),
-                            "resolved_path": str(
-                                getattr(device, "resolved_event_path", "") or ""
-                            ),
-                            "stable_path": str(getattr(device, "stable_path", "") or ""),
-                            "device_type": device_type_text,
-                        }
-                    )
-            grabbed_interfaces.sort(
-                key=lambda item: (
-                    str(item.get("hardware_id", "")),
-                    str(item.get("interface_id", "")),
-                    str(item.get("stable_path", "")),
-                )
+            return device_inventory.runtime_status(
+                cast(Any, self.topology_state.live_snapshot),
+                cast(Any, self.grabbed_devices),
             )
-        return {
-            "status": "ok",
-            "interfaces": live_interfaces,
-            "grabbed_interfaces": grabbed_interfaces,
-        }
 
     def _list_devices_sync(self) -> JsonObject:
-        clear_device_path_cache()
-        devices: list[JsonObject] = []
-        virtual_metadata = self._recording_virtual_device_metadata()
-        grabbed_metadata = self._recording_grabbed_source_metadata()
-
-        for path in _device_paths():
-            device: _ManagedInputDevice | None = None
-            try:
-                device = _device_input(path)
-                info = device.info
-
-                capabilities: list[str] = []
-                for ev_type, codes in device.capabilities().items():
-                    for code in codes:
-                        if isinstance(code, tuple):
-                            capabilities.append(f"{evdev.ecodes.EV[ev_type]}_{code[0]}")
-                        else:
-                            capabilities.append(f"{evdev.ecodes.EV[ev_type]}_{code}")
-
-                device_types = self._detect_device_types(device)
-                device_type = primary_input_class(device_types)
-                stable_path = resolve_stable_path(path)
-                interface_id = get_interface_id(stable_path)
-                metadata = virtual_metadata.get(path, {})
-                grabbed_source = grabbed_metadata.get(stable_path)
-                is_grabbed = grabbed_source is not None
-                recording_kind = str(metadata.get("recording_kind", "") or "")
-                if not recording_kind:
-                    recording_kind = (
-                        "physical" if not _is_virtual_input(device) else "other_virtual"
-                    )
-                recording_id = str(metadata.get("recording_id", "") or "")
-                if not recording_id:
-                    recording_id = (
-                        f"physical:{stable_path}"
-                        if recording_kind == "physical"
-                        else f"virtual:{device.name or path}:{stable_path}"
-                    )
-
-                devices.append(
-                    {
-                        "path": path,
-                        "open_path": path,
-                        "stable_path": stable_path,
-                        "interface_id": str(interface_id or ""),
-                        "name": device.name,
-                        "phys": coerce_str(getattr(device, "phys", None), None),
-                        "uniq": coerce_str(getattr(device, "uniq", None), None),
-                        "vendor_id": f"{info.vendor:04x}",
-                        "product_id": f"{info.product:04x}",
-                        "capabilities": capabilities,
-                        "device_types": device_types,
-                        "device_type": device_type.value,
-                        "recording_id": recording_id,
-                        "recording_kind": recording_kind,
-                        "grabbed_by_keymasq": is_grabbed,
-                        **metadata,
-                        **(grabbed_source or {}),
-                    }
-                )
-            except OSError as exc:
-                if is_permission_error(exc):
-                    log.warning(
-                        input_device_permission_message(
-                            "Skipping unreadable device %s: %s"
-                        ),
-                        path,
-                        exc,
-                    )
-                    continue
-                log.debug("Skipping unreadable device %s: %s", path, exc)
-            except Exception:
-                log.exception("Could not read device %s", path)
-            finally:
-                if device is not None:
-                    close = getattr(device, "close", None)
-                    if callable(close):
-                        with contextlib.suppress(OSError, RuntimeError):
-                            close()
-
-        return {"devices": devices}
+        deps = device_inventory.InventoryScanDeps(
+            clear_path_cache=clear_device_path_cache,
+            device_paths=_device_paths,
+            open_device=cast(Any, _device_input),
+            resolve_stable_path=resolve_stable_path,
+            get_interface_id=get_interface_id,
+            detect_device_types=cast(Any, self._detect_device_types),
+            primary_input_class=primary_input_class,
+            evdev_mod=evdev,
+            is_permission_error=is_permission_error,
+            permission_message=input_device_permission_message,
+            logger=log,
+        )
+        return device_inventory.scan_devices(
+            deps,
+            virtual_metadata=self._recording_virtual_device_metadata(),
+            grabbed_metadata=self._recording_grabbed_source_metadata(),
+        )
 
     def _recording_virtual_device_metadata(self) -> dict[str, JsonObject]:
-        metadata: dict[str, JsonObject] = {}
-        output_devices = {
-            "keyboard": self.output_state.keyboard_uinput,
-            "mouse": self.output_state.mouse_uinput,
-        }
-        for output_class, uinput_dev in output_devices.items():
-            path = _uinput_device_path(uinput_dev)
-            if not path:
-                continue
-            metadata[path] = {
-                "recording_id": f"keymasq:output:{output_class}",
-                "recording_kind": "keymasq_output",
-                "keymasq_output": output_class,
-            }
-        for output_id, uinput_dev in sorted(self.output_state.virtual_gamepad_uinputs.items()):
-            path = _uinput_device_path(uinput_dev)
-            if not path:
-                continue
-            recording_id = (
-                "keymasq:output:gamepad"
-                if output_id == "virtual-gamepad-1"
-                else f"keymasq:output:gamepad:{output_id}"
-            )
-            metadata[path] = {
-                "recording_id": recording_id,
-                "recording_kind": "keymasq_output",
-                "keymasq_output": "gamepad",
-                "keymasq_output_id": output_id,
-            }
-
-        for devices in self.grabbed_devices.values():
-            for grabbed in devices:
-                path = _uinput_device_path(getattr(grabbed, "uinput", None))
-                if not path:
-                    continue
-                hardware_id = str(getattr(grabbed, "hardware_id", "") or "")
-                interface_id = str(getattr(grabbed, "interface_id", "") or "")
-                stable_path = str(getattr(grabbed, "stable_path", "") or "")
-                metadata[path] = {
-                    "recording_id": f"keymasq:passthrough:{hardware_id}:{interface_id}",
-                    "recording_kind": "keymasq_passthrough",
-                    "source_hardware_id": hardware_id,
-                    "source_interface_id": interface_id,
-                    "source_stable_path": stable_path,
-                    "source_path": str(getattr(grabbed, "path", "") or ""),
-                }
-        return metadata
+        return device_inventory.recording_virtual_device_metadata(
+            self.output_state,
+            cast(Any, self.grabbed_devices),
+        )
 
     def _recording_grabbed_source_metadata(self) -> dict[str, JsonObject]:
-        metadata: dict[str, JsonObject] = {}
-        for devices in self.grabbed_devices.values():
-            for grabbed in devices:
-                stable_path = str(getattr(grabbed, "stable_path", "") or "")
-                if not stable_path:
-                    continue
-                metadata[stable_path] = {
-                    "source_hardware_id": str(getattr(grabbed, "hardware_id", "") or ""),
-                    "source_interface_id": str(getattr(grabbed, "interface_id", "") or ""),
-                }
-        return metadata
+        return device_inventory.recording_grabbed_source_metadata(cast(Any, self.grabbed_devices))
 
     def _detect_device_types(self, device: _ManagedInputDevice) -> list[str]:
-        return detect_input_classes(_capability_device(device))
+        return detect_input_classes(device)
 
     def _detect_device_type(self, device: _ManagedInputDevice) -> DeviceType:
         return primary_input_class(self._detect_device_types(device))
-
-    async def play_macro(
-        self,
-        playback_options: runtime_macros.MacroPlaybackOptions | None = None,
-        *,
-        macro_event_source: runtime_macros.MacroEventSource | None = None,
-        **playback_kwargs: object,
-    ) -> JsonObject:
-        if playback_options is None:
-            playback_options = runtime_macros.macro_playback_options_from_mapping(
-                playback_kwargs,
-                strict=True,
-            )
-        elif playback_kwargs:
-            raise TypeError("playback kwargs cannot be combined with playback_options")
-
-        if (
-            playback_options.load_stored_macro
-            and macro_event_source is None
-            and playback_options.macro_name
-            and not playback_options.macro_events
-        ):
-            macro_event_source = await self._stored_macro_event_source(
-                playback_options.macro_name
-            )
-        return await runtime_macros.play_macro(
-            self,
-            playback_options,
-            deps=_macro_runtime_deps(),
-            macro_event_source=macro_event_source,
-        )
-
-    async def _stored_macro_event_source(
-        self,
-        macro_name: str,
-    ) -> runtime_macros.MacroEventSource | None:
-        store = self.macro_store
-        if store is None:
-            return None
-        get_meta = getattr(store, "get_meta", None)
-        iter_events = getattr(store, "iter_events", None)
-        if not callable(get_meta) or not callable(iter_events):
-            return None
-
-        meta_raw = await asyncio.to_thread(get_meta, macro_name)
-        if not isinstance(meta_raw, dict):
-            return None
-        meta = cast(JsonObject, meta_raw)
-
-        def iter_stored_events() -> Iterator[JsonObject]:
-            return cast(Iterator[JsonObject], iter_events(macro_name))
-
-        return runtime_macros.MacroEventSource(
-            event_count=coerce_int(meta.get("event_count"), 0),
-            duration_us=coerce_int(meta.get("duration_us"), 0),
-            iter_events=iter_stored_events,
-        )
-
-    async def set_cursor_position(self, x: int, y: int) -> JsonObject:
-        if self.output_state.mouse_uinput is None:
-            return {"status": "error", "message": "No mouse uinput device available"}
-
-        emit_mouse_move(
-            self.output_state.mouse_uinput,
-            int(x),
-            int(y),
-            absolute=True,
-        )
-        return {"status": "ok", "x": int(x), "y": int(y)}
-
-    async def get_cursor_position(
-        self,
-        timeout_s: float = 0.75,
-        *,
-        tracking_hint_ms: int | None = None,
-    ) -> tuple[int, int] | None:
-        if self.broadcast_callback is None:
-            return None
-
-        self._cursor_request_seq += 1
-        request_id = str(self._cursor_request_seq)
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future[JsonObject] = loop.create_future()
-        self._cursor_position_waiters[request_id] = future
-        payload: JsonObject = {"request_id": request_id}
-        if tracking_hint_ms is not None:
-            payload["tracking_hint_ms"] = max(1, int(tracking_hint_ms))
-
-        self._broadcast_runtime_event(
-            CommandType.CURSOR_POSITION_REQUEST,
-            payload,
-        )
-        request_timeout_s = max(0.05, float(timeout_s))
-        if tracking_hint_ms is not None:
-            remaining_timeout_s = max(0.001, int(tracking_hint_ms) / 1000.0)
-            request_timeout_s = min(request_timeout_s, remaining_timeout_s)
-
-        try:
-            result = await asyncio.wait_for(future, timeout=request_timeout_s)
-        except TimeoutError:
-            return None
-        finally:
-            self._cursor_position_waiters.pop(request_id, None)
-
-        if result.get("status") != "ok":
-            return None
-        return coerce_int(result.get("x"), 0), coerce_int(result.get("y"), 0)
-
-    def handle_cursor_position_response(self, data: JsonObject) -> JsonObject:
-        request_id = coerce_str(data.get("request_id"), "")
-        if not request_id:
-            return {"status": "error", "message": "request_id required"}
-        future = self._cursor_position_waiters.get(request_id)
-        if future is None or future.done():
-            return {"status": "ok", "matched": False}
-        future.set_result(data)
-        return {"status": "ok", "matched": True}
-
-    async def stop_cursor_position_tracking(self) -> None:
-        if self.broadcast_callback is None:
-            return
-        try:
-            await self.broadcast_callback(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
-        except (ConnectionError, OSError, RuntimeError, TimeoutError, TypeError):
-            log.debug("Failed to broadcast cursor position tracking stop", exc_info=True)
-
-    async def move_cursor_natural(
-        self,
-        x: int,
-        y: int,
-        speed: float,
-        jitter: float,
-        curve: str,
-        tolerance: int,
-        max_duration_ms: int,
-    ) -> JsonObject:
-        async with self._cursor_move_lock:
-            try:
-                return await runtime_natural_mouse.move_cursor_naturally(
-                    uinput=cast(
-                        runtime_adapters.WritableUInput | None,
-                        self.output_state.mouse_uinput,
-                    ),
-                    target_x=int(x),
-                    target_y=int(y),
-                    get_cursor_position=self.get_cursor_position,
-                    config=runtime_natural_mouse.NaturalMouseMoveConfig(
-                        speed_px_s=float(speed),
-                        jitter_px=float(jitter),
-                        curve=str(curve),
-                        tolerance_px=int(tolerance),
-                        max_duration_ms=int(max_duration_ms),
-                    ),
-                    asyncio_mod=ASYNCIO_RUNTIME,
-                )
-            finally:
-                await self.stop_cursor_position_tracking()
-
-    async def cancel_macro_playback(self) -> JsonObject:
-        result = await runtime_macros.cancel_macro_playback(
-            self,
-            deps=_macro_runtime_deps(),
-        )
-        if bool(result.get("cancelled", False)):
-            self._broadcast_runtime_event(
-                CommandType.MACRO_PLAYBACK_CANCELLED,
-                {"reason": "cancel_macro_playback", "cancelled": True},
-            )
-        return result
-
-    def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
-        return runtime_macros.complete_macro_exec_wait(self, wait_id, returncode)
-
-    def begin_combo_capture(
-        self,
-        token: str,
-        hardware_ids: set[str],
-        notify_event: asyncio.Event | None = None,
-    ) -> JsonObject:
-        return runtime_combos.begin_combo_capture(
-            self,
-            token,
-            hardware_ids,
-            notify_event,
-        )
-
-    def read_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.read_combo_capture(self, token)
-
-    def end_combo_capture(self, token: str) -> JsonObject:
-        return runtime_combos.end_combo_capture(self, token)
-

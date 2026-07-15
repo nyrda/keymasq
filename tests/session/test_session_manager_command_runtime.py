@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-import keymasq.session.manager.commands as session_commands_module
+import keymasq.session.manager.command.macro as macro_commands_module
 import keymasq.session.manager.compositor as session_compositor_module
 import keymasq.session.manager.device_inspector as session_device_inspector_module
 import keymasq.session.manager.events as session_events_module
-import keymasq.session.manager.profiles as session_profiles_module
-import keymasq.session.manager.recording as session_recording_module
+import keymasq.session.manager.recording_capture as recording_capture_module
+import keymasq.session.manager.recording_device_selection as recording_device_selection_module
 import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
 import keymasq.session.manager.recording_unlock as recording_unlock_module
 import keymasq.session.settings as session_settings
@@ -21,7 +21,8 @@ from keymasq.common.ipc import CommandType, Response
 from keymasq.common.security import PeerCredentials
 from keymasq.common.settings import GlobalSettings
 from keymasq.session.listeners.kde import KDEListener
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator, runtime_status
 from keymasq.session.manager.state import PendingSave, PendingSlot
 from tests.session.support import grant_recording_refresh_owner
 
@@ -234,12 +235,12 @@ async def test_get_status_uses_async_unlock_helper(monkeypatch: pytest.MonkeyPat
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -283,7 +284,7 @@ async def test_macro_recording_status_prefers_daemon_when_connected() -> None:
         )
     )
 
-    result = await session_recording_module.resolve_macro_recording_status_async(
+    result = await recording_unlock_module.resolve_macro_recording_status_async(
         manager,
         1000,
     )
@@ -305,7 +306,7 @@ async def test_macro_recording_status_uses_cached_daemon_status_for_unreadable_l
         return_value=Response(status="ok", data=daemon_status),
     )
 
-    result = await session_recording_module.resolve_macro_recording_status_async(
+    result = await recording_unlock_module.resolve_macro_recording_status_async(
         manager,
         1000,
     )
@@ -313,7 +314,7 @@ async def test_macro_recording_status_uses_cached_daemon_status_for_unreadable_l
     assert result == daemon_status
 
     monkeypatch.setattr(
-        recording_unlock_module,
+        recording_unlock_module.recording_guard,
         "resolve_macro_recording_status",
         lambda uid: {
             "unlocked": False,
@@ -324,7 +325,7 @@ async def test_macro_recording_status_uses_cached_daemon_status_for_unreadable_l
     )
     manager.connected = False
 
-    result = await session_recording_module.resolve_macro_recording_status_async(
+    result = await recording_unlock_module.resolve_macro_recording_status_async(
         manager,
         1000,
     )
@@ -344,7 +345,7 @@ async def test_recording_unlock_status_prefers_daemon_when_connected() -> None:
         )
     )
 
-    result = await session_recording_module.resolve_unlock_status_async(
+    result = await recording_unlock_module.resolve_unlock_status_async(
         manager,
         1000,
     )
@@ -365,13 +366,13 @@ async def test_recording_unlock_status_logs_unexpected_daemon_query_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("status bug"))
     fallback_status = {"unlocked": False, "source": "none", "expires_at": 0}
     monkeypatch.setattr(
-        recording_unlock_module,
+        recording_unlock_module.recording_guard,
         "resolve_unlock_status",
         lambda _uid: fallback_status,
     )
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session"):
-        result = await session_recording_module.resolve_unlock_status_async(
+        result = await recording_unlock_module.resolve_unlock_status_async(
             manager,
             1000,
         )
@@ -396,7 +397,7 @@ async def test_recording_unlock_status_uses_cached_daemon_status_for_unreadable_
         return_value=Response(status="ok", data=daemon_status),
     )
 
-    result = await session_recording_module.resolve_unlock_status_async(
+    result = await recording_unlock_module.resolve_unlock_status_async(
         manager,
         1000,
     )
@@ -404,7 +405,7 @@ async def test_recording_unlock_status_uses_cached_daemon_status_for_unreadable_
     assert result == daemon_status
 
     monkeypatch.setattr(
-        recording_unlock_module,
+        recording_unlock_module.recording_guard,
         "resolve_unlock_status",
         lambda uid: {
             "unlocked": False,
@@ -415,7 +416,7 @@ async def test_recording_unlock_status_uses_cached_daemon_status_for_unreadable_
     )
     manager.connected = False
 
-    result = await session_recording_module.resolve_unlock_status_async(
+    result = await recording_unlock_module.resolve_unlock_status_async(
         manager,
         1000,
     )
@@ -460,15 +461,17 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
 
 
 def test_build_active_profiles_payload_includes_device_interface_status() -> None:
-    from keymasq.common.models import (
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import (
         ActionType,
-        ButtonDefinition,
         DeviceType,
+    )
+    from keymasq.common.model.hardware import (
+        ButtonDefinition,
         EvdevDevice,
         HardwareConfig,
-        MappingAction,
     )
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -536,7 +539,7 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
         ],
     }
 
-    payload = session_profiles_module.build_active_profiles_payload(manager)
+    payload = runtime_status.build_active_profiles_payload(manager)
 
     devices = cast(dict[str, dict[str, object]], payload["devices"])
     device_status = cast(dict[str, object], devices[hardware_id]["device_status"])
@@ -572,8 +575,9 @@ def test_build_active_profiles_payload_includes_device_interface_status() -> Non
 
 
 def test_build_active_profiles_payload_keeps_numbered_grabbed_paths_distinct() -> None:
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = SessionManager()
     hardware_ids = ["28de:11ff", "28de:11ff@2"]
@@ -637,7 +641,7 @@ def test_build_active_profiles_payload_keeps_numbered_grabbed_paths_distinct() -
         ],
     }
 
-    payload = session_profiles_module.build_active_profiles_payload(manager)
+    payload = runtime_status.build_active_profiles_payload(manager)
 
     devices = cast(dict[str, dict[str, object]], payload["devices"])
     paths = {
@@ -655,8 +659,13 @@ def test_build_active_profiles_payload_keeps_numbered_grabbed_paths_distinct() -
 
 @pytest.mark.asyncio
 async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> None:
-    from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
-    from keymasq.session.profiles import ResolvedCombo
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import ResolvedCombo
 
     manager = SessionManager()
     manager.profile_state.active_profile_names = ["Base", "Overlay"]
@@ -712,14 +721,16 @@ async def test_get_combo_inspector_snapshot_returns_resolved_active_combos() -> 
 
 @pytest.mark.asyncio
 async def test_get_combo_inspector_snapshot_preserves_profile_deactivation() -> None:
-    from keymasq.common.models import (
-        ActionType,
-        ComboEvent,
-        ComboStep,
+    from keymasq.common.model.actions import (
         MappingAction,
         ProfileDeactivationPolicy,
     )
-    from keymasq.session.profiles import ResolvedCombo
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.profiles import (
+        ComboEvent,
+        ComboStep,
+    )
+    from keymasq.session.profile.types import ResolvedCombo
 
     manager = SessionManager()
     manager.profile_state.resolved_combos = [
@@ -771,12 +782,12 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only(
         "lease_id": "lease-test",
     }
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -850,7 +861,7 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
         sent_commands.append(command)
         return Response(status="ok", data={"status": "ok"})
 
-    monkeypatch.setattr(session_commands_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
     manager.client.send_command = send_command  # type: ignore[method-assign]
 
     result = await manager._handle_session_request(
@@ -871,7 +882,7 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     assert sent_commands[0].command == CommandType.PLAY_MACRO
     assert sent_commands[0].data["speed"] == 1.25
     assert len(sent_commands[0].data["macro_events"]) > 0
-    assert to_thread_calls == [session_commands_module._compile_type_text_macro]
+    assert to_thread_calls == [macro_commands_module._compile_type_text_macro]
 
 
 @pytest.mark.asyncio
@@ -891,7 +902,7 @@ async def test_play_compact_macro_compiles_in_thread_and_forwards_events(
         sent_commands.append(command)
         return Response(status="ok", data={"status": "ok"})
 
-    monkeypatch.setattr(session_commands_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
     manager.client.send_command = send_command  # type: ignore[method-assign]
 
     result = await manager._handle_session_request(
@@ -915,7 +926,7 @@ async def test_play_compact_macro_compiles_in_thread_and_forwards_events(
     )
     assert wait_random["min_us"] == 10_000
     assert wait_random["max_us"] == 20_000
-    assert to_thread_calls == [session_commands_module._compile_compact_macro]
+    assert to_thread_calls == [macro_commands_module._compile_compact_macro]
 
 
 @pytest.mark.asyncio
@@ -941,7 +952,7 @@ async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(
         {"command": "start_recording", "recording_slot": 1},
@@ -968,7 +979,7 @@ async def test_start_recording_command_requires_explicit_slot(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
 
     result = await manager._handle_session_request(
         {"command": "start_recording"},
@@ -989,7 +1000,7 @@ async def test_start_macro_trigger_requires_explicit_slot(
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     start_recording = AsyncMock(return_value={"status": "ok"})
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
 
     await session_events_module.handle_start_macro_trigger(manager, {})
 
@@ -1012,9 +1023,9 @@ async def test_start_macro_trigger_warns_when_macro_recording_is_disabled(
     resolve_macro_recording_status_async = AsyncMock(
         return_value={"unlocked": False, "source": "none", "expires_at": 0}
     )
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -1050,9 +1061,9 @@ async def test_start_macro_trigger_starts_selected_enabled_slot(
     resolve_macro_recording_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -1085,9 +1096,9 @@ async def test_start_macro_trigger_does_not_request_auth_for_non_auth_failure(
     resolve_macro_recording_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -1115,9 +1126,9 @@ async def test_start_macro_trigger_requests_auth_for_locked_recording(
     resolve_macro_recording_status_async = AsyncMock(
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
-    monkeypatch.setattr(session_recording_module, "start_recording", start_recording)
+    monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -1194,7 +1205,7 @@ async def test_action_trigger_play_macro_slot_dispatches_slot_playback(
     manager = SessionManager()
     play_macro_slot_trigger = AsyncMock(return_value={"status": "ok"})
     monkeypatch.setattr(
-        session_recording_module,
+        recording_lifecycle_module,
         "play_macro_slot_trigger",
         play_macro_slot_trigger,
     )
@@ -1230,7 +1241,7 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
         return_value=Response(status="ok", data={"status": "ok", "played": True})
     )
 
-    result = await session_recording_module.play_macro_slot_trigger(
+    result = await recording_lifecycle_module.play_macro_slot_trigger(
         manager,
         {
             "recording_slot": 4,
@@ -1283,7 +1294,7 @@ async def test_play_macro_slot_trigger_refreshes_empty_cache_before_playback() -
         ]
     )
 
-    result = await session_recording_module.play_macro_slot_trigger(
+    result = await recording_lifecycle_module.play_macro_slot_trigger(
         manager,
         {"recording_slot": 2},
     )
@@ -1345,7 +1356,7 @@ async def test_sync_pending_macro_slots_does_not_mask_runtime_errors() -> None:
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("local bug"))
 
     with pytest.raises(RuntimeError, match="local bug"):
-        await session_recording_module.sync_pending_macro_slots_from_daemon(manager)
+        await recording_lifecycle_module.sync_pending_macro_slots_from_daemon(manager)
 
 
 @pytest.mark.asyncio
@@ -1355,7 +1366,7 @@ async def test_play_macro_slot_trigger_rejects_empty_slot() -> None:
         return_value=Response(status="ok", data={"recordings": []})
     )
 
-    result = await session_recording_module.play_macro_slot_trigger(
+    result = await recording_lifecycle_module.play_macro_slot_trigger(
         manager,
         {"recording_slot": 4},
     )
@@ -1374,7 +1385,7 @@ async def test_play_macro_slot_trigger_notifies_when_slot_is_recording() -> None
     manager.client.send_command = AsyncMock()
     manager.send_notification = Mock()  # type: ignore[method-assign]
 
-    result = await session_recording_module.play_macro_slot_trigger(
+    result = await recording_lifecycle_module.play_macro_slot_trigger(
         manager,
         {"recording_slot": 4},
     )
@@ -1429,7 +1440,7 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     await session_events_module.handle_runtime_reset_event(
         manager,
@@ -1460,7 +1471,7 @@ async def test_reevaluate_profiles_command_invalidates_runtime_payload_signature
     manager.profile_state.last_sent_combo_signature = "combos"
     manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
@@ -1486,7 +1497,7 @@ async def test_reevaluate_profiles_command_runs_fresh_reload_after_running_confi
     manager = SessionManager()
     manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     async def running_reload() -> bool:
@@ -1516,7 +1527,7 @@ async def test_reevaluate_profiles_command_runs_fresh_reload_after_failed_runnin
     manager = SessionManager()
     manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     async def running_reload() -> bool:
@@ -1705,7 +1716,7 @@ async def test_stop_device_inspector_preserves_state_on_daemon_error(
         return_value=Response(status="error", error="daemon stop failed")
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     result = await session_device_inspector_module.stop_device_inspector(
         manager,
@@ -1797,7 +1808,7 @@ async def test_runtime_reset_clears_session_device_inspector_state(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     manager.send_notification = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     manager.device_inspector_state.active_hardware_ids.add("1234:5678")
     manager.device_inspector_state.suppressed_hardware_ids.add("1234:5678")
     manager.device_inspector_state.owners_by_hardware_id["1234:5678"] = {1}
@@ -1820,17 +1831,19 @@ async def test_runtime_reset_clears_session_device_inspector_state(
 async def test_start_device_inspector_returns_snapshot_and_forces_profile_reevaluate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keymasq.common.models import (
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import (
         ActionType,
+        DeviceType,
+    )
+    from keymasq.common.model.hardware import (
         AnalogAxisDefinition,
         AnalogInputDefinition,
         ButtonDefinition,
-        DeviceType,
         EvdevDevice,
         HardwareConfig,
-        MappingAction,
     )
-    from keymasq.session.profiles import ResolvedDeviceProfile
+    from keymasq.session.profile.types import ResolvedDeviceProfile
 
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
@@ -1881,7 +1894,7 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
         )
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     result = await manager._handle_session_request(
         {"command": "start_device_inspector", "hardware_id": hardware_id},
@@ -1915,7 +1928,11 @@ async def test_start_device_inspector_returns_snapshot_and_forces_profile_reeval
 async def test_enable_device_inspector_suppression_requires_successful_grab(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import (
+        EvdevDevice,
+        HardwareConfig,
+    )
 
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
@@ -1932,7 +1949,7 @@ async def test_enable_device_inspector_suppression_requires_successful_grab(
     )
     manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
@@ -1958,7 +1975,11 @@ async def test_enable_device_inspector_suppression_requires_successful_grab(
 async def test_enable_device_inspector_suppression_rolls_back_on_daemon_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import (
+        EvdevDevice,
+        HardwareConfig,
+    )
 
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
@@ -1978,7 +1999,7 @@ async def test_enable_device_inspector_suppression_rolls_back_on_daemon_error(
         return_value=Response(status="error", error="daemon rejected suppression")
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
@@ -2005,7 +2026,11 @@ async def test_enable_device_inspector_suppression_rolls_back_on_daemon_error(
 async def test_enable_device_inspector_suppression_preserves_existing_inspector_on_daemon_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import (
+        EvdevDevice,
+        HardwareConfig,
+    )
 
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
@@ -2028,7 +2053,7 @@ async def test_enable_device_inspector_suppression_preserves_existing_inspector_
         return_value=Response(status="error", error="daemon rejected suppression")
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     result = await manager._handle_session_request(
         {"command": "enable_device_inspector_suppression", "hardware_id": hardware_id},
@@ -2063,12 +2088,12 @@ async def test_get_status_reports_effective_unlock_when_unlock_not_required(
         return_value={"unlocked": True, "source": "persistent", "expires_at": 0}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_macro_recording_status_async",
         resolve_macro_recording_status_async,
     )
@@ -2137,7 +2162,7 @@ async def test_end_capture_allows_owner_after_unlock_expiry(
         return_value={"unlocked": False, "source": "none", "expires_at": 0}
     )
     monkeypatch.setattr(
-        session_recording_module,
+        recording_unlock_module,
         "resolve_unlock_status_async",
         resolve_unlock_status_async,
     )
@@ -2206,7 +2231,7 @@ async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
         ]
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = object()
     grant_recording_refresh_owner(manager, peer, writer, monkeypatch)
@@ -2226,7 +2251,7 @@ async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
     assert manager.capture_state.owner_writer_ids[hardware_id] == id(writer)
     assert hardware_id in manager.capture_state.locks
 
-    await session_recording_module.clear_captures_for_writer(
+    await recording_capture_module.clear_captures_for_writer(
         manager,
         writer,  # type: ignore[arg-type]
     )
@@ -2285,7 +2310,7 @@ async def test_begin_capture_default_lifetime_survives_request_writer_disconnect
         return_value=Response(status="ok", data={"token": "token-1", "warnings": []})
     )
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     writer = cast(asyncio.StreamWriter, object())
     grant_recording_refresh_owner(manager, peer, writer, monkeypatch)
@@ -2301,7 +2326,7 @@ async def test_begin_capture_default_lifetime_survives_request_writer_disconnect
     assert manager.capture_state.owner_writer_ids == {}
     assert hardware_id in manager.capture_state.locks
 
-    await session_recording_module.clear_captures_for_writer(
+    await recording_capture_module.clear_captures_for_writer(
         manager,
         writer,
     )
@@ -2320,7 +2345,7 @@ async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
     manager.capture_state.locks.add(hardware_id)
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
 
-    result = await session_recording_module.capture_end(manager, hardware_id)
+    result = await recording_capture_module.capture_end(manager, hardware_id)
 
     assert result == {"status": "error", "message": "Daemon unavailable"}
     assert manager.capture_state.tokens[hardware_id] == "token-1"
@@ -2338,7 +2363,7 @@ async def test_capture_end_logs_unexpected_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("capture bug"))
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session"):
-        result = await session_recording_module.capture_end(manager, hardware_id)
+        result = await recording_capture_module.capture_end(manager, hardware_id)
 
     assert result == {"status": "error", "message": "Failed to end capture"}
     assert manager.capture_state.tokens[hardware_id] == "token-1"
@@ -2360,9 +2385,9 @@ async def test_clear_captures_for_writer_forces_local_cleanup_on_daemon_failure(
     manager.capture_state.resume_profiles[hardware_id] = ["Default"]
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    await session_recording_module.clear_captures_for_writer(
+    await recording_capture_module.clear_captures_for_writer(
         manager,
         writer,  # type: ignore[arg-type]
     )
@@ -2577,7 +2602,7 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "refresh_macro_bindings",
         refresh_macro_bindings,
     )
@@ -2786,7 +2811,7 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
 ) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = False
-    session_recording_module.begin_pending_macro_save(
+    recording_lifecycle_module.begin_pending_macro_save(
         manager,
         {"pending_recording_id": "recording-a", "duration_ms": 10},
         recording_slot=1,
@@ -2814,10 +2839,10 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
     def fake_monotonic() -> float:
         return 20.0
 
-    monkeypatch.setattr(session_recording_module.secrets, "token_urlsafe", fake_token_urlsafe)
+    monkeypatch.setattr(recording_lifecycle_module.secrets, "token_urlsafe", fake_token_urlsafe)
     monkeypatch.setattr(recording_lifecycle_module, "monotonic", fake_monotonic)
 
-    session_recording_module.replace_pending_macro_slots_from_daemon(
+    recording_lifecycle_module.replace_pending_macro_slots_from_daemon(
         manager,
         [
             {
@@ -2837,7 +2862,7 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
     assert refreshed_slot.owner_pid is None
     assert refreshed_slot.owner_uid is None
     assert refreshed_slot.created_at == 20.0
-    assert not session_recording_module.pending_macro_save_token_matches(manager, old_token)
+    assert not recording_lifecycle_module.pending_macro_save_token_matches(manager, old_token)
 
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     manager.client.send_command = AsyncMock()
@@ -2858,7 +2883,7 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
 
 def test_clear_pending_macro_save_keeps_slots_for_invalid_selector() -> None:
     manager = SessionManager()
-    session_recording_module.begin_pending_macro_save(
+    recording_lifecycle_module.begin_pending_macro_save(
         manager,
         {"pending_recording_id": "recording-1", "duration_ms": 10},
         recording_slot=1,
@@ -2866,7 +2891,7 @@ def test_clear_pending_macro_save_keeps_slots_for_invalid_selector() -> None:
     pending_slot = manager.recording_state.pending_slots[1]
     pending_slot.token = "current"
     pending_slot.data["pending_save_token"] = "current"
-    session_recording_module.clear_pending_macro_save(
+    recording_lifecycle_module.clear_pending_macro_save(
         manager,
         pending_save_token="stale",
     )
@@ -2932,7 +2957,7 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "refresh_macro_bindings",
         refresh_macro_bindings,
     )
@@ -2960,7 +2985,7 @@ async def test_handle_session_request_delete_macro_broadcasts_deleted_event(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "refresh_macro_bindings",
         refresh_macro_bindings,
     )
@@ -2987,12 +3012,12 @@ async def test_profile_commands_cover_simple_and_error_branches(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     set_profile_enabled = AsyncMock(return_value={"status": "ok", "enabled": True})
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "set_profile_enabled",
         set_profile_enabled,
     )
     monkeypatch.setattr(
-        session_profiles_module,
+        runtime_status,
         "build_profile_overview",
         lambda _manager: {"status": "ok", "profiles": [{"name": "Base"}]},
     )
@@ -3150,7 +3175,7 @@ async def test_macro_commands_cover_remaining_daemon_variants(
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     refresh_macro_bindings = AsyncMock()
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "refresh_macro_bindings",
         refresh_macro_bindings,
     )
@@ -3244,7 +3269,7 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
     async def fake_to_thread(_func, /, *_args, **_kwargs):
         raise ValueError("bad macro")
 
-    monkeypatch.setattr(session_commands_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
 
     create_missing = await manager._handle_session_request(
         {"command": "create_macro"},
@@ -3321,9 +3346,13 @@ async def test_list_devices_for_recording_coerces_include_other(
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     get_devices = AsyncMock(return_value=[])
     update_selected = Mock()
-    monkeypatch.setattr(session_recording_module, "get_devices_for_recording", get_devices)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_device_selection_module,
+        "get_devices_for_recording",
+        get_devices,
+    )
+    monkeypatch.setattr(
+        recording_device_selection_module,
         "update_selected_recording_devices_cache",
         update_selected,
     )
@@ -3337,7 +3366,7 @@ async def test_list_devices_for_recording_coerces_include_other(
     assert result == {"status": "ok", "devices": []}
     get_devices.assert_awaited_once_with(
         manager,
-        session_recording_module.recording_device_filter_types(expected_include_other),
+        recording_device_selection_module.recording_device_filter_types(expected_include_other),
         include_grabbed=True,
     )
     assert manager.recording_state.devices_cache_include_other is expected_include_other
@@ -3355,10 +3384,14 @@ async def test_capture_and_diagnostics_commands_cover_remaining_branches(
     get_devices = AsyncMock(return_value=[{"name": "Keyboard"}])
     capture_read = AsyncMock(return_value={"status": "ok", "events": []})
     update_selected = Mock()
-    monkeypatch.setattr(session_recording_module, "get_devices_for_recording", get_devices)
-    monkeypatch.setattr(session_recording_module, "capture_read", capture_read)
     monkeypatch.setattr(
-        session_recording_module,
+        recording_device_selection_module,
+        "get_devices_for_recording",
+        get_devices,
+    )
+    monkeypatch.setattr(recording_capture_module, "capture_read", capture_read)
+    monkeypatch.setattr(
+        recording_device_selection_module,
         "update_selected_recording_devices_cache",
         update_selected,
     )

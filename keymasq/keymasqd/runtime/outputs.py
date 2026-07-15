@@ -2,12 +2,17 @@ import logging
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from hashlib import blake2b
 from typing import Any, Final, Protocol, cast
 
 from evdev.uinput import UInputError
 
-from keymasq.common.virtual_devices import clamp_virtual_gamepad_count, virtual_gamepad_output_id
+from keymasq.common.virtual_devices import (
+    DEFAULT_VIRTUAL_GAMEPADS,
+    clamp_virtual_gamepad_count,
+    virtual_gamepad_output_id,
+)
 from keymasq.keymasqd.permission_hints import (
     is_uinput_permission_error,
     uinput_permission_message,
@@ -17,6 +22,29 @@ from keymasq.keymasqd.runtime.adapters import (
     UInputWriter,
     WritableUInput,
 )
+
+
+@dataclass
+class OutputRuntimeState:
+    """Tracks the shared virtual output devices owned by the daemon."""
+
+    device_count: int = 0
+    keyboard_uinput: ClosableUInput | None = None
+    mouse_uinput: ClosableUInput | None = None
+    virtual_gamepad_uinputs: dict[str, ClosableUInput] = field(default_factory=dict)
+    virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
+
+    @property
+    def gamepad_uinput(self) -> ClosableUInput | None:
+        return self.virtual_gamepad_uinputs.get("virtual-gamepad-1")
+
+    @gamepad_uinput.setter
+    def gamepad_uinput(self, value: ClosableUInput | None) -> None:
+        if value is None:
+            self.virtual_gamepad_uinputs.pop("virtual-gamepad-1", None)
+        else:
+            self.virtual_gamepad_uinputs["virtual-gamepad-1"] = value
+
 
 TEST_UINPUT_ENV = "KEYMASQ_TEST_UINPUT"
 TEST_UINPUT_PREFIX = "keymasq-test"
@@ -225,9 +253,7 @@ def create_uinput_with_permission_hint[T](context: str, create: Callable[[], T])
     except (OSError, UInputError) as exc:
         if is_uinput_permission_error(exc):
             raise PermissionError(
-                uinput_permission_message(
-                    f"Failed to create {context} uinput device: {exc}"
-                )
+                uinput_permission_message(f"Failed to create {context} uinput device: {exc}")
             ) from exc
         raise
 

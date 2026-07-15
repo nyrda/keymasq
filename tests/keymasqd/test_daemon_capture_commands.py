@@ -14,7 +14,7 @@ from keymasq.keymasqd import daemon as daemon_module
 from keymasq.keymasqd import daemon_capture_commands
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
-from keymasq.keymasqd.runtime import macros as runtime_macros
+from keymasq.keymasqd.runtime.macro.options import MacroPlaybackOptions
 from tests.keymasqd.daemon_support import macro_meta
 
 _PENDING_RECORDING_EVENTS: list[dict[str, object]] = [
@@ -63,7 +63,7 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
     macro_store.get_meta.assert_called_once_with("combo")
     macro_store.get.assert_not_called()
     device_manager.play_macro.assert_awaited_once_with(
-        runtime_macros.MacroPlaybackOptions(
+        MacroPlaybackOptions(
             macro_events=[],
             macro_name="combo",
             replay_mouse_movement=False,
@@ -131,7 +131,7 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
     macro_store.get_meta.assert_called_once_with("combo")
     macro_store.get.assert_not_called()
     device_manager.play_macro.assert_awaited_once_with(
-        runtime_macros.MacroPlaybackOptions(
+        MacroPlaybackOptions(
             macro_events=[],
             macro_name="combo",
             replay_mouse_movement=False,
@@ -196,7 +196,7 @@ async def test_macro_play_request_runtime_options_override_stored_options(
 
     assert result == {"played": True}
     options = device_manager.play_macro.await_args.args[0]
-    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
+    assert isinstance(options, MacroPlaybackOptions)
     assert options.macro_name == "combo"
     assert options.loop_mode == "none"
     assert options.loop_count == 1
@@ -340,10 +340,8 @@ async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
     )
     device_manager.play_macro.assert_awaited_once()
     options = device_manager.play_macro.await_args.args[0]
-    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
-    assert options.macro_events == [
-        {"type": 1, "code": 30, "value": 1, "t_us": 0}
-    ]
+    assert isinstance(options, MacroPlaybackOptions)
+    assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert options.macro_name == "recording-slot-4"
     assert options.speed == 1.5
     assert options.source_device == "kbd"
@@ -369,7 +367,7 @@ async def test_macro_play_recording_does_not_create_start_move_on_play(daemon_te
 
     assert result == {"played": True}
     options = device_manager.play_macro.await_args.args[0]
-    assert isinstance(options, runtime_macros.MacroPlaybackOptions)
+    assert isinstance(options, MacroPlaybackOptions)
     assert options.move_to_start is False
     assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert options.load_stored_macro is False
@@ -539,9 +537,7 @@ async def test_capture_commands_forward_to_capture_manager(
 ):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     capture_combo = AsyncMock(
-        return_value={
-            "events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]
-        }
+        return_value={"events": [{"evdev": "key_a", "hardware_id": "1234:5678", "source": "kbd"}]}
     )
     monkeypatch.setattr(daemon_capture_commands, "capture_combo", capture_combo)
 
@@ -778,11 +774,7 @@ def test_capture_manager_hardware_interface_lookup_excludes_prior_model_claims(m
         hardware_id = str(kwargs["hardware_id"])
         excluded = set(kwargs.get("excluded_paths") or set())
         calls.append((hardware_id, excluded))
-        path = (
-            "/dev/input/event10"
-            if "/dev/input/event9" in excluded
-            else "/dev/input/event9"
-        )
+        path = "/dev/input/event10" if "/dev/input/event9" in excluded else "/dev/input/event9"
         return [
             SimpleNamespace(
                 path=path,
@@ -893,11 +885,7 @@ async def test_capture_combo_clamps_client_timeout_to_daemon_max(daemon_testbed,
         "warnings": [],
     }
     assert deadline_offsets
-    assert (
-        0.0
-        < deadline_offsets[0]
-        <= daemon_capture_commands.MAX_CAPTURE_TIMEOUT_S
-    )
+    assert 0.0 < deadline_offsets[0] <= daemon_capture_commands.MAX_CAPTURE_TIMEOUT_S
 
 
 @pytest.mark.asyncio

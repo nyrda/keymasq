@@ -1,6 +1,6 @@
 import pytest
 
-from keymasq.common.models import ActionType
+from keymasq.common.model.core import ActionType
 from keymasq.gui.widgets.action_payloads import mapping_action_from_payload
 
 

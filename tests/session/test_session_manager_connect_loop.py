@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keymasq.session.manager.core as session_core_module
+import keymasq.session.manager.recording_device_selection as recording_device_selection_module
 from keymasq.common.ipc import CommandType, Response
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 
 
 @pytest.mark.asyncio
@@ -86,12 +87,12 @@ async def test_connect_loop_requests_session_restart_after_established_disconnec
     activate_initial_profiles = AsyncMock()
     refresh_devices = AsyncMock()
     monkeypatch.setattr(
-        session_core_module.runtime_profiles,
+        session_core_module.coordinator,
         "activate_initial_profiles",
         activate_initial_profiles,
     )
     monkeypatch.setattr(
-        session_core_module.runtime_recording,
+        recording_device_selection_module,
         "refresh_recording_devices_cache",
         refresh_devices,
     )
@@ -113,9 +114,7 @@ async def test_reload_profiles_releases_removed_hardware_immediately(monkeypatch
     manager = SessionManager()
     hardware_id = "045e:02a1"
     manager.profile_state.grabbed_devices.add(hardware_id)
-    manager.profile_state.grabbed_interfaces[hardware_id] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"gamepad": "/dev/input/event20"}
     manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
     manager.hardware.list_hardware_ids = Mock(return_value=[])  # type: ignore[method-assign]
     manager.client.send_command = AsyncMock(
@@ -123,7 +122,7 @@ async def test_reload_profiles_releases_removed_hardware_immediately(monkeypatch
     )
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(
-        session_core_module.runtime_profiles,
+        session_core_module.coordinator,
         "reevaluate_profiles",
         reevaluate_profiles,
     )

@@ -8,20 +8,20 @@ from unittest.mock import AsyncMock, MagicMock
 import evdev
 import pytest
 
-import keymasq.keymasqd.device_manager as dm
-import keymasq.keymasqd.recording as recording_module
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
-    ActionType,
-    DeviceType,
     MappingAction,
 )
+from keymasq.common.model.core import ActionType, DeviceType
+from keymasq.keymasqd import device_manager, recording
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import macros as mdm
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime import outputs as global_outputs
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.macro import controls, mouse, outputs, scheduler
+from keymasq.keymasqd.runtime.macro.state import MacroEventSource, MacroRuntimeDeps
 from tests.keymasqd.device_manager_support import grabbed_event_processing_deps
 from tests.keymasqd.macro_backend_support import FakeRecorder, play_macro_task_helper
 
@@ -140,9 +140,7 @@ async def test_starting_new_recording_preserves_implicit_slot_stop(
         assert len(recordings) == 1
         assert recordings[0]["recording_slot"] == 2
 
-        snapshot = await recorder.pending_recording(
-            str(recordings[0]["pending_recording_id"])
-        )
+        snapshot = await recorder.pending_recording(str(recordings[0]["pending_recording_id"]))
         assert snapshot.recording_slot == 2
         assert list(snapshot.iter_events())[0]["code"] == evdev.ecodes.KEY_A
     finally:
@@ -323,7 +321,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     start_event = evdev.InputEvent(1, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)
-    await gde.process_event(gd_start, start_event, deps=grabbed_event_processing_deps())
+    await pipeline.process_event(gd_start, start_event, deps=grabbed_event_processing_deps())
     assert len(recorder.calls) == 0
 
     normal_mapping = {
@@ -342,7 +340,7 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
     )
 
     normal_event = evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1)
-    await gde.process_event(gd_normal, normal_event, deps=grabbed_event_processing_deps())
+    await pipeline.process_event(gd_normal, normal_event, deps=grabbed_event_processing_deps())
 
     assert len(recorder.calls) == 1
     assert recorder.calls[0][0] == "keyboard"
@@ -367,9 +365,9 @@ async def test_recording_manager_sets_monotonic_clock_on_extra_devices(
     fake_device = _QuietInputDevice()
     clock_calls: list[tuple[object, str | None]] = []
 
-    monkeypatch.setattr(recording_module.evdev, "InputDevice", lambda _path: fake_device)
+    monkeypatch.setattr(recording.evdev, "InputDevice", lambda _path: fake_device)
     monkeypatch.setattr(
-        recording_module,
+        recording,
         "set_evdev_clock_monotonic",
         lambda device, **kwargs: clock_calls.append((device, kwargs.get("device_path"))) or True,
     )
@@ -386,14 +384,14 @@ def test_grabbed_device_input_sets_monotonic_clock_for_recordable_raw_stream(
     fake_device = object()
     clock_calls: list[tuple[object, str | None]] = []
 
-    monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: fake_device)
     monkeypatch.setattr(
-        gdm,
+        grabbed_device,
         "set_evdev_clock_monotonic",
         lambda device, **kwargs: clock_calls.append((device, kwargs.get("device_path"))) or True,
     )
 
-    assert gdm._device_input("/dev/input/event0") is fake_device
+    assert grabbed_device._device_input("/dev/input/event0") is fake_device
     assert clock_calls == [(fake_device, "/dev/input/event0")]
 
 
@@ -424,7 +422,7 @@ async def test_recording_manager_records_selected_grabbed_raw_stream(
 ) -> None:
     recorder = RecordingManager()
     monkeypatch.setattr(
-        recording_module,
+        recording,
         "resolve_stable_path",
         lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
     )
@@ -443,7 +441,7 @@ async def test_recording_manager_records_selected_grabbed_raw_stream(
         ]
     )
 
-    await gde.process_event(
+    await pipeline.process_event(
         _grabbed_recording_device(recorder),
         evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         deps=grabbed_event_processing_deps(),
@@ -464,9 +462,9 @@ async def test_recording_manager_prefers_selected_passthrough_over_grabbed_raw(
         opened_paths.append(path)
         return _QuietInputDevice()
 
-    monkeypatch.setattr(recording_module.evdev, "InputDevice", fake_input_device)
+    monkeypatch.setattr(recording.evdev, "InputDevice", fake_input_device)
     monkeypatch.setattr(
-        recording_module,
+        recording,
         "resolve_stable_path",
         lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
     )
@@ -494,7 +492,7 @@ async def test_recording_manager_prefers_selected_passthrough_over_grabbed_raw(
         ]
     )
 
-    await gde.process_event(
+    await pipeline.process_event(
         _grabbed_recording_device(recorder),
         evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         deps=grabbed_event_processing_deps(),
@@ -508,9 +506,9 @@ async def test_recording_manager_prefers_selected_passthrough_over_grabbed_raw(
 def test_recording_plan_falls_back_for_empty_primary_device_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recording_module, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(recording, "resolve_stable_path", lambda path: path)
 
-    extra_devices, grabbed_source_keys = recording_module._build_recording_plan(
+    extra_devices, grabbed_source_keys = recording._build_recording_plan(
         [
             {
                 "open_path": "",
@@ -530,7 +528,7 @@ def test_recording_plan_falls_back_for_empty_primary_device_fields(
         ]
     )
 
-    assert [recording_module._recording_device_path(device) for device in extra_devices] == [
+    assert [recording._recording_device_path(device) for device in extra_devices] == [
         "/dev/input/event10"
     ]
     assert grabbed_source_keys == set()
@@ -541,9 +539,9 @@ async def test_recording_manager_keeps_unrelated_grabbed_raw_when_passthrough_se
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorder = RecordingManager()
-    monkeypatch.setattr(recording_module.evdev, "InputDevice", lambda _path: _QuietInputDevice())
+    monkeypatch.setattr(recording.evdev, "InputDevice", lambda _path: _QuietInputDevice())
     monkeypatch.setattr(
-        recording_module,
+        recording,
         "resolve_stable_path",
         lambda path: "/dev/input/by-id/raw-kbd" if path == "/dev/input/event0" else path,
     )
@@ -570,7 +568,7 @@ async def test_recording_manager_keeps_unrelated_grabbed_raw_when_passthrough_se
         ]
     )
 
-    await gde.process_event(
+    await pipeline.process_event(
         _grabbed_recording_device(recorder),
         evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         deps=grabbed_event_processing_deps(),
@@ -616,7 +614,7 @@ async def test_recording_manager_snapshot_does_not_skip_action_execution() -> No
         recorder=recorder,
     )
 
-    await gde.process_event(
+    await pipeline.process_event(
         grabbed,
         evdev.InputEvent(1, 200, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
         deps=grabbed_event_processing_deps(),
@@ -646,7 +644,7 @@ async def test_play_macro_allows_concurrent_playback(
         await asyncio.sleep(0.05)
         finished.append(name)
 
-    monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
+    monkeypatch.setattr(scheduler, "play_macro_task", fake_play_macro_task)
     macro_events = [{"t_us": 0, "macro_action": "wait", "duration_us": 0}]
     await manager.play_macro(macro_events=macro_events, macro_name="first")
     await asyncio.sleep(0)
@@ -678,8 +676,8 @@ async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
         if _manager.output_state.device_count == 0:
             _manager.output_state.keyboard_uinput = None
 
-    monkeypatch.setattr(dm.runtime_outputs, "create_global_uinputs", fake_create_global_uinputs)
-    monkeypatch.setattr(dm.runtime_outputs, "destroy_global_uinputs", fake_destroy_global_uinputs)
+    monkeypatch.setattr(global_outputs, "create_global_uinputs", fake_create_global_uinputs)
+    monkeypatch.setattr(global_outputs, "destroy_global_uinputs", fake_destroy_global_uinputs)
 
     manager.initialize_output_devices()
     result = await manager.play_macro(macro_events=[], macro_name="adhoc")
@@ -717,9 +715,7 @@ async def test_play_macro_task_helper_uses_existing_loop_stop_behavior_metadata(
 ) -> None:
     manager = DeviceManager()
     manager.macro_state.instance_meta[1] = {"loop_stop_behavior": "cancel_run"}
-    manager.macro_state.instance_meta[2] = {
-        "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
-    }
+    manager.macro_state.instance_meta[2] = {"loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR}
     observed: list[str] = []
 
     async def fake_play_macro_task(
@@ -730,7 +726,7 @@ async def test_play_macro_task_helper_uses_existing_loop_stop_behavior_metadata(
         meta = observed_manager.macro_state.instance_meta[instance_id]
         observed.append(str(meta["loop_stop_behavior"]))
 
-    monkeypatch.setattr(mdm, "play_macro_task", fake_play_macro_task)
+    monkeypatch.setattr(scheduler, "play_macro_task", fake_play_macro_task)
 
     base_kwargs = {
         "macro_events": [],
@@ -764,7 +760,7 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
     manager = DeviceManager()
     manager.output_state.mouse_uinput = MagicMock()
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[],
@@ -778,7 +774,7 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
         start_x=640,
         start_y=360,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     writes = manager.output_state.mouse_uinput.write.call_args_list
@@ -789,17 +785,12 @@ async def test_play_macro_can_move_mouse_to_saved_start() -> None:
 
 
 @pytest.mark.asyncio
-async def test_play_macro_block_mouse_movement_uses_suppression_safeguard(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> None:
     manager = DeviceManager()
 
     begin_mouse_rel_suppression = MagicMock()
     end_mouse_rel_suppression = MagicMock()
-    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
-    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
-
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[],
@@ -813,7 +804,10 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard(
         start_x=0,
         start_y=0,
         block_mouse_movement=True,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
+        acquire_mouse_inhibit_fn=begin_mouse_rel_suppression,
+        release_mouse_inhibit_fn=end_mouse_rel_suppression,
+        begin_mouse_suppression_fn=begin_mouse_rel_suppression,
     )
 
     assert begin_mouse_rel_suppression.called
@@ -836,12 +830,26 @@ async def test_play_macro_block_mouse_movement_renews_suppression_for_wait(
 
     begin_mouse_rel_suppression = MagicMock()
     end_mouse_rel_suppression = MagicMock()
-    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
-    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
-    await mdm.play_macro_task(
+    async def run_control_action(
+        observed_manager: DeviceManager,
+        event: dict[str, object],
+        *,
+        renew_mouse_suppression: bool,
+        deps: MacroRuntimeDeps,
+    ) -> float:
+        return await controls.run_macro_control_action(
+            observed_manager,
+            event,
+            renew_mouse_suppression=renew_mouse_suppression,
+            deps=deps,
+            renew_mouse_suppression_fn=begin_mouse_rel_suppression,
+        )
+
+    monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
+
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[{"t_us": 0, "macro_action": "wait", "duration_us": 10_000_000}],
@@ -855,7 +863,12 @@ async def test_play_macro_block_mouse_movement_renews_suppression_for_wait(
         start_x=0,
         start_y=0,
         block_mouse_movement=True,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
+        control_action_fn=run_control_action,
+        acquire_mouse_inhibit_fn=begin_mouse_rel_suppression,
+        release_mouse_inhibit_fn=end_mouse_rel_suppression,
+        begin_mouse_suppression_fn=begin_mouse_rel_suppression,
+        renew_mouse_suppression_fn=begin_mouse_rel_suppression,
     )
 
     timeouts = [call.kwargs["timeout_s"] for call in begin_mouse_rel_suppression.call_args_list]
@@ -879,14 +892,14 @@ async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
         sleep_calls.append(duration)
         clock["now"] += duration
 
-    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+    monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[],
-        macro_event_source=mdm.MacroEventSource(
+        macro_event_source=MacroEventSource(
             event_count=0,
             duration_us=10_000_000,
             iter_events=lambda: iter(()),
@@ -901,7 +914,7 @@ async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     assert sleep_calls == [pytest.approx(5.0), 0]
@@ -923,14 +936,14 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
         sleep_calls.append(duration)
         clock["now"] += duration
 
-    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+    monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[],
-        macro_event_source=mdm.MacroEventSource(
+        macro_event_source=MacroEventSource(
             event_count=1,
             duration_us=100_000,
             iter_events=lambda: iter([{"t_us": 0, "macro_action": "wait", "duration_us": 200_000}]),
@@ -945,7 +958,7 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     assert sleep_calls == [pytest.approx(0.2), 0]
@@ -960,8 +973,8 @@ async def test_hold_macro_block_mouse_movement_refreshes_suppression_until_relea
 
     begin_mouse_rel_suppression = MagicMock()
     end_mouse_rel_suppression = MagicMock()
-    monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
-    monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
+    monkeypatch.setattr(mouse, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+    monkeypatch.setattr(mouse, "end_mouse_rel_suppression", end_mouse_rel_suppression)
 
     await manager.play_macro(
         macro_events=[{"t_us": 0, "macro_action": "wait", "duration_us": 10_000}],
@@ -1109,7 +1122,7 @@ async def test_play_macro_routes_gamepad_event_output_id() -> None:
         "virtual-gamepad-2": second_gamepad,
     }
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[
@@ -1140,7 +1153,7 @@ async def test_play_macro_routes_gamepad_event_output_id() -> None:
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     default_gamepad.write.assert_not_called()
@@ -1227,9 +1240,7 @@ async def test_macro_cleanup_releases_unmatched_held_keys() -> None:
     )
 
 
-def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer() -> None:
     manager = DeviceManager()
     raw_keyboard = MagicMock()
     writer = MagicMock()
@@ -1238,8 +1249,8 @@ def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer(
     manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
     sync_calls: list[tuple[object, object]] = []
 
-    base_deps = dm._macro_runtime_deps()
-    deps = mdm.MacroRuntimeDeps(
+    base_deps = device_manager._macro_runtime_deps()
+    deps = MacroRuntimeDeps(
         asyncio_mod=base_deps.asyncio_mod,
         evdev_mod=base_deps.evdev_mod,
         uinput_writer=lambda raw: writer if raw is raw_keyboard else None,
@@ -1247,13 +1258,12 @@ def test_macro_cleanup_sync_uses_raw_uinput_with_non_identity_writer(
         int_value_fn=base_deps.int_value_fn,
         str_value_fn=base_deps.str_value_fn,
     )
-    monkeypatch.setattr(
-        mdm,
-        "syn_if_passthrough_frame_closed",
-        lambda raw_uinput, output_writer: sync_calls.append((raw_uinput, output_writer)),
+    outputs.release_macro_held_for_instance(
+        manager,
+        1,
+        deps=deps,
+        sync_fn=lambda raw_uinput, output_writer: sync_calls.append((raw_uinput, output_writer)),
     )
-
-    mdm.release_macro_held_for_instance(manager, 1, deps=deps)
 
     writer.write.assert_called_once_with(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)
     assert sync_calls == [(raw_keyboard, writer)]
@@ -1276,7 +1286,9 @@ def test_macro_cleanup_logs_expected_output_release_failures(
     manager.macro_state.held_abs_refcount[("gamepad", evdev.ecodes.ABS_Z)] = 1
 
     with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
-        mdm.release_macro_held_for_instance(manager, 1, deps=dm._macro_runtime_deps())
+        outputs.release_macro_held_for_instance(
+            manager, 1, deps=device_manager._macro_runtime_deps()
+        )
 
     assert manager.macro_state.held_refcount == {}
     assert manager.macro_state.held_abs_refcount == {}
@@ -1300,7 +1312,9 @@ def test_macro_cleanup_logs_unexpected_output_release_failures(
     manager.macro_state.held_abs_refcount[("gamepad", evdev.ecodes.ABS_Z)] = 1
 
     with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
-        mdm.release_macro_held_for_instance(manager, 1, deps=dm._macro_runtime_deps())
+        outputs.release_macro_held_for_instance(
+            manager, 1, deps=device_manager._macro_runtime_deps()
+        )
 
     assert manager.macro_state.held_refcount == {}
     assert manager.macro_state.held_abs_refcount == {}
@@ -1310,10 +1324,7 @@ def test_macro_cleanup_logs_unexpected_output_release_failures(
     assert "RuntimeError: gamepad writer invalid" in caplog.text
 
 
-def test_macro_cleanup_logs_sync_failures(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_macro_cleanup_logs_sync_failures(caplog: pytest.LogCaptureFixture) -> None:
     def make_manager() -> DeviceManager:
         manager = DeviceManager()
         manager.output_state.keyboard_uinput = MagicMock()
@@ -1321,31 +1332,23 @@ def test_macro_cleanup_logs_sync_failures(
         manager.macro_state.held_refcount[("keyboard", evdev.ecodes.KEY_B)] = 1
         return manager
 
-    monkeypatch.setattr(
-        mdm,
-        "syn_if_passthrough_frame_closed",
-        MagicMock(side_effect=OSError("sync failed")),
-    )
     with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
-        mdm.release_macro_held_for_instance(
+        outputs.release_macro_held_for_instance(
             make_manager(),
             1,
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
+            sync_fn=MagicMock(side_effect=OSError("sync failed")),
         )
 
     assert "Failed to synchronize macro cleanup outputs" in caplog.text
 
     caplog.clear()
-    monkeypatch.setattr(
-        mdm,
-        "syn_if_passthrough_frame_closed",
-        MagicMock(side_effect=RuntimeError("sync state invalid")),
-    )
     with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
-        mdm.release_macro_held_for_instance(
+        outputs.release_macro_held_for_instance(
             make_manager(),
             1,
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
+            sync_fn=MagicMock(side_effect=RuntimeError("sync state invalid")),
         )
 
     assert "Unexpected failure synchronizing macro cleanup outputs" in caplog.text
@@ -1360,6 +1363,7 @@ async def test_release_all_devices_cleans_up_macro_and_grabbed_state() -> None:
 
     grabbed = MagicMock()
     grabbed.release = AsyncMock()
+    grabbed.stop_event_loop = AsyncMock()
     manager.grabbed_devices = {"1234:5678": [grabbed]}
     manager.active_mappings = {
         "1234:5678": {"btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")}
@@ -1451,7 +1455,7 @@ async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() 
     manager.output_state.mouse_uinput = MagicMock()
     manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[
@@ -1542,7 +1546,7 @@ async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() 
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     manager.set_cursor_position.assert_awaited_once_with(320, 240)
@@ -1571,7 +1575,7 @@ async def test_play_macro_replays_semantic_moves_when_recorded_movement_disabled
     manager.set_cursor_position = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
     manager.move_cursor_natural = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[
@@ -1628,7 +1632,7 @@ async def test_play_macro_replays_semantic_moves_when_recorded_movement_disabled
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     manager.set_cursor_position.assert_awaited_once_with(320, 240)
@@ -1655,7 +1659,7 @@ async def test_play_macro_natural_move_can_stop_current_run_on_failure() -> None
         return_value={"status": "error", "reached": False}
     )
 
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[
@@ -1693,7 +1697,7 @@ async def test_play_macro_natural_move_can_stop_current_run_on_failure() -> None
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
     )
 
     manager.move_cursor_natural.assert_awaited_once_with(  # type: ignore[attr-defined]
@@ -1728,11 +1732,9 @@ async def test_play_macro_wait_control_actions_shift_later_deadlines(
     async def fake_run_macro_control_action(*args, **kwargs) -> float:
         return 0.2
 
-    monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-    monkeypatch.setattr(mdm, "run_macro_control_action", fake_run_macro_control_action)
-
-    await mdm.play_macro_task(
+    monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
+    await scheduler.play_macro_task(
         manager,
         instance_id=1,
         macro_events=[
@@ -1759,7 +1761,8 @@ async def test_play_macro_wait_control_actions_shift_later_deadlines(
         start_x=0,
         start_y=0,
         block_mouse_movement=False,
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
+        control_action_fn=fake_run_macro_control_action,
     )
 
     assert sleep_calls == [pytest.approx(0.3), 0]

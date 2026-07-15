@@ -1,23 +1,18 @@
 import logging
 
-from keymasq.session.wayland_protocols import client_transport as _transport
-from keymasq.session.wayland_protocols.ext_foreign_toplevel_list import (
-    ExtForeignToplevelListTracker,
-)
-from keymasq.session.wayland_protocols.ext_foreign_toplevel_list_client import (
-    EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE as EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
+from keymasq.session.wayland_protocols.client_transport import (
+    WaylandDisplayError,
+    decode_array,
+    decode_uint_array,
+    pack_uint,
 )
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list_client import (
     ExtForeignToplevelListClientBase,
 )
 
-WL_DISPLAY_OBJECT_ID = _transport.WL_DISPLAY_OBJECT_ID
 COSMIC_TOPLEVEL_INFO_INTERFACE = "zcosmic_toplevel_info_v1"
 COSMIC_TOPLEVEL_HANDLE_INTERFACE = "zcosmic_toplevel_handle_v1"
-_pack_uint = _transport.pack_uint
-_encode_string = _transport.encode_string
-_decode_array = _transport.decode_array
-_decode_uint_array = _transport.decode_uint_array
 
 log = logging.getLogger("keymasq-session.wayland.cosmic_toplevel_info")
 
@@ -25,7 +20,7 @@ log = logging.getLogger("keymasq-session.wayland.cosmic_toplevel_info")
 class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
     def __init__(
         self,
-        tracker: ExtForeignToplevelListTracker,
+        tracker: ActiveWindowTracker,
         socket_path: str | None = None,
     ) -> None:
         super().__init__(tracker, socket_path)
@@ -98,7 +93,7 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
             return
 
         cosmic_handle_id = self._allocate_object_id(COSMIC_TOPLEVEL_HANDLE_INTERFACE)
-        request_payload = _pack_uint(cosmic_handle_id) + _pack_uint(object_id)
+        request_payload = pack_uint(cosmic_handle_id) + pack_uint(object_id)
         await self._send_request(self._cosmic_info_id, 1, request_payload)
         self._cosmic_handles.add(cosmic_handle_id)
         self._ext_to_cosmic[object_id] = cosmic_handle_id
@@ -111,7 +106,7 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
     async def _destroy_cosmic_handle(self, object_id: int) -> None:
         try:
             await self._send_request(object_id, 0, b"")
-        except (OSError, _transport.WaylandDisplayError):
+        except (OSError, WaylandDisplayError):
             log.debug("Failed to destroy COSMIC toplevel info handle", exc_info=True)
         except Exception:
             log.exception(
@@ -135,5 +130,5 @@ class CosmicToplevelInfoWaylandClient(ExtForeignToplevelListClientBase):
             return
         if opcode != 8:
             return
-        state_data, _ = _decode_array(payload, 0)
-        self._tracker.update_state(str(ext_id), _decode_uint_array(state_data))
+        state_data, _ = decode_array(payload, 0)
+        self._tracker.update_state(str(ext_id), decode_uint_array(state_data))

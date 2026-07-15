@@ -21,13 +21,9 @@ class TestComboTabWidget:
         ComboTab(profile_manager=None, demo_mode=False)
 
     def test_combo_tab_syncs_with_device_tab_selection(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -65,13 +61,9 @@ class TestComboTabWidget:
         assert window.combo_tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_profile_selection_syncs_back_to_device_tabs(self, temp_config_dir):
-        from keymasq.common.models import (
-            ButtonDefinition,
-            DeviceProfileLayer,
-            HardwareConfig,
-            ProfileConfig,
-        )
-        from keymasq.gui.window import MainWindow
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
         window.profile_manager.save_profile(
@@ -112,17 +104,12 @@ class TestComboTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_add_edit_delete_combo(self, temp_config_dir, monkeypatch):
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         import keymasq.gui.widgets.combo_tab as combo_tab_module
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -205,16 +192,11 @@ class TestComboTabWidget:
         assert tab.section_label.get_text() == "No combos in this profile."
 
     def test_combo_tab_rejects_stale_duplicate_combo_save(self, temp_config_dir, monkeypatch):
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         def combo(combo_id: str, name: str) -> ComboConfig:
             return ComboConfig(
@@ -255,17 +237,12 @@ class TestComboTabWidget:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         import keymasq.gui.widgets.combo_tab as combo_tab_module
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         def combo(name: str) -> ComboConfig:
             return ComboConfig(
@@ -339,17 +316,12 @@ class TestComboTabWidget:
         temp_config_dir,
         monkeypatch,
     ):
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         import keymasq.gui.widgets.combo_tab as combo_tab_module
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         def combo(name: str) -> ComboConfig:
             return ComboConfig(
@@ -428,9 +400,9 @@ class TestComboTabWidget:
         assert tab._selected_profile.config.name == "Gaming"
 
     def test_combo_tab_marks_active_profile_from_session_payload(self, temp_config_dir):
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -451,9 +423,9 @@ class TestComboTabWidget:
         assert tab.status_label.get_text() == "active"
 
     def test_combo_tab_summarizes_layered_active_profiles(self, temp_config_dir):
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         for name in ("Base", "App", "Game", "Overlay"):
@@ -470,9 +442,9 @@ class TestComboTabWidget:
         )
 
     def test_combo_tab_respects_compositor_tag_rule_capability(self, temp_config_dir):
-        from keymasq.common.models import ProfileConfig, WindowRule
+        from keymasq.common.model.profiles import ProfileConfig, WindowRule
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -498,9 +470,9 @@ class TestComboTabWidget:
         assert supported.status_label.get_text() == "waiting"
 
     def test_combo_tab_empty_state_uses_section_header_text(self, temp_config_dir):
-        from keymasq.common.models import ProfileConfig
+        from keymasq.common.model.profiles import ProfileConfig
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(
@@ -520,16 +492,11 @@ class TestComboTabWidget:
     def test_combo_tab_sorts_rows_and_opens_editor_for_activated_row(self, temp_config_dir):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         def combo(combo_id: str, name: str, trigger_key: str, action_key: str) -> ComboConfig:
             return ComboConfig(
@@ -589,16 +556,11 @@ class TestComboTabWidget:
         assert opened == ["combo-c"]
 
     def test_combo_tab_search_filters_rows(self, temp_config_dir):
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            ProfileConfig,
-        )
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
+        from keymasq.common.model.actions import MappingAction
         from keymasq.gui.widgets.combo_tab import ComboTab
-        from keymasq.session.profiles import ProfileManager
+        from keymasq.session.profile.manager import ProfileManager
 
         profile_manager = ProfileManager()
         profile_manager.save_profile(

@@ -10,7 +10,7 @@ from keymasq.common.devices import (
     normalize_input_classes,
     primary_input_class,
 )
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 
 
 def device_search_text(hardware_id: str, dev_info: Mapping[str, Any]) -> str:

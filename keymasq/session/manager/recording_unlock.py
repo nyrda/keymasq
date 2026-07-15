@@ -3,17 +3,9 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common import recording_guard
 from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.recording_guard import (
-    is_unlock_value_active,
-)
-from keymasq.common.recording_guard import (
-    resolve_macro_recording_status as _resolve_macro_recording_status,
-)
-from keymasq.common.recording_guard import (
-    resolve_unlock_status as _resolve_unlock_status,
-)
 from keymasq.common.security import PeerCredentials, SecurityPolicy
 
 from .common import JsonObject
@@ -23,8 +15,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 RecordingStatus = dict[str, bool | int | str]
-resolve_unlock_status = _resolve_unlock_status
-resolve_macro_recording_status = _resolve_macro_recording_status
 
 
 def is_sensitive_session_command(
@@ -69,7 +59,7 @@ def has_active_gui_recording_owner(manager: "SessionManager") -> bool:
 def _status_is_active(status: RecordingStatus | None) -> bool:
     if status is None or not bool(status.get("unlocked", False)):
         return False
-    return is_unlock_value_active(coerce_int(status.get("expires_at"), 0))
+    return recording_guard.is_unlock_value_active(coerce_int(status.get("expires_at"), 0))
 
 
 def _cache_or_fallback_status(
@@ -119,7 +109,7 @@ async def _resolve_unlock_status_async_impl(
                 response.error,
             )
 
-    status = await asyncio.to_thread(resolve_unlock_status, uid)
+    status = await asyncio.to_thread(recording_guard.resolve_unlock_status, uid)
     return _cache_or_fallback_status(manager.unlock_state.unlock_status_cache, uid, status)
 
 
@@ -158,7 +148,7 @@ async def _resolve_macro_recording_status_async_impl(
                 response.error,
             )
 
-    status = await asyncio.to_thread(resolve_macro_recording_status, uid)
+    status = await asyncio.to_thread(recording_guard.resolve_macro_recording_status, uid)
     return _cache_or_fallback_status(
         manager.unlock_state.macro_recording_status_cache,
         uid,

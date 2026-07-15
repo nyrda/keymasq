@@ -5,27 +5,25 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import (
+from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+from keymasq.common.model.analog import (
     SAME_DEVICE_OUTPUT_ID,
-    ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
-    MappingAction,
-    ProfileDeactivationPolicy,
 )
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
-from keymasq.keymasqd.runtime.analog_controls import (
-    _axis_motion_delta,
-    _motion_delta,
+from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
+from keymasq.keymasqd.runtime.analog.curves import (
     normalize_axis_value,
     normalize_control_axis_value,
-    preserved_analog_state_keys,
-    process_analog_event,
-    reset_analog_controls,
 )
+from keymasq.keymasqd.runtime.analog.mouse import axis_motion_delta, motion_delta
+from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
+from keymasq.keymasqd.runtime.analog_controls import process_analog_event
 from keymasq.keymasqd.runtime.grabbed_device.outputs import release_all_keys
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
@@ -553,7 +551,7 @@ async def test_reset_analog_controls_preserves_unchanged_mouse_motion() -> None:
 
 
 def test_axis_mouse_motion_supports_bidirectional_signed_output() -> None:
-    assert _axis_motion_delta(
+    assert axis_motion_delta(
         -0.5,
         signed_value=-0.5,
         direction="horizontal",
@@ -563,7 +561,7 @@ def test_axis_mouse_motion_supports_bidirectional_signed_output() -> None:
         response_curve=1.0,
         dt=1.0,
     ) == pytest.approx((-50.0, 0.0))
-    assert _axis_motion_delta(
+    assert axis_motion_delta(
         0.5,
         signed_value=0.5,
         direction="vertical",
@@ -576,7 +574,7 @@ def test_axis_mouse_motion_supports_bidirectional_signed_output() -> None:
 
 
 def test_axis_mouse_motion_invert_reverses_output_direction() -> None:
-    assert _axis_motion_delta(
+    assert axis_motion_delta(
         0.5,
         signed_value=0.5,
         direction="right",
@@ -587,7 +585,7 @@ def test_axis_mouse_motion_invert_reverses_output_direction() -> None:
         dt=1.0,
         invert=True,
     ) == pytest.approx((-50.0, 0.0))
-    assert _axis_motion_delta(
+    assert axis_motion_delta(
         -0.5,
         signed_value=-0.5,
         direction="horizontal",
@@ -601,7 +599,7 @@ def test_axis_mouse_motion_invert_reverses_output_direction() -> None:
 
 
 def test_stick_mouse_motion_applies_split_horizontal_vertical_speed() -> None:
-    assert _motion_delta(
+    assert motion_delta(
         1.0,
         1.0,
         speed_x=100,
@@ -614,7 +612,7 @@ def test_stick_mouse_motion_applies_split_horizontal_vertical_speed() -> None:
 
 
 def test_stick_mouse_motion_preserves_zero_split_speed() -> None:
-    assert _motion_delta(
+    assert motion_delta(
         1.0,
         1.0,
         speed_x=0,
@@ -1588,9 +1586,7 @@ async def test_stick_gamepad_output_right_uses_semantic_hardware_axis_range() ->
     }
     runtime = _runtime(mapping, keyboard)
     runtime.analog_inputs = analog_inputs
-    runtime.analog_axis_bindings = {
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("stick_1", "x")
-    }
+    runtime.analog_axis_bindings = {(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X): ("stick_1", "x")}
     runtime.analog_axis_ranges = {("stick_1", "x"): (0, 255)}
     runtime.analog_axis_calibrations = {("stick_1", "x"): {"center": 128}}
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731

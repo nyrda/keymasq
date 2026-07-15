@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import sys
 
 from scenarios import SCENARIOS
@@ -9,7 +10,7 @@ from support import ScenarioCase, ScenarioContext
 
 
 def _scenario_key(name: str) -> str:
-    return name.strip().lower().replace("_", "-").replace(" ", "-")
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
 
 
 def _split_scenario_filter(values: list[str]) -> list[str]:
@@ -76,11 +77,20 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Run the selected scenarios this many times.",
     )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List every registered scenario key without starting the VM test.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
+    if args.list:
+        for scenario in SCENARIOS:
+            print(f"{_scenario_key(scenario.name)}\t{scenario.name}")
+        return 0
     scenario_filters = list(args.scenario) + list(args.scenarios)
     if not scenario_filters:
         env_filter = os.environ.get("KEYMASQ_INTEGRATION_SCENARIOS", "").strip()

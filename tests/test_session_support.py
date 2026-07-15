@@ -453,7 +453,7 @@ async def test_trigger_cursor_position_sample_sends_expected_command() -> None:
 def test_session_main_module_calls_manager_main(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    monkeypatch.setattr("keymasq.session.manager.main", lambda: calls.append("module"))
+    monkeypatch.setattr("keymasq.session.manager.core.main", lambda: calls.append("module"))
     runpy.run_module("keymasq.session.__main__", run_name="__main__")
 
     assert calls == ["module"]

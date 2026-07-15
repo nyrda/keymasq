@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import keymasq.session.manager.recording as session_recording_module
 import keymasq.session.manager.recording_device_selection as recording_device_selection_module
+import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
 from keymasq.common import config_files as config_files_module
 from keymasq.common.ipc import Command, CommandType, Response
-from keymasq.session.manager import SessionManager
+from keymasq.session.manager.core import SessionManager
 
 
 def test_session_manager_recording_settings_path_is_test_isolated(tmp_path) -> None:
@@ -64,7 +64,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
         fake_save,
     )
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
         {"include_mouse_movement": True},
     )
@@ -72,7 +72,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
     assert first_save_task is not None
     await wait_for_event(stale_started, "stale settings save did not start")
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
         {"include_mouse_movement": False, "include_mouse_clicks": True},
     )
@@ -122,7 +122,7 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
         },
     }
 
-    session_recording_module.save_recording_settings_to_disk(manager)
+    recording_device_selection_module.save_recording_settings_to_disk(manager)
 
     with manager.RECORDING_SETTINGS_PATH.open("rb") as f:
         written = tomllib.load(f)
@@ -130,7 +130,7 @@ def test_recording_settings_save_load_toml_uses_recording_ids(tmp_path) -> None:
 
     loaded_manager = SessionManager()
     loaded_manager.RECORDING_SETTINGS_PATH = manager.RECORDING_SETTINGS_PATH
-    session_recording_module.load_recording_settings_from_disk(loaded_manager)
+    recording_device_selection_module.load_recording_settings_from_disk(loaded_manager)
 
     assert loaded_manager.recording_state.settings == expected
 
@@ -149,7 +149,7 @@ def test_recording_settings_load_preserves_missing_keys(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    session_recording_module.load_recording_settings_from_disk(manager)
+    recording_device_selection_module.load_recording_settings_from_disk(manager)
 
     assert manager.recording_state.settings == {
         "include_mouse_movement": False,
@@ -166,11 +166,10 @@ def test_recording_settings_load_logs_errors(tmp_path, caplog) -> None:
 
     caplog.set_level(logging.ERROR, logger="keymasq-session")
 
-    session_recording_module.load_recording_settings_from_disk(manager)
+    recording_device_selection_module.load_recording_settings_from_disk(manager)
 
     assert (
-        f"Failed to load recording settings from {manager.RECORDING_SETTINGS_PATH}"
-        in caplog.text
+        f"Failed to load recording settings from {manager.RECORDING_SETTINGS_PATH}" in caplog.text
     )
 
 
@@ -190,12 +189,9 @@ def test_recording_settings_save_logs_errors(tmp_path, caplog, monkeypatch) -> N
     monkeypatch.setattr(config_files_module.tomli_w, "dump", raise_dump_error)
     caplog.set_level(logging.ERROR, logger="keymasq-session")
 
-    session_recording_module.save_recording_settings_to_disk(manager)
+    recording_device_selection_module.save_recording_settings_to_disk(manager)
 
-    assert (
-        f"Failed to save recording settings to {manager.RECORDING_SETTINGS_PATH}"
-        in caplog.text
-    )
+    assert f"Failed to save recording settings to {manager.RECORDING_SETTINGS_PATH}" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -239,9 +235,9 @@ async def test_start_recording_sends_selected_devices_from_cache() -> None:
         },
     }
     manager.recording_state.devices_cache = devices
-    session_recording_module.update_selected_recording_devices_cache(manager)
+    recording_device_selection_module.update_selected_recording_devices_cache(manager)
 
-    result = await session_recording_module.start_recording(manager)
+    result = await recording_lifecycle_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert sent_commands == [CommandType.LIST_DEVICES, CommandType.START_RECORDING]
@@ -296,7 +292,7 @@ async def test_start_recording_preserves_include_other_device_selection() -> Non
         },
     }
 
-    result = await session_recording_module.start_recording(manager)
+    result = await recording_lifecycle_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert sent_commands == [CommandType.LIST_DEVICES, CommandType.START_RECORDING]
@@ -329,7 +325,7 @@ async def test_start_recording_sends_captured_start_position_to_daemon_start() -
         "device_overrides": {},
     }
 
-    result = await session_recording_module.start_recording(manager)
+    result = await recording_lifecycle_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert sent_payloads[1]["record_start_position"] is True
@@ -340,9 +336,7 @@ async def test_start_recording_sends_captured_start_position_to_daemon_start() -
 @pytest.mark.asyncio
 async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> None:
     manager = SessionManager()
-    manager.profile_state.grabbed_interfaces["045e:02a1"] = {
-        "gamepad": "/dev/input/event20"
-    }
+    manager.profile_state.grabbed_interfaces["045e:02a1"] = {"gamepad": "/dev/input/event20"}
     manager.client.send_command = AsyncMock(
         return_value=Response(
             status="ok",
@@ -363,7 +357,7 @@ async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> Non
         )
     )
 
-    devices = await session_recording_module.get_devices_for_recording(
+    devices = await recording_device_selection_module.get_devices_for_recording(
         manager,
         ["gamepad"],
         include_grabbed=True,
@@ -382,7 +376,7 @@ async def test_get_devices_for_recording_logs_unexpected_failure(
     manager.client.send_command = AsyncMock(side_effect=RuntimeError("list bug"))
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session"):
-        devices = await session_recording_module.get_devices_for_recording(
+        devices = await recording_device_selection_module.get_devices_for_recording(
             manager,
             ["keyboard"],
         )
@@ -435,9 +429,9 @@ async def test_start_recording_defaults_to_recommended_sources_only() -> None:
         "device_overrides": {},
     }
     manager.recording_state.devices_cache = devices
-    session_recording_module.update_selected_recording_devices_cache(manager)
+    recording_device_selection_module.update_selected_recording_devices_cache(manager)
 
-    result = await session_recording_module.start_recording(manager)
+    result = await recording_lifecycle_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
     sent_devices = cast(list[dict[str, object]], sent_payloads[1]["devices"])
@@ -472,18 +466,14 @@ async def test_update_recording_settings_recomputes_selected_devices_cache() -> 
             "device_types": ["mouse"],
         },
     ]
-    session_recording_module.update_selected_recording_devices_cache(manager)
+    recording_device_selection_module.update_selected_recording_devices_cache(manager)
     assert [
         device["recording_id"] for device in manager.recording_state.selected_devices_cache
     ] == ["keymasq:output:keyboard"]
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
-        {
-            "device_overrides": {
-                "physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True
-            }
-        },
+        {"device_overrides": {"physical:/dev/input/by-id/usb-Test_Mouse-event-mouse": True}},
     )
 
     assert [
@@ -515,7 +505,7 @@ async def test_update_recording_settings_prunes_stale_device_overrides() -> None
         },
     ]
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
         {
             "device_overrides": {
@@ -548,7 +538,7 @@ async def test_update_recording_settings_preserves_overrides_when_cache_is_empty
     manager.recording_state.devices_cache_ready = True
     manager.recording_state.devices_cache = []
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
         {
             "device_overrides": {
@@ -579,7 +569,7 @@ def test_update_recording_settings_ignores_requests_without_settings_fields() ->
     manager.recording_state.devices_cache_ready = True
     manager.recording_state.devices_cache = []
 
-    session_recording_module.update_recording_settings(
+    recording_device_selection_module.update_recording_settings(
         manager,
         {"command": "start_recording", "recording_slot": 2},
     )
@@ -607,13 +597,13 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
         return Response(status="ok", data={"status": "ok"})
 
     manager.client = SimpleNamespace(send_command=send_command)  # type: ignore[assignment]
-    session_recording_module.begin_pending_macro_save(
+    recording_lifecycle_module.begin_pending_macro_save(
         manager,
         {"pending_recording_id": "recording-old"},
         recording_slot=1,
     )
 
-    result = await session_recording_module.start_recording(manager)
+    result = await recording_lifecycle_module.start_recording(manager)
 
     assert result == {"status": "ok", "recording_slot": 1}
     assert [command.command for command in sent_commands] == [
@@ -631,7 +621,7 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
 async def test_start_recording_rejects_missing_recording_slot() -> None:
     manager = SessionManager()
 
-    result = await session_recording_module.start_recording(manager, recording_slot=0)
+    result = await recording_lifecycle_module.start_recording(manager, recording_slot=0)
 
     assert result["status"] == "error"
     assert result["error_code"] == "macro_recording_slot_required"

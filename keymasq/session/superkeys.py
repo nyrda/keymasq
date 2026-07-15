@@ -9,12 +9,14 @@ import tomli_w
 
 from keymasq.common import paths
 from keymasq.common.config_files import write_config_atomically
-from keymasq.common.models import (
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import (
     ActionType,
-    MappingAction,
+    SuperkeyMode,
+)
+from keymasq.common.model.superkeys import (
     SuperkeyAction,
     SuperkeyConfig,
-    SuperkeyMode,
     mapping_action_to_superkey_action,
     superkey_action_to_mapping_action,
 )
@@ -250,6 +252,12 @@ class SuperkeyManager:
     def save_superkey(self, config: SuperkeyConfig, *, replacing_name: str | None = None) -> None:
         paths.ensure_config_dirs()
         self._validate_before_save(config)
+        if (
+            replacing_name is not None
+            and replacing_name != config.name
+            and config.name in self._superkeys
+        ):
+            raise ValueError(f"Superkey '{config.name}' already exists")
 
         tracked_name = replacing_name or config.name
         path = self._superkey_paths.get(tracked_name, self._path_for_name(config.name))
@@ -439,9 +447,7 @@ class SuperkeyManager:
         stored_name = self._storage_file_name(path)
         if stored_name is None or stored_name == name or stored_name == replacing_name:
             return
-        raise ValueError(
-            f"Superkey name '{name}' conflicts with existing superkey '{stored_name}'"
-        )
+        raise ValueError(f"Superkey name '{name}' conflicts with existing superkey '{stored_name}'")
 
     def reload(self) -> None:
         self._load_all(strict=True)

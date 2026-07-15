@@ -3,11 +3,10 @@ from typing import Literal, cast
 
 from keymasq.common.coercion import coerce_float, coerce_int
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
-    ActionType,
     MappingAction,
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
@@ -18,6 +17,7 @@ from keymasq.common.models import (
     profile_deactivation_policy_to_dict,
     resolve_rapidfire_fields,
 )
+from keymasq.common.model.core import ActionType
 
 type TomlDict = dict[str, object]
 type UnknownActionPolicy = Literal["raise", "passthrough"]

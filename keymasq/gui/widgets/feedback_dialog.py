@@ -107,9 +107,7 @@ class FeedbackDialog(Adw.Dialog):
         category_label.add_css_class("caption")
         content.append(category_label)
 
-        self.category_dropdown = Gtk.DropDown.new_from_strings(
-            ["Bug", "Idea", "Question", "Other"]
-        )
+        self.category_dropdown = Gtk.DropDown.new_from_strings(["Bug", "Idea", "Question", "Other"])
         self.category_dropdown.set_selected(2)
         content.append(self.category_dropdown)
 

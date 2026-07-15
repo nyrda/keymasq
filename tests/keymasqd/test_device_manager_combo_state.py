@@ -5,12 +5,17 @@ from unittest.mock import AsyncMock, Mock
 import evdev
 import pytest
 
+from keymasq.common import devices
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, DeviceType
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.combo import actions, events, lifecycle
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.macro import cleanup
+from keymasq.keymasqd.runtime.manager_combos import (
+    EMERGENCY_CANCEL_COMBO_ID_PREFIX,
+    EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS,
+)
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_event_runtime_kwargs,
@@ -36,14 +41,14 @@ class TestCombos:
         result = await manager.set_combos([])
 
         assert result == {"updated": True, "combo_count": 1}
-        combo = manager.active_combos[0]
-        assert combo.id == f"{dm.EMERGENCY_CANCEL_COMBO_ID_PREFIX}1234:5678"
+        combo = manager.combo_state.active_combos[0]
+        assert combo.id == f"{EMERGENCY_CANCEL_COMBO_ID_PREFIX}1234:5678"
         assert combo.action is not None
         assert combo.action.action_type == ActionType.SUPERKEY
         assert combo.action.superkey_config is not None
         assert (
             combo.action.superkey_config.double_tap_window_ms
-            == dm.EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS
+            == EMERGENCY_CANCEL_DOUBLE_TAP_WINDOW_MS
         )
         assert [action.action_type for action in combo.action.superkey_config.tap_actions] == [
             ActionType.CANCEL_MACRO_PLAYBACK.value
@@ -79,7 +84,7 @@ class TestCombos:
         result = await manager.set_combos([])
 
         assert result == {"updated": True, "combo_count": 0}
-        assert manager.active_combos == []
+        assert manager.combo_state.active_combos == []
 
     @pytest.mark.asyncio
     async def test_set_combos_filters_user_emergency_cancel_duplicate(self):
@@ -121,8 +126,8 @@ class TestCombos:
         )
 
         assert result == {"updated": True, "combo_count": 1}
-        assert [combo.id for combo in manager.active_combos] == [
-            f"{dm.EMERGENCY_CANCEL_COMBO_ID_PREFIX}1234:5678"
+        assert [combo.id for combo in manager.combo_state.active_combos] == [
+            f"{EMERGENCY_CANCEL_COMBO_ID_PREFIX}1234:5678"
         ]
 
     @pytest.mark.asyncio
@@ -142,10 +147,10 @@ class TestCombos:
         }
         await manager.set_combos([])
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -156,7 +161,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -167,7 +172,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        decision = await cdm.on_device_event(
+        decision = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -178,7 +183,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -211,11 +216,11 @@ class TestCombos:
             ]
         }
         await manager.set_combos([])
-        combo = manager.active_combos[0]
+        combo = manager.combo_state.active_combos[0]
         assert combo.action is not None
         binding = combo.steps[0].bindings[-1]
 
-        await cdm.start_combo_action(
+        await actions.start_combo_action(
             manager,
             combo.id,
             combo.action,
@@ -223,8 +228,8 @@ class TestCombos:
             combo.steps[0].bindings,
             deps=combo_runtime_deps(),
         )
-        await cdm.stop_combo_action(manager, combo.id, deps=combo_runtime_deps())
-        await cdm.start_combo_action(
+        await actions.stop_combo_action(manager, combo.id, deps=combo_runtime_deps())
+        await actions.start_combo_action(
             manager,
             combo.id,
             combo.action,
@@ -232,7 +237,7 @@ class TestCombos:
             combo.steps[0].bindings,
             deps=combo_runtime_deps(),
         )
-        await cdm.stop_combo_action(manager, combo.id, deps=combo_runtime_deps())
+        await actions.stop_combo_action(manager, combo.id, deps=combo_runtime_deps())
         await asyncio.sleep(0.02)
 
         manager.cancel_macro_playback.assert_not_awaited()
@@ -247,7 +252,7 @@ class TestCombos:
 
         manager = DeviceManager(broadcast_callback=broadcast)
         cancel_macro_playback = AsyncMock(return_value={"status": "ok", "cancelled": True})
-        monkeypatch.setattr(dm.runtime_macros, "cancel_macro_playback", cancel_macro_playback)
+        monkeypatch.setattr(cleanup, "cancel_macro_playback", cancel_macro_playback)
 
         result = await manager.cancel_macro_playback()
         await asyncio.sleep(0)
@@ -311,10 +316,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -326,7 +331,7 @@ class TestCombos:
             **combo_event_runtime_kwargs(),
         )
         await asyncio.sleep(0)
-        await cdm.clear_combo_runtime(manager, deps=combo_runtime_deps())
+        await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
 
         assert pressed is not None and pressed.consume_current_event is True
         assert manager.output_state.gamepad_uinput.writes == [
@@ -371,10 +376,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -385,7 +390,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -436,10 +441,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -450,7 +455,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -511,22 +516,22 @@ class TestCombos:
             passthrough_uinput=passthrough,
         )
 
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_LEFTMETA, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_4, value=1),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_4, value=0),
             deps=grabbed_event_processing_deps(),
         )
-        await gde.process_event(
+        await pipeline.process_event(
             device,
             SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_1, value=1),
             deps=grabbed_event_processing_deps(),
@@ -571,10 +576,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
 
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",
@@ -585,7 +590,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        await cdm.on_device_event(
+        await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-kbd",

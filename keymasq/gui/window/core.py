@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from keymasq.common.models import HardwareConfig
+from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.preferences import (
     load_hidden_tabs,
     load_selected_tab,
@@ -11,7 +11,7 @@ from keymasq.gui.preferences import (
 from keymasq.gui.widgets.combo_tab import ComboTab
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
 from keymasq.session.hardware import HardwareManager
-from keymasq.session.profiles import ProfileManager
+from keymasq.session.profile.manager import ProfileManager
 
 from . import (
     _runtime,
@@ -24,8 +24,6 @@ from . import (
     recording_unlock,
     tab_layout,
 )
-
-GLib = _runtime.GLib
 
 
 class MainWindow(_runtime.Adw.ApplicationWindow):
@@ -119,10 +117,10 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
 
         if not self.demo_mode:
             connection.register(self)
-            self._session_reconnect_source_id = GLib.timeout_add(
+            self._session_reconnect_source_id = _runtime.GLib.timeout_add(
                 2000, lambda: connection._reconnect_session(self)
             )
-            self._unlock_refresh_source_id = GLib.timeout_add_seconds(
+            self._unlock_refresh_source_id = _runtime.GLib.timeout_add_seconds(
                 30, lambda: recording_unlock._refresh_unlock_lease(self)
             )
             connection._update_status_from_session(self)

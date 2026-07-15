@@ -42,9 +42,10 @@ class _SavingHardwareManager:
 
 
 def _build_analog_learning_flow(monkeypatch, interface_id="joystick"):
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
-    import keymasq.gui.widgets.device_tab as device_tab_module
-    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+    import keymasq.gui.widgets.device_tab.tab as device_tab_module
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
     monkeypatch.setattr(
         device_tab_module,
@@ -224,7 +225,8 @@ def test_device_tab_learn_analog_stick_defaults_center_to_zero(
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -275,7 +277,7 @@ def test_capture_status_row_shows_recording_dot(temp_config_dir):
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.device_tab import (
+    from keymasq.gui.widgets.device_tab.capture_helpers import (
         _make_capture_status_row,
         _set_capture_status,
     )
@@ -296,7 +298,8 @@ def test_capture_status_row_shows_recording_dot(temp_config_dir):
 def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     from gi.repository import Gtk
 
-    from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -429,8 +432,8 @@ def test_persistent_session_connection_clears_partial_buffer_on_disconnect_and_r
 
 
 def test_device_tab_builds_captured_window_rules():
-    from keymasq.common.models import ButtonDefinition, HardwareConfig
-    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -463,8 +466,9 @@ def test_device_tab_builds_captured_window_rules():
 
 
 def test_device_tab_delete_button_visibility_depends_on_rule_count():
-    from keymasq.common.models import ButtonDefinition, HardwareConfig, WindowRule
-    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import WindowRule
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -480,7 +484,7 @@ def test_device_tab_delete_button_visibility_depends_on_rule_count():
         demo_mode=True,
     )
 
-    row_one = tab._create_rule_row(WindowRule(field="class", pattern="one"), is_first=True)
+    row_one = tab._create_rule_row(WindowRule(field="class", pattern="one"))
     row_two = tab._create_rule_row(WindowRule(field="title", pattern="two"))
     tab._rule_rows = [row_one, row_two]
 
@@ -496,14 +500,10 @@ def test_device_tab_delete_button_visibility_depends_on_rule_count():
 
 
 def test_device_tab_refresh_profiles_does_not_save_on_programmatic_settings_update(temp_config_dir):
-    from keymasq.common.models import (
-        ButtonDefinition,
-        DeviceProfileLayer,
-        HardwareConfig,
-        ProfileConfig,
-    )
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -548,16 +548,12 @@ def test_device_tab_refresh_profiles_does_not_save_on_programmatic_settings_upda
 
 
 def test_device_tab_legacy_passthrough_is_shown_as_active_mask(temp_config_dir):
-    from keymasq.common.models import (
-        ActionType,
-        ButtonDefinition,
-        DeviceProfileLayer,
-        HardwareConfig,
-        MappingAction,
-        ProfileConfig,
-    )
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -615,14 +611,10 @@ def test_device_tab_legacy_passthrough_is_shown_as_active_mask(temp_config_dir):
 
 
 def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
-    from keymasq.common.models import (
-        ButtonDefinition,
-        DeviceProfileLayer,
-        HardwareConfig,
-        ProfileConfig,
-    )
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -668,14 +660,10 @@ def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
 
 
 def test_window_rules_dialog_applies_to_profile_it_was_opened_for(temp_config_dir):
-    from keymasq.common.models import (
-        ButtonDefinition,
-        DeviceProfileLayer,
-        HardwareConfig,
-        ProfileConfig,
-    )
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -743,9 +731,10 @@ def test_window_rules_dialog_applies_to_profile_it_was_opened_for(temp_config_di
 
 
 def test_window_rules_remove_button_tracks_captured_rules(temp_config_dir):
-    from keymasq.common.models import ButtonDefinition, HardwareConfig, ProfileConfig
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(ProfileConfig(name="Desktop", enabled=True, is_permanent=True))
@@ -768,7 +757,8 @@ def test_window_rules_remove_button_tracks_captured_rules(temp_config_dir):
 
 
 def test_describe_mapping_action_compact_includes_runtime_markers():
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 
     action = MappingAction(
@@ -782,16 +772,12 @@ def test_describe_mapping_action_compact_includes_runtime_markers():
 
 
 def test_device_tab_uses_pango_ellipsizing_for_long_action_summary(temp_config_dir):
-    from keymasq.common.models import (
-        ActionType,
-        ButtonDefinition,
-        DeviceProfileLayer,
-        HardwareConfig,
-        MappingAction,
-        ProfileConfig,
-    )
-    from keymasq.gui.widgets.device_tab import DeviceTab
-    from keymasq.session.profiles import ProfileManager
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
 
     profile_manager = ProfileManager()
     profile_manager.save_profile(
@@ -828,21 +814,19 @@ def test_device_tab_uses_pango_ellipsizing_for_long_action_summary(temp_config_d
     assert widget._action_label.get_ellipsize().value_name == "PANGO_ELLIPSIZE_MIDDLE"
     assert widget._action_label.get_hexpand() is True
     assert widget._action_label.get_text() == "▶ grimblast copy area"
-    assert widget._action_label.get_tooltip_text() == (
-        "▶ grimblast --freeze --notify copy area"
-    )
+    assert widget._action_label.get_tooltip_text() == ("▶ grimblast --freeze --notify copy area")
 
 
 def test_device_tab_renders_analog_controls_for_keyboard_layout(temp_config_dir):
-    from keymasq.common.models import (
+    from keymasq.common.model.hardware import (
         AnalogAxisDefinition,
         AnalogInputDefinition,
         ButtonDefinition,
-        DeviceType,
         EvdevDevice,
         HardwareConfig,
     )
-    from keymasq.gui.widgets.device_tab import DeviceTab
+    from keymasq.common.model.core import DeviceType
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
     device = HardwareConfig(
         vendor_id="1234",
@@ -888,7 +872,7 @@ def test_device_tab_renders_analog_controls_for_keyboard_layout(temp_config_dir)
 def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def collect_buttons(widget):
         buttons = []
@@ -917,9 +901,9 @@ def test_key_selector_dialog_passthrough_clears_current_profile_mapping():
 def test_key_selector_type_tab_creates_macro_and_maps_it(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType
+    from keymasq.common.model.core import ActionType
     from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     requests: list[dict[str, object]] = []
 
@@ -970,7 +954,7 @@ def test_key_selector_type_tab_allows_whitespace_only_text(monkeypatch):
     from gi.repository import Gtk
 
     from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     requests: list[dict[str, object]] = []
 
@@ -1003,9 +987,10 @@ def test_key_selector_type_tab_allows_whitespace_only_text(monkeypatch):
 def test_key_selector_type_tab_loads_macro_details_only_when_opened(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     requests: list[dict[str, object]] = []
 
@@ -1054,9 +1039,10 @@ def test_key_selector_type_tab_loads_macro_details_only_when_opened(monkeypatch)
 def test_key_selector_type_tab_does_not_clobber_user_edits_after_async_load(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     callbacks = []
 
@@ -1099,9 +1085,10 @@ def test_key_selector_type_tab_does_not_clobber_user_edits_after_async_load(monk
 def test_key_selector_type_tab_preserves_macro_playback_options(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.key_selector import type_tab as type_tab_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     requests: list[dict[str, object]] = []
     results = []
@@ -1157,7 +1144,7 @@ def test_key_selector_type_tab_preserves_macro_playback_options(monkeypatch):
 def test_key_selector_type_tab_resyncs_map_button_after_unicode_toggle(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     dialog.stack.set_visible_child_name("type")
@@ -1175,8 +1162,8 @@ def test_key_selector_type_tab_resyncs_map_button_after_unicode_toggle(monkeypat
 def test_analog_key_selector_default_tab_and_special_has_no_passthrough(temp_config_dir):
     from gi.repository import Gtk
 
-    from keymasq.common.models import AnalogControlConfig
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.analog import AnalogControlConfig
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
     from keymasq.session.analog_controls import AnalogControlManager
 
     def collect_buttons(widget):
@@ -1217,9 +1204,11 @@ def test_analog_key_selector_preset_uses_suffixed_name_for_storage_collision(
 ):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, AnalogControlConfig, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.analog import AnalogControlConfig
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.analog_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
     from keymasq.session.analog_controls import (
         AnalogControlManager,
         analog_control_presets,
@@ -1239,9 +1228,7 @@ def test_analog_key_selector_preset_uses_suffixed_name_for_storage_collision(
     )
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
     preset = next(
-        preset
-        for preset in analog_control_presets("stick")
-        if preset.preset_id == "mouse_move"
+        preset for preset in analog_control_presets("stick") if preset.preset_id == "mouse_move"
     )
 
     dialog._on_analog_preset_clicked(Gtk.Button(), preset)
@@ -1254,13 +1241,13 @@ def test_analog_key_selector_preset_uses_suffixed_name_for_storage_collision(
 def test_key_selector_dialog_repeat_uses_special_toggle_buttons_and_inline_rapidfire():
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
+    from keymasq.common.model.actions import (
         REPEAT_CATEGORY_MOUSE,
         REPEAT_CATEGORY_SPECIAL,
-        ActionType,
         MappingAction,
     )
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def collect_buttons(widget):
         buttons = []
@@ -1334,8 +1321,9 @@ def test_key_selector_dialog_repeat_uses_special_toggle_buttons_and_inline_rapid
 def test_key_selector_dialog_repeat_preserves_empty_categories():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -1355,14 +1343,10 @@ def test_key_selector_dialog_uses_dedicated_superkey_tab(temp_config_dir, monkey
     from gi.repository import Gtk
 
     from keymasq.common import paths
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        SuperkeyAction,
-        SuperkeyConfig,
-        SuperkeyMode,
-    )
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType, SuperkeyMode
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.superkeys import SuperkeyAction, SuperkeyConfig
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
     from keymasq.session.superkeys import SuperkeyManager
 
     def collect_buttons(widget):
@@ -1419,8 +1403,8 @@ def test_key_selector_superkey_right_click_opens_manager_for_superkey(
 ):
     from gi.repository import Gtk
 
-    from keymasq.common.models import SuperkeyConfig
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.superkeys import SuperkeyConfig
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
     from keymasq.session.superkeys import SuperkeyManager
 
     SuperkeyManager().save_superkey(SuperkeyConfig(name="volume_rocker"))
@@ -1444,8 +1428,8 @@ def test_key_selector_open_superkey_manager_uses_root_profile_manager(
 ):
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.superkey_dialog as superkey_dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.superkey_editor.dialog as superkey_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     captured: dict[str, object] = {}
     parent = Gtk.Box()
@@ -1487,7 +1471,7 @@ def test_key_selector_open_superkey_manager_uses_root_profile_manager(
 def test_key_selector_macro_right_click_opens_macro_editor(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Window(), "Back")
     opened: list[str] = []
@@ -1507,8 +1491,8 @@ def test_key_selector_macro_right_click_opens_macro_editor(monkeypatch):
 def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatch):
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.macro_editor_dialog as macro_editor_dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.macro_editor.dialog as macro_editor_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     captured: dict[str, object] = {}
     callbacks: list[Callable[[object], object]] = []
@@ -1550,8 +1534,9 @@ def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatc
 def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -1588,8 +1573,9 @@ def test_key_selector_dialog_keyboard_mapping_uses_rapidfire_or_tap_state():
 def test_key_selector_dialog_selection_emits_and_closes(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction | None] = []
@@ -1609,8 +1595,9 @@ def test_key_selector_dialog_selection_emits_and_closes(monkeypatch):
 def test_key_selector_dialog_media_tab_hides_options_and_raw_keys_ignore_them():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -1652,8 +1639,9 @@ def test_key_selector_dialog_media_tab_hides_options_and_raw_keys_ignore_them():
 def test_key_selector_dialog_system_keys_use_keyboard_options():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -1706,8 +1694,9 @@ def test_key_selector_dialog_system_keys_use_keyboard_options():
 def test_key_selector_dialog_map_code_media_keys_ignore_options():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -1768,8 +1757,9 @@ def test_key_selector_dialog_map_code_media_keys_ignore_options():
 def test_superkey_action_dialog_media_tab_hides_rapidfire_and_raw_keys_ignore_it():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, SuperkeyAction
-    from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.superkeys import SuperkeyAction
+    from keymasq.gui.widgets.key_selector.superkey_action_dialog import SuperkeyActionDialog
 
     dialog = SuperkeyActionDialog(Gtk.Box(), "hold")
     assert dialog.rapidfire_check is not None
@@ -1794,8 +1784,9 @@ def test_superkey_action_dialog_media_tab_hides_rapidfire_and_raw_keys_ignore_it
 def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -1819,8 +1810,9 @@ def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
 def test_key_selector_dialog_gamepad_trigger_presets_use_axis_actions():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
         buttons: list[Gtk.Button] = []
@@ -1863,8 +1855,8 @@ def test_key_selector_dialog_gamepad_output_selector_lives_in_title(monkeypatch)
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 2)
     monkeypatch.setattr(
@@ -1891,9 +1883,9 @@ def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch)
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import ButtonDefinition, HardwareConfig
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     hardware = HardwareConfig(
         vendor_id="045e",
@@ -1919,8 +1911,8 @@ def test_key_selector_dialog_gamepad_default_warns_when_virtual_count_zero(monke
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 0)
     monkeypatch.setattr(
@@ -1941,9 +1933,10 @@ def test_key_selector_dialog_explicit_missing_virtual_output_warns(monkeypatch):
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
@@ -1976,9 +1969,10 @@ def test_key_selector_dialog_explicit_first_virtual_output_uses_default_choice(m
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
@@ -2010,9 +2004,11 @@ def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choic
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, SuperkeyAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import SuperkeyActionDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.superkeys import SuperkeyAction
+    import keymasq.gui.widgets.key_selector.macro_tab as macro_tab_module
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.superkey_action_dialog import SuperkeyActionDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
     monkeypatch.setattr(
@@ -2021,7 +2017,7 @@ def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choic
         lambda: SimpleNamespace(list_hardware=lambda: []),
     )
     monkeypatch.setattr(
-        dialog_module,
+        macro_tab_module,
         "session_request_async",
         lambda payload, callback, timeout=5.0: None,
     )
@@ -2046,8 +2042,9 @@ def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def collect_buttons(widget):
         buttons = []
@@ -2079,8 +2076,9 @@ def test_key_selector_dialog_mouse_back_forward_use_browser_button_codes():
 def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.LogCaptureFixture):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -2089,7 +2087,7 @@ def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.Lo
     dialog.rapidfire_check.set_active(True)
     dialog.exec_entry.set_text("echo hi")
 
-    with caplog.at_level("WARNING", logger="keymasq.gui.widgets.key_selector_dialog"):
+    with caplog.at_level("WARNING", logger="keymasq.gui.widgets.key_selector.options_panel"):
         dialog._on_exec_map_clicked(None)
 
     assert len(results) == 1
@@ -2101,8 +2099,9 @@ def test_key_selector_dialog_warns_when_exec_ignores_rapidfire(caplog: pytest.Lo
 def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -2124,7 +2123,7 @@ def test_key_selector_dialog_map_code_handles_valid_and_invalid_input():
 
 
 def test_resolve_gamepad_button_target_accepts_names_and_codes():
-    from keymasq.gui.widgets.key_selector_dialog import _resolve_gamepad_button_target
+    from keymasq.gui.widgets.key_selector.targets import _resolve_gamepad_button_target
 
     assert _resolve_gamepad_button_target("btn_c") == "btn_c"
     assert _resolve_gamepad_button_target("  BTN_Z ") == "btn_z"
@@ -2140,7 +2139,7 @@ def test_resolve_gamepad_button_target_accepts_names_and_codes():
 
 
 def test_resolve_gamepad_axis_target_accepts_names_and_codes():
-    from keymasq.gui.widgets.key_selector_dialog import _resolve_gamepad_axis_target
+    from keymasq.gui.widgets.key_selector.targets import _resolve_gamepad_axis_target
 
     assert _resolve_gamepad_axis_target("abs_hat0x") == "abs_hat0x"
     assert _resolve_gamepad_axis_target("  ABS_THROTTLE ") == "abs_throttle"
@@ -2155,8 +2154,9 @@ def test_resolve_gamepad_axis_target_accepts_names_and_codes():
 def test_key_selector_dialog_custom_axis_maps_and_toggles_percent():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
     results: list[MappingAction] = []
@@ -2187,9 +2187,7 @@ def test_key_selector_dialog_custom_axis_maps_and_toggles_percent():
 
     invalid = KeySelectorDialog(Gtk.Box(), "Back")
     invalid.stack.set_visible_child_name("gamepad")
-    invalid.gamepad_axis_dropdown.set_selected(
-        invalid.gamepad_axis_targets.index("custom")
-    )
+    invalid.gamepad_axis_dropdown.set_selected(invalid.gamepad_axis_targets.index("custom"))
     invalid.gamepad_axis_custom_entry.set_text("not-an-axis")
     invalid._on_gamepad_axis_apply_clicked(None)
 
@@ -2200,8 +2198,9 @@ def test_key_selector_dialog_custom_axis_maps_and_toggles_percent():
 def test_key_selector_dialog_prefills_custom_button_and_axis_fields():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     # Custom button code pre-fills the free-form field; a template button does not.
     custom_btn = KeySelectorDialog(
@@ -2247,9 +2246,10 @@ def test_key_selector_dialog_prefills_custom_button_and_axis_fields():
 def test_key_selector_dialog_gamepad_code_maps_and_routes(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 2)
     monkeypatch.setattr(
@@ -2283,9 +2283,10 @@ def test_key_selector_dialog_gamepad_code_maps_and_routes(monkeypatch):
 def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     requests: list[dict] = []
 
@@ -2349,13 +2350,10 @@ def test_key_selector_dialog_profile_tab_populates_and_maps_selected_action(monk
 def test_key_selector_dialog_profile_tab_restores_edited_profile_mapping(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        ProfileDeactivationPolicy,
-    )
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def fake_session_request_async(_payload, _callback, timeout=5.0):
         _ = timeout
@@ -2408,13 +2406,10 @@ def test_key_selector_dialog_profile_tab_restores_edited_profile_mapping(monkeyp
 def test_key_selector_dialog_profile_toggle_lifetime_controls(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        ProfileDeactivationPolicy,
-    )
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def fake_session_request_async(_payload, _callback, timeout=5.0):
         _ = timeout
@@ -2481,13 +2476,10 @@ def test_key_selector_dialog_profile_toggle_lifetime_controls(monkeypatch):
 def test_key_selector_dialog_profile_custom_lifetime_restores_count_row(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        ProfileDeactivationPolicy,
-    )
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def fake_session_request_async(_payload, _callback, timeout=5.0):
         _ = timeout
@@ -2548,13 +2540,10 @@ def test_key_selector_dialog_profile_timeout_only_lifetime_restores_as_custom(
 ):
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        ProfileDeactivationPolicy,
-    )
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def fake_session_request_async(_payload, _callback, timeout=5.0):
         _ = timeout
@@ -2600,13 +2589,10 @@ def test_key_selector_dialog_profile_timeout_only_lifetime_restores_as_custom(
 def test_key_selector_dialog_profile_lifetime_requires_disabled_profile(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import (
-        ActionType,
-        MappingAction,
-        ProfileDeactivationPolicy,
-    )
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction, ProfileDeactivationPolicy
+    import keymasq.gui.widgets.key_selector.profile_tab as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     def fake_session_request_async(_payload, _callback, timeout=5.0):
         _ = timeout
@@ -2667,8 +2653,9 @@ def test_key_selector_dialog_profile_lifetime_requires_disabled_profile(monkeypa
 def test_key_selector_dialog_shows_hyprland_actions_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2706,8 +2693,9 @@ def test_key_selector_dialog_shows_hyprland_actions_for_active_listener_or_saved
 def test_key_selector_dialog_hides_hyprland_lua_template_fields():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2734,8 +2722,9 @@ def test_key_selector_dialog_hides_hyprland_lua_template_fields():
 def test_key_selector_dialog_hides_hyprland_numbered_workspace_template_fields():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2762,8 +2751,9 @@ def test_key_selector_dialog_hides_hyprland_numbered_workspace_template_fields()
 def test_key_selector_dialog_shows_niri_dispatch_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2804,8 +2794,9 @@ def test_key_selector_dialog_shows_niri_dispatch_for_active_listener_or_saved_ac
 def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2854,9 +2845,10 @@ def test_key_selector_dialog_shows_gnome_dispatch_for_active_gnome_listener():
 def test_key_selector_dialog_compositor_set_cursor_reuses_position_capture(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.dialog as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     class _Result:
         def __init__(self, x: int, y: int) -> None:
@@ -2913,8 +2905,9 @@ def test_key_selector_dialog_compositor_set_cursor_reuses_position_capture(monke
 def test_key_selector_dialog_reopens_set_cursor_with_captured_coordinates():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2944,8 +2937,9 @@ def test_key_selector_dialog_reopens_set_cursor_with_captured_coordinates():
 def test_key_selector_dialog_shows_kde_dispatch_for_active_listener_or_saved_action():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     active_dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -2987,7 +2981,7 @@ def test_key_selector_dialog_shows_kde_dispatch_for_active_listener_or_saved_act
 def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -3008,7 +3002,8 @@ def test_key_selector_dialog_keeps_hyprland_custom_dispatch_enabled():
 
 
 def test_compositor_action_helpers_resolve_kde_actions() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.compositor_actions import (
         compositor_action_tab_name,
         describe_compositor_action,
@@ -3021,18 +3016,22 @@ def test_compositor_action_helpers_resolve_kde_actions() -> None:
         compositor_args="",
     )
 
-    assert compositor_action_tab_name(
-        action,
-        {
-            "listener_name": "kde",
-            "compositor_dispatch_available": True,
-        },
-    ) == "kde"
+    assert (
+        compositor_action_tab_name(
+            action,
+            {
+                "listener_name": "kde",
+                "compositor_dispatch_available": True,
+            },
+        )
+        == "kde"
+    )
     assert describe_compositor_action(action) == "KDE Plasma → tile_left"
 
 
 def test_compositor_action_definitions_share_dispatch_behavior() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.compositor_actions.compositors import (
         COMPOSITOR_ACTION_DEFINITIONS,
     )
@@ -3096,7 +3095,8 @@ def test_compositor_action_definitions_share_dispatch_behavior() -> None:
 
 
 def test_compositor_action_helpers_resolve_niri_actions() -> None:
-    from keymasq.common.models import ActionType, MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
     from keymasq.gui.widgets.compositor_actions import (
         compositor_action_tab_name,
         describe_compositor_action,
@@ -3109,22 +3109,26 @@ def test_compositor_action_helpers_resolve_niri_actions() -> None:
         compositor_args="2",
     )
 
-    assert compositor_action_tab_name(
-        action,
-        {
-            "listener_name": "niri",
-            "compositor_dispatch_available": True,
-        },
-    ) == "niri"
+    assert (
+        compositor_action_tab_name(
+            action,
+            {
+                "listener_name": "niri",
+                "compositor_dispatch_available": True,
+            },
+        )
+        == "niri"
+    )
     assert describe_compositor_action(action) == "Niri → focus-workspace 2"
 
 
 def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    import keymasq.gui.widgets.key_selector.dialog as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     class _Result:
         def __init__(self, x: int, y: int) -> None:
@@ -3173,8 +3177,8 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
     error_dialog = KeySelectorDialog(Gtk.Box(), "Back")
     error_dialog._on_capture_position_clicked(Gtk.Button())
     error_dialog._on_capture_position_response(
-        error_dialog._capture_request_id,
-        {"status": "error", "message": "Unknown command: get_cursor_position"}
+        error_dialog._position_capture.request_id,
+        {"status": "error", "message": "Unknown command: get_cursor_position"},
     )
 
     assert (
@@ -3187,8 +3191,9 @@ def test_key_selector_dialog_repeated_delayed_capture_ignores_stale_response(mon
     from collections.abc import Callable
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.dialog as dialog_module
+    import keymasq.gui.widgets.position_capture as position_capture_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     callbacks: list[Callable[[], bool]] = []
     requests: list[Callable[[dict[str, object]], bool | None]] = []
@@ -3212,8 +3217,8 @@ def test_key_selector_dialog_repeated_delayed_capture_ignores_stale_response(mon
 
     monkeypatch.setattr(dialog_module, "get_slurp_capture", lambda: _SlurpCapture())
     monkeypatch.setattr(dialog_module, "session_compositor_id", lambda: "hyprland")
-    monkeypatch.setattr(dialog_module.GLib, "timeout_add", fake_timeout_add)
-    monkeypatch.setattr(dialog_module.GLib, "source_remove", fake_source_remove)
+    monkeypatch.setattr(position_capture_module.GLib, "timeout_add", fake_timeout_add)
+    monkeypatch.setattr(position_capture_module.GLib, "source_remove", fake_source_remove)
     monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
@@ -3273,7 +3278,7 @@ def test_shared_keyboard_picker_builds_system_key_row():
     from gi.repository import Gtk
 
     from keymasq.gui.widgets.input_picker_shared import build_keyboard_tab
-    from keymasq.gui.widgets.key_selector_dialog import SYSTEM_KEY_GROUPS
+    from keymasq.gui.widgets.key_selector.targets import SYSTEM_KEY_GROUPS
 
     class _Owner:
         def __init__(self) -> None:
@@ -3335,7 +3340,7 @@ def test_shared_media_picker_builds_icon_buttons():
     from gi.repository import Gtk
 
     from keymasq.gui.widgets.input_picker_shared import build_media_tab
-    from keymasq.gui.widgets.key_selector_dialog import MEDIA_KEY_GROUPS
+    from keymasq.gui.widgets.key_selector.targets import MEDIA_KEY_GROUPS
 
     class _Owner:
         def __init__(self) -> None:
@@ -3387,7 +3392,7 @@ def test_shared_media_picker_can_put_mpris_controls_first():
     from gi.repository import Gtk
 
     from keymasq.gui.widgets.input_picker_shared import build_media_tab
-    from keymasq.gui.widgets.key_selector_dialog import MEDIA_KEY_GROUPS, MPRIS_MEDIA_GROUPS
+    from keymasq.gui.widgets.key_selector.targets import MEDIA_KEY_GROUPS, MPRIS_MEDIA_GROUPS
 
     class _Owner:
         def __init__(self) -> None:
@@ -3450,7 +3455,7 @@ def test_shared_gamepad_picker_buttons_use_shared_metadata():
     from gi.repository import Gtk
 
     from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS, build_gamepad_tab
-    from keymasq.gui.widgets.key_selector_dialog import EVDEV_TO_GAMEPAD
+    from keymasq.gui.widgets.key_selector.targets import EVDEV_TO_GAMEPAD
 
     class _Owner:
         def _create_key_button(
@@ -3530,9 +3535,7 @@ def test_shared_gamepad_picker_falls_back_without_axis_handler():
 
     assert isinstance(widget, Gtk.Box)
     buttons_by_label = {
-        button.get_label(): button
-        for button in collect_buttons(widget)
-        if button.get_label()
+        button.get_label(): button for button in collect_buttons(widget) if button.get_label()
     }
 
     for label in ("LT", "LX+", "RY-", "RT"):
@@ -3544,8 +3547,9 @@ def test_shared_gamepad_picker_falls_back_without_axis_handler():
 def test_key_selector_dialog_opens_media_tab_for_media_key_action():
     from gi.repository import Gtk
 
-    from keymasq.common.models import ActionType, MappingAction
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(
         Gtk.Box(),
@@ -3559,8 +3563,8 @@ def test_key_selector_dialog_opens_media_tab_for_media_key_action():
 def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.MonkeyPatch):
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets import key_selector_dialog as dialog_module
-    from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+    import keymasq.gui.widgets.key_selector.targets as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(dialog_module, "__version__", "1.2.3")
 
@@ -3594,8 +3598,8 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
 
 
 def test_analog_controls_layout_orders_triggers_then_sticks() -> None:
-    from keymasq.common.models import AnalogInputDefinition
-    from keymasq.gui.widgets.device_tab import _grouped_analog_inputs, _ordered_analog_inputs
+    from keymasq.common.model.hardware import AnalogInputDefinition
+    from keymasq.gui.widgets.device_tab.grid import _grouped_analog_inputs, _ordered_analog_inputs
 
     analogs = [
         AnalogInputDefinition(id="left_stick", label="Left Stick", type="stick"),

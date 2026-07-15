@@ -8,27 +8,30 @@ from typing import TYPE_CHECKING, Any, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     MAX_MACRO_RECORDING_SLOTS,
-    ActionType,
     ProfileDeactivationPolicy,
     normalize_macro_recording_slot,
     normalize_profile_deactivation_policy,
     parse_profile_deactivation_policy,
     profile_deactivation_policy_to_dict,
 )
+from keymasq.common.model.core import ActionType
 
-from . import compositor as runtime_compositor
-from . import device_inspector as runtime_device_inspector
-from . import profiles as runtime_profiles
-from . import recording as runtime_recording
-from .common import JsonObject
-from .common import json_list as _json_list
+from . import (
+    compositor,
+    device_inspector,
+    recording_device_selection,
+    recording_lifecycle,
+    recording_unlock,
+)
+from .common import JsonObject, json_list
 from .constants import (
     GRAB_RETRY_DELAY_S,
     TOPOLOGY_REFRESH_DEBOUNCE_S,
     TOPOLOGY_REFRESH_RETRY_S,
 )
+from .profile import coordinator, runtime_state, runtime_status
 from .state import RuntimeProfileActivation
 
 if TYPE_CHECKING:
@@ -89,7 +92,7 @@ async def handle_cursor_position_request(
         return
 
     tracking_hint_ms = coerce_int(data.get("tracking_hint_ms"), None)
-    payload = await runtime_compositor.get_realtime_cursor_position_payload(
+    payload = await compositor.get_realtime_cursor_position_payload(
         manager,
         tracking_hint_ms=tracking_hint_ms,
     )
@@ -108,7 +111,7 @@ async def handle_cursor_position_request(
 
 async def handle_cursor_position_tracking_stop(manager: "SessionManager") -> None:
     try:
-        await runtime_compositor.stop_cursor_position_tracking(manager)
+        await compositor.stop_cursor_position_tracking(manager)
     except Exception:
         log.exception("Failed to stop cursor position tracking")
 
@@ -169,7 +172,7 @@ async def handle_event(
         elif action_type_str == "play_macro_slot":
             create_event_task(
                 manager,
-                runtime_recording.play_macro_slot_trigger(manager, data),
+                recording_lifecycle.play_macro_slot_trigger(manager, data),
                 name="play_macro_slot",
             )
         elif action_type_str == "cancel_macro_playback":
@@ -195,7 +198,7 @@ async def handle_event(
         elif action_type_str == "compositor_dispatch":
             create_event_task(
                 manager,
-                runtime_compositor.handle_compositor_dispatch_trigger(manager, data),
+                compositor.handle_compositor_dispatch_trigger(manager, data),
                 name="compositor_dispatch",
             )
         elif action_type_str == "mpris":
@@ -207,7 +210,7 @@ async def handle_event(
         elif action_type_str == "macro":
             create_event_task(
                 manager,
-                runtime_recording.play_macro_trigger(manager, data),
+                recording_lifecycle.play_macro_trigger(manager, data),
                 name="macro_playback",
             )
         return
@@ -251,11 +254,11 @@ async def handle_event(
         return
 
     if event_type == CommandType.DEVICE_INSPECTOR_EVENT:
-        runtime_device_inspector.broadcast_event_to_owners(manager, data)
+        device_inspector.broadcast_event_to_owners(manager, data)
         return
 
     if event_type == CommandType.DEVICE_INSPECTOR_STATUS:
-        runtime_device_inspector.update_status_from_daemon_event(manager, data)
+        device_inspector.update_status_from_daemon_event(manager, data)
         manager.broadcast_to_session_clients({"event": "device_inspector_status", **data})
         return
 
@@ -274,7 +277,7 @@ async def handle_event(
 
     if event_type == CommandType.RECORDING_STOPPED:
         manager.recording_state.active = False
-        recording_slot = runtime_recording.normalize_pending_macro_recording_slot(
+        recording_slot = recording_lifecycle.normalize_pending_macro_recording_slot(
             data.get("recording_slot", manager.recording_state.active_slot),
             default=1,
         )
@@ -282,7 +285,7 @@ async def handle_event(
         recording_data["recording_slot"] = recording_slot
         if manager.recording_state.start_cursor:
             recording_data["start_position_recorded"] = True
-        pending_save_token = await runtime_recording.store_pending_macro_save(
+        pending_save_token = await recording_lifecycle.store_pending_macro_save(
             manager,
             recording_data,
             recording_slot=recording_slot,
@@ -364,33 +367,33 @@ async def handle_start_macro_trigger(
         )
         return
 
-    status = await runtime_recording.resolve_macro_recording_status_async(
+    status = await recording_unlock.resolve_macro_recording_status_async(
         manager,
         os.getuid(),
     )
     if not bool(status.get("unlocked", False)):
         log.info("Ignored start_macro_recording trigger: macro recording is disabled")
-        runtime_recording.notify_macro_recording_disabled(manager)
+        recording_lifecycle.notify_macro_recording_disabled(manager)
         manager.broadcast_to_session_clients(
             {
                 "event": "macro_recording_disabled",
-                **runtime_recording.serialize_macro_recording_state(status),
+                **recording_unlock.serialize_macro_recording_state(status),
             }
         )
         return
 
-    result = await runtime_recording.start_recording(
+    result = await recording_lifecycle.start_recording(
         manager,
         reset_if_active=False,
         recording_slot=recording_slot,
     )
     if result.get("status") != "ok":
-        if runtime_recording.is_macro_recording_disabled_error(result):
-            runtime_recording.notify_macro_recording_disabled(manager)
+        if recording_lifecycle.is_macro_recording_disabled_error(result):
+            recording_lifecycle.notify_macro_recording_disabled(manager)
             manager.broadcast_to_session_clients({"event": "macro_recording_disabled"})
             return
-        if runtime_recording.is_recording_unlock_required_error(result):
-            runtime_recording.notify_recording_unlock_required(manager, result)
+        if recording_unlock.is_recording_unlock_required_error(result):
+            recording_unlock.notify_recording_unlock_required(manager, result)
             manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
 
 
@@ -411,7 +414,7 @@ async def handle_stop_macro_trigger(
         )
         return
     try:
-        await runtime_recording.stop_recording(
+        await recording_lifecycle.stop_recording(
             manager,
             error_if_idle=False,
             recording_slot=recording_slot or active_slot,
@@ -469,9 +472,9 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
         action_type in {"profile_disable", "profile_toggle"}
         and profile_name in manager.profile_state.runtime_profile_activations
     ):
-        await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
+        await coordinator.cancel_runtime_profile_activation(manager, profile_name)
 
-    result = await runtime_profiles.set_profile_enabled(manager, profile_name, enabled)
+    result = await coordinator.set_profile_enabled(manager, profile_name, enabled)
     if result.get("status") != "ok":
         log.warning(
             "Profile trigger failed action=%s profile=%s message=%s",
@@ -484,7 +487,7 @@ async def handle_profile_trigger(manager: "SessionManager", data: JsonObject) ->
     if action_type == "profile_disable" or (
         action_type == "profile_toggle" and result.get("enabled") is False
     ):
-        await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
+        await coordinator.cancel_runtime_profile_activation(manager, profile_name)
 
 
 def _trigger_deactivation_policy(
@@ -521,12 +524,12 @@ async def _handle_lifetime_profile_trigger(
         return
 
     if action_type == ActionType.PROFILE_TOGGLE.value:
-        if await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name):
+        if await coordinator.cancel_runtime_profile_activation(manager, profile_name):
             return
     elif action_type != ActionType.PROFILE_ENABLE.value:
-        result = await runtime_profiles.set_profile_enabled(manager, profile_name, False)
+        result = await coordinator.set_profile_enabled(manager, profile_name, False)
         if result.get("status") == "ok":
-            await runtime_profiles.cancel_runtime_profile_activation(manager, profile_name)
+            await coordinator.cancel_runtime_profile_activation(manager, profile_name)
         return
 
     manager.profile_state.runtime_profile_activation_seq += 1
@@ -545,7 +548,7 @@ async def _handle_lifetime_profile_trigger(
         created_at=time.time(),
     )
     manager.profile_state.runtime_profile_activations[profile_name] = activation
-    await runtime_profiles.reevaluate_profiles(
+    await coordinator.reevaluate_profiles(
         manager,
         reason=f"runtime profile activation {profile_name}",
     )
@@ -553,7 +556,7 @@ async def _handle_lifetime_profile_trigger(
         current = manager.profile_state.runtime_profile_activations.get(profile_name)
         if current is not None and current.activation_id == activation.activation_id:
             manager.profile_state.runtime_profile_activations.pop(profile_name, None)
-            await runtime_profiles.reevaluate_profiles(
+            await coordinator.reevaluate_profiles(
                 manager,
                 reason=f"runtime profile activation tracking failed {profile_name}",
             )
@@ -632,7 +635,7 @@ async def handle_profile_deactivate_requested(
     if activation is None or activation.activation_id != activation_id:
         return
     manager.profile_state.runtime_profile_activations.pop(profile_name, None)
-    await runtime_profiles.reevaluate_profiles(
+    await coordinator.reevaluate_profiles(
         manager,
         reason=f"runtime profile activation expired {profile_name}",
     )
@@ -695,7 +698,7 @@ async def handle_mpris_trigger(manager: "SessionManager", data: JsonObject) -> N
 def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject) -> None:
     hardware_id = str(data.get("hardware_id", "") or "")
     state = str(data.get("state", "") or "").strip().lower()
-    active_keys = [str(key) for key in _json_list(data.get("active_keys")) if str(key)]
+    active_keys = [str(key) for key in json_list(data.get("active_keys")) if str(key)]
     summary = ", ".join(active_keys) if active_keys else "unknown keys"
 
     manager.broadcast_to_session_clients({"event": "device_grab_status", **data})
@@ -733,7 +736,7 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
         if had_status or was_waiting:
             create_event_task(
                 manager,
-                runtime_profiles.reevaluate_profiles(
+                coordinator.reevaluate_profiles(
                     manager,
                     reason=f"grab ready for {hardware_id}",
                 ),
@@ -754,7 +757,7 @@ def handle_device_grab_status_event(manager: "SessionManager", data: JsonObject)
             "Keymasq: Grab Timed Out",
             f"{device_name}: keys stayed down too long ({summary}). Retrying automatically.",
         )
-        runtime_profiles.schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
+        coordinator.schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
         _broadcast_profiles_changed(manager)
 
 
@@ -765,7 +768,7 @@ def _broadcast_profiles_changed(manager: "SessionManager") -> None:
         {
             "event": "profiles_changed",
             "runtime_only": True,
-            **runtime_profiles.build_active_profiles_payload(manager),
+            **runtime_status.build_active_profiles_payload(manager),
         }
     )
 
@@ -782,16 +785,16 @@ def handle_macro_playback_cancelled_event(
 
 
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
-    runtime_device_inspector.clear_all_device_inspector_state(manager)
+    device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
     manager.send_notification(
         "Keymasq: Emergency Reset",
         "Released all grabbed devices. Reapplying active profiles.",
     )
-    runtime_profiles.invalidate_grabbed_state(manager)
+    runtime_state.invalidate_grabbed_state(manager)
     manager.profile_state.runtime_profile_activations.clear()
     try:
-        await runtime_profiles.reevaluate_profiles(manager, reason="runtime reset")
+        await coordinator.reevaluate_profiles(manager, reason="runtime reset")
     except OSError as exc:
         log.warning("Failed to reapply profiles after runtime reset: %s", exc)
         manager.send_notification(
@@ -815,7 +818,7 @@ async def on_device_connected(manager: "SessionManager", device_info: JsonObject
         return
     if not _hardware_or_model_known(manager, hardware_id):
         return
-    runtime_profiles.schedule_topology_refresh(
+    coordinator.schedule_topology_refresh(
         manager,
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
@@ -838,7 +841,7 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
         return
     if not _hardware_or_model_known(manager, hardware_id):
         return
-    runtime_profiles.schedule_topology_refresh(
+    coordinator.schedule_topology_refresh(
         manager,
         TOPOLOGY_REFRESH_DEBOUNCE_S,
         TOPOLOGY_REFRESH_RETRY_S,
@@ -852,7 +855,7 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
 
 async def _refresh_recording_devices_cache_after_topology(manager: "SessionManager") -> None:
     await asyncio.sleep(TOPOLOGY_REFRESH_DEBOUNCE_S + 0.1)
-    await runtime_recording.refresh_recording_devices_cache(manager)
+    await recording_device_selection.refresh_recording_devices_cache(manager)
 
 
 def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:
@@ -875,7 +878,7 @@ def _hardware_or_model_known(manager: "SessionManager", hardware_id: str) -> boo
 
 def event_log_view(data: JsonObject) -> JsonObject:
     view = dict(data)
-    events = _json_list(view.get("events"))
+    events = json_list(view.get("events"))
     if events:
         view["events"] = f"<{len(events)} events>"
         if "event_count" not in view:

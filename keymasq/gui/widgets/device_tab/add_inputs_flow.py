@@ -19,14 +19,10 @@ from keymasq.common.devices import (
     wheel_duplicate_key,
     wheel_label,
 )
-from keymasq.common.models import (
-    ButtonDefinition,
-    DeviceType,
-    EvdevDevice,
-    HardwareConfig,
-)
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
 from keymasq.gui.session_client import JsonDict
-from keymasq.gui.widgets.device_control_layout import device_layout_kind
+from keymasq.gui.widgets.device_control_layout import resolve_device_layout_kind
 from keymasq.gui.widgets.device_tab.capture_helpers import (
     _make_capture_status_row,
     _set_capture_status,
@@ -648,4 +644,4 @@ class AddInputsFlow:
         return DeviceType.OTHER
 
     def _layout_kind(self) -> str:
-        return device_layout_kind(self.hardware_config)
+        return resolve_device_layout_kind(self.hardware_config)

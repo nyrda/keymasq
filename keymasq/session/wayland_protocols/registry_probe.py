@@ -3,12 +3,15 @@ import logging
 import struct
 from pathlib import Path
 
-from keymasq.session.wayland_protocols import client_transport as _transport
+from keymasq.session.wayland_protocols.client_transport import (
+    WaylandClientTransport,
+    WaylandDisplayError,
+)
 
 log = logging.getLogger("keymasq-session.wayland.registry_probe")
 
 
-class _RegistryProbeTransport(_transport.WaylandClientTransport):
+class _RegistryProbeTransport(WaylandClientTransport):
     def __init__(self, socket_path: Path) -> None:
         super().__init__(str(socket_path))
         self._globals_found: set[str] = set()
@@ -71,7 +74,7 @@ async def list_registry_globals(socket_path: Path, timeout_s: float = 0.6) -> se
     except TimeoutError as exc:
         log.debug("Wayland registry probe timed out for %s: %s", socket_path, exc)
         return set()
-    except (OSError, _transport.WaylandDisplayError) as exc:
+    except (OSError, WaylandDisplayError) as exc:
         log.debug("Wayland registry probe failed for %s: %s", socket_path, exc)
         return set()
     except Exception:

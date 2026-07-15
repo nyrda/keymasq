@@ -9,12 +9,19 @@ import pytest
 
 import keymasq.session.manager.core as session_manager_core_module
 import keymasq.session.manager.events as session_events_module
-import keymasq.session.manager.profiles as session_profiles_module
+import keymasq.session.manager.profile.application as profile_application
+import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
+import keymasq.session.manager.service.server as session_server_module
+import keymasq.session.manager.service.watcher as config_watcher_module
 from keymasq.common.ipc import Response
-from keymasq.common.models import ButtonDefinition, ProfileConfig, SuperkeyConfig, SuperkeyMode
+from keymasq.common.model.core import SuperkeyMode
+from keymasq.common.model.hardware import ButtonDefinition
+from keymasq.common.model.profiles import ProfileConfig
+from keymasq.common.model.superkeys import SuperkeyConfig
 from keymasq.common.security import PeerCredentials
-from keymasq.session.manager import SessionManager
-from keymasq.session.profiles import ProfileInfo
+from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator
+from keymasq.session.profile.types import ProfileInfo
 from tests.async_fakes import (
     FakeStreamReader as _FakeSessionReader,
 )
@@ -58,7 +65,7 @@ class _FakeSessionServer:
 def _inotify_event(wd: int, mask: int, name: str) -> bytes:
     raw_name = name.encode() + b"\0"
     return (
-        session_manager_core_module.INOTIFY_EVENT_STRUCT.pack(
+        config_watcher_module.INOTIFY_EVENT_STRUCT.pack(
             wd,
             mask,
             0,
@@ -88,7 +95,7 @@ async def test_connect_loop_reconnect_reapplies_profiles_after_restart(
             manager.running = False
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "activate_initial_profiles",
         lambda _manager: _activate_initial_profiles(),
     )
@@ -127,12 +134,12 @@ async def test_connect_loop_logs_unexpected_runtime_failures(
         raise RuntimeError("sync bug")
 
     monkeypatch.setattr(
-        session_profiles_module,
+        coordinator,
         "activate_initial_profiles",
         AsyncMock(),
     )
     monkeypatch.setattr(
-        session_manager_core_module.runtime_recording,
+        recording_lifecycle_module,
         "sync_pending_macro_slots_from_daemon",
         _sync_pending_macro_slots,
     )
@@ -168,9 +175,7 @@ async def test_sync_virtual_gamepads_clamps_negative_daemon_count() -> None:
     manager = SessionManager()
     manager.connected = True
     manager.virtual_gamepad_count = 2
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"count": -3})
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={"count": -3}))
 
     await manager._sync_virtual_gamepads_to_daemon()
 
@@ -213,7 +218,7 @@ async def test_start_wires_runtime_tasks_and_stops_on_shutdown(
         ),
     )
     monkeypatch.setattr(
-        session_manager_core_module.runtime_compositor,
+        session_manager_core_module.compositor,
         "compositor_supervisor_loop",
         compositor_supervisor_loop,
     )
@@ -331,9 +336,9 @@ async def test_stop_cancels_grab_retry_tasks(monkeypatch: pytest.MonkeyPatch) ->
     manager.client.disconnect = AsyncMock()  # type: ignore[method-assign]
     manager.dbus.disconnect = AsyncMock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    session_profiles_module.schedule_grab_retry(manager, "1234:5678", delay_s=0.05)
+    coordinator.schedule_grab_retry(manager, "1234:5678", delay_s=0.05)
     retry_task = manager.profile_state.grab_retry_tasks["1234:5678"]
 
     await manager.stop()
@@ -405,7 +410,7 @@ async def test_reload_profiles_invalidates_runtime_payload_signatures(
     reevaluate_profiles = AsyncMock()
 
     monkeypatch.setattr(manager, "reload_config_from_disk", lambda: None)
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     await manager.reload_profiles()
 
@@ -428,7 +433,7 @@ async def test_reload_profiles_failure_keeps_previous_config_and_notifies(
         "reload_config_from_disk",
         lambda: (_ for _ in ()).throw(ValueError("bad profile TOML")),
     )
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     await manager.reload_profiles()
 
@@ -448,7 +453,7 @@ def test_reload_config_from_disk_rolls_back_user_config_on_failure(
     manager.profiles.restore_profiles(
         {
             "Old": ProfileInfo(
-                path=session_manager_core_module.CONFIG_DIR / "old.toml",
+                path=config_watcher_module.CONFIG_DIR / "old.toml",
                 config=old_profile,
             )
         }
@@ -545,7 +550,7 @@ async def test_session_client_drops_connection_when_buffer_exceeds_limit(
     manager._handle_session_request = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
     )
@@ -568,7 +573,7 @@ async def test_session_client_cleanup_times_out_hanging_wait_closed(
     writer = _HangingSessionWriter()
 
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
     )
@@ -602,7 +607,7 @@ async def test_session_client_request_error_keeps_connection_alive(
     )
 
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
     )
@@ -626,7 +631,7 @@ async def test_session_client_rejects_missing_or_denied_peer(
 
     missing_peer_writer = _FakeSessionWriter()
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: None,
     )
@@ -638,7 +643,7 @@ async def test_session_client_rejects_missing_or_denied_peer(
     denied_writer = _FakeSessionWriter()
     manager.security_policy.session_allowed_uids = {1000}
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=2000, gid=2000),
     )
@@ -669,7 +674,7 @@ async def test_session_client_handles_invalid_json_and_unexpected_request_errors
         side_effect=RuntimeError("request failed")
     )
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "get_peer_credentials",
         lambda _sock: PeerCredentials(pid=321, uid=1000, gid=1000),
     )
@@ -784,24 +789,24 @@ async def test_config_watcher_lifecycle_and_registration_errors(
     watch_ids = iter([101, 102, 103, 104, 105, 201, 202, 203, 204, 205])
 
     def add_watch(_fd, path, _mask):
-        if path == session_manager_core_module.HARDWARE_DIR:
+        if path == config_watcher_module.HARDWARE_DIR:
             raise OSError("missing")
         return next(watch_ids)
 
     monkeypatch.setattr(
-        session_manager_core_module.asyncio,
+        config_watcher_module.asyncio,
         "get_running_loop",
         lambda: fake_loop,
     )
-    monkeypatch.setattr(session_manager_core_module, "_inotify_init", lambda: 42)
-    monkeypatch.setattr(session_manager_core_module, "_inotify_add_watch", add_watch)
-    monkeypatch.setattr(session_manager_core_module.os, "close", lambda fd: closed_fds.append(fd))
+    monkeypatch.setattr(config_watcher_module, "_inotify_init", lambda: 42)
+    monkeypatch.setattr(config_watcher_module, "_inotify_add_watch", add_watch)
+    monkeypatch.setattr(config_watcher_module.os, "close", lambda fd: closed_fds.append(fd))
 
     manager._start_config_watcher()
 
     assert manager.config_watch_fd == 42
     assert added_readers == [(42, manager._handle_config_watch_events)]
-    assert session_manager_core_module.HARDWARE_DIR not in manager.config_watch_watches.values()
+    assert config_watcher_module.HARDWARE_DIR not in manager.config_watch_watches.values()
     assert len(manager.config_watch_watches) == 4
 
     manager._stop_config_watcher()
@@ -818,7 +823,7 @@ async def test_config_watcher_lifecycle_and_registration_errors(
     assert closed_fds[-1] == 42
 
     monkeypatch.setattr(
-        session_manager_core_module,
+        config_watcher_module,
         "_inotify_init",
         Mock(side_effect=OSError("no inotify")),
     )
@@ -834,19 +839,19 @@ async def test_config_watch_event_parsing_and_reload_scheduling(
     manager = SessionManager()
     manager.config_watch_fd = 9
     manager.config_watch_watches = {
-        1: session_manager_core_module.PROFILES_DIR,
-        2: session_manager_core_module.CONFIG_DIR,
+        1: config_watcher_module.PROFILES_DIR,
+        2: config_watcher_module.CONFIG_DIR,
     }
     manager._refresh_config_watches = Mock()  # type: ignore[method-assign]
     manager._schedule_config_reload = Mock()  # type: ignore[method-assign]
     data = b"".join(
         [
-            _inotify_event(99, session_manager_core_module.IN_CLOSE_WRITE, "ignored.toml"),
-            _inotify_event(2, session_manager_core_module.IN_IGNORED, "profiles"),
-            _inotify_event(1, session_manager_core_module.IN_CLOSE_WRITE, "Base.toml"),
+            _inotify_event(99, config_watcher_module.IN_CLOSE_WRITE, "ignored.toml"),
+            _inotify_event(2, config_watcher_module.IN_IGNORED, "profiles"),
+            _inotify_event(1, config_watcher_module.IN_CLOSE_WRITE, "Base.toml"),
         ]
     )
-    monkeypatch.setattr(session_manager_core_module.os, "read", lambda _fd, _size: data)
+    monkeypatch.setattr(config_watcher_module.os, "read", lambda _fd, _size: data)
 
     manager._handle_config_watch_events()
 
@@ -859,7 +864,7 @@ async def test_config_watch_event_parsing_and_reload_scheduling(
 
     manager.config_watch_fd = 9
     monkeypatch.setattr(
-        session_manager_core_module.os,
+        config_watcher_module.os,
         "read",
         Mock(side_effect=BlockingIOError),
     )
@@ -867,7 +872,7 @@ async def test_config_watch_event_parsing_and_reload_scheduling(
 
     manager._stop_config_watcher = Mock()  # type: ignore[method-assign]
     monkeypatch.setattr(
-        session_manager_core_module.os,
+        config_watcher_module.os,
         "read",
         Mock(side_effect=OSError("dead fd")),
     )
@@ -880,34 +885,34 @@ def test_config_watch_relevance_rules() -> None:
     manager = SessionManager()
 
     assert manager._config_watch_event_is_relevant(
-        session_manager_core_module.CONFIG_DIR,
-        session_manager_core_module.SETTINGS_PATH.name,
+        config_watcher_module.CONFIG_DIR,
+        config_watcher_module.SETTINGS_PATH.name,
         0,
     )
     assert manager._config_watch_event_is_relevant(
-        session_manager_core_module.CONFIG_DIR,
-        session_manager_core_module.PROFILES_DIR.name,
-        session_manager_core_module.IN_ISDIR,
+        config_watcher_module.CONFIG_DIR,
+        config_watcher_module.PROFILES_DIR.name,
+        config_watcher_module.IN_ISDIR,
     )
     assert not manager._config_watch_event_is_relevant(
-        session_manager_core_module.CONFIG_DIR,
+        config_watcher_module.CONFIG_DIR,
         "notes.txt",
         0,
     )
     assert manager._config_watch_event_is_relevant(
-        session_manager_core_module.PROFILES_DIR,
+        config_watcher_module.PROFILES_DIR,
         "Base.toml",
         0,
     )
     assert not manager._config_watch_event_is_relevant(
-        session_manager_core_module.PROFILES_DIR,
+        config_watcher_module.PROFILES_DIR,
         "Base.txt",
         0,
     )
     assert manager._config_watch_event_is_relevant(
-        session_manager_core_module.PROFILES_DIR,
+        config_watcher_module.PROFILES_DIR,
         "",
-        session_manager_core_module.IN_MOVE_SELF,
+        config_watcher_module.IN_MOVE_SELF,
     )
 
 
@@ -1094,14 +1099,14 @@ async def test_start_session_server_creates_owned_socket_and_warns_on_chmod_fail
         return server
 
     monkeypatch.setattr(
-        session_manager_core_module,
+        session_server_module,
         "ensure_session_socket_dir",
         lambda: calls.append("ensure-dir"),
     )
-    monkeypatch.setattr(session_manager_core_module, "SESSION_SOCKET_PATH", FakeSocketPath())
-    monkeypatch.setattr(session_manager_core_module.asyncio, "start_unix_server", start_unix_server)
+    monkeypatch.setattr(session_server_module, "SESSION_SOCKET_PATH", FakeSocketPath())
+    monkeypatch.setattr(session_server_module.asyncio, "start_unix_server", start_unix_server)
     monkeypatch.setattr(
-        session_manager_core_module.os,
+        session_server_module.os,
         "chmod",
         Mock(side_effect=OSError("chmod failed")),
     )
@@ -1129,11 +1134,11 @@ async def test_start_session_server_rejects_existing_live_socket(
         def __str__(self) -> str:
             return "/tmp/keymasq-session-live.sock"
 
-    monkeypatch.setattr(session_manager_core_module, "ensure_session_socket_dir", lambda: None)
-    monkeypatch.setattr(session_manager_core_module, "SESSION_SOCKET_PATH", FakeSocketPath())
+    monkeypatch.setattr(session_server_module, "ensure_session_socket_dir", lambda: None)
+    monkeypatch.setattr(session_server_module, "SESSION_SOCKET_PATH", FakeSocketPath())
     monkeypatch.setattr(
-        session_manager_core_module,
-        "_session_socket_accepts_connections",
+        session_server_module,
+        "session_socket_accepts_connections",
         AsyncMock(return_value=True),
     )
 
@@ -1223,8 +1228,8 @@ async def test_reload_profiles_deactivates_removed_hardware(
     reevaluate_profiles = AsyncMock()
 
     monkeypatch.setattr(manager, "reload_config_from_disk", lambda: None)
-    monkeypatch.setattr(session_profiles_module, "deactivate_profile", deactivate_profile)
-    monkeypatch.setattr(session_profiles_module, "reevaluate_profiles", reevaluate_profiles)
+    monkeypatch.setattr(profile_application, "deactivate_profile", deactivate_profile)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     assert await manager.reload_profiles() is True
 
@@ -1244,7 +1249,7 @@ def test_reload_config_from_disk_success_updates_virtual_gamepad_count(
     monkeypatch.setattr(manager.profiles, "reload", Mock())
     monkeypatch.setattr(manager.hardware, "reload", Mock())
     monkeypatch.setattr(
-        session_manager_core_module,
+        config_watcher_module,
         "load_global_settings",
         Mock(return_value=SimpleNamespace(virtual_gamepad_count=4)),
     )
@@ -1273,19 +1278,19 @@ def test_refresh_config_watches_skips_missing_fd_and_existing_paths(
     manager._refresh_config_watches()
 
     manager.config_watch_fd = 10
-    manager.config_watch_watches = {1: session_manager_core_module.CONFIG_DIR}
+    manager.config_watch_watches = {1: config_watcher_module.CONFIG_DIR}
     watched: list[object] = []
 
     def add_watch(_fd: int, path: object, _mask: int) -> int:
         watched.append(path)
         return len(watched) + 1
 
-    monkeypatch.setattr(session_manager_core_module, "_inotify_add_watch", add_watch)
+    monkeypatch.setattr(config_watcher_module, "_inotify_add_watch", add_watch)
 
     manager._refresh_config_watches()
 
-    assert session_manager_core_module.CONFIG_DIR not in watched
-    assert session_manager_core_module.PROFILES_DIR in watched
+    assert config_watcher_module.CONFIG_DIR not in watched
+    assert config_watcher_module.PROFILES_DIR in watched
 
 
 @pytest.mark.asyncio
@@ -1331,7 +1336,7 @@ async def test_on_window_change_delegates_to_compositor_runtime(
     manager = SessionManager()
     on_window_change = AsyncMock()
     monkeypatch.setattr(
-        session_manager_core_module.runtime_compositor,
+        session_manager_core_module.compositor,
         "on_window_change",
         on_window_change,
     )
@@ -1370,20 +1375,20 @@ async def test_session_socket_probe_timeout_and_os_error_paths(
         created.append(sock)
         return sock
 
-    monkeypatch.setattr(session_manager_core_module.socket, "socket", make_socket)
+    monkeypatch.setattr(session_server_module.socket, "socket", make_socket)
     monkeypatch.setattr(
-        session_manager_core_module.asyncio,
+        session_server_module.asyncio,
         "get_running_loop",
         lambda: TimeoutLoop(),
     )
-    assert await session_manager_core_module._session_socket_accepts_connections(0.001)
+    assert await session_server_module.session_socket_accepts_connections(0.001)
 
     monkeypatch.setattr(
-        session_manager_core_module.asyncio,
+        session_server_module.asyncio,
         "get_running_loop",
         lambda: ErrorLoop(),
     )
-    assert not await session_manager_core_module._session_socket_accepts_connections()
+    assert not await session_server_module.session_socket_accepts_connections()
     assert all(sock.closed for sock in created)
 
 
@@ -1405,16 +1410,16 @@ def test_inotify_wrappers_return_fd_and_raise_os_errors(
 
     fake_libc = FakeLibc()
     monkeypatch.setattr(
-        session_manager_core_module.ctypes,
+        config_watcher_module.ctypes,
         "CDLL",
         lambda *_args, **_kwargs: fake_libc,
     )
-    monkeypatch.setattr(session_manager_core_module.ctypes, "get_errno", lambda: 24)
+    monkeypatch.setattr(config_watcher_module.ctypes, "get_errno", lambda: 24)
 
-    assert session_manager_core_module._inotify_init() == 7
+    assert config_watcher_module._inotify_init() == 7
     with pytest.raises(OSError):
-        session_manager_core_module._inotify_init()
+        config_watcher_module._inotify_init()
 
-    assert session_manager_core_module._inotify_add_watch(7, tmp_path, 0) == 11
+    assert config_watcher_module._inotify_add_watch(7, tmp_path, 0) == 11
     with pytest.raises(OSError):
-        session_manager_core_module._inotify_add_watch(7, tmp_path, 0)
+        config_watcher_module._inotify_add_watch(7, tmp_path, 0)

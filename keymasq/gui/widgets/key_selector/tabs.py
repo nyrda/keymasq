@@ -11,33 +11,22 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, MappingAction, SuperkeyAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.superkeys import SuperkeyAction
+from keymasq.gui.widgets import input_picker_shared
 from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
     gamepad_output_choices,
     gamepad_output_unavailable_message,
-)
-from keymasq.gui.widgets.input_picker_shared import (
-    build_gamepad_tab as build_shared_gamepad_tab,
-)
-from keymasq.gui.widgets.input_picker_shared import (
-    build_keyboard_tab as build_shared_keyboard_tab,
-)
-from keymasq.gui.widgets.input_picker_shared import (
-    build_media_tab as build_shared_media_tab,
-)
-from keymasq.gui.widgets.input_picker_shared import (
-    build_mouse_tab as build_shared_mouse_tab,
-)
-from keymasq.gui.widgets.input_picker_shared import (
-    build_navigation_tab as build_shared_navigation_tab,
+    virtual_gamepad_count,
 )
 from keymasq.gui.widgets.mouse_move_units import (
     NATURAL_MOVE_SPEED_MAX_KPX_S,
     speed_px_s_to_kpx_s,
 )
+from keymasq.session.hardware import HardwareManager
 
-from . import compat
 from .targets import (
     ACTION_DOC_LINKS,
     F_EXTRA,
@@ -53,7 +42,7 @@ from .targets import (
     _resolve_gamepad_button_target,
 )
 
-log = logging.getLogger("keymasq.gui.widgets.key_selector_dialog")
+log = logging.getLogger(__name__)
 
 _compact_tabs_css_installed = False
 
@@ -148,7 +137,7 @@ class SharedInputTabsMixin:
         return btn
 
     def _build_keyboard_tab(self) -> Gtk.Widget:
-        scrolled = build_shared_keyboard_tab(
+        scrolled = input_picker_shared.build_keyboard_tab(
             self,
             keyboard_layout=KEYBOARD_LAYOUT,
             key_to_evdev=KEY_TO_EVDEV,
@@ -298,17 +287,17 @@ class SharedInputTabsMixin:
         return None
 
     def _build_navigation_tab(self) -> Gtk.Widget:
-        return build_shared_navigation_tab(self, f_extra=F_EXTRA)
+        return input_picker_shared.build_navigation_tab(self, f_extra=F_EXTRA)
 
     def _build_media_tab(self) -> Gtk.Widget:
-        return build_shared_media_tab(
+        return input_picker_shared.build_media_tab(
             self,
             media_groups=MEDIA_KEY_GROUPS,
             mpris_groups=MPRIS_MEDIA_GROUPS if self._include_mpris_controls else None,
         )
 
     def _build_mouse_tab(self) -> Gtk.Widget:
-        box = build_shared_mouse_tab(self)
+        box = input_picker_shared.build_mouse_tab(self)
         if not self._include_mouse_move_controls:
             return box
 
@@ -350,9 +339,7 @@ class SharedInputTabsMixin:
         self.mouse_move_abs_check = Gtk.CheckButton(label="Absolute")
         self.mouse_move_abs_check.set_group(self.mouse_move_natural_check)
         self.mouse_move_abs_check.set_active(self._mouse_move_mode == "abs")
-        self.mouse_move_abs_check.set_tooltip_text(
-            "Warp the cursor instantly to a screen position"
-        )
+        self.mouse_move_abs_check.set_tooltip_text("Warp the cursor instantly to a screen position")
         self.mouse_move_abs_check.connect("toggled", self._on_mouse_move_mode_changed)
         mode_row.append(self.mouse_move_abs_check)
 
@@ -365,14 +352,14 @@ class SharedInputTabsMixin:
 
         capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
-        if not self._slurp_available:
+        if not self._position_capture.slurp_available:
             delay_label = Gtk.Label(label="In:")
             capture_row.append(delay_label)
 
         self.mouse_move_capture_delay_spin = Gtk.SpinButton()
         self.mouse_move_capture_delay_spin.set_adjustment(
             Gtk.Adjustment(
-                value=self._capture_delay_seconds,
+                value=self._position_capture.delay_seconds,
                 lower=0.2,
                 upper=15.0,
                 step_increment=0.2,
@@ -380,10 +367,10 @@ class SharedInputTabsMixin:
         )
         self.mouse_move_capture_delay_spin.set_digits(1)
         self.mouse_move_capture_delay_spin.set_width_chars(4)
-        self.mouse_move_capture_delay_spin.set_visible(not self._slurp_available)
+        self.mouse_move_capture_delay_spin.set_visible(not self._position_capture.slurp_available)
         capture_row.append(self.mouse_move_capture_delay_spin)
 
-        if not self._slurp_available:
+        if not self._position_capture.slurp_available:
             delay_suffix = Gtk.Label(label="s")
             capture_row.append(delay_suffix)
 
@@ -531,9 +518,7 @@ class SharedInputTabsMixin:
             "During macro playback, abort the current macro run if natural movement times out"
         )
         self.mouse_move_stop_on_failure_check.set_halign(Gtk.Align.CENTER)
-        self.mouse_move_stop_on_failure_check.set_visible(
-            self._include_mouse_move_failure_controls
-        )
+        self.mouse_move_stop_on_failure_check.set_visible(self._include_mouse_move_failure_controls)
         box.append(self.mouse_move_stop_on_failure_check)
 
         self._update_mouse_move_mode_visibility()
@@ -553,7 +538,7 @@ class SharedInputTabsMixin:
             warning.add_css_class("warning")
             self._gamepad_output_warning_label = warning
             box.append(warning)
-            box.append(build_shared_gamepad_tab(self))
+            box.append(input_picker_shared.build_gamepad_tab(self))
             self._update_gamepad_output_warning()
             self._prefill_gamepad_inputs()
             return box
@@ -590,7 +575,7 @@ class SharedInputTabsMixin:
         warning.add_css_class("warning")
         self._gamepad_output_warning_label = warning
         outer.append(warning)
-        outer.append(build_shared_gamepad_tab(self))
+        outer.append(input_picker_shared.build_gamepad_tab(self))
         self._update_gamepad_output_warning()
         self._prefill_gamepad_inputs()
         return outer
@@ -623,8 +608,8 @@ class SharedInputTabsMixin:
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
         return gamepad_output_choices(
             self._selected_gamepad_output_id,
-            count=compat.virtual_gamepad_count(),
-            hardware_manager_factory=compat.hardware_manager,
+            count=virtual_gamepad_count(),
+            hardware_manager_factory=HardwareManager,
         )
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:
@@ -639,7 +624,7 @@ class SharedInputTabsMixin:
             return
         message = gamepad_output_unavailable_message(
             self._selected_gamepad_output_id,
-            compat.virtual_gamepad_count(),
+            virtual_gamepad_count(),
         )
         label.set_label(message or "")
         label.set_visible(bool(message))

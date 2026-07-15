@@ -12,7 +12,7 @@ from dbus_next.errors import AuthError, DBusError, InvalidAddressError
 from dbus_next.message import Message
 from dbus_next.signature import Variant
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     MPRIS_COMMAND_NEXT,
     MPRIS_COMMAND_PAUSE,
     MPRIS_COMMAND_PLAY,
@@ -777,9 +777,7 @@ class MprisController:
 
     def _bus_is_current(self) -> bool:
         return bool(
-            self._started
-            and self._bus is not None
-            and bool(getattr(self._bus, "connected", True))
+            self._started and self._bus is not None and bool(getattr(self._bus, "connected", True))
         )
 
     async def _disconnect_bus(self) -> None:

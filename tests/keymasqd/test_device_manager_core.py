@@ -11,13 +11,22 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import DeviceType
+from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
-from keymasq.keymasqd import device_manager as dm
-from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
-from keymasq.keymasqd.runtime import grab_lifecycle as ldm
-from keymasq.keymasqd.runtime import macros as mdm
-from keymasq.keymasqd.runtime import topology as tdm
+from keymasq.keymasqd import device_manager
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import (
+    adapters,
+    device_path_resolver,
+    manager_cursor,
+    outputs,
+    source_hiding,
+    topology,
+)
+from keymasq.keymasqd.runtime.combo import events, lifecycle
+from keymasq.keymasqd.runtime.grab import acquisition, planning, release
+from keymasq.keymasqd.runtime.grab.state import DesiredGrabConfig, GrabDeviceDeps, GrabRequest
+from keymasq.keymasqd.runtime.macro import controls, mouse
 from tests.keymasqd.device_manager_support import FakeUInput
 
 
@@ -57,8 +66,8 @@ async def test_grab_device_permission_denied_mentions_input_permissions(
     def fake_input_device(_path: str):
         raise PermissionError(errno.EACCES, "denied")
 
-    monkeypatch.setattr(dm.evdev, "InputDevice", fake_input_device)
-    monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(device_manager.evdev, "InputDevice", fake_input_device)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
 
     with pytest.raises(PermissionError) as excinfo:
         await manager.grab_device(
@@ -99,9 +108,7 @@ async def test_get_cursor_position_sends_tracking_hint_when_requested() -> None:
     broadcast = AsyncMock()
     manager = DeviceManager(broadcast_callback=broadcast)
 
-    task = asyncio.create_task(
-        manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=123)
-    )
+    task = asyncio.create_task(manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=123))
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
@@ -136,7 +143,7 @@ async def test_get_cursor_position_bounds_timeout_by_tracking_hint(
         observed_timeout = timeout
         return {"status": "ok", "x": 10, "y": 20}
 
-    monkeypatch.setattr(dm.asyncio, "wait_for", wait_for_cursor_response)
+    monkeypatch.setattr(device_manager.asyncio, "wait_for", wait_for_cursor_response)
 
     assert await manager.get_cursor_position(timeout_s=1.0, tracking_hint_ms=25) == (10, 20)
     assert observed_timeout == pytest.approx(0.025)
@@ -152,11 +159,13 @@ async def test_move_cursor_natural_stops_cursor_tracking_after_move(
     async def move_cursor_naturally(**_kwargs: object) -> JsonObject:
         return {"status": "ok"}
 
-    monkeypatch.setattr(dm.runtime_natural_mouse, "move_cursor_naturally", move_cursor_naturally)
+    monkeypatch.setattr(
+        manager_cursor.natural_mouse,
+        "move_cursor_naturally",
+        move_cursor_naturally,
+    )
 
-    assert await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500) == {
-        "status": "ok"
-    }
+    assert await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500) == {"status": "ok"}
     broadcast.assert_awaited_once_with(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
 
 
@@ -170,7 +179,11 @@ async def test_move_cursor_natural_stops_cursor_tracking_after_failure(
     async def move_cursor_naturally(**_kwargs: object) -> JsonObject:
         raise RuntimeError("move failed")
 
-    monkeypatch.setattr(dm.runtime_natural_mouse, "move_cursor_naturally", move_cursor_naturally)
+    monkeypatch.setattr(
+        manager_cursor.natural_mouse,
+        "move_cursor_naturally",
+        move_cursor_naturally,
+    )
 
     with pytest.raises(RuntimeError, match="move failed"):
         await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500)
@@ -181,7 +194,7 @@ async def test_move_cursor_natural_stops_cursor_tracking_after_failure(
 async def test_device_runtime_status_reports_live_and_grabbed_interfaces() -> None:
     manager = DeviceManager()
     manager.topology_state.live_snapshot = {
-        "/dev/input/by-id/pad-event-joystick": tdm.LiveInterfaceInfo(
+        "/dev/input/by-id/pad-event-joystick": topology.LiveInterfaceInfo(
             hardware_id="1234:5678",
             vendor_id="1234",
             product_id="5678",
@@ -303,7 +316,7 @@ async def test_device_inspector_disable_does_not_activate_inactive_inspector() -
         "suppressed": False,
         "reason": "manual",
     }
-    assert "1234:5678" not in manager.device_inspector_active_hardware_ids
+    assert "1234:5678" not in manager.device_inspector_state.active_hardware_ids
     assert broadcasts == [
         (
             CommandType.DEVICE_INSPECTOR_STATUS,
@@ -320,13 +333,13 @@ async def test_device_inspector_disable_does_not_activate_inactive_inspector() -
 @pytest.mark.asyncio
 async def test_release_all_devices_clears_device_inspector_state() -> None:
     manager = DeviceManager()
-    manager.device_inspector_active_hardware_ids.add("1234:5678")
-    manager.device_inspector_suppressed_hardware_ids.add("1234:5678")
+    manager.device_inspector_state.active_hardware_ids.add("1234:5678")
+    manager.device_inspector_state.suppressed_hardware_ids.add("1234:5678")
 
     await manager.release_all_devices()
 
-    assert manager.device_inspector_active_hardware_ids == set()
-    assert manager.device_inspector_suppressed_hardware_ids == set()
+    assert manager.device_inspector_state.active_hardware_ids == set()
+    assert manager.device_inspector_state.suppressed_hardware_ids == set()
 
 
 @pytest.mark.asyncio
@@ -499,10 +512,10 @@ class TestDeviceManager:
         def _missing_input_device(_path: str):
             raise FileNotFoundError(errno.ENOENT, "missing")
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm.evdev, "InputDevice", _missing_input_device)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", create_global_uinputs)
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", _missing_input_device)
+        monkeypatch.setattr(outputs, "create_global_uinputs", create_global_uinputs)
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
         result = await manager.grab_device(
             hardware_id="1234:5678",
@@ -533,9 +546,9 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         enable_hotplug_hiding = AsyncMock()
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [])
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
@@ -572,9 +585,9 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         enable_hotplug_hiding = AsyncMock(side_effect=RuntimeError("udev failed"))
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [])
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [])
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
@@ -606,9 +619,9 @@ class TestDeviceManager:
         def missing_device(_path: str):
             raise OSError(errno.ENOENT, "missing")
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
@@ -635,12 +648,12 @@ class TestDeviceManager:
         path = "/dev/input/event404"
         disable_hotplug_hiding = AsyncMock()
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "resolve_evdev_interfaces",
             lambda *_args, **_kwargs: [],
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -677,7 +690,7 @@ class TestDeviceManager:
             evdev_interfaces=evdev_interfaces,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -709,7 +722,7 @@ class TestDeviceManager:
                 }
             ],
         )
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
         result = await manager.release_device("045e:02a1@2", immediate=True)
 
@@ -735,7 +748,7 @@ class TestDeviceManager:
             evdev_interfaces=evdev_interfaces,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -771,7 +784,7 @@ class TestDeviceManager:
             evdev_interfaces=evdev_interfaces,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -805,13 +818,13 @@ class TestDeviceManager:
             return []
 
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "resolve_evdev_interfaces",
             fake_resolve_evdev_interfaces,
         )
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
@@ -832,7 +845,7 @@ class TestDeviceManager:
         }
         assert captured["match_model_gamepads"] is True
         deps = captured["deps"]
-        assert isinstance(deps, ldm.device_path_resolver.DevicePathResolverDeps)
+        assert isinstance(deps, device_path_resolver.DevicePathResolverDeps)
         assert callable(deps.resolve_stable_path_fn)
         enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
 
@@ -860,14 +873,14 @@ class TestDeviceManager:
             captured["excluded_paths"] = kwargs.get("excluded_paths")
             return []
 
-        monkeypatch.setattr(dm, "resolve_stable_path", fake_resolve_stable_path)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", fake_resolve_stable_path)
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "resolve_evdev_interfaces",
             fake_resolve_evdev_interfaces,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -875,9 +888,7 @@ class TestDeviceManager:
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
             evdev_paths=["keymasq:2dc8:3106"],
-            evdev_interfaces=[
-                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-            ],
+            evdev_interfaces=[{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
             button_map={"btn_south": "btn_south"},
         )
 
@@ -901,13 +912,11 @@ class TestDeviceManager:
             }
         )
 
-        paths = ldm.grabbed_paths_for_hardware(
+        paths = planning.grabbed_paths_for_hardware(
             manager,
             "2dc8:3106",
             resolve_stable_path_fn=lambda path: (
-                "/dev/input/by-id/current-pad"
-                if path == "/dev/input/event22"
-                else path
+                "/dev/input/by-id/current-pad" if path == "/dev/input/event22" else path
             ),
         )
 
@@ -965,21 +974,21 @@ class TestDeviceManager:
             def update_analog_inputs(self, _inputs) -> None:
                 return
 
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(device_manager, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
         enable_hotplug_hiding = AsyncMock()
         disable_hotplug_hiding = AsyncMock()
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -1023,9 +1032,7 @@ class TestDeviceManager:
             "/dev/input/event3"
         ]
         grabbed_paths = {
-            device.path
-            for devices in manager.grabbed_devices.values()
-            for device in devices
+            device.path for devices in manager.grabbed_devices.values() for device in devices
         }
         assert "/dev/input/event4" not in grabbed_paths
         enable_hotplug_hiding.assert_not_awaited()
@@ -1082,15 +1089,15 @@ class TestDeviceManager:
             def update_analog_inputs(self, _inputs) -> None:
                 return
 
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(device_manager, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
         disable_hotplug_hiding = AsyncMock()
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             disable_hotplug_hiding,
         )
@@ -1113,13 +1120,9 @@ class TestDeviceManager:
         )
 
         assert result["grabbed_count"] == 1
-        assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [
-            explicit_path
-        ]
+        assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [explicit_path]
         assert "/dev/input/event2" not in {
-            device.path
-            for devices in manager.grabbed_devices.values()
-            for device in devices
+            device.path for devices in manager.grabbed_devices.values() for device in devices
         }
         disable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
 
@@ -1172,12 +1175,12 @@ class TestDeviceManager:
             )
             assert device in manager.grabbed_devices["2dc8:3106"]
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(ldm, "grab_with_retry", fake_grab_with_retry)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(acquisition, "grab_with_retry", fake_grab_with_retry)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -1237,11 +1240,11 @@ class TestDeviceManager:
             def update_analog_inputs(self, _inputs) -> None:
                 return
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", create_global_uinputs)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(outputs, "create_global_uinputs", create_global_uinputs)
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -1354,19 +1357,19 @@ class TestDeviceManager:
             observe_profile_trigger_end=lambda *_args: None,
         )
 
-        monkeypatch.setattr(ldm, "combo_runtime_deps", build_deps)
-        monkeypatch.setattr(ldm.runtime_combos, "on_device_event", on_device_event)
+        monkeypatch.setattr(acquisition, "combo_runtime_deps", build_deps)
+        monkeypatch.setattr(events, "on_device_event", on_device_event)
         monkeypatch.setattr(
-            ldm.runtime_combos,
+            lifecycle,
             "clear_combo_runtime_for_binding_scope",
             clear_combo_runtime_for_binding_scope,
         )
-        monkeypatch.setattr(ldm, "grab_with_retry", AsyncMock())
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(acquisition, "grab_with_retry", AsyncMock())
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
 
-        await ldm.grab_device_unlocked(
+        await acquisition.grab_device_unlocked(
             manager,
-            ldm.GrabRequest(
+            GrabRequest(
                 hardware_id="2dc8:3106",
                 evdev_paths=[path],
                 button_map={"btn_south": "btn_south"},
@@ -1377,11 +1380,11 @@ class TestDeviceManager:
                 evdev_interfaces=[{"id": "gamepad", "path": path, "type": "gamepad"}],
                 update_desired=False,
             ),
-            ldm.GrabDeviceDeps(
+            GrabDeviceDeps(
                 desired_grab_config_cls=lambda **kwargs: kwargs,
                 clear_device_path_cache_fn=lambda: None,
                 resolve_stable_path_fn=lambda value: value,
-                device_path_resolver_deps=ldm.device_path_resolver.DevicePathResolverDeps(
+                device_path_resolver_deps=device_path_resolver.DevicePathResolverDeps(
                     device_paths_fn=lambda: [],
                     device_input_fn=lambda _path: _InputDevice(),
                     detect_input_classes_fn=lambda _device: [],
@@ -1459,16 +1462,14 @@ class TestDeviceManager:
                 return
 
         async def fake_grab_with_retry(*_args, **_kwargs) -> None:
-            assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [
-                path
-            ]
+            assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == [path]
             raise RuntimeError("grab failed")
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(ldm, "grab_with_retry", fake_grab_with_retry)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(acquisition, "grab_with_retry", fake_grab_with_retry)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
         manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
 
         with pytest.raises(RuntimeError, match="grab failed"):
@@ -1524,12 +1525,12 @@ class TestDeviceManager:
             def update_analog_inputs(self, _inputs) -> None:
                 return
 
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: list(paths))
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(ldm.device_path_resolver, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "_device_input", lambda path: _InputDevice(path))
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: list(paths))
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_path_resolver, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "_device_input", lambda path: _InputDevice(path))
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -1592,12 +1593,12 @@ class TestDeviceManager:
                 return "/dev/input/by-id/current-pad"
             return path
 
-        monkeypatch.setattr(dm, "resolve_stable_path", fake_resolve_stable_path)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", fake_resolve_stable_path)
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "resolve_evdev_interfaces",
             lambda *args, **kwargs: [
-                ldm.device_path_resolver.ResolvedInterface(
+                device_path_resolver.ResolvedInterface(
                     path="/dev/input/event22",
                     configured_path="keymasq:2dc8:3106",
                     interface_id="gamepad",
@@ -1609,10 +1610,14 @@ class TestDeviceManager:
         grab_with_retry = AsyncMock(side_effect=AssertionError)
         schedule_interface_release = Mock()
         device_input = Mock(side_effect=AssertionError)
-        monkeypatch.setattr(ldm, "grab_with_retry", grab_with_retry)
-        monkeypatch.setattr(ldm, "schedule_interface_release", schedule_interface_release)
+        monkeypatch.setattr(acquisition, "grab_with_retry", grab_with_retry)
         monkeypatch.setattr(
-            ldm.source_hiding,
+            acquisition,
+            "schedule_interface_release",
+            schedule_interface_release,
+        )
+        monkeypatch.setattr(
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -1621,9 +1626,7 @@ class TestDeviceManager:
         result = await manager.grab_device(
             hardware_id=hardware_id,
             evdev_paths=["keymasq:2dc8:3106"],
-            evdev_interfaces=[
-                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-            ],
+            evdev_interfaces=[{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
             button_map={"btn_south": "btn_south"},
             button_codes={"btn_south": evdev.ecodes.BTN_SOUTH},
         )
@@ -1645,9 +1648,7 @@ class TestDeviceManager:
         old_config = DesiredGrabConfig(
             paths={"/dev/input/event3"},
             button_map={"btn_south": "btn_south"},
-            evdev_interfaces=[
-                {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-            ],
+            evdev_interfaces=[{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
         )
 
         class _InputDevice:
@@ -1689,15 +1690,15 @@ class TestDeviceManager:
             async def release(self) -> None:
                 return
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "_device_input", lambda _path: _InputDevice())
-        monkeypatch.setattr(dm, "GrabbedDevice", _BusyGrab)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager, "_device_input", lambda _path: _InputDevice())
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _BusyGrab)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "resolve_evdev_interfaces",
             lambda *args, **kwargs: [
-                ldm.device_path_resolver.ResolvedInterface(
+                device_path_resolver.ResolvedInterface(
                     path="/dev/input/event2",
                     configured_path="keymasq:2dc8:3106",
                     interface_id="gamepad",
@@ -1738,17 +1739,17 @@ class TestDeviceManager:
         device_path = virtual_mouse.device.path
         info = virtual_mouse.device.info
         logical_path = f"keymasq:{info.vendor:04x}:{info.product:04x}"
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [device_path])
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "_is_keymasq_virtual_device",
             lambda _d: False,
         )
-        ldm.device_path_resolver.refresh_cached_devices_sync(
-            device_paths_fn=dm._device_paths,
-            device_input_fn=dm._device_input,
-            detect_input_classes_fn=dm.detect_input_classes,
-            primary_input_class_fn=dm.primary_input_class,
+        device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=device_manager._device_paths,
+            device_input_fn=device_manager._device_input,
+            detect_input_classes_fn=device_manager.detect_input_classes,
+            primary_input_class_fn=device_manager.primary_input_class,
         )
 
         result = await manager.grab_device(
@@ -1784,17 +1785,17 @@ class TestDeviceManager:
         info = virtual_mouse.device.info
         hardware_id = f"{info.vendor:04x}:{info.product:04x}"
         logical_path = f"keymasq:{hardware_id}"
-        monkeypatch.setattr(dm.evdev, "list_devices", lambda: [device_path])
+        monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [device_path])
         monkeypatch.setattr(
-            ldm.device_path_resolver,
+            device_path_resolver,
             "_is_keymasq_virtual_device",
             lambda _d: False,
         )
-        ldm.device_path_resolver.refresh_cached_devices_sync(
-            device_paths_fn=dm._device_paths,
-            device_input_fn=dm._device_input,
-            detect_input_classes_fn=dm.detect_input_classes,
-            primary_input_class_fn=dm.primary_input_class,
+        device_path_resolver.refresh_cached_devices_sync(
+            device_paths_fn=device_manager._device_paths,
+            device_input_fn=device_manager._device_input,
+            detect_input_classes_fn=device_manager.detect_input_classes,
+            primary_input_class_fn=device_manager.primary_input_class,
         )
 
         await manager.grab_device(
@@ -1853,8 +1854,8 @@ class TestDeviceManager:
                     evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A],
                 }
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm.evdev, "InputDevice", _InputDevice)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", _InputDevice)
 
         with pytest.raises(ValueError, match="matched mapped buttons"):
             await manager.grab_device(
@@ -1905,11 +1906,11 @@ class TestDeviceManager:
             def update_analog_inputs(self, _inputs) -> None:
                 return
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda value: value)
-        monkeypatch.setattr(dm, "GrabbedDevice", _GrabbedDevice)
-        monkeypatch.setattr(ldm.runtime_outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "disable_hardware_hotplug_hiding",
             AsyncMock(),
         )
@@ -2017,6 +2018,10 @@ class TestDeviceManager:
                 self.task = read_task
                 self.release_tracked_outputs = Mock()
 
+            async def stop_event_loop(self) -> None:
+                self.task.cancel()
+                await asyncio.gather(self.task, return_exceptions=True)
+
             async def release(self) -> None:
                 self.task.cancel()
                 await asyncio.gather(self.task, return_exceptions=True)
@@ -2029,14 +2034,14 @@ class TestDeviceManager:
             assert device.task.done()
 
         monkeypatch.setattr(
-            ldm.runtime_combos,
+            lifecycle,
             "clear_combo_runtime_for_binding_scope",
             clear_combo_runtime_for_binding_scope,
         )
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
 
         try:
-            await ldm.release_interface_unlocked(manager, "hw", device.path)
+            await release.release_interface_unlocked(manager, "hw", device.path)
         finally:
             if not read_task.done():
                 read_task.cancel()
@@ -2121,10 +2126,12 @@ class TestListDevices:
             def close(self) -> None:
                 closed_paths.append(self.path)
 
-        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
-        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd")
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(device_manager, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(
+            device_manager, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd"
+        )
+        monkeypatch.setattr(device_manager, "get_interface_id", lambda _path: "kbd")
 
         result = manager._list_devices_sync()
 
@@ -2153,8 +2160,8 @@ class TestListDevices:
             def close(self) -> None:
                 closed_paths.append(self.path)
 
-        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
-        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(device_manager, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", FakeDevice)
 
         result = manager._list_devices_sync()
 
@@ -2184,8 +2191,8 @@ class TestListDevices:
             def close(self) -> None:
                 closed_paths.append(self.path)
 
-        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
-        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(device_manager, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", FakeDevice)
         caplog.set_level(logging.DEBUG, logger="keymasqd.devices")
 
         result = manager._list_devices_sync()
@@ -2205,8 +2212,8 @@ class TestListDevices:
         def fake_input_device(_path: str):
             raise PermissionError(errno.EACCES, "denied")
 
-        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
-        monkeypatch.setattr(dm.evdev, "InputDevice", fake_input_device)
+        monkeypatch.setattr(device_manager, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", fake_input_device)
         caplog.set_level(logging.WARNING, logger="keymasqd.devices")
 
         result = manager._list_devices_sync()
@@ -2234,10 +2241,12 @@ class TestListDevices:
             def input_props(self):
                 return []
 
-        monkeypatch.setattr(dm, "_device_paths", lambda: ["/dev/input/event0"])
-        monkeypatch.setattr(dm.evdev, "InputDevice", lambda _path: FakeDevice())
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd")
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(device_manager, "_device_paths", lambda: ["/dev/input/event0"])
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", lambda _path: FakeDevice())
+        monkeypatch.setattr(
+            device_manager, "resolve_stable_path", lambda _path: "/dev/input/by-id/raw-kbd"
+        )
+        monkeypatch.setattr(device_manager, "get_interface_id", lambda _path: "kbd")
 
         result = manager._list_devices_sync()
         result_devices = cast(list[dict[str, object]], result["devices"])
@@ -2294,13 +2303,15 @@ class TestListDevices:
             "/dev/input/event20": "/dev/input/event20",
         }
         monkeypatch.setattr(
-            dm,
+            device_manager,
             "_device_paths",
             lambda: ["/dev/input/event0", "/dev/input/event10", "/dev/input/event20"],
         )
-        monkeypatch.setattr(dm.evdev, "InputDevice", FakeDevice)
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: stable_paths[path])
-        monkeypatch.setattr(dm, "get_interface_id", lambda path: "kbd" if "raw" in path else path)
+        monkeypatch.setattr(device_manager.evdev, "InputDevice", FakeDevice)
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: stable_paths[path])
+        monkeypatch.setattr(
+            device_manager, "get_interface_id", lambda path: "kbd" if "raw" in path else path
+        )
 
         result = manager._list_devices_sync()
         result_devices = cast(list[dict[str, object]], result["devices"])
@@ -2344,7 +2355,7 @@ class TestListDevices:
             return func()
 
         monkeypatch.setattr(manager, "_list_devices_sync", fake_scan)
-        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(device_manager.asyncio, "to_thread", fake_to_thread)
 
         result = await manager.list_devices()
 
@@ -2372,8 +2383,8 @@ class TestListDevices:
             calls.append((func, args))
             return func(*args)
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(manager, "_log_diagnostics_summary", summaries.append)
         monkeypatch.setattr(
             manager,
@@ -2449,7 +2460,7 @@ class TestListDevices:
     ) -> None:
         manager = DeviceManager(topology_poll_s=0.01)
         snapshot = {
-            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2472,18 +2483,20 @@ class TestListDevices:
         async def fake_to_thread(func, /, *args, **kwargs):
             return snapshot
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(tdm, "schedule_topology_reconcile", schedule_topology_reconcile)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(topology, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with pytest.raises(asyncio.CancelledError):
-            await tdm.topology_watch_loop(manager, log=dm.log, deps=dm._topology_runtime_deps())
+            await topology.topology_watch_loop(
+                manager, log=device_manager.log, deps=device_manager._topology_runtime_deps()
+            )
 
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            log=dm.log,
-            deps=dm._topology_runtime_deps(),
+            log=device_manager.log,
+            deps=device_manager._topology_runtime_deps(),
         )
 
     @pytest.mark.asyncio
@@ -2494,7 +2507,7 @@ class TestListDevices:
     ) -> None:
         manager = DeviceManager(topology_poll_s=0.01)
         snapshot = {
-            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2520,20 +2533,22 @@ class TestListDevices:
                 raise RuntimeError("scan boom")
             return snapshot
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(tdm, "schedule_topology_reconcile", schedule_topology_reconcile)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(topology, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
             with pytest.raises(asyncio.CancelledError):
-                await tdm.topology_watch_loop(manager, log=dm.log, deps=dm._topology_runtime_deps())
+                await topology.topology_watch_loop(
+                    manager, log=device_manager.log, deps=device_manager._topology_runtime_deps()
+                )
 
         assert "Topology scan failed: scan boom" in caplog.text
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
-            log=dm.log,
-            deps=dm._topology_runtime_deps(),
+            log=device_manager.log,
+            deps=device_manager._topology_runtime_deps(),
         )
 
     def test_scan_live_interfaces_logs_snapshot_device_failures(
@@ -2566,7 +2581,7 @@ class TestListDevices:
             return f"/dev/input/by-id/{path.rsplit('/', 1)[-1]}"
 
         with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
-            snapshot = tdm.scan_live_interfaces_sync(
+            snapshot = topology.scan_live_interfaces_sync(
                 clear_device_path_cache_fn=lambda: None,
                 device_paths_fn=lambda: list(devices),
                 device_input_fn=device_input,
@@ -2574,7 +2589,7 @@ class TestListDevices:
                 primary_input_class_fn=lambda _classes: DeviceType.KEYBOARD,
                 resolve_stable_path_fn=resolve_stable_path,
                 get_interface_id_fn=lambda _stable_path: "kbd",
-                log=dm.log,
+                log=device_manager.log,
             )
 
         assert list(snapshot) == ["/dev/input/by-id/event2"]
@@ -2609,7 +2624,7 @@ class TestListDevices:
             resolved_paths.append(path)
             return f"/dev/input/by-id/{path.rsplit('/', 1)[-1]}"
 
-        snapshot = tdm.scan_live_interfaces_sync(
+        snapshot = topology.scan_live_interfaces_sync(
             clear_device_path_cache_fn=lambda: None,
             device_paths_fn=lambda: list(devices),
             device_input_fn=lambda path: devices[path],
@@ -2617,7 +2632,7 @@ class TestListDevices:
             primary_input_class_fn=lambda _classes: DeviceType.GAMEPAD,
             resolve_stable_path_fn=resolve_stable_path,
             get_interface_id_fn=lambda _stable_path: "joystick",
-            log=dm.log,
+            log=device_manager.log,
         )
 
         assert list(snapshot) == ["/dev/input/by-id/event0"]
@@ -2652,8 +2667,8 @@ class TestListDevices:
             if not manager_arg.grabbed_devices[hardware_id]:
                 del manager_arg.grabbed_devices[hardware_id]
 
-        deps = tdm.TopologyRuntimeDeps(
-            asyncio_mod=dm.ASYNCIO_RUNTIME,
+        deps = topology.TopologyRuntimeDeps(
+            asyncio_mod=adapters.ASYNCIO_RUNTIME,
             clear_device_path_cache_fn=lambda: None,
             device_paths_fn=lambda: [],
             device_input_fn=lambda path: None,
@@ -2664,19 +2679,19 @@ class TestListDevices:
             release_interface_fn=release_interface,
         )
 
-        await tdm.start_topology_watcher(manager, log=dm.log, deps=deps)
+        await topology.start_topology_watcher(manager, log=device_manager.log, deps=deps)
         try:
             assert released == [("1234:5678", "/dev/input/event5")]
             assert manager.grabbed_devices == {}
             assert manager.topology_state.live_snapshot == {}
             assert manager.topology_state.reconciled_snapshot == {}
         finally:
-            await tdm.stop_topology_watcher(manager, deps=deps)
+            await topology.stop_topology_watcher(manager, deps=deps)
 
     def test_topology_events_match_numbered_desired_hardware_id(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         snapshot = {
-            "/dev/input/by-id/test-pad": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2686,7 +2701,7 @@ class TestListDevices:
             )
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             {},
             snapshot,
@@ -2712,7 +2727,7 @@ class TestListDevices:
     ) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         snapshot = {
-            "/dev/input/by-id/test-kbd": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-kbd": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2720,7 +2735,7 @@ class TestListDevices:
                 path="/dev/input/event10",
                 interface_id="kbd",
             ),
-            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2730,7 +2745,7 @@ class TestListDevices:
             ),
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             {},
             snapshot,
@@ -2752,13 +2767,13 @@ class TestListDevices:
         ]
 
     def test_hardware_id_matches_desired_normalizes_desired_ids(self) -> None:
-        assert tdm.hardware_id_matches_desired("abcd:1234", {"ABCD:1234"})
-        assert tdm.hardware_id_matches_desired(
+        assert topology.hardware_id_matches_desired("abcd:1234", {"ABCD:1234"})
+        assert topology.hardware_id_matches_desired(
             "abcd:1234",
             {"ABCD:1234@interface"},
             interface_id="INTERFACE",
         )
-        assert not tdm.hardware_id_matches_desired(
+        assert not topology.hardware_id_matches_desired(
             "abcd:1234",
             {"ABCD:1234@interface"},
             interface_id="other",
@@ -2767,42 +2782,42 @@ class TestListDevices:
     def test_hardware_id_matches_desired_numeric_instance_wildcards_interface(
         self,
     ) -> None:
-        desired = {tdm.normalize_hardware_id("046D:C08B@2")}
-        hardware_id = tdm.normalize_hardware_id("046d:c08b")
+        desired = {topology.normalize_hardware_id("046D:C08B@2")}
+        hardware_id = topology.normalize_hardware_id("046d:c08b")
 
-        assert tdm.hardware_id_matches_desired(
+        assert topology.hardware_id_matches_desired(
             hardware_id,
             desired,
-            interface_id=tdm.normalize_hardware_id("kbd"),
+            interface_id=topology.normalize_hardware_id("kbd"),
         )
-        assert tdm.hardware_id_matches_desired(
+        assert topology.hardware_id_matches_desired(
             hardware_id,
             desired,
-            interface_id=tdm.normalize_hardware_id("mouse"),
+            interface_id=topology.normalize_hardware_id("mouse"),
         )
 
     def test_hardware_id_matches_desired_named_interface_requires_exact_match(
         self,
     ) -> None:
-        desired = {tdm.normalize_hardware_id("046D:C08B@eth0")}
-        hardware_id = tdm.normalize_hardware_id("046d:c08b")
+        desired = {topology.normalize_hardware_id("046D:C08B@eth0")}
+        hardware_id = topology.normalize_hardware_id("046d:c08b")
 
-        assert tdm.hardware_id_matches_desired(
+        assert topology.hardware_id_matches_desired(
             hardware_id,
             desired,
-            interface_id=tdm.normalize_hardware_id("ETH0"),
+            interface_id=topology.normalize_hardware_id("ETH0"),
         )
-        assert not tdm.hardware_id_matches_desired(
+        assert not topology.hardware_id_matches_desired(
             hardware_id,
             desired,
-            interface_id=tdm.normalize_hardware_id("wlan0"),
+            interface_id=topology.normalize_hardware_id("wlan0"),
         )
 
     def test_topology_events_report_reconnect_for_same_stable_path(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         stable_path = "/dev/input/by-id/test-pad"
         previous = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2812,7 +2827,7 @@ class TestListDevices:
             )
         }
         current = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2822,7 +2837,7 @@ class TestListDevices:
             )
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             previous,
             current,
@@ -2860,7 +2875,7 @@ class TestListDevices:
         manager = SimpleNamespace(_command_type=CommandType)
         stable_path = "/dev/input/by-id/test-pad"
         previous = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2870,7 +2885,7 @@ class TestListDevices:
             )
         }
         current = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="8765:4321",
                 vendor_id="8765",
                 product_id="4321",
@@ -2880,7 +2895,7 @@ class TestListDevices:
             )
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             previous,
             current,
@@ -2904,7 +2919,7 @@ class TestListDevices:
     def test_topology_events_report_hidden_source_when_stable_path_changes(self) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         previous = {
-            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-joystick": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2914,7 +2929,7 @@ class TestListDevices:
             )
         }
         current = {
-            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-if00": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2922,7 +2937,7 @@ class TestListDevices:
                 path="/dev/input/event10",
                 interface_id="event-if00",
             ),
-            "/dev/input/by-id/test-mouse": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="8765:4321",
                 vendor_id="8765",
                 product_id="4321",
@@ -2932,7 +2947,7 @@ class TestListDevices:
             ),
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             previous,
             current,
@@ -2962,7 +2977,7 @@ class TestListDevices:
                     "stable_path": "/dev/input/by-id/test-pad-event-if00",
                     "interface_id": "event-if00",
                 },
-            )
+            ),
         ]
 
     def test_topology_events_report_hidden_source_without_previous_membership(self) -> None:
@@ -2980,7 +2995,7 @@ class TestListDevices:
             },
         )
         current = {
-            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-joystick": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -2990,8 +3005,8 @@ class TestListDevices:
             )
         }
 
-        hidden_paths = tdm.hidden_grabbed_source_paths(manager)
-        events = tdm.build_topology_events(
+        hidden_paths = topology.hidden_grabbed_source_paths(manager)
+        events = topology.build_topology_events(
             manager,
             {},
             current,
@@ -3018,7 +3033,7 @@ class TestListDevices:
         manager = SimpleNamespace(_command_type=CommandType)
         stable_path = "/dev/input/by-id/test-pad-event-joystick"
         previous = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3028,7 +3043,7 @@ class TestListDevices:
             )
         }
         current = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3038,7 +3053,7 @@ class TestListDevices:
             )
         }
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             previous,
             current,
@@ -3053,7 +3068,7 @@ class TestListDevices:
     ) -> None:
         manager = SimpleNamespace(_command_type=CommandType)
         previous = {
-            "/dev/input/by-id/test-pad-event-joystick": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-joystick": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3062,9 +3077,9 @@ class TestListDevices:
                 interface_id="joystick",
             )
         }
-        current: dict[str, dm.LiveInterfaceInfo] = {}
+        current: dict[str, topology.LiveInterfaceInfo] = {}
 
-        events = tdm.build_topology_events(
+        events = topology.build_topology_events(
             manager,
             previous,
             current,
@@ -3103,7 +3118,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3115,7 +3130,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_awaited_once_with(
             manager,
@@ -3141,7 +3156,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="8765:4321",
                 vendor_id="8765",
                 product_id="4321",
@@ -3153,7 +3168,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_awaited_once_with(
             manager,
@@ -3179,7 +3194,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3191,7 +3206,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_awaited_once_with(
             manager,
@@ -3216,7 +3231,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3228,7 +3243,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_not_awaited()
 
@@ -3251,7 +3266,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-if00": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3263,7 +3278,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_not_awaited()
 
@@ -3286,7 +3301,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            "/dev/input/by-id/test-pad-event-if00": dm.LiveInterfaceInfo(
+            "/dev/input/by-id/test-pad-event-if00": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3298,7 +3313,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_awaited_once_with(
             manager,
@@ -3324,7 +3339,7 @@ class TestListDevices:
             }
         )
         snapshot = {
-            stable_path: dm.LiveInterfaceInfo(
+            stable_path: topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
                 vendor_id="1234",
                 product_id="5678",
@@ -3336,7 +3351,7 @@ class TestListDevices:
         release_interface = AsyncMock()
         deps = SimpleNamespace(release_interface_fn=release_interface)
 
-        await tdm.reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await topology.reconcile_topology_unlocked(manager, snapshot, deps=deps)
 
         release_interface.assert_not_awaited()
 
@@ -3356,11 +3371,13 @@ class TestMacroControlActions:
             sleep_calls.append(duration)
             clock["now"] += duration
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
 
-        result = await mdm.run_macro_control_action(
-            manager, {"macro_action": "wait", "duration_us": 20_000}, deps=dm._macro_runtime_deps()
+        result = await controls.run_macro_control_action(
+            manager,
+            {"macro_action": "wait", "duration_us": 20_000},
+            deps=device_manager._macro_runtime_deps(),
         )
 
         assert sleep_calls == [0.02]
@@ -3379,15 +3396,15 @@ class TestMacroControlActions:
         async def fake_sleep(duration: float) -> None:
             clock["now"] += duration
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
+        monkeypatch.setattr(mouse, "renew_macro_mouse_suppression", begin_mouse_rel_suppression)
 
-        result = await mdm.run_macro_control_action(
+        result = await controls.run_macro_control_action(
             manager,
             {"macro_action": "wait", "duration_us": 10_000_000},
             renew_mouse_suppression=True,
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         begin_mouse_rel_suppression.assert_called_once()
@@ -3401,23 +3418,23 @@ class TestMacroControlActions:
         async def fake_sleep(_duration: float) -> None:
             return None
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
 
         manager.macro_state.mouse_rel_suppressed = True
         manager.macro_state.mouse_inhibit_count = 1
-        await mdm.mouse_rel_suppression_watchdog(
+        await mouse.mouse_rel_suppression_watchdog(
             manager,
             1.0,
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         assert manager.macro_state.mouse_rel_suppressed is True
 
         manager.macro_state.mouse_inhibit_count = 0
-        await mdm.mouse_rel_suppression_watchdog(
+        await mouse.mouse_rel_suppression_watchdog(
             manager,
             1.0,
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         assert manager.macro_state.mouse_rel_suppressed is False
@@ -3436,14 +3453,14 @@ class TestMacroControlActions:
             sleep_calls.append(duration)
             clock["now"] += duration
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(mdm.random, "randint", lambda _minimum, _maximum: 50_000)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
+        monkeypatch.setattr(controls.random, "randint", lambda _minimum, _maximum: 50_000)
 
-        result = await mdm.run_macro_control_action(
+        result = await controls.run_macro_control_action(
             manager,
             {"macro_action": "wait_random", "min_us": 10_000, "max_us": 80_000},
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         assert sleep_calls == [0.05]
@@ -3460,13 +3477,13 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        result = await mdm.run_macro_control_action(
+        result = await controls.run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_async",
                 "command": "echo hi",
             },
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         callback.assert_awaited_once()
@@ -3487,7 +3504,7 @@ class TestMacroControlActions:
 
         manager.broadcast_callback = cb
 
-        result = await mdm.run_macro_control_action(
+        result = await controls.run_macro_control_action(
             manager,
             {
                 "macro_action": "compositor_dispatch",
@@ -3495,7 +3512,7 @@ class TestMacroControlActions:
                 "dispatcher": "workspace",
                 "args": "e+1",
             },
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         callback.assert_awaited_once()
@@ -3537,13 +3554,13 @@ class TestMacroControlActions:
             clock["now"] += 0.025
             raise TimeoutError
 
-        monkeypatch.setattr(dm.asyncio, "sleep", fake_sleep)
-        monkeypatch.setattr(dm.asyncio, "get_running_loop", lambda: _FakeLoop())
-        monkeypatch.setattr(dm.asyncio, "wait_for", fake_wait_for)
-        monkeypatch.setattr(mdm, "begin_mouse_rel_suppression", begin_mouse_rel_suppression)
-        monkeypatch.setattr(mdm, "end_mouse_rel_suppression", end_mouse_rel_suppression)
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "get_running_loop", lambda: _FakeLoop())
+        monkeypatch.setattr(device_manager.asyncio, "wait_for", fake_wait_for)
+        monkeypatch.setattr(mouse, "acquire_macro_mouse_inhibit", begin_mouse_rel_suppression)
+        monkeypatch.setattr(mouse, "release_macro_mouse_inhibit", end_mouse_rel_suppression)
 
-        result = await mdm.run_macro_control_action(
+        result = await controls.run_macro_control_action(
             manager,
             {
                 "macro_action": "exec_sync",
@@ -3551,7 +3568,7 @@ class TestMacroControlActions:
                 "inhibit_mouse": True,
                 "timeout_ms": 100,
             },
-            deps=dm._macro_runtime_deps(),
+            deps=device_manager._macro_runtime_deps(),
         )
 
         assert begin_mouse_rel_suppression.called is True
@@ -3577,13 +3594,12 @@ class TestReleaseScheduling:
         device = SimpleNamespace(
             path="/dev/input/event2",
             interface_id="gamepad",
+            stop_event_loop=AsyncMock(),
             release=AsyncMock(),
             release_tracked_outputs=Mock(),
         )
         manager.grabbed_devices["2dc8:3106"] = [device]
-        evdev_interfaces = [
-            {"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}
-        ]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
         manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
         manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
             paths={"keymasq:2dc8:3106"},
@@ -3596,18 +3612,18 @@ class TestReleaseScheduling:
             return None
 
         monkeypatch.setattr(
-            ldm.runtime_combos,
+            lifecycle,
             "clear_combo_runtime_for_binding_scope",
             clear_combo_runtime,
         )
         monkeypatch.setattr(
-            ldm.source_hiding,
+            source_hiding,
             "enable_hardware_hotplug_hiding",
             enable_hotplug_hiding,
         )
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", Mock())
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
 
-        await ldm.release_interface_unlocked(
+        await release.release_interface_unlocked(
             manager,
             "2dc8:3106",
             "/dev/input/event2",
@@ -3615,9 +3631,7 @@ class TestReleaseScheduling:
 
         enable_hotplug_hiding.assert_awaited_once_with("2dc8:3106")
         assert "2dc8:3106" not in manager.grabbed_devices
-        assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (
-            evdev_interfaces
-        )
+        assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
 
     @pytest.mark.asyncio
     async def test_release_on_hold_state_is_retried_then_released(
@@ -3640,14 +3654,14 @@ class TestReleaseScheduling:
         async def release_device(_manager, _hardware_id: str, *, log) -> None:
             await fake_device.release()
 
-        monkeypatch.setattr(ldm, "release_device_unlocked", release_device)
+        monkeypatch.setattr(release, "release_device_unlocked", release_device)
 
-        await ldm.schedule_hardware_release_unlocked(
+        await release.schedule_hardware_release_unlocked(
             manager,
             "hw",
             0.001,
-            asyncio_mod=ldm.ASYNCIO_RUNTIME,
-            log=dm.log,
+            asyncio_mod=adapters.ASYNCIO_RUNTIME,
+            log=device_manager.log,
         )
         task = manager.grab_state.pending_hardware_release["hw"]
         await task

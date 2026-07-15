@@ -9,18 +9,18 @@ from keymasq.session.listeners._socket_helpers import (
 )
 from keymasq.session.listeners.base import WindowChangeCallback
 from keymasq.session.listeners.wayland_toplevel import WaylandToplevelListener
-from keymasq.session.wayland_protocols import (
+from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
+from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
+from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WLR_TOPLEVEL_STATE_ACTIVATED,
-    WlrForeignToplevelManagerTracker,
     WlrForeignToplevelWaylandClient,
 )
-from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
 
 log = logging.getLogger("keymasq-session.listeners.wayland_wlr")
 
 
 class WlrootsWaylandListener(
-    WaylandToplevelListener[WlrForeignToplevelManagerTracker, WlrForeignToplevelWaylandClient]
+    WaylandToplevelListener[ActiveWindowTracker, WlrForeignToplevelWaylandClient]
 ):
     _logger = log
     _listener_error_label = "Wayland wlr listener"
@@ -33,9 +33,7 @@ class WlrootsWaylandListener(
         client: object | None = None,
         dbus: SessionDBus | None = None,
     ) -> None:
-        tracker = WlrForeignToplevelManagerTracker(
-            activated_state=WLR_TOPLEVEL_STATE_ACTIVATED
-        )
+        tracker = ActiveWindowTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
         super().__init__(callback, tracker, client, dbus=dbus)
 
     @property

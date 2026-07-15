@@ -8,15 +8,12 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import (
-    ActionType,
-    AnalogInputDefinition,
-    ButtonDefinition,
-    HardwareConfig,
-    MappingAction,
-)
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
-from keymasq.session.profiles import ProfileInfo, ProfileManager
+from keymasq.session.profile.manager import ProfileManager
+from keymasq.session.profile.types import ProfileInfo
 
 _ACTION_SUMMARY_MARKER = "..."
 

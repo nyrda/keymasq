@@ -7,7 +7,7 @@ from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
 )
-from keymasq.common.models import parse_mpris_command
+from keymasq.common.model.actions import parse_mpris_command
 from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
 

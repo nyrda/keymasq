@@ -110,8 +110,7 @@ def test_cli_main_type_help_includes_inline_controls_and_docs(
     out = capsys.readouterr().out
     assert 'Example: keymasq type "user<tab><wait:100:250>password<enter>"' in out
     assert (
-        "Type inline controls: "
-        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+        "Type inline controls: https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
     ) in out
     assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
 
@@ -148,24 +147,20 @@ def test_keymasqd_script_entrypoint_calls_daemon_main(monkeypatch: pytest.Monkey
 
 
 def test_session_script_entrypoint_calls_manager_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.session.manager import core
+
     called: list[str] = []
-    monkeypatch.setitem(
-        sys.modules,
-        "keymasq.session.manager",
-        _module_with_main(lambda: called.append("manager")),
-    )
+    monkeypatch.setattr(core, "main", lambda: called.append("manager"))
 
     runpy.run_module("keymasq.session.__main__", run_name="__main__")
     assert called == ["manager"]
 
 
 def test_session_entrypoint_delegates_help_to_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.session.manager import core
+
     called: list[str] = []
-    monkeypatch.setitem(
-        sys.modules,
-        "keymasq.session.manager",
-        _module_with_main(lambda: called.append("manager")),
-    )
+    monkeypatch.setattr(core, "main", lambda: called.append("manager"))
     monkeypatch.setattr(sys, "argv", ["keymasq-session", "--help"])
 
     runpy.run_module("keymasq.session.__main__", run_name="__main__")

@@ -5,12 +5,11 @@ import logging
 import os
 from pathlib import Path
 
-import keymasq.session.gnome_shell as gnome_shell
-from keymasq.common.coercion import coerce_int, coerce_str
-from keymasq.common.coercion import json_object as _json_object
+from keymasq.common.coercion import coerce_int, coerce_str, json_object
 from keymasq.common.paths import GNOME_BRIDGE_SOCKET_PATH
 from keymasq.common.security import get_peer_credentials
 from keymasq.common.types import JsonObject
+from keymasq.session import gnome_shell
 from keymasq.session.dbus import SessionDBus, name_has_owner
 from keymasq.session.gnome_shell import GnomeShellDBusError
 from keymasq.session.listeners._socket_helpers import (
@@ -515,7 +514,7 @@ class GnomeListener(WindowListener):
                 if not raw:
                     break
                 try:
-                    payload = _json_object(json.loads(raw.decode("utf-8")))
+                    payload = json_object(json.loads(raw.decode("utf-8")))
                 except UnicodeDecodeError as exc:
                     log.debug("Ignoring GNOME bridge message with invalid UTF-8: %s", exc)
                     continue

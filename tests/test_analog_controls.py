@@ -4,16 +4,16 @@ from typing import BinaryIO
 import pytest
 
 import keymasq.session.analog_controls as analog_controls_module
-from keymasq.common.models import (
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import (
     SAME_DEVICE_OUTPUT_ID,
-    ActionType,
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
     AnalogMouseMotionConfig,
-    MappingAction,
     validate_analog_control_config,
 )
+from keymasq.common.model.core import ActionType
 from keymasq.session.analog_controls import (
     AnalogControlManager,
     analog_control_mouse_wheel_template,
@@ -80,9 +80,7 @@ def test_analog_control_failed_overwrite_preserves_existing_file_and_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = AnalogControlManager()
-    manager.save_analog_control(
-        AnalogControlConfig(name="Saved Control", description="original")
-    )
+    manager.save_analog_control(AnalogControlConfig(name="Saved Control", description="original"))
     path = temp_config_dir / "analog_controls" / "saved_control.toml"
     original_content = path.read_bytes()
 
@@ -409,9 +407,9 @@ def test_analog_control_gamepad_output_max_direction_round_trips(
         )
     )
 
-    content = (
-        temp_config_dir / "analog_controls" / "route_pedal_max.toml"
-    ).read_text(encoding="utf-8")
+    content = (temp_config_dir / "analog_controls" / "route_pedal_max.toml").read_text(
+        encoding="utf-8"
+    )
     loaded = AnalogControlManager().get_analog_control("Route Pedal Max")
 
     assert 'output_direction = "max"' not in content

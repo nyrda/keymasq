@@ -2,9 +2,10 @@ from typing import cast
 
 import evdev
 
-import keymasq.keymasqd.device_manager as dm
+from keymasq.keymasqd import device_manager
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import macros as mdm
+from keymasq.keymasqd.runtime.macro import scheduler
+from keymasq.keymasqd.runtime.macro.state import MacroEventSource
 
 
 class FakeRecorder:
@@ -18,7 +19,7 @@ class FakeRecorder:
 
 async def play_macro_task_helper(manager: DeviceManager, **kwargs: object) -> None:
     instance_id = int(kwargs["instance_id"])
-    await mdm.play_macro_task(
+    await scheduler.play_macro_task(
         manager,
         instance_id=instance_id,
         macro_events=cast(list[dict[str, object]], kwargs["macro_events"]),
@@ -32,9 +33,9 @@ async def play_macro_task_helper(manager: DeviceManager, **kwargs: object) -> No
         start_x=int(kwargs["start_x"]),
         start_y=int(kwargs["start_y"]),
         block_mouse_movement=bool(kwargs["block_mouse_movement"]),
-        deps=dm._macro_runtime_deps(),
+        deps=device_manager._macro_runtime_deps(),
         macro_event_source=cast(
-            mdm.MacroEventSource | None,
+            MacroEventSource | None,
             kwargs.get("macro_event_source"),
         ),
     )

@@ -10,20 +10,16 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import (
-    MAX_MACRO_RECORDING_SLOTS,
-    ActionType,
-    MappingAction,
-    SuperkeyAction,
-)
+from keymasq.common.model.actions import MAX_MACRO_RECORDING_SLOTS, MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.superkeys import SuperkeyAction
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.fuzzy_search import (
     fuzzy_query_matches,
     install_listbox_fuzzy_filter,
     macro_search_text,
 )
-from keymasq.session.profiles import ProfileManager
-
-from .compat import session_request_async
+from keymasq.session.profile.manager import ProfileManager
 
 
 class MacroTabMixin:
@@ -207,9 +203,7 @@ class MacroTabMixin:
         while child is not None:
             console.remove(child)
             child = console.get_first_child()
-        self._macro_recording_enabled = self._resolve_macro_recording_enabled(
-            default=False
-        )
+        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
         if self._macro_recording_enabled:
             console.append(self._build_macro_slot_cards())
         else:
@@ -313,9 +307,7 @@ class MacroTabMixin:
         return button
 
     def _create_play_slot_button(self, slot: int) -> Gtk.Button:
-        content = Adw.ButtonContent(
-            icon_name="media-playback-start-symbolic", label=str(slot)
-        )
+        content = Adw.ButtonContent(icon_name="media-playback-start-symbolic", label=str(slot))
         content.add_css_class("macro-play-icon")
         button = Gtk.Button()
         button.add_css_class("macro-slot-button")
@@ -442,7 +434,7 @@ class MacroTabMixin:
         self._open_macro_editor(name)
 
     def _open_macro_editor(self, name: str) -> None:
-        from keymasq.gui.widgets.macro_editor_dialog import MacroEditorDialog
+        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 
         root = self.get_root()
         parent = root if root is not None else self._parent

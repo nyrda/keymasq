@@ -83,8 +83,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTCTRL
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"],
             reason="left ctrl passthrough hold",
         )
 
@@ -187,8 +186,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTCTRL
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"],
             reason="left ctrl passthrough hold",
         )
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
@@ -196,37 +194,37 @@ class TestIntegrationCombos(IntegrationTestBase):
         await self._wait_until(
             lambda: any(
                 candidate.releasing
-                for candidate in manager.combo_state.engine._candidates.values()
+                for candidate in manager.combo_state.progression.engine._candidates.values()
             ),
             reason="combo first step release phase",
         )
 
-        assert manager.combo_state.engine.next_deadline() is None
+        assert manager.combo_state.progression.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
         virtual_keyboard.syn()
         await self._wait_until(
             lambda: any(
                 candidate.releasing and len(candidate.pressed_bindings) == 1
-                for candidate in manager.combo_state.engine._candidates.values()
+                for candidate in manager.combo_state.progression.engine._candidates.values()
             ),
             reason="combo first step partial release",
         )
-        assert manager.combo_state.engine.next_deadline() is None
+        assert manager.combo_state.progression.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: manager.combo_state.engine.next_deadline() is not None,
+            lambda: manager.combo_state.progression.engine.next_deadline() is not None,
             reason="combo second step deadline",
         )
-        assert manager.combo_state.engine.next_deadline() is not None
+        assert manager.combo_state.progression.engine.next_deadline() is not None
 
         await self._wait_until(
-            lambda: manager.combo_state.engine.next_deadline() is None,
+            lambda: manager.combo_state.progression.engine.next_deadline() is None,
             reason="combo second step timeout",
         )
-        assert manager.combo_state.engine.next_deadline() is None
+        assert manager.combo_state.progression.engine.next_deadline() is None
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1)
         virtual_keyboard.syn()
@@ -302,12 +300,8 @@ class TestIntegrationCombos(IntegrationTestBase):
                             "mode": "pattern",
                             "hold_threshold_ms": 20,
                             "hold_actions": [{"action": "keyboard", "target": "key_f15"}],
-                            "double_tap_actions": [
-                                {"action": "keyboard", "target": "key_f16"}
-                            ],
-                            "tap_hold_actions": [
-                                {"action": "keyboard", "target": "key_f17"}
-                            ],
+                            "double_tap_actions": [{"action": "keyboard", "target": "key_f16"}],
+                            "tap_hold_actions": [{"action": "keyboard", "target": "key_f17"}],
                         },
                     },
                 }
@@ -320,8 +314,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTCTRL
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"],
             reason="left ctrl passthrough hold",
         )
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
@@ -329,7 +322,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         await self._wait_until(
             lambda: any(
                 candidate.releasing
-                for candidate in manager.combo_state.engine._candidates.values()
+                for candidate in manager.combo_state.progression.engine._candidates.values()
             ),
             reason="combo first step release phase",
         )
@@ -339,14 +332,14 @@ class TestIntegrationCombos(IntegrationTestBase):
         await self._wait_until(
             lambda: any(
                 candidate.releasing and len(candidate.pressed_bindings) == 1
-                for candidate in manager.combo_state.engine._candidates.values()
+                for candidate in manager.combo_state.progression.engine._candidates.values()
             ),
             reason="combo first step partial release",
         )
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: manager.combo_state.engine.next_deadline() is not None,
+            lambda: manager.combo_state.progression.engine.next_deadline() is not None,
             reason="combo second step deadline",
         )
 
@@ -425,8 +418,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTCTRL
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"],
             reason="left ctrl passthrough hold",
         )
 
@@ -514,8 +506,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTALT
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTALT in grabbed.state.held_output_keys["passthrough"],
             reason="left alt passthrough hold",
         )
 
@@ -593,8 +584,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTCTRL
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTCTRL in grabbed.state.held_output_keys["passthrough"],
             reason="left ctrl passthrough hold",
         )
 
@@ -685,8 +675,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTALT
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTALT in grabbed.state.held_output_keys["passthrough"],
             reason="left alt passthrough hold",
         )
 
@@ -700,8 +689,7 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: _keyboard_press_codes(manager)
-            == [evdev.ecodes.KEY_F13, evdev.ecodes.KEY_F14],
+            lambda: _keyboard_press_codes(manager) == [evdev.ecodes.KEY_F13, evdev.ecodes.KEY_F14],
             reason="second combo action press",
         )
 
@@ -766,52 +754,59 @@ class TestIntegrationCombos(IntegrationTestBase):
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: evdev.ecodes.KEY_LEFTALT
-            in grabbed.state.held_output_keys["passthrough"],
+            lambda: evdev.ecodes.KEY_LEFTALT in grabbed.state.held_output_keys["passthrough"],
             reason="left alt passthrough hold",
         )
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: _keyboard_writes(manager, combo_key_codes)
-            == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)],
+            lambda: (
+                _keyboard_writes(manager, combo_key_codes)
+                == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1)]
+            ),
             reason="first combo action press",
         )
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 1)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: _keyboard_writes(manager, combo_key_codes)
-            == [
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
-            ],
+            lambda: (
+                _keyboard_writes(manager, combo_key_codes)
+                == [
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+                ]
+            ),
             reason="second combo action press",
         )
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_1, 0)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: _keyboard_writes(manager, combo_key_codes)
-            == [
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
-            ],
+            lambda: (
+                _keyboard_writes(manager, combo_key_codes)
+                == [
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+                ]
+            ),
             reason="first combo action release",
         )
 
         virtual_keyboard.write(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_2, 0)
         virtual_keyboard.syn()
         await self._wait_until(
-            lambda: _keyboard_writes(manager, combo_key_codes)
-            == [
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
-                (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
-            ],
+            lambda: (
+                _keyboard_writes(manager, combo_key_codes)
+                == [
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+                ]
+            ),
             reason="second combo action release",
         )
 

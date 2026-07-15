@@ -5,14 +5,16 @@ from unittest.mock import AsyncMock
 import evdev
 import pytest
 
+from keymasq.common import devices
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, DeviceType
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd.device_manager import DeviceManager
-from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.keymasqd.runtime.combo import events
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.manager_combos import combo_runtime_signature
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_event_runtime_kwargs,
@@ -52,15 +54,15 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: f"{path}-stable")
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: f"{path}-stable")
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
             hardware_id="1234:5678",
             button_map={"key_f13": "key_f13"},
             mapping_getter=lambda: {},
-            event_callback=lambda *args, **kwargs: cdm.on_device_event(
+            event_callback=lambda *args, **kwargs: events.on_device_event(
                 manager, *args, **kwargs, **combo_event_runtime_kwargs()
             ),
             device_type=DeviceType.KEYBOARD,
@@ -72,10 +74,10 @@ class TestCombos:
         def fail_interface(_path: str) -> str:
             raise AssertionError("get_interface_id should not run in the hot event path")
 
-        monkeypatch.setattr(gdm, "resolve_stable_path", fail_resolve)
-        monkeypatch.setattr(gdm, "get_interface_id", fail_interface)
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", fail_resolve)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", fail_interface)
 
-        decision = await gde.process_event(
+        decision = await pipeline.process_event(
             device,
             SimpleNamespace(
                 type=evdev.ecodes.EV_KEY,
@@ -114,9 +116,9 @@ class TestCombos:
         )
 
         assert result == {"updated": True, "combo_count": 1}
-        assert len(manager.active_combos) == 1
-        assert manager.active_combos[0].action is not None
-        assert manager.active_combos[0].action.profile_name == "Gaming"
+        assert len(manager.combo_state.active_combos) == 1
+        assert manager.combo_state.active_combos[0].action is not None
+        assert manager.combo_state.active_combos[0].action.profile_name == "Gaming"
 
     @pytest.mark.asyncio
     async def test_set_combos_parses_match_across_devices(self):
@@ -145,12 +147,12 @@ class TestCombos:
             ]
         )
 
-        combo = manager.active_combos[0]
+        combo = manager.combo_state.active_combos[0]
         binding = combo.steps[0].bindings[0]
         assert combo.match_across_devices is True
         assert binding.hardware_id == ""
         assert binding.source == ""
-        assert dm.combo_runtime_signature(combo)[-1] is True
+        assert combo_runtime_signature(combo)[-1] is True
 
     @pytest.mark.asyncio
     async def test_set_combos_allows_omitted_hardware_id_as_wildcard(self):
@@ -167,9 +169,9 @@ class TestCombos:
             ]
         )
 
-        assert manager.active_combos[0].steps[0].bindings[0].hardware_id == ""
+        assert manager.combo_state.active_combos[0].steps[0].bindings[0].hardware_id == ""
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             "9999:0001",
             "/dev/input/event-test",
@@ -232,7 +234,7 @@ class TestCombos:
             ]
         )
 
-        press_v = await cdm.on_device_event(
+        press_v = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/event-test",
@@ -279,10 +281,10 @@ class TestCombos:
             ]
         )
 
-        monkeypatch.setattr(dm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(dm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
 
-        pressed = await cdm.on_device_event(
+        pressed = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -293,7 +295,7 @@ class TestCombos:
             None,
             **combo_event_runtime_kwargs(),
         )
-        released = await cdm.on_device_event(
+        released = await events.on_device_event(
             manager,
             "1234:5678",
             "/dev/input/by-id/test-mouse",
@@ -359,8 +361,8 @@ class TestCombos:
         repeat_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=2)
         release_c = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_C, value=0)
 
-        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert device.state.combo_recalled_bindings == {"key_x"}
@@ -372,7 +374,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
         ]
 
-        await gde.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -380,7 +382,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_X, 0),
         ]
 
-        await gde.process_event(device, release_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert device.state.combo_recalled_bindings == set()
@@ -394,7 +396,7 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
         ]
 
-        await gde.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, repeat_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == [
@@ -411,7 +413,7 @@ class TestCombos:
     ) -> None:
         hardware_id = "1234:5678"
         mapping = {
-            "key_capslock": dm.MappingAction(action_type=ActionType.SUPPRESS),
+            "key_capslock": MappingAction(action_type=ActionType.SUPPRESS),
         }
 
         setup = await make_combo_runtime_setup(
@@ -457,10 +459,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await gde.process_event(device, press_caps, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_caps, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -476,7 +478,7 @@ class TestCombos:
     ) -> None:
         hardware_id = "1234:5678"
         mapping = {
-            "key_capslock": dm.MappingAction(
+            "key_capslock": MappingAction(
                 action_type=ActionType.KEYBOARD,
                 target="key_leftmeta",
             ),
@@ -524,10 +526,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await gde.process_event(device, press_caps, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_caps, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -546,7 +548,7 @@ class TestCombos:
     ) -> None:
         hardware_id = "1234:5678"
         mapping = {
-            "key_leftctrl": dm.MappingAction(
+            "key_leftctrl": MappingAction(
                 action_type=ActionType.KEYBOARD,
                 target="key_leftmeta",
             ),
@@ -594,10 +596,10 @@ class TestCombos:
         press_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=1)
         release_x = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_X, value=0)
 
-        await gde.process_event(device, press_ctrl, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_ctrl, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, release_x, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_x, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough.writes == []
@@ -677,17 +679,17 @@ class TestCombos:
         press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
         release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
 
-        await gde.process_event(device, press_alt, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, press_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_alt, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, release_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, press_h, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, release_h, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_h, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_h, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, press_v, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(device, release_v, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert keyboard.writes == [
@@ -789,17 +791,27 @@ class TestCombos:
         press_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=1)
         release_v = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_V, value=0)
 
-        await gde.process_event(keyboard_device, press_alt, deps=grabbed_event_processing_deps())
-        await gde.process_event(keyboard_device, press_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(
+            keyboard_device, press_alt, deps=grabbed_event_processing_deps()
+        )
+        await pipeline.process_event(keyboard_device, press_c, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(keyboard_device, release_c, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(
+            keyboard_device, release_c, deps=grabbed_event_processing_deps()
+        )
         await asyncio.sleep(0)
-        await gde.process_event(mouse_device, press_mouse, deps=grabbed_event_processing_deps())
-        await gde.process_event(mouse_device, release_mouse, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(
+            mouse_device, press_mouse, deps=grabbed_event_processing_deps()
+        )
+        await pipeline.process_event(
+            mouse_device, release_mouse, deps=grabbed_event_processing_deps()
+        )
         await asyncio.sleep(0)
-        await gde.process_event(keyboard_device, press_v, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(keyboard_device, press_v, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
-        await gde.process_event(keyboard_device, release_v, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(
+            keyboard_device, release_v, deps=grabbed_event_processing_deps()
+        )
         await asyncio.sleep(0)
 
         assert keyboard.writes == [

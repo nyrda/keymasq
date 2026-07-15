@@ -14,7 +14,7 @@ from keymasq.common.gamepad_axes import (
     gamepad_axis_value_from_percent,
     normalize_gamepad_axis_target,
 )
-from keymasq.common.models import ActionType
+from keymasq.common.model.core import ActionType
 
 from .targets import (
     _GAMEPAD_AXIS_CUSTOM_SLOT,
@@ -137,9 +137,7 @@ class GamepadAxisControlsMixin:
         if target is None:
             return
         self._syncing_gamepad_axis_controls = True
-        self.gamepad_axis_value.set_value(
-            gamepad_axis_value_from_percent(target, spin.get_value())
-        )
+        self.gamepad_axis_value.set_value(gamepad_axis_value_from_percent(target, spin.get_value()))
         self._syncing_gamepad_axis_controls = False
 
     def _on_gamepad_axis_value_changed(self, spin: Gtk.SpinButton) -> None:
@@ -188,9 +186,7 @@ class GamepadAxisControlsMixin:
     def _prefill_gamepad_axis(self, target: str, value: int) -> None:
         normalized = normalize_gamepad_axis_target(target) or target
         if normalized in GAMEPAD_AXIS_RANGES:
-            self.gamepad_axis_dropdown.set_selected(
-                self.gamepad_axis_targets.index(normalized)
-            )
+            self.gamepad_axis_dropdown.set_selected(self.gamepad_axis_targets.index(normalized))
         elif _resolve_gamepad_axis_target(normalized):
             self.gamepad_axis_dropdown.set_selected(
                 self.gamepad_axis_targets.index(_GAMEPAD_AXIS_CUSTOM_SLOT)

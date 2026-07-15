@@ -12,7 +12,8 @@ from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue
 
 from keymasq import __version__
 from keymasq.common.devices import is_keymasq_device_path
-from keymasq.common.models import DeviceType, EvdevDevice, HardwareConfig
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.session.hardware import HardwareManager
 
@@ -282,7 +283,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         return box
 
     def _on_add_event_device_clicked(self, _button: Gtk.Button) -> None:
-        from keymasq.gui.wizards.hardware_setup import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
         parent = self._parent_window()
         picker = HardwareSetupDialog(
@@ -302,9 +303,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         if not isinstance(raw_devices, list):
             return
         devices = [
-            device
-            for device in cast(list[object], raw_devices)
-            if isinstance(device, EvdevDevice)
+            device for device in cast(list[object], raw_devices) if isinstance(device, EvdevDevice)
         ]
         _added, message, error = self._on_add_devices(devices)
         self._refresh_interface_rows()
@@ -392,10 +391,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         body.set_margin_end(16)
 
         message = Gtk.Label(
-            label=(
-                f"Remove '{_interface_row_title(device)}' from "
-                f"{self._hardware_config.name}?"
-            )
+            label=(f"Remove '{_interface_row_title(device)}' from {self._hardware_config.name}?")
         )
         message.set_halign(Gtk.Align.START)
         message.set_wrap(True)
@@ -414,9 +410,7 @@ class HardwareSettingsDialog(Adw.Dialog):
             detail.set_wrap(True)
             body.append(detail)
 
-        delete_profiles_check = Gtk.CheckButton(
-            label="Remove attached profile mappings"
-        )
+        delete_profiles_check = Gtk.CheckButton(label="Remove attached profile mappings")
         delete_profiles_check.set_active(
             bool(attached_control_ids) and self._can_delete_profile_mappings
         )

@@ -6,8 +6,18 @@ from unittest.mock import Mock
 import evdev
 import pytest
 
-from keymasq.common.models import DeviceType
-from keymasq.keymasqd.runtime import grab_lifecycle as ldm
+from keymasq.common.model.core import DeviceType
+from keymasq.common.types import JsonObject
+from keymasq.keymasqd.runtime import device_path_resolver, outputs
+from keymasq.keymasqd.runtime.grab.acquisition import finalize_grab
+from keymasq.keymasqd.runtime.grab.planning import build_grab_plan, device_has_mapped_buttons
+from keymasq.keymasqd.runtime.grab.recovery import rollback_failed_grab_report
+from keymasq.keymasqd.runtime.grab.state import (
+    GrabAcquisitionState,
+    GrabDeviceDeps,
+    GrabPlan,
+    GrabRequest,
+)
 
 
 def _manager(
@@ -31,12 +41,12 @@ def _manager(
 def _deps(
     *,
     resolve_stable_path_fn=lambda path: path,
-) -> ldm.GrabDeviceDeps:
-    return ldm.GrabDeviceDeps(
+) -> GrabDeviceDeps:
+    return GrabDeviceDeps(
         desired_grab_config_cls=lambda **kwargs: SimpleNamespace(**kwargs),
         clear_device_path_cache_fn=lambda: None,
         resolve_stable_path_fn=resolve_stable_path_fn,
-        device_path_resolver_deps=ldm.device_path_resolver.DevicePathResolverDeps(
+        device_path_resolver_deps=device_path_resolver.DevicePathResolverDeps(
             device_paths_fn=lambda: [],
             device_input_fn=lambda _path: SimpleNamespace(),
             detect_input_classes_fn=lambda _device: [],
@@ -60,10 +70,10 @@ def _request(
     button_values: dict[str, int] | None = None,
     analog_inputs: dict[str, object] | None = None,
     force_grab_unmapped: bool = False,
-    evdev_interfaces: list[ldm.JsonObject] | None = None,
+    evdev_interfaces: list[JsonObject] | None = None,
     update_desired: bool = False,
-) -> ldm.GrabRequest:
-    return ldm.GrabRequest(
+) -> GrabRequest:
+    return GrabRequest(
         hardware_id=hardware_id,
         evdev_paths=evdev_paths or [],
         button_map=button_map or {},
@@ -79,7 +89,7 @@ def _request(
 def _plan(
     *,
     hardware_id: str = "2dc8:3106",
-    raw_interfaces: list[ldm.JsonObject] | None = None,
+    raw_interfaces: list[JsonObject] | None = None,
     evdev_interfaces_provided: bool = False,
     requested_paths: set[str] | None = None,
     mapped_evdev_names: set[str] | None = None,
@@ -89,8 +99,8 @@ def _plan(
     previous_desired_paths: set[str] | None = None,
     previous_desired_config: object | None = None,
     requests_gamepad_source_hiding: bool = False,
-) -> ldm.GrabPlan:
-    return ldm.GrabPlan(
+) -> GrabPlan:
+    return GrabPlan(
         hardware_id=hardware_id,
         raw_interfaces=raw_interfaces or [],
         evdev_interfaces_provided=evdev_interfaces_provided,
@@ -147,14 +157,14 @@ def test_build_grab_plan_computes_paths_bindings_aliases_and_snapshots(
         return stable_paths.get(path, path)
 
     resolved = [
-        ldm.device_path_resolver.ResolvedInterface(
+        device_path_resolver.ResolvedInterface(
             path="/dev/input/event2",
             configured_path="/dev/input/event2",
             interface_id="kbd",
             device_type=DeviceType.KEYBOARD,
             capabilities=["key_a"],
         ),
-        ldm.device_path_resolver.ResolvedInterface(
+        device_path_resolver.ResolvedInterface(
             path="/dev/input/event3",
             configured_path="/dev/input/event3",
             interface_id="stick",
@@ -169,7 +179,7 @@ def test_build_grab_plan_computes_paths_bindings_aliases_and_snapshots(
         return resolved
 
     monkeypatch.setattr(
-        ldm.device_path_resolver,
+        device_path_resolver,
         "resolve_evdev_interfaces",
         resolve_evdev_interfaces,
     )
@@ -185,7 +195,7 @@ def test_build_grab_plan_computes_paths_bindings_aliases_and_snapshots(
         }
     }
 
-    plan = ldm._build_grab_plan(
+    plan = build_grab_plan(
         manager,
         _request(
             evdev_interfaces=raw_interfaces,
@@ -246,16 +256,16 @@ def test_build_grab_plan_computes_paths_bindings_aliases_and_snapshots(
 )
 def test_build_grab_plan_source_hiding_requires_keymasq_gamepad(
     monkeypatch: pytest.MonkeyPatch,
-    interfaces: list[ldm.JsonObject],
+    interfaces: list[JsonObject],
     expected: bool,
 ) -> None:
     monkeypatch.setattr(
-        ldm.device_path_resolver,
+        device_path_resolver,
         "resolve_evdev_interfaces",
         lambda *_args, **_kwargs: [],
     )
 
-    plan = ldm._build_grab_plan(
+    plan = build_grab_plan(
         _manager(),
         _request(evdev_interfaces=interfaces),
         _deps(),
@@ -303,7 +313,7 @@ def test_device_has_mapped_buttons_matrix(
     expected: bool,
 ) -> None:
     assert (
-        ldm.device_has_mapped_buttons(
+        device_has_mapped_buttons(
             caps,
             mapped_names,
             mapped_bindings,
@@ -316,12 +326,12 @@ def test_device_has_mapped_buttons_matrix(
 @pytest.mark.asyncio
 async def test_finalize_grab_waits_when_interfaces_requested_but_none_available() -> None:
     manager = _manager()
-    result = await ldm._finalize_grab(
+    result = await finalize_grab(
         manager,
         _request(update_desired=False),
         _plan(raw_interfaces=[{"path": "keymasq:2dc8:3106"}]),
         _deps(),
-        ldm._GrabLoopState(devices=[]),
+        GrabAcquisitionState(devices=[]),
     )
 
     assert result["waiting_for_device"] is True
@@ -334,15 +344,15 @@ async def test_finalize_grab_raises_no_match_and_destroys_created_uinputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     destroy_global_uinputs = Mock()
-    monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
-    state = ldm._GrabLoopState(
+    monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
+    state = GrabAcquisitionState(
         devices=[],
         available_count=1,
         created_global_uinputs=True,
     )
 
     with pytest.raises(ValueError) as excinfo:
-        await ldm._finalize_grab(
+        await finalize_grab(
             _manager(),
             _request(update_desired=False),
             _plan(
@@ -410,14 +420,12 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
         desired_grabs={"2dc8:3106": new_config},
     )
     manager.grab_state.pending_interface_release[("2dc8:3106", "/dev/input/event1")] = task
-    manager.grab_state.pending_interface_release[("ffff:ffff", "/dev/input/event9")] = (
-        other_task
-    )
+    manager.grab_state.pending_interface_release[("ffff:ffff", "/dev/input/event9")] = other_task
     destroy_global_uinputs = Mock()
-    monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+    monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
     exc = RuntimeError("grab failed")
 
-    reported = await ldm._rollback_failed_grab(
+    reported = await rollback_failed_grab_report(
         manager,
         _request(update_desired=True),
         _plan(
@@ -425,8 +433,7 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
             previous_desired_paths={"old-path"},
             previous_desired_config=old_config,
         ),
-        _deps(),
-        ldm._GrabLoopState(
+        GrabAcquisitionState(
             devices=[existing, first_new],
             grabbed_count=1,
             created_global_uinputs=True,
@@ -435,7 +442,8 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
         exc,
     )
 
-    assert reported is exc
+    assert reported.reported_exception is exc
+    assert reported.cleanup_succeeded
     assert first_new.release_count == 1
     assert manager.grabbed_devices["2dc8:3106"] == [existing]
     assert manager.grab_state.desired_paths["2dc8:3106"] == {"old-path"}
@@ -465,10 +473,10 @@ async def test_rollback_failed_grab_restores_state_when_new_device_release_fails
     )
     manager.grab_state.pending_interface_release[("2dc8:3106", "/dev/input/event1")] = task
     destroy_global_uinputs = Mock()
-    monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+    monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
     exc = RuntimeError("grab failed")
 
-    reported = await ldm._rollback_failed_grab(
+    reported = await rollback_failed_grab_report(
         manager,
         _request(update_desired=True),
         _plan(
@@ -476,8 +484,7 @@ async def test_rollback_failed_grab_restores_state_when_new_device_release_fails
             previous_desired_paths={"old-path"},
             previous_desired_config=old_config,
         ),
-        _deps(),
-        ldm._GrabLoopState(
+        GrabAcquisitionState(
             devices=[existing, failing_new],
             created_global_uinputs=True,
         ),
@@ -485,7 +492,8 @@ async def test_rollback_failed_grab_restores_state_when_new_device_release_fails
         exc,
     )
 
-    assert reported is exc
+    assert reported.reported_exception is exc
+    assert reported.failed_release_paths == ("/dev/input/event2",)
     assert failing_new.release_count == 1
     assert manager.grabbed_devices["2dc8:3106"] == [existing]
     assert manager.grab_state.desired_paths["2dc8:3106"] == {"old-path"}

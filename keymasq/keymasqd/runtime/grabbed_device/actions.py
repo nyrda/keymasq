@@ -3,14 +3,19 @@ from collections.abc import Callable
 from typing import cast
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.models import ActionType, MappingAction, SuperkeyMode
-from keymasq.common.types import SyntheticInputEvent as _SyntheticInputEvent
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.output_helpers import resolve_output_code
-from keymasq.keymasqd.runtime import action_runner as shared_action_runner
-from keymasq.keymasqd.runtime.action_runner import (
+from keymasq.keymasqd.runtime import action_runner
+from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     CancelMacroPlayback,
     ResolveCodeFn,
+    mark_action_started,
+    register_action_task,
+)
+from keymasq.keymasqd.runtime.action.triggers import (
     source_trigger_id,
 )
 from keymasq.keymasqd.runtime.adapters import WritableUInput
@@ -30,8 +35,7 @@ from keymasq.keymasqd.runtime.repeat import (
     execute_repeated_superkey_path,
     remember_superkey_path,
 )
-from keymasq.keymasqd.superkey_state import SuperkeyConfig as RuntimeSuperkeyConfig
-from keymasq.keymasqd.superkey_state import SuperkeyMachine
+from keymasq.keymasqd.superkey_state import SuperkeyConfig, SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.grabbed_device_actions")
 
@@ -54,7 +58,7 @@ def _build_superkey_machine(
                 ),
                 f"superkey action {event_name}",
             )
-            shared_action_runner.register_action_task(execution_handle, task)
+            register_action_task(execution_handle, task)
 
     def superkey_key_event_tracker(
         action_type: str,
@@ -90,7 +94,7 @@ def _build_superkey_machine(
         )
 
     return SuperkeyMachine(
-        config=cast(RuntimeSuperkeyConfig, action.superkey_config),
+        config=cast(SuperkeyConfig, action.superkey_config),
         event_name=event_name,
         keyboard_uinput=cast(WritableUInput, device_runtime.keyboard_uinput),
         mouse_uinput=cast(WritableUInput, device_runtime.mouse_uinput),
@@ -124,7 +128,7 @@ async def execute_action(
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
     record_repeat: bool = True,
 ) -> None:
-    await shared_action_runner.execute_action(
+    await action_runner.execute_action(
         device_runtime,
         action,
         event,
@@ -155,7 +159,7 @@ async def execute_action_pulse(
     await execute_action(
         device_runtime,
         action,
-        _SyntheticInputEvent(int(event.type), int(event.code), 1),
+        SyntheticInputEvent(int(event.type), int(event.code), 1),
         event_name,
         deps=deps,
         shared_output_tracker=shared_output_tracker,
@@ -165,13 +169,14 @@ async def execute_action_pulse(
     await execute_action(
         device_runtime,
         action,
-        _SyntheticInputEvent(int(event.type), int(event.code), 0),
+        SyntheticInputEvent(int(event.type), int(event.code), 0),
         event_name,
         deps=deps,
         shared_output_tracker=shared_output_tracker,
         shared_abs_output_tracker=shared_abs_output_tracker,
         record_repeat=False,
     )
+
 
 def _observe_overload_profile_trigger(
     device_runtime: GrabbedDeviceRuntime,
@@ -204,7 +209,7 @@ async def _execute_superkey_action(
     device_runtime = cast(GrabbedDeviceRuntime, device_runtime)
     del shared_output_tracker, shared_abs_output_tracker, resolve_code_fn
     if action.superkey_config is None:
-        shared_action_runner.mark_action_started(execution_handle)
+        mark_action_started(execution_handle)
         return
 
     if action.superkey_config.mode == SuperkeyMode.OVERLOAD:
@@ -215,7 +220,7 @@ async def _execute_superkey_action(
             event_name,
             deps=deps,
         )
-        shared_action_runner.mark_action_started(execution_handle)
+        mark_action_started(execution_handle)
         return
 
     machine = device_runtime.state.superkey_machines.get(event_name)
@@ -234,7 +239,7 @@ async def _execute_superkey_action(
         await machine.on_down()
     elif int(event.value) == 0 and machine is not None:
         await machine.on_up()
-    shared_action_runner.mark_action_started(execution_handle)
+    mark_action_started(execution_handle)
 
 
 async def _execute_overload_superkey(
@@ -407,7 +412,7 @@ async def _execute_overload_slot_once(
         await _execute_overload_superkey(
             device_runtime,
             action,
-            _SyntheticInputEvent(0, 0, value),
+            SyntheticInputEvent(0, 0, value),
             event_name,
             deps=deps,
         )

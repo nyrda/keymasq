@@ -9,8 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.coercion import coerce_int
-from keymasq.common.coercion import json_object as _json_object
+from keymasq.common.coercion import coerce_int, json_object
 from keymasq.common.subprocess_env import host_subprocess_environment
 from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus
@@ -41,7 +40,7 @@ def _normalize_string(value: object) -> str:
 def _niri_request_name(request: object) -> str:
     if isinstance(request, str):
         return request
-    request_object = _json_object(request)
+    request_object = json_object(request)
     if request_object is not None and len(request_object) == 1:
         return str(next(iter(request_object)))
     return ""
@@ -175,12 +174,12 @@ def parse_niri_event(payload: str) -> tuple[str, JsonObject] | None:
     except (json.JSONDecodeError, TypeError):
         return None
 
-    event = _json_object(data)
+    event = json_object(data)
     if event is None or len(event) != 1:
         return None
 
     variant, body = next(iter(event.items()))
-    body_object = _json_object(body)
+    body_object = json_object(body)
     if body_object is None:
         return None
 
@@ -189,7 +188,7 @@ def parse_niri_event(payload: str) -> tuple[str, JsonObject] | None:
 
 def parse_niri_reply(payload: str) -> tuple[bool, object]:
     data = cast(object, json.loads(payload))
-    reply = _json_object(data)
+    reply = json_object(data)
     if reply is None or len(reply) != 1:
         raise ValueError("invalid Niri reply")
     variant, body = next(iter(reply.items()))
@@ -209,13 +208,13 @@ def parse_niri_focused_window_response(payload: str) -> JsonObject | None:
 
 
 def _extract_niri_focused_window(response: object) -> JsonObject | None:
-    response_object = _json_object(response)
+    response_object = json_object(response)
     if response_object is None or len(response_object) != 1:
         return None
     variant, response_body = next(iter(response_object.items()))
     if variant != "FocusedWindow":
         return None
-    return _json_object(response_body)
+    return json_object(response_body)
 
 
 class NiriListener(WindowListener):
@@ -361,14 +360,14 @@ class NiriListener(WindowListener):
             windows = [
                 window
                 for item in cast(list[object], windows_value)
-                if (window := _json_object(item)) is not None
+                if (window := json_object(item)) is not None
             ]
             self._apply_windows_snapshot(windows)
             await self._emit_current_window_if_changed()
             return
 
         if event_type == "WindowOpenedOrChanged":
-            window = _json_object(body.get("window"))
+            window = json_object(body.get("window"))
             if window is None:
                 return
             window_id = self._window_id(window)
@@ -494,7 +493,7 @@ class NiriListener(WindowListener):
         )
         if not ok or response is None:
             return None
-        response_object = _json_object(response)
+        response_object = json_object(response)
         if response_object is None or len(response_object) != 1:
             return None
         variant, body = next(iter(response_object.items()))
@@ -503,7 +502,7 @@ class NiriListener(WindowListener):
         return [
             window
             for item in cast(list[object], body)
-            if (window := _json_object(item)) is not None
+            if (window := json_object(item)) is not None
         ]
 
     async def _refresh_windows_snapshot(self) -> None:
@@ -518,7 +517,7 @@ class NiriListener(WindowListener):
             return action
 
         variant, body = next(iter(action.items()))
-        body_object = _json_object(body)
+        body_object = json_object(body)
         if body_object is None:
             return action
 

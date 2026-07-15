@@ -9,9 +9,11 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.combos import normalize_combo_evdev
-from keymasq.common.models import ActionType, ComboConfig, ComboEvent, ComboStep, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
+from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
-from keymasq.gui.widgets.key_selector_dialog import EVDEV_TO_GAMEPAD, EVDEV_TO_KEY
+from keymasq.gui.widgets.key_selector.targets import EVDEV_TO_GAMEPAD, EVDEV_TO_KEY
 
 
 def sort_combo_keys(keys: list[str]) -> list[str]:

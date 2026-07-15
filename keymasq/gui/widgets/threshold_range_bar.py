@@ -31,8 +31,7 @@ def _threshold_ticks(minimum: float, maximum: float) -> tuple[tuple[float, str],
         )
     span = maximum - minimum
     return tuple(
-        (value, f"{value:g}")
-        for value in (minimum + span * index / 4.0 for index in range(5))
+        (value, f"{value:g}") for value in (minimum + span * index / 4.0 for index in range(5))
     )
 
 
@@ -76,9 +75,8 @@ class ThresholdRangeBar(Gtk.DrawingArea):
         self.queue_draw()
 
     def _x_for_value(self, value: float, left: float, width: float) -> float:
-        normalized = (
-            (_clamp(value, self._minimum, self._maximum) - self._minimum)
-            / (self._maximum - self._minimum)
+        normalized = (_clamp(value, self._minimum, self._maximum) - self._minimum) / (
+            self._maximum - self._minimum
         )
         return left + normalized * width
 

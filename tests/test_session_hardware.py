@@ -5,11 +5,11 @@ from typing import BinaryIO
 import pytest
 
 import keymasq.session.hardware as hardware_module
-from keymasq.common.models import (
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
-    DeviceType,
     EvdevDevice,
     HardwareConfig,
 )
@@ -552,7 +552,7 @@ def test_hardware_manager_failed_overwrite_preserves_existing_file_and_state(
     )
 
     def fail_dump(_data: object, config_file: BinaryIO) -> None:
-        config_file.write(b"[hardware]\nname = \"partial\"\n")
+        config_file.write(b'[hardware]\nname = "partial"\n')
         raise OSError("disk full")
 
     monkeypatch.setattr(hardware_module.tomli_w, "dump", fail_dump)

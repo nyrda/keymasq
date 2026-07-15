@@ -12,7 +12,7 @@ from typing import Any
 import evdev
 import tomli_w
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
 )

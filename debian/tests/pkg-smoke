@@ -42,7 +42,7 @@ assert_cmd "keymasq cli help" keymasq --help
 assert_cmd "keymasqd help" keymasqd --help
 assert_cmd "keymasq-session help" keymasq-session --help
 assert_cmd "keymasq-record help" keymasq-record --help
-assert_cmd "python import" python3 -c "import keymasq, keymasq.common.models"
+assert_cmd "python import" python3 -c "import keymasq, keymasq.common.model.core"
 assert_cmd "desktop icon name matches app identity" python3 -c "from configparser import ConfigParser; from keymasq.gui.application import APP_ICON_NAME, APP_ID; parser = ConfigParser(interpolation=None); parser.read('/usr/share/applications/tools.keymasq.keymasq.desktop', encoding='utf-8'); entry = parser['Desktop Entry']; assert entry['Icon'] == APP_ICON_NAME == APP_ID"
 assert_cmd "python package css" python3 -c "from importlib import resources; assert resources.files('keymasq').joinpath('gui/style.css').is_file()"
 assert_cmd "python package gui assets" python3 -c "from importlib import resources; gui = resources.files('keymasq').joinpath('gui'); assert gui.joinpath('assets', 'gamepad.svg').is_file(); assert gui.joinpath('assets', 'keymasq-keyboard-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keymasq-mouse-symbolic.svg').is_file(); assert gui.joinpath('assets', 'keymasq-combos-symbolic.svg').is_file()"

@@ -164,7 +164,9 @@ class TestComboEditorDialog:
     def test_combo_editor_save_disabled_until_complete(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -190,7 +192,9 @@ class TestComboEditorDialog:
     def test_combo_editor_emits_saved_combo(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -224,7 +228,9 @@ class TestComboEditorDialog:
     def test_combo_editor_any_device_save_preserves_scope_and_sets_flag(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -257,7 +263,9 @@ class TestComboEditorDialog:
     def test_combo_editor_generates_default_name_when_name_is_empty(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -286,13 +294,9 @@ class TestComboEditorDialog:
     def test_combo_editor_step_timeout_controls_and_save(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
         from tests.gui.support import collect_child_widgets, iter_widget_children
 
@@ -326,7 +330,9 @@ class TestComboEditorDialog:
     def test_combo_editor_trigger_recall_and_restore_controls(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -371,13 +377,9 @@ class TestComboEditorDialog:
     def test_combo_editor_exact_duplicate_is_rejected(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -433,13 +435,9 @@ class TestComboEditorDialog:
     def test_combo_editor_portable_duplicate_uses_runtime_scope_for_validation(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -451,9 +449,7 @@ class TestComboEditorDialog:
                 match_across_devices=True,
                 steps=[
                     ComboStep(
-                        events=[
-                            ComboEvent(evdev="key_f13", hardware_id="3333:4444", source="kbd")
-                        ]
+                        events=[ComboEvent(evdev="key_f13", hardware_id="3333:4444", source="kbd")]
                     ),
                 ],
                 action=MappingAction(action_type=ActionType.KEYBOARD, target="key_f5"),
@@ -486,13 +482,9 @@ class TestComboEditorDialog:
     def test_combo_editor_rejects_emergency_cancel_chord(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -519,7 +511,7 @@ class TestComboEditorDialog:
         assert dialog.save_button.get_sensitive() is False
 
     def test_combo_editor_detects_single_button_critical_mouse_triggers(self):
-        from keymasq.common.models import ComboEvent, ComboStep
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import (
             combo_is_single_critical_mouse_trigger,
         )
@@ -547,13 +539,9 @@ class TestComboEditorDialog:
     def test_combo_editor_allows_emergency_cancel_chord_when_disabled(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -582,13 +570,9 @@ class TestComboEditorDialog:
     def test_combo_editor_prefix_shadow_does_not_block_save(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import (
-            ActionType,
-            ComboConfig,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()
@@ -638,15 +622,10 @@ class TestComboEditorDialog:
         from gi.repository import Gtk
 
         from keymasq.common import paths
-        from keymasq.common.models import (
-            ActionType,
-            ComboEvent,
-            ComboStep,
-            MappingAction,
-            SuperkeyAction,
-            SuperkeyConfig,
-            SuperkeyMode,
-        )
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType, SuperkeyMode
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
+        from keymasq.common.model.superkeys import SuperkeyAction, SuperkeyConfig
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
         from keymasq.session.superkeys import SuperkeyManager
 
@@ -708,7 +687,9 @@ class TestComboEditorDialog:
     def test_combo_editor_rejects_missing_superkey_action(self):
         from gi.repository import Gtk
 
-        from keymasq.common.models import ActionType, ComboEvent, ComboStep, MappingAction
+        from keymasq.common.model.actions import MappingAction
+        from keymasq.common.model.core import ActionType
+        from keymasq.common.model.profiles import ComboEvent, ComboStep
         from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog
 
         parent = Gtk.Box()

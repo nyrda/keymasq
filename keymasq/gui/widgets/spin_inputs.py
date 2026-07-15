@@ -73,9 +73,7 @@ def int_entry_key_pressed(
     entry: Gtk.Entry,
 ) -> bool:
     if state & (
-        Gdk.ModifierType.CONTROL_MASK
-        | Gdk.ModifierType.ALT_MASK
-        | Gdk.ModifierType.META_MASK
+        Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.META_MASK
     ):
         return False
     codepoint = Gdk.keyval_to_unicode(keyval)
@@ -246,11 +244,7 @@ def _on_spin_secondary_step_pressed(
         state = gesture.get_current_event_state()
     except (RuntimeError, TypeError, ValueError):
         state = Gdk.ModifierType(0)
-    if (
-        split_desync_axis
-        and request_split_desync is not None
-        and state & SPLIT_DESYNC_MODIFIERS
-    ):
+    if split_desync_axis and request_split_desync is not None and state & SPLIT_DESYNC_MODIFIERS:
         request_split_desync(split_desync_axis)
     apply_spin_secondary_step(row, direction, page_step, reset_value)
 

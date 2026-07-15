@@ -384,15 +384,9 @@ class RecordMacroDialog(Adw.Dialog):
             return
 
         recommended = [device for device in self._devices if self._is_recommended_device(device)]
-        direct = [
-            device
-            for device in self._devices
-            if self._device_kind(device) == "physical"
-        ]
+        direct = [device for device in self._devices if self._device_kind(device) == "physical"]
         managed = [
-            device
-            for device in self._devices
-            if self._device_kind(device) == "other_virtual"
+            device for device in self._devices if self._device_kind(device) == "other_virtual"
         ]
 
         self._append_device_section(
@@ -680,9 +674,9 @@ class RecordMacroDialog(Adw.Dialog):
         result = result or {}
         self._apply_macro_recording_state(result)
         self._recording_unlock_required = bool(result.get("recording_unlock_required", True))
-        self._recording_unlocked = bool(
-            result.get("recording_unlocked", False)
-        ) or not self._recording_unlock_required
+        self._recording_unlocked = (
+            bool(result.get("recording_unlocked", False)) or not self._recording_unlock_required
+        )
         self._recording_refresh_owner = bool(result.get("recording_refresh_owner", False))
         if not self._recording_unlock_required:
             self._unlock_status.set_label("Save unlock not required")
@@ -708,9 +702,7 @@ class RecordMacroDialog(Adw.Dialog):
         self._macro_recording_enabled = bool(result.get("macro_recording_enabled", False))
         self._macro_recording_source = str(result.get("macro_recording_source", "none") or "none")
         try:
-            self._macro_recording_expires_at = int(
-                result.get("macro_recording_expires_at", 0) or 0
-            )
+            self._macro_recording_expires_at = int(result.get("macro_recording_expires_at", 0) or 0)
         except (TypeError, ValueError):
             self._macro_recording_expires_at = 0
         self._update_macro_recording_ui()

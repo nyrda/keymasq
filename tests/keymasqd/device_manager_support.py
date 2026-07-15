@@ -5,13 +5,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from keymasq.common import devices
 from keymasq.common.coercion import coerce_int, coerce_str
-from keymasq.common.models import DeviceType
-from keymasq.keymasqd import device_manager as dm
-from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import DeviceType
+from keymasq.keymasqd import device_manager
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.runtime import adapters
+from keymasq.keymasqd.runtime.combo import events, state
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.types import EventProcessingDeps
+from keymasq.keymasqd.task_helpers import fire_and_observe
 
 
 class FakeUInput:
@@ -32,7 +39,7 @@ class FakeUInput:
 
 @dataclass
 class ComboRuntimeSetup:
-    manager: dm.DeviceManager
+    manager: DeviceManager
     device: GrabbedDevice
     passthrough: FakeUInput
     keyboard: FakeUInput
@@ -46,15 +53,15 @@ def make_grabbed_device(
     def resolve_stable_path_fn(path: str) -> str:
         return path
 
-    monkeypatch.setattr(gdm, "resolve_stable_path", resolve_stable_path_fn)
-    monkeypatch.setattr(dm, "resolve_stable_path", resolve_stable_path_fn)
+    monkeypatch.setattr(grabbed_device, "resolve_stable_path", resolve_stable_path_fn)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", resolve_stable_path_fn)
     interface_id = kwargs.pop("interface_id", "kbd")
 
     def get_interface_id_fn(_path: str) -> str:
         return interface_id
 
-    monkeypatch.setattr(gdm, "get_interface_id", get_interface_id_fn)
-    monkeypatch.setattr(dm, "get_interface_id", get_interface_id_fn)
+    monkeypatch.setattr(grabbed_device, "get_interface_id", get_interface_id_fn)
+    monkeypatch.setattr(device_manager, "get_interface_id", get_interface_id_fn)
     path = kwargs.pop("path", "/dev/input/event-test")
     hardware_id = kwargs.pop("hardware_id", "1234:5678")
     button_map = kwargs.pop("button_map", {})
@@ -91,21 +98,21 @@ def make_grabbed_device(
     if passthrough_uinput is not None:
         device.uinput = passthrough_uinput  # type: ignore[assignment]
     if running:
-        device._running = True
+        device.running = True
     return device
 
 
 def make_combo_grabbed_device(
     monkeypatch: pytest.MonkeyPatch,
-    manager: dm.DeviceManager,
+    manager: DeviceManager,
     *,
     button_map: dict[str, str],
     hardware_id: str = "1234:5678",
     path: str = "/dev/input/event-test",
     source: str = "kbd",
     device_type: DeviceType = DeviceType.KEYBOARD,
-    mapping: dict[str, dm.MappingAction] | None = None,
-    mapping_getter: Callable[[], dict[str, dm.MappingAction]] | None = None,
+    mapping: dict[str, MappingAction] | None = None,
+    mapping_getter: Callable[[], dict[str, MappingAction]] | None = None,
     passthrough_uinput: object | None = None,
     keyboard_uinput: object | None = None,
     mouse_uinput: object | None = None,
@@ -122,7 +129,7 @@ def make_combo_grabbed_device(
         button_map=button_map,
         mapping_getter=mapping_getter,
         mapping=mapping,
-        event_callback=lambda *args, **kwargs: cdm.on_device_event(
+        event_callback=lambda *args, **kwargs: events.on_device_event(
             manager,
             *args,
             **kwargs,
@@ -147,11 +154,11 @@ async def make_combo_runtime_setup(
     *,
     button_map: dict[str, str],
     hardware_id: str = "1234:5678",
-    mapping: dict[str, dm.MappingAction] | None = None,
+    mapping: dict[str, MappingAction] | None = None,
     passthrough_uinput: FakeUInput | None = None,
     keyboard_uinput: FakeUInput | None = None,
 ) -> ComboRuntimeSetup:
-    manager = dm.DeviceManager()
+    manager = DeviceManager()
     passthrough = passthrough_uinput or FakeUInput()
     keyboard = keyboard_uinput or FakeUInput()
 
@@ -177,22 +184,22 @@ async def make_combo_runtime_setup(
 
 
 class ComboEventRuntimeKwargs(TypedDict):
-    resolve_stable_path_fn: cdm.ResolveStablePathFn
-    get_interface_id_fn: cdm.GetInterfaceIdFn
-    int_value_fn: cdm.IntValueFn
-    str_value_fn: cdm.StrValueFn
-    deps: cdm.ComboRuntimeDeps
+    resolve_stable_path_fn: state.ResolveStablePathFn
+    get_interface_id_fn: state.GetInterfaceIdFn
+    int_value_fn: state.IntValueFn
+    str_value_fn: state.StrValueFn
+    deps: state.ComboRuntimeDeps
 
 
 def combo_runtime_deps(
     *,
-    resolve_code_fn: cdm.ResolveCodeFn = dm.resolve_output_code,
-    fire_and_observe_fn: cdm.FireAndObserve = dm._fire_and_observe,
-) -> cdm.ComboRuntimeDeps:
-    return cdm.ComboRuntimeDeps(
-        asyncio_mod=dm.ASYNCIO_RUNTIME,
-        evdev_mod=dm.runtime_adapters.COMBO_EVDEV_RUNTIME,
-        uinput_writer=dm.runtime_adapters.identity_uinput_writer,
+    resolve_code_fn: state.ResolveCodeFn = resolve_output_code,
+    fire_and_observe_fn: state.FireAndObserve = fire_and_observe,
+) -> state.ComboRuntimeDeps:
+    return state.ComboRuntimeDeps(
+        asyncio_mod=adapters.ASYNCIO_RUNTIME,
+        evdev_mod=adapters.COMBO_EVDEV_RUNTIME,
+        uinput_writer=adapters.identity_uinput_writer,
         resolve_code_fn=resolve_code_fn,
         fire_and_observe_fn=fire_and_observe_fn,
     )
@@ -200,13 +207,13 @@ def combo_runtime_deps(
 
 def combo_event_runtime_kwargs() -> ComboEventRuntimeKwargs:
     return {
-        "resolve_stable_path_fn": dm.resolve_stable_path,
-        "get_interface_id_fn": dm.get_interface_id,
+        "resolve_stable_path_fn": devices.resolve_stable_path,
+        "get_interface_id_fn": devices.get_interface_id,
         "int_value_fn": coerce_int,
         "str_value_fn": coerce_str,
         "deps": combo_runtime_deps(),
     }
 
 
-def grabbed_event_processing_deps() -> gde.EventProcessingDeps:
-    return gde.build_event_processing_deps(log=gdm.log)
+def grabbed_event_processing_deps() -> EventProcessingDeps:
+    return pipeline.build_event_processing_deps(log=grabbed_device.log)

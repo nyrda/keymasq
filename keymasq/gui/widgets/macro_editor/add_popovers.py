@@ -8,7 +8,8 @@ gi.require_version("Adw", "1")
 import evdev
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.models import ActionType, MappingAction
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.gui.widgets.compositor_actions import build_compositor_action_pages
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
@@ -60,7 +61,7 @@ class MacroEditorAddPopoversMixin:
         move: EditableMove | None = None,
         mode: str = "natural",
     ) -> None:
-        from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+        from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
         if move is not None:
             current_action = _move_to_mapping_action(move)
@@ -389,7 +390,7 @@ class MacroEditorAddPopoversMixin:
         default_t_us: int | None = None,
         device_type: str = "keyboard",
     ) -> None:
-        from keymasq.gui.widgets.key_selector_dialog import KeySelectorDialog
+        from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
         if default_t_us is None:
             default_t_us = int((self._duration_us / 2) if self._duration_us else 500000)
@@ -439,7 +440,7 @@ class MacroEditorAddPopoversMixin:
         self._on_key_selected_for_insert(picker, action, default_t_us)
 
     def _on_key_selected_for_insert(self, dialog: Gtk.Widget, action, default_t_us: int) -> None:
-        from keymasq.common.models import ActionType
+        from keymasq.common.model.core import ActionType
 
         if action is None or action.action_type not in {
             ActionType.KEYBOARD,

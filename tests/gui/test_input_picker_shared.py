@@ -47,7 +47,7 @@ def _collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
 
 def test_gamepad_face_buttons_emit_positional_targets() -> None:
     from keymasq.gui.widgets.input_picker_shared import build_gamepad_tab
-    from keymasq.gui.widgets.key_selector_dialog import GAMEPAD_BUTTONS
+    from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS
 
     expected = {
         "A": "btn_south",

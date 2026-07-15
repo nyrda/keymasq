@@ -69,7 +69,7 @@ def test_x11_handle_property_notify_event_routes(
 
     monkeypatch.setattr(
         x11_listener_module,
-        "X",
+        "xlib_constants",
         SimpleNamespace(PropertyNotify=1),
     )
 
@@ -99,7 +99,7 @@ def test_x11_can_open_display_logs_expected_failures(monkeypatch, caplog) -> Non
         def Display(self, _display: str) -> object:  # noqa: N802 - Xlib API
             raise OSError("display unavailable")
 
-    monkeypatch.setattr(x11_listener_module, "xdisplay", _DisplayModule())
+    monkeypatch.setattr(x11_listener_module, "xlib_display", _DisplayModule())
 
     with caplog.at_level(logging.DEBUG, logger="keymasq-session.listeners.x11"):
         assert X11Listener._can_open_display(":99") is False
@@ -112,7 +112,7 @@ def test_x11_can_open_display_logs_unexpected_failures(monkeypatch, caplog) -> N
         def Display(self, _display: str) -> object:  # noqa: N802 - Xlib API
             raise RuntimeError("display bug")
 
-    monkeypatch.setattr(x11_listener_module, "xdisplay", _DisplayModule())
+    monkeypatch.setattr(x11_listener_module, "xlib_display", _DisplayModule())
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.x11"):
         assert X11Listener._can_open_display(":99") is False
@@ -145,7 +145,11 @@ def test_x11_query_active_window_id_ignores_malformed_property(monkeypatch) -> N
         get_full_property=lambda *_args: SimpleNamespace(value=["not-int"])
     )
     listener._atom_active = 1
-    monkeypatch.setattr(x11_listener_module, "X", SimpleNamespace(AnyPropertyType=0))
+    monkeypatch.setattr(
+        x11_listener_module,
+        "xlib_constants",
+        SimpleNamespace(AnyPropertyType=0),
+    )
 
     assert listener._query_active_window_id_unlocked() is None
 

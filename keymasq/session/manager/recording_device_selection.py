@@ -183,9 +183,7 @@ async def refresh_recording_devices_cache(
 def update_selected_recording_devices_cache(manager: "SessionManager") -> None:
     overrides = json_object(manager.recording_state.settings.get("device_overrides")) or {}
     manager.recording_state.selected_devices_cache = [
-        d
-        for d in manager.recording_state.devices_cache
-        if recording_device_enabled(d, overrides)
+        d for d in manager.recording_state.devices_cache if recording_device_enabled(d, overrides)
     ]
 
 

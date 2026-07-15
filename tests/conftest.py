@@ -7,14 +7,18 @@ from unittest import mock
 import evdev
 import pytest
 
-from keymasq.common.models import (
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import (
     ActionType,
-    ButtonDefinition,
-    DeviceProfileLayer,
     DeviceType,
+)
+from keymasq.common.model.hardware import (
+    ButtonDefinition,
     EvdevDevice,
     HardwareConfig,
-    MappingAction,
+)
+from keymasq.common.model.profiles import (
+    DeviceProfileLayer,
     ProfileConfig,
 )
 
@@ -299,6 +303,7 @@ _COMMON_ROOT_TEST_FILES = (
     "test_devices.py",
     "test_entrypoints_and_cli.py",
     "test_ipc.py",
+    "test_integration_runner.py",
     "test_paths.py",
     "test_recording_guard.py",
     "test_release_version.py",

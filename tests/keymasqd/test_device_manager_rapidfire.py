@@ -7,18 +7,19 @@ from unittest.mock import AsyncMock, Mock
 import evdev
 import pytest
 
-from keymasq.common.models import ActionType, DeviceType, MappingAction
-from keymasq.keymasqd import device_manager as dm
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType, DeviceType
+from keymasq.keymasqd import device_manager
 from keymasq.keymasqd.combo_engine import ComboDecision
-from keymasq.keymasqd.device_manager import DesiredGrabConfig, DeviceManager
-from keymasq.keymasqd.runtime import combos as cdm
-from keymasq.keymasqd.runtime import grab_lifecycle as ldm
-from keymasq.keymasqd.runtime.grabbed_device import GrabbedDevice
-from keymasq.keymasqd.runtime.grabbed_device import actions as gda
-from keymasq.keymasqd.runtime.grabbed_device import device as gdm
-from keymasq.keymasqd.runtime.grabbed_device import events as gde
-from keymasq.keymasqd.runtime.grabbed_device import grab as gdg
-from keymasq.keymasqd.runtime.grabbed_device import repeat as gdr
+from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import adapters, outputs
+from keymasq.keymasqd.runtime.combo import lifecycle
+from keymasq.keymasqd.runtime.grab import release
+from keymasq.keymasqd.runtime.grab.state import DesiredGrabConfig
+from keymasq.keymasqd.runtime.grabbed_device import actions, grab, repeat
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_runtime_deps,
@@ -67,9 +68,9 @@ class TestRapidfireRelease:
             manager.output_state.virtual_gamepad_count = 2
             return 2
 
-        monkeypatch.setattr(dm.runtime_combos, "clear_combo_runtime", fake_clear_combo_runtime)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", fake_clear_combo_runtime)
         monkeypatch.setattr(
-            dm.runtime_outputs,
+            outputs,
             "configure_virtual_gamepads",
             fake_configure_virtual_gamepads,
         )
@@ -102,9 +103,9 @@ class TestRapidfireRelease:
             manager.output_state.virtual_gamepad_count = 2
             return 2
 
-        monkeypatch.setattr(dm.runtime_combos, "clear_combo_runtime", fake_clear_combo_runtime)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", fake_clear_combo_runtime)
         monkeypatch.setattr(
-            dm.runtime_outputs,
+            outputs,
             "configure_virtual_gamepads",
             fake_configure_virtual_gamepads,
         )
@@ -121,8 +122,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
         call_order: list[str] = []
 
         class _FakeInputDevice:
@@ -170,16 +171,16 @@ class TestRapidfireRelease:
             created_tasks.append(task)
             return task
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: fake_input)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: fake_input)
         monkeypatch.setattr(
-            gdm.evdev,
+            grabbed_device.evdev,
             "UInput",
             lambda *args, **kwargs: call_order.append("uinput") or FakeUInput(*args, **kwargs),
         )
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
         monkeypatch.setattr(
-            gdg,
+            grab,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -197,7 +198,7 @@ class TestRapidfireRelease:
         await device.grab()
         await original_sleep(0)
 
-        assert wait_timeouts == [pytest.approx(gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S)]
+        assert wait_timeouts == [pytest.approx(grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S)]
         assert [call[0] for call in to_thread_calls] == [
             fake_input.active_keys,
             fake_input.active_keys,
@@ -213,8 +214,8 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         class _FakeInputDevice:
             def __init__(self) -> None:
@@ -251,10 +252,10 @@ class TestRapidfireRelease:
                 pass
             return monotonic_last["value"]
 
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            gdg,
+            grab,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -271,13 +272,13 @@ class TestRapidfireRelease:
         device.device = fake_input  # type: ignore[assignment]
 
         with caplog.at_level(logging.INFO, logger="keymasqd.devices"):
-            await gdg.wait_for_active_keys_to_clear(
+            await grab.wait_for_active_keys_to_clear(
                 device,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
-                time_mod=gdm.time,
-                log=gdm.log,
-                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                time_mod=grabbed_device.time,
+                log=grabbed_device.log,
+                active_key_idle_max_wait_s=grabbed_device.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
             )
 
         assert wait_timeouts == pytest.approx([1.0, 0.8, 1.0])
@@ -293,8 +294,8 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         class _FakeInputDevice:
             def active_keys(self) -> list[int]:
@@ -306,7 +307,7 @@ class TestRapidfireRelease:
             to_thread_calls.append((func, args, kwargs))
             return func(*args, **kwargs)
 
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -320,13 +321,13 @@ class TestRapidfireRelease:
         device.device = _FakeInputDevice()  # type: ignore[assignment]
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
-            await gdg.wait_for_active_keys_to_clear(
+            await grab.wait_for_active_keys_to_clear(
                 device,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
-                time_mod=gdm.time,
-                log=gdm.log,
-                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                time_mod=grabbed_device.time,
+                log=grabbed_device.log,
+                active_key_idle_max_wait_s=grabbed_device.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
             )
 
         assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
@@ -339,8 +340,8 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         class _FakeInputDevice:
             def active_keys(self) -> list[int]:
@@ -352,7 +353,7 @@ class TestRapidfireRelease:
             to_thread_calls.append((func, args, kwargs))
             return func(*args, **kwargs)
 
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -366,13 +367,13 @@ class TestRapidfireRelease:
         device.device = _FakeInputDevice()  # type: ignore[assignment]
 
         with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
-            await gdg.wait_for_active_keys_to_clear(
+            await grab.wait_for_active_keys_to_clear(
                 device,
-                asyncio_mod=gdm.ASYNCIO_RUNTIME,
-                time_mod=gdm.time,
-                log=gdm.log,
-                active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                time_mod=grabbed_device.time,
+                log=grabbed_device.log,
+                active_key_idle_max_wait_s=grabbed_device.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                active_key_idle_log_interval_s=grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
             )
 
         assert [call[0] for call in to_thread_calls] == [device.device.active_keys]
@@ -386,9 +387,9 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-        monkeypatch.setattr(gdm, "ACTIVE_KEY_IDLE_MAX_WAIT_S", 60.0)
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "ACTIVE_KEY_IDLE_MAX_WAIT_S", 60.0)
 
         class _FakeInputDevice:
             def active_keys(self) -> list[int]:
@@ -412,10 +413,10 @@ class TestRapidfireRelease:
                 pass
             return monotonic_last["value"]
 
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
         monkeypatch.setattr(
-            gdg,
+            grab,
             "wait_for_active_key_activity",
             lambda _device, timeout_s, **_kwargs: fake_wait_for_active_key_activity(timeout_s),
         )
@@ -433,13 +434,13 @@ class TestRapidfireRelease:
 
         with caplog.at_level(logging.ERROR, logger="keymasqd.devices"):
             with pytest.raises(TimeoutError, match="timed out waiting 60.0s"):
-                await gdg.wait_for_active_keys_to_clear(
+                await grab.wait_for_active_keys_to_clear(
                     device,
-                    asyncio_mod=gdm.ASYNCIO_RUNTIME,
-                    time_mod=gdm.time,
-                    log=gdm.log,
-                    active_key_idle_max_wait_s=gdm.ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                    active_key_idle_log_interval_s=gdm.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                    asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                    time_mod=grabbed_device.time,
+                    log=grabbed_device.log,
+                    active_key_idle_max_wait_s=grabbed_device.ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                    active_key_idle_log_interval_s=grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
                 )
 
         assert wait_timeouts == []
@@ -450,9 +451,9 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
-        monkeypatch.setattr(gdm, "ACTIVE_KEY_IDLE_MAX_WAIT_S", 60.0)
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "ACTIVE_KEY_IDLE_MAX_WAIT_S", 60.0)
 
         class _FakeInputDevice:
             def capabilities(self) -> dict[int, list[int]]:
@@ -491,10 +492,10 @@ class TestRapidfireRelease:
             created_uinputs.append(uinput)
             return uinput
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -519,8 +520,8 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("KEYMASQ_TEST_UINPUT", "1")
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         class _FakeInputDevice:
             def capabilities(self) -> dict[int, list[int]]:
@@ -547,10 +548,10 @@ class TestRapidfireRelease:
             created_tasks.append(task)
             return task
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", FakeUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -581,8 +582,8 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("KEYMASQ_TEST_UINPUT", raising=False)
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "js")
 
         class _FakeInputDevice:
             name = "Xbox 360 Wireless Controller"
@@ -626,10 +627,10 @@ class TestRapidfireRelease:
             created_tasks.append(task)
             return task
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", FakeUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -662,10 +663,10 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
         monkeypatch.setattr(
-            gdm,
+            grabbed_device,
             "uinput_identity",
             lambda *_args, **_kwargs: ("Bad Keyboard", 0x1234, 0x1_0000),
         )
@@ -700,10 +701,10 @@ class TestRapidfireRelease:
             created_kwargs.append(kwargs)
             return FakeUInput(**kwargs)
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", fake_uinput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -733,10 +734,10 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "js")
         monkeypatch.setattr(
-            gdm,
+            grabbed_device,
             "uinput_identity",
             lambda *_args, **_kwargs: ("Bad Gamepad", "nope", 0x1_0000),
         )
@@ -783,10 +784,10 @@ class TestRapidfireRelease:
             created_tasks.append(task)
             return task
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", FakeUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -819,8 +820,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "js")
         events: list[str] = []
 
         class _FakeInputDevice:
@@ -882,13 +883,13 @@ class TestRapidfireRelease:
         async def fake_restore_source(names: list[str]) -> None:
             events.append(f"restore:{','.join(names)}")
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", _RecordingUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
-        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", _RecordingUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", fake_hide_source)
         monkeypatch.setattr(
-            gdm.source_hiding,
+            grabbed_device.source_hiding,
             "restore_source_by_kernel_names",
             fake_restore_source,
         )
@@ -929,8 +930,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "js")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "js")
         events: list[str] = []
 
         class _FakeInputDevice:
@@ -980,12 +981,12 @@ class TestRapidfireRelease:
         async def fake_restore_source(names: list[str]) -> None:
             events.append(f"restore:{','.join(names)}")
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", _RecordingUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", _RecordingUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", fake_hide_source)
         monkeypatch.setattr(
-            gdm.source_hiding,
+            grabbed_device.source_hiding,
             "restore_source_by_kernel_names",
             fake_restore_source,
         )
@@ -1017,8 +1018,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
         hide_calls: list[str] = []
         restore_calls: list[list[str]] = []
 
@@ -1060,13 +1061,13 @@ class TestRapidfireRelease:
         async def fake_restore_source(names: list[str]) -> None:
             restore_calls.append(list(names))
 
-        monkeypatch.setattr(gdm.evdev, "InputDevice", lambda _path: _FakeInputDevice())
-        monkeypatch.setattr(gdm.evdev, "UInput", FakeUInput)
-        monkeypatch.setattr(gdm.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(gdm.asyncio, "create_task", fake_create_task)
-        monkeypatch.setattr(gdm.source_hiding, "hide_source", fake_hide_source)
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
+        monkeypatch.setattr(grabbed_device.evdev, "UInput", FakeUInput)
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
+        monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", fake_hide_source)
         monkeypatch.setattr(
-            gdm.source_hiding,
+            grabbed_device.source_hiding,
             "restore_source_by_kernel_names",
             fake_restore_source,
         )
@@ -1096,7 +1097,7 @@ class TestRapidfireRelease:
         device = SimpleNamespace(name="")
 
         assert (
-            gdm._passthrough_name(  # pyright: ignore[reportPrivateUsage]
+            grabbed_device._passthrough_name(  # pyright: ignore[reportPrivateUsage]
                 device,  # type: ignore[arg-type]
                 "045e:02a1",
                 "js0",
@@ -1111,7 +1112,7 @@ class TestRapidfireRelease:
         device = SimpleNamespace(name=None)
 
         assert (
-            gdm._passthrough_name(  # pyright: ignore[reportPrivateUsage]
+            grabbed_device._passthrough_name(  # pyright: ignore[reportPrivateUsage]
                 device,  # type: ignore[arg-type]
                 "045e:02a1",
                 "",
@@ -1121,7 +1122,7 @@ class TestRapidfireRelease:
         )
 
     def test_passthrough_input_id_parses_numbered_hardware_id(self) -> None:
-        assert gdm._hardware_id_vendor_product(  # pyright: ignore[reportPrivateUsage]
+        assert grabbed_device._hardware_id_vendor_product(  # pyright: ignore[reportPrivateUsage]
             "045e:02a1@2"
         ) == (0x045E, 0x02A1)
 
@@ -1136,13 +1137,13 @@ class TestRapidfireRelease:
         )
         monkeypatch.delenv("KEYMASQ_TEST_UINPUT", raising=False)
 
-        normal_name, normal_vendor, normal_product = ldm.runtime_outputs.uinput_identity(
+        normal_name, normal_vendor, normal_product = outputs.uinput_identity(
             f"keymasq-{hardware_id}",
             "passthrough",
             test_name=f"passthrough-{hardware_id}",
         )
 
-        assert len(normal_name.encode("utf-8")) <= ldm.runtime_outputs.UINPUT_NAME_MAX_BYTES
+        assert len(normal_name.encode("utf-8")) <= outputs.UINPUT_NAME_MAX_BYTES
         assert normal_name.startswith("keymasq-")
         assert "dev-input-by-id" not in normal_name
         assert normal_name != f"keymasq-{hardware_id}"
@@ -1150,13 +1151,13 @@ class TestRapidfireRelease:
         assert normal_product is None
 
         monkeypatch.setenv("KEYMASQ_TEST_UINPUT", "1")
-        test_name, test_vendor, test_product = ldm.runtime_outputs.uinput_identity(
+        test_name, test_vendor, test_product = outputs.uinput_identity(
             f"keymasq-{hardware_id}",
             "passthrough",
             test_name=f"passthrough-{hardware_id}",
         )
 
-        assert len(test_name.encode("utf-8")) <= ldm.runtime_outputs.UINPUT_NAME_MAX_BYTES
+        assert len(test_name.encode("utf-8")) <= outputs.UINPUT_NAME_MAX_BYTES
         assert test_name.startswith("keymasq-test-")
         assert "dev-input-by-id" not in test_name
         assert test_name != f"keymasq-test-passthrough-{hardware_id}"
@@ -1168,8 +1169,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         fake_uinput = FakeUInput()
         device = GrabbedDevice(
@@ -1181,22 +1182,22 @@ class TestRapidfireRelease:
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
         device.state.rapidfire_active["btn_side"] = True
 
         async def fake_sleep(_delay: float) -> None:
             device.state.rapidfire_active["btn_side"] = False
 
-        monkeypatch.setattr(gdm.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(grabbed_device.asyncio, "sleep", fake_sleep)
 
-        await gdr.rapidfire_key(
+        await repeat.rapidfire_key(
             device,
             evdev.ecodes.KEY_A,
             50,
             50,
             "btn_side",
             fake_uinput,  # type: ignore[arg-type]
-            asyncio_mod=gdm.ASYNCIO_RUNTIME,
+            asyncio_mod=adapters.ASYNCIO_RUNTIME,
         )
 
         assert fake_uinput.writes == [
@@ -1209,8 +1210,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         fake_uinput = FakeUInput()
         device = GrabbedDevice(
@@ -1224,19 +1225,19 @@ class TestRapidfireRelease:
         )
 
         calls: list[str] = []
-        original_stop = gdr.stop_rapidfire
+        original_stop = repeat.stop_rapidfire
 
         def wrapped_stop(device_runtime: GrabbedDevice, event_name: str) -> None:
             calls.append(f"stop:{event_name}")
             original_stop(device_runtime, event_name)
 
-        monkeypatch.setattr(gdr, "stop_rapidfire", wrapped_stop)
+        monkeypatch.setattr(repeat, "stop_rapidfire", wrapped_stop)
 
         def task_factory() -> asyncio.Task:
             calls.append("factory")
             return asyncio.create_task(asyncio.sleep(0))
 
-        gdr.start_rapidfire_task(
+        repeat.start_rapidfire_task(
             device,
             "btn_side",
             "key",
@@ -1246,7 +1247,7 @@ class TestRapidfireRelease:
             axis_code=None,
         )
         await asyncio.sleep(0)
-        gdr.stop_rapidfire(device, "btn_side")
+        repeat.stop_rapidfire(device, "btn_side")
 
         assert calls[:2] == ["stop:btn_side", "factory"]
 
@@ -1255,8 +1256,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         fake_uinput = FakeUInput()
         device = GrabbedDevice(
@@ -1268,9 +1269,9 @@ class TestRapidfireRelease:
             device_type=DeviceType.MOUSE,
             keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
 
-        action = dm.MappingAction(
+        action = MappingAction(
             action_type=ActionType.KEYBOARD,
             target="key_a",
             rapidfire_enabled=True,
@@ -1280,37 +1281,45 @@ class TestRapidfireRelease:
         press_event = SimpleNamespace(value=1)
         release_event = SimpleNamespace(value=0)
 
-        await gda.execute_action(
+        await actions.execute_action(
             device,
             action,
             press_event,
             "btn_side",
-            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=pipeline.fire_and_observe
+            ),
         )
-        await gda.execute_action(
+        await actions.execute_action(
             device,
             action,
             release_event,
             "btn_side",
-            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=pipeline.fire_and_observe
+            ),
         )
-        await gda.execute_action(
+        await actions.execute_action(
             device,
             action,
             press_event,
             "btn_side",
-            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=pipeline.fire_and_observe
+            ),
         )
         await asyncio.sleep(0)
 
         assert len(device.state.rapidfire_tasks) == 1
 
-        await gda.execute_action(
+        await actions.execute_action(
             device,
             action,
             release_event,
             "btn_side",
-            deps=gde.build_action_execution_deps(fire_and_observe_fn=gde._fire_and_observe),
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=pipeline.fire_and_observe
+            ),
         )
         await asyncio.sleep(0.01)
 
@@ -1328,8 +1337,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "mouse")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "mouse")
 
         decisions = [
             None,
@@ -1345,7 +1354,7 @@ class TestRapidfireRelease:
             hardware_id="1234:5678",
             button_map={"btn_side": "btn_side"},
             mapping_getter=lambda: {
-                "btn_side": dm.MappingAction(
+                "btn_side": MappingAction(
                     action_type=ActionType.KEYBOARD,
                     target="key_a",
                     rapidfire_enabled=True,
@@ -1357,7 +1366,7 @@ class TestRapidfireRelease:
             device_type=DeviceType.MOUSE,
             keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
 
         press_event = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -1370,11 +1379,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         assert "btn_side" in device.state.held_source_actions
 
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0.01)
 
         assert device.state.rapidfire_tasks == {}
@@ -1392,8 +1401,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         decisions = [
             ComboDecision(passthrough_current_event=True, reset_candidates=True),
@@ -1414,7 +1423,7 @@ class TestRapidfireRelease:
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=mapped_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
         device.uinput = passthrough_uinput  # type: ignore[assignment]
 
         press_event = SimpleNamespace(
@@ -1428,8 +1437,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
 
         assert passthrough_uinput.writes == [
@@ -1444,8 +1453,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         decisions = [
             ComboDecision(passthrough_current_event=True, reset_candidates=True),
@@ -1462,7 +1471,7 @@ class TestRapidfireRelease:
             hardware_id="1234:5678",
             button_map={"key_1": "key_1"},
             mapping_getter=lambda: {
-                "key_1": dm.MappingAction(
+                "key_1": MappingAction(
                     action_type=ActionType.KEYBOARD,
                     target="key_b",
                 )
@@ -1471,7 +1480,7 @@ class TestRapidfireRelease:
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=mapped_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
         device.uinput = passthrough_uinput  # type: ignore[assignment]
 
         press_event = SimpleNamespace(
@@ -1485,8 +1494,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == []
         assert mapped_uinput.writes == [
@@ -1500,8 +1509,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         decisions = [
             ComboDecision(passthrough_current_event=True),
@@ -1521,7 +1530,7 @@ class TestRapidfireRelease:
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=FakeUInput(),  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
         device.uinput = passthrough_uinput  # type: ignore[assignment]
 
         press_event = SimpleNamespace(
@@ -1535,8 +1544,8 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
 
         assert passthrough_uinput.writes == [
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTALT, 1),
@@ -1549,8 +1558,8 @@ class TestRapidfireRelease:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(gdm, "resolve_stable_path", lambda path: path)
-        monkeypatch.setattr(gdm, "get_interface_id", lambda _path: "kbd")
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         decisions = [
             None,
@@ -1566,7 +1575,7 @@ class TestRapidfireRelease:
             hardware_id="1234:5678",
             button_map={"key_f5": "key_f5"},
             mapping_getter=lambda: {
-                "key_f5": dm.MappingAction(
+                "key_f5": MappingAction(
                     action_type=ActionType.KEYBOARD,
                     target="key_b",
                     rapidfire_enabled=True,
@@ -1578,7 +1587,7 @@ class TestRapidfireRelease:
             device_type=DeviceType.KEYBOARD,
             keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
         )
-        device._running = True
+        device.running = True
 
         press_event = SimpleNamespace(
             type=evdev.ecodes.EV_KEY,
@@ -1591,11 +1600,11 @@ class TestRapidfireRelease:
             value=0,
         )
 
-        await gde.process_event(device, press_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, press_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0)
         assert "key_f5" in device.state.held_source_actions
 
-        await gde.process_event(device, release_event, deps=grabbed_event_processing_deps())
+        await pipeline.process_event(device, release_event, deps=grabbed_event_processing_deps())
         await asyncio.sleep(0.01)
 
         assert device.state.rapidfire_tasks == {}
@@ -1622,14 +1631,14 @@ class TestRapidfireRelease:
 
         manager.grabbed_devices = {"hw": []}
         manager.grab_state.desired_paths["hw"] = {"/dev/input/event0"}
-        monkeypatch.setattr(ldm, "release_interface_unlocked", release_interface)
+        monkeypatch.setattr(release, "release_interface_unlocked", release_interface)
 
-        await ldm.delayed_interface_release(
+        await release.delayed_interface_release(
             manager,
             "hw",
             "/dev/input/event0",
             0.001,
-            asyncio_mod=ldm.ASYNCIO_RUNTIME,
+            asyncio_mod=adapters.ASYNCIO_RUNTIME,
         )
 
         fake_device.release.assert_not_awaited()
@@ -1643,16 +1652,17 @@ class TestRapidfireRelease:
         fake_device = SimpleNamespace(
             path="/dev/input/event0",
             interface_id="mouse",
+            stop_event_loop=AsyncMock(),
             release_tracked_outputs=Mock(),
             release=AsyncMock(),
         )
         manager.grabbed_devices = {"hw": [fake_device]}
         clear_combo_scope = AsyncMock()
         clear_combo_runtime = AsyncMock()
-        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
-        monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", clear_combo_runtime)
 
-        await ldm.release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        await release.release_interface_unlocked(manager, "hw", "/dev/input/event0")
 
         clear_combo_scope.assert_awaited_once()
         clear_combo_runtime.assert_not_awaited()
@@ -1668,6 +1678,7 @@ class TestRapidfireRelease:
         fake_device = SimpleNamespace(
             path="/dev/input/event0",
             interface_id="mouse",
+            stop_event_loop=AsyncMock(),
             release_tracked_outputs=Mock(),
             release=AsyncMock(),
         )
@@ -1679,9 +1690,9 @@ class TestRapidfireRelease:
             paths={"/dev/input/event0"},
             button_map={"btn_side": "btn_side"},
         )
-        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", AsyncMock())
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime_for_binding_scope", AsyncMock())
 
-        await ldm.release_interface_unlocked(manager, "hw", "/dev/input/event0")
+        await release.release_interface_unlocked(manager, "hw", "/dev/input/event0")
 
         assert manager.grabbed_devices == {}
         assert manager.active_mappings["hw"] == {"btn_side": action}
@@ -1694,16 +1705,16 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        fake_device = SimpleNamespace(release=AsyncMock())
+        fake_device = SimpleNamespace(stop_event_loop=AsyncMock(), release=AsyncMock())
         manager.grabbed_devices = {"hw": [fake_device]}
         clear_combo_scope = AsyncMock()
         clear_combo_runtime = AsyncMock()
         destroy_global_uinputs = Mock()
-        monkeypatch.setattr(cdm, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
-        monkeypatch.setattr(cdm, "clear_combo_runtime", clear_combo_runtime)
-        monkeypatch.setattr(ldm.runtime_outputs, "destroy_global_uinputs", destroy_global_uinputs)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime_for_binding_scope", clear_combo_scope)
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", clear_combo_runtime)
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", destroy_global_uinputs)
 
-        result = await ldm.release_device_unlocked(manager, "hw", log=dm.log)
+        result = await release.release_device_unlocked(manager, "hw", log=device_manager.log)
 
         assert result == {"released": True, "hardware_id": "hw"}
         clear_combo_scope.assert_awaited_once()
@@ -1716,19 +1727,23 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager.combo_state.engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
+        manager.combo_state.progression.engine.drop_candidates_for_binding_scope = Mock(  # type: ignore[method-assign]
             return_value={"combo-1"}
         )
         stop_combo_action = AsyncMock()
         refresh_combo_timeout_watchdog = Mock()
-        monkeypatch.setattr(cdm, "stop_combo_action", stop_combo_action)
-        monkeypatch.setattr(cdm, "refresh_combo_timeout_watchdog", refresh_combo_timeout_watchdog)
+        monkeypatch.setattr(lifecycle, "stop_combo_action", stop_combo_action)
+        monkeypatch.setattr(
+            lifecycle,
+            "refresh_combo_timeout_watchdog",
+            refresh_combo_timeout_watchdog,
+        )
 
-        await cdm.clear_combo_runtime_for_binding_scope(
+        await lifecycle.clear_combo_runtime_for_binding_scope(
             manager, "1234:5678", "mouse", deps=combo_runtime_deps()
         )
 
-        manager.combo_state.engine.drop_candidates_for_binding_scope.assert_called_once_with(
+        manager.combo_state.progression.engine.drop_candidates_for_binding_scope.assert_called_once_with(
             "1234:5678",
             "mouse",
         )

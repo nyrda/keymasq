@@ -646,7 +646,7 @@ class TestSocketServer:
             handler_drain_timeout_s=0.5,
         )
         await server.start()
-        _reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
         writer.write(encode_command(Command(command=CommandType.PING, data={})))
         await writer.drain()
         await started.wait()
@@ -654,8 +654,12 @@ class TestSocketServer:
         stop_task = asyncio.create_task(server.stop())
         await asyncio.sleep(0)
         release.set()
-        await stop_task
+        await asyncio.wait_for(stop_task, timeout=1.0)
 
+        response_data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+        response, _ = decode_response(response_data)
+        assert response is not None
+        assert response.status == "ok"
         assert completed.is_set()
         assert server._handler_tasks == set()
 
@@ -739,7 +743,7 @@ class TestSocketServer:
         server._handler_tasks.add(task)
         await asyncio.sleep(0)
 
-        await asyncio.wait_for(server._drain_handler_tasks(), timeout=0.2)
+        await asyncio.wait_for(server._drain_handler_tasks(graceful=True), timeout=0.2)
         assert cancel_seen.is_set()
         assert not task.done()
         with pytest.raises(RuntimeError, match="prior handler"):

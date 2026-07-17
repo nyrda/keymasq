@@ -72,6 +72,8 @@ class SocketServer:
         self._owner_context: ClientContext | None = None
         self._socket_stat: os.stat_result | None = None
         self._handler_tasks: set[asyncio.Task[None]] = set()
+        self._handler_writers: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
+        self._active_command_tasks: set[asyncio.Task[None]] = set()
         self._quiescing = False
 
     @property
@@ -164,28 +166,32 @@ class SocketServer:
         if server:
             server.close()
 
-        writers = set(self.clients) | set(self._buffer) | set(self._client_context)
+        # Let accept callbacks already queued by the event loop register their
+        # handler tasks while the server is still quiescing.
+        await asyncio.sleep(0)
+
+        # Keep response streams open during the graceful drain so commands that
+        # finish before the deadline can acknowledge their result to clients.
+        await self._drain_active_commands()
+
+        writers = (
+            set(self.clients)
+            | set(self._buffer)
+            | set(self._client_context)
+            | set(self._handler_writers.values())
+        )
         for writer in writers:
             self._request_writer_close(writer)
-
-        await self._drain_handler_tasks()
         await asyncio.gather(
             *(self._wait_writer_closed(writer) for writer in writers),
             return_exceptions=True,
         )
+        await self._drain_handler_tasks(graceful=False)
 
         if server:
             await server.wait_closed()
             if self.server is server:
                 self.server = None
-
-        # Let accept callbacks already queued by the event loop register their
-        # handler tasks while the server is still quiescing.
-        await asyncio.sleep(0)
-
-        # A transport accepted just before server.close() may register its
-        # synchronously-owned handler while the first drain is in progress.
-        await self._drain_handler_tasks()
 
         self._unlink_socket_path(socket_stat, "daemon socket")
 
@@ -195,20 +201,36 @@ class SocketServer:
         self._owner_context = None
         self._socket_stat = None
 
-    async def _drain_handler_tasks(self) -> None:
+    async def _drain_active_commands(self) -> None:
+        tasks = {task for task in self._active_command_tasks if not task.done()}
+        if not tasks:
+            return
+        await self._drain_tasks(tasks, description="active daemon command", graceful=True)
+
+    async def _drain_handler_tasks(self, *, graceful: bool = True) -> None:
         current = asyncio.current_task()
         tasks = {task for task in self._handler_tasks if task is not current and not task.done()}
         if not tasks:
             return
+        await self._drain_tasks(tasks, description="daemon client handler", graceful=graceful)
 
-        _done, pending = await asyncio.wait(
-            tasks,
-            timeout=self.handler_drain_timeout_s,
-        )
-        if not pending:
-            return
+    async def _drain_tasks(
+        self,
+        tasks: set[asyncio.Task[None]],
+        *,
+        description: str,
+        graceful: bool,
+    ) -> None:
+        pending = tasks
+        if graceful:
+            _done, pending = await asyncio.wait(
+                tasks,
+                timeout=self.handler_drain_timeout_s,
+            )
+            if not pending:
+                return
 
-        log.warning("Cancelling %d daemon client handler(s) after shutdown deadline", len(pending))
+        log.warning("Cancelling %d %s(s) after shutdown deadline", len(pending), description)
         for task in pending:
             task.cancel()
         _done, still_pending = await asyncio.wait(
@@ -217,9 +239,10 @@ class SocketServer:
         )
         if still_pending:
             log.error(
-                "%d daemon client handler(s) remain active after cancellation; "
+                "%d %s(s) remain active after cancellation; "
                 "socket restart is disabled until they exit",
                 len(still_pending),
+                description,
             )
 
     def _accept_client(
@@ -232,9 +255,12 @@ class SocketServer:
             name="keymasqd:client-handler",
         )
         self._handler_tasks.add(task)
+        self._handler_writers[task] = writer
 
         def _handler_done(done: asyncio.Task[None]) -> None:
             self._handler_tasks.discard(task)
+            self._handler_writers.pop(task, None)
+            self._active_command_tasks.discard(task)
             try:
                 error = done.exception()
             except asyncio.CancelledError:
@@ -346,9 +372,15 @@ class SocketServer:
                         break
 
                     self._buffer[writer] = remaining
-                    response = await self._process_command(cmd, context)
-                    writer.write(encode_response(response))
-                    await writer.drain()
+                    command_task = asyncio.create_task(
+                        self._process_and_send_command(cmd, context, writer),
+                        name="keymasqd:command",
+                    )
+                    self._active_command_tasks.add(command_task)
+                    try:
+                        await command_task
+                    finally:
+                        self._active_command_tasks.discard(command_task)
 
         except asyncio.CancelledError:
             pass
@@ -357,6 +389,16 @@ class SocketServer:
         finally:
             log.info(f"Client disconnected: {addr}")
             await self._drop_client(writer)
+
+    async def _process_and_send_command(
+        self,
+        cmd: Command,
+        context: ClientContext,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        response = await self._process_command(cmd, context)
+        writer.write(encode_response(response))
+        await writer.drain()
 
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
         if self._quiescing:

@@ -74,6 +74,7 @@ class SocketServer:
         self._handler_tasks: set[asyncio.Task[None]] = set()
         self._handler_writers: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
         self._active_command_tasks: set[asyncio.Task[None]] = set()
+        self._server_generation = 0
         self._quiescing = False
 
     @property
@@ -86,9 +87,15 @@ class SocketServer:
             raise RuntimeError(
                 f"Cannot start daemon socket with {len(active_handlers)} prior handler(s) active"
             )
+        self._server_generation += 1
+        generation = self._server_generation
         self._quiescing = False
+
+        def accept_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            self._accept_client(reader, writer, generation)
+
         server = await asyncio.start_unix_server(
-            self._accept_client,
+            accept_client,
             path=self.socket_path,
         )
         self.server = server
@@ -165,10 +172,6 @@ class SocketServer:
         socket_stat = self._socket_stat
         if server:
             server.close()
-
-        # Let accept callbacks already queued by the event loop register their
-        # handler tasks while the server is still quiescing.
-        await asyncio.sleep(0)
 
         # Keep response streams open during the graceful drain so commands that
         # finish before the deadline can acknowledge their result to clients.
@@ -249,7 +252,12 @@ class SocketServer:
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
+        generation: int | None = None,
     ) -> None:
+        generation = self._server_generation if generation is None else generation
+        if self._quiescing or generation != self._server_generation:
+            self._request_writer_close(writer)
+            return
         task = asyncio.create_task(
             self._serve_client(reader, writer),
             name="keymasqd:client-handler",

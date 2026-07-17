@@ -680,18 +680,39 @@ class TestSocketServer:
     ):
         server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
         await server.start()
+        old_generation = server._server_generation
         reader = asyncio.StreamReader()
         writer = _BroadcastWriter()
         asyncio.get_running_loop().call_soon(
             server._accept_client,
             reader,
             writer,
+            old_generation,
         )
 
         await server.stop()
+        await asyncio.sleep(0)
 
         assert writer.closed is True
         assert server._handler_tasks == set()
+
+    async def test_restarted_server_rejects_accept_from_prior_generation(
+        self,
+        temp_socket_dir,
+    ):
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
+        await server.start()
+        old_generation = server._server_generation
+        await server.stop()
+        await server.start()
+        reader = asyncio.StreamReader()
+        writer = _BroadcastWriter()
+
+        server._accept_client(reader, writer, old_generation)  # type: ignore[arg-type]
+
+        assert writer.closed is True
+        assert server._handler_tasks == set()
+        await server.stop()
 
     async def test_server_stop_cancels_stuck_command_after_deadline(self, temp_socket_dir):
         started = asyncio.Event()

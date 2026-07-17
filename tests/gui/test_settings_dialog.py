@@ -251,6 +251,38 @@ def test_settings_dialog_plus_minus_auto_applies(monkeypatch, temp_config_dir) -
     assert callbacks[-1][0]["virtual_gamepad_count"] == 1
 
 
+def test_settings_dialog_shows_persistence_warning_without_reverting(
+    monkeypatch,
+    temp_config_dir,
+) -> None:
+    from keymasq.gui.widgets import settings_dialog as dialog_module
+    from keymasq.gui.widgets.settings_dialog import SettingsDialog
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        callbacks.append((payload, callback))
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+
+    dialog = SettingsDialog()
+    callbacks[0][1]({"status": "ok", "virtual_gamepad_count": 1})
+    dialog._on_increment_gamepads_clicked(dialog._plus_button)
+
+    callbacks[-1][1](
+        {
+            "status": "ok",
+            "virtual_gamepad_count": 2,
+            "persisted": False,
+            "warning": "Applied for this session but could not be saved.",
+        }
+    )
+
+    assert dialog._gamepad_count == 2
+    assert dialog._count_label.get_text() == "2"
+    assert dialog._status.get_text() == "Applied for this session but could not be saved."
+
+
 def test_settings_dialog_reverts_to_stale_success_when_newest_save_fails(
     monkeypatch,
     temp_config_dir,

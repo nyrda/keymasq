@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 import keymasq.session.manager.command.macro as macro_commands_module
+import keymasq.session.manager.command.settings as settings_commands_module
 import keymasq.session.manager.compositor as session_compositor_module
 import keymasq.session.manager.device_inspector as session_device_inspector_module
 import keymasq.session.manager.events as session_events_module
@@ -140,6 +141,67 @@ async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon
     assert manager.virtual_gamepad_count == 3
     assert session_settings.load_global_settings().virtual_gamepad_count == 3
     manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "request_count_key", "save_name", "response_count_key", "event"),
+    [
+        (
+            "set_virtual_gamepads",
+            "count",
+            "save_virtual_gamepad_count",
+            "count",
+            {"event": "virtual_gamepads_changed", "count": 2},
+        ),
+        (
+            "set_settings",
+            "virtual_gamepad_count",
+            "save_global_settings",
+            "virtual_gamepad_count",
+            {"event": "settings_changed", "virtual_gamepad_count": 2},
+        ),
+    ],
+)
+async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    request_count_key: str,
+    save_name: str,
+    response_count_key: str,
+    event: dict[str, object],
+) -> None:
+    manager = SessionManager()
+    manager.virtual_gamepad_count = 1
+    manager.connected = True
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"count": 2})
+    )
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        settings_commands_module,
+        save_name,
+        Mock(side_effect=OSError("disk full")),
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": command, request_count_key: 2},
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result[response_count_key] == 2
+    assert result["persisted"] is False
+    assert "may revert" in str(result["warning"])
+    assert manager.virtual_gamepad_count == 2
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq Settings Warning",
+        result["warning"],
+    )
+    manager.broadcast_to_session_clients.assert_called_once_with(event)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

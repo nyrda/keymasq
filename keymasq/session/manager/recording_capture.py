@@ -37,6 +37,7 @@ async def _send_capture_begin(
         except TimeoutError as timeout:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            await manager.client.disconnect()
             raise cancelled from timeout
         if isinstance(outcome, BaseException):
             raise cancelled from outcome

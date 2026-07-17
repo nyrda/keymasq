@@ -62,7 +62,13 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
             await events.handle_event(self, event_type, data)
 
-        self.client: KeymasqdClient = KeymasqdClient(_client_event_handler)
+        def _prepare_client_event(event_type: CommandType, data: JsonObject) -> JsonObject:
+            return events.prepare_event(self, event_type, data)
+
+        self.client: KeymasqdClient = KeymasqdClient(
+            _client_event_handler,
+            event_preprocessor=_prepare_client_event,
+        )
         self.superkeys = SuperkeyManager()
         self.analog_controls = AnalogControlManager()
         self.profiles = ProfileManager(

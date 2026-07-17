@@ -324,6 +324,14 @@ class CaptureManager:
         log.info("Ended capture %s hardware_id=%s", token, session.hardware_id)
         return {"status": "ok", "ended": True}
 
+    def end_all(self) -> int:
+        """End every capture owned by the connected session client."""
+
+        tokens = list(self._sessions)
+        for token in tokens:
+            self.end(token)
+        return len(tokens)
+
     def _start_combo_reader(self, session: CaptureSession) -> None:
         if session.stop_event is None or session.event_queue is None:
             return

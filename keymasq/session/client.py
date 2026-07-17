@@ -17,8 +17,14 @@ log = logging.getLogger("keymasq-session.client")
 
 
 class KeymasqdClient:
-    def __init__(self, event_handler: Callable[[CommandType, Any], Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        event_handler: Callable[[CommandType, Any], Awaitable[None]],
+        *,
+        event_preprocessor: Callable[[CommandType, Any], Any] | None = None,
+    ) -> None:
         self.event_handler = event_handler
+        self.event_preprocessor = event_preprocessor
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self._buffer = b""
@@ -135,6 +141,8 @@ class KeymasqdClient:
                     log.warning("Ignoring unknown daemon event: %s", raw_command)
                     return
                 data = response.data.get("data", {})
+                if self.event_preprocessor is not None:
+                    data = self.event_preprocessor(event_type, data)
                 self._dispatch_event(event_type, data)
                 # Start immediately-ready handlers without waiting for the
                 # ordered worker to finish or blocking response ingestion.

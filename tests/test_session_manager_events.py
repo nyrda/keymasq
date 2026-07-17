@@ -173,6 +173,32 @@ async def test_handle_event_dispatches_action_trigger_variants(
 
 
 @pytest.mark.asyncio
+async def test_prepared_exec_event_survives_reference_retirement() -> None:
+    manager = SessionManager()
+    manager.exec_state.exec_refs[9] = ExecBinding(
+        cmd="echo received",
+        owner="device",
+        hardware_id="1234:5678",
+    )
+    manager.action_handler.execute_command = AsyncMock(return_value=0)
+    prepared = session_events_module.prepare_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        {"action_type": "exec", "exec_ref": 9},
+    )
+    manager.exec_state.exec_refs.clear()
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        prepared,
+    )
+    await asyncio.sleep(0)
+
+    manager.action_handler.execute_command.assert_awaited_once_with("echo received")
+
+
+@pytest.mark.asyncio
 async def test_handle_event_double_verbose_logs_full_event_payload(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

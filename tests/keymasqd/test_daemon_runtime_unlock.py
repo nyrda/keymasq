@@ -457,7 +457,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     monkeypatch,
     tmp_path: Path,
 ):
-    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
     owned_uid = 5555
     unrelated_uid = 7777
     client = client_context(uid=owned_uid, pid=600, connection_id=9)
@@ -484,6 +484,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     assert not (runtime_dir / f"recording-unlock-{owned_uid}").exists()
     assert (runtime_dir / f"recording-unlock-{unrelated_uid}").exists()
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
+    capture_manager.end_all.assert_called_once()
     device_manager.release_all_devices.assert_awaited_once()
 
 
@@ -533,10 +534,11 @@ async def test_async_runtime_unlock_cleanup_offloads_file_io(
 
 @pytest.mark.asyncio
 async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
-    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
     recording_manager.discard_all_pending_recordings.side_effect = RuntimeError("discard failed")
 
     await daemon._on_client_disconnect()
 
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
+    capture_manager.end_all.assert_called_once()
     device_manager.release_all_devices.assert_awaited_once()

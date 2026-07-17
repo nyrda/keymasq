@@ -375,9 +375,13 @@ async def test_transient_metadata_failure_preserves_events_from_mixed_scan(
     await recorder.load_persisted_slot_recordings()
 
     assert not invalid_meta_path.exists()
-    assert invalid_event_path.exists()
+    assert not invalid_event_path.exists()
     assert unreadable_meta_path.exists()
     assert unreadable_event_path.exists()
+    quarantined_events = list(
+        (tmp_path / "quarantine").glob("slot-2-invalid.jsonl.uncertain-*")
+    )
+    assert len(quarantined_events) == 1
 
 
 @pytest.mark.asyncio
@@ -1046,6 +1050,52 @@ async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
     )
 
     assert sleep_calls == [pytest.approx(5.0), 0]
+
+
+@pytest.mark.asyncio
+async def test_play_macro_releases_runtime_state_when_snapshot_close_fails() -> None:
+    manager = DeviceManager()
+    manager.macro_state.allocate_instance(
+        loop_mode="none",
+        source_key=("keyboard", "key_a"),
+        macro_name="close_failure",
+        loop_stop_behavior="finish_run",
+    )
+    release_held = MagicMock()
+
+    def fail_close() -> None:
+        raise OSError("close failed")
+
+    await scheduler.play_macro_task(
+        manager,
+        instance_id=1,
+        macro_events=[],
+        macro_event_source=MacroEventSource(
+            event_count=0,
+            duration_us=0,
+            iter_events=lambda: iter(()),
+            close=fail_close,
+        ),
+        macro_name="close_failure",
+        replay_mouse_movement=True,
+        replay_mouse_clicks=True,
+        speed=1.0,
+        loop_mode="none",
+        loop_count=1,
+        move_to_start=False,
+        start_x=0,
+        start_y=0,
+        block_mouse_movement=False,
+        deps=device_manager._macro_runtime_deps(),
+        release_held_fn=release_held,
+    )
+
+    release_held.assert_called_once_with(
+        manager,
+        1,
+        deps=device_manager._macro_runtime_deps(),
+    )
+    assert 1 not in manager.macro_state.instance_meta
 
 
 @pytest.mark.asyncio

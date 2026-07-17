@@ -470,8 +470,7 @@ class RecordingManager:
             return
 
         scan_complete = True
-        quarantine_uncertain_events = False
-        preserve_uncertain_events = False
+        invalid_meta_stems: set[str] = set()
         for meta_path in meta_paths:
             try:
                 decoded = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -512,7 +511,6 @@ class RecordingManager:
                 loaded_event_paths.add(event_path)
             except FileNotFoundError as exc:
                 scan_complete = False
-                preserve_uncertain_events = True
                 log.debug(
                     "Recording slot metadata disappeared while loading %s: %s",
                     meta_path,
@@ -520,7 +518,6 @@ class RecordingManager:
                 )
             except PermissionError as exc:
                 scan_complete = False
-                preserve_uncertain_events = True
                 log.warning(
                     "Ignoring unreadable recording slot metadata %s: %s. Check recording "
                     "spool ownership and permissions for the keymasqd user.",
@@ -529,11 +526,10 @@ class RecordingManager:
                 )
             except OSError as exc:
                 scan_complete = False
-                preserve_uncertain_events = True
                 log.warning("Ignoring unreadable recording slot metadata %s: %s", meta_path, exc)
             except json.JSONDecodeError as exc:
                 scan_complete = False
-                quarantine_uncertain_events = True
+                invalid_meta_stems.add(meta_path.stem)
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid JSON: %s",
                     meta_path,
@@ -542,7 +538,7 @@ class RecordingManager:
                 _quarantine_invalid_slot_metadata(meta_path)
             except UnicodeDecodeError as exc:
                 scan_complete = False
-                quarantine_uncertain_events = True
+                invalid_meta_stems.add(meta_path.stem)
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid UTF-8: %s",
                     meta_path,
@@ -551,12 +547,11 @@ class RecordingManager:
                 _quarantine_invalid_slot_metadata(meta_path)
             except ValueError as exc:
                 scan_complete = False
-                quarantine_uncertain_events = True
+                invalid_meta_stems.add(meta_path.stem)
                 log.warning("Ignoring invalid recording slot metadata %s: %s", meta_path, exc)
                 _quarantine_invalid_slot_metadata(meta_path)
             except Exception:
                 scan_complete = False
-                preserve_uncertain_events = True
                 log.exception("Unexpected failure loading recording slot metadata %s", meta_path)
 
         if not scan_complete:
@@ -565,12 +560,12 @@ class RecordingManager:
                 "event files in %s",
                 self._spool_dir,
             )
-            if quarantine_uncertain_events and not preserve_uncertain_events:
+            for meta_stem in invalid_meta_stems:
                 try:
-                    uncertain_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
+                    invalid_slot_paths = list(self._spool_dir.glob(f"{meta_stem}-*.jsonl"))
                 except OSError:
-                    uncertain_paths = []
-                for path in uncertain_paths:
+                    continue
+                for path in invalid_slot_paths:
                     try:
                         is_loaded = path.resolve() in loaded_event_paths
                     except OSError:

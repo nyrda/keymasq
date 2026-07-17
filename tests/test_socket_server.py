@@ -697,7 +697,7 @@ class TestSocketServer:
         assert cancelled.is_set()
         assert server._handler_tasks == set()
 
-    async def test_handler_drain_remains_bounded_when_task_suppresses_cancellation(
+    async def test_handler_drain_waits_for_cancellation_cleanup(
         self,
         temp_socket_dir,
     ):
@@ -720,14 +720,14 @@ class TestSocketServer:
         server._handler_tasks.add(task)
         await asyncio.sleep(0)
 
-        try:
-            await asyncio.wait_for(server._drain_handler_tasks(), timeout=0.2)
-            assert cancel_seen.is_set()
-            assert not task.done()
-        finally:
-            release.set()
-            await task
-            server._handler_tasks.discard(task)
+        drain_task = asyncio.create_task(server._drain_handler_tasks())
+        await asyncio.wait_for(cancel_seen.wait(), timeout=0.2)
+        assert not drain_task.done()
+
+        release.set()
+        await asyncio.wait_for(drain_task, timeout=0.2)
+        assert task.done()
+        server._handler_tasks.discard(task)
 
     async def test_quiescing_server_rejects_newly_processed_command(self, temp_socket_dir):
         handler_calls: list[bool] = []

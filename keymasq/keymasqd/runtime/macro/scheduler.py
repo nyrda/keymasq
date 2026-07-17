@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -10,6 +11,10 @@ from keymasq.common.model.actions import (
 )
 from keymasq.keymasqd.macro_file import MacroFileChangedError
 from keymasq.keymasqd.runtime.macro import controls, events, mouse, outputs
+from keymasq.keymasqd.runtime.macro.cache import (
+    MAX_CACHEABLE_MACRO_RUNTIME_US,
+    MacroCacheCandidate,
+)
 from keymasq.keymasqd.runtime.macro.loops import (
     MacroLoopStateMachine,
     is_loop_instance_active,
@@ -79,6 +84,14 @@ async def play_macro_task(
     )
     event_loop = asyncio_mod.get_running_loop()
     loop_state = MacroLoopStateMachine(loop_mode, loop_count)
+    diagnostic_initial_load_us = macro_event_source.diagnostic_initial_load_us
+    cached_events = macro_event_source.cached_events
+    verify_cached_revision = cached_events is not None
+    cache_candidate = (
+        macro_event_source.begin_cache_candidate()
+        if cached_events is None and macro_event_source.begin_cache_candidate is not None
+        else None
+    )
     try:
         if block_mouse_movement:
             acquire_mouse_inhibit(
@@ -90,6 +103,14 @@ async def play_macro_task(
         while True:
             if instance_id in manager.macro_state.cancel_instance_ids:
                 break
+            iteration_started_ns = (
+                time.perf_counter_ns()
+                if cache_candidate is not None
+                or (
+                    diagnostic_initial_load_us is not None and deps.diagnostics_recorder is not None
+                )
+                else None
+            )
             if block_mouse_movement:
                 begin_mouse_suppression(
                     manager,
@@ -114,7 +135,15 @@ async def play_macro_task(
                 deps=deps,
                 control_action_fn=control_action,
                 renew_mouse_suppression_fn=renew_mouse_suppression,
+                diagnostic_initial_load_us=diagnostic_initial_load_us,
+                cached_events=cached_events,
+                verify_cached_revision=verify_cached_revision,
+                cache_candidate=cache_candidate,
             )
+            if diagnostic_initial_load_us is not None:
+                diagnostic_initial_load_us = 0.0
+            if cached_events is not None:
+                verify_cached_revision = True
             if stop_current_run:
                 break
 
@@ -131,6 +160,28 @@ async def play_macro_task(
                             deps=deps,
                         )
                     await asyncio_mod.sleep(remaining)
+
+            iteration_elapsed_us = (
+                max(0, time.perf_counter_ns() - iteration_started_ns) / 1000.0
+                if iteration_started_ns is not None
+                else None
+            )
+            if instance_id not in manager.macro_state.cancel_instance_ids:
+                if iteration_elapsed_us is not None and deps.diagnostics_recorder is not None:
+                    deps.diagnostics_recorder("macro_iteration", iteration_elapsed_us)
+                if cache_candidate is not None:
+                    entry = (
+                        cache_candidate.commit()
+                        if iteration_elapsed_us is not None
+                        and iteration_elapsed_us < MAX_CACHEABLE_MACRO_RUNTIME_US
+                        else None
+                    )
+                    if entry is None and cache_candidate.active:
+                        cache_candidate.reject()
+                    cache_candidate = None
+                    if entry is not None:
+                        cached_events = entry.events
+                        verify_cached_revision = True
 
             if macro_event_source.event_count <= 0 and loop_state.mode in {"hold", "toggle"}:
                 await asyncio_mod.sleep(0.01)
@@ -150,6 +201,8 @@ async def play_macro_task(
     except Exception:
         deps.log.exception("Macro playback aborted")
     finally:
+        if cache_candidate is not None:
+            cache_candidate.discard()
         manager.macro_state.cancel_instance_ids.discard(instance_id)
         release_held(manager, instance_id, deps=deps)
         manager.macro_state.forget_instance(instance_id)
@@ -173,14 +226,26 @@ async def _play_iteration(
     deps: MacroRuntimeDeps,
     control_action_fn: ControlActionRunner,
     renew_mouse_suppression_fn: RuntimeAction,
+    diagnostic_initial_load_us: float | None,
+    cached_events: tuple[dict[str, object], ...] | None,
+    verify_cached_revision: bool,
+    cache_candidate: MacroCacheCandidate | None,
 ) -> bool:
     """Replay one source iteration; return true when a semantic move aborts it."""
 
     asyncio_mod = deps.asyncio_mod
     index = 0
-    async for event in events.iter_macro_source_events(macro_event_source, deps=deps):
+    async for event in events.iter_macro_source_events(
+        macro_event_source,
+        deps=deps,
+        diagnostic_initial_load_us=diagnostic_initial_load_us,
+        cached_events=cached_events,
+        verify_cached_revision=verify_cached_revision,
+    ):
         if instance_id in manager.macro_state.cancel_instance_ids:
             break
+        if cache_candidate is not None:
+            cache_candidate.observe(event)
         if (index & 127) == 127:
             await asyncio_mod.sleep(0)
         index += 1

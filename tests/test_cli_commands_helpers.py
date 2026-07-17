@@ -190,7 +190,7 @@ def test_mpris_status_cli_prints_controller_state(
                             "artists": ["Artist Name"],
                             "album": "Album Name",
                         },
-                    }
+                    },
                 ],
                 "player_order": [":1.20", ":1.10"],
                 "started_order": [":1.20", ":1.10"],
@@ -483,19 +483,23 @@ def test_set_diagnostics_cli_sends_categories(
         sent.append(payload)
         return {
             "status": "ok",
-            "data": {"enabled": True, "interval": 3.0, "categories": ["mainline", "combo"]},
+            "data": {
+                "enabled": True,
+                "interval": 3.0,
+                "categories": ["mainline", "combo", "macro"],
+            },
         }
 
     monkeypatch.setattr(commands, "_session_request", _session_request)
 
-    commands.set_diagnostics_cli(True, interval=3.0, include=["combo"])
+    commands.set_diagnostics_cli(True, interval=3.0, include=["combo", "macro"])
 
     assert sent == [
         {
             "command": "set_diagnostics",
             "enabled": True,
             "interval": 3.0,
-            "categories": ["mainline", "combo"],
+            "categories": ["mainline", "combo", "macro"],
         }
     ]
     assert "categories=mainline, combo" in capsys.readouterr().out

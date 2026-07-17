@@ -17,6 +17,7 @@ from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd import device_manager, recording
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_file import MacroFileChangedError
+from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import outputs as global_outputs
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
@@ -764,8 +765,12 @@ async def test_stored_macro_playback_uses_revision_snapshot(
     snapshot = SimpleNamespace(
         meta={"event_count": 1, "duration_us": 0, "revision": 1},
         iter_events=lambda: iter([{"t_us": 0, "type": 1, "code": 30, "value": 1}]),
+        revision=None,
     )
-    manager.macro_store = SimpleNamespace(open_snapshot=MagicMock(return_value=snapshot))
+    manager.macro_store = SimpleNamespace(
+        probe_revision=MagicMock(return_value=None),
+        open_snapshot=MagicMock(return_value=snapshot),
+    )
 
     async def fake_play_macro_task(_manager: DeviceManager, **_kwargs: object) -> None:
         return None
@@ -778,6 +783,172 @@ async def test_stored_macro_playback_uses_revision_snapshot(
 
     assert result == {"status": "ok"}
     manager.macro_store.open_snapshot.assert_called_once_with("stored")
+
+
+@pytest.mark.asyncio
+async def test_short_stored_macro_streams_once_then_reuses_cached_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "short",
+            "events": [{"t_us": 0, "macro_action": "wait", "duration_us": 0}],
+        }
+    )
+    snapshot = store.open_snapshot("short")
+    iter_events = MagicMock(wraps=snapshot.iter_events)
+    open_snapshot = MagicMock(
+        return_value=SimpleNamespace(
+            meta=snapshot.meta,
+            iter_events=iter_events,
+            revision=snapshot.revision,
+        )
+    )
+    monkeypatch.setattr(store, "open_snapshot", open_snapshot)
+    manager.macro_store = store
+
+    result = await manager.play_macro(
+        macro_name="short",
+        loop_mode="count",
+        loop_count=3,
+    )
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    assert open_snapshot.call_count == 1
+    assert iter_events.call_count == 1
+    revision = store.probe_revision("short")
+    assert revision is not None
+    entry = manager.macro_state.replay_cache.get(revision)
+    assert entry is not None
+    assert entry.events == ({"t_us": 0, "macro_action": "wait", "duration_us": 0},)
+
+    result = await manager.play_macro(macro_name="short")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    assert open_snapshot.call_count == 1
+    assert iter_events.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cached_stored_macro_is_revalidated_when_playback_task_starts(
+    tmp_path: Path,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "edited",
+            "events": [
+                {
+                    "t_us": 0,
+                    "device_type": "keyboard",
+                    "type": evdev.ecodes.EV_KEY,
+                    "code": evdev.ecodes.KEY_A,
+                    "value": 1,
+                }
+            ],
+        }
+    )
+    manager.macro_store = store
+
+    await manager.play_macro(macro_name="edited")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+    manager.output_state.keyboard_uinput.reset_mock()
+
+    result = await manager.play_macro(macro_name="edited")
+    store.update(
+        "edited",
+        {
+            "events": [
+                {
+                    "t_us": 0,
+                    "device_type": "keyboard",
+                    "type": evdev.ecodes.EV_KEY,
+                    "code": evdev.ecodes.KEY_B,
+                    "value": 1,
+                }
+            ]
+        },
+        expected_revision=1,
+    )
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    manager.output_state.keyboard_uinput.write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stored_macro_over_runtime_threshold_is_not_cached(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    store = MacroStore(tmp_path / "macros")
+    store.create(
+        {
+            "name": "slow",
+            "events": [{"t_us": 0, "macro_action": "wait", "duration_us": 20_000}],
+        }
+    )
+    open_snapshot = MagicMock(wraps=store.open_snapshot)
+    monkeypatch.setattr(store, "open_snapshot", open_snapshot)
+    monkeypatch.setattr(scheduler, "MAX_CACHEABLE_MACRO_RUNTIME_US", 5_000.0)
+    manager.macro_store = store
+
+    result = await manager.play_macro(macro_name="slow")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    revision = store.probe_revision("slow")
+    assert revision is not None
+    assert manager.macro_state.replay_cache.get(revision) is None
+
+    result = await manager.play_macro(macro_name="slow")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    assert open_snapshot.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_stored_macro_diagnostics_measure_load_and_actual_iteration_runtime() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    manager.diagnostics_state.enabled = True
+    manager.diagnostics_state.categories = {"macro"}
+    snapshot = SimpleNamespace(
+        meta={"event_count": 1, "duration_us": 3, "revision": 1},
+        iter_events=lambda: iter([{"t_us": 0, "macro_action": "wait", "duration_us": 20_000}]),
+        revision=None,
+    )
+    manager.macro_store = SimpleNamespace(
+        probe_revision=MagicMock(return_value=None),
+        open_snapshot=MagicMock(return_value=snapshot),
+    )
+
+    result = await manager.play_macro(
+        macro_name="measured",
+        loop_mode="count",
+        loop_count=2,
+    )
+    await asyncio.gather(*manager.macro_state.tasks.values())
+
+    assert result == {"status": "ok"}
+    manager.macro_store.open_snapshot.assert_called_once_with("measured")
+    load_samples = list(manager.diagnostics_state.samples["macro_load"])
+    iteration_samples = list(manager.diagnostics_state.samples["macro_iteration"])
+    assert len(load_samples) == 2
+    assert all(sample > 0 for sample in load_samples)
+    assert len(iteration_samples) == 2
+    assert all(sample >= 20_000 for sample in iteration_samples)
 
 
 @pytest.mark.asyncio

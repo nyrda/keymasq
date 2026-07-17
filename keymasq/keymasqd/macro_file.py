@@ -3,7 +3,9 @@ from __future__ import annotations
 import io
 import json
 import lzma
-from collections.abc import Iterable, Iterator
+import os
+from collections.abc import Generator, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +23,41 @@ MACRO_FILE_VERSION = 1
 type MacroEvent = dict[str, object]
 
 
+@dataclass(frozen=True)
+class MacroFileIdentity:
+    device: int
+    inode: int
+    size: int
+    modified_ns: int
+
+    @classmethod
+    def from_stat(cls, result: os.stat_result) -> MacroFileIdentity:
+        return cls(
+            device=int(result.st_dev),
+            inode=int(result.st_ino),
+            size=int(result.st_size),
+            modified_ns=int(result.st_mtime_ns),
+        )
+
+
+@dataclass(frozen=True)
+class MacroFileRevision:
+    path: Path
+    identity: MacroFileIdentity
+
+    @classmethod
+    def from_path(cls, path: Path) -> MacroFileRevision:
+        return cls(path=path, identity=MacroFileIdentity.from_stat(path.stat()))
+
+    def verify_unchanged(self) -> None:
+        try:
+            current = MacroFileIdentity.from_stat(self.path.stat())
+        except FileNotFoundError as exc:
+            raise MacroFileChangedError(str(self.path)) from exc
+        if current != self.identity:
+            raise MacroFileChangedError(str(self.path))
+
+
 class MacroFileChangedError(RuntimeError):
     """The macro file no longer matches the revision opened for playback."""
 
@@ -30,20 +67,22 @@ class MacroFileSnapshot:
 
     def __init__(self, path: Path) -> None:
         self._path = path
-        with _open_text(path, "rb") as handle:
+        with _open_text_revision(path) as (handle, identity):
             self._meta_line = handle.readline()
         self.meta = _macro_meta_from_line(self._meta_line)
+        self.revision = MacroFileRevision(path=path, identity=identity)
 
     def iter_events(self) -> Iterator[MacroEvent]:
         def generate() -> Iterator[MacroEvent]:
             try:
-                handle = _open_text(self._path, "rb")
+                with _open_text_revision(self._path) as (handle, identity):
+                    if identity != self.revision.identity:
+                        raise MacroFileChangedError(str(self._path))
+                    if handle.readline() != self._meta_line:
+                        raise MacroFileChangedError(str(self._path))
+                    yield from _iter_macro_event_lines(handle)
             except FileNotFoundError as exc:
                 raise MacroFileChangedError(str(self._path)) from exc
-            with handle:
-                if handle.readline() != self._meta_line:
-                    raise MacroFileChangedError(str(self._path))
-                yield from _iter_macro_event_lines(handle)
 
         return generate()
 
@@ -198,6 +237,17 @@ def macro_payload_from_events(
 def _open_text(path: Path, mode: str) -> io.TextIOWrapper:
     raw = lzma.LZMAFile(path, mode)
     return io.TextIOWrapper(raw, encoding="utf-8", newline="\n")
+
+
+@contextmanager
+def _open_text_revision(
+    path: Path,
+) -> Generator[tuple[io.TextIOWrapper, MacroFileIdentity]]:
+    with path.open("rb") as fileobj:
+        identity = MacroFileIdentity.from_stat(os.fstat(fileobj.fileno()))
+        with lzma.LZMAFile(fileobj, "rb") as compressed:
+            with io.TextIOWrapper(compressed, encoding="utf-8", newline="\n") as text:
+                yield text, identity
 
 
 def _json_line(value: JsonObject) -> str:

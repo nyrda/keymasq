@@ -2435,22 +2435,26 @@ class TestListDevices:
         }
 
     @pytest.mark.asyncio
-    async def test_diagnostics_can_include_combo_and_internal_categories(self) -> None:
+    async def test_diagnostics_can_include_non_default_categories(self) -> None:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
-        manager.diagnostics_state.categories = {"combo", "internal"}
+        manager.diagnostics_state.categories = {"combo", "macro", "internal"}
 
         manager._record_diagnostic("passthrough_mapped", 10.0)
         manager._record_diagnostic("combo_passthrough", 20.0)
         manager._record_diagnostic("combo_passthrough_held", 30.0)
         manager._record_diagnostic("syn", 40.0)
         manager._record_diagnostic("combo_recalled_release_suppressed", 50.0)
+        manager._record_diagnostic("macro_load", 60.0)
+        manager._record_diagnostic("macro_iteration", 70.0)
 
         assert set(manager.diagnostics_state.samples) == {
             "combo_passthrough",
             "combo_passthrough_held",
             "syn",
             "combo_recalled_release_suppressed",
+            "macro_load",
+            "macro_iteration",
         }
 
     @pytest.mark.asyncio

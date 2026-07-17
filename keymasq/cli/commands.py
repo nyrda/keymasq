@@ -12,7 +12,7 @@ from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
 
 IntLike = int | float | str | bytes
-DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "internal")
+DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal")
 
 
 def _session_unavailable() -> JsonObject:
@@ -298,9 +298,7 @@ def status_cli(*, json_output: bool = False) -> None:
     if _handled_json_or_error(result, json_output):
         return
 
-    keymasqd_state = _bool_status(
-        result.get("keymasqd_connected"), "connected", "disconnected"
-    )
+    keymasqd_state = _bool_status(result.get("keymasqd_connected"), "connected", "disconnected")
     print(f"keymasqd: {keymasqd_state}")
 
     compositor_name = str(result.get("compositor_name") or result.get("compositor_id") or "unknown")
@@ -791,9 +789,7 @@ def list_profiles_cli(*, json_output: bool = False) -> None:
             print(f"    mappings: {mapping_count}")
 
 
-def set_profile_state_cli(
-    command: str, profile_name: str, *, json_output: bool = False
-) -> None:
+def set_profile_state_cli(command: str, profile_name: str, *, json_output: bool = False) -> None:
     result = _request_or_error(
         {
             "command": command,

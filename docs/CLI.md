@@ -243,9 +243,10 @@ journalctl -u keymasqd -f
 | Option | Description |
 |---|---|
 | `--interval SECONDS` | Logging interval in seconds |
-| `--include CATEGORY` | Add a diagnostics category: `mainline`, `combo`, `internal`, or `all` |
-| `--exclude CATEGORY` | Hide a diagnostics category after includes are applied: `mainline`, `combo`, or `internal` |
+| `--include CATEGORY` | Add a diagnostics category: `mainline`, `combo`, `macro`, `internal`, or `all` |
+| `--exclude CATEGORY` | Hide a diagnostics category after includes are applied: `mainline`, `combo`, `macro`, or `internal` |
 
 The default category is `mainline`, which shows the normal passthrough and
 remap-action paths. Use `--include combo` for combo-specific timing and
+`--include macro` for stored-macro loading and playback timing, or
 `--include internal` for low-level daemon details.

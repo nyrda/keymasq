@@ -42,6 +42,12 @@ Benchmark results show:
 With `uvloop` installed (recommended), jitter improves further, especially for
 high-frequency mouse macros and keyboard bursts.
 
+Stored macros stream their first playback directly from the compressed file.
+When a complete iteration takes less than two seconds, including explicit
+waits and synchronous commands, Keymasq keeps its parsed events in a daemon-wide
+10 MiB LRU cache. Longer macros continue streaming, and changing the macro file
+invalidates its cached revision before reuse.
+
 ## Live Diagnostics
 
 You can measure latency on your own system with the built-in diagnostics mode:
@@ -58,6 +64,7 @@ behavior or daemon internals:
 
 ```bash
 keymasq diagnostics on --include combo
+keymasq diagnostics on --include macro
 keymasq diagnostics on --include internal
 keymasq diagnostics on --include all
 keymasq diagnostics on --include all --exclude internal
@@ -170,6 +177,35 @@ latency baseline.
 | `combo_passthrough` | A combo-relevant event was checked by the combo engine and then passed through normally. | Pressing the first key of a two-key combo where the key should still type if the combo is not completed. |
 | `combo_passthrough_held` | A later event for a combo key that was already allowed through. | Releasing that first combo key after it had been passed through. |
 | `combo_release_action_*` | A combo-related release event triggered an action. | Releasing a held combo chord that fires a remapped button. |
+
+### Macro Diagnostics
+
+Enable with:
+
+```bash
+keymasq diagnostics on --include macro
+```
+
+These labels measure stored-macro loading separately from the complete runtime
+of one playback iteration. This makes the effect of the short-macro replay
+cache visible without mixing in the macro's own timing.
+
+| Label | What it means |
+|---|---|
+| `macro_load` | Time spent resolving the stored revision and obtaining its events. Streamed iterations include worker batches that decompress and parse the file; cache hits include only revision validation and cache retrieval. Timeline sleeps, wait controls, and command execution are excluded. |
+| `macro_iteration` | Wall-clock runtime of one normally completed iteration, including event timing, explicit and random waits, synchronous commands, and trailing macro duration. Inter-iteration scheduling yields are excluded. |
+
+For a repeatable benchmark, save the test macro with `loop_mode` set to `count`
+and a fixed `loop_count`, enable macro diagnostics, and trigger it once:
+
+```bash
+keymasq diagnostics on --include macro --interval 5
+keymasq macros play benchmark-macro
+journalctl -u keymasqd -f
+```
+
+Only stored macros are sampled. Cancelled, interrupted, or failed iterations
+do not produce a complete iteration sample.
 
 ### Internal Diagnostics
 

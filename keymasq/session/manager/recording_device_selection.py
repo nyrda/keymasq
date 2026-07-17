@@ -16,6 +16,10 @@ if TYPE_CHECKING:
 log = logging.getLogger("keymasq-session")
 CORE_RECORDING_DEVICE_FILTER_TYPES: tuple[str, ...] = ("keyboard", "gamepad", "mouse")
 OTHER_RECORDING_DEVICE_FILTER_TYPES: tuple[str, ...] = ("touchpad", "pointstick", "other")
+_PERSISTENCE_WARNING = (
+    "Recording settings were applied for this session but could not be saved. "
+    "They may revert after Keymasq restarts."
+)
 
 
 def recording_device_filter_types(include_other: bool = False) -> list[str]:
@@ -67,13 +71,18 @@ def queue_recording_settings_save(
 
 
 async def flush_recording_settings_saves(manager: "SessionManager") -> None:
+    latest_save_succeeded = True
     try:
         while manager.recording_state.settings_pending_save is not None:
             pending = manager.recording_state.settings_pending_save
             manager.recording_state.settings_pending_save = None
-            await asyncio.to_thread(save_recording_settings_to_disk, manager, pending)
+            latest_save_succeeded = await asyncio.to_thread(
+                save_recording_settings_to_disk, manager, pending
+            )
     finally:
         manager.recording_state.settings_save_task = None
+        if not latest_save_succeeded and manager.running:
+            manager.send_notification("Keymasq Settings Warning", _PERSISTENCE_WARNING)
 
 
 def load_recording_settings_from_disk(manager: "SessionManager") -> None:
@@ -104,7 +113,7 @@ def load_recording_settings_from_disk(manager: "SessionManager") -> None:
 def save_recording_settings_to_disk(
     manager: "SessionManager",
     settings: JsonObject | None = None,
-) -> None:
+) -> bool:
     settings = settings or manager.recording_state.settings
     try:
         data: JsonObject = {
@@ -120,11 +129,13 @@ def save_recording_settings_to_disk(
         }
 
         write_toml_atomically(manager.RECORDING_SETTINGS_PATH, data)
+        return True
     except Exception:
         log.exception(
             "Failed to save recording settings to %s",
             manager.RECORDING_SETTINGS_PATH,
         )
+        return False
 
 
 def prune_stale_recording_device_overrides(

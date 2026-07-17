@@ -150,6 +150,8 @@ devices from direct physical input sources.
 Recording preferences are stored in
 `~/.config/keymasq/recording_settings.toml`. Device-specific overrides use
 stable recording IDs instead of volatile `/dev/input/eventN` paths.
+If the preferences cannot be written to disk, they remain active for the
+current session and Keymasq warns that they may revert after a restart.
 
 ![Recording settings — initial mouse position and source options](assets/screenshots/keymasq_macro_recording_settings.png)
 

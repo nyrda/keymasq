@@ -4,7 +4,7 @@ import threading
 import tomllib
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -39,12 +39,12 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
     latest_finished = threading.Event()
     release_stale = threading.Event()
 
-    def fake_save(_manager, settings: dict | None = None) -> None:
+    def fake_save(_manager, settings: dict | None = None) -> bool:
         state = dict(settings or {})
         if state.get("include_mouse_movement", False):
             stale_started.set()
             if not release_stale.wait(timeout=1.0):
-                return
+                return False
         with writes_lock:
             persisted.clear()
             persisted.update(state)
@@ -53,6 +53,7 @@ async def test_recording_settings_persistence_applies_latest_snapshot_last(
             stale_finished.set()
         else:
             latest_finished.set()
+        return True
 
     async def wait_for_event(event: threading.Event, message: str) -> None:
         if not await asyncio.to_thread(event.wait, 1.0):
@@ -189,9 +190,45 @@ def test_recording_settings_save_logs_errors(tmp_path, caplog, monkeypatch) -> N
     monkeypatch.setattr(config_files_module.tomli_w, "dump", raise_dump_error)
     caplog.set_level(logging.ERROR, logger="keymasq-session")
 
-    recording_device_selection_module.save_recording_settings_to_disk(manager)
+    saved = recording_device_selection_module.save_recording_settings_to_disk(manager)
 
+    assert saved is False
     assert f"Failed to save recording settings to {manager.RECORDING_SETTINGS_PATH}" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_recording_settings_persistence_failure_warns_without_reverting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.running = True
+    manager.recording_state.settings = {
+        "include_mouse_movement": False,
+        "include_mouse_clicks": False,
+        "record_start_position": False,
+        "device_overrides": {},
+    }
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "save_recording_settings_to_disk",
+        Mock(return_value=False),
+    )
+
+    recording_device_selection_module.update_recording_settings(
+        manager,
+        {"include_mouse_movement": True},
+    )
+    save_task = manager.recording_state.settings_save_task
+    assert save_task is not None
+    await save_task
+
+    assert manager.recording_state.settings["include_mouse_movement"] is True
+    manager.send_notification.assert_called_once()  # type: ignore[attr-defined]
+    title, warning = manager.send_notification.call_args.args  # type: ignore[attr-defined]
+    assert title == "Keymasq Settings Warning"
+    assert "applied for this session" in warning
+    assert "may revert" in warning
 
 
 @pytest.mark.asyncio

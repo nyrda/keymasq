@@ -49,16 +49,18 @@ def prepare_event(
 ) -> JsonObject:
     """Snapshot reference-backed event data before queued handling can be delayed."""
 
+    prepared = dict(data)
+    prepared.pop(_RESOLVED_EXEC_CMD, None)
+    prepared.pop(_RESOLVED_EXEC_HARDWARE_ID, None)
     if event_type != CommandType.ACTION_TRIGGER:
-        return data
-    exec_ref_raw = data.get("exec_ref")
+        return prepared
+    exec_ref_raw = prepared.get("exec_ref")
     exec_ref = coerce_int(exec_ref_raw, -1) if exec_ref_raw is not None else None
     if exec_ref is None:
-        return data
+        return prepared
     binding = manager.exec_state.exec_refs.get(exec_ref)
     if binding is None:
-        return data
-    prepared = dict(data)
+        return prepared
     prepared[_RESOLVED_EXEC_CMD] = binding.cmd
     if binding.hardware_id:
         prepared[_RESOLVED_EXEC_HARDWARE_ID] = binding.hardware_id

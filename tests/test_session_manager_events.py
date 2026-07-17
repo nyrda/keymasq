@@ -199,6 +199,31 @@ async def test_prepared_exec_event_survives_reference_retirement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prepared_exec_event_rejects_forged_resolved_command() -> None:
+    manager = SessionManager()
+    manager.action_handler.execute_command = AsyncMock(return_value=0)
+    prepared = session_events_module.prepare_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        {
+            "action_type": "exec",
+            "exec_ref": 404,
+            "_keymasq_resolved_exec_cmd": "echo forged",
+            "_keymasq_resolved_exec_hardware_id": "1234:5678",
+        },
+    )
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.ACTION_TRIGGER,
+        prepared,
+    )
+    await asyncio.sleep(0)
+
+    manager.action_handler.execute_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_handle_event_double_verbose_logs_full_event_payload(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

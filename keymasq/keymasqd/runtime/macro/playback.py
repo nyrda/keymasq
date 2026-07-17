@@ -27,7 +27,7 @@ async def play_macro(
         or manager.output_state.gamepad_uinput
         or manager.output_state.virtual_gamepad_uinputs
     ):
-        _close_event_source(macro_event_source)
+        _close_event_source(macro_event_source, deps=deps)
         return {"status": "error", "message": "No output uinput devices available"}
 
     normalized_loop = loops.normalize_loop_mode(playback_options.loop_mode)
@@ -45,13 +45,13 @@ async def play_macro(
         )
         if hold_instances:
             cancelled = await _stop_loop_instances(manager, hold_instances, deps=deps)
-            _close_event_source(macro_event_source)
+            _close_event_source(macro_event_source, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
-        _close_event_source(macro_event_source)
+        _close_event_source(macro_event_source, deps=deps)
         return {"status": "ok", "cancelled": False}
 
     if int(playback_options.trigger_value) != 1:
-        _close_event_source(macro_event_source)
+        _close_event_source(macro_event_source, deps=deps)
         return {"status": "ok"}
 
     if normalized_loop == "toggle":
@@ -62,7 +62,7 @@ async def play_macro(
         )
         if toggle_instances:
             cancelled = await _stop_loop_instances(manager, toggle_instances, deps=deps)
-            _close_event_source(macro_event_source)
+            _close_event_source(macro_event_source, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
 
     if normalized_loop == "hold" and loops.find_matching_macro_instances(
@@ -70,7 +70,7 @@ async def play_macro(
         loop_mode="hold",
         source_key=source_key,
     ):
-        _close_event_source(macro_event_source)
+        _close_event_source(macro_event_source, deps=deps)
         return {"status": "ok", "already_running": True}
 
     event_source = macro_event_source or list_macro_event_source(
@@ -78,7 +78,7 @@ async def play_macro(
         int_value_fn=deps.int_value_fn,
     )
     if event_source.event_count <= 0:
-        _close_event_source(event_source)
+        _close_event_source(event_source, deps=deps)
         return {"status": "ok"}
 
     source_closed = False
@@ -126,15 +126,22 @@ async def play_macro(
     manager.macro_state.tasks[instance_id] = task
 
     def close_event_source(_task: object) -> None:
-        _close_event_source(event_source)
+        _close_event_source(event_source, deps=deps)
 
     task.add_done_callback(close_event_source)
     return {"status": "ok"}
 
 
-def _close_event_source(source: MacroEventSource | None) -> None:
+def _close_event_source(
+    source: MacroEventSource | None,
+    *,
+    deps: MacroRuntimeDeps,
+) -> None:
     if source is not None and source.close is not None:
-        source.close()
+        try:
+            source.close()
+        except Exception:
+            deps.log.exception("Failed to close macro playback snapshot")
 
 
 async def _stop_loop_instances(

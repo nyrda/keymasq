@@ -330,12 +330,12 @@ class Daemon:
                 claim_if_missing=command_type != CommandType.CAPTURE_END,
             )
 
-        if policy is None or not policy.recording_unlock_required:
+        if policy is None:
             return
 
-        requires_unlock = is_tier1_command
-        if not requires_unlock and policy.macro_edit_requires_unlock:
-            requires_unlock = command_type in tier2_commands
+        requires_unlock = is_tier1_command and policy.recording_unlock_required
+        if command_type in tier2_commands and policy.macro_edit_requires_unlock:
+            requires_unlock = True
 
         if not requires_unlock:
             return

@@ -76,12 +76,17 @@ class SocketServer:
         self._active_command_tasks: set[asyncio.Task[None]] = set()
         self._server_generation = 0
         self._quiescing = False
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def owner_context(self) -> ClientContext | None:
         return self._owner_context
 
     async def start(self) -> None:
+        async with self._lifecycle_lock:
+            await self._start_locked()
+
+    async def _start_locked(self) -> None:
         active_handlers = {task for task in self._handler_tasks if not task.done()}
         if active_handlers:
             raise RuntimeError(
@@ -167,6 +172,10 @@ class SocketServer:
             log.warning(f"Failed to remove {description}: {exc}")
 
     async def stop(self) -> None:
+        async with self._lifecycle_lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
         self._quiescing = True
         server = self.server
         socket_stat = self._socket_stat

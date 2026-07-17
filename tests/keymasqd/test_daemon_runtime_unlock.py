@@ -367,6 +367,37 @@ async def test_macro_rename_and_delete_require_configured_edit_unlock(
     ],
 )
 @pytest.mark.asyncio
+async def test_macro_edits_require_unlock_independently_of_recording_policy(
+    daemon_testbed,
+    monkeypatch,
+    command_type: CommandType,
+    data: dict[str, object],
+) -> None:
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(
+        recording_unlock_required=False,
+        macro_edit_requires_unlock=True,
+    )
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(command_type, data, client=client_context())
+
+    macro_store.rename.assert_not_called()
+    macro_store.delete.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("command_type", "data"),
+    [
+        (
+            CommandType.MACRO_RENAME,
+            {"old_name": "recorded", "new_name": "renamed"},
+        ),
+        (CommandType.MACRO_DELETE, {"name": "recorded"}),
+    ],
+)
+@pytest.mark.asyncio
 async def test_macro_rename_and_delete_allow_policy_disabled(
     daemon_testbed,
     monkeypatch,

@@ -130,6 +130,35 @@ class TestSocketServer:
         await server.start()
         await server.stop()
 
+    async def test_stop_waits_for_start_listener_creation(
+        self,
+        monkeypatch,
+        temp_socket_dir,
+    ):
+        real_start_unix_server = asyncio.start_unix_server
+        start_entered = asyncio.Event()
+        release_start = asyncio.Event()
+
+        async def blocked_start_unix_server(*args, **kwargs):
+            start_entered.set()
+            await release_start.wait()
+            return await real_start_unix_server(*args, **kwargs)
+
+        monkeypatch.setattr(asyncio, "start_unix_server", blocked_start_unix_server)
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
+        start_task = asyncio.create_task(server.start())
+        await start_entered.wait()
+
+        stop_task = asyncio.create_task(server.stop())
+        await asyncio.sleep(0)
+        assert not stop_task.done()
+
+        release_start.set()
+        await start_task
+        await stop_task
+        assert server.server is None
+        assert not paths.SOCKET_PATH.exists()
+
     async def test_denied_peer_is_disconnected(self, temp_socket_dir):
         cmd_handler = MockCommandHandler()
         server = SocketServer(
@@ -625,9 +654,11 @@ class TestSocketServer:
         )
         await server.start()
 
-        _reader, _writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        _reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
 
         await asyncio.wait_for(server.stop(), timeout=1.0)
+        writer.close()
+        await writer.wait_closed()
 
     async def test_server_stop_drains_active_command_before_deadline(self, temp_socket_dir):
         started = asyncio.Event()
@@ -662,6 +693,8 @@ class TestSocketServer:
         assert response.status == "ok"
         assert completed.is_set()
         assert server._handler_tasks == set()
+        writer.close()
+        await writer.wait_closed()
 
     async def test_accept_registers_handler_before_coroutine_runs(self, temp_socket_dir):
         server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
@@ -740,6 +773,8 @@ class TestSocketServer:
 
         assert cancelled.is_set()
         assert server._handler_tasks == set()
+        writer.close()
+        await writer.wait_closed()
 
     async def test_server_stop_allows_disconnect_cleanup_before_handler_cancellation(
         self,
@@ -774,6 +809,8 @@ class TestSocketServer:
 
         assert cleanup_completed.is_set()
         assert server._handler_tasks == set()
+        writer.close()
+        await writer.wait_closed()
 
     async def test_handler_drain_bounds_cancellation_cleanup_and_blocks_restart(
         self,

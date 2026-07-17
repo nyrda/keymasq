@@ -428,6 +428,34 @@ def test_persistent_session_request_timeout_closes_connection() -> None:
     assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 
 
+def test_stale_request_timeout_does_not_close_replacement_connection() -> None:
+    connection = gui_session_client._PersistentSessionConnection()
+    old_sock = _RequestOnlySocket()
+    new_sock = _RequestOnlySocket()
+    connection._sock = old_sock  # pyright: ignore[reportPrivateUsage]
+
+    def replace_during_wait(*, timeout: float) -> None:
+        _ = timeout
+        with connection._state_lock:
+            connection._generation += 1
+            connection._sock = new_sock
+        raise queue.Empty
+
+    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1)
+    response_queue.get = replace_during_wait  # type: ignore[method-assign]
+    original_queue = gui_session_client.queue.Queue
+    gui_session_client.queue.Queue = lambda maxsize=0: response_queue  # type: ignore[assignment]
+    try:
+        response = connection.request({"command": "get_status"}, timeout=0.01)
+    finally:
+        gui_session_client.queue.Queue = original_queue
+
+    assert response is None
+    assert old_sock.closed is True
+    assert new_sock.closed is False
+    assert connection._sock is new_sock  # pyright: ignore[reportPrivateUsage]
+
+
 def test_persistent_session_failed_connect_closes_socket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

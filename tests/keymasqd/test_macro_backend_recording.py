@@ -1099,6 +1099,26 @@ async def test_play_macro_releases_runtime_state_when_snapshot_close_fails() -> 
 
 
 @pytest.mark.asyncio
+async def test_play_macro_early_return_suppresses_snapshot_close_failure() -> None:
+    manager = DeviceManager()
+
+    def fail_close() -> None:
+        raise OSError("close failed")
+
+    result = await manager.play_macro(
+        macro_name="unavailable",
+        macro_event_source=MacroEventSource(
+            event_count=1,
+            duration_us=0,
+            iter_events=lambda: iter(()),
+            close=fail_close,
+        ),
+    )
+
+    assert result == {"status": "error", "message": "No output uinput devices available"}
+
+
+@pytest.mark.asyncio
 async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,5 +1,6 @@
 import queue
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -168,3 +169,66 @@ def test_persistent_session_write_has_a_deadline(
 
     with pytest.raises(TimeoutError, match="write timed out"):
         connection._send_with_deadline(_NeverWritableSocket(), b"request", 0.01)  # type: ignore[arg-type]
+
+
+def test_rejected_gui_task_contains_callback_failure_and_runs_done(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    callbacks: list[object] = []
+    done: list[bool] = []
+    fake_glib = SimpleNamespace(idle_add=lambda callback: callbacks.append(callback))
+    fake_gi = SimpleNamespace(repository=SimpleNamespace(GLib=fake_glib))
+    monkeypatch.setitem(__import__("sys").modules, "gi", fake_gi)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "gi.repository",
+        SimpleNamespace(GLib=fake_glib),
+    )
+    monkeypatch.setattr(session_client_module, "_gui_pool", None)
+    monkeypatch.setattr(session_client_module, "_gui_shutdown", False)
+    monkeypatch.setattr(
+        session_client_module,
+        "_gui_worker_pool",
+        lambda: None,
+    )
+
+    def fail_callback(_result: object) -> None:
+        raise RuntimeError("callback failed")
+
+    session_client_module.run_gui_task(
+        lambda: None,
+        fail_callback,
+        on_done=lambda: done.append(True),
+    )
+
+    with caplog.at_level("ERROR", logger="keymasq.gui.session_client"):
+        assert len(callbacks) == 1
+        assert callbacks[0]() is False  # type: ignore[operator]
+    assert done == [True]
+    assert "GUI task callback failed" in caplog.text
+
+
+def test_shutdown_gui_runtime_shares_one_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    time_values = iter([10.0, 10.1, 10.7])
+    session_timeouts: list[float] = []
+    pool_timeouts: list[float] = []
+    monkeypatch.setattr(session_client_module.time, "monotonic", lambda: next(time_values))
+    monkeypatch.setattr(session_client_module, "_gui_shutdown", False)
+    monkeypatch.setattr(
+        session_client_module._PERSISTENT_SESSION,
+        "shutdown",
+        lambda timeout: session_timeouts.append(timeout),
+    )
+    monkeypatch.setattr(
+        session_client_module,
+        "_gui_pool",
+        SimpleNamespace(shutdown=lambda timeout: pool_timeouts.append(timeout)),
+    )
+
+    session_client_module.shutdown_gui_runtime(timeout=1.0)
+
+    assert session_timeouts == [pytest.approx(0.9)]
+    assert pool_timeouts == [pytest.approx(0.3)]

@@ -138,12 +138,12 @@ class _PersistentSessionConnection:
                     response = response_queue.get(timeout=timeout)
                 except queue.Empty:
                     log.debug("persistent request timed out")
-                    self._close_connection()
+                    self._close_connection_if_current(sock, generation)
                     return None
                 return response
             except Exception:
                 log.exception("persistent request failed")
-                self._close_connection()
+                self._close_connection_if_current(sock, generation)
                 return None
             finally:
                 with self._state_lock:
@@ -575,6 +575,8 @@ def run_gui_task[T](
                 return False
             try:
                 callback(result)
+            except Exception:
+                log.exception("GUI task callback failed")
             finally:
                 if on_done is not None:
                     on_done()
@@ -607,6 +609,7 @@ def shutdown_gui_runtime(timeout: float = 1.0) -> None:
         _gui_shutdown = True
         _gui_runtime_generation += 1
         pool = _gui_pool
-    _PERSISTENT_SESSION.shutdown(timeout=timeout)
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    _PERSISTENT_SESSION.shutdown(timeout=max(0.0, deadline - time.monotonic()))
     if pool is not None:
-        pool.shutdown(timeout=timeout)
+        pool.shutdown(timeout=max(0.0, deadline - time.monotonic()))

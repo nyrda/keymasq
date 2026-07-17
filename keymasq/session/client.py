@@ -112,8 +112,8 @@ class KeymasqdClient:
         finally:
             if not cancelled:
                 self._prepare_disconnect()
-                await self._cancel_event_tasks()
                 self._disconnected_event.set()
+                await self._cancel_event_tasks()
             else:
                 self._finalize_disconnect()
 

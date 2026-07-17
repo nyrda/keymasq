@@ -2352,6 +2352,38 @@ async def test_begin_capture_preserves_cancellation_when_request_fails(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_bounds_silent_request_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+
+    async def silent_request(_command: Command) -> Response:
+        request_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(recording_capture_module, "_CANCEL_SETTLE_TIMEOUT_S", 0.01)
+    manager.client.send_command = AsyncMock(side_effect=silent_request)
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(capture_task, timeout=0.5)
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+
+
+@pytest.mark.asyncio
 async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

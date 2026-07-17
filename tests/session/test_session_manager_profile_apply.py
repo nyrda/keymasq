@@ -519,6 +519,43 @@ async def test_cancelled_mapping_update_preserves_cancellation_when_request_fail
 
 
 @pytest.mark.asyncio
+async def test_cancelled_mapping_update_bounds_silent_request_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+
+    async def silent_request(_command: object) -> Response:
+        request_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(profile_application, "_CANCEL_SETTLE_TIMEOUT_S", 0.01)
+    manager.client.send_command = AsyncMock(side_effect=silent_request)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(update_task, timeout=0.5)
+
+    assert manager.exec_state.device_exec_refs == {}
+    assert manager.exec_state.exec_refs == {}
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

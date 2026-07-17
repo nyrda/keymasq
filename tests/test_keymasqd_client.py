@@ -318,3 +318,30 @@ def test_keymasqd_client_disconnect_fails_nested_request_before_worker_cancel() 
         assert client._disconnected_event.is_set()
 
     asyncio.run(_run())
+
+
+def test_keymasqd_client_signals_disconnect_before_worker_cleanup_finishes() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        client.reader = reader
+        client.writer = _FakeWriter()
+
+        async def delayed_cleanup() -> None:
+            cleanup_started.set()
+            await release_cleanup.wait()
+
+        client._cancel_event_tasks = delayed_cleanup  # type: ignore[method-assign]
+        reader.feed_eof()
+        listen_task = asyncio.create_task(client._listen_loop())
+
+        await asyncio.wait_for(cleanup_started.wait(), timeout=0.5)
+        await asyncio.wait_for(client.wait_disconnected(), timeout=0.5)
+        assert listen_task.done() is False
+
+        release_cleanup.set()
+        await asyncio.wait_for(listen_task, timeout=0.5)
+
+    asyncio.run(_run())

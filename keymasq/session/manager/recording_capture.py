@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+_CANCEL_SETTLE_TIMEOUT_S = 11.0
 
 
 async def _send_capture_begin(
@@ -25,7 +26,18 @@ async def _send_capture_begin(
     try:
         return await asyncio.shield(task), False
     except asyncio.CancelledError as cancelled:
-        outcome = (await asyncio.shield(asyncio.gather(task, return_exceptions=True)))[0]
+        settled = asyncio.gather(task, return_exceptions=True)
+        try:
+            outcome = (
+                await asyncio.wait_for(
+                    asyncio.shield(settled),
+                    timeout=_CANCEL_SETTLE_TIMEOUT_S,
+                )
+            )[0]
+        except TimeoutError as timeout:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise cancelled from timeout
         if isinstance(outcome, BaseException):
             raise cancelled from outcome
         return outcome, True

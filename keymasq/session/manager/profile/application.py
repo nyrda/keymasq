@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 type ProfileActivationNotifier = Callable[[], None]
+_CANCEL_SETTLE_TIMEOUT_S = 11.0
 
 
 async def _send_reference_command(
@@ -48,7 +49,18 @@ async def _send_reference_command(
     try:
         return await asyncio.shield(task), False
     except asyncio.CancelledError as cancelled:
-        outcome = (await asyncio.shield(asyncio.gather(task, return_exceptions=True)))[0]
+        settled = asyncio.gather(task, return_exceptions=True)
+        try:
+            outcome = (
+                await asyncio.wait_for(
+                    asyncio.shield(settled),
+                    timeout=_CANCEL_SETTLE_TIMEOUT_S,
+                )
+            )[0]
+        except TimeoutError as timeout:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise cancelled from timeout
         if isinstance(outcome, BaseException):
             raise cancelled from outcome
         return outcome, True

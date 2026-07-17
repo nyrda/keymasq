@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from keymasq.common.model.actions import normalize_macro_loop_stop_behavior
@@ -79,6 +80,23 @@ async def play_macro(
     if event_source.event_count <= 0:
         _close_event_source(event_source)
         return {"status": "ok"}
+
+    source_closed = False
+    original_close = event_source.close
+
+    def close_event_source_once() -> None:
+        nonlocal source_closed
+        if source_closed:
+            return
+        source_closed = True
+        if original_close is None:
+            return
+        try:
+            original_close()
+        except Exception:
+            deps.log.exception("Failed to close macro playback snapshot")
+
+    event_source = replace(event_source, close=close_event_source_once)
 
     instance_id = manager.macro_state.allocate_instance(
         loop_mode=normalized_loop,

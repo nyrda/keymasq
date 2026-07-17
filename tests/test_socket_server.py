@@ -670,6 +670,25 @@ class TestSocketServer:
         await server.stop()
         assert server._handler_tasks == set()
 
+    async def test_server_stop_drains_accept_callback_already_queued(
+        self,
+        temp_socket_dir,
+    ):
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
+        await server.start()
+        reader = asyncio.StreamReader()
+        writer = _BroadcastWriter()
+        asyncio.get_running_loop().call_soon(
+            server._accept_client,
+            reader,
+            writer,
+        )
+
+        await server.stop()
+
+        assert writer.closed is True
+        assert server._handler_tasks == set()
+
     async def test_server_stop_cancels_stuck_command_after_deadline(self, temp_socket_dir):
         started = asyncio.Event()
         cancelled = asyncio.Event()

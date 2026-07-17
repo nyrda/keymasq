@@ -786,7 +786,7 @@ async def test_stored_macro_playback_uses_and_releases_revision_snapshot(
 
     assert result == {"status": "ok"}
     manager.macro_store.open_snapshot.assert_called_once_with("stored")
-    closed.assert_called()
+    closed.assert_called_once()
 
 
 @pytest.mark.asyncio

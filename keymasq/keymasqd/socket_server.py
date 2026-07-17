@@ -179,6 +179,10 @@ class SocketServer:
             if self.server is server:
                 self.server = None
 
+        # Let accept callbacks already queued by the event loop register their
+        # handler tasks while the server is still quiescing.
+        await asyncio.sleep(0)
+
         # A transport accepted just before server.close() may register its
         # synchronously-owned handler while the first drain is in progress.
         await self._drain_handler_tasks()

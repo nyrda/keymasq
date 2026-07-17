@@ -389,10 +389,13 @@ async def test_failed_multi_interface_grab_does_not_update_existing_device_metad
     monkeypatch.setattr(acquisition, "update_existing_devices", update_existing_devices)
     monkeypatch.setattr(acquisition, "reconcile_existing_interface_releases", Mock())
     monkeypatch.setattr(acquisition, "build_runtime_callbacks", Mock(return_value=object()))
+    grab_one_interface = AsyncMock(
+        side_effect=[None, RuntimeError("second interface failed")]
+    )
     monkeypatch.setattr(
         acquisition,
         "grab_one_interface",
-        AsyncMock(side_effect=RuntimeError("second interface failed")),
+        grab_one_interface,
     )
 
     with pytest.raises(RuntimeError, match="second interface failed"):
@@ -403,6 +406,7 @@ async def test_failed_multi_interface_grab_does_not_update_existing_device_metad
         )
 
     update_existing_devices.assert_not_called()
+    assert grab_one_interface.await_count == 2
 
 
 class _FakeTask:

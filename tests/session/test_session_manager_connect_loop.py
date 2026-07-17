@@ -48,8 +48,7 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     manager.exec_state.next_exec_ref = 9
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
 
-    manager._handle_keymasqd_disconnect()
-    await asyncio.sleep(0)
+    await manager._handle_keymasqd_disconnect()
 
     assert manager.connected is False
     assert manager.profile_state.grabbed_devices == set()
@@ -84,6 +83,39 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await retry_task
+
+
+@pytest.mark.asyncio
+async def test_keymasqd_disconnect_waits_for_event_tasks_before_clearing_state() -> None:
+    manager = SessionManager()
+    manager.connected = True
+    manager.profile_state.grabbed_devices.add("1234:5678")
+    cancellation_started = asyncio.Event()
+    release_cancellation = asyncio.Event()
+
+    async def event_work() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_started.set()
+            await release_cancellation.wait()
+            raise
+
+    event_task = asyncio.create_task(event_work())
+    manager.event_state.tasks.add(event_task)
+    await asyncio.sleep(0)
+    disconnect_task = asyncio.create_task(manager._handle_keymasqd_disconnect())
+    await cancellation_started.wait()
+
+    assert manager.connected is True
+    assert manager.profile_state.grabbed_devices == {"1234:5678"}
+
+    release_cancellation.set()
+    await disconnect_task
+
+    assert manager.connected is False
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.event_state.tasks == set()
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,14 @@ if TYPE_CHECKING:
 log = logging.getLogger("keymasq-session")
 type ProfileActivationNotifier = Callable[[], None]
 _CANCEL_SETTLE_TIMEOUT_S = 11.0
+_CANCEL_CLEANUP_TIMEOUT_S = 1.0
+
+
+def _observe_cleanup_task(task: asyncio.Future[object]) -> None:
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
 
 
 async def _send_reference_command(
@@ -87,11 +95,24 @@ async def _settle_cancelled_request(
 
 async def _await_cleanup(awaitable: Awaitable[object]) -> None:
     task = asyncio.ensure_future(awaitable)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_CLEANUP_TIMEOUT_S
     while not task.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for cancellation cleanup")
+            return
         try:
-            await asyncio.shield(task)
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
         except asyncio.CancelledError:
             continue
+        except TimeoutError:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for cancellation cleanup")
+            return
     await task
 
 
@@ -657,22 +678,22 @@ async def update_combos(
     staged_refs: references.ReferenceSnapshot | None = None
     keep_staged_refs = False
     try:
-        payload: list[JsonObject] = []
-        active_combos: list[ResolvedCombo] = []
-        for resolved_combo in combos:
-            combo_payload = combo.serialize(manager, resolved_combo)
-            if combo_payload is None:
-                continue
-            payload.append(combo_payload)
-            active_combos.append(resolved_combo)
-        staged_refs = references.take_combos(manager)
-    finally:
-        if staged_refs is None:
-            references.take_combos(manager)
-        references.restore_combos(manager, previous_refs)
-    assert staged_refs is not None
-    references.expose(manager, staged_refs)
-    try:
+        try:
+            payload: list[JsonObject] = []
+            active_combos: list[ResolvedCombo] = []
+            for resolved_combo in combos:
+                combo_payload = combo.serialize(manager, resolved_combo)
+                if combo_payload is None:
+                    continue
+                payload.append(combo_payload)
+                active_combos.append(resolved_combo)
+            staged_refs = references.take_combos(manager)
+        finally:
+            if staged_refs is None:
+                references.take_combos(manager)
+            references.restore_combos(manager, previous_refs)
+        assert staged_refs is not None
+        references.expose(manager, staged_refs)
         raise_if_stale_profile_apply(manager, generation)
         result, cancelled = await _send_reference_command(
             manager,
@@ -699,7 +720,7 @@ async def update_combos(
     except Exception:
         log.exception("Unexpected failure updating combos")
     finally:
-        if not keep_staged_refs:
+        if staged_refs is not None and not keep_staged_refs:
             references.discard(manager, staged_refs)
 
 

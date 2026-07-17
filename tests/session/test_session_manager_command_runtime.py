@@ -2554,6 +2554,35 @@ async def test_begin_capture_bounds_silent_request_settlement(
 
 
 @pytest.mark.asyncio
+async def test_capture_cleanup_wait_has_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    cleanup_started = asyncio.Event()
+    cleanup_cancelled = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def stubborn_cleanup() -> None:
+        cleanup_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleanup_cancelled.set()
+            await release_cleanup.wait()
+
+    monkeypatch.setattr(recording_capture_module, "_CANCEL_CLEANUP_TIMEOUT_S", 0.01)
+    cleanup_task = asyncio.create_task(stubborn_cleanup())
+    await cleanup_started.wait()
+
+    cancelled = await asyncio.wait_for(
+        recording_capture_module._await_cleanup(cleanup_task),
+        timeout=0.5,
+    )
+
+    assert cancelled is False
+    await cleanup_cancelled.wait()
+    release_cleanup.set()
+    await cleanup_task
+
+
+@pytest.mark.asyncio
 async def test_clear_captures_for_writer_ends_owned_capture_on_disconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

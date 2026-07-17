@@ -15,6 +15,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 _CANCEL_SETTLE_TIMEOUT_S = 11.0
+_CANCEL_CLEANUP_TIMEOUT_S = 1.0
+
+
+def _observe_cleanup_task(task: asyncio.Future[object]) -> None:
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
 
 
 async def _send_capture_begin(
@@ -66,12 +74,25 @@ async def _settle_cancelled_capture_begin(
 async def _await_cleanup(awaitable: Awaitable[object]) -> bool:
     task = asyncio.ensure_future(awaitable)
     cancelled = False
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_CLEANUP_TIMEOUT_S
     while not task.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for capture cancellation cleanup")
+            return cancelled
         try:
-            await asyncio.shield(task)
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
         except asyncio.CancelledError:
             cancelled = True
             continue
+        except TimeoutError:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for capture cancellation cleanup")
+            return cancelled
     await task
     return cancelled
 

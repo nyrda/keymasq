@@ -83,6 +83,40 @@ async def test_recording_manager_start_rolls_back_resources_when_broadcast_fails
 
 
 @pytest.mark.asyncio
+async def test_recording_manager_closes_device_opened_after_start_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    device = SimpleNamespace(close=MagicMock())
+    open_started = asyncio.Event()
+    release_open = asyncio.Event()
+    recorder = RecordingManager()
+
+    async def delayed_to_thread(func, /, *args, **kwargs):
+        assert func is recording._open_recording_input_device
+        assert args == ("/dev/input/event0",)
+        assert kwargs == {}
+        open_started.set()
+        await release_open.wait()
+        return device
+
+    monkeypatch.setattr(recording.asyncio, "to_thread", delayed_to_thread)
+    start_task = asyncio.create_task(recorder.start([{"path": "/dev/input/event0"}]))
+    await open_started.wait()
+    start_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    release_open.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    device.close.assert_called_once()
+    assert recorder.is_recording is False
+    assert recorder._extra_devices == []
+
+
+@pytest.mark.asyncio
 async def test_recording_manager_start_defers_repeated_cancellation_during_rollback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

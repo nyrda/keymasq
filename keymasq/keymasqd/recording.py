@@ -55,6 +55,19 @@ async def _await_cleanup(awaitable: Awaitable[object]) -> None:
     await task
 
 
+def _close_cancelled_recording_open(
+    task: asyncio.Task[_RecordingInputDevice],
+) -> None:
+    try:
+        device = task.result()
+    except (asyncio.CancelledError, OSError):
+        return
+    except Exception:
+        log.exception("Unexpected failure opening cancelled recording device")
+        return
+    _close_recording_input_device(device)
+
+
 class RecordingManager:
     def __init__(
         self,
@@ -127,8 +140,14 @@ class RecordingManager:
                 path_value = dev.get("open_path", dev.get("path"))
                 if not isinstance(path_value, str) or not path_value:
                     continue
+                open_task = asyncio.create_task(
+                    asyncio.to_thread(_open_recording_input_device, path_value)
+                )
                 try:
-                    input_dev = await asyncio.to_thread(_open_recording_input_device, path_value)
+                    input_dev = await asyncio.shield(open_task)
+                except asyncio.CancelledError:
+                    open_task.add_done_callback(_close_cancelled_recording_open)
+                    raise
                 except OSError:
                     log.debug(
                         "Failed to open extra recording device %s",

@@ -14,6 +14,7 @@ from keymasq.common.ipc import (
 from keymasq.common.paths import SOCKET_PATH
 
 log = logging.getLogger("keymasq-session.client")
+_MAX_PENDING_EVENTS = 256
 
 
 class KeymasqdClient:
@@ -133,6 +134,7 @@ class KeymasqdClient:
                 future.set_result(response)
 
         elif response.status == "event":
+            queue_overflow = False
             try:
                 raw_command = response.data.get("command")
                 try:
@@ -143,17 +145,25 @@ class KeymasqdClient:
                 data = response.data.get("data", {})
                 if self.event_preprocessor is not None:
                     data = self.event_preprocessor(event_type, data)
-                self._dispatch_event(event_type, data)
+                queue_overflow = not self._dispatch_event(event_type, data)
                 # Start immediately-ready handlers without waiting for the
                 # ordered worker to finish or blocking response ingestion.
                 await asyncio.sleep(0)
             except Exception as exc:
                 log.exception("Failed to dispatch daemon event: %s", exc)
+            if queue_overflow:
+                raise ConnectionError("Daemon event queue exceeded its limit")
 
-    def _dispatch_event(self, event_type: CommandType, data: Any) -> None:
+    def _dispatch_event(self, event_type: CommandType, data: Any) -> bool:
+        if len(self._event_queue) >= _MAX_PENDING_EVENTS:
+            log.error(
+                "Daemon event queue exceeded %d pending events; disconnecting",
+                _MAX_PENDING_EVENTS,
+            )
+            return False
         self._event_queue.append((event_type, data))
         if any(not task.done() for task in self._event_tasks):
-            return
+            return True
         self._event_tasks.clear()
 
         task = asyncio.create_task(
@@ -177,6 +187,7 @@ class KeymasqdClient:
                 )
 
         task.add_done_callback(_event_done)
+        return True
 
     async def _drain_event_queue(self) -> None:
         while self._event_queue:

@@ -239,6 +239,35 @@ async def test_combo_update_exposes_staged_exec_reference_while_in_flight() -> N
 
 
 @pytest.mark.asyncio
+async def test_combo_serialization_failure_preserves_acknowledged_exec_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.client.send_command = AsyncMock()
+    monkeypatch.setattr(
+        profile_application.combo,
+        "serialize",
+        Mock(side_effect=ValueError("invalid combo")),
+    )
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    manager.client.send_command.assert_not_awaited()
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
+
+
+@pytest.mark.asyncio
 async def test_stale_mapping_update_does_not_replace_newer_exec_references() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"
@@ -568,6 +597,13 @@ async def test_cancelled_mapping_update_bounds_silent_request_settlement(
     manager = SessionManager()
     hardware_id = "1234:5678"
     manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
     manager.exec_state.next_exec_ref = 10
     request_started = asyncio.Event()
 
@@ -594,8 +630,33 @@ async def test_cancelled_mapping_update_bounds_silent_request_settlement(
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(update_task, timeout=0.5)
 
-    assert manager.exec_state.device_exec_refs == {}
-    assert manager.exec_state.exec_refs == {}
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_profile_cleanup_wait_has_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    cleanup_started = asyncio.Event()
+    cleanup_cancelled = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def stubborn_cleanup() -> None:
+        cleanup_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleanup_cancelled.set()
+            await release_cleanup.wait()
+
+    monkeypatch.setattr(profile_application, "_CANCEL_CLEANUP_TIMEOUT_S", 0.01)
+    cleanup_task = asyncio.create_task(stubborn_cleanup())
+    await cleanup_started.wait()
+
+    await asyncio.wait_for(profile_application._await_cleanup(cleanup_task), timeout=0.5)
+
+    await cleanup_cancelled.wait()
+    release_cleanup.set()
+    await cleanup_task
 
 
 @pytest.mark.asyncio

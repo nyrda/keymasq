@@ -1357,8 +1357,7 @@ async def test_handle_keymasqd_disconnect_clears_runtime_state_and_cancels_grab_
     manager.profile_state.grab_retry_tasks = {"hardware": retry_task}
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
 
-    manager._handle_keymasqd_disconnect()
-    await asyncio.sleep(0)
+    await manager._handle_keymasqd_disconnect()
 
     assert retry_task.cancelled()
     assert manager.connected is False

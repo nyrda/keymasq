@@ -3,6 +3,7 @@ import struct
 
 import pytest
 
+import keymasq.session.client as client_module
 from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, Response, encode_response
 from keymasq.session.client import KeymasqdClient
 from tests.async_fakes import BlockingStreamReader as _BlockingReader
@@ -210,6 +211,28 @@ def test_keymasqd_client_processes_events_in_wire_order() -> None:
         release_first.set()
         await asyncio.gather(*client._event_tasks)
         assert calls == [CommandType.RECORDING_STARTED, CommandType.RECORDING_STOPPED]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_bounds_pending_event_queue() -> None:
+    async def _run() -> None:
+        release_handler = asyncio.Event()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            await release_handler.wait()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        assert client._dispatch_event(CommandType.PING, {}) is True
+        await asyncio.sleep(0)
+
+        for _ in range(client_module._MAX_PENDING_EVENTS):
+            assert client._dispatch_event(CommandType.PING, {}) is True
+        assert client._dispatch_event(CommandType.PING, {}) is False
+        assert len(client._event_queue) == client_module._MAX_PENDING_EVENTS
+
+        release_handler.set()
+        await asyncio.gather(*client._event_tasks)
 
     asyncio.run(_run())
 

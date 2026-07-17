@@ -697,7 +697,7 @@ class TestSocketServer:
         assert cancelled.is_set()
         assert server._handler_tasks == set()
 
-    async def test_handler_drain_waits_for_cancellation_cleanup(
+    async def test_handler_drain_bounds_cancellation_cleanup_and_blocks_restart(
         self,
         temp_socket_dir,
     ):
@@ -720,13 +720,14 @@ class TestSocketServer:
         server._handler_tasks.add(task)
         await asyncio.sleep(0)
 
-        drain_task = asyncio.create_task(server._drain_handler_tasks())
-        await asyncio.wait_for(cancel_seen.wait(), timeout=0.2)
-        assert not drain_task.done()
+        await asyncio.wait_for(server._drain_handler_tasks(), timeout=0.2)
+        assert cancel_seen.is_set()
+        assert not task.done()
+        with pytest.raises(RuntimeError, match="prior handler"):
+            await server.start()
 
         release.set()
-        await asyncio.wait_for(drain_task, timeout=0.2)
-        assert task.done()
+        await asyncio.wait_for(task, timeout=0.2)
         server._handler_tasks.discard(task)
 
     async def test_quiescing_server_rejects_newly_processed_command(self, temp_socket_dir):

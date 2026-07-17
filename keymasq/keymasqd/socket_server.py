@@ -79,6 +79,11 @@ class SocketServer:
         return self._owner_context
 
     async def start(self) -> None:
+        active_handlers = {task for task in self._handler_tasks if not task.done()}
+        if active_handlers:
+            raise RuntimeError(
+                f"Cannot start daemon socket with {len(active_handlers)} prior handler(s) active"
+            )
         self._quiescing = False
         server = await asyncio.start_unix_server(
             self._accept_client,
@@ -202,7 +207,16 @@ class SocketServer:
         log.warning("Cancelling %d daemon client handler(s) after shutdown deadline", len(pending))
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        _done, still_pending = await asyncio.wait(
+            pending,
+            timeout=self.handler_drain_timeout_s,
+        )
+        if still_pending:
+            log.error(
+                "%d daemon client handler(s) remain active after cancellation; "
+                "socket restart is disabled until they exit",
+                len(still_pending),
+            )
 
     def _accept_client(
         self,

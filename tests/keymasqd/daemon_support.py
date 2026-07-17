@@ -33,7 +33,7 @@ def make_daemon_testbed(monkeypatch):
         device_runtime_status=AsyncMock(
             return_value={"status": "ok", "interfaces": [], "grabbed_interfaces": []}
         ),
-        begin_combo_capture=Mock(return_value={"token": "combo-session-id"}),
+        begin_combo_capture=Mock(return_value={"token": "combo-token"}),
         read_combo_capture=Mock(return_value={"event": None}),
         end_combo_capture=Mock(return_value={"status": "ok", "ended": True}),
         grabbed_devices={},
@@ -80,12 +80,11 @@ def make_daemon_testbed(monkeypatch):
         register_internal=Mock(return_value=None),
     )
     capture_manager = SimpleNamespace(
-        begin=Mock(return_value={"token": "capture-session-id"}),
+        begin=Mock(return_value={"token": "cap-token"}),
         read=Mock(return_value={"captured": None}),
         end=Mock(return_value={"ended": True}),
-        end_all=Mock(return_value=0),
         authorize_combo_capture=Mock(return_value=object()),
-        begin_combo=Mock(return_value={"token": "combo-session-id", "warnings": []}),
+        begin_combo=Mock(return_value={"token": "combo-token", "warnings": []}),
         read_combo=Mock(return_value={"event": None}),
         read_combo_nowait=Mock(return_value={"event": None}),
         register_combo_notifier=Mock(return_value=None),

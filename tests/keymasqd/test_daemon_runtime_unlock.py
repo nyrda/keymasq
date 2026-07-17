@@ -222,17 +222,17 @@ async def test_capture_end_allows_owner_after_recording_unlock_expires(
         {"hardware_id": "1234:5678"},
         client=client,
     )
-    assert begin == {"token": "capture-session-id"}
+    assert begin == {"token": "cap-token"}
 
     unlocked = False
     end = await daemon._handle_command(
         CommandType.CAPTURE_END,
-        {"token": "capture-session-id"},
+        {"token": "cap-token"},
         client=client,
     )
 
     assert end == {"ended": True}
-    capture_manager.end.assert_called_once_with("capture-session-id")
+    capture_manager.end.assert_called_once_with("cap-token")
 
 
 @pytest.mark.asyncio
@@ -269,7 +269,7 @@ async def test_sensitive_command_owner_mismatch_is_denied(
         {"hardware_id": "1234:5678"},
         client=first_client,
     )
-    assert first == {"token": "capture-session-id"}
+    assert first == {"token": "cap-token"}
 
     with pytest.raises(PermissionError, match="sensitive_command_denied"):
         await daemon._handle_command(
@@ -437,13 +437,13 @@ async def test_stale_unlocked_cache_entry_is_re_resolved_before_sensitive_comman
         {"hardware_id": "1234:5678"},
         client=client,
     )
-    assert result == {"token": "capture-session-id"}
+    assert result == {"token": "cap-token"}
 
     now_mono = 500.3
     with pytest.raises(PermissionError, match="recording_locked"):
         await daemon._handle_command(
             CommandType.CAPTURE_READ,
-            {"token": "capture-session-id"},
+            {"token": "cap-token"},
             client=client,
         )
 
@@ -458,6 +458,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     tmp_path: Path,
 ):
     daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
+    capture_manager.end_all = Mock(return_value=0)
     owned_uid = 5555
     unrelated_uid = 7777
     client = client_context(uid=owned_uid, pid=600, connection_id=9)
@@ -535,6 +536,7 @@ async def test_async_runtime_unlock_cleanup_offloads_file_io(
 @pytest.mark.asyncio
 async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
+    capture_manager.end_all = Mock(return_value=0)
     recording_manager.discard_all_pending_recordings.side_effect = RuntimeError("discard failed")
 
     await daemon._on_client_disconnect()

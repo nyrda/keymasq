@@ -500,7 +500,7 @@ async def test_start_recording_ignores_unrequested_start_coordinates(
                 "evdev_interfaces": None,
                 "mode": "button",
             },
-            {"token": "capture-session-id"},
+            {"token": "cap-token"},
         ),
         (
             CommandType.CAPTURE_READ,
@@ -565,7 +565,7 @@ async def test_capture_begin_forwards_explicit_evdev_paths(daemon_testbed):
         {"hardware_id": "1234:5678@slot2", "evdev_paths": ["/dev/input/event2"]},
     )
 
-    assert result == {"token": "capture-session-id"}
+    assert result == {"token": "cap-token"}
     capture_manager.begin.assert_called_once_with(
         hardware_id="1234:5678@slot2",
         evdev_paths=["/dev/input/event2"],
@@ -588,7 +588,7 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
         },
     )
 
-    assert result == {"token": "capture-session-id"}
+    assert result == {"token": "cap-token"}
     capture_manager.begin.assert_called_once_with(
         hardware_id="2dc8:3106",
         evdev_paths=["keymasq:2dc8:3106"],
@@ -818,7 +818,7 @@ async def test_capture_combo_waits_on_event_not_sleep(daemon_testbed, monkeypatc
         notify_event: asyncio.Event,
     ) -> dict:
         waiter["event"] = notify_event
-        return {"token": "combo-session-id", "grabbed_devices": 0}
+        return {"token": "combo-token", "grabbed_devices": 0}
 
     device_manager.begin_combo_capture = Mock(side_effect=begin_combo_capture)
     device_manager.read_combo_capture = Mock(
@@ -960,7 +960,7 @@ async def test_capture_combo_returns_immediately_on_wheel_pulse(daemon_testbed):
         notify_event: asyncio.Event,
     ) -> dict:
         notify["event"] = notify_event
-        return {"token": "combo-session-id", "grabbed_devices": 0}
+        return {"token": "combo-token", "grabbed_devices": 0}
 
     device_manager.begin_combo_capture = Mock(side_effect=begin_combo_capture)
     device_manager.read_combo_capture = Mock(
@@ -1188,7 +1188,7 @@ async def test_read_capture_combo_event_drains_sources_once_before_waiting(
 
     event = await daemon_capture_commands.read_capture_combo_event(
         daemon,
-        "combo-session-id",
+        "combo-token",
         notify_event,
         float("inf"),
     )

@@ -328,9 +328,16 @@ class CaptureManager:
         """End every capture owned by the connected session client."""
 
         tokens = list(self._sessions)
+        ended = 0
         for token in tokens:
-            self.end(token)
-        return len(tokens)
+            try:
+                result = self.end(token)
+            except Exception:
+                log.exception("Failed to end capture %s during global cleanup", token)
+                continue
+            if bool(result.get("ended", False)):
+                ended += 1
+        return ended
 
     def _start_combo_reader(self, session: CaptureSession) -> None:
         if session.stop_event is None or session.event_queue is None:

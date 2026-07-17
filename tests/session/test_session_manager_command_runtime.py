@@ -2431,6 +2431,60 @@ async def test_begin_capture_defers_repeated_cancellation_during_rejected_rollba
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_defers_cancellation_after_rejected_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    rollback_started = asyncio.Event()
+    release_rollback = asyncio.Event()
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="rejected")
+    )
+
+    async def reevaluate_profiles(*_args, **_kwargs) -> None:
+        rollback_started.set()
+        await release_rollback.wait()
+
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await rollback_started.wait()
+    capture_task.cancel()
+    release_rollback.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+
+
+@pytest.mark.asyncio
+async def test_begin_capture_missing_token_disconnects_before_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"warnings": []})
+    )
+    manager.client.disconnect = AsyncMock()
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await recording_capture_module.capture_begin(manager, hardware_id)
+
+    assert result == {"status": "error", "message": "Missing capture token"}
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    reevaluate_profiles.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_preserves_cancellation_when_request_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

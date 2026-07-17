@@ -63,14 +63,17 @@ async def _settle_cancelled_capture_begin(
     raise cancelled from TimeoutError("capture begin cancellation settlement timed out")
 
 
-async def _await_cleanup(awaitable: Awaitable[object]) -> None:
+async def _await_cleanup(awaitable: Awaitable[object]) -> bool:
     task = asyncio.ensure_future(awaitable)
+    cancelled = False
     while not task.done():
         try:
             await asyncio.shield(task)
         except asyncio.CancelledError:
+            cancelled = True
             continue
     await task
+    return cancelled
 
 
 async def _begin_capture(
@@ -159,32 +162,31 @@ async def capture_begin_for_paths(
         await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
         raise
     except OSError:
-        await _rollback_capture_begin(manager, hardware_id)
+        if await _await_cleanup(_rollback_capture_begin(manager, hardware_id)):
+            raise asyncio.CancelledError from None
         return {"status": "error", "message": "Daemon unavailable"}
     except Exception:
         log.exception("Unexpected failure beginning capture for hardware_id=%s", hardware_id)
-        await _rollback_capture_begin(manager, hardware_id)
+        if await _await_cleanup(_rollback_capture_begin(manager, hardware_id)):
+            raise asyncio.CancelledError from None
         return {"status": "error", "message": "Failed to begin capture"}
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
-        rollback = _rollback_capture_begin(manager, hardware_id)
-        if cancelled:
-            await _await_cleanup(rollback)
-        else:
-            await rollback
-        if cancelled:
+        rollback_cancelled = await _await_cleanup(
+            _rollback_capture_begin(manager, hardware_id)
+        )
+        if cancelled or rollback_cancelled:
             raise asyncio.CancelledError
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
     token = coerce_str(result_data.get("token"), "")
     if not token:
-        rollback = _rollback_capture_begin(manager, hardware_id)
-        if cancelled:
-            await _await_cleanup(rollback)
-        else:
-            await rollback
-        if cancelled:
+        disconnect_cancelled = await _await_cleanup(manager.client.disconnect())
+        rollback_cancelled = await _await_cleanup(
+            _rollback_capture_begin(manager, hardware_id)
+        )
+        if cancelled or disconnect_cancelled or rollback_cancelled:
             raise asyncio.CancelledError
         return {"status": "error", "message": "Missing capture token"}
 

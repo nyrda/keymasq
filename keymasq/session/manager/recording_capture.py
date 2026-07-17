@@ -180,8 +180,8 @@ async def capture_begin_for_paths(
             raise asyncio.CancelledError
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
-    token = coerce_str(result_data.get("token"), "")
-    if not token:
+    capture_session_id = coerce_str(result_data.get("token"), "")
+    if not capture_session_id:
         disconnect_cancelled = await _await_cleanup(manager.client.disconnect())
         rollback_cancelled = await _await_cleanup(
             _rollback_capture_begin(manager, hardware_id)
@@ -190,7 +190,7 @@ async def capture_begin_for_paths(
             raise asyncio.CancelledError
         return {"status": "error", "message": "Missing capture token"}
 
-    manager.capture_state.tokens[hardware_id] = token
+    manager.capture_state.tokens[hardware_id] = capture_session_id
     if owner_writer is not None:
         manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
     if cancelled:
@@ -199,7 +199,7 @@ async def capture_begin_for_paths(
     response = {
         "status": "ok",
         "hardware_id": hardware_id,
-        "token": token,
+        "token": capture_session_id,
         "warnings": result_data.get("warnings", []),
     }
     response.update(lock_result)

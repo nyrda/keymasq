@@ -136,6 +136,47 @@ async def test_failed_mapping_update_preserves_acknowledged_exec_references() ->
 
 
 @pytest.mark.asyncio
+async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+
+    async def inspect_references(_command: object) -> Response:
+        assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+        assert manager.exec_state.exec_refs == {
+            7: old_binding,
+            10: ExecBinding(
+                cmd="notify-send new",
+                owner="device",
+                hardware_id=hardware_id,
+            ),
+        }
+        return Response(status="error", error="mapping rejected")
+
+    manager.client.send_command = AsyncMock(side_effect=inspect_references)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
 async def test_failed_combo_update_preserves_acknowledged_exec_references() -> None:
     manager = SessionManager()
     old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
@@ -162,6 +203,39 @@ async def test_failed_combo_update_preserves_acknowledged_exec_references() -> N
     assert manager.exec_state.combo_exec_refs == {8}
     assert manager.exec_state.exec_refs == {8: old_binding}
     assert manager.exec_state.next_exec_ref == 11
+
+
+@pytest.mark.asyncio
+async def test_combo_update_exposes_staged_exec_reference_while_in_flight() -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+
+    async def inspect_references(_command: object) -> Response:
+        assert manager.exec_state.combo_exec_refs == {8}
+        assert manager.exec_state.exec_refs == {
+            8: old_binding,
+            10: ExecBinding(cmd="notify-send new combo", owner="combo"),
+        }
+        return Response(status="error", error="combos rejected")
+
+    manager.client.send_command = AsyncMock(side_effect=inspect_references)
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
 
 
 @pytest.mark.asyncio

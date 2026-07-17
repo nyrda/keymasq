@@ -353,6 +353,7 @@ async def _send_set_mapping_command(
     )
     previous_refs = references.take_device(manager, hardware_id)
     staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
         try:
             serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
@@ -362,6 +363,7 @@ async def _send_set_mapping_command(
                 references.take_device(manager, hardware_id)
             references.restore_device(manager, hardware_id, previous_refs)
         assert staged_refs is not None
+        references.expose(manager, staged_refs)
         log.debug("Mapping data: %s", mapping.log_view(serialized_mapping))
         raise_if_stale_profile_apply(manager, generation)
 
@@ -377,6 +379,7 @@ async def _send_set_mapping_command(
         )
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
+            keep_staged_refs = True
             if cancelled:
                 raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
@@ -403,6 +406,9 @@ async def _send_set_mapping_command(
         log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
     except Exception:
         log.exception("Unexpected failure setting mapping for %s", hardware_id)
+    finally:
+        if staged_refs is not None and not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def apply_resolved_device_profile(
@@ -608,6 +614,7 @@ async def update_combos(
         return
     previous_refs = references.take_combos(manager)
     staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
         payload: list[JsonObject] = []
         active_combos: list[ResolvedCombo] = []
@@ -623,6 +630,7 @@ async def update_combos(
             references.take_combos(manager)
         references.restore_combos(manager, previous_refs)
     assert staged_refs is not None
+    references.expose(manager, staged_refs)
     try:
         raise_if_stale_profile_apply(manager, generation)
         result, cancelled = await _send_reference_command(
@@ -639,6 +647,7 @@ async def update_combos(
             log.error("Failed to update combos: %s", result.error)
             return
         _commit_combo_references(manager, staged_refs, generation)
+        keep_staged_refs = True
         if cancelled:
             raise asyncio.CancelledError
         raise_if_stale_profile_apply(manager, generation)
@@ -648,6 +657,9 @@ async def update_combos(
         log.error("Exception updating combos: %s: %s", type(exc).__name__, exc)
     except Exception:
         log.exception("Unexpected failure updating combos")
+    finally:
+        if not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def update_mapping(
@@ -674,6 +686,7 @@ async def update_mapping(
     )
     previous_refs = references.take_device(manager, hardware_id)
     staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
         try:
             serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
@@ -683,6 +696,7 @@ async def update_mapping(
                 references.take_device(manager, hardware_id)
             references.restore_device(manager, hardware_id, previous_refs)
         assert staged_refs is not None
+        references.expose(manager, staged_refs)
         raise_if_stale_profile_apply(manager, generation)
         result, cancelled = await _send_reference_command(
             manager,
@@ -696,6 +710,7 @@ async def update_mapping(
         )
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
+            keep_staged_refs = True
             if cancelled:
                 raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
@@ -713,6 +728,9 @@ async def update_mapping(
     except Exception:
         log.exception("Unexpected failure updating mapping for %s", hardware_id)
         return False
+    finally:
+        if staged_refs is not None and not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def deactivate_profile(

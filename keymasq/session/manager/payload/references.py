@@ -72,6 +72,19 @@ def retain_device(
     manager.exec_state.exec_refs.update(snapshot.bindings)
 
 
+def expose(manager: "SessionManager", snapshot: ReferenceSnapshot) -> None:
+    """Make staged refs resolvable without changing acknowledged ownership."""
+
+    manager.exec_state.exec_refs.update(snapshot.bindings)
+
+
+def discard(manager: "SessionManager", snapshot: ReferenceSnapshot) -> None:
+    """Remove refs from a rejected or failed staged command."""
+
+    for ref in snapshot.bindings:
+        manager.exec_state.exec_refs.pop(ref, None)
+
+
 def take_combos(manager: "SessionManager") -> ReferenceSnapshot:
     """Detach combo refs so a replacement can be staged until daemon acknowledgement."""
 

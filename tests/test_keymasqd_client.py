@@ -175,3 +175,64 @@ def test_keymasqd_client_event_can_complete_nested_request() -> None:
         assert nested_response.data == {"stored": True}
 
     asyncio.run(_run())
+
+
+def test_keymasqd_client_processes_events_in_wire_order() -> None:
+    async def _run() -> None:
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        calls: list[CommandType] = []
+
+        async def _event_handler(event: CommandType, _data: object) -> None:
+            calls.append(event)
+            if event == CommandType.RECORDING_STARTED:
+                first_started.set()
+                await release_first.wait()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.RECORDING_STARTED.value, "data": {}},
+            )
+        )
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.RECORDING_STOPPED.value, "data": {}},
+            )
+        )
+
+        await asyncio.wait_for(first_started.wait(), timeout=0.5)
+        await asyncio.sleep(0)
+        assert calls == [CommandType.RECORDING_STARTED]
+
+        release_first.set()
+        await asyncio.gather(*client._event_tasks)
+        assert calls == [CommandType.RECORDING_STARTED, CommandType.RECORDING_STOPPED]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_event_handler_can_disconnect() -> None:
+    async def _run() -> None:
+        writer = _FakeWriter()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            await client.disconnect()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.writer = writer
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.PING.value, "data": {}},
+            )
+        )
+        await asyncio.gather(*client._event_tasks)
+
+        assert writer.closed is True
+        assert writer.wait_closed_calls == 1
+        assert client.writer is None
+
+    asyncio.run(_run())

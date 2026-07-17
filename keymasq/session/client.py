@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -25,6 +26,7 @@ class KeymasqdClient:
         self._request_counter = 0
         self._listen_task: asyncio.Task[None] | None = None
         self._event_tasks: set[asyncio.Task[None]] = set()
+        self._event_queue: deque[tuple[CommandType, Any]] = deque()
         self._disconnected_event = asyncio.Event()
 
     async def connect(self) -> None:
@@ -128,40 +130,56 @@ class KeymasqdClient:
                     return
                 data = response.data.get("data", {})
                 self._dispatch_event(event_type, data)
-                # Let immediately-ready handlers begin without ever waiting for
-                # their completion. The reader remains free to ingest any
-                # response needed by the handler.
+                # Start immediately-ready handlers without waiting for the
+                # ordered worker to finish or blocking response ingestion.
                 await asyncio.sleep(0)
             except Exception as exc:
                 log.exception("Failed to dispatch daemon event: %s", exc)
 
     def _dispatch_event(self, event_type: CommandType, data: Any) -> None:
+        self._event_queue.append((event_type, data))
+        if any(not task.done() for task in self._event_tasks):
+            return
+        self._event_tasks.clear()
+
         task = asyncio.create_task(
-            self._run_event_handler(event_type, data),
-            name=f"keymasq-session:daemon-event:{event_type.value}",
+            self._drain_event_queue(),
+            name="keymasq-session:daemon-events",
         )
         self._event_tasks.add(task)
 
         def _event_done(done: asyncio.Task[None]) -> None:
             self._event_tasks.discard(done)
+
             try:
                 exc = done.exception()
             except asyncio.CancelledError:
                 return
             if exc is not None:
                 log.error(
-                    "Event handler error: %s",
+                    "Daemon event worker error: %s",
                     exc,
                     exc_info=(type(exc), exc, exc.__traceback__),
                 )
 
         task.add_done_callback(_event_done)
 
-    async def _run_event_handler(self, event_type: CommandType, data: Any) -> None:
-        await self.event_handler(event_type, data)
+    async def _drain_event_queue(self) -> None:
+        while self._event_queue:
+            event_type, data = self._event_queue.popleft()
+            try:
+                await self.event_handler(event_type, data)
+            except Exception as exc:
+                log.error(
+                    "Event handler error: %s",
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
 
     async def _cancel_event_tasks(self) -> None:
-        tasks = list(self._event_tasks)
+        self._event_queue.clear()
+        current = asyncio.current_task()
+        tasks = [task for task in self._event_tasks if task is not current]
         for task in tasks:
             if not task.done():
                 task.cancel()

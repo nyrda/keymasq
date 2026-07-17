@@ -85,17 +85,25 @@ async def capture_begin_for_paths(
         }
     try:
         lock_result = await _begin_capture(manager, hardware_id)
-        result = await manager.client.send_command(
-            Command(
-                command=CommandType.CAPTURE_BEGIN,
-                data={
-                    "hardware_id": hardware_id,
-                    **({"mode": mode} if mode != "button" else {}),
-                    **({"evdev_paths": evdev_paths} if evdev_paths else {}),
-                    **({"evdev_interfaces": evdev_interfaces} if evdev_interfaces else {}),
-                },
+        request_task = asyncio.create_task(
+            manager.client.send_command(
+                Command(
+                    command=CommandType.CAPTURE_BEGIN,
+                    data={
+                        "hardware_id": hardware_id,
+                        **({"mode": mode} if mode != "button" else {}),
+                        **({"evdev_paths": evdev_paths} if evdev_paths else {}),
+                        **({"evdev_interfaces": evdev_interfaces} if evdev_interfaces else {}),
+                    },
+                )
             )
         )
+        cancelled = False
+        try:
+            result = await asyncio.shield(request_task)
+        except asyncio.CancelledError:
+            cancelled = True
+            result = await asyncio.shield(request_task)
     except asyncio.CancelledError:
         await _rollback_capture_begin(manager, hardware_id)
         raise
@@ -110,16 +118,23 @@ async def capture_begin_for_paths(
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
         await _rollback_capture_begin(manager, hardware_id)
+        if cancelled:
+            raise asyncio.CancelledError
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
     token = coerce_str(result_data.get("token"), "")
     if not token:
         await _rollback_capture_begin(manager, hardware_id)
+        if cancelled:
+            raise asyncio.CancelledError
         return {"status": "error", "message": "Missing capture token"}
 
     manager.capture_state.tokens[hardware_id] = token
     if owner_writer is not None:
         manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
+    if cancelled:
+        await capture_end(manager, hardware_id)
+        raise asyncio.CancelledError
     response = {
         "status": "ok",
         "hardware_id": hardware_id,

@@ -17,7 +17,7 @@ import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
 import keymasq.session.manager.recording_unlock as recording_unlock_module
 import keymasq.session.settings as session_settings
 from keymasq.common import paths
-from keymasq.common.ipc import CommandType, Response
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.security import PeerCredentials
 from keymasq.common.settings import GlobalSettings
 from keymasq.session.listeners.kde import KDEListener
@@ -2269,6 +2269,49 @@ async def test_begin_capture_rolls_back_provisional_lock_when_cancelled(
     assert manager.capture_state.locks == set()
     assert manager.capture_state.resume_profiles == {}
     manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+    commands: list[CommandType] = []
+
+    async def send_command(command: Command) -> Response:
+        commands.append(command.command)
+        if command.command == CommandType.CAPTURE_BEGIN:
+            request_started.set()
+            await release_response.wait()
+            return Response(status="ok", data={"token": "token-1", "warnings": []})
+        assert command.data == {"token": "token-1"}
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=send_command)
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    assert commands == [CommandType.CAPTURE_BEGIN, CommandType.CAPTURE_END]
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"capture ended for {hardware_id}",
+    )
 
 
 @pytest.mark.asyncio

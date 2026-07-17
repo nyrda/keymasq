@@ -1,5 +1,6 @@
 """Daemon-side grab, mapping, and combo application transactions."""
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -7,7 +8,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 from keymasq.common.coercion import coerce_int
-from keymasq.common.ipc import Command, CommandType
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -23,7 +24,7 @@ from .grab_plan import (
     get_interfaces_to_grab,
     grab_device_payload_signature,
 )
-from .reconciliation import raise_if_stale_profile_apply
+from .reconciliation import profile_apply_is_current, raise_if_stale_profile_apply
 from .runtime_state import (
     cancel_grab_retry,
     clear_hardware_runtime_state,
@@ -35,6 +36,42 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 type ProfileActivationNotifier = Callable[[], None]
+
+
+async def _send_reference_command(
+    manager: "SessionManager",
+    command: Command,
+) -> tuple[Response, bool]:
+    """Settle a sent reference-bearing command before propagating cancellation."""
+
+    task = asyncio.create_task(manager.client.send_command(command))
+    try:
+        return await asyncio.shield(task), False
+    except asyncio.CancelledError:
+        return await asyncio.shield(task), True
+
+
+def _commit_device_references(
+    manager: "SessionManager",
+    hardware_id: str,
+    staged_refs: references.ReferenceSnapshot,
+    generation: int | None,
+) -> None:
+    if profile_apply_is_current(manager, generation):
+        references.restore_device(manager, hardware_id, staged_refs)
+    else:
+        references.retain_device(manager, hardware_id, staged_refs)
+
+
+def _commit_combo_references(
+    manager: "SessionManager",
+    staged_refs: references.ReferenceSnapshot,
+    generation: int | None,
+) -> None:
+    if profile_apply_is_current(manager, generation):
+        references.restore_combos(manager, staged_refs)
+    else:
+        references.retain_combos(manager, staged_refs)
 
 
 class GrabRetryScheduler(Protocol):
@@ -325,7 +362,8 @@ async def _send_set_mapping_command(
         log.debug("Mapping data: %s", mapping.log_view(serialized_mapping))
         raise_if_stale_profile_apply(manager, generation)
 
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_MAPPING,
                 data={
@@ -335,7 +373,9 @@ async def _send_set_mapping_command(
             )
         )
         if result.status == "ok":
-            references.restore_device(manager, hardware_id, staged_refs)
+            _commit_device_references(manager, hardware_id, staged_refs, generation)
+            if cancelled:
+                raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
                 mapping.signature(
@@ -351,6 +391,8 @@ async def _send_set_mapping_command(
             )
             notify()
         else:
+            if cancelled:
+                raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to set mapping: %s", result.error)
 
@@ -580,17 +622,22 @@ async def update_combos(
     assert staged_refs is not None
     try:
         raise_if_stale_profile_apply(manager, generation)
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_COMBOS,
                 data={"combos": payload},
             )
         )
         if result.status != "ok":
+            if cancelled:
+                raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to update combos: %s", result.error)
             return
-        references.restore_combos(manager, staged_refs)
+        _commit_combo_references(manager, staged_refs, generation)
+        if cancelled:
+            raise asyncio.CancelledError
         raise_if_stale_profile_apply(manager, generation)
         manager.profile_state.last_sent_combo_signature = signature
         manager.profile_state.resolved_combos = list(active_combos)
@@ -634,7 +681,8 @@ async def update_mapping(
             references.restore_device(manager, hardware_id, previous_refs)
         assert staged_refs is not None
         raise_if_stale_profile_apply(manager, generation)
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_MAPPING,
                 data={
@@ -644,11 +692,15 @@ async def update_mapping(
             )
         )
         if result.status == "ok":
-            references.restore_device(manager, hardware_id, staged_refs)
+            _commit_device_references(manager, hardware_id, staged_refs, generation)
+            if cancelled:
+                raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
             log.info("Updated mapping for %s", hardware_id)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
             return True
+        if cancelled:
+            raise asyncio.CancelledError
         raise_if_stale_profile_apply(manager, generation)
         log.error("Failed to update mapping: %s", result.error)
         return False

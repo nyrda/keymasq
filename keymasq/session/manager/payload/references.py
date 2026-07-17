@@ -58,6 +58,20 @@ def restore_device(
     manager.exec_state.exec_refs.update(snapshot.bindings)
 
 
+def retain_device(
+    manager: "SessionManager",
+    hardware_id: str,
+    snapshot: ReferenceSnapshot,
+) -> None:
+    """Keep refs from an accepted stale command without replacing newer refs."""
+
+    if snapshot.registered:
+        manager.exec_state.device_exec_refs.setdefault(hardware_id, set()).update(
+            snapshot.bindings
+        )
+    manager.exec_state.exec_refs.update(snapshot.bindings)
+
+
 def take_combos(manager: "SessionManager") -> ReferenceSnapshot:
     """Detach combo refs so a replacement can be staged until daemon acknowledgement."""
 
@@ -73,6 +87,13 @@ def take_combos(manager: "SessionManager") -> ReferenceSnapshot:
 
 def restore_combos(manager: "SessionManager", snapshot: ReferenceSnapshot) -> None:
     clear_combos(manager)
+    manager.exec_state.combo_exec_refs.update(snapshot.bindings)
+    manager.exec_state.exec_refs.update(snapshot.bindings)
+
+
+def retain_combos(manager: "SessionManager", snapshot: ReferenceSnapshot) -> None:
+    """Keep refs from an accepted stale command without replacing newer refs."""
+
     manager.exec_state.combo_exec_refs.update(snapshot.bindings)
     manager.exec_state.exec_refs.update(snapshot.bindings)
 

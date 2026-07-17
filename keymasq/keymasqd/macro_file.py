@@ -21,22 +21,28 @@ MACRO_FILE_VERSION = 1
 type MacroEvent = dict[str, object]
 
 
+class MacroFileChangedError(RuntimeError):
+    """The macro file no longer matches the revision opened for playback."""
+
+
 class MacroFileSnapshot:
-    """Immutable compressed bytes for one repeatable macro-file revision."""
+    """Metadata and identity for one repeatable macro-file revision."""
 
     def __init__(self, path: Path) -> None:
-        self._compressed = path.read_bytes()
-        with self._open_text() as handle:
-            self.meta = _macro_meta_from_line(handle.readline())
-
-    def _open_text(self) -> io.TextIOWrapper:
-        compressed = lzma.LZMAFile(io.BytesIO(self._compressed), "rb")
-        return io.TextIOWrapper(compressed, encoding="utf-8", newline="\n")
+        self._path = path
+        with _open_text(path, "rb") as handle:
+            self._meta_line = handle.readline()
+        self.meta = _macro_meta_from_line(self._meta_line)
 
     def iter_events(self) -> Iterator[MacroEvent]:
         def generate() -> Iterator[MacroEvent]:
-            with self._open_text() as handle:
-                _macro_meta_from_line(handle.readline())
+            try:
+                handle = _open_text(self._path, "rb")
+            except FileNotFoundError as exc:
+                raise MacroFileChangedError(str(self._path)) from exc
+            with handle:
+                if handle.readline() != self._meta_line:
+                    raise MacroFileChangedError(str(self._path))
                 yield from _iter_macro_event_lines(handle)
 
         return generate()

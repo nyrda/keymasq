@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from keymasq.keymasqd import macro_store as macro_store_module
-from keymasq.keymasqd.macro_file import MacroFileMeta
+from keymasq.keymasqd.macro_file import MacroFileChangedError, MacroFileMeta
 from keymasq.keymasqd.macro_store import MacroStore
 
 
@@ -71,7 +71,7 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
         store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
 
 
-def test_macro_store_snapshot_pins_metadata_and_repeated_events_to_one_revision(
+def test_macro_store_snapshot_ends_repeated_reads_after_revision_change(
     tmp_path: Path,
 ) -> None:
     store = MacroStore(tmp_path / "macros")
@@ -80,10 +80,12 @@ def test_macro_store_snapshot_pins_metadata_and_repeated_events_to_one_revision(
     store.create({"name": "macro", "events": [old_event]})
 
     snapshot = store.open_snapshot("macro")
-    store.update("macro", {"events": [new_event]}, expected_revision=1)
     assert snapshot.meta["revision"] == 1
     assert list(snapshot.iter_events()) == [old_event]
-    assert list(snapshot.iter_events()) == [old_event]
+
+    store.update("macro", {"events": [new_event]}, expected_revision=1)
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
 
     assert store.get("macro")["revision"] == 2
     assert list(store.iter_events("macro")) == [new_event]

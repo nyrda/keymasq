@@ -88,6 +88,7 @@ class RecordingManager:
         self._claimed_recording_created_at: dict[str, float] = {}
         self._claimed_recording_discard_requested: set[str] = set()
         self._pending_recording_lock = asyncio.Lock()
+        self._stop_lock = asyncio.Lock()
         self._start_time_us: int | None = None
         self._extra_devices: list[_RecordingInputDevice] = []
         self._monitoring_tasks: list[asyncio.Task[None]] = []
@@ -285,6 +286,10 @@ class RecordingManager:
             log.exception("Extra recording device reader stopped after unexpected error")
 
     async def stop(self, *, stop_reason: str | None = None) -> RecordingPayload:
+        async with self._stop_lock:
+            return await self._stop_locked(stop_reason=stop_reason)
+
+    async def _stop_locked(self, *, stop_reason: str | None = None) -> RecordingPayload:
         was_recording = not self._stopped
         self._stopped = True
         self._recording_started_at = None

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from keymasq.keymasqd.macro_file import (
+    MacroFileChangedError,
     MacroFileMeta,
     MacroFileSnapshot,
     load_macro,
@@ -70,7 +71,19 @@ def test_macro_snapshot_stream_survives_source_replacement(tmp_path: Path) -> No
     )
 
     assert list(iterator) == events[1:]
-    assert list(snapshot.iter_events()) == events
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
+
+
+def test_macro_snapshot_detects_removed_source(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    write_macro(path, MacroFileMeta(name="macro", event_count=0), [])
+    snapshot = MacroFileSnapshot(path)
+
+    path.unlink()
+
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
 
 
 def test_macro_snapshot_repeated_streams_do_not_hold_descriptors(tmp_path: Path) -> None:

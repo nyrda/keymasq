@@ -139,7 +139,7 @@ class MacroStore:
         return iter_macro_events(path)
 
     def open_snapshot(self, name: str) -> MacroStoreSnapshot:
-        """Pin metadata and repeatable event reads to one stored revision."""
+        """Open repeatable event reads that stop if the stored revision changes."""
 
         if name in self._internal_macros:
             payload = copy.deepcopy(self._internal_macros[name])

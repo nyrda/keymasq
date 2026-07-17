@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -15,6 +16,7 @@ from keymasq.common.model.actions import (
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd import device_manager, recording
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.macro_file import MacroFileChangedError
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import outputs as global_outputs
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
@@ -1083,6 +1085,48 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
     )
 
     assert sleep_calls == [pytest.approx(0.2), 0]
+
+
+@pytest.mark.asyncio
+async def test_looped_macro_ends_cleanly_when_stored_revision_changes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = DeviceManager()
+    iteration_count = 0
+
+    def iter_events() -> Iterator[dict[str, object]]:
+        nonlocal iteration_count
+        iteration_count += 1
+        if iteration_count > 1:
+            raise MacroFileChangedError("changed.kmacro.xz")
+        yield {"t_us": 0, "macro_action": "wait", "duration_us": 0}
+
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+        await scheduler.play_macro_task(
+            manager,
+            instance_id=1,
+            macro_events=[],
+            macro_event_source=MacroEventSource(
+                event_count=1,
+                duration_us=0,
+                iter_events=iter_events,
+            ),
+            macro_name="changed",
+            replay_mouse_movement=True,
+            replay_mouse_clicks=True,
+            speed=1.0,
+            loop_mode="count",
+            loop_count=3,
+            move_to_start=False,
+            start_x=0,
+            start_y=0,
+            block_mouse_movement=False,
+            deps=device_manager._macro_runtime_deps(),
+        )
+
+    assert iteration_count == 2
+    assert "Macro playback ended because changed was modified or removed" in caplog.text
+    assert "Macro playback aborted" not in caplog.text
 
 
 @pytest.mark.asyncio

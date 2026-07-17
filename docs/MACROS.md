@@ -112,6 +112,12 @@ Recordings stop after 10 minutes by default. You can change the limit in
 macro_recording_time_limit = 10
 ```
 
+Restart the daemon after changing this setting:
+
+```sh
+sudo systemctl restart keymasqd
+```
+
 Starting and stopping from a hotkey keeps the recording clean. If you click
 buttons in the GUI to start or stop, those clicks and any mouse movement to
 reach them will be captured too, which is rarely what you want.
@@ -322,6 +328,10 @@ Macro duration is the minimum timeline length of one pass. If the pass reaches
 the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by
 macro speed; explicit wait controls keep their own wall-clock duration.
+
+Editing, renaming, or deleting a macro stops any looped playback of that macro
+before its next repetition. A repetition already in progress finishes using
+the version with which it started.
 
 ![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 

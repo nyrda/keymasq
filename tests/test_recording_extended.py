@@ -196,6 +196,47 @@ async def test_recording_stop_skips_callback_when_not_recording():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_recording_stops_finalize_the_spool_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=callback)
+    await recorder.start([])
+    spool = recorder._spool
+    assert spool is not None
+    original_finish = spool.finish
+    finish_started = asyncio.Event()
+    release_finish = asyncio.Event()
+    finish_calls = 0
+
+    async def finish() -> RecordingSnapshot:
+        nonlocal finish_calls
+        finish_calls += 1
+        finish_started.set()
+        await release_finish.wait()
+        return await original_finish()
+
+    monkeypatch.setattr(spool, "finish", finish)
+    callback.reset_mock()
+
+    automatic_stop = asyncio.create_task(recorder.stop(stop_reason="duration_limit"))
+    await asyncio.wait_for(finish_started.wait(), timeout=0.5)
+    manual_stop = asyncio.create_task(recorder.stop())
+    await asyncio.sleep(0)
+
+    assert manual_stop.done() is False
+    release_finish.set()
+    automatic_result, manual_result = await asyncio.gather(automatic_stop, manual_stop)
+
+    assert finish_calls == 1
+    assert automatic_result["stop_reason"] == "duration_limit"
+    assert manual_result == {"status": "ok"}
+    recording_id = str(automatic_result["pending_recording_id"])
+    assert (await recorder.pending_recording(recording_id)).recording_id == recording_id
+    callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_recording_event_filters_sync_and_msc_events() -> None:
     recorder = RecordingManager()
 

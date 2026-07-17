@@ -82,6 +82,7 @@ class KeymasqdClient:
         if not self.reader:
             return
 
+        cancelled = False
         try:
             while True:
                 data = await self.reader.read(4096)
@@ -103,12 +104,14 @@ class KeymasqdClient:
                     await self._handle_response(response)
 
         except asyncio.CancelledError:
-            pass
+            cancelled = True
         except OSError as exc:
             log.warning("Daemon client listen I/O error: %s", exc)
         except Exception:
             log.exception("Unexpected daemon client listen error")
         finally:
+            if not cancelled:
+                await self._cancel_event_tasks()
             self._finalize_disconnect()
 
     async def wait_disconnected(self) -> None:

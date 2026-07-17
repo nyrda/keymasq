@@ -236,3 +236,40 @@ def test_keymasqd_client_event_handler_can_disconnect() -> None:
         assert client.writer is None
 
     asyncio.run(_run())
+
+
+def test_keymasqd_client_unexpected_disconnect_cancels_event_worker() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _FakeWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.PING.value, "data": {}},
+                )
+            )
+        )
+        reader.feed_eof()
+
+        await client._listen_loop()
+
+        assert started.is_set()
+        assert cancelled.is_set()
+        assert client._event_tasks == set()
+        assert client._disconnected_event.is_set()
+
+    asyncio.run(_run())

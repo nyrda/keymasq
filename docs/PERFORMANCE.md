@@ -42,12 +42,6 @@ Benchmark results show:
 With `uvloop` installed (recommended), jitter improves further, especially for
 high-frequency mouse macros and keyboard bursts.
 
-Stored macros stream their first playback directly from the compressed file.
-When a complete iteration takes less than two seconds, including explicit
-waits and synchronous commands, Keymasq keeps its parsed events in a daemon-wide
-10 MiB LRU cache. Longer macros continue streaming, and changing the macro file
-invalidates its cached revision before reuse.
-
 ## Live Diagnostics
 
 You can measure latency on your own system with the built-in diagnostics mode:

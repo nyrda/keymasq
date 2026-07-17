@@ -502,7 +502,9 @@ def test_set_diagnostics_cli_sends_categories(
             "categories": ["mainline", "combo", "macro"],
         }
     ]
-    assert "categories=mainline, combo" in capsys.readouterr().out
+    assert capsys.readouterr().out == (
+        "Diagnostics enabled (interval=3.00s, categories=mainline, combo, macro)\n"
+    )
 
 
 def test_type_cli_compiles_and_sends_payload(monkeypatch: pytest.MonkeyPatch) -> None:

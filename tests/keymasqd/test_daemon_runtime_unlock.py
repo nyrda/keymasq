@@ -222,17 +222,17 @@ async def test_capture_end_allows_owner_after_recording_unlock_expires(
         {"hardware_id": "1234:5678"},
         client=client,
     )
-    assert begin == {"token": "cap-token"}
+    assert begin == {"token": "capture-session-id"}
 
     unlocked = False
     end = await daemon._handle_command(
         CommandType.CAPTURE_END,
-        {"token": "cap-token"},
+        {"token": "capture-session-id"},
         client=client,
     )
 
     assert end == {"ended": True}
-    capture_manager.end.assert_called_once_with("cap-token")
+    capture_manager.end.assert_called_once_with("capture-session-id")
 
 
 @pytest.mark.asyncio
@@ -269,7 +269,7 @@ async def test_sensitive_command_owner_mismatch_is_denied(
         {"hardware_id": "1234:5678"},
         client=first_client,
     )
-    assert first == {"token": "cap-token"}
+    assert first == {"token": "capture-session-id"}
 
     with pytest.raises(PermissionError, match="sensitive_command_denied"):
         await daemon._handle_command(
@@ -437,13 +437,13 @@ async def test_stale_unlocked_cache_entry_is_re_resolved_before_sensitive_comman
         {"hardware_id": "1234:5678"},
         client=client,
     )
-    assert result == {"token": "cap-token"}
+    assert result == {"token": "capture-session-id"}
 
     now_mono = 500.3
     with pytest.raises(PermissionError, match="recording_locked"):
         await daemon._handle_command(
             CommandType.CAPTURE_READ,
-            {"token": "cap-token"},
+            {"token": "capture-session-id"},
             client=client,
         )
 

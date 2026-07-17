@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
@@ -49,22 +49,50 @@ async def _send_reference_command(
     try:
         return await asyncio.shield(task), False
     except asyncio.CancelledError as cancelled:
-        settled = asyncio.gather(task, return_exceptions=True)
-        try:
-            outcome = (
-                await asyncio.wait_for(
-                    asyncio.shield(settled),
-                    timeout=_CANCEL_SETTLE_TIMEOUT_S,
-                )
-            )[0]
-        except TimeoutError as timeout:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            await manager.client.disconnect()
-            raise cancelled from timeout
+        outcome = await _settle_cancelled_request(manager, task, cancelled)
         if isinstance(outcome, BaseException):
             raise cancelled from outcome
         return outcome, True
+
+
+async def _settle_cancelled_request(
+    manager: "SessionManager",
+    task: asyncio.Task[Response],
+    cancelled: asyncio.CancelledError,
+) -> Response | BaseException:
+    settled = asyncio.gather(task, return_exceptions=True)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_SETTLE_TIMEOUT_S
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            return (
+                await asyncio.wait_for(
+                    asyncio.shield(settled),
+                    timeout=remaining,
+                )
+            )[0]
+        except asyncio.CancelledError:
+            continue
+        except TimeoutError:
+            break
+
+    task.cancel()
+    await _await_cleanup(asyncio.gather(task, return_exceptions=True))
+    await _await_cleanup(manager.client.disconnect())
+    raise cancelled from TimeoutError("daemon command cancellation settlement timed out")
+
+
+async def _await_cleanup(awaitable: Awaitable[object]) -> None:
+    task = asyncio.ensure_future(awaitable)
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    await task
 
 
 def _commit_device_references(

@@ -435,6 +435,49 @@ async def test_cancelled_mapping_update_settles_acknowledgement_and_commits_refs
 
 
 @pytest.mark.asyncio
+async def test_mapping_update_defers_repeated_cancellation_until_ack() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+    await asyncio.sleep(0)
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        )
+    }
+
+
+@pytest.mark.asyncio
 async def test_cancelled_combo_update_settles_acknowledgement_and_commits_refs() -> None:
     manager = SessionManager()
     old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")

@@ -62,6 +62,32 @@ def test_macro_cache_rejects_revision_that_exceeds_budget(tmp_path: Path) -> Non
     assert cache.begin_candidate(revision, event_count=1, duration_us=0) is None
 
 
+def test_macro_cache_retries_after_transient_candidate_contention(tmp_path: Path) -> None:
+    event = {"t_us": 0}
+    probe_cache = MacroReplayCache()
+    probe_entry = _admit(probe_cache, _revision(tmp_path / "probe", 1), event)
+    cache = MacroReplayCache(max_bytes=probe_entry.weight)
+    first = cache.begin_candidate(
+        _revision(tmp_path / "first", 1),
+        event_count=1,
+        duration_us=0,
+    )
+    second_revision = _revision(tmp_path / "second", 2)
+    second = cache.begin_candidate(second_revision, event_count=1, duration_us=0)
+    assert first is not None
+    assert second is not None
+    first.observe(event)
+
+    second.observe(event)
+
+    assert not second.active
+    first.discard()
+    retry = cache.begin_candidate(second_revision, event_count=1, duration_us=0)
+    assert retry is not None
+    retry.observe(event)
+    assert retry.commit() is not None
+
+
 def test_macro_cache_discard_releases_budget_and_allows_retry(tmp_path: Path) -> None:
     cache = MacroReplayCache()
     revision = _revision(tmp_path / "cancelled", 1)

@@ -2427,6 +2427,8 @@ class TestListDevices:
         manager._record_diagnostic("action_key", 20.0)
         manager._record_diagnostic("combo_passthrough", 30.0)
         manager._record_diagnostic("syn", 40.0)
+        manager._record_diagnostic("macro_load", 50.0)
+        manager._record_diagnostic("macro_iteration", 60.0)
 
         assert set(manager.diagnostics_state.samples) == {
             "passthrough_mapped",

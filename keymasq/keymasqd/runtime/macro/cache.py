@@ -52,7 +52,7 @@ class MacroCacheCandidate:
             return
         weight = _estimate_event_heap_bytes(event)
         if not self._cache.reserve_candidate_bytes(weight):
-            self._finish(ineligible=True)
+            self._finish(ineligible=self._weight + weight > self._cache.max_bytes)
             return
         self._events.append(event)
         self._weight += weight

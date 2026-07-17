@@ -98,7 +98,7 @@ async def _begin_capture(
             if not released:
                 raise RuntimeError(f"Failed to release {hardware_id} for capture")
     except BaseException:
-        await _rollback_capture_begin(manager, hardware_id)
+        await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
         raise
 
     return {
@@ -156,7 +156,7 @@ async def capture_begin_for_paths(
             )
         )
     except asyncio.CancelledError:
-        await _rollback_capture_begin(manager, hardware_id)
+        await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
         raise
     except OSError:
         await _rollback_capture_begin(manager, hardware_id)
@@ -184,7 +184,7 @@ async def capture_begin_for_paths(
     if owner_writer is not None:
         manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
     if cancelled:
-        await capture_end(manager, hardware_id)
+        await _await_cleanup(capture_end(manager, hardware_id))
         raise asyncio.CancelledError
     response = {
         "status": "ok",

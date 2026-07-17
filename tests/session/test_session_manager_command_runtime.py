@@ -2352,6 +2352,45 @@ async def test_begin_capture_defers_repeated_cancellation_until_ack(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_defers_cancellation_during_capture_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+    end_started = asyncio.Event()
+    release_end = asyncio.Event()
+
+    async def send_command(command: Command) -> Response:
+        if command.command == CommandType.CAPTURE_BEGIN:
+            request_started.set()
+            await release_response.wait()
+            return Response(status="ok", data={"token": "token-1", "warnings": []})
+        end_started.set()
+        await release_end.wait()
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=send_command)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+    release_response.set()
+    await end_started.wait()
+    capture_task.cancel()
+    release_end.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_preserves_cancellation_when_request_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

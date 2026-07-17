@@ -45,6 +45,16 @@ class _RecordingInputDevice(Protocol):
     def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
 
 
+async def _await_cleanup(awaitable: Awaitable[object]) -> None:
+    task = asyncio.ensure_future(awaitable)
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+    await task
+
+
 class RecordingManager:
     def __init__(
         self,
@@ -160,7 +170,7 @@ class RecordingManager:
 
             return started_payload
         except BaseException:
-            await self._abort_failed_start()
+            await _await_cleanup(self._abort_failed_start())
             raise
 
     async def _abort_failed_start(self) -> None:

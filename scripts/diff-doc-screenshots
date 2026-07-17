@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+modes="${DOCSHOT_MODES:-dark}"
+open_viewer=1
+emit_stdout=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --all)
+      modes="dark,light"
+      shift
+      ;;
+    --modes)
+      modes="${2:?--modes requires a value}"
+      shift 2
+      ;;
+    --modes=*)
+      modes="${1#--modes=}"
+      shift
+      ;;
+    --no-open)
+      open_viewer=0
+      shift
+      ;;
+    --stdout)
+      emit_stdout=1
+      open_viewer=0
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: scripts/diff-doc-screenshots [--modes dark|light|dark,light] [--all]
+                                    [--no-open] [--stdout]
+
+Builds the docshot VM output (cached if check-doc-screenshots already ran),
+compares it against docs/assets/screenshots, and writes a single
+self-contained HTML report with one section per changed screenshot:
+
+  expected | actual | changed-pixels highlight, plus resolution and
+  percentage of differing pixels. Click expected/actual to flicker between
+  them in place; aligned flicker makes subtle changes pop as motion.
+
+All images are inlined as data URIs, so the report is one portable file:
+open it locally or hand it to any static host as-is.
+
+With --stdout the report HTML is written to stdout (progress goes to
+stderr), for piping into an uploader or pager. Nothing is emitted when no
+screenshots differ.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+normalized_modes="${modes//[[:space:]]/}"
+case "$normalized_modes" in
+  dark)
+    package_attr="docshots"
+    ;;
+  light)
+    package_attr="docshots-light"
+    ;;
+  dark,light|light,dark)
+    package_attr="docshots-all"
+    ;;
+  *)
+    echo "unsupported docshot modes: $modes" >&2
+    exit 2
+    ;;
+esac
+
+installable="path:$repo_root#$package_attr"
+echo "Building $installable; cached if check-doc-screenshots already ran." >&2
+if ! result_path="$(nix build --print-out-paths --no-link "$installable")"; then
+  printf "Build failed. Inspect logs with: nix log %q\n" "$installable" >&2
+  exit 1
+fi
+generated="$result_path/screenshots"
+
+out_dir="$(mktemp -d -t docshot-diff.XXXXXX)"
+report="$out_dir/index.html"
+changed=0
+
+data_uri() {
+  printf 'data:image/png;base64,'
+  base64 -w0 "$1"
+}
+
+html_escape() {
+  # sed instead of ${var//}: bash 5.2 patsub_replacement expands & in the
+  # replacement, which would mangle the entities themselves.
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&#39;/g"
+}
+
+emit_pair() {
+  local expected="$1" actual="$2" rel="$3"
+  local exp_size act_size metrics highlight ae pct err status
+  exp_size="$(identify -format '%wx%h' "$expected")"
+  act_size="$(identify -format '%wx%h' "$actual")"
+  if [[ "$exp_size" != "$act_size" ]]; then
+    metrics="<span class=\"warn\">resolution changed: $exp_size &rarr; $act_size</span> &middot; pixel diff not computed"
+    highlight=""
+  else
+    # compare exits 1 and prints the metric to stderr when images differ;
+    # exit >1 is a real error (decode, policy, I/O) and must abort. Some
+    # builds append a normalized value in parentheses, keep the count.
+    status=0
+    ae="$(compare -metric AE "$expected" "$actual" null: 2>&1 >/dev/null)" || status=$?
+    if (( status > 1 )); then
+      printf 'compare failed for %s (exit %d): %s\n' "$rel" "$status" "$ae" >&2
+      exit 1
+    fi
+    ae="${ae%% *}"
+    pct="$(awk -v ae="$ae" -v size="$exp_size" \
+      'BEGIN { split(size, d, "x"); printf "%.3f", ae * 100 / (d[1] * d[2]) }')"
+    metrics="$exp_size &middot; $ae px changed ($pct%)"
+    highlight="$out_dir/highlight.png"
+    status=0
+    err="$(compare "$expected" "$actual" "$highlight" 2>&1 >/dev/null)" || status=$?
+    if (( status > 1 )); then
+      printf 'compare failed for %s (exit %d): %s\n' "$rel" "$status" "$err" >&2
+      exit 1
+    fi
+  fi
+  local rel_html
+  rel_html="$(html_escape "$rel")"
+  {
+    printf '<section>\n<h2>%s</h2>\n<p class="metrics">%s</p>\n<div class="row">\n' "$rel_html" "$metrics"
+    printf '<figure class="clickable"><img id="e%d" src="' "$changed"
+    data_uri "$expected"
+    printf '" onclick="flick(%d)" alt="expected %s">' "$changed" "$rel_html"
+    printf '<figcaption>expected (committed) &mdash; click to flicker</figcaption></figure>\n'
+    printf '<figure class="clickable"><img id="a%d" src="' "$changed"
+    data_uri "$actual"
+    printf '" onclick="flick(%d)" alt="actual %s">' "$changed" "$rel_html"
+    printf '<figcaption>actual (generated) &mdash; click to flicker</figcaption></figure>\n'
+    if [[ -n "$highlight" ]]; then
+      printf '<figure><img src="'
+      data_uri "$highlight"
+      printf '" alt="changed pixels %s">' "$rel_html"
+      printf '<figcaption>changed pixels</figcaption></figure>\n'
+    fi
+    printf '</div>\n</section>\n'
+  } >> "$report"
+  rm -f "$out_dir/highlight.png"
+}
+
+emit_new() {
+  local actual="$1" rel="$2" rel_html
+  rel_html="$(html_escape "$rel")"
+  {
+    printf '<section>\n<h2>%s</h2>\n' "$rel_html"
+    printf '<p class="metrics"><span class="new">new screenshot &mdash; no committed counterpart (%s)</span></p>\n' \
+      "$(identify -format '%wx%h' "$actual")"
+    printf '<div class="row">\n<figure><img src="'
+    data_uri "$actual"
+    printf '" alt="new %s"><figcaption>actual (generated)</figcaption></figure>\n</div>\n</section>\n' "$rel_html"
+  } >> "$report"
+}
+
+emit_removed() {
+  local expected="$1" rel="$2" rel_html
+  rel_html="$(html_escape "$rel")"
+  {
+    printf '<section>\n<h2>%s</h2>\n' "$rel_html"
+    printf '<p class="metrics"><span class="warn">stale screenshot &mdash; committed but no longer generated (%s)</span></p>\n' \
+      "$(identify -format '%wx%h' "$expected")"
+    printf '<div class="row">\n<figure><img src="'
+    data_uri "$expected"
+    printf '" alt="stale %s"><figcaption>expected (committed)</figcaption></figure>\n</div>\n</section>\n' "$rel_html"
+  } >> "$report"
+}
+
+find_pngs() {
+  local root="$1" exclude="$2"
+  if [[ -n "$exclude" ]]; then
+    find "$root" -path "$exclude" -prune -o -name '*.png' -print0
+  else
+    find "$root" -name '*.png' -print0
+  fi
+}
+
+diff_tree() {
+  local gen_root="$1" repo_dir="$2" mode="$3" repo_exclude="${4:-}"
+  local gen rel repo_file committed
+  while IFS= read -r -d '' gen; do
+    rel="${gen#"$gen_root"/}"
+    repo_file="$repo_dir/$rel"
+    if [[ ! -f "$repo_file" ]]; then
+      changed=$((changed + 1))
+      echo "new screenshot (no committed counterpart): $mode/$rel" >&2
+      emit_new "$gen" "$mode/$rel"
+      continue
+    fi
+    if ! cmp -s "$gen" "$repo_file"; then
+      changed=$((changed + 1))
+      echo "differs: $mode/$rel" >&2
+      emit_pair "$repo_file" "$gen" "$mode/$rel"
+    fi
+  done < <(find_pngs "$gen_root" "" | sort -z)
+  while IFS= read -r -d '' committed; do
+    rel="${committed#"$repo_dir"/}"
+    if [[ ! -f "$gen_root/$rel" ]]; then
+      changed=$((changed + 1))
+      echo "stale screenshot (committed but not generated): $mode/$rel" >&2
+      emit_removed "$committed" "$mode/$rel"
+    fi
+  done < <(find_pngs "$repo_dir" "$repo_exclude" | sort -z)
+}
+
+cat > "$report" <<'EOF'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doc screenshot diff</title>
+<style>
+  body { background: #1b1b1b; color: #e6e6e6; font: 15px/1.5 system-ui, sans-serif;
+         max-width: 1900px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; font-weight: 600; margin: 0 0 6px; color: #d8d8d8; }
+  section { border: 1px solid #333; border-radius: 10px; background: #222;
+            padding: 16px; margin: 20px 0; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  figure { margin: 0; flex: 1 1 300px; min-width: 260px; }
+  figure img { width: 100%; height: auto; border: 1px solid #444;
+               border-radius: 4px; background: #111; display: block; }
+  figure.clickable img { cursor: pointer; }
+  figcaption { font-size: 0.85rem; color: #aaa; margin-top: 4px; }
+  .metrics { color: #bbb; font-size: 0.9rem; margin: 0 0 10px; }
+  .warn { color: #f2b96b; }
+  .new { color: #8ab4f8; }
+</style>
+<script>
+  function flick(n) {
+    const a = document.getElementById("e" + n);
+    const b = document.getElementById("a" + n);
+    [a.src, b.src] = [b.src, a.src];
+  }
+</script>
+</head>
+<body>
+<h1>Doc screenshot diff</h1>
+EOF
+printf '<p class="metrics">%s &middot; modes: %s &middot; %s</p>\n' \
+  "$(date '+%Y-%m-%d %H:%M')" "$normalized_modes" \
+  "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" >> "$report"
+
+if [[ "$normalized_modes" == *dark* ]]; then
+  diff_tree "$generated/dark" "docs/assets/screenshots" dark "docs/assets/screenshots/light"
+fi
+if [[ "$normalized_modes" == *light* ]]; then
+  diff_tree "$generated/light" "docs/assets/screenshots/light" light
+fi
+
+if [[ "$changed" -eq 0 ]]; then
+  echo "No screenshot differences." >&2
+  rm -rf "$out_dir"
+  exit 0
+fi
+
+printf '</body>\n</html>\n' >> "$report"
+
+echo "$changed screenshot(s) differ." >&2
+if [[ "$emit_stdout" -eq 1 ]]; then
+  cat "$report"
+  rm -rf "$out_dir"
+  exit 0
+fi
+echo "Report: $report"
+if [[ "$open_viewer" -eq 1 && -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v xdg-open >/dev/null; then
+  xdg-open "$report" &
+fi

@@ -214,6 +214,36 @@ class _GrabOutcome(Enum):
     STOP = auto()
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedMapping:
+    payload: JsonObject
+    refs: references.ReferenceSnapshot
+
+
+def _prepare_mapping(
+    manager: "SessionManager",
+    hardware_id: str,
+    resolved: ResolvedDeviceProfile,
+) -> _PreparedMapping | None:
+    """Serialize a mapping without replacing the currently acknowledged refs."""
+
+    previous_refs = references.take_device(manager, hardware_id)
+    staged_refs: references.ReferenceSnapshot | None = None
+    try:
+        payload = mapping.serialize(manager, resolved, hardware_id)
+        staged_refs = references.take_device(manager, hardware_id)
+    except Exception:
+        log.exception("Failed to prepare mapping for %s before device grab", hardware_id)
+        return None
+    finally:
+        if staged_refs is None:
+            references.discard(manager, references.take_device(manager, hardware_id))
+        references.restore_device(manager, hardware_id, previous_refs)
+
+    assert staged_refs is not None
+    return _PreparedMapping(payload=payload, refs=staged_refs)
+
+
 async def _reconcile_existing_grab(
     manager: "SessionManager",
     hardware_id: str,
@@ -419,6 +449,7 @@ async def _send_set_mapping_command(
     notify: ProfileActivationNotifier,
     *,
     generation: int | None,
+    prepared: _PreparedMapping | None = None,
 ) -> None:
     log.info(
         "Setting mapping for %s with %d buttons from profiles=%s",
@@ -426,20 +457,15 @@ async def _send_set_mapping_command(
         len(resolved.mappings),
         resolved.active_profile_names,
     )
-    previous_refs = references.take_device(manager, hardware_id)
-    staged_refs: references.ReferenceSnapshot | None = None
+    prepared = prepared or _prepare_mapping(manager, hardware_id, resolved)
+    if prepared is None:
+        return
+
+    staged_refs = prepared.refs
     keep_staged_refs = False
     try:
-        try:
-            serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
-            staged_refs = references.take_device(manager, hardware_id)
-        finally:
-            if staged_refs is None:
-                references.take_device(manager, hardware_id)
-            references.restore_device(manager, hardware_id, previous_refs)
-        assert staged_refs is not None
         references.expose(manager, staged_refs)
-        log.debug("Mapping data: %s", mapping.log_view(serialized_mapping))
+        log.debug("Mapping data: %s", mapping.log_view(prepared.payload))
         raise_if_stale_profile_apply(manager, generation)
 
         result, cancelled = await _send_reference_command(
@@ -448,7 +474,7 @@ async def _send_set_mapping_command(
                 command=CommandType.SET_MAPPING,
                 data={
                     "hardware_id": hardware_id,
-                    "mapping": serialized_mapping,
+                    "mapping": prepared.payload,
                 },
             )
         )
@@ -478,9 +504,8 @@ async def _send_set_mapping_command(
             log.error("Failed to set mapping: %s", result.error)
 
     except TimeoutError as exc:
-        if staged_refs is not None:
-            references.retain_device(manager, hardware_id, staged_refs)
-            keep_staged_refs = True
+        references.retain_device(manager, hardware_id, staged_refs)
+        keep_staged_refs = True
         await _disconnect_after_mapping_timeout(manager, hardware_id)
         log.error("Timed out setting mapping for %s: %s", hardware_id, exc)
     except OSError as exc:
@@ -488,7 +513,7 @@ async def _send_set_mapping_command(
     except Exception:
         log.exception("Unexpected failure setting mapping for %s", hardware_id)
     finally:
-        if staged_refs is not None and not keep_staged_refs:
+        if not keep_staged_refs:
             references.discard(manager, staged_refs)
 
 
@@ -604,6 +629,9 @@ async def apply_resolved_device_profile(
             list(new_interfaces.keys()),
         )
 
+    prepared_mapping = _prepare_mapping(manager, hardware_id, resolved)
+    if prepared_mapping is None:
+        return
     log.info(
         "Grabbing device %s (interfaces: %s)",
         hardware_id,
@@ -627,6 +655,7 @@ async def apply_resolved_device_profile(
         resolved,
         _notify,
         generation=generation,
+        prepared=prepared_mapping,
     )
 
 

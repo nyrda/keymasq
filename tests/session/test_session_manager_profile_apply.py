@@ -811,6 +811,58 @@ async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> Non
 
 
 @pytest.mark.asyncio
+async def test_initial_mapping_is_prepared_before_device_grab(caplog) -> None:
+    from keymasq.common.model.core import SuperkeyMode
+    from keymasq.common.model.superkeys import SuperkeyConfig
+
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    invalid_superkey = SuperkeyConfig(
+        name="Invalid Nested Analog",
+        mode=SuperkeyMode.OVERLOAD,
+        overload_actions=[
+            MappingAction(action_type=ActionType.EXEC, cmd="notify-send new"),
+            MappingAction(action_type=ActionType.ANALOG_CONTROL),
+        ],
+    )
+    manager.superkeys.get_superkey = lambda _name: invalid_superkey  # type: ignore[method-assign]
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
+        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
+    )
+    manager.client.send_command = AsyncMock()
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_side": MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_name=invalid_superkey.name,
+            )
+        },
+    )
+
+    with caplog.at_level(logging.ERROR, logger="keymasq-session"):
+        await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    manager.client.send_command.assert_not_awaited()
+    assert hardware_id not in manager.profile_state.grabbed_devices
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+    assert f"Failed to prepare mapping for {hardware_id} before device grab" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_inspector() -> None:
     from keymasq.common.model.core import DeviceType
     from keymasq.common.model.hardware import (

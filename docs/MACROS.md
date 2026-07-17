@@ -92,6 +92,10 @@ Macro Manager after the session reconnects. Saving a slot duplicates it into a
 regular macro and keeps the slot available for playback. Closing the save
 dialog keeps the slot for Macro Manager; deleting a slot from Macro Manager
 removes it.
+If slot metadata is temporarily unreadable during daemon startup, Keymasq
+preserves every possibly related event file and retries on a later restart.
+Malformed temporary-slot metadata is discarded, and its unreferenced event
+data is removed during orphan cleanup.
 The slot that is currently recording cannot be played until recording stops;
 pressing its **Play Slot** action is ignored and Keymasq sends a desktop
 notification. Completed recordings in other slots remain playable.
@@ -99,6 +103,20 @@ Starting a new recording in the same slot replaces that slot; starting a
 different slot requires a binding that explicitly names that different slot.
 Keymasq never round-robins or infers a recording slot for mapped recording
 triggers.
+
+Recordings stop after 10 minutes by default. You can change the limit in
+`/etc/keymasq/security.toml`, or set it to `0` to disable automatic stopping:
+
+```toml
+[recording_guard]
+macro_recording_time_limit = 10
+```
+
+Restart the daemon after changing this setting:
+
+```sh
+sudo systemctl restart keymasqd
+```
 
 Starting and stopping from a hotkey keeps the recording clean. If you click
 buttons in the GUI to start or stop, those clicks and any mouse movement to
@@ -311,6 +329,10 @@ the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by
 macro speed; explicit wait controls keep their own wall-clock duration.
 
+Editing, renaming, or deleting a macro stops any looped playback of that macro
+before its next repetition. A repetition already in progress finishes using
+the version with which it started.
+
 ![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
 ### Concurrency
@@ -511,6 +533,14 @@ do not need to change these — they are intended for system administrators:
   ```toml
   [recording_guard]
   unlock_required = false
+  ```
+
+- **Change the maximum recording duration.** The default is 10 minutes; `0`
+  disables automatic stopping:
+
+  ```toml
+  [recording_guard]
+  macro_recording_time_limit = 10
   ```
 
 - **Require unlock for editing too** (stricter):

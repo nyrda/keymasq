@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import json
 import lzma
@@ -17,6 +19,33 @@ MACRO_FILE_FORMAT = "keymasq-macro"
 MACRO_FILE_VERSION = 1
 
 type MacroEvent = dict[str, object]
+
+
+class MacroFileChangedError(RuntimeError):
+    """The macro file no longer matches the revision opened for playback."""
+
+
+class MacroFileSnapshot:
+    """Metadata and identity for one repeatable macro-file revision."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        with _open_text(path, "rb") as handle:
+            self._meta_line = handle.readline()
+        self.meta = _macro_meta_from_line(self._meta_line)
+
+    def iter_events(self) -> Iterator[MacroEvent]:
+        def generate() -> Iterator[MacroEvent]:
+            try:
+                handle = _open_text(self._path, "rb")
+            except FileNotFoundError as exc:
+                raise MacroFileChangedError(str(self._path)) from exc
+            with handle:
+                if handle.readline() != self._meta_line:
+                    raise MacroFileChangedError(str(self._path))
+                yield from _iter_macro_event_lines(handle)
+
+        return generate()
 
 
 @dataclass(frozen=True)
@@ -42,7 +71,7 @@ class MacroFileMeta:
     type_use_unicode_input: bool = False
 
     @classmethod
-    def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> "MacroFileMeta":
+    def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> MacroFileMeta:
         return cls(
             name=name or macro_payload_str(payload, "name"),
             duration_us=macro_payload_int(payload, "duration_us", 0),
@@ -107,32 +136,21 @@ class MacroFileMeta:
 def read_macro_meta(path: Path) -> MacroFileMeta:
     with _open_text(path, "rb") as f:
         first_line = f.readline()
-    if not first_line:
-        raise ValueError("Empty macro file")
-    record = require_json_object(json.loads(first_line))
-    _validate_meta_record(record)
-    return MacroFileMeta.from_payload(record)
+    return _macro_meta_from_line(first_line)
 
 
 def iter_macro_events(path: Path) -> Iterator[MacroEvent]:
     with _open_text(path, "rb") as f:
-        first_line = f.readline()
-        if not first_line:
-            raise ValueError("Empty macro file")
-        _validate_meta_record(require_json_object(json.loads(first_line)))
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            event = require_json_object(json.loads(stripped))
-            yield event
+        _macro_meta_from_line(f.readline())
+        yield from _iter_macro_event_lines(f)
 
 
 def load_macro(path: Path) -> JsonObject:
-    meta = read_macro_meta(path)
-    payload = meta.to_payload(include_type_text=True)
-    payload["events"] = list(iter_macro_events(path))
-    return payload
+    with _open_text(path, "rb") as handle:
+        meta = _macro_meta_from_line(handle.readline())
+        payload = meta.to_payload(include_type_text=True)
+        payload["events"] = list(_iter_macro_event_lines(handle))
+        return payload
 
 
 def write_macro(
@@ -191,6 +209,21 @@ def _validate_meta_record(record: JsonObject) -> None:
         raise ValueError("Unsupported macro file format")
     if record.get("version") != MACRO_FILE_VERSION:
         raise ValueError("Unsupported macro file version")
+
+
+def _macro_meta_from_line(first_line: str) -> MacroFileMeta:
+    if not first_line:
+        raise ValueError("Empty macro file")
+    record = require_json_object(json.loads(first_line))
+    _validate_meta_record(record)
+    return MacroFileMeta.from_payload(record)
+
+
+def _iter_macro_event_lines(handle: Iterable[str]) -> Iterator[MacroEvent]:
+    for line in handle:
+        stripped = line.strip()
+        if stripped:
+            yield require_json_object(json.loads(stripped))
 
 
 def macro_payload_str(payload: JsonObject, key: str, default: str = "") -> str:

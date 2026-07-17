@@ -43,6 +43,8 @@ def is_sensitive_session_command(
         "get_macro",
         "create_macro",
         "update_macro",
+        "rename_macro",
+        "delete_macro",
     }:
         return True
 

@@ -1,8 +1,10 @@
 import json
 import logging
 import queue
+import select
 import socket
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +26,68 @@ class GuiTaskResult[T]:
         return self.error is None
 
 
+class _BoundedWorkerPool:
+    def __init__(self, *, workers: int = 4, capacity: int = 64) -> None:
+        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue(
+            maxsize=max(workers, capacity)
+        )
+        self._closed = False
+        self._lock = threading.Lock()
+        self._threads = [
+            threading.Thread(
+                target=self._worker_loop,
+                daemon=True,
+                name=f"keymasq-gui-worker-{index + 1}",
+            )
+            for index in range(max(1, workers))
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def submit(self, work: Callable[[], None]) -> bool:
+        with self._lock:
+            if self._closed:
+                return False
+            try:
+                self._queue.put_nowait(work)
+            except queue.Full:
+                return False
+            return True
+
+    def shutdown(self, timeout: float = 1.0) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            while True:
+                try:
+                    pending = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                else:
+                    self._queue.task_done()
+                    del pending
+            for _thread in self._threads:
+                self._queue.put_nowait(None)
+
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        for thread in self._threads:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(remaining)
+
+    def _worker_loop(self) -> None:
+        while True:
+            work = self._queue.get()
+            try:
+                if work is None:
+                    return
+                work()
+            finally:
+                self._queue.task_done()
+
+
 def _gui_task_error_payload(error: Exception) -> JsonDict:
     message = str(error).strip() or error.__class__.__name__
     return {
@@ -37,11 +101,16 @@ class _PersistentSessionConnection:
     def __init__(self) -> None:
         self._sock: socket.socket | None = None
         self._reader_thread: threading.Thread | None = None
+        self._reader_threads: dict[int, threading.Thread] = {}
+        self._reader_sockets: dict[int, socket.socket] = {}
+        self._generation = 0
+        self._closed = False
         self._buffer = b""
         self._state_lock = threading.Lock()
         self._connect_lock = threading.Lock()
         self._request_lock = threading.Lock()
         self._response_queue: queue.Queue[JsonDict | None] | None = None
+        self._response_generation: int | None = None
         self._callbacks: dict[str, list[Callable[[JsonDict], bool | None]]] = {}
 
     def request(self, payload: JsonDict, timeout: float = 5.0) -> JsonDict | None:
@@ -54,30 +123,36 @@ class _PersistentSessionConnection:
 
             response_queue: queue.Queue[JsonDict | None] = queue.Queue(maxsize=1)
             with self._state_lock:
+                sock = self._sock
+                generation = self._generation
+                if sock is None or self._closed:
+                    return None
                 self._response_queue = response_queue
+                self._response_generation = generation
 
             try:
                 encoded_payload = (json.dumps(payload) + "\n").encode()
-                with self._state_lock:
-                    if self._sock is None:
-                        return None
-                    self._sock.sendall(encoded_payload)
+                self._send_with_deadline(sock, encoded_payload, timeout)
 
                 try:
                     response = response_queue.get(timeout=timeout)
                 except queue.Empty:
                     log.debug("persistent request timed out")
-                    self._close_connection()
+                    self._close_connection_if_current(sock, generation)
                     return None
                 return response
             except Exception:
                 log.exception("persistent request failed")
-                self._close_connection()
+                self._close_connection_if_current(sock, generation)
                 return None
             finally:
                 with self._state_lock:
-                    if self._response_queue is response_queue:
+                    if (
+                        self._response_queue is response_queue
+                        and self._response_generation == generation
+                    ):
                         self._response_queue = None
+                        self._response_generation = None
 
     def register_callback(self, event: str, callback: Callable[[JsonDict], bool | None]) -> None:
         with self._state_lock:
@@ -94,6 +169,8 @@ class _PersistentSessionConnection:
 
     def _ensure_connected(self, timeout: float) -> bool:
         with self._state_lock:
+            if self._closed:
+                return False
             if self._sock is not None:
                 return True
 
@@ -102,6 +179,8 @@ class _PersistentSessionConnection:
 
         with self._connect_lock:
             with self._state_lock:
+                if self._closed:
+                    return False
                 if self._sock is not None:
                     return True
 
@@ -121,69 +200,122 @@ class _PersistentSessionConnection:
                 return False
 
             with self._state_lock:
+                if self._closed:
+                    sock.close()
+                    return False
+                self._generation += 1
+                generation = self._generation
                 self._sock = sock
                 self._buffer = b""
-                if self._reader_thread is None or not self._reader_thread.is_alive():
-                    self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
-                    self._reader_thread.start()
+                reader = threading.Thread(
+                    target=self._reader_loop,
+                    args=(generation, sock),
+                    daemon=True,
+                    name=f"keymasq-session-reader-{generation}",
+                )
+                self._reader_thread = reader
+                self._reader_threads[generation] = reader
+                self._reader_sockets[generation] = sock
+                reader.start()
         return True
 
-    def _reader_loop(self) -> None:
-        while True:
-            sock: socket.socket | None = None
-            try:
-                with self._state_lock:
-                    sock = self._sock
-                if sock is None:
-                    return
-
-                data = sock.recv(4096)
-                if not data:
-                    if self._close_connection_if_current(sock):
+    def _reader_loop(
+        self,
+        generation: int | None = None,
+        sock: socket.socket | None = None,
+    ) -> None:
+        with self._state_lock:
+            generation = self._generation if generation is None else generation
+            sock = self._sock if sock is None else sock
+        if sock is None:
+            return
+        local_buffer = b""
+        try:
+            while True:
+                try:
+                    data = sock.recv(4096)
+                    if not data:
+                        self._close_connection_if_current(sock, generation)
                         return
-                    continue
 
-                with self._state_lock:
-                    if sock is not self._sock:
-                        continue
-                    self._buffer += data
+                    local_buffer += data
                     lines: list[bytes] = []
-                    while b"\n" in self._buffer:
-                        line, self._buffer = self._buffer.split(b"\n", 1)
+                    while b"\n" in local_buffer:
+                        line, local_buffer = local_buffer.split(b"\n", 1)
                         lines.append(line)
 
-                for line in lines:
-                    if not line.strip():
-                        continue
-
-                    try:
-                        message = json.loads(line.decode())
-                    except json.JSONDecodeError:
-                        continue
-
-                    if "event" in message:
-                        self._dispatch_event(message)
-                        continue
-
                     with self._state_lock:
-                        response_queue = self._response_queue
-                    if response_queue is not None:
-                        try:
-                            response_queue.put_nowait(message)
-                        except queue.Full:
-                            pass
-            except Exception:
-                log.exception("persistent reader error")
-                if sock is not None and self._close_connection_if_current(sock):
-                    return
-                continue
+                        if generation != self._generation or sock is not self._sock:
+                            continue
+                        self._buffer = local_buffer
 
-    def _dispatch_event(self, message: JsonDict) -> None:
+                    for line in lines:
+                        if not line.strip():
+                            continue
+
+                        try:
+                            message = json.loads(line.decode())
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
+                        if not isinstance(message, dict):
+                            continue
+
+                        if "event" in message:
+                            self._dispatch_event(message, generation)
+                            continue
+
+                        with self._state_lock:
+                            response_queue = (
+                                self._response_queue
+                                if generation == self._generation
+                                and self._response_generation in (None, generation)
+                                else None
+                            )
+                        if response_queue is not None:
+                            try:
+                                response_queue.put_nowait(message)
+                            except queue.Full:
+                                pass
+                except Exception:
+                    log.exception("persistent reader error")
+                    self._close_connection_if_current(sock, generation)
+                    return
+        finally:
+            with self._state_lock:
+                self._reader_threads.pop(generation, None)
+                self._reader_sockets.pop(generation, None)
+
+    def _send_with_deadline(self, sock: socket.socket, payload: bytes, timeout: float) -> None:
+        deadline = time.monotonic() + max(0.01, float(timeout))
+        view = memoryview(payload)
+        try:
+            fileno = sock.fileno()
+        except (AttributeError, OSError):
+            sock.sendall(payload)
+            return
+
+        while view:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("session request write timed out")
+            _readable, writable, _exceptional = select.select([], [fileno], [], remaining)
+            if not writable:
+                raise TimeoutError("session request write timed out")
+            try:
+                sent = sock.send(view, getattr(socket, "MSG_DONTWAIT", 0))
+            except BlockingIOError:
+                continue
+            if sent <= 0:
+                raise ConnectionError("session socket closed during write")
+            view = view[sent:]
+
+    def _dispatch_event(self, message: JsonDict, generation: int | None = None) -> None:
         event = message.get("event")
         if not isinstance(event, str):
             return
 
         with self._state_lock:
+            generation = self._generation if generation is None else generation
             callbacks = list(self._callbacks.get(event, [])) + list(self._callbacks.get("*", []))
 
         if not callbacks:
@@ -212,7 +344,7 @@ class _PersistentSessionConnection:
                 continue
 
             try:
-                idle_add(self._dispatch_event_callback_once, callback, message)
+                idle_add(self._dispatch_event_callback_once, generation, callback, message)
             except (RuntimeError, TypeError) as exc:
                 log.warning(
                     "Failed to schedule session event callback with GLib: %s; dropping event %s",
@@ -222,11 +354,15 @@ class _PersistentSessionConnection:
             except Exception:
                 log.exception("Unexpected failure scheduling session event callback")
 
-    @staticmethod
     def _dispatch_event_callback_once(
+        self,
+        generation: int,
         callback: Callable[[JsonDict], bool | None],
         message: JsonDict,
     ) -> bool:
+        with self._state_lock:
+            if self._closed or generation != self._generation:
+                return False
         try:
             callback(message)
         except Exception:
@@ -236,26 +372,39 @@ class _PersistentSessionConnection:
     def _close_connection(self) -> None:
         with self._state_lock:
             sock = self._sock
+            generation = self._generation
             self._sock = None
             self._buffer = b""
         if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except (AttributeError, OSError):
+                pass
             try:
                 sock.close()
             except OSError:
                 pass
 
         with self._state_lock:
-            response_queue = self._response_queue
+            response_queue = (
+                self._response_queue
+                if self._response_generation in (None, generation)
+                else None
+            )
         if response_queue is not None:
             try:
                 response_queue.put_nowait(None)
             except queue.Full:
                 pass
 
-    def _close_connection_if_current(self, sock: socket.socket) -> bool:
+    def _close_connection_if_current(
+        self,
+        sock: socket.socket,
+        generation: int | None = None,
+    ) -> bool:
         response_queue: queue.Queue[JsonDict | None] | None = None
         with self._state_lock:
-            if sock is self._sock:
+            if sock is self._sock and generation in (None, self._generation):
                 self._sock = None
                 self._buffer = b""
                 response_queue = self._response_queue
@@ -263,6 +412,10 @@ class _PersistentSessionConnection:
             else:
                 current = False
 
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except (AttributeError, OSError):
+            pass
         try:
             sock.close()
         except OSError:
@@ -275,8 +428,72 @@ class _PersistentSessionConnection:
                 pass
         return current
 
+    def shutdown(self, timeout: float = 1.0) -> None:
+        """Prevent future callbacks and close every connection generation."""
+
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._generation += 1
+            sockets = set(self._reader_sockets.values())
+            if self._sock is not None:
+                sockets.add(self._sock)
+            self._sock = None
+            self._buffer = b""
+            response_queue = self._response_queue
+            self._response_queue = None
+            self._response_generation = None
+            readers = list(self._reader_threads.values())
+
+        for current_sock in sockets:
+            try:
+                current_sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                current_sock.close()
+            except OSError:
+                pass
+        if response_queue is not None:
+            try:
+                response_queue.put_nowait(None)
+            except queue.Full:
+                pass
+
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        for reader in readers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            reader.join(remaining)
+
 
 _PERSISTENT_SESSION = _PersistentSessionConnection()
+_gui_state_lock = threading.Lock()
+_gui_runtime_generation = 0
+_gui_shutdown = False
+_gui_pool: _BoundedWorkerPool | None = None
+
+
+def _gui_generation() -> int | None:
+    with _gui_state_lock:
+        return None if _gui_shutdown else _gui_runtime_generation
+
+
+def _gui_generation_is_current(generation: int) -> bool:
+    with _gui_state_lock:
+        return not _gui_shutdown and generation == _gui_runtime_generation
+
+
+def _gui_worker_pool() -> _BoundedWorkerPool | None:
+    global _gui_pool
+    with _gui_state_lock:
+        if _gui_shutdown:
+            return None
+        if _gui_pool is None:
+            _gui_pool = _BoundedWorkerPool()
+        return _gui_pool
 
 
 def session_request(payload: JsonDict, timeout: float = 5.0) -> JsonDict | None:
@@ -321,6 +538,10 @@ def run_gui_task[T](
 ) -> None:
     from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
 
+    generation = _gui_generation()
+    if generation is None:
+        return
+
     if on_start is not None:
         on_start()
 
@@ -332,6 +553,8 @@ def run_gui_task[T](
             result = GuiTaskResult(error=exc)
 
         def _dispatch() -> bool:
+            if not _gui_generation_is_current(generation):
+                return False
             try:
                 callback(result)
             except Exception:
@@ -343,7 +566,23 @@ def run_gui_task[T](
 
         GLib.idle_add(_dispatch)
 
-    threading.Thread(target=_worker, daemon=True).start()
+    pool = _gui_worker_pool()
+    if pool is None or not pool.submit(_worker):
+        result = GuiTaskResult[T](error=RuntimeError("GUI worker queue is unavailable"))
+
+        def _dispatch_rejected() -> bool:
+            if not _gui_generation_is_current(generation):
+                return False
+            try:
+                callback(result)
+            except Exception:
+                log.exception("GUI task callback failed")
+            finally:
+                if on_done is not None:
+                    on_done()
+            return False
+
+        GLib.idle_add(_dispatch_rejected)
 
 
 def register_session_event_callback(
@@ -358,3 +597,19 @@ def unregister_session_event_callback(
     callback: Callable[[JsonDict], bool | None],
 ) -> None:
     _PERSISTENT_SESSION.unregister_callback(event, callback)
+
+
+def shutdown_gui_runtime(timeout: float = 1.0) -> None:
+    """Invalidate GTK callbacks and drain GUI IPC/background ownership."""
+
+    global _gui_runtime_generation, _gui_shutdown
+    with _gui_state_lock:
+        if _gui_shutdown:
+            return
+        _gui_shutdown = True
+        _gui_runtime_generation += 1
+        pool = _gui_pool
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    _PERSISTENT_SESSION.shutdown(timeout=max(0.0, deadline - time.monotonic()))
+    if pool is not None:
+        pool.shutdown(timeout=max(0.0, deadline - time.monotonic()))

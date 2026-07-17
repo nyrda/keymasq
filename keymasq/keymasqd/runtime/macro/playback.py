@@ -99,6 +99,7 @@ async def play_macro(
         )
     )
     manager.macro_state.tasks[instance_id] = task
+
     return {"status": "ok"}
 
 

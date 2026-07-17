@@ -225,6 +225,8 @@ settings below:
 
               recording_guard = {
                 unlock_required = true;
+                # Stop recordings after this many minutes; set 0 to disable.
+                macro_recording_time_limit = 10;
                 macro_edit_requires_unlock = false;
               };
             };
@@ -318,6 +320,8 @@ disable the capture unlock requirement in `/etc/keymasq/security.toml`:
 ```toml
 [recording_guard]
 unlock_required = false
+# Stop recordings after this many minutes; set 0 to disable.
+macro_recording_time_limit = 10
 ```
 
 This does not enable macro recording; macro recording still requires the

@@ -99,6 +99,9 @@ class Daemon:
         self.device_manager.emergency_cancel_combo_enabled = bool(
             self.security_policy.emergency_cancel_combo_enabled
         )
+        self.recording_manager.macro_recording_time_limit = int(
+            self.security_policy.macro_recording_time_limit
+        )
         await asyncio.to_thread(self._prepare_macro_store)
         await self.recording_manager.load_persisted_slot_recordings()
         log.info(
@@ -152,6 +155,15 @@ class Daemon:
             await self._run_async_cleanup("stop socket server", self.socket_server.stop)
         else:
             self._cleanup_socket_path()
+
+        await self._run_async_cleanup(
+            "abort active recording",
+            self.recording_manager.abort,
+        )
+        await self._run_async_cleanup(
+            "close active captures",
+            lambda: asyncio.to_thread(self.capture_manager.close_all),
+        )
 
         await self._run_async_cleanup(
             "stop topology watcher",
@@ -309,6 +321,8 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
+            CommandType.MACRO_RENAME,
+            CommandType.MACRO_DELETE,
         }
 
         is_tier1_command = command_type in tier1_commands
@@ -319,12 +333,12 @@ class Daemon:
                 claim_if_missing=command_type != CommandType.CAPTURE_END,
             )
 
-        if policy is None or not policy.recording_unlock_required:
+        if policy is None:
             return
 
-        requires_unlock = is_tier1_command
-        if not requires_unlock and policy.macro_edit_requires_unlock:
-            requires_unlock = command_type in tier2_commands
+        requires_unlock = is_tier1_command and policy.recording_unlock_required
+        if command_type in tier2_commands and policy.macro_edit_requires_unlock:
+            requires_unlock = True
 
         if not requires_unlock:
             return
@@ -725,12 +739,16 @@ class Daemon:
                 ),
             )
         await self._run_async_cleanup(
+            "abort active recording",
+            self.recording_manager.abort,
+        )
+        await self._run_async_cleanup(
             "discard pending recordings",
             self.recording_manager.discard_all_pending_recordings,
         )
         await self._run_async_cleanup(
             "end active captures",
-            lambda: asyncio.to_thread(self.capture_manager.end_all),
+            lambda: asyncio.to_thread(self.capture_manager.close_all),
         )
         await self._run_async_cleanup(
             "release all devices after client disconnect",

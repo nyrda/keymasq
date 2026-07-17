@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 log = logging.getLogger(__name__)
+DEFAULT_MACRO_RECORDING_TIME_LIMIT = 10
 
 
 @dataclass
@@ -22,6 +23,7 @@ class SecurityPolicy:
     session_allowed_uids: list[int] = field(default_factory=list)
     macro_exec_timeout_max_ms: int = 30000
     recording_unlock_required: bool = True
+    macro_recording_time_limit: int = DEFAULT_MACRO_RECORDING_TIME_LIMIT
     macro_edit_requires_unlock: bool = False
     emergency_cancel_combo_enabled: bool = True
 
@@ -90,6 +92,19 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
         policy.macro_edit_requires_unlock = bool(
             recording_guard.get("macro_edit_requires_unlock", policy.macro_edit_requires_unlock)
         )
+        time_limit = recording_guard.get(
+            "macro_recording_time_limit",
+            policy.macro_recording_time_limit,
+        )
+        if isinstance(time_limit, bool) or not isinstance(time_limit, int):
+            raise SecurityPolicyError(
+                "recording_guard.macro_recording_time_limit must be a non-negative integer"
+            )
+        if time_limit < 0:
+            raise SecurityPolicyError(
+                "recording_guard.macro_recording_time_limit must be a non-negative integer"
+            )
+        policy.macro_recording_time_limit = time_limit
 
     gui_cfg = raw.get("gui")
     if isinstance(gui_cfg, dict):

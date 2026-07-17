@@ -1016,7 +1016,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
 
     def fake_load_security_policy(_path: Path) -> SecurityPolicy:
         startup_order.append("policy")
-        return SecurityPolicy()
+        return SecurityPolicy(macro_recording_time_limit=23)
 
     monkeypatch.setattr(daemon_module.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
@@ -1042,6 +1042,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     device_manager.stop_topology_watcher.assert_awaited_once()
     assert device_manager.broadcast_callback == fake_socket_server.broadcast_event
     assert recording_manager.broadcast_callback == fake_socket_server.broadcast_event
+    assert recording_manager.macro_recording_time_limit == 23
 
 
 @pytest.mark.asyncio
@@ -1083,7 +1084,7 @@ async def test_stop_lets_socket_server_own_socket_path_cleanup(
     daemon_testbed,
     monkeypatch,
 ):
-    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
     socket_server = SimpleNamespace(stop=AsyncMock())
     cleanup_socket_path = Mock()
     daemon.running = True
@@ -1094,6 +1095,8 @@ async def test_stop_lets_socket_server_own_socket_path_cleanup(
 
     socket_server.stop.assert_awaited_once()
     cleanup_socket_path.assert_not_called()
+    recording_manager.abort.assert_awaited_once()
+    capture_manager.close_all.assert_called_once()
     device_manager.shutdown_output_devices.assert_called_once()
 
 

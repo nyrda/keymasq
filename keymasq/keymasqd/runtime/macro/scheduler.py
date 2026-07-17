@@ -8,6 +8,7 @@ from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
 )
+from keymasq.keymasqd.macro_file import MacroFileChangedError
 from keymasq.keymasqd.runtime.macro import controls, events, mouse, outputs
 from keymasq.keymasqd.runtime.macro.loops import (
     MacroLoopStateMachine,
@@ -141,6 +142,11 @@ async def play_macro_task(
                 break
     except asyncio_mod.CancelledError:
         pass
+    except MacroFileChangedError:
+        deps.log.debug(
+            "Macro playback ended because %s was modified or removed",
+            macro_name or "<unnamed>",
+        )
     except Exception:
         deps.log.exception("Macro playback aborted")
     finally:

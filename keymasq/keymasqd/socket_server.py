@@ -53,6 +53,7 @@ class SocketServer:
         single_owner: bool = False,
         broadcast_drain_timeout_s: float = 0.25,
         close_timeout_s: float = 0.25,
+        handler_drain_timeout_s: float = 2.0,
     ) -> None:
         self.socket_path = socket_path
         self.command_handler = command_handler
@@ -62,6 +63,7 @@ class SocketServer:
         self.single_owner = single_owner
         self.broadcast_drain_timeout_s = max(0.01, float(broadcast_drain_timeout_s))
         self.close_timeout_s = max(0.01, float(close_timeout_s))
+        self.handler_drain_timeout_s = max(0.01, float(handler_drain_timeout_s))
         self.server: asyncio.Server | None = None
         self.clients: set[asyncio.StreamWriter] = set()
         self._buffer: dict[asyncio.StreamWriter, bytes] = {}
@@ -69,14 +71,36 @@ class SocketServer:
         self._next_connection_id = 1
         self._owner_context: ClientContext | None = None
         self._socket_stat: os.stat_result | None = None
+        self._handler_tasks: set[asyncio.Task[None]] = set()
+        self._handler_writers: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
+        self._active_command_tasks: set[asyncio.Task[None]] = set()
+        self._server_generation = 0
+        self._quiescing = False
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def owner_context(self) -> ClientContext | None:
         return self._owner_context
 
     async def start(self) -> None:
+        async with self._lifecycle_lock:
+            await self._start_locked()
+
+    async def _start_locked(self) -> None:
+        active_handlers = {task for task in self._handler_tasks if not task.done()}
+        if active_handlers:
+            raise RuntimeError(
+                f"Cannot start daemon socket with {len(active_handlers)} prior handler(s) active"
+            )
+        self._server_generation += 1
+        generation = self._server_generation
+        self._quiescing = False
+
+        def accept_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            self._accept_client(reader, writer, generation)
+
         server = await asyncio.start_unix_server(
-            self._handle_client,
+            accept_client,
             path=self.socket_path,
         )
         self.server = server
@@ -148,19 +172,33 @@ class SocketServer:
             log.warning(f"Failed to remove {description}: {exc}")
 
     async def stop(self) -> None:
+        async with self._lifecycle_lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
+        self._quiescing = True
         server = self.server
         socket_stat = self._socket_stat
         if server:
             server.close()
 
-        writers = set(self.clients) | set(self._buffer) | set(self._client_context)
+        # Keep response streams open during the graceful drain so commands that
+        # finish before the deadline can acknowledge their result to clients.
+        await self._drain_active_commands()
+
+        writers = (
+            set(self.clients)
+            | set(self._buffer)
+            | set(self._client_context)
+            | set(self._handler_writers.values())
+        )
         for writer in writers:
             self._request_writer_close(writer)
-
         await asyncio.gather(
             *(self._wait_writer_closed(writer) for writer in writers),
             return_exceptions=True,
         )
+        await self._drain_handler_tasks(graceful=True)
 
         if server:
             await server.wait_closed()
@@ -175,12 +213,94 @@ class SocketServer:
         self._owner_context = None
         self._socket_stat = None
 
-    async def _handle_client(
+    async def _drain_active_commands(self) -> None:
+        tasks = {task for task in self._active_command_tasks if not task.done()}
+        if not tasks:
+            return
+        await self._drain_tasks(tasks, description="active daemon command", graceful=True)
+
+    async def _drain_handler_tasks(self, *, graceful: bool = True) -> None:
+        current = asyncio.current_task()
+        tasks = {task for task in self._handler_tasks if task is not current and not task.done()}
+        if not tasks:
+            return
+        await self._drain_tasks(tasks, description="daemon client handler", graceful=graceful)
+
+    async def _drain_tasks(
+        self,
+        tasks: set[asyncio.Task[None]],
+        *,
+        description: str,
+        graceful: bool,
+    ) -> None:
+        pending = tasks
+        if graceful:
+            _done, pending = await asyncio.wait(
+                tasks,
+                timeout=self.handler_drain_timeout_s,
+            )
+            if not pending:
+                return
+
+        log.warning("Cancelling %d %s(s) after shutdown deadline", len(pending), description)
+        for task in pending:
+            task.cancel()
+        _done, still_pending = await asyncio.wait(
+            pending,
+            timeout=self.handler_drain_timeout_s,
+        )
+        if still_pending:
+            log.error(
+                "%d %s(s) remain active after cancellation; "
+                "socket restart is disabled until they exit",
+                len(still_pending),
+                description,
+            )
+
+    def _accept_client(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        generation: int | None = None,
+    ) -> None:
+        generation = self._server_generation if generation is None else generation
+        if self._quiescing or generation != self._server_generation:
+            self._request_writer_close(writer)
+            return
+        task = asyncio.create_task(
+            self._serve_client(reader, writer),
+            name="keymasqd:client-handler",
+        )
+        self._handler_tasks.add(task)
+        self._handler_writers[task] = writer
+
+        def _handler_done(done: asyncio.Task[None]) -> None:
+            self._handler_tasks.discard(task)
+            self._handler_writers.pop(task, None)
+            self._active_command_tasks.discard(task)
+            try:
+                error = done.exception()
+            except asyncio.CancelledError:
+                return
+            if error is not None:
+                log.error(
+                    "Unhandled daemon client handler error: %s",
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+
+        task.add_done_callback(_handler_done)
+
+    async def _serve_client(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
         addr = writer.get_extra_info("peername") or "unknown"
+        if self._quiescing:
+            self._request_writer_close(writer)
+            await self._wait_writer_closed(writer)
+            return
         peer = self._extract_peer(writer)
         if peer is None:
             log.warning("Rejecting client without peer credentials")
@@ -269,9 +389,15 @@ class SocketServer:
                         break
 
                     self._buffer[writer] = remaining
-                    response = await self._process_command(cmd, context)
-                    writer.write(encode_response(response))
-                    await writer.drain()
+                    command_task = asyncio.create_task(
+                        self._process_and_send_command(cmd, context, writer),
+                        name="keymasqd:command",
+                    )
+                    self._active_command_tasks.add(command_task)
+                    try:
+                        await command_task
+                    finally:
+                        self._active_command_tasks.discard(command_task)
 
         except asyncio.CancelledError:
             pass
@@ -281,7 +407,23 @@ class SocketServer:
             log.info(f"Client disconnected: {addr}")
             await self._drop_client(writer)
 
+    async def _process_and_send_command(
+        self,
+        cmd: Command,
+        context: ClientContext,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        response = await self._process_command(cmd, context)
+        writer.write(encode_response(response))
+        await writer.drain()
+
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
+        if self._quiescing:
+            return Response(
+                status="error",
+                error="Daemon is shutting down",
+                request_id=cmd.request_id,
+            )
         try:
             result = await self.command_handler(cmd.command, cmd.data, context)
             return Response(

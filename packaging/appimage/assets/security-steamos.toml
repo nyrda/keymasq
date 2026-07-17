@@ -11,4 +11,5 @@ emergency_cancel_combo_enabled = true
 # SteamOS/AppImage installs default to the easier flow: privileged capture
 # unlock is disabled because the package already installs a system daemon.
 unlock_required = false
+macro_recording_time_limit = 10
 macro_edit_requires_unlock = false

@@ -428,6 +428,34 @@ def test_persistent_session_request_timeout_closes_connection() -> None:
     assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 
 
+def test_stale_request_timeout_does_not_close_replacement_connection() -> None:
+    connection = gui_session_client._PersistentSessionConnection()
+    old_sock = _RequestOnlySocket()
+    new_sock = _RequestOnlySocket()
+    connection._sock = old_sock  # pyright: ignore[reportPrivateUsage]
+
+    def replace_during_wait(*, timeout: float) -> None:
+        _ = timeout
+        with connection._state_lock:
+            connection._generation += 1
+            connection._sock = new_sock
+        raise queue.Empty
+
+    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1)
+    response_queue.get = replace_during_wait  # type: ignore[method-assign]
+    original_queue = gui_session_client.queue.Queue
+    gui_session_client.queue.Queue = lambda maxsize=0: response_queue  # type: ignore[assignment]
+    try:
+        response = connection.request({"command": "get_status"}, timeout=0.01)
+    finally:
+        gui_session_client.queue.Queue = original_queue
+
+    assert response is None
+    assert old_sock.closed is True
+    assert new_sock.closed is False
+    assert connection._sock is new_sock  # pyright: ignore[reportPrivateUsage]
+
+
 def test_persistent_session_failed_connect_closes_socket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -509,21 +537,32 @@ def test_persistent_session_reader_thread_survives_socket_swap(
     new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
 
     connection._response_queue = response_queue
+    connection._response_generation = 2
+    connection._generation = 1
     connection._sock = old_sock
-    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
     connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
+        connection._generation = 2
         connection._sock = new_sock
         connection._buffer = b""
+    new_thread = threading.Thread(
+        target=connection._reader_loop,
+        args=(2, new_sock),
+        daemon=True,
+    )
+    new_thread.start()
     release.set()
 
     queued = response_queue.get(timeout=1.0)
     assert queued == {"status": "new"}
     thread.join(1.0)
+    new_thread.join(1.0)
     assert thread.is_alive() is False
+    assert new_thread.is_alive() is False
 
 
 def test_persistent_session_reader_ignores_stale_eof_after_socket_swap(
@@ -538,22 +577,33 @@ def test_persistent_session_reader_ignores_stale_eof_after_socket_swap(
     new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
 
     connection._response_queue = response_queue
+    connection._response_generation = 2
+    connection._generation = 1
     connection._sock = old_sock
-    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
     connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
+        connection._generation = 2
         connection._sock = new_sock
         connection._buffer = b""
+    new_thread = threading.Thread(
+        target=connection._reader_loop,
+        args=(2, new_sock),
+        daemon=True,
+    )
+    new_thread.start()
     release.set()
 
     queued = response_queue.get(timeout=1.0)
     assert queued == {"status": "new"}
     assert new_sock.closed is True
     thread.join(1.0)
+    new_thread.join(1.0)
     assert thread.is_alive() is False
+    assert new_thread.is_alive() is False
 
 
 def test_persistent_session_reader_ignores_stale_error_after_socket_swap(
@@ -568,35 +618,48 @@ def test_persistent_session_reader_ignores_stale_error_after_socket_swap(
     new_sock = _FakeSocket([b'{"status":"new"}\n', b""])
 
     connection._response_queue = response_queue
+    connection._response_generation = 2
+    connection._generation = 1
     connection._sock = old_sock
-    thread = threading.Thread(target=connection._reader_loop, daemon=True)
+    thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
     connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
+        connection._generation = 2
         connection._sock = new_sock
         connection._buffer = b""
+    new_thread = threading.Thread(
+        target=connection._reader_loop,
+        args=(2, new_sock),
+        daemon=True,
+    )
+    new_thread.start()
     release.set()
 
     queued = response_queue.get(timeout=1.0)
     assert queued == {"status": "new"}
     assert new_sock.closed is True
     thread.join(1.0)
+    new_thread.join(1.0)
     assert thread.is_alive() is False
+    assert new_thread.is_alive() is False
 
 
 def test_run_gui_task_invokes_hooks_and_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_glib(monkeypatch)
     events: list[tuple[str, Any]] = []
+    done = threading.Event()
 
     gui_session_client.run_gui_task(
         lambda: {"status": "ok"},
         lambda result: events.append(("callback", result)),
         on_start=lambda: events.append(("start", None)),
-        on_done=lambda: events.append(("done", None)),
+        on_done=lambda: events.append(("done", None)) or done.set(),
     )
 
+    assert done.wait(1.0) is True
     assert events == [
         ("start", None),
         ("callback", gui_session_client.GuiTaskResult(value={"status": "ok"})),
@@ -609,6 +672,7 @@ def test_session_request_async_uses_session_request_and_hooks(
 ) -> None:
     _install_fake_glib(monkeypatch)
     calls: list[tuple[str, Any]] = []
+    done = threading.Event()
 
     monkeypatch.setattr(
         gui_session_client,
@@ -621,9 +685,10 @@ def test_session_request_async_uses_session_request_and_hooks(
         lambda result: calls.append(("callback", result)),
         timeout=2.0,
         on_start=lambda: calls.append(("start", None)),
-        on_done=lambda: calls.append(("done", None)),
+        on_done=lambda: calls.append(("done", None)) or done.set(),
     )
 
+    assert done.wait(1.0) is True
     assert calls == [
         ("start", None),
         (

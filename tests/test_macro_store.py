@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from keymasq.keymasqd import macro_store as macro_store_module
-from keymasq.keymasqd.macro_file import MacroFileMeta
+from keymasq.keymasqd.macro_file import MacroFileChangedError, MacroFileMeta
 from keymasq.keymasqd.macro_store import MacroStore
 
 
@@ -69,6 +69,26 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
+
+
+def test_macro_store_snapshot_ends_repeated_reads_after_revision_change(
+    tmp_path: Path,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    old_event = {"type": 1, "code": 30, "value": 1, "t_us": 0}
+    new_event = {"type": 1, "code": 31, "value": 1, "t_us": 100}
+    store.create({"name": "macro", "events": [old_event]})
+
+    snapshot = store.open_snapshot("macro")
+    assert snapshot.meta["revision"] == 1
+    assert list(snapshot.iter_events()) == [old_event]
+
+    store.update("macro", {"events": [new_event]}, expected_revision=1)
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
+
+    assert store.get("macro")["revision"] == 2
+    assert list(store.iter_events("macro")) == [new_event]
 
 
 def test_macro_store_update_rechecks_revision_under_mutation_lock(

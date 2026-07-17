@@ -346,6 +346,12 @@ async def handle_event(
         }
         if coerce_bool(recording_data.get("start_position_recorded"), False):
             stopped_payload["start_position_recorded"] = True
+        if recording_data.get("stop_reason") == "duration_limit":
+            stopped_payload["stop_reason"] = "duration_limit"
+            stopped_payload["macro_recording_time_limit"] = coerce_int(
+                recording_data.get("macro_recording_time_limit"),
+                0,
+            )
         manager.broadcast_to_session_clients(stopped_payload)
         return
 
@@ -376,6 +382,14 @@ def _notify_recording_stopped(
         duration_text = f"{duration_ms}ms"
     event_word = "event" if event_count == 1 else "events"
     prefix = f"Slot {slot}" if slot else "Macro recording"
+    if recording_data.get("stop_reason") == "duration_limit":
+        time_limit = coerce_int(recording_data.get("macro_recording_time_limit"), 0)
+        manager.send_notification(
+            "Keymasq: Macro Recording Limit Reached",
+            f"{prefix} stopped after the configured {time_limit} minute limit "
+            f"with {event_count} {event_word} captured.",
+        )
+        return
     manager.send_notification(
         "Keymasq: Macro Recording Stopped",
         f"{prefix} captured {event_count} {event_word} over {duration_text}.",

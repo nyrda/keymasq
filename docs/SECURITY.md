@@ -119,8 +119,10 @@ restart of `keymasq-session` — `keymasqd` runs disconnect cleanup before the
 next client can claim ownership:
 
 1. The runtime capture unlock held by that owner is cleared.
-2. All pending (unsaved) recordings are discarded.
-3. All grabbed input devices are released, so hardware returns to passthrough.
+2. Any active recording is aborted without producing or persisting a recording.
+3. All live capture sessions are closed and unused capture authorizations are revoked.
+4. All non-slot pending (unsaved) recordings are discarded.
+5. All grabbed input devices are released, so hardware returns to passthrough.
 
 Ownership release is then logged and the owner slot becomes free. The
 per-user `keymasq-session` broker reconnects automatically with exponential
@@ -240,7 +242,9 @@ Saving a temporary slot into the macro library requires the capture unlock
 flow when `unlock_required = true`. This is enforced in the GUI, the
 session broker, and the daemon command handler.
 
-If `macro_edit_requires_unlock = true`, macro inspection and edit operations are promoted into the same sensitive class.
+If `macro_edit_requires_unlock = true`, macro inspection and every persistent
+edit operation (create, update, rename, and delete) are promoted into the same
+sensitive class.
 
 ## Runtime Unlock Ownership Chain
 
@@ -283,7 +287,8 @@ Daemon-side sensitive commands currently include:
 - `CAPTURE_READ`
 - `CAPTURE_END`
 - `CAPTURE_COMBO`
-- optionally `MACRO_GET`, `MACRO_CREATE`, `MACRO_UPDATE` when macro editing is guarded
+- optionally `MACRO_GET`, `MACRO_CREATE`, `MACRO_UPDATE`, `MACRO_RENAME`, and
+  `MACRO_DELETE` when macro editing is guarded
 
 If an owner already exists for that UID, the same process and connection must continue issuing those commands. Otherwise the request is rejected with `sensitive_command_denied`.
 
@@ -346,12 +351,19 @@ Relevant controls:
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
   - `unlock_required`
+  - `macro_recording_time_limit`: maximum macro recording duration in whole minutes;
+    defaults to `10`, and `0` disables the time limit
   - `macro_edit_requires_unlock`
 
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
 
 `[recording_guard].unlock_required` controls whether sensitive original-input
 observation flows require an explicit unlock before they are allowed.
+
+`[recording_guard].macro_recording_time_limit` limits how long one macro recording
+may remain active. Reaching the limit stops the recording normally, keeps the
+temporary slot available for saving or playback, and notifies the desktop.
+Set it to `0` only when recordings should have no time limit.
 
 When `unlock_required = true`:
 
@@ -373,8 +385,8 @@ installs and development setups that do not provide the packaged Polkit-based
 unlock path. Macro recording still requires its separate opt-in.
 
 `[recording_guard].macro_edit_requires_unlock` is separate. It controls whether
-macro create/update/get APIs also require an unlock, in addition to live
-recording and capture.
+macro get/create/update/rename/delete APIs also require an unlock, in addition
+to live recording and capture.
 
 The GUI warns before editing left and right click mappings, and before saving a
 single-button, single-step combo that uses left or right click as the trigger.

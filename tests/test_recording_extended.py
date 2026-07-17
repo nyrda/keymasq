@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import evdev
 import pytest
 
+from keymasq.common.ipc import CommandType
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 
@@ -195,6 +196,47 @@ async def test_recording_stop_skips_callback_when_not_recording():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_recording_stops_finalize_the_spool_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=callback)
+    await recorder.start([])
+    spool = recorder._spool
+    assert spool is not None
+    original_finish = spool.finish
+    finish_started = asyncio.Event()
+    release_finish = asyncio.Event()
+    finish_calls = 0
+
+    async def finish() -> RecordingSnapshot:
+        nonlocal finish_calls
+        finish_calls += 1
+        finish_started.set()
+        await release_finish.wait()
+        return await original_finish()
+
+    monkeypatch.setattr(spool, "finish", finish)
+    callback.reset_mock()
+
+    automatic_stop = asyncio.create_task(recorder.stop(stop_reason="duration_limit"))
+    await asyncio.wait_for(finish_started.wait(), timeout=0.5)
+    manual_stop = asyncio.create_task(recorder.stop())
+    await asyncio.sleep(0)
+
+    assert manual_stop.done() is False
+    release_finish.set()
+    automatic_result, manual_result = await asyncio.gather(automatic_stop, manual_stop)
+
+    assert finish_calls == 1
+    assert automatic_result["stop_reason"] == "duration_limit"
+    assert manual_result == {"status": "ok"}
+    recording_id = str(automatic_result["pending_recording_id"])
+    assert (await recorder.pending_recording(recording_id)).recording_id == recording_id
+    callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_recording_event_filters_sync_and_msc_events() -> None:
     recorder = RecordingManager()
 
@@ -233,6 +275,58 @@ async def test_recording_progress_reports_latest_event() -> None:
     callback.assert_awaited_once()
     assert callback.await_args.args[0].value == "recording_progress"
     assert callback.await_args.args[1] == {"event_count": 2, "duration_ms": 2}
+
+
+@pytest.mark.asyncio
+async def test_recording_duration_limit_stops_normally_from_progress_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=callback, macro_recording_time_limit=1)
+    await recorder.start([])
+    original_progress_task = recorder._progress_task
+    assert original_progress_task is not None
+    original_progress_task.cancel()
+    await asyncio.gather(original_progress_task, return_exceptions=True)
+    recorder._recording_started_at = asyncio.get_running_loop().time() - 60
+    callback.reset_mock()
+    monkeypatch.setattr("keymasq.keymasqd.recording.asyncio.sleep", AsyncMock())
+
+    progress_task = asyncio.create_task(recorder._monitor_progress())
+    recorder._progress_task = progress_task
+    await progress_task
+
+    assert recorder.is_recording is False
+    callback.assert_awaited_once()
+    event_type, payload = callback.await_args.args
+    assert event_type is CommandType.RECORDING_STOPPED
+    assert payload["stop_reason"] == "duration_limit"
+    assert payload["macro_recording_time_limit"] == 1
+    assert isinstance(payload["pending_recording_id"], str)
+
+
+@pytest.mark.asyncio
+async def test_zero_recording_duration_limit_does_not_auto_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    callback = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=callback, macro_recording_time_limit=0)
+    await recorder.start([])
+    original_progress_task = recorder._progress_task
+    assert original_progress_task is not None
+    original_progress_task.cancel()
+    await asyncio.gather(original_progress_task, return_exceptions=True)
+    recorder._progress_task = None
+    recorder._recording_started_at = asyncio.get_running_loop().time() - 24 * 60 * 60
+    callback.reset_mock()
+    callback.side_effect = lambda *_args: setattr(recorder, "_stopped", True)
+    monkeypatch.setattr("keymasq.keymasqd.recording.asyncio.sleep", AsyncMock())
+
+    await recorder._monitor_progress()
+
+    callback.assert_awaited_once()
+    assert callback.await_args.args[0] is CommandType.RECORDING_PROGRESS
+    await recorder.abort()
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -15,6 +16,7 @@ from keymasq.common.model.actions import (
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd import device_manager, recording
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.macro_file import MacroFileChangedError
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import outputs as global_outputs
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
@@ -86,6 +88,28 @@ async def test_recording_manager_records_start_position_as_initial_natural_move(
         "stop_on_failure": False,
     }
     assert events[1]["code"] == evdev.ecodes.KEY_A
+
+
+@pytest.mark.asyncio
+async def test_recording_abort_discards_active_spool_without_stop_event(tmp_path: Path) -> None:
+    broadcast = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=broadcast, spool_dir=tmp_path)
+    await recorder.start([])
+    broadcast.reset_mock()
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+
+    await recorder.abort()
+    await recorder.abort()
+
+    assert recorder.is_recording is False
+    assert recorder._spool is None
+    assert recorder._progress_task is None
+    assert recorder._monitoring_tasks == []
+    assert list(tmp_path.glob("recording-*.jsonl")) == []
+    broadcast.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -278,6 +302,80 @@ async def test_invalid_recording_slot_is_treated_as_unslotted(tmp_path: Path) ->
 
     snapshot = await recorder.pending_recording(str(result["pending_recording_id"]))
     assert snapshot.recording_slot == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_slot_metadata_and_orphaned_event_file_are_removed(
+    tmp_path: Path,
+) -> None:
+    event_path = tmp_path / "slot-2-recording.jsonl"
+    event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    invalid_meta = tmp_path / "slot-2.json"
+    invalid_meta.write_text("not-json\n", encoding="utf-8")
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert not event_path.exists()
+    assert not invalid_meta.exists()
+    assert not (tmp_path / "quarantine").exists()
+
+
+@pytest.mark.asyncio
+async def test_transient_unreadable_slot_metadata_preserves_event_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event_path = tmp_path / "slot-2-recording.jsonl"
+    event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    meta_path = tmp_path / "slot-2.json"
+    meta_path.write_text('{"recording_slot":2}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == meta_path:
+            raise PermissionError("temporarily unreadable")
+        return original_read_text(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert meta_path.exists()
+    assert event_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_transient_metadata_failure_defers_all_orphan_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_event_path = tmp_path / "slot-2-invalid.jsonl"
+    invalid_event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    invalid_meta_path = tmp_path / "slot-2.json"
+    invalid_meta_path.write_text("not-json\n", encoding="utf-8")
+    unreadable_event_path = tmp_path / "slot-3-recording.jsonl"
+    unreadable_event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    unreadable_meta_path = tmp_path / "slot-3.json"
+    unreadable_meta_path.write_text('{"recording_slot":3}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == unreadable_meta_path:
+            raise PermissionError("temporarily unreadable")
+        return original_read_text(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert not invalid_meta_path.exists()
+    assert invalid_event_path.exists()
+    assert unreadable_meta_path.exists()
+    assert unreadable_event_path.exists()
+    assert not (tmp_path / "quarantine").exists()
 
 
 @pytest.mark.asyncio
@@ -658,6 +756,31 @@ async def test_play_macro_allows_concurrent_playback(
 
 
 @pytest.mark.asyncio
+async def test_stored_macro_playback_uses_revision_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    snapshot = SimpleNamespace(
+        meta={"event_count": 1, "duration_us": 0, "revision": 1},
+        iter_events=lambda: iter([{"t_us": 0, "type": 1, "code": 30, "value": 1}]),
+    )
+    manager.macro_store = SimpleNamespace(open_snapshot=MagicMock(return_value=snapshot))
+
+    async def fake_play_macro_task(_manager: DeviceManager, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(scheduler, "play_macro_task", fake_play_macro_task)
+
+    result = await manager.play_macro(macro_name="stored")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+    await asyncio.sleep(0)
+
+    assert result == {"status": "ok"}
+    manager.macro_store.open_snapshot.assert_called_once_with("stored")
+
+
+@pytest.mark.asyncio
 async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -696,8 +819,8 @@ async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
 async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
-    get_meta = MagicMock(side_effect=AssertionError("stored macro lookup should be skipped"))
-    manager.macro_store = SimpleNamespace(get_meta=get_meta, iter_events=MagicMock())
+    open_snapshot = MagicMock(side_effect=AssertionError("stored macro lookup should be skipped"))
+    manager.macro_store = SimpleNamespace(open_snapshot=open_snapshot)
 
     result = await manager.play_macro(
         macro_events=[],
@@ -706,7 +829,7 @@ async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> 
     )
 
     assert result == {"status": "ok"}
-    get_meta.assert_not_called()
+    open_snapshot.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -962,6 +1085,48 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
     )
 
     assert sleep_calls == [pytest.approx(0.2), 0]
+
+
+@pytest.mark.asyncio
+async def test_looped_macro_ends_cleanly_when_stored_revision_changes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = DeviceManager()
+    iteration_count = 0
+
+    def iter_events() -> Iterator[dict[str, object]]:
+        nonlocal iteration_count
+        iteration_count += 1
+        if iteration_count > 1:
+            raise MacroFileChangedError("changed.kmacro.xz")
+        yield {"t_us": 0, "macro_action": "wait", "duration_us": 0}
+
+    with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
+        await scheduler.play_macro_task(
+            manager,
+            instance_id=1,
+            macro_events=[],
+            macro_event_source=MacroEventSource(
+                event_count=1,
+                duration_us=0,
+                iter_events=iter_events,
+            ),
+            macro_name="changed",
+            replay_mouse_movement=True,
+            replay_mouse_clicks=True,
+            speed=1.0,
+            loop_mode="count",
+            loop_count=3,
+            move_to_start=False,
+            start_x=0,
+            start_y=0,
+            block_mouse_movement=False,
+            deps=device_manager._macro_runtime_deps(),
+        )
+
+    assert iteration_count == 2
+    assert "Macro playback ended because changed was modified or removed" in caplog.text
+    assert "Macro playback aborted" not in caplog.text
 
 
 @pytest.mark.asyncio

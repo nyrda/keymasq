@@ -1199,6 +1199,38 @@ async def test_recording_stopped_event_notifies_user_with_slot_summary() -> None
 
 
 @pytest.mark.asyncio
+async def test_recording_duration_limit_event_explains_automatic_stop() -> None:
+    manager = SessionManager()
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RECORDING_STOPPED,
+        {
+            "pending_recording_id": "recording-limited",
+            "recording_slot": 1,
+            "duration_ms": 600_000,
+            "event_count": 20,
+            "device_types": ["keyboard"],
+            "stop_reason": "duration_limit",
+            "macro_recording_time_limit": 10,
+        },
+    )
+
+    manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
+        "Keymasq: Macro Recording Limit Reached",
+        "Slot 1 stopped after the configured 10 minute limit with 20 events captured.",
+    )
+    broadcast = manager.broadcast_to_session_clients.call_args.args[0]  # type: ignore[attr-defined]
+    assert broadcast["stop_reason"] == "duration_limit"
+    assert broadcast["macro_recording_time_limit"] == 10
+    assert manager.recording_state.pending_slots[1].data["pending_recording_id"] == (
+        "recording-limited"
+    )
+
+
+@pytest.mark.asyncio
 async def test_action_trigger_play_macro_slot_dispatches_slot_playback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from keymasq.keymasqd.macro_file import (
+    MacroFileChangedError,
     MacroFileMeta,
+    MacroFileSnapshot,
     load_macro,
     macro_payload_from_events,
     write_macro,
@@ -51,6 +53,49 @@ def test_write_macro_closes_temp_file_descriptor(tmp_path: Path) -> None:
             MacroFileMeta(name=f"macro-{index}", event_count=1),
             [{"type": 1, "code": 30, "value": 1, "t_us": index}],
         )
+        assert _open_fd_count() == baseline
+
+
+def test_macro_snapshot_stream_survives_source_replacement(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    events = [{"type": 1, "code": index, "value": 1, "t_us": index} for index in range(200)]
+    write_macro(path, MacroFileMeta(name="macro", event_count=len(events)), events)
+    snapshot = MacroFileSnapshot(path)
+    iterator = snapshot.iter_events()
+
+    assert next(iterator) == events[0]
+    write_macro(
+        path,
+        MacroFileMeta(name="macro", event_count=1, revision=2),
+        [{"type": 1, "code": 999, "value": 1, "t_us": 0}],
+    )
+
+    assert list(iterator) == events[1:]
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
+
+
+def test_macro_snapshot_detects_removed_source(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    write_macro(path, MacroFileMeta(name="macro", event_count=0), [])
+    snapshot = MacroFileSnapshot(path)
+
+    path.unlink()
+
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
+
+
+def test_macro_snapshot_repeated_streams_do_not_hold_descriptors(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    events = [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    write_macro(path, MacroFileMeta(name="macro", event_count=1), events)
+    baseline = _open_fd_count()
+
+    snapshot = MacroFileSnapshot(path)
+    assert _open_fd_count() == baseline
+    for _ in range(10):
+        assert list(snapshot.iter_events()) == events
         assert _open_fd_count() == baseline
 
 

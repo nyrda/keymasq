@@ -123,6 +123,12 @@ class Application(Adw.Application):
 
         self.window.present()
 
+    def do_shutdown(self) -> None:
+        from keymasq.gui.session_client import shutdown_gui_runtime
+
+        shutdown_gui_runtime()
+        Adw.Application.do_shutdown(self)
+
     def _on_superkeys(self, action, param) -> None:
         self._open_superkey_dialog()
 

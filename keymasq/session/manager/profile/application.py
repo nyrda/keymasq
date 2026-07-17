@@ -116,6 +116,19 @@ async def _await_cleanup(awaitable: Awaitable[object]) -> None:
     await task
 
 
+async def _disconnect_after_mapping_timeout(
+    manager: "SessionManager",
+    hardware_id: str,
+) -> None:
+    try:
+        await _await_cleanup(manager.client.disconnect())
+    except asyncio.CancelledError:
+        log.warning("Daemon disconnect was cancelled after mapping timeout for %s", hardware_id)
+        raise
+    except Exception:
+        log.exception("Failed to disconnect after mapping timeout for %s", hardware_id)
+
+
 def _commit_device_references(
     manager: "SessionManager",
     hardware_id: str,
@@ -464,6 +477,12 @@ async def _send_set_mapping_command(
             raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to set mapping: %s", result.error)
 
+    except TimeoutError as exc:
+        if staged_refs is not None:
+            references.retain_device(manager, hardware_id, staged_refs)
+            keep_staged_refs = True
+        await _disconnect_after_mapping_timeout(manager, hardware_id)
+        log.error("Timed out setting mapping for %s: %s", hardware_id, exc)
     except OSError as exc:
         log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
     except Exception:
@@ -783,6 +802,13 @@ async def update_mapping(
             raise asyncio.CancelledError
         raise_if_stale_profile_apply(manager, generation)
         log.error("Failed to update mapping: %s", result.error)
+        return False
+    except TimeoutError as exc:
+        if staged_refs is not None:
+            references.retain_device(manager, hardware_id, staged_refs)
+            keep_staged_refs = True
+        await _disconnect_after_mapping_timeout(manager, hardware_id)
+        log.error("Timed out updating mapping for %s: %s", hardware_id, exc)
         return False
     except OSError as exc:
         log.error("Exception updating mapping: %s: %s", type(exc).__name__, exc)

@@ -215,7 +215,7 @@ async def capture_begin_for_paths(
     if owner_writer is not None:
         manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
     if cancelled:
-        await _await_cleanup(capture_end(manager, hardware_id))
+        await _end_cancelled_capture(manager, hardware_id)
         raise asyncio.CancelledError
     response = {
         "status": "ok",
@@ -237,6 +237,29 @@ async def _rollback_capture_begin(manager: "SessionManager", hardware_id: str) -
         raise
     except Exception:
         log.exception("Failed to roll back capture begin for hardware_id=%s", hardware_id)
+
+
+async def _end_cancelled_capture(manager: "SessionManager", hardware_id: str) -> None:
+    end_task = asyncio.create_task(capture_end(manager, hardware_id))
+    await _await_cleanup(asyncio.gather(end_task, return_exceptions=True))
+    result: JsonObject | None = None
+    if end_task.done() and not end_task.cancelled():
+        try:
+            result = end_task.result()
+        except Exception:
+            log.exception("Failed to settle cancelled capture end for %s", hardware_id)
+    if result is not None and result.get("status") == "ok":
+        return
+
+    try:
+        await _await_cleanup(manager.client.disconnect())
+    except asyncio.CancelledError:
+        log.warning("Daemon disconnect was cancelled while ending capture %s", hardware_id)
+        return
+    except Exception:
+        log.exception("Failed to disconnect after capture end failure for %s", hardware_id)
+        return
+    await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
 
 
 async def capture_read(manager: "SessionManager", hardware_id: str) -> JsonObject:

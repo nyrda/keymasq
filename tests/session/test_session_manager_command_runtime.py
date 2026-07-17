@@ -2315,6 +2315,82 @@ async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_cancellation_rolls_back_when_daemon_end_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def send_command(command: Command) -> Response:
+        if command.command == CommandType.CAPTURE_BEGIN:
+            request_started.set()
+            await release_response.wait()
+            return Response(status="ok", data={"token": "token-1", "warnings": []})
+        return Response(status="error", error="capture end failed")
+
+    manager.client.send_command = AsyncMock(side_effect=send_command)
+    manager.client.disconnect = AsyncMock()
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"capture ended for {hardware_id}",
+    )
+
+
+@pytest.mark.asyncio
+async def test_begin_capture_cancellation_preserves_state_when_disconnect_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def send_command(command: Command) -> Response:
+        if command.command == CommandType.CAPTURE_BEGIN:
+            request_started.set()
+            await release_response.wait()
+            return Response(status="ok", data={"token": "token-1", "warnings": []})
+        return Response(status="error", error="capture end failed")
+
+    manager.client.send_command = AsyncMock(side_effect=send_command)
+    manager.client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    assert manager.capture_state.tokens == {hardware_id: "token-1"}
+    assert manager.capture_state.locks == {hardware_id}
+    assert manager.capture_state.resume_profiles == {hardware_id: []}
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_defers_repeated_cancellation_until_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

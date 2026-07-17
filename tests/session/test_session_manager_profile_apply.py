@@ -177,6 +177,128 @@ async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() ->
 
 
 @pytest.mark.asyncio
+async def test_mapping_update_timeout_retains_uncertain_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock()
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7, 10}}
+    assert manager.exec_state.exec_refs == {
+        7: old_binding,
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_mapping_update_timeout_remains_handled_when_disconnect_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert 10 in manager.exec_state.exec_refs
+
+
+@pytest.mark.asyncio
+async def test_mapping_timeout_disconnect_propagates_cancellation() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock(side_effect=asyncio.CancelledError())
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert 10 in manager.exec_state.exec_refs
+
+
+@pytest.mark.asyncio
+async def test_initial_mapping_timeout_retains_uncertain_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock()
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    await profile_application._send_set_mapping_command(
+        manager,
+        hardware_id,
+        resolved,
+        Mock(),
+        generation=None,
+    )
+
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7, 10}}
+    assert manager.exec_state.exec_refs == {
+        7: old_binding,
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+    }
+
+
+@pytest.mark.asyncio
 async def test_failed_combo_update_preserves_acknowledged_exec_references() -> None:
     manager = SessionManager()
     old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")

@@ -2391,6 +2391,46 @@ async def test_begin_capture_defers_cancellation_during_capture_end(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_defers_repeated_cancellation_during_rejected_rollback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+    rollback_started = asyncio.Event()
+    release_rollback = asyncio.Event()
+
+    async def send_command(_command: Command) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="error", error="rejected")
+
+    async def reevaluate_profiles(*_args, **_kwargs) -> None:
+        rollback_started.set()
+        await release_rollback.wait()
+
+    manager.client.send_command = AsyncMock(side_effect=send_command)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+    capture_task = asyncio.create_task(
+        recording_capture_module.capture_begin(manager, hardware_id)
+    )
+    await request_started.wait()
+    capture_task.cancel()
+    release_response.set()
+    await rollback_started.wait()
+    capture_task.cancel()
+    release_rollback.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await capture_task
+
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_preserves_cancellation_when_request_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

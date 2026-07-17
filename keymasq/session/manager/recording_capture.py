@@ -168,14 +168,22 @@ async def capture_begin_for_paths(
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
-        await _rollback_capture_begin(manager, hardware_id)
+        rollback = _rollback_capture_begin(manager, hardware_id)
+        if cancelled:
+            await _await_cleanup(rollback)
+        else:
+            await rollback
         if cancelled:
             raise asyncio.CancelledError
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
     token = coerce_str(result_data.get("token"), "")
     if not token:
-        await _rollback_capture_begin(manager, hardware_id)
+        rollback = _rollback_capture_begin(manager, hardware_id)
+        if cancelled:
+            await _await_cleanup(rollback)
+        else:
+            await rollback
         if cancelled:
             raise asyncio.CancelledError
         return {"status": "error", "message": "Missing capture token"}

@@ -303,7 +303,7 @@ async def test_invalid_recording_slot_is_treated_as_unslotted(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_incomplete_slot_metadata_scan_preserves_uncertain_event_files(
+async def test_invalid_slot_metadata_and_orphaned_event_file_are_removed(
     tmp_path: Path,
 ) -> None:
     event_path = tmp_path / "slot-2-recording.jsonl"
@@ -316,12 +316,7 @@ async def test_incomplete_slot_metadata_scan_preserves_uncertain_event_files(
 
     assert not event_path.exists()
     assert not invalid_meta.exists()
-    quarantined = list((tmp_path / "quarantine").glob("slot-2.json.invalid-*"))
-    assert len(quarantined) == 1
-    quarantined_events = list(
-        (tmp_path / "quarantine").glob("slot-2-recording.jsonl.uncertain-*")
-    )
-    assert len(quarantined_events) == 1
+    assert not (tmp_path / "quarantine").exists()
 
 
 @pytest.mark.asyncio
@@ -350,7 +345,7 @@ async def test_transient_unreadable_slot_metadata_preserves_event_file(
 
 
 @pytest.mark.asyncio
-async def test_transient_metadata_failure_preserves_events_from_mixed_scan(
+async def test_transient_metadata_failure_defers_all_orphan_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -375,13 +370,10 @@ async def test_transient_metadata_failure_preserves_events_from_mixed_scan(
     await recorder.load_persisted_slot_recordings()
 
     assert not invalid_meta_path.exists()
-    assert not invalid_event_path.exists()
+    assert invalid_event_path.exists()
     assert unreadable_meta_path.exists()
     assert unreadable_event_path.exists()
-    quarantined_events = list(
-        (tmp_path / "quarantine").glob("slot-2-invalid.jsonl.uncertain-*")
-    )
-    assert len(quarantined_events) == 1
+    assert not (tmp_path / "quarantine").exists()
 
 
 @pytest.mark.asyncio

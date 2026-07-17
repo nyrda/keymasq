@@ -470,7 +470,6 @@ class RecordingManager:
             return
 
         scan_complete = True
-        invalid_meta_stems: set[str] = set()
         for meta_path in meta_paths:
             try:
                 decoded = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -528,28 +527,22 @@ class RecordingManager:
                 scan_complete = False
                 log.warning("Ignoring unreadable recording slot metadata %s: %s", meta_path, exc)
             except json.JSONDecodeError as exc:
-                scan_complete = False
-                invalid_meta_stems.add(meta_path.stem)
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid JSON: %s",
                     meta_path,
                     exc,
                 )
-                _quarantine_invalid_slot_metadata(meta_path)
+                _remove_invalid_slot_metadata(meta_path)
             except UnicodeDecodeError as exc:
-                scan_complete = False
-                invalid_meta_stems.add(meta_path.stem)
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid UTF-8: %s",
                     meta_path,
                     exc,
                 )
-                _quarantine_invalid_slot_metadata(meta_path)
+                _remove_invalid_slot_metadata(meta_path)
             except ValueError as exc:
-                scan_complete = False
-                invalid_meta_stems.add(meta_path.stem)
                 log.warning("Ignoring invalid recording slot metadata %s: %s", meta_path, exc)
-                _quarantine_invalid_slot_metadata(meta_path)
+                _remove_invalid_slot_metadata(meta_path)
             except Exception:
                 scan_complete = False
                 log.exception("Unexpected failure loading recording slot metadata %s", meta_path)
@@ -560,18 +553,6 @@ class RecordingManager:
                 "event files in %s",
                 self._spool_dir,
             )
-            for meta_stem in invalid_meta_stems:
-                try:
-                    invalid_slot_paths = list(self._spool_dir.glob(f"{meta_stem}-*.jsonl"))
-                except OSError:
-                    continue
-                for path in invalid_slot_paths:
-                    try:
-                        is_loaded = path.resolve() in loaded_event_paths
-                    except OSError:
-                        is_loaded = False
-                    if not is_loaded:
-                        _quarantine_slot_artifact(path, reason="uncertain")
             return
 
         try:
@@ -815,24 +796,13 @@ def _close_recording_input_device(device: _RecordingInputDevice) -> None:
         log.exception("Unexpected failure closing extra recording device")
 
 
-def _quarantine_invalid_slot_metadata(meta_path: Path) -> None:
-    _quarantine_slot_artifact(meta_path, reason="invalid")
-
-
-def _quarantine_slot_artifact(path: Path, *, reason: str) -> None:
+def _remove_invalid_slot_metadata(meta_path: Path) -> None:
     try:
-        quarantine_dir = path.parent / "quarantine"
-        quarantine_dir.mkdir(mode=0o700, exist_ok=True)
-        os.chmod(quarantine_dir, 0o700)
-        target = quarantine_dir / f"{path.name}.{reason}-{time.time_ns()}"
-        os.replace(path, target)
-        target.chmod(0o600)
-    except FileNotFoundError:
-        return
+        meta_path.unlink(missing_ok=True)
     except OSError as exc:
-        log.warning("Failed to quarantine recording slot artifact %s: %s", path, exc)
+        log.debug("Failed to remove invalid recording slot metadata %s: %s", meta_path, exc)
     except Exception:
-        log.exception("Unexpected failure quarantining recording slot artifact %s", path)
+        log.exception("Unexpected failure removing invalid recording slot metadata %s", meta_path)
 
 
 def _start_mouse_move_event(x: int, y: int) -> RecordingEvent:

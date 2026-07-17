@@ -1,5 +1,6 @@
 import asyncio
 import json
+import signal
 import threading
 from types import SimpleNamespace
 from typing import cast
@@ -238,6 +239,43 @@ async def test_start_wires_runtime_tasks_and_stops_on_shutdown(
     manager.stop.assert_awaited_once()  # type: ignore[attr-defined]
     assert manager.connect_task is not None
     assert manager.compositor_state.supervisor_task is not None
+
+
+@pytest.mark.asyncio
+async def test_start_stops_after_failure_following_session_socket_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    server = _FakeSessionServer()
+
+    async def start_session_server() -> None:
+        manager.session_server = server  # type: ignore[assignment]
+
+    manager._start_session_server = start_session_server  # type: ignore[method-assign]
+    manager.mpris_controller = SimpleNamespace(  # type: ignore[assignment]
+        start=AsyncMock(side_effect=RuntimeError("startup failed")),
+        stop=AsyncMock(),
+    )
+    manager.client.disconnect = AsyncMock()  # type: ignore[method-assign]
+    manager.dbus.disconnect = AsyncMock()  # type: ignore[method-assign]
+    removed_signals: list[signal.Signals] = []
+    monkeypatch.setattr(
+        session_manager_core_module.asyncio,
+        "get_event_loop",
+        lambda: SimpleNamespace(
+            add_signal_handler=lambda *_args: None,
+            remove_signal_handler=lambda sig: removed_signals.append(sig),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="startup failed"):
+        await manager.start()
+
+    assert manager.running is False
+    assert server.closed is True
+    assert server.wait_closed_calls == 1
+    assert set(removed_signals) == {signal.SIGINT, signal.SIGTERM, signal.SIGHUP}
+    manager.client.disconnect.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -1319,8 +1357,7 @@ async def test_handle_keymasqd_disconnect_clears_runtime_state_and_cancels_grab_
     manager.profile_state.grab_retry_tasks = {"hardware": retry_task}
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
 
-    manager._handle_keymasqd_disconnect()
-    await asyncio.sleep(0)
+    await manager._handle_keymasqd_disconnect()
 
     assert retry_task.cancelled()
     assert manager.connected is False

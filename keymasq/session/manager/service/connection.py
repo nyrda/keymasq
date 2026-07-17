@@ -5,9 +5,9 @@ from typing import Any, cast
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.paths import SOCKET_PATH
 
-from .. import recording_device_selection, recording_lifecycle
+from .. import events, recording_device_selection, recording_lifecycle
 from ..common import JsonObject
-from ..profile import coordinator
+from ..profile import coordinator, runtime_state
 
 log = logging.getLogger("keymasq-session")
 
@@ -60,7 +60,7 @@ class DaemonConnectionMixin:
 
                 await self.client.wait_disconnected()
                 log.warning("Disconnected from keymasqd")
-                self._handle_keymasqd_disconnect()
+                await self._handle_keymasqd_disconnect()
                 if self.restart_on_daemon_disconnect:
                     log.info("Requesting keymasq-session restart after keymasqd disconnect")
                     self.restart_requested = True
@@ -69,10 +69,10 @@ class DaemonConnectionMixin:
 
             except OSError as e:
                 log.warning(f"Connection failed: {e}")
-                self._handle_keymasqd_disconnect()
+                await self._handle_keymasqd_disconnect()
             except Exception:
                 log.exception("Unexpected keymasqd connection loop failure")
-                self._handle_keymasqd_disconnect()
+                await self._handle_keymasqd_disconnect()
 
             if self.running:
                 try:
@@ -81,18 +81,16 @@ class DaemonConnectionMixin:
                     pass
                 retry_delay = min(retry_delay * 2, max_delay)
 
-    def _handle_keymasqd_disconnect(self: Any) -> None:
+    async def _handle_keymasqd_disconnect(self: Any) -> None:
         was_connected = self.connected
+        await events.cancel_event_tasks(self)
+        await runtime_state.cancel_all_grab_retries(self)
         self.connected = False
         self.profile_state.grabbed_devices.clear()
         self.profile_state.grabbed_interfaces.clear()
         self.profile_state.grab_waiting_devices.clear()
         self.profile_state.grab_status.clear()
         self.profile_state.device_runtime_status.clear()
-        for task in list(self.profile_state.grab_retry_tasks.values()):
-            if not task.done():
-                task.cancel()
-        self.profile_state.grab_retry_tasks.clear()
         self.profile_state.last_sent_grab_signatures.clear()
         self.profile_state.last_sent_mapping_signatures.clear()
         self.profile_state.last_sent_combo_signature = ""
@@ -113,6 +111,13 @@ class DaemonConnectionMixin:
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False
         self.recording_state.devices_cache_include_other = False
+        self.capture_state.tokens.clear()
+        self.capture_state.locks.clear()
+        self.capture_state.resume_profiles.clear()
+        self.capture_state.owner_writer_ids.clear()
+        self.exec_state.exec_refs.clear()
+        self.exec_state.device_exec_refs.clear()
+        self.exec_state.combo_exec_refs.clear()
 
         if was_connected:
             self._broadcast_keymasqd_status(False)

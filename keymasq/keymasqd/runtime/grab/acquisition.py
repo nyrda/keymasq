@@ -74,7 +74,6 @@ async def grab_device_unlocked(
     if request.update_desired:
         persist_desired_grab(manager, request, plan, deps)
     log_grab_request(plan)
-    update_existing_devices(plan, request, deps)
     reconcile_existing_interface_releases(manager, request.hardware_id, plan, deps)
     callbacks = build_runtime_callbacks(manager, deps)
     state = GrabAcquisitionState(devices=list(plan.existing_devices))
@@ -379,7 +378,6 @@ async def finalize_grab(
 ) -> dict[str, object]:
     """Commit acquired devices, source-hiding state, and the public result payload."""
 
-    del deps  # Part of the transaction contract; finalization needs only resolved state.
     waiting_for_device = state.is_waiting_for_device(plan)
     if (
         not waiting_for_device
@@ -415,6 +413,10 @@ async def finalize_grab(
                 manager,
                 request.hardware_id,
             )
+
+    # Existing interfaces continue running their old decoding tables until all
+    # newly requested interfaces have been acquired successfully.
+    update_existing_devices(plan, request, deps)
 
     return {
         "grabbed": True,

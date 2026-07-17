@@ -38,6 +38,33 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+_RESOLVED_EXEC_CMD = "_keymasq_resolved_exec_cmd"
+_RESOLVED_EXEC_HARDWARE_ID = "_keymasq_resolved_exec_hardware_id"
+
+
+def prepare_event(
+    manager: "SessionManager",
+    event_type: CommandType,
+    data: JsonObject,
+) -> JsonObject:
+    """Snapshot reference-backed event data before queued handling can be delayed."""
+
+    prepared = dict(data)
+    prepared.pop(_RESOLVED_EXEC_CMD, None)
+    prepared.pop(_RESOLVED_EXEC_HARDWARE_ID, None)
+    if event_type != CommandType.ACTION_TRIGGER:
+        return prepared
+    exec_ref_raw = prepared.get("exec_ref")
+    exec_ref = coerce_int(exec_ref_raw, -1) if exec_ref_raw is not None else None
+    if exec_ref is None:
+        return prepared
+    binding = manager.exec_state.exec_refs.get(exec_ref)
+    if binding is None:
+        return prepared
+    prepared[_RESOLVED_EXEC_CMD] = binding.cmd
+    if binding.hardware_id:
+        prepared[_RESOLVED_EXEC_HARDWARE_ID] = binding.hardware_id
+    return prepared
 
 
 def create_event_task[TaskResult](
@@ -146,15 +173,28 @@ async def handle_event(
         exec_ref_raw = data.get("exec_ref")
         exec_ref = coerce_int(exec_ref_raw, -1) if exec_ref_raw is not None else None
         if exec_ref is not None:
-            binding = manager.exec_state.exec_refs.get(exec_ref)
-            if binding:
+            resolved_cmd = data.get(_RESOLVED_EXEC_CMD)
+            if isinstance(resolved_cmd, str):
                 exec_data = dict(data)
-                exec_data["cmd"] = binding.cmd
-                if binding.hardware_id:
-                    exec_data["hardware_id"] = binding.hardware_id
+                exec_data["cmd"] = resolved_cmd
+                hardware_id = data.get(_RESOLVED_EXEC_HARDWARE_ID)
+                if isinstance(hardware_id, str) and hardware_id:
+                    exec_data["hardware_id"] = hardware_id
                 create_event_task(manager, handle_exec_trigger(manager, exec_data), name="exec")
             else:
-                log.warning("Unknown exec_ref: %s", exec_ref)
+                binding = manager.exec_state.exec_refs.get(exec_ref)
+                if binding:
+                    exec_data = dict(data)
+                    exec_data["cmd"] = binding.cmd
+                    if binding.hardware_id:
+                        exec_data["hardware_id"] = binding.hardware_id
+                    create_event_task(
+                        manager,
+                        handle_exec_trigger(manager, exec_data),
+                        name="exec",
+                    )
+                else:
+                    log.warning("Unknown exec_ref: %s", exec_ref)
 
         action_type_str = str(data.get("action_type", "") or "")
         if action_type_str == "start_macro_recording":

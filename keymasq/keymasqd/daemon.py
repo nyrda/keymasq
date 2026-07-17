@@ -729,6 +729,10 @@ class Daemon:
             self.recording_manager.discard_all_pending_recordings,
         )
         await self._run_async_cleanup(
+            "end active captures",
+            lambda: asyncio.to_thread(self.capture_manager.end_all),
+        )
+        await self._run_async_cleanup(
             "release all devices after client disconnect",
             self.device_manager.release_all_devices,
         )

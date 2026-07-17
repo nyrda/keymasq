@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from collections.abc import Awaitable
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
-from keymasq.common.ipc import Command, CommandType
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from .common import JsonObject, json_list, json_object
@@ -13,6 +14,87 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+_CANCEL_SETTLE_TIMEOUT_S = 11.0
+_CANCEL_CLEANUP_TIMEOUT_S = 1.0
+
+
+def _observe_cleanup_task(task: asyncio.Future[object]) -> None:
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
+
+
+async def _send_capture_begin(
+    manager: "SessionManager",
+    command: Command,
+) -> tuple[Response, bool]:
+    """Settle CAPTURE_BEGIN before propagating caller cancellation."""
+
+    task = asyncio.create_task(manager.client.send_command(command))
+    try:
+        return await asyncio.shield(task), False
+    except asyncio.CancelledError as cancelled:
+        outcome = await _settle_cancelled_capture_begin(manager, task, cancelled)
+        if isinstance(outcome, BaseException):
+            raise cancelled from outcome
+        return outcome, True
+
+
+async def _settle_cancelled_capture_begin(
+    manager: "SessionManager",
+    task: asyncio.Task[Response],
+    cancelled: asyncio.CancelledError,
+) -> Response | BaseException:
+    settled = asyncio.gather(task, return_exceptions=True)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_SETTLE_TIMEOUT_S
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            return (
+                await asyncio.wait_for(
+                    asyncio.shield(settled),
+                    timeout=remaining,
+                )
+            )[0]
+        except asyncio.CancelledError:
+            continue
+        except TimeoutError:
+            break
+
+    task.cancel()
+    await _await_cleanup(asyncio.gather(task, return_exceptions=True))
+    await _await_cleanup(manager.client.disconnect())
+    raise cancelled from TimeoutError("capture begin cancellation settlement timed out")
+
+
+async def _await_cleanup(awaitable: Awaitable[object]) -> bool:
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_CLEANUP_TIMEOUT_S
+    while not task.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for capture cancellation cleanup")
+            return cancelled
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+        except asyncio.CancelledError:
+            cancelled = True
+            continue
+        except TimeoutError:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for capture cancellation cleanup")
+            return cancelled
+    await task
+    return cancelled
 
 
 async def _begin_capture(
@@ -30,9 +112,18 @@ async def _begin_capture(
     manager.capture_state.resume_profiles[hardware_id] = current_profiles
 
     released = False
-    if hardware_id in manager.profile_state.grabbed_devices:
-        await application.deactivate_profile(manager, hardware_id, immediate=True)
-        released = True
+    try:
+        if hardware_id in manager.profile_state.grabbed_devices:
+            released = await application.deactivate_profile(
+                manager,
+                hardware_id,
+                immediate=True,
+            )
+            if not released:
+                raise RuntimeError(f"Failed to release {hardware_id} for capture")
+    except BaseException:
+        await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
+        raise
 
     return {
         "status": "ok",
@@ -74,9 +165,10 @@ async def capture_begin_for_paths(
             "status": "error",
             "message": f"Hardware config for {hardware_id} has no evdev paths",
         }
-    lock_result = await _begin_capture(manager, hardware_id)
     try:
-        result = await manager.client.send_command(
+        lock_result = await _begin_capture(manager, hardware_id)
+        result, cancelled = await _send_capture_begin(
+            manager,
             Command(
                 command=CommandType.CAPTURE_BEGIN,
                 data={
@@ -87,35 +179,87 @@ async def capture_begin_for_paths(
                 },
             )
         )
+    except asyncio.CancelledError:
+        await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
+        raise
     except OSError:
-        await _end_capture(manager, hardware_id)
+        if await _await_cleanup(_rollback_capture_begin(manager, hardware_id)):
+            raise asyncio.CancelledError from None
         return {"status": "error", "message": "Daemon unavailable"}
     except Exception:
         log.exception("Unexpected failure beginning capture for hardware_id=%s", hardware_id)
-        await _end_capture(manager, hardware_id)
+        if await _await_cleanup(_rollback_capture_begin(manager, hardware_id)):
+            raise asyncio.CancelledError from None
         return {"status": "error", "message": "Failed to begin capture"}
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
-        await _end_capture(manager, hardware_id)
+        rollback_cancelled = await _await_cleanup(
+            _rollback_capture_begin(manager, hardware_id)
+        )
+        if cancelled or rollback_cancelled:
+            raise asyncio.CancelledError
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
-    token = coerce_str(result_data.get("token"), "")
-    if not token:
-        await _end_capture(manager, hardware_id)
+    session_id = coerce_str(result_data.get("token"), "")
+    if not session_id:
+        disconnect_cancelled = await _await_cleanup(manager.client.disconnect())
+        rollback_cancelled = await _await_cleanup(
+            _rollback_capture_begin(manager, hardware_id)
+        )
+        if cancelled or disconnect_cancelled or rollback_cancelled:
+            raise asyncio.CancelledError
         return {"status": "error", "message": "Missing capture token"}
 
-    manager.capture_state.tokens[hardware_id] = token
+    manager.capture_state.tokens[hardware_id] = session_id
     if owner_writer is not None:
         manager.capture_state.owner_writer_ids[hardware_id] = id(owner_writer)
+    if cancelled:
+        await _end_cancelled_capture(manager, hardware_id)
+        raise asyncio.CancelledError
     response = {
         "status": "ok",
         "hardware_id": hardware_id,
-        "token": token,
+        "token": session_id,
         "warnings": result_data.get("warnings", []),
     }
     response.update(lock_result)
     return response
+
+
+async def _rollback_capture_begin(manager: "SessionManager", hardware_id: str) -> None:
+    """Drop a provisional lock and restore normal profile reconciliation."""
+
+    manager.capture_state.tokens.pop(hardware_id, None)
+    try:
+        await _end_capture(manager, hardware_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Failed to roll back capture begin for hardware_id=%s", hardware_id)
+
+
+async def _end_cancelled_capture(manager: "SessionManager", hardware_id: str) -> None:
+    end_task = asyncio.create_task(capture_end(manager, hardware_id))
+    await _await_cleanup(asyncio.gather(end_task, return_exceptions=True))
+    result: JsonObject | None = None
+    if end_task.done() and not end_task.cancelled():
+        try:
+            result = end_task.result()
+        except Exception:
+            log.exception("Failed to settle cancelled capture end for %s", hardware_id)
+    if result is not None and result.get("status") == "ok":
+        return
+
+    try:
+        await _await_cleanup(manager.client.disconnect())
+    except asyncio.CancelledError:
+        log.warning("Daemon disconnect was cancelled while ending capture %s", hardware_id)
+        return
+    except Exception:
+        log.exception("Failed to disconnect after capture end failure for %s", hardware_id)
+        return
+    await _await_cleanup(_rollback_capture_begin(manager, hardware_id))
 
 
 async def capture_read(manager: "SessionManager", hardware_id: str) -> JsonObject:

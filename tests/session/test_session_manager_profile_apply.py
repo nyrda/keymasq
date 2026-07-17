@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -20,6 +21,7 @@ from keymasq.common.model.profiles import (
 )
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator
+from keymasq.session.manager.state import ExecBinding
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -100,6 +102,683 @@ async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
         CommandType.SET_COMBOS,
     ]
     assert [combo.id for combo in manager.profile_state.resolved_combos] == ["combo-1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_mapping_update_preserves_acknowledged_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="mapping rejected")
+    )
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+    assert manager.exec_state.next_exec_ref == 11
+
+
+@pytest.mark.asyncio
+async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+
+    async def inspect_references(_command: object) -> Response:
+        assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+        assert manager.exec_state.exec_refs == {
+            7: old_binding,
+            10: ExecBinding(
+                cmd="notify-send new",
+                owner="device",
+                hardware_id=hardware_id,
+            ),
+        }
+        return Response(status="error", error="mapping rejected")
+
+    manager.client.send_command = AsyncMock(side_effect=inspect_references)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_mapping_update_timeout_retains_uncertain_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock()
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7, 10}}
+    assert manager.exec_state.exec_refs == {
+        7: old_binding,
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_mapping_update_timeout_remains_handled_when_disconnect_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert 10 in manager.exec_state.exec_refs
+
+
+@pytest.mark.asyncio
+async def test_mapping_timeout_disconnect_propagates_cancellation() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock(side_effect=asyncio.CancelledError())
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert 10 in manager.exec_state.exec_refs
+
+
+@pytest.mark.asyncio
+async def test_initial_mapping_timeout_retains_uncertain_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(side_effect=TimeoutError())
+    manager.client.disconnect = AsyncMock()
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    await profile_application._send_set_mapping_command(
+        manager,
+        hardware_id,
+        resolved,
+        Mock(),
+        generation=None,
+    )
+
+    manager.client.disconnect.assert_awaited_once()
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7, 10}}
+    assert manager.exec_state.exec_refs == {
+        7: old_binding,
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_combo_update_preserves_acknowledged_exec_references() -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="combos rejected")
+    )
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(
+                events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")]
+            )
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
+    assert manager.exec_state.next_exec_ref == 11
+
+
+@pytest.mark.asyncio
+async def test_combo_update_exposes_staged_exec_reference_while_in_flight() -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+
+    async def inspect_references(_command: object) -> Response:
+        assert manager.exec_state.combo_exec_refs == {8}
+        assert manager.exec_state.exec_refs == {
+            8: old_binding,
+            10: ExecBinding(cmd="notify-send new combo", owner="combo"),
+        }
+        return Response(status="error", error="combos rejected")
+
+    manager.client.send_command = AsyncMock(side_effect=inspect_references)
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_combo_serialization_failure_preserves_acknowledged_exec_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.client.send_command = AsyncMock()
+    monkeypatch.setattr(
+        profile_application.combo,
+        "serialize",
+        Mock(side_effect=ValueError("invalid combo")),
+    )
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    manager.client.send_command.assert_not_awaited()
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_stale_mapping_update_does_not_replace_newer_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.apply_generation = 1
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    newer_binding = ExecBinding(
+        cmd="notify-send newer",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+
+    async def complete_after_newer_apply(_command: object) -> Response:
+        manager.profile_state.apply_generation = 2
+        manager.exec_state.exec_refs = {20: newer_binding}
+        manager.exec_state.device_exec_refs = {hardware_id: {20}}
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=complete_after_newer_apply)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send stale")
+        },
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await profile_application.update_mapping(
+            manager,
+            hardware_id,
+            resolved,
+            generation=1,
+        )
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10, 20}}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(
+            cmd="notify-send stale",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+        20: newer_binding,
+    }
+
+
+@pytest.mark.asyncio
+async def test_stale_initial_mapping_does_not_replace_newer_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.apply_generation = 1
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    newer_binding = ExecBinding(
+        cmd="notify-send newer",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+
+    async def complete_after_newer_apply(_command: object) -> Response:
+        manager.profile_state.apply_generation = 2
+        manager.exec_state.exec_refs = {20: newer_binding}
+        manager.exec_state.device_exec_refs = {hardware_id: {20}}
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=complete_after_newer_apply)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send stale")
+        },
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await profile_application._send_set_mapping_command(
+            manager,
+            hardware_id,
+            resolved,
+            Mock(),
+            generation=1,
+        )
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10, 20}}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(
+            cmd="notify-send stale",
+            owner="device",
+            hardware_id=hardware_id,
+        ),
+        20: newer_binding,
+    }
+
+
+@pytest.mark.asyncio
+async def test_stale_combo_update_does_not_replace_newer_exec_references() -> None:
+    manager = SessionManager()
+    manager.profile_state.apply_generation = 1
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    newer_binding = ExecBinding(cmd="notify-send newer combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+
+    async def complete_after_newer_apply(_command: object) -> Response:
+        manager.profile_state.apply_generation = 2
+        manager.exec_state.exec_refs = {20: newer_binding}
+        manager.exec_state.combo_exec_refs = {20}
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=complete_after_newer_apply)
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send stale combo"),
+        profile_name="Desktop",
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await profile_application.update_combos(
+            manager,
+            [resolved_combo],
+            generation=1,
+        )
+
+    assert manager.exec_state.combo_exec_refs == {10, 20}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(cmd="notify-send stale combo", owner="combo"),
+        20: newer_binding,
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancelled_mapping_update_settles_acknowledgement_and_commits_refs() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        )
+    }
+
+
+@pytest.mark.asyncio
+async def test_mapping_update_defers_repeated_cancellation_until_ack() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+    await asyncio.sleep(0)
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {10}}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(
+            cmd="notify-send new",
+            owner="device",
+            hardware_id=hardware_id,
+        )
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancelled_combo_update_settles_acknowledgement_and_commits_refs() -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok")
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")])
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_combos(manager, [resolved_combo])
+    )
+    await request_started.wait()
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.combo_exec_refs == {10}
+    assert manager.exec_state.exec_refs == {
+        10: ExecBinding(cmd="notify-send new combo", owner="combo")
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancelled_mapping_update_preserves_cancellation_when_request_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def failed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        raise ConnectionError("disconnected")
+
+    manager.client.send_command = AsyncMock(side_effect=failed_response)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_mapping_update_bounds_silent_request_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    request_started = asyncio.Event()
+
+    async def silent_request(_command: object) -> Response:
+        request_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(profile_application, "_CANCEL_SETTLE_TIMEOUT_S", 0.01)
+    manager.client.send_command = AsyncMock(side_effect=silent_request)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(update_task, timeout=0.5)
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
+async def test_profile_cleanup_wait_has_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    cleanup_started = asyncio.Event()
+    cleanup_cancelled = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def stubborn_cleanup() -> None:
+        cleanup_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleanup_cancelled.set()
+            await release_cleanup.wait()
+
+    monkeypatch.setattr(profile_application, "_CANCEL_CLEANUP_TIMEOUT_S", 0.01)
+    cleanup_task = asyncio.create_task(stubborn_cleanup())
+    await cleanup_started.wait()
+
+    await asyncio.wait_for(profile_application._await_cleanup(cleanup_task), timeout=0.5)
+
+    await cleanup_cancelled.wait()
+    release_cleanup.set()
+    await cleanup_task
 
 
 @pytest.mark.asyncio

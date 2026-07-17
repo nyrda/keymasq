@@ -3,6 +3,7 @@ import struct
 
 import pytest
 
+import keymasq.session.client as client_module
 from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, Response, encode_response
 from keymasq.session.client import KeymasqdClient
 from tests.async_fakes import BlockingStreamReader as _BlockingReader
@@ -130,5 +131,240 @@ def test_keymasqd_client_discards_oversized_response_before_valid(
 
         assert future.done() is True
         assert future.result().data == {"done": True}
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_event_can_complete_nested_request() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+
+        class _ReplyWriter(_FakeWriter):
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                reader.feed_data(
+                    encode_response(
+                        Response(status="ok", request_id="1", data={"stored": True})
+                    )
+                )
+
+        nested_response: Response | None = None
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            nonlocal nested_response
+            nested_response = await client.send_command(
+                Command(command=CommandType.MACRO_DELETE_RECORDING)
+            )
+            reader.feed_eof()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _ReplyWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.RECORDING_STOPPED.value, "data": {}},
+                )
+            )
+        )
+
+        await asyncio.wait_for(client._listen_loop(), timeout=0.5)
+        await asyncio.gather(*client._event_tasks)
+
+        assert nested_response is not None
+        assert nested_response.data == {"stored": True}
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_processes_events_in_wire_order() -> None:
+    async def _run() -> None:
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        calls: list[CommandType] = []
+
+        async def _event_handler(event: CommandType, _data: object) -> None:
+            calls.append(event)
+            if event == CommandType.RECORDING_STARTED:
+                first_started.set()
+                await release_first.wait()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.RECORDING_STARTED.value, "data": {}},
+            )
+        )
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.RECORDING_STOPPED.value, "data": {}},
+            )
+        )
+
+        await asyncio.wait_for(first_started.wait(), timeout=0.5)
+        await asyncio.sleep(0)
+        assert calls == [CommandType.RECORDING_STARTED]
+
+        release_first.set()
+        await asyncio.gather(*client._event_tasks)
+        assert calls == [CommandType.RECORDING_STARTED, CommandType.RECORDING_STOPPED]
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_bounds_pending_event_queue() -> None:
+    async def _run() -> None:
+        release_handler = asyncio.Event()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            await release_handler.wait()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        assert client._dispatch_event(CommandType.PING, {}) is True
+        await asyncio.sleep(0)
+
+        for _ in range(client_module._MAX_PENDING_EVENTS):
+            assert client._dispatch_event(CommandType.PING, {}) is True
+        assert client._dispatch_event(CommandType.PING, {}) is False
+        assert len(client._event_queue) == client_module._MAX_PENDING_EVENTS
+
+        release_handler.set()
+        await asyncio.gather(*client._event_tasks)
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_event_handler_can_disconnect() -> None:
+    async def _run() -> None:
+        writer = _FakeWriter()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            await client.disconnect()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.writer = writer
+        await client._handle_response(
+            Response(
+                status="event",
+                data={"command": CommandType.PING.value, "data": {}},
+            )
+        )
+        await asyncio.gather(*client._event_tasks)
+
+        assert writer.closed is True
+        assert writer.wait_closed_calls == 1
+        assert client.writer is None
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_unexpected_disconnect_cancels_event_worker() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _FakeWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.PING.value, "data": {}},
+                )
+            )
+        )
+        reader.feed_eof()
+
+        await client._listen_loop()
+
+        assert started.is_set()
+        assert cancelled.is_set()
+        assert client._event_tasks == set()
+        assert client._disconnected_event.is_set()
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_disconnect_fails_nested_request_before_worker_cancel() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        request_started = asyncio.Event()
+
+        class _RequestWriter(_FakeWriter):
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                request_started.set()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            request_task = asyncio.create_task(
+                client.send_command(Command(command=CommandType.PING))
+            )
+            try:
+                await asyncio.shield(request_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(request_task)
+                raise
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _RequestWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.PING.value, "data": {}},
+                )
+            )
+        )
+        listen_task = asyncio.create_task(client._listen_loop())
+        await asyncio.wait_for(request_started.wait(), timeout=0.5)
+        reader.feed_eof()
+
+        await asyncio.wait_for(listen_task, timeout=0.5)
+
+        assert request_started.is_set()
+        assert client._pending_requests == {}
+        assert client._event_tasks == set()
+        assert client._disconnected_event.is_set()
+
+    asyncio.run(_run())
+
+
+def test_keymasqd_client_signals_disconnect_before_worker_cleanup_finishes() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        client = KeymasqdClient(event_handler=lambda _event, _data: None)
+        client.reader = reader
+        client.writer = _FakeWriter()
+
+        async def delayed_cleanup() -> None:
+            cleanup_started.set()
+            await release_cleanup.wait()
+
+        client._cancel_event_tasks = delayed_cleanup  # type: ignore[method-assign]
+        reader.feed_eof()
+        listen_task = asyncio.create_task(client._listen_loop())
+
+        await asyncio.wait_for(cleanup_started.wait(), timeout=0.5)
+        await asyncio.wait_for(client.wait_disconnected(), timeout=0.5)
+        assert listen_task.done() is False
+
+        release_cleanup.set()
+        await asyncio.wait_for(listen_task, timeout=0.5)
 
     asyncio.run(_run())

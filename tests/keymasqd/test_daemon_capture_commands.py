@@ -1200,3 +1200,23 @@ async def test_read_capture_combo_event_drains_sources_once_before_waiting(
         "value": 1,
     }
     assert seen_before_wait == {"device": 1, "capture": 1}
+
+
+def test_capture_manager_end_all_continues_after_individual_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = CaptureManager()
+    manager._sessions = {"first": Mock(), "second": Mock()}  # type: ignore[assignment]
+    ended: list[str] = []
+
+    def end(token: str) -> dict[str, object]:
+        ended.append(token)
+        manager._sessions.pop(token, None)
+        if token == "first":
+            raise RuntimeError("cleanup failed")
+        return {"status": "ok", "ended": True}
+
+    monkeypatch.setattr(manager, "end", end)
+
+    assert manager.end_all() == 1
+    assert ended == ["first", "second"]

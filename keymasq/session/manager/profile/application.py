@@ -1,13 +1,14 @@
 """Daemon-side grab, mapping, and combo application transactions."""
 
+import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 from keymasq.common.coercion import coerce_int
-from keymasq.common.ipc import Command, CommandType
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -23,7 +24,7 @@ from .grab_plan import (
     get_interfaces_to_grab,
     grab_device_payload_signature,
 )
-from .reconciliation import raise_if_stale_profile_apply
+from .reconciliation import profile_apply_is_current, raise_if_stale_profile_apply
 from .runtime_state import (
     cancel_grab_retry,
     clear_hardware_runtime_state,
@@ -35,6 +36,120 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasq-session")
 type ProfileActivationNotifier = Callable[[], None]
+_CANCEL_SETTLE_TIMEOUT_S = 11.0
+_CANCEL_CLEANUP_TIMEOUT_S = 1.0
+
+
+def _observe_cleanup_task(task: asyncio.Future[object]) -> None:
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
+
+
+async def _send_reference_command(
+    manager: "SessionManager",
+    command: Command,
+) -> tuple[Response, bool]:
+    """Settle a sent reference-bearing command before propagating cancellation."""
+
+    task = asyncio.create_task(manager.client.send_command(command))
+    try:
+        return await asyncio.shield(task), False
+    except asyncio.CancelledError as cancelled:
+        outcome = await _settle_cancelled_request(manager, task, cancelled)
+        if isinstance(outcome, BaseException):
+            raise cancelled from outcome
+        return outcome, True
+
+
+async def _settle_cancelled_request(
+    manager: "SessionManager",
+    task: asyncio.Task[Response],
+    cancelled: asyncio.CancelledError,
+) -> Response | BaseException:
+    settled = asyncio.gather(task, return_exceptions=True)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_SETTLE_TIMEOUT_S
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        try:
+            return (
+                await asyncio.wait_for(
+                    asyncio.shield(settled),
+                    timeout=remaining,
+                )
+            )[0]
+        except asyncio.CancelledError:
+            continue
+        except TimeoutError:
+            break
+
+    task.cancel()
+    await _await_cleanup(asyncio.gather(task, return_exceptions=True))
+    await _await_cleanup(manager.client.disconnect())
+    raise cancelled from TimeoutError("daemon command cancellation settlement timed out")
+
+
+async def _await_cleanup(awaitable: Awaitable[object]) -> None:
+    task = asyncio.ensure_future(awaitable)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CANCEL_CLEANUP_TIMEOUT_S
+    while not task.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for cancellation cleanup")
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+        except asyncio.CancelledError:
+            continue
+        except TimeoutError:
+            task.cancel()
+            task.add_done_callback(_observe_cleanup_task)
+            log.warning("Timed out waiting for cancellation cleanup")
+            return
+    await task
+
+
+async def _disconnect_after_mapping_timeout(
+    manager: "SessionManager",
+    hardware_id: str,
+) -> None:
+    try:
+        await _await_cleanup(manager.client.disconnect())
+    except asyncio.CancelledError:
+        log.warning("Daemon disconnect was cancelled after mapping timeout for %s", hardware_id)
+        raise
+    except Exception:
+        log.exception("Failed to disconnect after mapping timeout for %s", hardware_id)
+
+
+def _commit_device_references(
+    manager: "SessionManager",
+    hardware_id: str,
+    staged_refs: references.ReferenceSnapshot,
+    generation: int | None,
+) -> None:
+    if profile_apply_is_current(manager, generation):
+        references.restore_device(manager, hardware_id, staged_refs)
+    else:
+        references.retain_device(manager, hardware_id, staged_refs)
+
+
+def _commit_combo_references(
+    manager: "SessionManager",
+    staged_refs: references.ReferenceSnapshot,
+    generation: int | None,
+) -> None:
+    if profile_apply_is_current(manager, generation):
+        references.restore_combos(manager, staged_refs)
+    else:
+        references.retain_combos(manager, staged_refs)
 
 
 class GrabRetryScheduler(Protocol):
@@ -311,12 +426,24 @@ async def _send_set_mapping_command(
         len(resolved.mappings),
         resolved.active_profile_names,
     )
+    previous_refs = references.take_device(manager, hardware_id)
+    staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
-        serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+        try:
+            serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+            staged_refs = references.take_device(manager, hardware_id)
+        finally:
+            if staged_refs is None:
+                references.take_device(manager, hardware_id)
+            references.restore_device(manager, hardware_id, previous_refs)
+        assert staged_refs is not None
+        references.expose(manager, staged_refs)
         log.debug("Mapping data: %s", mapping.log_view(serialized_mapping))
         raise_if_stale_profile_apply(manager, generation)
 
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_MAPPING,
                 data={
@@ -325,9 +452,12 @@ async def _send_set_mapping_command(
                 },
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
-
         if result.status == "ok":
+            _commit_device_references(manager, hardware_id, staged_refs, generation)
+            keep_staged_refs = True
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
                 mapping.signature(
                     manager,
@@ -342,12 +472,24 @@ async def _send_set_mapping_command(
             )
             notify()
         else:
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to set mapping: %s", result.error)
 
+    except TimeoutError as exc:
+        if staged_refs is not None:
+            references.retain_device(manager, hardware_id, staged_refs)
+            keep_staged_refs = True
+        await _disconnect_after_mapping_timeout(manager, hardware_id)
+        log.error("Timed out setting mapping for %s: %s", hardware_id, exc)
     except OSError as exc:
         log.error("Exception setting mapping: %s: %s", type(exc).__name__, exc)
     except Exception:
         log.exception("Unexpected failure setting mapping for %s", hardware_id)
+    finally:
+        if staged_refs is not None and not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def apply_resolved_device_profile(
@@ -551,33 +693,54 @@ async def update_combos(
     if signature == manager.profile_state.last_sent_combo_signature:
         log.debug("Skipping unchanged combo payload")
         return
-    references.clear_combos(manager)
-    payload: list[JsonObject] = []
-    active_combos: list[ResolvedCombo] = []
-    for resolved_combo in combos:
-        combo_payload = combo.serialize(manager, resolved_combo)
-        if combo_payload is None:
-            continue
-        payload.append(combo_payload)
-        active_combos.append(resolved_combo)
+    previous_refs = references.take_combos(manager)
+    staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
+        try:
+            payload: list[JsonObject] = []
+            active_combos: list[ResolvedCombo] = []
+            for resolved_combo in combos:
+                combo_payload = combo.serialize(manager, resolved_combo)
+                if combo_payload is None:
+                    continue
+                payload.append(combo_payload)
+                active_combos.append(resolved_combo)
+            staged_refs = references.take_combos(manager)
+        finally:
+            if staged_refs is None:
+                references.take_combos(manager)
+            references.restore_combos(manager, previous_refs)
+        assert staged_refs is not None
+        references.expose(manager, staged_refs)
         raise_if_stale_profile_apply(manager, generation)
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_COMBOS,
                 data={"combos": payload},
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to update combos: %s", result.error)
             return
+        _commit_combo_references(manager, staged_refs, generation)
+        keep_staged_refs = True
+        if cancelled:
+            raise asyncio.CancelledError
+        raise_if_stale_profile_apply(manager, generation)
         manager.profile_state.last_sent_combo_signature = signature
         manager.profile_state.resolved_combos = list(active_combos)
     except OSError as exc:
         log.error("Exception updating combos: %s: %s", type(exc).__name__, exc)
     except Exception:
         log.exception("Unexpected failure updating combos")
+    finally:
+        if staged_refs is not None and not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def update_mapping(
@@ -597,17 +760,27 @@ async def update_mapping(
         resolved,
         hardware_id,
     )
-    references.clear_device(manager, hardware_id)
-
     log.info(
         "Updating mapping for %s with %d buttons",
         hardware_id,
         len(resolved.mappings),
     )
+    previous_refs = references.take_device(manager, hardware_id)
+    staged_refs: references.ReferenceSnapshot | None = None
+    keep_staged_refs = False
     try:
-        serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+        try:
+            serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+            staged_refs = references.take_device(manager, hardware_id)
+        finally:
+            if staged_refs is None:
+                references.take_device(manager, hardware_id)
+            references.restore_device(manager, hardware_id, previous_refs)
+        assert staged_refs is not None
+        references.expose(manager, staged_refs)
         raise_if_stale_profile_apply(manager, generation)
-        result = await manager.client.send_command(
+        result, cancelled = await _send_reference_command(
+            manager,
             Command(
                 command=CommandType.SET_MAPPING,
                 data={
@@ -616,12 +789,26 @@ async def update_mapping(
                 },
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
         if result.status == "ok":
+            _commit_device_references(manager, hardware_id, staged_refs, generation)
+            keep_staged_refs = True
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
             log.info("Updated mapping for %s", hardware_id)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
             return True
+        if cancelled:
+            raise asyncio.CancelledError
+        raise_if_stale_profile_apply(manager, generation)
         log.error("Failed to update mapping: %s", result.error)
+        return False
+    except TimeoutError as exc:
+        if staged_refs is not None:
+            references.retain_device(manager, hardware_id, staged_refs)
+            keep_staged_refs = True
+        await _disconnect_after_mapping_timeout(manager, hardware_id)
+        log.error("Timed out updating mapping for %s: %s", hardware_id, exc)
         return False
     except OSError as exc:
         log.error("Exception updating mapping: %s: %s", type(exc).__name__, exc)
@@ -629,6 +816,9 @@ async def update_mapping(
     except Exception:
         log.exception("Unexpected failure updating mapping for %s", hardware_id)
         return False
+    finally:
+        if staged_refs is not None and not keep_staged_refs:
+            references.discard(manager, staged_refs)
 
 
 async def deactivate_profile(

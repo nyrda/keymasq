@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -13,20 +14,30 @@ from keymasq.common.ipc import (
 from keymasq.common.paths import SOCKET_PATH
 
 log = logging.getLogger("keymasq-session.client")
+_MAX_PENDING_EVENTS = 256
 
 
 class KeymasqdClient:
-    def __init__(self, event_handler: Callable[[CommandType, Any], Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        event_handler: Callable[[CommandType, Any], Awaitable[None]],
+        *,
+        event_preprocessor: Callable[[CommandType, Any], Any] | None = None,
+    ) -> None:
         self.event_handler = event_handler
+        self.event_preprocessor = event_preprocessor
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self._buffer = b""
         self._pending_requests: dict[str, asyncio.Future[Response]] = {}
         self._request_counter = 0
         self._listen_task: asyncio.Task[None] | None = None
+        self._event_tasks: set[asyncio.Task[None]] = set()
+        self._event_queue: deque[tuple[CommandType, Any]] = deque()
         self._disconnected_event = asyncio.Event()
 
     async def connect(self) -> None:
+        await self._cancel_event_tasks()
         self._disconnected_event.clear()
         self.reader, self.writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
         self._listen_task = asyncio.create_task(self._listen_loop())
@@ -40,6 +51,8 @@ class KeymasqdClient:
             except asyncio.CancelledError:
                 pass
             self._listen_task = None
+
+        await self._cancel_event_tasks()
 
         if writer:
             try:
@@ -76,6 +89,7 @@ class KeymasqdClient:
         if not self.reader:
             return
 
+        cancelled = False
         try:
             while True:
                 data = await self.reader.read(4096)
@@ -97,13 +111,18 @@ class KeymasqdClient:
                     await self._handle_response(response)
 
         except asyncio.CancelledError:
-            pass
+            cancelled = True
         except OSError as exc:
             log.warning("Daemon client listen I/O error: %s", exc)
         except Exception:
             log.exception("Unexpected daemon client listen error")
         finally:
-            self._finalize_disconnect()
+            if not cancelled:
+                self._prepare_disconnect()
+                self._disconnected_event.set()
+                await self._cancel_event_tasks()
+            else:
+                self._finalize_disconnect()
 
     async def wait_disconnected(self) -> None:
         await self._disconnected_event.wait()
@@ -115,6 +134,7 @@ class KeymasqdClient:
                 future.set_result(response)
 
         elif response.status == "event":
+            queue_overflow = False
             try:
                 raw_command = response.data.get("command")
                 try:
@@ -123,15 +143,81 @@ class KeymasqdClient:
                     log.warning("Ignoring unknown daemon event: %s", raw_command)
                     return
                 data = response.data.get("data", {})
+                if self.event_preprocessor is not None:
+                    data = self.event_preprocessor(event_type, data)
+                queue_overflow = not self._dispatch_event(event_type, data)
+                # Start immediately-ready handlers without waiting for the
+                # ordered worker to finish or blocking response ingestion.
+                await asyncio.sleep(0)
+            except Exception as exc:
+                log.exception("Failed to dispatch daemon event: %s", exc)
+            if queue_overflow:
+                raise ConnectionError("Daemon event queue exceeded its limit")
+
+    def _dispatch_event(self, event_type: CommandType, data: Any) -> bool:
+        if len(self._event_queue) >= _MAX_PENDING_EVENTS:
+            log.error(
+                "Daemon event queue exceeded %d pending events; disconnecting",
+                _MAX_PENDING_EVENTS,
+            )
+            return False
+        self._event_queue.append((event_type, data))
+        if any(not task.done() for task in self._event_tasks):
+            return True
+        self._event_tasks.clear()
+
+        task = asyncio.create_task(
+            self._drain_event_queue(),
+            name="keymasq-session:daemon-events",
+        )
+        self._event_tasks.add(task)
+
+        def _event_done(done: asyncio.Task[None]) -> None:
+            self._event_tasks.discard(done)
+
+            try:
+                exc = done.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is not None:
+                log.error(
+                    "Daemon event worker error: %s",
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+
+        task.add_done_callback(_event_done)
+        return True
+
+    async def _drain_event_queue(self) -> None:
+        while self._event_queue:
+            event_type, data = self._event_queue.popleft()
+            try:
                 await self.event_handler(event_type, data)
-            except Exception as e:
-                log.exception("Event handler error: %s", e)
+            except Exception as exc:
+                log.error(
+                    "Event handler error: %s",
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+
+    async def _cancel_event_tasks(self) -> None:
+        self._event_queue.clear()
+        current = asyncio.current_task()
+        tasks = [task for task in self._event_tasks if task is not current]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._event_tasks.difference_update(tasks)
 
     def _finalize_disconnect(self) -> None:
-        error = ConnectionError("Disconnected from keymasqd")
-        for future in list(self._pending_requests.values()):
-            if not future.done():
-                future.set_exception(error)
+        self._prepare_disconnect()
+        self._disconnected_event.set()
+
+    def _prepare_disconnect(self) -> None:
+        self._fail_pending_requests()
 
         writer = self.writer
         self.reader = None
@@ -146,4 +232,8 @@ class KeymasqdClient:
             except Exception:
                 log.exception("Unexpected failure closing daemon client writer after disconnect")
 
-        self._disconnected_event.set()
+    def _fail_pending_requests(self) -> None:
+        error = ConnectionError("Disconnected from keymasqd")
+        for future in list(self._pending_requests.values()):
+            if not future.done():
+                future.set_exception(error)

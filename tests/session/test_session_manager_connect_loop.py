@@ -7,6 +7,7 @@ import keymasq.session.manager.core as session_core_module
 import keymasq.session.manager.recording_device_selection as recording_device_selection_module
 from keymasq.common.ipc import CommandType, Response
 from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.state import ExecBinding
 
 
 @pytest.mark.asyncio
@@ -33,10 +34,21 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     manager.recording_state.selected_devices_cache = [{"name": "Keyboard"}]
     manager.recording_state.devices_cache_ready = True
     manager.recording_state.devices_cache_include_other = True
+    manager.capture_state.tokens["1234:5678"] = "stale-token"
+    manager.capture_state.locks.add("1234:5678")
+    manager.capture_state.resume_profiles["1234:5678"] = ["Default"]
+    manager.capture_state.owner_writer_ids["1234:5678"] = 42
+    manager.exec_state.exec_refs[7] = ExecBinding(
+        cmd="notify-send stale",
+        owner="device",
+        hardware_id="1234:5678",
+    )
+    manager.exec_state.device_exec_refs["1234:5678"] = {7}
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 9
     manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
 
-    manager._handle_keymasqd_disconnect()
-    await asyncio.sleep(0)
+    await manager._handle_keymasqd_disconnect()
 
     assert manager.connected is False
     assert manager.profile_state.grabbed_devices == set()
@@ -59,10 +71,51 @@ async def test_keymasqd_disconnect_clears_runtime_state() -> None:
     assert manager.recording_state.selected_devices_cache == []
     assert manager.recording_state.devices_cache_ready is False
     assert manager.recording_state.devices_cache_include_other is False
+    assert manager.capture_state.tokens == {}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    assert manager.capture_state.owner_writer_ids == {}
+    assert manager.exec_state.exec_refs == {}
+    assert manager.exec_state.device_exec_refs == {}
+    assert manager.exec_state.combo_exec_refs == set()
+    assert manager.exec_state.next_exec_ref == 9
     manager._broadcast_keymasqd_status.assert_called_once_with(False)  # type: ignore[attr-defined]
 
     with pytest.raises(asyncio.CancelledError):
         await retry_task
+
+
+@pytest.mark.asyncio
+async def test_keymasqd_disconnect_waits_for_event_tasks_before_clearing_state() -> None:
+    manager = SessionManager()
+    manager.connected = True
+    manager.profile_state.grabbed_devices.add("1234:5678")
+    cancellation_started = asyncio.Event()
+    release_cancellation = asyncio.Event()
+
+    async def event_work() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_started.set()
+            await release_cancellation.wait()
+            raise
+
+    event_task = asyncio.create_task(event_work())
+    manager.event_state.tasks.add(event_task)
+    await asyncio.sleep(0)
+    disconnect_task = asyncio.create_task(manager._handle_keymasqd_disconnect())
+    await cancellation_started.wait()
+
+    assert manager.connected is True
+    assert manager.profile_state.grabbed_devices == {"1234:5678"}
+
+    release_cancellation.set()
+    await disconnect_task
+
+    assert manager.connected is False
+    assert manager.profile_state.grabbed_devices == set()
+    assert manager.event_state.tasks == set()
 
 
 @pytest.mark.asyncio

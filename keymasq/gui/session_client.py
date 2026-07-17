@@ -361,7 +361,7 @@ class _PersistentSessionConnection:
         message: JsonDict,
     ) -> bool:
         with self._state_lock:
-            if self._closed or generation != self._generation or self._sock is None:
+            if self._closed or generation != self._generation:
                 return False
         try:
             callback(message)

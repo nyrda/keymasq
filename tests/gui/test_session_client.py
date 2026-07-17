@@ -63,6 +63,15 @@ def test_stale_event_callback_is_suppressed_after_generation_change() -> None:
     assert calls == [{"event": "new"}]
 
 
+def test_current_event_callback_survives_same_generation_disconnect() -> None:
+    connection = _PersistentSessionConnection()
+    connection._generation = 3
+    calls: list[dict] = []
+
+    assert connection._dispatch_event_callback_once(3, calls.append, {"event": "final"}) is False
+    assert calls == [{"event": "final"}]
+
+
 def test_close_connection_shuts_down_active_reader_socket() -> None:
     connection = _PersistentSessionConnection()
     sock = _FakeSocket([])

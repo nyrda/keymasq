@@ -95,7 +95,7 @@ data_uri() {
 
 emit_pair() {
   local expected="$1" actual="$2" rel="$3"
-  local exp_size act_size metrics highlight ae pct
+  local exp_size act_size metrics highlight ae pct err status
   exp_size="$(identify -format '%wx%h' "$expected")"
   act_size="$(identify -format '%wx%h' "$actual")"
   if [[ "$exp_size" != "$act_size" ]]; then
@@ -103,14 +103,25 @@ emit_pair() {
     highlight=""
   else
     # compare exits 1 and prints the metric to stderr when images differ;
-    # some builds append a normalized value in parentheses, keep the count.
-    ae="$(compare -metric AE "$expected" "$actual" null: 2>&1 >/dev/null || true)"
+    # exit >1 is a real error (decode, policy, I/O) and must abort. Some
+    # builds append a normalized value in parentheses, keep the count.
+    status=0
+    ae="$(compare -metric AE "$expected" "$actual" null: 2>&1 >/dev/null)" || status=$?
+    if (( status > 1 )); then
+      printf 'compare failed for %s (exit %d): %s\n' "$rel" "$status" "$ae" >&2
+      exit 1
+    fi
     ae="${ae%% *}"
     pct="$(awk -v ae="$ae" -v size="$exp_size" \
       'BEGIN { split(size, d, "x"); printf "%.3f", ae * 100 / (d[1] * d[2]) }')"
     metrics="$exp_size &middot; $ae px changed ($pct%)"
     highlight="$out_dir/highlight.png"
-    compare "$expected" "$actual" "$highlight" 2>/dev/null || true
+    status=0
+    err="$(compare "$expected" "$actual" "$highlight" 2>&1 >/dev/null)" || status=$?
+    if (( status > 1 )); then
+      printf 'compare failed for %s (exit %d): %s\n' "$rel" "$status" "$err" >&2
+      exit 1
+    fi
   fi
   {
     printf '<section>\n<h2>%s</h2>\n<p class="metrics">%s</p>\n<div class="row">\n' "$rel" "$metrics"
@@ -145,9 +156,30 @@ emit_new() {
   } >> "$report"
 }
 
+emit_removed() {
+  local expected="$1" rel="$2"
+  {
+    printf '<section>\n<h2>%s</h2>\n' "$rel"
+    printf '<p class="metrics"><span class="warn">stale screenshot &mdash; committed but no longer generated (%s)</span></p>\n' \
+      "$(identify -format '%wx%h' "$expected")"
+    printf '<div class="row">\n<figure><img src="'
+    data_uri "$expected"
+    printf '" alt="stale %s"><figcaption>expected (committed)</figcaption></figure>\n</div>\n</section>\n' "$rel"
+  } >> "$report"
+}
+
+find_pngs() {
+  local root="$1" exclude="$2"
+  if [[ -n "$exclude" ]]; then
+    find "$root" -path "$exclude" -prune -o -name '*.png' -print0
+  else
+    find "$root" -name '*.png' -print0
+  fi
+}
+
 diff_tree() {
-  local gen_root="$1" repo_dir="$2" mode="$3"
-  local gen rel repo_file
+  local gen_root="$1" repo_dir="$2" mode="$3" repo_exclude="${4:-}"
+  local gen rel repo_file committed
   while IFS= read -r -d '' gen; do
     rel="${gen#"$gen_root"/}"
     repo_file="$repo_dir/$rel"
@@ -162,7 +194,15 @@ diff_tree() {
       echo "differs: $mode/$rel" >&2
       emit_pair "$repo_file" "$gen" "$mode/$rel"
     fi
-  done < <(find "$gen_root" -name '*.png' -print0 | sort -z)
+  done < <(find_pngs "$gen_root" "" | sort -z)
+  while IFS= read -r -d '' committed; do
+    rel="${committed#"$repo_dir"/}"
+    if [[ ! -f "$gen_root/$rel" ]]; then
+      changed=$((changed + 1))
+      echo "stale screenshot (committed but not generated): $mode/$rel" >&2
+      emit_removed "$committed" "$mode/$rel"
+    fi
+  done < <(find_pngs "$repo_dir" "$repo_exclude" | sort -z)
 }
 
 cat > "$report" <<'EOF'
@@ -205,7 +245,7 @@ printf '<p class="metrics">%s &middot; modes: %s &middot; %s</p>\n' \
   "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" >> "$report"
 
 if [[ "$normalized_modes" == *dark* ]]; then
-  diff_tree "$generated/dark" "docs/assets/screenshots" dark
+  diff_tree "$generated/dark" "docs/assets/screenshots" dark "docs/assets/screenshots/light"
 fi
 if [[ "$normalized_modes" == *light* ]]; then
   diff_tree "$generated/light" "docs/assets/screenshots/light" light

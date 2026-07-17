@@ -367,6 +367,9 @@ without restarting services:
 systemctl --user kill --signal=HUP keymasq-session
 ```
 
+SIGHUP reloads use a 500 ms debounce. Additional SIGHUP requests received while
+the reload is pending or running are dropped rather than queued.
+
 ### `keymasq-session` user service does not start
 
 Symptoms:

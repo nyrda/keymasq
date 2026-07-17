@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from keymasq.gui.preferences import save_selected_profile
 from keymasq.gui.widgets.device_tab.tab import DeviceTab
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.profile.manager import ProfileManager
@@ -28,6 +29,7 @@ def _sync_selected_profile_name(
         return
 
     window._selected_profile_name = profile_name
+    save_selected_profile(profile_name)
     window._syncing_profile_selection = True
     try:
         for child in tab_layout._iter_profile_tabs(window):

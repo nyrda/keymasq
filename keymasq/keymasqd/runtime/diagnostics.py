@@ -9,7 +9,7 @@ from typing import Any
 
 from keymasq.common.types import JsonObject
 
-DIAGNOSTICS_CATEGORIES = frozenset({"mainline", "combo", "internal"})
+DIAGNOSTICS_CATEGORIES = frozenset({"mainline", "combo", "macro", "internal"})
 DEFAULT_DIAGNOSTICS_CATEGORIES = frozenset({"mainline"})
 
 type DiagnosticsSummary = dict[str, JsonObject]
@@ -46,6 +46,8 @@ def normalize_categories(categories: Sequence[object] | None) -> set[str]:
 
 def label_enabled(label: str, categories: set[str]) -> bool:
     normalized = str(label or "").lower()
+    if "macro" in categories and normalized.startswith("macro_"):
+        return True
     if "internal" in categories and _label_is_internal(normalized):
         return True
     if "combo" in categories and _label_is_combo(normalized):

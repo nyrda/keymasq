@@ -16,6 +16,7 @@ from typing import cast
 from keymasq.keymasqd.macro_file import (
     MACRO_FILE_SUFFIX,
     MacroFileMeta,
+    MacroFileRevision,
     MacroFileSnapshot,
     iter_macro_events,
     load_macro,
@@ -38,6 +39,7 @@ type MacroPayload = dict[str, object]
 class MacroStoreSnapshot:
     meta: MacroPayload
     iter_events: Callable[[], Iterator[MacroEvent]]
+    revision: MacroFileRevision | None = None
 
 
 def _payload_list(payload: MacroPayload, key: str) -> list[object]:
@@ -154,7 +156,19 @@ class MacroStore:
         return MacroStoreSnapshot(
             snapshot.meta.to_payload(),
             snapshot.iter_events,
+            snapshot.revision,
         )
+
+    def probe_revision(self, name: str) -> MacroFileRevision | None:
+        """Return a cheap stored-file identity for playback-cache lookup."""
+
+        if name in self._internal_macros:
+            return None
+        path = self._macro_path(name)
+        try:
+            return MacroFileRevision.from_path(path)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"Macro '{name}' not found") from exc
 
     def create(self, payload: MacroPayload) -> MacroPayload:
         events = _payload_events(payload)

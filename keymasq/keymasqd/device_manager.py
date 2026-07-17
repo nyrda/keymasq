@@ -59,7 +59,11 @@ from keymasq.keymasqd.runtime.grab.state import (
     GrabRuntimeState,
 )
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
-from keymasq.keymasqd.runtime.macro.state import MacroRuntimeDeps, MacroRuntimeState
+from keymasq.keymasqd.runtime.macro.state import (
+    DiagnosticRecorder,
+    MacroRuntimeDeps,
+    MacroRuntimeState,
+)
 from keymasq.keymasqd.runtime.manager_combos import ComboManagerMixin
 from keymasq.keymasqd.runtime.manager_cursor import CursorManagerMixin
 from keymasq.keymasqd.runtime.manager_macros import MacroManagerMixin
@@ -129,7 +133,9 @@ def _device_path_resolver_deps() -> device_path_resolver.DevicePathResolverDeps:
     return device_path_resolver.evdev_device_path_resolver_deps(_device_input)
 
 
-def _macro_runtime_deps() -> MacroRuntimeDeps:
+def _macro_runtime_deps(
+    diagnostics_recorder: DiagnosticRecorder | None = None,
+) -> MacroRuntimeDeps:
     return MacroRuntimeDeps(
         asyncio_mod=adapters.ASYNCIO_RUNTIME,
         evdev_mod=evdev,
@@ -137,6 +143,7 @@ def _macro_runtime_deps() -> MacroRuntimeDeps:
         log=log,
         int_value_fn=coerce_int,
         str_value_fn=coerce_str,
+        diagnostics_recorder=diagnostics_recorder,
     )
 
 
@@ -159,7 +166,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self._gamepad_output_router = virtual_gamepads.GamepadOutputRouter(log)
         self.recording_manager: RecordingManager | None = None
         self.macro_store: Any | None = None
-        self._initialize_macro_runtime(_macro_runtime_deps)
+        self._initialize_macro_runtime(self._macro_runtime_deps_with_diagnostics)
         self.macro_exec_timeout_max_ms = 30000
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
@@ -503,6 +510,15 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
 
     def _record_diagnostic(self, label: str, duration_us: float) -> None:
         self._diagnostics.record(label, duration_us)
+
+    def _macro_runtime_deps_with_diagnostics(self) -> MacroRuntimeDeps:
+        recorder = (
+            self._record_diagnostic
+            if self.diagnostics_state.enabled
+            and diagnostics.label_enabled("macro_load", self.diagnostics_state.categories)
+            else None
+        )
+        return _macro_runtime_deps(recorder)
 
     async def _diagnostics_loop(self) -> None:
         await self._diagnostics.run(

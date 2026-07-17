@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -43,11 +44,35 @@ async def iter_macro_source_events(
     source: MacroEventSource,
     *,
     deps: MacroRuntimeDeps,
+    diagnostic_initial_load_us: float | None = None,
+    cached_events: tuple[dict[str, object], ...] | None = None,
+    verify_cached_revision: bool = False,
 ) -> AsyncIterator[dict[str, object]]:
+    recorder = deps.diagnostics_recorder
+    measure_load = recorder is not None and diagnostic_initial_load_us is not None
+    load_us = float(diagnostic_initial_load_us or 0.0)
+
+    if cached_events is not None:
+        if verify_cached_revision and source.verify_revision is not None:
+            started_ns = time.perf_counter_ns() if measure_load else None
+            await deps.asyncio_mod.to_thread(source.verify_revision)
+            if started_ns is not None:
+                load_us += (time.perf_counter_ns() - started_ns) / 1000.0
+        if measure_load and recorder is not None:
+            recorder("macro_load", load_us)
+        for event in cached_events:
+            yield event
+        return
+
     reader = MacroBatchReader(source)
     while True:
+        started_ns = time.perf_counter_ns() if measure_load else None
         batch = await deps.asyncio_mod.to_thread(reader.next_batch)
+        if started_ns is not None:
+            load_us += (time.perf_counter_ns() - started_ns) / 1000.0
         if not batch:
+            if measure_load and recorder is not None:
+                recorder("macro_load", load_us)
             break
         for event in batch:
             yield event

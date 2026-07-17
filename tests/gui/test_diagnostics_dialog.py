@@ -32,6 +32,8 @@ def test_diagnostics_format_helpers() -> None:
     assert _format_latency(1500.0) == "1.50 ms"
     assert _label_title("action_key") == "Action: key"
     assert _label_title("combo_passthrough") == "Combo candidate passthrough"
+    assert _label_title("macro_load") == "Macro loading"
+    assert _label_title("macro_iteration") == "Macro iteration"
     assert _diagnostics_docs_url().endswith("/PERFORMANCE/#diagnostics-labels")
 
 

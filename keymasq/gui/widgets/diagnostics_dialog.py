@@ -18,7 +18,7 @@ from keymasq.gui.session_client import (
 )
 from keymasq.gui.widgets.docs_links import docs_page_url
 
-DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "internal")
+DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal")
 DIAGNOSTICS_LABELS = {
     "passthrough_fast": "Unmapped passthrough",
     "passthrough_mapped": "Passthrough with mappings",
@@ -30,6 +30,8 @@ DIAGNOSTICS_LABELS = {
     "wheel_high_res_suppressed": "High-res wheel suppressed",
     "combo_recalled_repeat_suppressed": "Combo recall repeat suppressed",
     "combo_recalled_release_suppressed": "Combo recall release suppressed",
+    "macro_load": "Macro loading",
+    "macro_iteration": "Macro iteration",
 }
 PEAK_TOOLTIP = (
     "One unusually slow event. If p95 and p99 are low, this usually reflects "
@@ -172,6 +174,7 @@ class DiagnosticsDialog(Adw.Dialog):
         for category, label_text in (
             ("mainline", "Mainline"),
             ("combo", "Combo"),
+            ("macro", "Macro"),
             ("internal", "Internal"),
         ):
             btn = Gtk.ToggleButton(label=label_text)

@@ -6,13 +6,18 @@ from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from keymasq.keymasqd.runtime.macro.cache import MacroCacheCandidate, MacroReplayCache
+
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
+type DiagnosticRecorder = Callable[[str, float], None]
 type NaturalMacroMover = Callable[
     [int, int, float, float, str, int, int],
     Awaitable[dict[str, object]],
 ]
 type MacroEventIteratorFactory = Callable[[], Iterator[dict[str, object]]]
+type MacroCacheCandidateFactory = Callable[[], MacroCacheCandidate | None]
+type MacroRevisionVerifier = Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,7 @@ class MacroRuntimeDeps:
     log: logging.Logger
     int_value_fn: IntValueFn
     str_value_fn: StrValueFn
+    diagnostics_recorder: DiagnosticRecorder | None = None
 
 
 @dataclass
@@ -43,6 +49,7 @@ class MacroRuntimeState:
     exec_waiters: dict[str, asyncio.Future[int]] = field(default_factory=dict)
     mouse_rel_suppressed: bool = False
     mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None
+    replay_cache: MacroReplayCache = field(default_factory=MacroReplayCache)
 
     def allocate_instance(
         self,
@@ -84,3 +91,7 @@ class MacroEventSource:
     event_count: int
     duration_us: int
     iter_events: MacroEventIteratorFactory
+    diagnostic_initial_load_us: float | None = None
+    cached_events: tuple[dict[str, object], ...] | None = None
+    verify_revision: MacroRevisionVerifier | None = None
+    begin_cache_candidate: MacroCacheCandidateFactory | None = None

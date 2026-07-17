@@ -86,6 +86,20 @@ def test_macro_snapshot_detects_removed_source(tmp_path: Path) -> None:
         list(snapshot.iter_events())
 
 
+def test_macro_snapshot_detects_replacement_with_unchanged_metadata(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    meta = MacroFileMeta(name="macro", event_count=1)
+    write_macro(path, meta, [{"type": 1, "code": 30, "value": 1, "t_us": 0}])
+    snapshot = MacroFileSnapshot(path)
+
+    write_macro(path, meta, [{"type": 1, "code": 31, "value": 1, "t_us": 0}])
+
+    with pytest.raises(MacroFileChangedError):
+        list(snapshot.iter_events())
+    with pytest.raises(MacroFileChangedError):
+        snapshot.revision.verify_unchanged()
+
+
 def test_macro_snapshot_repeated_streams_do_not_hold_descriptors(tmp_path: Path) -> None:
     path = tmp_path / "macro.kmacro.xz"
     events = [{"type": 1, "code": 30, "value": 1, "t_us": 0}]

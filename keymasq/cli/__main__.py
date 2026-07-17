@@ -113,7 +113,7 @@ def main() -> None:
             "Compact tokens: key_a, key_a:1, key_a:0, btn_left,\n"
             "move_abs:X:Y, move_rel:DX:DY, move:X:Y[:SPEED],\n"
             "wait:MS, wait:MIN:MAX\n"
-            'Example: keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0\n'
+            "Example: keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0\n"
             f"Full reference: {_docs_url()}"
         ),
     )
@@ -207,14 +207,14 @@ def main() -> None:
     diagnostics_parser.add_argument(
         "--include",
         action="append",
-        choices=("mainline", "combo", "internal", "all"),
+        choices=("mainline", "combo", "macro", "internal", "all"),
         default=[],
         help="Diagnostics category to log; repeat to add categories",
     )
     diagnostics_parser.add_argument(
         "--exclude",
         action="append",
-        choices=("mainline", "combo", "internal"),
+        choices=("mainline", "combo", "macro", "internal"),
         default=[],
         help="Diagnostics category to hide after includes are applied",
     )

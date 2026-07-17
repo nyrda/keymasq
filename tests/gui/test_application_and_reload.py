@@ -151,20 +151,24 @@ def test_gui_preferences_warns_for_invalid_settings_toml(temp_config_dir, caplog
 
 def test_gui_tab_layout_preference_round_trips_with_appearance(temp_config_dir) -> None:
     from keymasq.gui.preferences import (
-        load_hidden_tabs,
         load_appearance_mode,
+        load_hidden_tabs,
+        load_selected_profile,
         load_selected_tab,
         load_tab_order,
         save_appearance_mode,
+        save_selected_profile,
         save_selected_tab,
         save_tab_layout,
     )
 
     assert load_tab_order() == []
     assert load_hidden_tabs() == set()
+    assert load_selected_profile() == ""
     assert load_selected_tab() == ""
 
     save_appearance_mode("dark")
+    save_selected_profile(" Gaming ")
     save_selected_tab(" 1234:5678 ")
     save_tab_layout(
         [" device:2222:0002 ", "combos", "device:1111:0001", "combos", ""],
@@ -172,6 +176,7 @@ def test_gui_tab_layout_preference_round_trips_with_appearance(temp_config_dir) 
     )
 
     assert load_appearance_mode() == "dark"
+    assert load_selected_profile() == "Gaming"
     assert load_selected_tab() == "1234:5678"
     assert load_tab_order() == ["device:2222:0002", "combos", "device:1111:0001"]
     assert load_hidden_tabs() == {"combos"}

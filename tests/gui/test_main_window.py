@@ -18,6 +18,62 @@ from keymasq.gui.window import (
 
 
 class TestMainWindow:
+    def test_main_window_restores_selected_profile(self, temp_config_dir):
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui.preferences import save_selected_profile
+        from keymasq.gui.window.core import MainWindow
+        from keymasq.session.profile.manager import ProfileManager
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(
+            ProfileConfig(name="Alpha", enabled=True, is_permanent=True)
+        )
+        profile_manager.save_profile(
+            ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
+        )
+        save_selected_profile("Gaming")
+
+        window = MainWindow(demo_mode=True)
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        device_tabs._add_device_tab(window, device)
+        device_tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
+
+        assert window._selected_profile_name == "Gaming"
+        assert window.combo_tab is not None
+        assert window.combo_tab.selected_profile_name() == "Gaming"
+        assert device_tab.selected_profile_name() == "Gaming"
+
+    def test_main_window_missing_selected_profile_falls_back_to_first(
+        self, temp_config_dir
+    ):
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui.preferences import load_selected_profile, save_selected_profile
+        from keymasq.gui.window.core import MainWindow
+        from keymasq.session.profile.manager import ProfileManager
+
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(
+            ProfileConfig(name="Zulu", enabled=True, is_permanent=True)
+        )
+        profile_manager.save_profile(
+            ProfileConfig(name="Alpha", enabled=True, is_permanent=True)
+        )
+        save_selected_profile("Missing")
+
+        window = MainWindow(demo_mode=True)
+
+        assert window._selected_profile_name == "Alpha"
+        assert window.combo_tab is not None
+        assert window.combo_tab.selected_profile_name() == "Alpha"
+        assert load_selected_profile() == "Alpha"
+
     def test_main_window_does_not_seed_default_profile_for_first_device(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.gui.window.core import MainWindow
@@ -373,6 +429,7 @@ class TestMainWindow:
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.preferences import load_selected_profile
         from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -423,6 +480,7 @@ class TestMainWindow:
         tab1.profile_dropdown.set_selected(tab1._profile_names.index("Desktop"))
 
         assert window._selected_profile_name == "Desktop"
+        assert load_selected_profile() == "Desktop"
         assert tab1._selected_profile is not None
         assert tab1._selected_profile.config.name == "Desktop"
         assert tab2._selected_profile is not None

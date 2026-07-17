@@ -741,6 +741,40 @@ class TestSocketServer:
         assert cancelled.is_set()
         assert server._handler_tasks == set()
 
+    async def test_server_stop_allows_disconnect_cleanup_before_handler_cancellation(
+        self,
+        temp_socket_dir,
+    ):
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        cleanup_completed = asyncio.Event()
+
+        async def handle_disconnect() -> None:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleanup_completed.set()
+
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            _ok_handler,
+            disconnect_handler=handle_disconnect,
+            handler_drain_timeout_s=0.5,
+        )
+        await server.start()
+        reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer.drain()
+        await asyncio.wait_for(reader.read(1024), timeout=1.0)
+
+        stop_task = asyncio.create_task(server.stop())
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1.0)
+        assert not stop_task.done()
+        release_cleanup.set()
+        await asyncio.wait_for(stop_task, timeout=1.0)
+
+        assert cleanup_completed.is_set()
+        assert server._handler_tasks == set()
+
     async def test_handler_drain_bounds_cancellation_cleanup_and_blocks_restart(
         self,
         temp_socket_dir,

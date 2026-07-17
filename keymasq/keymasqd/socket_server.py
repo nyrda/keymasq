@@ -189,7 +189,7 @@ class SocketServer:
             *(self._wait_writer_closed(writer) for writer in writers),
             return_exceptions=True,
         )
-        await self._drain_handler_tasks(graceful=False)
+        await self._drain_handler_tasks(graceful=True)
 
         if server:
             await server.wait_closed()

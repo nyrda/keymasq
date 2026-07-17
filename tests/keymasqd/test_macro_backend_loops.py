@@ -86,7 +86,8 @@ async def test_recording_manager_start_rolls_back_resources_when_broadcast_fails
 async def test_recording_manager_closes_device_opened_after_start_cancellation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    device = SimpleNamespace(close=MagicMock())
+    close_finished = asyncio.Event()
+    device = SimpleNamespace(close=MagicMock(side_effect=close_finished.set))
     open_started = asyncio.Event()
     release_open = asyncio.Event()
     recorder = RecordingManager()
@@ -108,8 +109,7 @@ async def test_recording_manager_closes_device_opened_after_start_cancellation(
         await start_task
 
     release_open.set()
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    await asyncio.wait_for(close_finished.wait(), timeout=0.5)
 
     device.close.assert_called_once()
     assert recorder.is_recording is False

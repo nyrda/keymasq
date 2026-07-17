@@ -9,7 +9,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import Any, BinaryIO, cast
 
 from keymasq.common.coercion import require_json_object
 from keymasq.common.config_files import write_config_atomically
@@ -21,6 +21,18 @@ MACRO_FILE_FORMAT = "keymasq-macro"
 MACRO_FILE_VERSION = 1
 
 type MacroEvent = dict[str, object]
+
+
+class _OwnedMacroText(io.TextIOWrapper):
+    def __init__(self, buffer: Any, owner: BinaryIO) -> None:
+        self._owner = owner
+        super().__init__(buffer, encoding="utf-8", newline="\n")
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            self._owner.close()
 
 
 class MacroFileSnapshot:
@@ -51,8 +63,16 @@ class MacroFileSnapshot:
         except BaseException:
             os.close(duplicated_fd)
             raise
-        compressed = lzma.LZMAFile(duplicated, "rb")
-        return io.TextIOWrapper(compressed, encoding="utf-8", newline="\n")
+        try:
+            compressed = lzma.LZMAFile(duplicated, "rb")
+            try:
+                return _OwnedMacroText(compressed, duplicated)
+            except BaseException:
+                compressed.close()
+                raise
+        except BaseException:
+            duplicated.close()
+            raise
 
     def _read_meta(self) -> MacroFileMeta:
         with self._open_text() as handle:

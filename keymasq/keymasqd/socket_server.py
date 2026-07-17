@@ -202,7 +202,15 @@ class SocketServer:
         log.warning("Cancelling %d daemon client handler(s) after shutdown deadline", len(pending))
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        _done, still_pending = await asyncio.wait(
+            pending,
+            timeout=self.handler_drain_timeout_s,
+        )
+        if still_pending:
+            log.error(
+                "%d daemon client handler(s) did not stop after cancellation",
+                len(still_pending),
+            )
 
     def _accept_client(
         self,

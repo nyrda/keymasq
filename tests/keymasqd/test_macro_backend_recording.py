@@ -350,6 +350,37 @@ async def test_transient_unreadable_slot_metadata_preserves_event_file(
 
 
 @pytest.mark.asyncio
+async def test_transient_metadata_failure_preserves_events_from_mixed_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid_event_path = tmp_path / "slot-2-invalid.jsonl"
+    invalid_event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    invalid_meta_path = tmp_path / "slot-2.json"
+    invalid_meta_path.write_text("not-json\n", encoding="utf-8")
+    unreadable_event_path = tmp_path / "slot-3-recording.jsonl"
+    unreadable_event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    unreadable_meta_path = tmp_path / "slot-3.json"
+    unreadable_meta_path.write_text('{"recording_slot":3}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == unreadable_meta_path:
+            raise PermissionError("temporarily unreadable")
+        return original_read_text(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert not invalid_meta_path.exists()
+    assert invalid_event_path.exists()
+    assert unreadable_meta_path.exists()
+    assert unreadable_event_path.exists()
+
+
+@pytest.mark.asyncio
 async def test_recording_manager_drops_msc_and_syn_events() -> None:
     recorder = RecordingManager(broadcast_callback=AsyncMock())
     await recorder.start([])

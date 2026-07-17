@@ -471,6 +471,7 @@ class RecordingManager:
 
         scan_complete = True
         quarantine_uncertain_events = False
+        preserve_uncertain_events = False
         for meta_path in meta_paths:
             try:
                 decoded = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -511,6 +512,7 @@ class RecordingManager:
                 loaded_event_paths.add(event_path)
             except FileNotFoundError as exc:
                 scan_complete = False
+                preserve_uncertain_events = True
                 log.debug(
                     "Recording slot metadata disappeared while loading %s: %s",
                     meta_path,
@@ -518,6 +520,7 @@ class RecordingManager:
                 )
             except PermissionError as exc:
                 scan_complete = False
+                preserve_uncertain_events = True
                 log.warning(
                     "Ignoring unreadable recording slot metadata %s: %s. Check recording "
                     "spool ownership and permissions for the keymasqd user.",
@@ -526,6 +529,7 @@ class RecordingManager:
                 )
             except OSError as exc:
                 scan_complete = False
+                preserve_uncertain_events = True
                 log.warning("Ignoring unreadable recording slot metadata %s: %s", meta_path, exc)
             except json.JSONDecodeError as exc:
                 scan_complete = False
@@ -552,6 +556,7 @@ class RecordingManager:
                 _quarantine_invalid_slot_metadata(meta_path)
             except Exception:
                 scan_complete = False
+                preserve_uncertain_events = True
                 log.exception("Unexpected failure loading recording slot metadata %s", meta_path)
 
         if not scan_complete:
@@ -560,7 +565,7 @@ class RecordingManager:
                 "event files in %s",
                 self._spool_dir,
             )
-            if quarantine_uncertain_events:
+            if quarantine_uncertain_events and not preserve_uncertain_events:
                 try:
                     uncertain_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
                 except OSError:

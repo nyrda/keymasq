@@ -377,6 +377,10 @@ class _PersistentSessionConnection:
             self._buffer = b""
         if sock is not None:
             try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except (AttributeError, OSError):
+                pass
+            try:
                 sock.close()
             except OSError:
                 pass
@@ -408,6 +412,10 @@ class _PersistentSessionConnection:
             else:
                 current = False
 
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except (AttributeError, OSError):
+            pass
         try:
             sock.close()
         except OSError:

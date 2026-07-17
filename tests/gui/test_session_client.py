@@ -11,6 +11,7 @@ class _FakeSocket:
     def __init__(self, chunks: list[bytes]) -> None:
         self._chunks = list(chunks)
         self.closed = False
+        self.shutdown_calls: list[int] = []
 
     def recv(self, _size: int) -> bytes:
         if self._chunks:
@@ -19,6 +20,9 @@ class _FakeSocket:
 
     def close(self) -> None:
         self.closed = True
+
+    def shutdown(self, how: int) -> None:
+        self.shutdown_calls.append(how)
 
 
 class _NeverWritableSocket:
@@ -57,6 +61,17 @@ def test_stale_event_callback_is_suppressed_after_generation_change() -> None:
 
     assert connection._dispatch_event_callback_once(3, calls.append, {"event": "new"}) is False
     assert calls == [{"event": "new"}]
+
+
+def test_close_connection_shuts_down_active_reader_socket() -> None:
+    connection = _PersistentSessionConnection()
+    sock = _FakeSocket([])
+    connection._sock = sock  # type: ignore[assignment]
+
+    connection._close_connection()
+
+    assert sock.shutdown_calls == [session_client_module.socket.SHUT_RDWR]
+    assert sock.closed is True
 
 
 def test_reconnect_starts_new_reader_while_old_generation_is_still_blocked(

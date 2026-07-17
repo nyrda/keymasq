@@ -697,6 +697,38 @@ class TestSocketServer:
         assert cancelled.is_set()
         assert server._handler_tasks == set()
 
+    async def test_handler_drain_remains_bounded_when_task_suppresses_cancellation(
+        self,
+        temp_socket_dir,
+    ):
+        cancel_seen = asyncio.Event()
+        release = asyncio.Event()
+
+        async def stubborn_handler() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancel_seen.set()
+                await release.wait()
+
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            _ok_handler,
+            handler_drain_timeout_s=0.01,
+        )
+        task = asyncio.create_task(stubborn_handler())
+        server._handler_tasks.add(task)
+        await asyncio.sleep(0)
+
+        try:
+            await asyncio.wait_for(server._drain_handler_tasks(), timeout=0.2)
+            assert cancel_seen.is_set()
+            assert not task.done()
+        finally:
+            release.set()
+            await task
+            server._handler_tasks.discard(task)
+
     async def test_quiescing_server_rejects_newly_processed_command(self, temp_socket_dir):
         handler_calls: list[bool] = []
 

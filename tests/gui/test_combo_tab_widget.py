@@ -63,6 +63,7 @@ class TestComboTabWidget:
     def test_combo_tab_profile_selection_syncs_back_to_device_tabs(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+        from keymasq.gui.preferences import load_selected_profile
         from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
@@ -100,6 +101,7 @@ class TestComboTabWidget:
         )
 
         assert window._selected_profile_name == "Gaming"
+        assert load_selected_profile() == "Gaming"
         assert tab._selected_profile is not None
         assert tab._selected_profile.config.name == "Gaming"
 

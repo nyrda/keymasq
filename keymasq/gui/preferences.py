@@ -97,6 +97,24 @@ def save_selected_tab(selected_tab: str) -> None:
     _save_settings(data)
 
 
+def load_selected_profile() -> str:
+    data = _load_settings()
+    selected_profile = data.get("selected_profile")
+    if isinstance(selected_profile, str):
+        return selected_profile.strip()
+    return ""
+
+
+def save_selected_profile(selected_profile: str | None) -> None:
+    data = _load_settings()
+    cleaned = selected_profile.strip() if selected_profile is not None else ""
+    if cleaned:
+        data["selected_profile"] = cleaned
+    else:
+        data.pop("selected_profile", None)
+    _save_settings(data)
+
+
 def save_tab_layout(tab_order: list[str], hidden_tabs: set[str]) -> None:
     data = _load_settings()
     cleaned_order = _clean_string_list(tab_order)

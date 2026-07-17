@@ -5,6 +5,7 @@ from collections.abc import Callable
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.preferences import (
     load_hidden_tabs,
+    load_selected_profile,
     load_selected_tab,
     load_tab_order,
 )
@@ -78,7 +79,7 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self._appearance_buttons: dict[str, _runtime.Gtk.ToggleButton] = {}
         self._syncing_appearance = False
         self._unlock_status_label: _runtime.Gtk.Label | None = None
-        self._selected_profile_name: str | None = None
+        self._selected_profile_name: str | None = load_selected_profile() or None
         self._syncing_profile_selection = False
         self._startup_probe_done = False
         self._lease_claim_inflight = False

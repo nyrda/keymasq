@@ -297,6 +297,8 @@ In the GUI:
   interface count, connected count, grabbed count, and selected-profile mapping count
 - `Passthrough` removes the mapping from the selected profile so lower profiles can still apply one
 - the app remembers the last selected device or combo tab and restores it on launch
+- selecting a profile in a device or combo tab remembers it and restores it
+  the next time the GUI opens
 - hardware settings are covered in [Hardware Configuration](HARDWARE.md)
 - deleting a hardware control can clear saved mappings for that control across profiles
 

@@ -92,6 +92,11 @@ Macro Manager after the session reconnects. Saving a slot duplicates it into a
 regular macro and keeps the slot available for playback. Closing the save
 dialog keeps the slot for Macro Manager; deleting a slot from Macro Manager
 removes it.
+If slot metadata is temporarily unreadable during daemon startup, Keymasq
+preserves every possibly related event file and retries on a later restart.
+Malformed metadata and uncertain event files are moved to
+`/var/lib/keymasq/recording-spool/quarantine/` instead of being deleted, so an
+administrator can inspect or recover them.
 The slot that is currently recording cannot be played until recording stops;
 pressing its **Play Slot** action is ignored and Keymasq sends a desktop
 notification. Completed recordings in other slots remain playable.

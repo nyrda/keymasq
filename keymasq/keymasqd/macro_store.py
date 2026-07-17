@@ -6,7 +6,7 @@ import lzma
 import os
 import re
 import threading
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +15,7 @@ from typing import cast
 from keymasq.keymasqd.macro_file import (
     MACRO_FILE_SUFFIX,
     MacroFileMeta,
+    MacroFileSnapshot,
     iter_macro_events,
     load_macro,
     macro_payload_from_events,
@@ -30,6 +31,18 @@ _PROCESS_MUTATION_LOCK = threading.Lock()
 log = logging.getLogger("keymasqd.macros")
 type MacroEvent = dict[str, object]
 type MacroPayload = dict[str, object]
+
+
+class MacroStoreSnapshot:
+    def __init__(
+        self,
+        meta: MacroPayload,
+        iter_events: Callable[[], Iterator[MacroEvent]],
+        close: Callable[[], None],
+    ) -> None:
+        self.meta = meta
+        self.iter_events = iter_events
+        self.close = close
 
 
 def _payload_list(payload: MacroPayload, key: str) -> list[object]:
@@ -129,6 +142,25 @@ class MacroStore:
         if not path.exists():
             raise FileNotFoundError(f"Macro '{name}' not found")
         return iter_macro_events(path)
+
+    def open_snapshot(self, name: str) -> MacroStoreSnapshot:
+        """Pin metadata and repeatable event reads to one stored revision."""
+
+        if name in self._internal_macros:
+            payload = copy.deepcopy(self._internal_macros[name])
+            events = _payload_events(payload)
+            meta = MacroFileMeta.from_payload(payload, name=name).to_payload()
+            return MacroStoreSnapshot(meta, lambda: iter(copy.deepcopy(events)), lambda: None)
+
+        path = self._macro_path(name)
+        if not path.exists():
+            raise FileNotFoundError(f"Macro '{name}' not found")
+        snapshot = MacroFileSnapshot(path)
+        return MacroStoreSnapshot(
+            snapshot.meta.to_payload(),
+            snapshot.iter_events,
+            snapshot.close,
+        )
 
     def create(self, payload: MacroPayload) -> MacroPayload:
         events = _payload_events(payload)

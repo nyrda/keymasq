@@ -154,6 +154,15 @@ class Daemon:
             self._cleanup_socket_path()
 
         await self._run_async_cleanup(
+            "abort active recording",
+            self.recording_manager.abort,
+        )
+        await self._run_async_cleanup(
+            "close active captures",
+            lambda: asyncio.to_thread(self.capture_manager.close_all),
+        )
+
+        await self._run_async_cleanup(
             "stop topology watcher",
             self.device_manager.stop_topology_watcher,
         )
@@ -309,6 +318,8 @@ class Daemon:
             CommandType.MACRO_GET,
             CommandType.MACRO_CREATE,
             CommandType.MACRO_UPDATE,
+            CommandType.MACRO_RENAME,
+            CommandType.MACRO_DELETE,
         }
 
         is_tier1_command = command_type in tier1_commands
@@ -725,12 +736,16 @@ class Daemon:
                 ),
             )
         await self._run_async_cleanup(
+            "abort active recording",
+            self.recording_manager.abort,
+        )
+        await self._run_async_cleanup(
             "discard pending recordings",
             self.recording_manager.discard_all_pending_recordings,
         )
         await self._run_async_cleanup(
             "end active captures",
-            lambda: asyncio.to_thread(self.capture_manager.end_all),
+            lambda: asyncio.to_thread(self.capture_manager.close_all),
         )
         await self._run_async_cleanup(
             "release all devices after client disconnect",

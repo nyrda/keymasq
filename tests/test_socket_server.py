@@ -629,6 +629,92 @@ class TestSocketServer:
 
         await asyncio.wait_for(server.stop(), timeout=1.0)
 
+    async def test_server_stop_drains_active_command_before_deadline(self, temp_socket_dir):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        completed = asyncio.Event()
+
+        async def handler(_command, _data, _client):
+            started.set()
+            await release.wait()
+            completed.set()
+            return {"ok": True}
+
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            handler,
+            handler_drain_timeout_s=0.5,
+        )
+        await server.start()
+        _reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer.drain()
+        await started.wait()
+
+        stop_task = asyncio.create_task(server.stop())
+        await asyncio.sleep(0)
+        release.set()
+        await stop_task
+
+        assert completed.is_set()
+        assert server._handler_tasks == set()
+
+    async def test_accept_registers_handler_before_coroutine_runs(self, temp_socket_dir):
+        server = SocketServer(str(paths.SOCKET_PATH), _ok_handler)
+        reader = asyncio.StreamReader()
+        writer = _BroadcastWriter()
+
+        server._accept_client(reader, writer)  # type: ignore[arg-type]
+
+        assert len(server._handler_tasks) == 1
+        await server.stop()
+        assert server._handler_tasks == set()
+
+    async def test_server_stop_cancels_stuck_command_after_deadline(self, temp_socket_dir):
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def handler(_command, _data, _client):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            handler,
+            handler_drain_timeout_s=0.01,
+        )
+        await server.start()
+        _reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
+        writer.write(encode_command(Command(command=CommandType.PING, data={})))
+        await writer.drain()
+        await started.wait()
+
+        await asyncio.wait_for(server.stop(), timeout=1.0)
+
+        assert cancelled.is_set()
+        assert server._handler_tasks == set()
+
+    async def test_quiescing_server_rejects_newly_processed_command(self, temp_socket_dir):
+        handler_calls: list[bool] = []
+
+        async def handler(_command, _data, _client):
+            handler_calls.append(True)
+            return {"ok": True}
+
+        server = SocketServer(str(paths.SOCKET_PATH), handler)
+        server._quiescing = True
+        response = await server._process_command(
+            Command(command=CommandType.PING, data={}, request_id="late"),
+            ClientContext(connection_id=1, pid=2, uid=3, gid=4),
+        )
+
+        assert response.status == "error"
+        assert response.request_id == "late"
+        assert handler_calls == []
+
     async def test_server_stop_clears_single_owner_state_for_restart(self, temp_socket_dir):
         server = SocketServer(
             str(paths.SOCKET_PATH),

@@ -222,6 +222,15 @@ class RecordingManager:
             except Exception:
                 log.exception("Failed to discard recording spool after start failure")
 
+    async def abort(self) -> None:
+        """Stop observing input and discard an unfinished recording.
+
+        Unlike :meth:`stop`, abort never publishes or persists a recording. It is
+        idempotent so owner-disconnect and shutdown cleanup may safely overlap.
+        """
+
+        await self._abort_failed_start()
+
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         if self._stopped:
             return
@@ -460,6 +469,8 @@ class RecordingManager:
             )
             return
 
+        scan_complete = True
+        quarantine_uncertain_events = False
         for meta_path in meta_paths:
             try:
                 decoded = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -499,12 +510,14 @@ class RecordingManager:
                 self._pending_recording_created_at[recording_id] = time.monotonic()
                 loaded_event_paths.add(event_path)
             except FileNotFoundError as exc:
+                scan_complete = False
                 log.debug(
                     "Recording slot metadata disappeared while loading %s: %s",
                     meta_path,
                     exc,
                 )
             except PermissionError as exc:
+                scan_complete = False
                 log.warning(
                     "Ignoring unreadable recording slot metadata %s: %s. Check recording "
                     "spool ownership and permissions for the keymasqd user.",
@@ -512,26 +525,54 @@ class RecordingManager:
                     exc,
                 )
             except OSError as exc:
+                scan_complete = False
                 log.warning("Ignoring unreadable recording slot metadata %s: %s", meta_path, exc)
             except json.JSONDecodeError as exc:
+                scan_complete = False
+                quarantine_uncertain_events = True
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid JSON: %s",
                     meta_path,
                     exc,
                 )
-                _remove_invalid_slot_metadata(meta_path)
+                _quarantine_invalid_slot_metadata(meta_path)
             except UnicodeDecodeError as exc:
+                scan_complete = False
+                quarantine_uncertain_events = True
                 log.warning(
                     "Ignoring invalid recording slot metadata %s: invalid UTF-8: %s",
                     meta_path,
                     exc,
                 )
-                _remove_invalid_slot_metadata(meta_path)
+                _quarantine_invalid_slot_metadata(meta_path)
             except ValueError as exc:
+                scan_complete = False
+                quarantine_uncertain_events = True
                 log.warning("Ignoring invalid recording slot metadata %s: %s", meta_path, exc)
-                _remove_invalid_slot_metadata(meta_path)
+                _quarantine_invalid_slot_metadata(meta_path)
             except Exception:
+                scan_complete = False
                 log.exception("Unexpected failure loading recording slot metadata %s", meta_path)
+
+        if not scan_complete:
+            log.warning(
+                "Recording slot metadata scan was incomplete; preserving all unreferenced "
+                "event files in %s",
+                self._spool_dir,
+            )
+            if quarantine_uncertain_events:
+                try:
+                    uncertain_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
+                except OSError:
+                    uncertain_paths = []
+                for path in uncertain_paths:
+                    try:
+                        is_loaded = path.resolve() in loaded_event_paths
+                    except OSError:
+                        is_loaded = False
+                    if not is_loaded:
+                        _quarantine_slot_artifact(path, reason="uncertain")
+            return
 
         try:
             event_paths = list(self._spool_dir.glob("slot-*-*.jsonl"))
@@ -774,13 +815,24 @@ def _close_recording_input_device(device: _RecordingInputDevice) -> None:
         log.exception("Unexpected failure closing extra recording device")
 
 
-def _remove_invalid_slot_metadata(meta_path: Path) -> None:
+def _quarantine_invalid_slot_metadata(meta_path: Path) -> None:
+    _quarantine_slot_artifact(meta_path, reason="invalid")
+
+
+def _quarantine_slot_artifact(path: Path, *, reason: str) -> None:
     try:
-        meta_path.unlink(missing_ok=True)
+        quarantine_dir = path.parent / "quarantine"
+        quarantine_dir.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(quarantine_dir, 0o700)
+        target = quarantine_dir / f"{path.name}.{reason}-{time.time_ns()}"
+        os.replace(path, target)
+        target.chmod(0o600)
+    except FileNotFoundError:
+        return
     except OSError as exc:
-        log.debug("Failed to remove invalid recording slot metadata %s: %s", meta_path, exc)
+        log.warning("Failed to quarantine recording slot artifact %s: %s", path, exc)
     except Exception:
-        log.exception("Unexpected failure removing invalid recording slot metadata %s", meta_path)
+        log.exception("Unexpected failure quarantining recording slot artifact %s", path)
 
 
 def _start_mouse_move_event(x: int, y: int) -> RecordingEvent:

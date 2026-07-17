@@ -13,6 +13,7 @@ type NaturalMacroMover = Callable[
     Awaitable[dict[str, object]],
 ]
 type MacroEventIteratorFactory = Callable[[], Iterator[dict[str, object]]]
+type MacroEventSourceCloser = Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -84,3 +85,4 @@ class MacroEventSource:
     event_count: int
     duration_us: int
     iter_events: MacroEventIteratorFactory
+    close: MacroEventSourceCloser | None = None

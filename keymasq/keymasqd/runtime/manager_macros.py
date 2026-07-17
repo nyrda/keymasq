@@ -68,6 +68,27 @@ class MacroManagerMixin:
         store = self.macro_store
         if store is None:
             return None
+        open_snapshot = getattr(store, "open_snapshot", None)
+        if callable(open_snapshot):
+            snapshot = await asyncio.to_thread(open_snapshot, macro_name)
+            meta_raw = getattr(snapshot, "meta", None)
+            iter_snapshot_events = getattr(snapshot, "iter_events", None)
+            close_snapshot = getattr(snapshot, "close", None)
+            if not isinstance(meta_raw, dict) or not callable(iter_snapshot_events):
+                if callable(close_snapshot):
+                    close_snapshot()
+                return None
+            meta = cast(JsonObject, meta_raw)
+            close_callback = (
+                cast(Callable[[], None], close_snapshot) if callable(close_snapshot) else None
+            )
+            return MacroEventSource(
+                event_count=coerce_int(meta.get("event_count"), 0),
+                duration_us=coerce_int(meta.get("duration_us"), 0),
+                iter_events=lambda: cast(Iterator[JsonObject], iter_snapshot_events()),
+                close=close_callback,
+            )
+
         get_meta = getattr(store, "get_meta", None)
         iter_events = getattr(store, "iter_events", None)
         if not callable(get_meta) or not callable(iter_events):

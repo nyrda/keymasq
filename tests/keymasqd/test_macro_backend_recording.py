@@ -89,6 +89,28 @@ async def test_recording_manager_records_start_position_as_initial_natural_move(
 
 
 @pytest.mark.asyncio
+async def test_recording_abort_discards_active_spool_without_stop_event(tmp_path: Path) -> None:
+    broadcast = AsyncMock()
+    recorder = RecordingManager(broadcast_callback=broadcast, spool_dir=tmp_path)
+    await recorder.start([])
+    broadcast.reset_mock()
+    recorder.record_event(
+        "keyboard",
+        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+    )
+
+    await recorder.abort()
+    await recorder.abort()
+
+    assert recorder.is_recording is False
+    assert recorder._spool is None
+    assert recorder._progress_task is None
+    assert recorder._monitoring_tasks == []
+    assert list(tmp_path.glob("recording-*.jsonl")) == []
+    broadcast.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
     await recorder.start([], recording_slot=2)
@@ -278,6 +300,53 @@ async def test_invalid_recording_slot_is_treated_as_unslotted(tmp_path: Path) ->
 
     snapshot = await recorder.pending_recording(str(result["pending_recording_id"]))
     assert snapshot.recording_slot == 0
+
+
+@pytest.mark.asyncio
+async def test_incomplete_slot_metadata_scan_preserves_uncertain_event_files(
+    tmp_path: Path,
+) -> None:
+    event_path = tmp_path / "slot-2-recording.jsonl"
+    event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    invalid_meta = tmp_path / "slot-2.json"
+    invalid_meta.write_text("not-json\n", encoding="utf-8")
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert not event_path.exists()
+    assert not invalid_meta.exists()
+    quarantined = list((tmp_path / "quarantine").glob("slot-2.json.invalid-*"))
+    assert len(quarantined) == 1
+    quarantined_events = list(
+        (tmp_path / "quarantine").glob("slot-2-recording.jsonl.uncertain-*")
+    )
+    assert len(quarantined_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_transient_unreadable_slot_metadata_preserves_event_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event_path = tmp_path / "slot-2-recording.jsonl"
+    event_path.write_text('{"t_us":0}\n', encoding="utf-8")
+    meta_path = tmp_path / "slot-2.json"
+    meta_path.write_text('{"recording_slot":2}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == meta_path:
+            raise PermissionError("temporarily unreadable")
+        return original_read_text(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.load_persisted_slot_recordings()
+
+    assert meta_path.exists()
+    assert event_path.exists()
 
 
 @pytest.mark.asyncio
@@ -655,6 +724,34 @@ async def test_play_macro_allows_concurrent_playback(
     assert "second" in started
     assert "first" in finished
     assert "second" in finished
+
+
+@pytest.mark.asyncio
+async def test_stored_macro_playback_uses_and_releases_revision_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    closed = MagicMock()
+    snapshot = SimpleNamespace(
+        meta={"event_count": 1, "duration_us": 0, "revision": 1},
+        iter_events=lambda: iter([{"t_us": 0, "type": 1, "code": 30, "value": 1}]),
+        close=closed,
+    )
+    manager.macro_store = SimpleNamespace(open_snapshot=MagicMock(return_value=snapshot))
+
+    async def fake_play_macro_task(_manager: DeviceManager, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(scheduler, "play_macro_task", fake_play_macro_task)
+
+    result = await manager.play_macro(macro_name="stored")
+    await asyncio.gather(*manager.macro_state.tasks.values())
+    await asyncio.sleep(0)
+
+    assert result == {"status": "ok"}
+    manager.macro_store.open_snapshot.assert_called_once_with("stored")
+    closed.assert_called()
 
 
 @pytest.mark.asyncio

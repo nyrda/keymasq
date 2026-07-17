@@ -7,6 +7,7 @@ import pytest
 
 from keymasq.keymasqd.macro_file import (
     MacroFileMeta,
+    MacroFileSnapshot,
     load_macro,
     macro_payload_from_events,
     write_macro,
@@ -52,6 +53,19 @@ def test_write_macro_closes_temp_file_descriptor(tmp_path: Path) -> None:
             [{"type": 1, "code": 30, "value": 1, "t_us": index}],
         )
         assert _open_fd_count() == baseline
+
+
+def test_macro_snapshot_close_does_not_block_suspended_stream(tmp_path: Path) -> None:
+    path = tmp_path / "macro.kmacro.xz"
+    events = [{"type": 1, "code": index, "value": 1, "t_us": index} for index in range(200)]
+    write_macro(path, MacroFileMeta(name="macro", event_count=len(events)), events)
+    snapshot = MacroFileSnapshot(path)
+    iterator = snapshot.iter_events()
+
+    assert next(iterator) == events[0]
+    snapshot.close()
+
+    assert list(iterator) == events[1:]
 
 
 def test_write_macro_without_overwrite_preserves_existing_destination(tmp_path: Path) -> None:

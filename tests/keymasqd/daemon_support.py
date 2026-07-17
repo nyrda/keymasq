@@ -57,6 +57,7 @@ def make_daemon_testbed(monkeypatch):
         release_all_devices=AsyncMock(return_value=None),
     )
     recording_manager = SimpleNamespace(
+        abort=AsyncMock(return_value=None),
         start=AsyncMock(return_value={"recording": "started"}),
         stop=AsyncMock(return_value={"recording": "stopped"}),
         list_pending_recordings=AsyncMock(return_value=[]),
@@ -88,6 +89,7 @@ def make_daemon_testbed(monkeypatch):
         read_combo=Mock(return_value={"event": None}),
         read_combo_nowait=Mock(return_value={"event": None}),
         register_combo_notifier=Mock(return_value=None),
+        close_all=Mock(return_value=0),
     )
 
     monkeypatch.setattr(daemon, "DeviceManager", lambda verbosity=0: device_manager)

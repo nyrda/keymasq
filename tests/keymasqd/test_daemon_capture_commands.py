@@ -1083,7 +1083,7 @@ async def test_stop_lets_socket_server_own_socket_path_cleanup(
     daemon_testbed,
     monkeypatch,
 ):
-    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
     socket_server = SimpleNamespace(stop=AsyncMock())
     cleanup_socket_path = Mock()
     daemon.running = True
@@ -1094,6 +1094,8 @@ async def test_stop_lets_socket_server_own_socket_path_cleanup(
 
     socket_server.stop.assert_awaited_once()
     cleanup_socket_path.assert_not_called()
+    recording_manager.abort.assert_awaited_once()
+    capture_manager.close_all.assert_called_once()
     device_manager.shutdown_output_devices.assert_called_once()
 
 

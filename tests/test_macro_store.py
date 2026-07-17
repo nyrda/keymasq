@@ -71,6 +71,27 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
         store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
 
 
+def test_macro_store_snapshot_pins_metadata_and_repeated_events_to_one_revision(
+    tmp_path: Path,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    old_event = {"type": 1, "code": 30, "value": 1, "t_us": 0}
+    new_event = {"type": 1, "code": 31, "value": 1, "t_us": 100}
+    store.create({"name": "macro", "events": [old_event]})
+
+    snapshot = store.open_snapshot("macro")
+    store.update("macro", {"events": [new_event]}, expected_revision=1)
+    try:
+        assert snapshot.meta["revision"] == 1
+        assert list(snapshot.iter_events()) == [old_event]
+        assert list(snapshot.iter_events()) == [old_event]
+    finally:
+        snapshot.close()
+
+    assert store.get("macro")["revision"] == 2
+    assert list(store.iter_events("macro")) == [new_event]
+
+
 def test_macro_store_update_rechecks_revision_under_mutation_lock(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

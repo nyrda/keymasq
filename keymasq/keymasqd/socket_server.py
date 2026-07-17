@@ -53,6 +53,7 @@ class SocketServer:
         single_owner: bool = False,
         broadcast_drain_timeout_s: float = 0.25,
         close_timeout_s: float = 0.25,
+        handler_drain_timeout_s: float = 2.0,
     ) -> None:
         self.socket_path = socket_path
         self.command_handler = command_handler
@@ -62,6 +63,7 @@ class SocketServer:
         self.single_owner = single_owner
         self.broadcast_drain_timeout_s = max(0.01, float(broadcast_drain_timeout_s))
         self.close_timeout_s = max(0.01, float(close_timeout_s))
+        self.handler_drain_timeout_s = max(0.01, float(handler_drain_timeout_s))
         self.server: asyncio.Server | None = None
         self.clients: set[asyncio.StreamWriter] = set()
         self._buffer: dict[asyncio.StreamWriter, bytes] = {}
@@ -69,14 +71,17 @@ class SocketServer:
         self._next_connection_id = 1
         self._owner_context: ClientContext | None = None
         self._socket_stat: os.stat_result | None = None
+        self._handler_tasks: set[asyncio.Task[None]] = set()
+        self._quiescing = False
 
     @property
     def owner_context(self) -> ClientContext | None:
         return self._owner_context
 
     async def start(self) -> None:
+        self._quiescing = False
         server = await asyncio.start_unix_server(
-            self._handle_client,
+            self._accept_client,
             path=self.socket_path,
         )
         self.server = server
@@ -148,6 +153,7 @@ class SocketServer:
             log.warning(f"Failed to remove {description}: {exc}")
 
     async def stop(self) -> None:
+        self._quiescing = True
         server = self.server
         socket_stat = self._socket_stat
         if server:
@@ -157,6 +163,7 @@ class SocketServer:
         for writer in writers:
             self._request_writer_close(writer)
 
+        await self._drain_handler_tasks()
         await asyncio.gather(
             *(self._wait_writer_closed(writer) for writer in writers),
             return_exceptions=True,
@@ -167,6 +174,10 @@ class SocketServer:
             if self.server is server:
                 self.server = None
 
+        # A transport accepted just before server.close() may register its
+        # synchronously-owned handler while the first drain is in progress.
+        await self._drain_handler_tasks()
+
         self._unlink_socket_path(socket_stat, "daemon socket")
 
         self.clients.clear()
@@ -175,12 +186,60 @@ class SocketServer:
         self._owner_context = None
         self._socket_stat = None
 
-    async def _handle_client(
+    async def _drain_handler_tasks(self) -> None:
+        current = asyncio.current_task()
+        tasks = {task for task in self._handler_tasks if task is not current and not task.done()}
+        if not tasks:
+            return
+
+        _done, pending = await asyncio.wait(
+            tasks,
+            timeout=self.handler_drain_timeout_s,
+        )
+        if not pending:
+            return
+
+        log.warning("Cancelling %d daemon client handler(s) after shutdown deadline", len(pending))
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    def _accept_client(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        task = asyncio.create_task(
+            self._serve_client(reader, writer),
+            name="keymasqd:client-handler",
+        )
+        self._handler_tasks.add(task)
+
+        def _handler_done(done: asyncio.Task[None]) -> None:
+            self._handler_tasks.discard(task)
+            try:
+                error = done.exception()
+            except asyncio.CancelledError:
+                return
+            if error is not None:
+                log.error(
+                    "Unhandled daemon client handler error: %s",
+                    error,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+
+        task.add_done_callback(_handler_done)
+
+    async def _serve_client(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
         addr = writer.get_extra_info("peername") or "unknown"
+        if self._quiescing:
+            self._request_writer_close(writer)
+            await self._wait_writer_closed(writer)
+            return
         peer = self._extract_peer(writer)
         if peer is None:
             log.warning("Rejecting client without peer credentials")
@@ -282,6 +341,12 @@ class SocketServer:
             await self._drop_client(writer)
 
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
+        if self._quiescing:
+            return Response(
+                status="error",
+                error="Daemon is shutting down",
+                request_id=cmd.request_id,
+            )
         try:
             result = await self.command_handler(cmd.command, cmd.data, context)
             return Response(

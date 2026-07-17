@@ -295,6 +295,11 @@ async def test_sensitive_command_owner_mismatch_is_denied(
             CommandType.MACRO_UPDATE,
             {"name": "recorded", "macro": {"name": "recorded"}},
         ),
+        (
+            CommandType.MACRO_RENAME,
+            {"old_name": "recorded", "new_name": "renamed"},
+        ),
+        (CommandType.MACRO_DELETE, {"name": "recorded"}),
     ],
 )
 @pytest.mark.asyncio
@@ -318,6 +323,69 @@ async def test_macro_edit_unlock_commands_enforce_active_owner(
 
     with pytest.raises(PermissionError, match="sensitive_command_denied"):
         await daemon._handle_command(command_type, data, client=second_client)
+
+
+@pytest.mark.parametrize(
+    ("command_type", "data"),
+    [
+        (
+            CommandType.MACRO_RENAME,
+            {"old_name": "recorded", "new_name": "renamed"},
+        ),
+        (CommandType.MACRO_DELETE, {"name": "recorded"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_macro_rename_and_delete_require_configured_edit_unlock(
+    daemon_testbed,
+    monkeypatch,
+    command_type: CommandType,
+    data: dict[str, object],
+) -> None:
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(
+        recording_unlock_required=True,
+        macro_edit_requires_unlock=True,
+    )
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._handle_command(command_type, data, client=client_context())
+
+    macro_store.rename.assert_not_called()
+    macro_store.delete.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("command_type", "data"),
+    [
+        (
+            CommandType.MACRO_RENAME,
+            {"old_name": "recorded", "new_name": "renamed"},
+        ),
+        (CommandType.MACRO_DELETE, {"name": "recorded"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_macro_rename_and_delete_allow_policy_disabled(
+    daemon_testbed,
+    monkeypatch,
+    command_type: CommandType,
+    data: dict[str, object],
+) -> None:
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    daemon.security_policy = SecurityPolicy(
+        recording_unlock_required=True,
+        macro_edit_requires_unlock=False,
+    )
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+
+    await daemon._handle_command(command_type, data, client=client_context())
+
+    if command_type == CommandType.MACRO_RENAME:
+        macro_store.rename.assert_called_once()
+    else:
+        macro_store.delete.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -458,7 +526,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     tmp_path: Path,
 ):
     daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
-    capture_manager.end_all = Mock(return_value=0)
+    capture_manager.close_all = Mock(return_value=0)
     owned_uid = 5555
     unrelated_uid = 7777
     client = client_context(uid=owned_uid, pid=600, connection_id=9)
@@ -484,8 +552,9 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
     assert unrelated_uid not in daemon._unlock_cache
     assert not (runtime_dir / f"recording-unlock-{owned_uid}").exists()
     assert (runtime_dir / f"recording-unlock-{unrelated_uid}").exists()
+    recording_manager.abort.assert_awaited_once()
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
-    capture_manager.end_all.assert_called_once()
+    capture_manager.close_all.assert_called_once()
     device_manager.release_all_devices.assert_awaited_once()
 
 
@@ -536,11 +605,12 @@ async def test_async_runtime_unlock_cleanup_offloads_file_io(
 @pytest.mark.asyncio
 async def test_client_disconnect_releases_devices_after_recording_discard_fails(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
-    capture_manager.end_all = Mock(return_value=0)
+    capture_manager.close_all = Mock(return_value=0)
     recording_manager.discard_all_pending_recordings.side_effect = RuntimeError("discard failed")
 
     await daemon._on_client_disconnect()
 
+    recording_manager.abort.assert_awaited_once()
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
-    capture_manager.end_all.assert_called_once()
+    capture_manager.close_all.assert_called_once()
     device_manager.release_all_devices.assert_awaited_once()

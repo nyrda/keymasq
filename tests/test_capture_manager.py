@@ -681,3 +681,12 @@ def test_capture_manager_parse_hardware_id_strips_duplicate_suffix() -> None:
     manager = CaptureManager()
 
     assert manager._parse_hardware_id("045E:02A1@2") == ("045e", "02a1")
+
+
+def test_close_all_revokes_unused_combo_capture_authorizations() -> None:
+    manager = CaptureManager()
+    manager.authorize_combo_capture()
+
+    assert manager._combo_capture_authorizations
+    assert manager.close_all() == 0
+    assert manager._combo_capture_authorizations == set()

@@ -84,6 +84,44 @@ async def test_sensitive_command_rejects_refresh_owner_when_unlock_expired(
     resolve_unlock_status_async.assert_awaited_once_with(manager, peer.uid)
 
 
+@pytest.mark.parametrize(
+    ("command", "payload"),
+    [
+        ("rename_macro", {"old": "Secret", "new": "Public"}),
+        ("delete_macro", {"name": "Secret"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_macro_rename_and_delete_require_edit_unlock(
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    payload: dict[str, str],
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.macro_edit_requires_unlock = True
+    manager.client.send_command = AsyncMock()
+    peer = PeerCredentials(pid=111, uid=1000, gid=1000)
+    writer = object()
+    resolve_unlock_status_async = AsyncMock(
+        return_value={"unlocked": False, "source": "none", "expires_at": 0}
+    )
+    monkeypatch.setattr(
+        recording_unlock_module,
+        "resolve_unlock_status_async",
+        resolve_unlock_status_async,
+    )
+
+    result = await manager._handle_session_request(
+        {"command": command, **payload},
+        peer,
+        writer,  # type: ignore[arg-type]
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "sensitive_command_denied"
+    manager.client.send_command.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_handle_session_request_returns_unknown_command_error() -> None:
     manager = SessionManager()

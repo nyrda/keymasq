@@ -339,6 +339,14 @@ class CaptureManager:
                 ended += 1
         return ended
 
+    def close_all(self) -> int:
+        """Close all sessions and revoke every unused capture authorization."""
+
+        try:
+            return self.end_all()
+        finally:
+            self._combo_capture_authorizations.clear()
+
     def _start_combo_reader(self, session: CaptureSession) -> None:
         if session.stop_event is None or session.event_queue is None:
             return

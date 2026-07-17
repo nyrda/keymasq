@@ -93,6 +93,13 @@ data_uri() {
   base64 -w0 "$1"
 }
 
+html_escape() {
+  # sed instead of ${var//}: bash 5.2 patsub_replacement expands & in the
+  # replacement, which would mangle the entities themselves.
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&#39;/g"
+}
+
 emit_pair() {
   local expected="$1" actual="$2" rel="$3"
   local exp_size act_size metrics highlight ae pct err status
@@ -123,20 +130,22 @@ emit_pair() {
       exit 1
     fi
   fi
+  local rel_html
+  rel_html="$(html_escape "$rel")"
   {
-    printf '<section>\n<h2>%s</h2>\n<p class="metrics">%s</p>\n<div class="row">\n' "$rel" "$metrics"
+    printf '<section>\n<h2>%s</h2>\n<p class="metrics">%s</p>\n<div class="row">\n' "$rel_html" "$metrics"
     printf '<figure class="clickable"><img id="e%d" src="' "$changed"
     data_uri "$expected"
-    printf '" onclick="flick(%d)" alt="expected %s">' "$changed" "$rel"
+    printf '" onclick="flick(%d)" alt="expected %s">' "$changed" "$rel_html"
     printf '<figcaption>expected (committed) &mdash; click to flicker</figcaption></figure>\n'
     printf '<figure class="clickable"><img id="a%d" src="' "$changed"
     data_uri "$actual"
-    printf '" onclick="flick(%d)" alt="actual %s">' "$changed" "$rel"
+    printf '" onclick="flick(%d)" alt="actual %s">' "$changed" "$rel_html"
     printf '<figcaption>actual (generated) &mdash; click to flicker</figcaption></figure>\n'
     if [[ -n "$highlight" ]]; then
       printf '<figure><img src="'
       data_uri "$highlight"
-      printf '" alt="changed pixels %s">' "$rel"
+      printf '" alt="changed pixels %s">' "$rel_html"
       printf '<figcaption>changed pixels</figcaption></figure>\n'
     fi
     printf '</div>\n</section>\n'
@@ -145,26 +154,28 @@ emit_pair() {
 }
 
 emit_new() {
-  local actual="$1" rel="$2"
+  local actual="$1" rel="$2" rel_html
+  rel_html="$(html_escape "$rel")"
   {
-    printf '<section>\n<h2>%s</h2>\n' "$rel"
+    printf '<section>\n<h2>%s</h2>\n' "$rel_html"
     printf '<p class="metrics"><span class="new">new screenshot &mdash; no committed counterpart (%s)</span></p>\n' \
       "$(identify -format '%wx%h' "$actual")"
     printf '<div class="row">\n<figure><img src="'
     data_uri "$actual"
-    printf '" alt="new %s"><figcaption>actual (generated)</figcaption></figure>\n</div>\n</section>\n' "$rel"
+    printf '" alt="new %s"><figcaption>actual (generated)</figcaption></figure>\n</div>\n</section>\n' "$rel_html"
   } >> "$report"
 }
 
 emit_removed() {
-  local expected="$1" rel="$2"
+  local expected="$1" rel="$2" rel_html
+  rel_html="$(html_escape "$rel")"
   {
-    printf '<section>\n<h2>%s</h2>\n' "$rel"
+    printf '<section>\n<h2>%s</h2>\n' "$rel_html"
     printf '<p class="metrics"><span class="warn">stale screenshot &mdash; committed but no longer generated (%s)</span></p>\n' \
       "$(identify -format '%wx%h' "$expected")"
     printf '<div class="row">\n<figure><img src="'
     data_uri "$expected"
-    printf '" alt="stale %s"><figcaption>expected (committed)</figcaption></figure>\n</div>\n</section>\n' "$rel"
+    printf '" alt="stale %s"><figcaption>expected (committed)</figcaption></figure>\n</div>\n</section>\n' "$rel_html"
   } >> "$report"
 }
 

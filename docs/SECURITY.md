@@ -351,12 +351,19 @@ Relevant controls:
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
   - `unlock_required`
+  - `macro_recording_time_limit`: maximum macro recording duration in whole minutes;
+    defaults to `10`, and `0` disables the time limit
   - `macro_edit_requires_unlock`
 
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
 
 `[recording_guard].unlock_required` controls whether sensitive original-input
 observation flows require an explicit unlock before they are allowed.
+
+`[recording_guard].macro_recording_time_limit` limits how long one macro recording
+may remain active. Reaching the limit stops the recording normally, keeps the
+temporary slot available for saving or playback, and notifies the desktop.
+Set it to `0` only when recordings should have no time limit.
 
 When `unlock_required = true`:
 

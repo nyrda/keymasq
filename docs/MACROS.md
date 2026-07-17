@@ -104,6 +104,14 @@ different slot requires a binding that explicitly names that different slot.
 Keymasq never round-robins or infers a recording slot for mapped recording
 triggers.
 
+Recordings stop after 10 minutes by default. You can change the limit in
+`/etc/keymasq/security.toml`, or set it to `0` to disable automatic stopping:
+
+```toml
+[recording_guard]
+macro_recording_time_limit = 10
+```
+
 Starting and stopping from a hotkey keeps the recording clean. If you click
 buttons in the GUI to start or stop, those clicks and any mouse movement to
 reach them will be captured too, which is rarely what you want.
@@ -515,6 +523,14 @@ do not need to change these — they are intended for system administrators:
   ```toml
   [recording_guard]
   unlock_required = false
+  ```
+
+- **Change the maximum recording duration.** The default is 10 minutes; `0`
+  disables automatic stopping:
+
+  ```toml
+  [recording_guard]
+  macro_recording_time_limit = 10
   ```
 
 - **Require unlock for editing too** (stricter):

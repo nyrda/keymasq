@@ -17,6 +17,7 @@ def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
     policy = load_security_policy(tmp_path / "missing-security.toml")
 
     assert policy.recording_unlock_required is True
+    assert policy.macro_recording_time_limit == 10
     assert policy.macro_edit_requires_unlock is False
     assert policy.emergency_cancel_combo_enabled is True
 
@@ -79,6 +80,7 @@ def test_load_security_policy_recording_guard_section(tmp_path: Path) -> None:
             [
                 "[recording_guard]",
                 "unlock_required = false",
+                "macro_recording_time_limit = 0",
                 "macro_edit_requires_unlock = true",
             ]
         )
@@ -87,7 +89,27 @@ def test_load_security_policy_recording_guard_section(tmp_path: Path) -> None:
     policy = load_security_policy(policy_path)
 
     assert policy.recording_unlock_required is False
+    assert policy.macro_recording_time_limit == 0
     assert policy.macro_edit_requires_unlock is True
+
+
+@pytest.mark.parametrize("value", ["-1", "true", '"10"'])
+def test_load_security_policy_rejects_invalid_recording_duration(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    policy_path = tmp_path / "security.toml"
+    policy_path.write_text(
+        "\n".join(
+            [
+                "[recording_guard]",
+                f"macro_recording_time_limit = {value}",
+            ]
+        )
+    )
+
+    with pytest.raises(SecurityPolicyError, match="macro_recording_time_limit"):
+        load_security_policy(policy_path)
 
 
 def test_load_security_policy_gui_section(tmp_path: Path) -> None:

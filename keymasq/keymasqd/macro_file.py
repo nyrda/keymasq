@@ -3,13 +3,11 @@ from __future__ import annotations
 import io
 import json
 import lzma
-import os
-import threading
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import BinaryIO, cast
 
 from keymasq.common.coercion import require_json_object
 from keymasq.common.config_files import write_config_atomically
@@ -23,86 +21,25 @@ MACRO_FILE_VERSION = 1
 type MacroEvent = dict[str, object]
 
 
-class _OwnedMacroText(io.TextIOWrapper):
-    def __init__(self, buffer: Any, owner: BinaryIO) -> None:
-        self._owner = owner
-        super().__init__(buffer, encoding="utf-8", newline="\n")
-
-    def close(self) -> None:
-        try:
-            super().close()
-        finally:
-            self._owner.close()
-
-
 class MacroFileSnapshot:
-    """An open, immutable macro-file revision with repeatable event streams."""
+    """Immutable compressed bytes for one repeatable macro-file revision."""
 
     def __init__(self, path: Path) -> None:
-        self._raw = path.open("rb")
-        self._lock = threading.Lock()
-        self._closed = False
-        try:
-            self.meta = self._read_meta()
-        except BaseException:
-            self._raw.close()
-            self._closed = True
-            raise
+        self._compressed = path.read_bytes()
+        with self._open_text() as handle:
+            self.meta = _macro_meta_from_line(handle.readline())
 
     def _open_text(self) -> io.TextIOWrapper:
-        with self._lock:
-            if self._closed:
-                raise ValueError("Macro snapshot is closed")
-            source_fd = self._raw.fileno()
-            duplicated_fd = os.open(
-                f"/proc/self/fd/{source_fd}",
-                os.O_RDONLY | os.O_CLOEXEC,
-            )
-        try:
-            duplicated = os.fdopen(duplicated_fd, "rb")
-        except BaseException:
-            os.close(duplicated_fd)
-            raise
-        try:
-            compressed = lzma.LZMAFile(duplicated, "rb")
-            try:
-                return _OwnedMacroText(compressed, duplicated)
-            except BaseException:
-                compressed.close()
-                raise
-        except BaseException:
-            duplicated.close()
-            raise
-
-    def _read_meta(self) -> MacroFileMeta:
-        with self._open_text() as handle:
-            first_line = handle.readline()
-        return _macro_meta_from_line(first_line)
+        compressed = lzma.LZMAFile(io.BytesIO(self._compressed), "rb")
+        return io.TextIOWrapper(compressed, encoding="utf-8", newline="\n")
 
     def iter_events(self) -> Iterator[MacroEvent]:
         def generate() -> Iterator[MacroEvent]:
             with self._open_text() as handle:
-                first_line = handle.readline()
-                _macro_meta_from_line(first_line)
-                for line in handle:
-                    stripped = line.strip()
-                    if stripped:
-                        yield require_json_object(json.loads(stripped))
+                _macro_meta_from_line(handle.readline())
+                yield from _iter_macro_event_lines(handle)
 
         return generate()
-
-    def close(self) -> None:
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            self._raw.close()
-
-    def __enter__(self) -> MacroFileSnapshot:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self.close()
 
 
 @dataclass(frozen=True)
@@ -198,22 +135,15 @@ def read_macro_meta(path: Path) -> MacroFileMeta:
 
 def iter_macro_events(path: Path) -> Iterator[MacroEvent]:
     with _open_text(path, "rb") as f:
-        first_line = f.readline()
-        if not first_line:
-            raise ValueError("Empty macro file")
-        _validate_meta_record(require_json_object(json.loads(first_line)))
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            event = require_json_object(json.loads(stripped))
-            yield event
+        _macro_meta_from_line(f.readline())
+        yield from _iter_macro_event_lines(f)
 
 
 def load_macro(path: Path) -> JsonObject:
-    with MacroFileSnapshot(path) as snapshot:
-        payload = snapshot.meta.to_payload(include_type_text=True)
-        payload["events"] = list(snapshot.iter_events())
+    with _open_text(path, "rb") as handle:
+        meta = _macro_meta_from_line(handle.readline())
+        payload = meta.to_payload(include_type_text=True)
+        payload["events"] = list(_iter_macro_event_lines(handle))
         return payload
 
 
@@ -281,6 +211,13 @@ def _macro_meta_from_line(first_line: str) -> MacroFileMeta:
     record = require_json_object(json.loads(first_line))
     _validate_meta_record(record)
     return MacroFileMeta.from_payload(record)
+
+
+def _iter_macro_event_lines(handle: Iterable[str]) -> Iterator[MacroEvent]:
+    for line in handle:
+        stripped = line.strip()
+        if stripped:
+            yield require_json_object(json.loads(stripped))
 
 
 def macro_payload_str(payload: JsonObject, key: str, default: str = "") -> str:

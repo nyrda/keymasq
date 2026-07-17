@@ -1016,7 +1016,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
 
     def fake_load_security_policy(_path: Path) -> SecurityPolicy:
         startup_order.append("policy")
-        return SecurityPolicy()
+        return SecurityPolicy(macro_recording_time_limit=23)
 
     monkeypatch.setattr(daemon_module.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
@@ -1042,6 +1042,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     device_manager.stop_topology_watcher.assert_awaited_once()
     assert device_manager.broadcast_callback == fake_socket_server.broadcast_event
     assert recording_manager.broadcast_callback == fake_socket_server.broadcast_event
+    assert recording_manager.macro_recording_time_limit == 23
 
 
 @pytest.mark.asyncio

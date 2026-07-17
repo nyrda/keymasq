@@ -71,6 +71,12 @@ def make_daemon_testbed(monkeypatch):
     macro_store = SimpleNamespace(
         get=Mock(return_value={"events": []}),
         get_meta=Mock(return_value={"events": []}),
+        open_snapshot=Mock(
+            return_value=SimpleNamespace(
+                meta={"event_count": 0, "duration_us": 0},
+                iter_events=lambda: iter(()),
+            )
+        ),
         list_meta=Mock(return_value=[]),
         create=Mock(return_value={"name": "new"}),
         create_from_events=Mock(return_value={"name": "new"}),

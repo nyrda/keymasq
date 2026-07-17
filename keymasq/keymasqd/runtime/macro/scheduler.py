@@ -144,11 +144,6 @@ async def play_macro_task(
     except Exception:
         deps.log.exception("Macro playback aborted")
     finally:
-        if macro_event_source.close is not None:
-            try:
-                macro_event_source.close()
-            except Exception:
-                deps.log.exception("Failed to close macro playback snapshot")
         manager.macro_state.cancel_instance_ids.discard(instance_id)
         release_held(manager, instance_id, deps=deps)
         manager.macro_state.forget_instance(instance_id)

@@ -81,12 +81,9 @@ def test_macro_store_snapshot_pins_metadata_and_repeated_events_to_one_revision(
 
     snapshot = store.open_snapshot("macro")
     store.update("macro", {"events": [new_event]}, expected_revision=1)
-    try:
-        assert snapshot.meta["revision"] == 1
-        assert list(snapshot.iter_events()) == [old_event]
-        assert list(snapshot.iter_events()) == [old_event]
-    finally:
-        snapshot.close()
+    assert snapshot.meta["revision"] == 1
+    assert list(snapshot.iter_events()) == [old_event]
+    assert list(snapshot.iter_events()) == [old_event]
 
     assert store.get("macro")["revision"] == 2
     assert list(store.iter_events("macro")) == [new_event]

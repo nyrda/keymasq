@@ -754,16 +754,14 @@ async def test_play_macro_allows_concurrent_playback(
 
 
 @pytest.mark.asyncio
-async def test_stored_macro_playback_uses_and_releases_revision_snapshot(
+async def test_stored_macro_playback_uses_revision_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
-    closed = MagicMock()
     snapshot = SimpleNamespace(
         meta={"event_count": 1, "duration_us": 0, "revision": 1},
         iter_events=lambda: iter([{"t_us": 0, "type": 1, "code": 30, "value": 1}]),
-        close=closed,
     )
     manager.macro_store = SimpleNamespace(open_snapshot=MagicMock(return_value=snapshot))
 
@@ -778,7 +776,6 @@ async def test_stored_macro_playback_uses_and_releases_revision_snapshot(
 
     assert result == {"status": "ok"}
     manager.macro_store.open_snapshot.assert_called_once_with("stored")
-    closed.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -820,8 +817,8 @@ async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
 async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> None:
     manager = DeviceManager()
     manager.output_state.keyboard_uinput = MagicMock()
-    get_meta = MagicMock(side_effect=AssertionError("stored macro lookup should be skipped"))
-    manager.macro_store = SimpleNamespace(get_meta=get_meta, iter_events=MagicMock())
+    open_snapshot = MagicMock(side_effect=AssertionError("stored macro lookup should be skipped"))
+    manager.macro_store = SimpleNamespace(open_snapshot=open_snapshot)
 
     result = await manager.play_macro(
         macro_events=[],
@@ -830,7 +827,7 @@ async def test_play_macro_can_skip_stored_lookup_for_empty_explicit_events() -> 
     )
 
     assert result == {"status": "ok"}
-    get_meta.assert_not_called()
+    open_snapshot.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1042,72 +1039,6 @@ async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
     )
 
     assert sleep_calls == [pytest.approx(5.0), 0]
-
-
-@pytest.mark.asyncio
-async def test_play_macro_releases_runtime_state_when_snapshot_close_fails() -> None:
-    manager = DeviceManager()
-    manager.macro_state.allocate_instance(
-        loop_mode="none",
-        source_key=("keyboard", "key_a"),
-        macro_name="close_failure",
-        loop_stop_behavior="finish_run",
-    )
-    release_held = MagicMock()
-
-    def fail_close() -> None:
-        raise OSError("close failed")
-
-    await scheduler.play_macro_task(
-        manager,
-        instance_id=1,
-        macro_events=[],
-        macro_event_source=MacroEventSource(
-            event_count=0,
-            duration_us=0,
-            iter_events=lambda: iter(()),
-            close=fail_close,
-        ),
-        macro_name="close_failure",
-        replay_mouse_movement=True,
-        replay_mouse_clicks=True,
-        speed=1.0,
-        loop_mode="none",
-        loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
-        block_mouse_movement=False,
-        deps=device_manager._macro_runtime_deps(),
-        release_held_fn=release_held,
-    )
-
-    release_held.assert_called_once_with(
-        manager,
-        1,
-        deps=device_manager._macro_runtime_deps(),
-    )
-    assert 1 not in manager.macro_state.instance_meta
-
-
-@pytest.mark.asyncio
-async def test_play_macro_early_return_suppresses_snapshot_close_failure() -> None:
-    manager = DeviceManager()
-
-    def fail_close() -> None:
-        raise OSError("close failed")
-
-    result = await manager.play_macro(
-        macro_name="unavailable",
-        macro_event_source=MacroEventSource(
-            event_count=1,
-            duration_us=0,
-            iter_events=lambda: iter(()),
-            close=fail_close,
-        ),
-    )
-
-    assert result == {"status": "error", "message": "No output uinput devices available"}
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ from keymasq.common.model.actions import (
     normalize_macro_recording_slot,
 )
 from keymasq.common.paths import STATE_DIR
+from keymasq.common.security import DEFAULT_MACRO_RECORDING_TIME_LIMIT
 from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 
@@ -76,6 +77,7 @@ class RecordingManager:
         ) = None,
         *,
         spool_dir: Path | None = None,
+        macro_recording_time_limit: int = DEFAULT_MACRO_RECORDING_TIME_LIMIT,
     ) -> None:
         self.broadcast_callback = broadcast_callback
         self._spool_dir = spool_dir or STATE_DIR / "recording-spool"
@@ -95,6 +97,8 @@ class RecordingManager:
         self._include_mouse_clicks = False
         self._record_grabbed_source_keys: set[str] = set()
         self._recording_slot = 0
+        self.macro_recording_time_limit = max(0, int(macro_recording_time_limit))
+        self._recording_started_at: float | None = None
 
     @property
     def is_recording(self) -> bool:
@@ -128,6 +132,7 @@ class RecordingManager:
         self._extra_devices = []
         self._monitoring_tasks = []
         self._stopped = False
+        self._recording_started_at = asyncio.get_running_loop().time()
         self._include_mouse_movement = bool(include_mouse_movement)
         self._include_mouse_clicks = bool(include_mouse_clicks)
         self._recording_slot = normalize_macro_recording_slot(recording_slot)
@@ -213,6 +218,7 @@ class RecordingManager:
         self._record_grabbed_source_keys = set()
         self._recording_slot = 0
         self._start_time_us = None
+        self._recording_started_at = None
 
         spool = self._spool
         self._spool = None
@@ -278,17 +284,19 @@ class RecordingManager:
         except Exception:
             log.exception("Extra recording device reader stopped after unexpected error")
 
-    async def stop(self) -> RecordingPayload:
+    async def stop(self, *, stop_reason: str | None = None) -> RecordingPayload:
         was_recording = not self._stopped
         self._stopped = True
+        self._recording_started_at = None
 
         for task in self._monitoring_tasks:
             task.cancel()
         self._monitoring_tasks = []
 
-        if self._progress_task:
-            self._progress_task.cancel()
-            self._progress_task = None
+        progress_task = self._progress_task
+        self._progress_task = None
+        if progress_task is not None and progress_task is not asyncio.current_task():
+            progress_task.cancel()
 
         for device in self._extra_devices:
             _close_recording_input_device(device)
@@ -340,6 +348,10 @@ class RecordingManager:
         }
         if recording_slot:
             payload["recording_slot"] = recording_slot
+        if stop_reason:
+            payload["stop_reason"] = stop_reason
+            if stop_reason == "duration_limit":
+                payload["macro_recording_time_limit"] = int(self.macro_recording_time_limit)
 
         if was_recording and self.broadcast_callback:
             await self.broadcast_callback(CommandType.RECORDING_STOPPED, payload)
@@ -766,7 +778,25 @@ class RecordingManager:
     async def _monitor_progress(self) -> None:
         while not self._stopped:
             await asyncio.sleep(0.5)
-            if self._stopped or not self.broadcast_callback:
+            if self._stopped:
+                continue
+
+            started_at = self._recording_started_at
+            time_limit = int(self.macro_recording_time_limit)
+            if (
+                time_limit > 0
+                and started_at is not None
+                and asyncio.get_running_loop().time() - started_at
+                >= time_limit * 60
+            ):
+                log.info(
+                    "Stopping macro recording after configured %d minute limit",
+                    time_limit,
+                )
+                await self.stop(stop_reason="duration_limit")
+                return
+
+            if not self.broadcast_callback:
                 continue
 
             spool = self._spool

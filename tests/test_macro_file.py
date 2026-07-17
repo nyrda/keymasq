@@ -55,7 +55,7 @@ def test_write_macro_closes_temp_file_descriptor(tmp_path: Path) -> None:
         assert _open_fd_count() == baseline
 
 
-def test_macro_snapshot_close_does_not_block_suspended_stream(tmp_path: Path) -> None:
+def test_macro_snapshot_stream_survives_source_replacement(tmp_path: Path) -> None:
     path = tmp_path / "macro.kmacro.xz"
     events = [{"type": 1, "code": index, "value": 1, "t_us": index} for index in range(200)]
     write_macro(path, MacroFileMeta(name="macro", event_count=len(events)), events)
@@ -63,25 +63,27 @@ def test_macro_snapshot_close_does_not_block_suspended_stream(tmp_path: Path) ->
     iterator = snapshot.iter_events()
 
     assert next(iterator) == events[0]
-    snapshot.close()
+    write_macro(
+        path,
+        MacroFileMeta(name="macro", event_count=1, revision=2),
+        [{"type": 1, "code": 999, "value": 1, "t_us": 0}],
+    )
 
     assert list(iterator) == events[1:]
+    assert list(snapshot.iter_events()) == events
 
 
-def test_macro_snapshot_repeated_streams_close_duplicated_descriptors(tmp_path: Path) -> None:
+def test_macro_snapshot_repeated_streams_do_not_hold_descriptors(tmp_path: Path) -> None:
     path = tmp_path / "macro.kmacro.xz"
     events = [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     write_macro(path, MacroFileMeta(name="macro", event_count=1), events)
     baseline = _open_fd_count()
 
     snapshot = MacroFileSnapshot(path)
-    assert _open_fd_count() == baseline + 1
+    assert _open_fd_count() == baseline
     for _ in range(10):
         assert list(snapshot.iter_events()) == events
-        assert _open_fd_count() == baseline + 1
-
-    snapshot.close()
-    assert _open_fd_count() == baseline
+        assert _open_fd_count() == baseline
 
 
 def test_write_macro_without_overwrite_preserves_existing_destination(tmp_path: Path) -> None:

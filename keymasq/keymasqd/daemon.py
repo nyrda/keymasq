@@ -99,6 +99,9 @@ class Daemon:
         self.device_manager.emergency_cancel_combo_enabled = bool(
             self.security_policy.emergency_cancel_combo_enabled
         )
+        self.recording_manager.macro_recording_time_limit = int(
+            self.security_policy.macro_recording_time_limit
+        )
         await asyncio.to_thread(self._prepare_macro_store)
         await self.recording_manager.load_persisted_slot_recordings()
         log.info(

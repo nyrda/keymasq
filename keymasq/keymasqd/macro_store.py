@@ -8,6 +8,7 @@ import re
 import threading
 from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -33,16 +34,10 @@ type MacroEvent = dict[str, object]
 type MacroPayload = dict[str, object]
 
 
+@dataclass(frozen=True)
 class MacroStoreSnapshot:
-    def __init__(
-        self,
-        meta: MacroPayload,
-        iter_events: Callable[[], Iterator[MacroEvent]],
-        close: Callable[[], None],
-    ) -> None:
-        self.meta = meta
-        self.iter_events = iter_events
-        self.close = close
+    meta: MacroPayload
+    iter_events: Callable[[], Iterator[MacroEvent]]
 
 
 def _payload_list(payload: MacroPayload, key: str) -> list[object]:
@@ -150,7 +145,7 @@ class MacroStore:
             payload = copy.deepcopy(self._internal_macros[name])
             events = _payload_events(payload)
             meta = MacroFileMeta.from_payload(payload, name=name).to_payload()
-            return MacroStoreSnapshot(meta, lambda: iter(copy.deepcopy(events)), lambda: None)
+            return MacroStoreSnapshot(meta, lambda: iter(copy.deepcopy(events)))
 
         path = self._macro_path(name)
         if not path.exists():
@@ -159,7 +154,6 @@ class MacroStore:
         return MacroStoreSnapshot(
             snapshot.meta.to_payload(),
             snapshot.iter_events,
-            snapshot.close,
         )
 
     def create(self, payload: MacroPayload) -> MacroPayload:

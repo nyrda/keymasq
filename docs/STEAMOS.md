@@ -85,6 +85,7 @@ SteamOS/AppImage installs disable the recording unlock requirement in
 ```toml
 [recording_guard]
 unlock_required = false
+macro_recording_time_limit = 10
 ```
 
 Recording works out of the box, without a per-session unlock.

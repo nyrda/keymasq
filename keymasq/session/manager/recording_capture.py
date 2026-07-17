@@ -3,7 +3,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
-from keymasq.common.ipc import Command, CommandType
+from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from .common import JsonObject, json_list, json_object
@@ -13,6 +13,22 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
+
+
+async def _send_capture_begin(
+    manager: "SessionManager",
+    command: Command,
+) -> tuple[Response, bool]:
+    """Settle CAPTURE_BEGIN before propagating caller cancellation."""
+
+    task = asyncio.create_task(manager.client.send_command(command))
+    try:
+        return await asyncio.shield(task), False
+    except asyncio.CancelledError as cancelled:
+        outcome = (await asyncio.shield(asyncio.gather(task, return_exceptions=True)))[0]
+        if isinstance(outcome, BaseException):
+            raise cancelled from outcome
+        return outcome, True
 
 
 async def _begin_capture(
@@ -85,25 +101,18 @@ async def capture_begin_for_paths(
         }
     try:
         lock_result = await _begin_capture(manager, hardware_id)
-        request_task = asyncio.create_task(
-            manager.client.send_command(
-                Command(
-                    command=CommandType.CAPTURE_BEGIN,
-                    data={
-                        "hardware_id": hardware_id,
-                        **({"mode": mode} if mode != "button" else {}),
-                        **({"evdev_paths": evdev_paths} if evdev_paths else {}),
-                        **({"evdev_interfaces": evdev_interfaces} if evdev_interfaces else {}),
-                    },
-                )
+        result, cancelled = await _send_capture_begin(
+            manager,
+            Command(
+                command=CommandType.CAPTURE_BEGIN,
+                data={
+                    "hardware_id": hardware_id,
+                    **({"mode": mode} if mode != "button" else {}),
+                    **({"evdev_paths": evdev_paths} if evdev_paths else {}),
+                    **({"evdev_interfaces": evdev_interfaces} if evdev_interfaces else {}),
+                },
             )
         )
-        cancelled = False
-        try:
-            result = await asyncio.shield(request_task)
-        except asyncio.CancelledError:
-            cancelled = True
-            result = await asyncio.shield(request_task)
     except asyncio.CancelledError:
         await _rollback_capture_begin(manager, hardware_id)
         raise

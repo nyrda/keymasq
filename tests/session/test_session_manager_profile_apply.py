@@ -403,6 +403,48 @@ async def test_cancelled_combo_update_settles_acknowledgement_and_commits_refs()
 
 
 @pytest.mark.asyncio
+async def test_cancelled_mapping_update_preserves_cancellation_when_request_fails() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def failed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        raise ConnectionError("disconnected")
+
+    manager.client.send_command = AsyncMock(side_effect=failed_response)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    update_task = asyncio.create_task(
+        profile_application.update_mapping(manager, hardware_id, resolved)
+    )
+    await request_started.wait()
+    update_task.cancel()
+    release_response.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await update_task
+
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_uses_extended_grab_timeout() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

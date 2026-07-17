@@ -111,8 +111,11 @@ class KeymasqdClient:
             log.exception("Unexpected daemon client listen error")
         finally:
             if not cancelled:
+                self._prepare_disconnect()
                 await self._cancel_event_tasks()
-            self._finalize_disconnect()
+                self._disconnected_event.set()
+            else:
+                self._finalize_disconnect()
 
     async def wait_disconnected(self) -> None:
         await self._disconnected_event.wait()
@@ -191,10 +194,11 @@ class KeymasqdClient:
             self._event_tasks.difference_update(tasks)
 
     def _finalize_disconnect(self) -> None:
-        error = ConnectionError("Disconnected from keymasqd")
-        for future in list(self._pending_requests.values()):
-            if not future.done():
-                future.set_exception(error)
+        self._prepare_disconnect()
+        self._disconnected_event.set()
+
+    def _prepare_disconnect(self) -> None:
+        self._fail_pending_requests()
 
         writer = self.writer
         self.reader = None
@@ -209,4 +213,8 @@ class KeymasqdClient:
             except Exception:
                 log.exception("Unexpected failure closing daemon client writer after disconnect")
 
-        self._disconnected_event.set()
+    def _fail_pending_requests(self) -> None:
+        error = ConnectionError("Disconnected from keymasqd")
+        for future in list(self._pending_requests.values()):
+            if not future.done():
+                future.set_exception(error)

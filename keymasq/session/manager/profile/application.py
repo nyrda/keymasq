@@ -47,8 +47,11 @@ async def _send_reference_command(
     task = asyncio.create_task(manager.client.send_command(command))
     try:
         return await asyncio.shield(task), False
-    except asyncio.CancelledError:
-        return await asyncio.shield(task), True
+    except asyncio.CancelledError as cancelled:
+        outcome = (await asyncio.shield(asyncio.gather(task, return_exceptions=True)))[0]
+        if isinstance(outcome, BaseException):
+            raise cancelled from outcome
+        return outcome, True
 
 
 def _commit_device_references(

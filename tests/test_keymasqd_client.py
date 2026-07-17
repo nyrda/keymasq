@@ -273,3 +273,48 @@ def test_keymasqd_client_unexpected_disconnect_cancels_event_worker() -> None:
         assert client._disconnected_event.is_set()
 
     asyncio.run(_run())
+
+
+def test_keymasqd_client_disconnect_fails_nested_request_before_worker_cancel() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+        request_started = asyncio.Event()
+
+        class _RequestWriter(_FakeWriter):
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                request_started.set()
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            request_task = asyncio.create_task(
+                client.send_command(Command(command=CommandType.PING))
+            )
+            try:
+                await asyncio.shield(request_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(request_task)
+                raise
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _RequestWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.PING.value, "data": {}},
+                )
+            )
+        )
+        listen_task = asyncio.create_task(client._listen_loop())
+        await asyncio.wait_for(request_started.wait(), timeout=0.5)
+        reader.feed_eof()
+
+        await asyncio.wait_for(listen_task, timeout=0.5)
+
+        assert request_started.is_set()
+        assert client._pending_requests == {}
+        assert client._event_tasks == set()
+        assert client._disconnected_event.is_set()
+
+    asyncio.run(_run())

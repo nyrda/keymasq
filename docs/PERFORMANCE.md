@@ -180,23 +180,13 @@ Enable with:
 keymasq diagnostics on --include macro
 ```
 
-These labels measure stored-macro loading separately from the complete runtime
-of one playback iteration. This makes the effect of the short-macro replay
-cache visible without mixing in the macro's own timing.
+These labels separate stored-macro loading from the complete runtime of one
+playback iteration.
 
 | Label | What it means |
 |---|---|
 | `macro_load` | Time spent resolving the stored revision and obtaining its events. Streamed iterations include worker batches that decompress and parse the file; cache hits include only revision validation and cache retrieval. Timeline sleeps, wait controls, and command execution are excluded. |
 | `macro_iteration` | Wall-clock runtime of one normally completed iteration, including event timing, explicit and random waits, synchronous commands, and trailing macro duration. Inter-iteration scheduling yields are excluded. |
-
-For a repeatable benchmark, save the test macro with `loop_mode` set to `count`
-and a fixed `loop_count`, enable macro diagnostics, and trigger it once:
-
-```bash
-keymasq diagnostics on --include macro --interval 5
-keymasq macros play benchmark-macro
-journalctl -u keymasqd -f
-```
 
 Only stored macros are sampled. Cancelled, interrupted, or failed iterations
 do not produce a complete iteration sample.

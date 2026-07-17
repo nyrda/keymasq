@@ -113,6 +113,13 @@ class DaemonConnectionMixin:
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False
         self.recording_state.devices_cache_include_other = False
+        self.capture_state.tokens.clear()
+        self.capture_state.locks.clear()
+        self.capture_state.resume_profiles.clear()
+        self.capture_state.owner_writer_ids.clear()
+        self.exec_state.exec_refs.clear()
+        self.exec_state.device_exec_refs.clear()
+        self.exec_state.combo_exec_refs.clear()
 
         if was_connected:
             self._broadcast_keymasqd_status(False)

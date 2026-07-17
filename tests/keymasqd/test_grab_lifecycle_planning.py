@@ -1,7 +1,7 @@
 import asyncio
 import errno
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import evdev
 import pytest
@@ -9,6 +9,7 @@ import pytest
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime import device_path_resolver, outputs
+from keymasq.keymasqd.runtime.grab import acquisition
 from keymasq.keymasqd.runtime.grab.acquisition import finalize_grab
 from keymasq.keymasqd.runtime.grab.planning import build_grab_plan, device_has_mapped_buttons
 from keymasq.keymasqd.runtime.grab.recovery import rollback_failed_grab_report
@@ -369,6 +370,39 @@ async def test_finalize_grab_raises_no_match_and_destroys_created_uinputs(
     assert "mapped_names=1" in str(excinfo.value)
     assert "mapped_bindings=1" in str(excinfo.value)
     destroy_global_uinputs.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_multi_interface_grab_does_not_update_existing_device_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = SimpleNamespace(path="/dev/input/event1")
+    manager = _manager(grabbed_devices={"2dc8:3106": [existing]})
+    plan = _plan(
+        requested_paths={"/dev/input/event1", "/dev/input/event2"},
+        existing_devices=[existing],
+    )
+    update_existing_devices = Mock()
+    monkeypatch.setattr(acquisition.device_path_resolver, "clear_cached_devices", Mock())
+    monkeypatch.setattr(acquisition, "build_grab_plan", Mock(return_value=plan))
+    monkeypatch.setattr(acquisition, "log_grab_request", Mock())
+    monkeypatch.setattr(acquisition, "update_existing_devices", update_existing_devices)
+    monkeypatch.setattr(acquisition, "reconcile_existing_interface_releases", Mock())
+    monkeypatch.setattr(acquisition, "build_runtime_callbacks", Mock(return_value=object()))
+    monkeypatch.setattr(
+        acquisition,
+        "grab_one_interface",
+        AsyncMock(side_effect=RuntimeError("second interface failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="second interface failed"):
+        await acquisition.grab_device_unlocked(
+            manager,
+            _request(),
+            _deps(),
+        )
+
+    update_existing_devices.assert_not_called()
 
 
 class _FakeTask:

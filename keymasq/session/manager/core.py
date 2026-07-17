@@ -88,6 +88,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self._config_reload_coalesce_until = 0.0
         self.config_watch_fd: int | None = None
         self.config_watch_watches: dict[int, Path] = {}
+        self._registered_signals: set[signal.Signals] = set()
         self.verbosity = verbosity
 
         self.profile_state = ProfileRuntimeState()
@@ -131,28 +132,29 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
 
     async def start(self) -> None:
         self.running = True
-
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._signal_handler)
-        for sig in (signal.SIGHUP,):
-            loop.add_signal_handler(sig, self._reload_handler)
-
-        log.info("Starting keymasq-session")
-
-        await self._start_session_server()
         try:
-            await self.mpris_controller.start()
-        except MprisDBusError:
-            log.debug("MPRIS controller startup deferred", exc_info=True)
+            loop = asyncio.get_event_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, self._signal_handler)
+                self._registered_signals.add(sig)
+            for sig in (signal.SIGHUP,):
+                loop.add_signal_handler(sig, self._reload_handler)
+                self._registered_signals.add(sig)
 
-        self.connect_task = asyncio.create_task(self.connect_loop())
-        self._start_config_watcher()
-        self.compositor_state.supervisor_task = asyncio.create_task(
-            compositor.compositor_supervisor_loop(self)
-        )
+            log.info("Starting keymasq-session")
 
-        try:
+            await self._start_session_server()
+            try:
+                await self.mpris_controller.start()
+            except MprisDBusError:
+                log.debug("MPRIS controller startup deferred", exc_info=True)
+
+            self.connect_task = asyncio.create_task(self.connect_loop())
+            self._start_config_watcher()
+            self.compositor_state.supervisor_task = asyncio.create_task(
+                compositor.compositor_supervisor_loop(self)
+            )
+
             await self._shutdown_event.wait()
         finally:
             await self.stop()
@@ -163,6 +165,14 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
 
         log.info("Stopping keymasq-session")
         self.running = False
+
+        loop = asyncio.get_event_loop()
+        for sig in self._registered_signals:
+            try:
+                loop.remove_signal_handler(sig)
+            except (NotImplementedError, RuntimeError):
+                log.debug("Failed to remove signal handler for %s", sig, exc_info=True)
+        self._registered_signals.clear()
 
         self._shutdown_event.set()
         await runtime_state.cancel_all_grab_retries(self)

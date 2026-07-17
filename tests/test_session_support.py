@@ -126,6 +126,8 @@ async def test_keymasqd_client_handle_response_logs_event_handler_errors(
         await client._handle_response(
             Response(status="event", data={"command": CommandType.PING.value, "data": {}})
         )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     assert "Event handler error: boom" in caplog.text
 

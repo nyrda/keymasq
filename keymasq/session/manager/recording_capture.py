@@ -30,9 +30,18 @@ async def _begin_capture(
     manager.capture_state.resume_profiles[hardware_id] = current_profiles
 
     released = False
-    if hardware_id in manager.profile_state.grabbed_devices:
-        await application.deactivate_profile(manager, hardware_id, immediate=True)
-        released = True
+    try:
+        if hardware_id in manager.profile_state.grabbed_devices:
+            released = await application.deactivate_profile(
+                manager,
+                hardware_id,
+                immediate=True,
+            )
+            if not released:
+                raise RuntimeError(f"Failed to release {hardware_id} for capture")
+    except BaseException:
+        await _rollback_capture_begin(manager, hardware_id)
+        raise
 
     return {
         "status": "ok",
@@ -74,8 +83,8 @@ async def capture_begin_for_paths(
             "status": "error",
             "message": f"Hardware config for {hardware_id} has no evdev paths",
         }
-    lock_result = await _begin_capture(manager, hardware_id)
     try:
+        lock_result = await _begin_capture(manager, hardware_id)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.CAPTURE_BEGIN,
@@ -87,22 +96,25 @@ async def capture_begin_for_paths(
                 },
             )
         )
+    except asyncio.CancelledError:
+        await _rollback_capture_begin(manager, hardware_id)
+        raise
     except OSError:
-        await _end_capture(manager, hardware_id)
+        await _rollback_capture_begin(manager, hardware_id)
         return {"status": "error", "message": "Daemon unavailable"}
     except Exception:
         log.exception("Unexpected failure beginning capture for hardware_id=%s", hardware_id)
-        await _end_capture(manager, hardware_id)
+        await _rollback_capture_begin(manager, hardware_id)
         return {"status": "error", "message": "Failed to begin capture"}
 
     result_data = json_object(result.data)
     if result.status != "ok" or result_data is None:
-        await _end_capture(manager, hardware_id)
+        await _rollback_capture_begin(manager, hardware_id)
         return {"status": "error", "message": result.error or "Failed to begin capture"}
 
     token = coerce_str(result_data.get("token"), "")
     if not token:
-        await _end_capture(manager, hardware_id)
+        await _rollback_capture_begin(manager, hardware_id)
         return {"status": "error", "message": "Missing capture token"}
 
     manager.capture_state.tokens[hardware_id] = token
@@ -116,6 +128,18 @@ async def capture_begin_for_paths(
     }
     response.update(lock_result)
     return response
+
+
+async def _rollback_capture_begin(manager: "SessionManager", hardware_id: str) -> None:
+    """Drop a provisional lock and restore normal profile reconciliation."""
+
+    manager.capture_state.tokens.pop(hardware_id, None)
+    try:
+        await _end_capture(manager, hardware_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Failed to roll back capture begin for hardware_id=%s", hardware_id)
 
 
 async def capture_read(manager: "SessionManager", hardware_id: str) -> JsonObject:

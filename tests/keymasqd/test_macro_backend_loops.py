@@ -53,6 +53,35 @@ async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeyp
     )
 
 
+@pytest.mark.parametrize("failure", [RuntimeError("broadcast failed"), asyncio.CancelledError()])
+@pytest.mark.asyncio
+async def test_recording_manager_start_rolls_back_resources_when_broadcast_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: BaseException,
+) -> None:
+    device = SimpleNamespace(close=MagicMock())
+    broadcast_callback = AsyncMock(side_effect=failure)
+    recorder = RecordingManager(broadcast_callback=broadcast_callback)
+
+    async def fake_to_thread(func, /, *args, **kwargs):
+        if func is recording._open_recording_input_device:
+            return device
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(recording.asyncio, "to_thread", fake_to_thread)
+
+    with pytest.raises(type(failure)):
+        await recorder.start([{"path": "/dev/input/event0"}])
+
+    assert recorder.is_recording is False
+    assert recorder._spool is None
+    assert recorder._extra_devices == []
+    assert recorder._monitoring_tasks == []
+    assert recorder._progress_task is None
+    assert recorder._record_grabbed_source_keys == set()
+    device.close.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_play_macro_hold_loop_finishes_current_run_on_release_by_default() -> None:
     manager = DeviceManager()

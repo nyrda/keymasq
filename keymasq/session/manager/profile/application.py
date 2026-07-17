@@ -311,8 +311,17 @@ async def _send_set_mapping_command(
         len(resolved.mappings),
         resolved.active_profile_names,
     )
+    previous_refs = references.take_device(manager, hardware_id)
+    staged_refs: references.ReferenceSnapshot | None = None
     try:
-        serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+        try:
+            serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+            staged_refs = references.take_device(manager, hardware_id)
+        finally:
+            if staged_refs is None:
+                references.take_device(manager, hardware_id)
+            references.restore_device(manager, hardware_id, previous_refs)
+        assert staged_refs is not None
         log.debug("Mapping data: %s", mapping.log_view(serialized_mapping))
         raise_if_stale_profile_apply(manager, generation)
 
@@ -325,9 +334,9 @@ async def _send_set_mapping_command(
                 },
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
-
         if result.status == "ok":
+            references.restore_device(manager, hardware_id, staged_refs)
+            raise_if_stale_profile_apply(manager, generation)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
                 mapping.signature(
                     manager,
@@ -342,6 +351,7 @@ async def _send_set_mapping_command(
             )
             notify()
         else:
+            raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to set mapping: %s", result.error)
 
     except OSError as exc:
@@ -551,15 +561,23 @@ async def update_combos(
     if signature == manager.profile_state.last_sent_combo_signature:
         log.debug("Skipping unchanged combo payload")
         return
-    references.clear_combos(manager)
-    payload: list[JsonObject] = []
-    active_combos: list[ResolvedCombo] = []
-    for resolved_combo in combos:
-        combo_payload = combo.serialize(manager, resolved_combo)
-        if combo_payload is None:
-            continue
-        payload.append(combo_payload)
-        active_combos.append(resolved_combo)
+    previous_refs = references.take_combos(manager)
+    staged_refs: references.ReferenceSnapshot | None = None
+    try:
+        payload: list[JsonObject] = []
+        active_combos: list[ResolvedCombo] = []
+        for resolved_combo in combos:
+            combo_payload = combo.serialize(manager, resolved_combo)
+            if combo_payload is None:
+                continue
+            payload.append(combo_payload)
+            active_combos.append(resolved_combo)
+        staged_refs = references.take_combos(manager)
+    finally:
+        if staged_refs is None:
+            references.take_combos(manager)
+        references.restore_combos(manager, previous_refs)
+    assert staged_refs is not None
     try:
         raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
@@ -568,10 +586,12 @@ async def update_combos(
                 data={"combos": payload},
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
         if result.status != "ok":
+            raise_if_stale_profile_apply(manager, generation)
             log.error("Failed to update combos: %s", result.error)
             return
+        references.restore_combos(manager, staged_refs)
+        raise_if_stale_profile_apply(manager, generation)
         manager.profile_state.last_sent_combo_signature = signature
         manager.profile_state.resolved_combos = list(active_combos)
     except OSError as exc:
@@ -597,15 +617,22 @@ async def update_mapping(
         resolved,
         hardware_id,
     )
-    references.clear_device(manager, hardware_id)
-
     log.info(
         "Updating mapping for %s with %d buttons",
         hardware_id,
         len(resolved.mappings),
     )
+    previous_refs = references.take_device(manager, hardware_id)
+    staged_refs: references.ReferenceSnapshot | None = None
     try:
-        serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+        try:
+            serialized_mapping = mapping.serialize(manager, resolved, hardware_id)
+            staged_refs = references.take_device(manager, hardware_id)
+        finally:
+            if staged_refs is None:
+                references.take_device(manager, hardware_id)
+            references.restore_device(manager, hardware_id, previous_refs)
+        assert staged_refs is not None
         raise_if_stale_profile_apply(manager, generation)
         result = await manager.client.send_command(
             Command(
@@ -616,11 +643,13 @@ async def update_mapping(
                 },
             )
         )
-        raise_if_stale_profile_apply(manager, generation)
         if result.status == "ok":
+            references.restore_device(manager, hardware_id, staged_refs)
+            raise_if_stale_profile_apply(manager, generation)
             log.info("Updated mapping for %s", hardware_id)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
             return True
+        raise_if_stale_profile_apply(manager, generation)
         log.error("Failed to update mapping: %s", result.error)
         return False
     except OSError as exc:

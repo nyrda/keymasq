@@ -132,3 +132,46 @@ def test_keymasqd_client_discards_oversized_response_before_valid(
         assert future.result().data == {"done": True}
 
     asyncio.run(_run())
+
+
+def test_keymasqd_client_event_can_complete_nested_request() -> None:
+    async def _run() -> None:
+        reader = asyncio.StreamReader()
+
+        class _ReplyWriter(_FakeWriter):
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                reader.feed_data(
+                    encode_response(
+                        Response(status="ok", request_id="1", data={"stored": True})
+                    )
+                )
+
+        nested_response: Response | None = None
+
+        async def _event_handler(_event: CommandType, _data: object) -> None:
+            nonlocal nested_response
+            nested_response = await client.send_command(
+                Command(command=CommandType.MACRO_DELETE_RECORDING)
+            )
+            reader.feed_eof()
+
+        client = KeymasqdClient(event_handler=_event_handler)
+        client.reader = reader
+        client.writer = _ReplyWriter()
+        reader.feed_data(
+            encode_response(
+                Response(
+                    status="event",
+                    data={"command": CommandType.RECORDING_STOPPED.value, "data": {}},
+                )
+            )
+        )
+
+        await asyncio.wait_for(client._listen_loop(), timeout=0.5)
+        await asyncio.gather(*client._event_tasks)
+
+        assert nested_response is not None
+        assert nested_response.data == {"stored": True}
+
+    asyncio.run(_run())

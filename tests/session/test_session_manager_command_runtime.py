@@ -22,7 +22,7 @@ from keymasq.common.security import PeerCredentials
 from keymasq.common.settings import GlobalSettings
 from keymasq.session.listeners.kde import KDEListener
 from keymasq.session.manager.core import SessionManager
-from keymasq.session.manager.profile import coordinator, runtime_status
+from keymasq.session.manager.profile import application, coordinator, runtime_status
 from keymasq.session.manager.state import PendingSave, PendingSlot
 from tests.session.support import grant_recording_refresh_owner
 
@@ -2216,6 +2216,59 @@ async def test_begin_capture_rejects_duplicate_for_same_hardware(
     }
     assert manager.capture_state.tokens[hardware_id] == "token-1"
     assert manager.client.send_command.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("release_failure", [False, RuntimeError("release failed")])
+async def test_begin_capture_rolls_back_provisional_lock_when_release_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    release_failure: object,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.client.send_command = AsyncMock()
+    if isinstance(release_failure, BaseException):
+        deactivate_profile = AsyncMock(side_effect=release_failure)
+    else:
+        deactivate_profile = AsyncMock(return_value=release_failure)
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(application, "deactivate_profile", deactivate_profile)
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+
+    result = await recording_capture_module.capture_begin(manager, hardware_id)
+
+    assert result == {"status": "error", "message": "Failed to begin capture"}
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    manager.client.send_command.assert_not_awaited()
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason=f"capture ended for {hardware_id}",
+    )
+
+
+@pytest.mark.asyncio
+async def test_begin_capture_rolls_back_provisional_lock_when_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.client.send_command = AsyncMock()
+    monkeypatch.setattr(
+        application,
+        "deactivate_profile",
+        AsyncMock(side_effect=asyncio.CancelledError()),
+    )
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
+
+    with pytest.raises(asyncio.CancelledError):
+        await recording_capture_module.capture_begin(manager, hardware_id)
+
+    assert manager.capture_state.locks == set()
+    assert manager.capture_state.resume_profiles == {}
+    manager.client.send_command.assert_not_awaited()
 
 
 @pytest.mark.asyncio

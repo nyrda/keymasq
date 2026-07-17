@@ -24,9 +24,11 @@ class KeymasqdClient:
         self._pending_requests: dict[str, asyncio.Future[Response]] = {}
         self._request_counter = 0
         self._listen_task: asyncio.Task[None] | None = None
+        self._event_tasks: set[asyncio.Task[None]] = set()
         self._disconnected_event = asyncio.Event()
 
     async def connect(self) -> None:
+        await self._cancel_event_tasks()
         self._disconnected_event.clear()
         self.reader, self.writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
         self._listen_task = asyncio.create_task(self._listen_loop())
@@ -40,6 +42,8 @@ class KeymasqdClient:
             except asyncio.CancelledError:
                 pass
             self._listen_task = None
+
+        await self._cancel_event_tasks()
 
         if writer:
             try:
@@ -123,9 +127,47 @@ class KeymasqdClient:
                     log.warning("Ignoring unknown daemon event: %s", raw_command)
                     return
                 data = response.data.get("data", {})
-                await self.event_handler(event_type, data)
-            except Exception as e:
-                log.exception("Event handler error: %s", e)
+                self._dispatch_event(event_type, data)
+                # Let immediately-ready handlers begin without ever waiting for
+                # their completion. The reader remains free to ingest any
+                # response needed by the handler.
+                await asyncio.sleep(0)
+            except Exception as exc:
+                log.exception("Failed to dispatch daemon event: %s", exc)
+
+    def _dispatch_event(self, event_type: CommandType, data: Any) -> None:
+        task = asyncio.create_task(
+            self._run_event_handler(event_type, data),
+            name=f"keymasq-session:daemon-event:{event_type.value}",
+        )
+        self._event_tasks.add(task)
+
+        def _event_done(done: asyncio.Task[None]) -> None:
+            self._event_tasks.discard(done)
+            try:
+                exc = done.exception()
+            except asyncio.CancelledError:
+                return
+            if exc is not None:
+                log.error(
+                    "Event handler error: %s",
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+
+        task.add_done_callback(_event_done)
+
+    async def _run_event_handler(self, event_type: CommandType, data: Any) -> None:
+        await self.event_handler(event_type, data)
+
+    async def _cancel_event_tasks(self) -> None:
+        tasks = list(self._event_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._event_tasks.difference_update(tasks)
 
     def _finalize_disconnect(self) -> None:
         error = ConnectionError("Disconnected from keymasqd")

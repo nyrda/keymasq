@@ -108,49 +108,90 @@ class RecordingManager:
         self._include_mouse_movement = bool(include_mouse_movement)
         self._include_mouse_clicks = bool(include_mouse_clicks)
         self._recording_slot = normalize_macro_recording_slot(recording_slot)
-        extra_devices, self._record_grabbed_source_keys = _build_recording_plan(devices)
-        if start_position is not None:
-            self._spool.append(_start_mouse_move_event(*start_position))
+        try:
+            extra_devices, self._record_grabbed_source_keys = _build_recording_plan(devices)
+            if start_position is not None:
+                self._spool.append(_start_mouse_move_event(*start_position))
 
-        for dev in extra_devices:
-            path_value = dev.get("open_path", dev.get("path"))
-            if not isinstance(path_value, str) or not path_value:
-                continue
+            for dev in extra_devices:
+                path_value = dev.get("open_path", dev.get("path"))
+                if not isinstance(path_value, str) or not path_value:
+                    continue
+                try:
+                    input_dev = await asyncio.to_thread(_open_recording_input_device, path_value)
+                except OSError:
+                    log.debug(
+                        "Failed to open extra recording device %s",
+                        path_value,
+                        exc_info=True,
+                    )
+                    input_dev = None
+                except Exception:
+                    log.exception(
+                        "Unexpected failure opening extra recording device %s",
+                        path_value,
+                    )
+                    input_dev = None
+                if input_dev is None:
+                    continue
+                self._extra_devices.append(input_dev)
+                raw_classes = dev.get("device_types")
+                classes = (
+                    [str(value) for value in cast(list[object], raw_classes)]
+                    if isinstance(raw_classes, list)
+                    else None
+                )
+                primary = dev.get("device_type", "other")
+                device_types = normalize_input_classes(
+                    classes,
+                    primary if isinstance(primary, str) else "other",
+                )
+                task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
+                self._monitoring_tasks.append(task)
+
+            self._progress_task = asyncio.create_task(self._monitor_progress())
+
+            started_payload: RecordingPayload = {"status": "ok"}
+            if self._recording_slot:
+                started_payload["recording_slot"] = int(self._recording_slot)
+
+            if self.broadcast_callback:
+                await self.broadcast_callback(CommandType.RECORDING_STARTED, started_payload)
+
+            return started_payload
+        except BaseException:
+            await self._abort_failed_start()
+            raise
+
+    async def _abort_failed_start(self) -> None:
+        """Discard every resource acquired by an uncommitted start transition."""
+
+        self._stopped = True
+        tasks = list(self._monitoring_tasks)
+        self._monitoring_tasks = []
+        progress_task = self._progress_task
+        self._progress_task = None
+        if progress_task is not None:
+            tasks.append(progress_task)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        for device in self._extra_devices:
+            _close_recording_input_device(device)
+        self._extra_devices = []
+        self._record_grabbed_source_keys = set()
+        self._recording_slot = 0
+        self._start_time_us = None
+
+        spool = self._spool
+        self._spool = None
+        if spool is not None:
             try:
-                input_dev = await asyncio.to_thread(_open_recording_input_device, path_value)
-            except OSError:
-                log.debug("Failed to open extra recording device %s", path_value, exc_info=True)
-                input_dev = None
+                await spool.discard()
             except Exception:
-                log.exception("Unexpected failure opening extra recording device %s", path_value)
-                input_dev = None
-            if input_dev is None:
-                continue
-            self._extra_devices.append(input_dev)
-            raw_classes = dev.get("device_types")
-            classes = (
-                [str(value) for value in cast(list[object], raw_classes)]
-                if isinstance(raw_classes, list)
-                else None
-            )
-            primary = dev.get("device_type", "other")
-            device_types = normalize_input_classes(
-                classes,
-                primary if isinstance(primary, str) else "other",
-            )
-            task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
-            self._monitoring_tasks.append(task)
-
-        self._progress_task = asyncio.create_task(self._monitor_progress())
-
-        started_payload: RecordingPayload = {"status": "ok"}
-        if self._recording_slot:
-            started_payload["recording_slot"] = int(self._recording_slot)
-
-        if self.broadcast_callback:
-            await self.broadcast_callback(CommandType.RECORDING_STARTED, started_payload)
-
-        return started_payload
+                log.exception("Failed to discard recording spool after start failure")
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         if self._stopped:

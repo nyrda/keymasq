@@ -20,6 +20,7 @@ from keymasq.common.model.profiles import (
 )
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator
+from keymasq.session.manager.state import ExecBinding
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -100,6 +101,66 @@ async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
         CommandType.SET_COMBOS,
     ]
     assert [combo.id for combo in manager.profile_state.resolved_combos] == ["combo-1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_mapping_update_preserves_acknowledged_exec_references() -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    old_binding = ExecBinding(
+        cmd="notify-send old",
+        owner="device",
+        hardware_id=hardware_id,
+    )
+    manager.exec_state.exec_refs[7] = old_binding
+    manager.exec_state.device_exec_refs[hardware_id] = {7}
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="mapping rejected")
+    )
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={
+            "button": MappingAction(action_type=ActionType.EXEC, cmd="notify-send new")
+        },
+    )
+
+    updated = await profile_application.update_mapping(manager, hardware_id, resolved)
+
+    assert updated is False
+    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
+    assert manager.exec_state.exec_refs == {7: old_binding}
+    assert manager.exec_state.next_exec_ref == 11
+
+
+@pytest.mark.asyncio
+async def test_failed_combo_update_preserves_acknowledged_exec_references() -> None:
+    manager = SessionManager()
+    old_binding = ExecBinding(cmd="notify-send old combo", owner="combo")
+    manager.exec_state.exec_refs[8] = old_binding
+    manager.exec_state.combo_exec_refs.add(8)
+    manager.exec_state.next_exec_ref = 10
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="error", error="combos rejected")
+    )
+    resolved_combo = ResolvedCombo(
+        id="combo-1",
+        name="Combo",
+        steps=[
+            ComboStep(
+                events=[ComboEvent(hardware_id="1234:5678", evdev="key_a")]
+            )
+        ],
+        action=MappingAction(action_type=ActionType.EXEC, cmd="notify-send new combo"),
+        profile_name="Desktop",
+    )
+
+    await profile_application.update_combos(manager, [resolved_combo])
+
+    assert manager.exec_state.combo_exec_refs == {8}
+    assert manager.exec_state.exec_refs == {8: old_binding}
+    assert manager.exec_state.next_exec_ref == 11
 
 
 @pytest.mark.asyncio

@@ -56,6 +56,7 @@ def test_keymasqd_client_handle_response_dispatches_event() -> None:
             },
         )
         await client._handle_response(response)
+        await asyncio.sleep(0)
 
         assert calls == [(CommandType.PING, {"ok": True})]
 

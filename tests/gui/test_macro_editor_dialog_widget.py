@@ -1582,7 +1582,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
         if payload["command"] == "create_macro":
             return {"status": "ok", "macro": {"name": "renamed", "revision": 1}}
         if payload["command"] == "delete_macro":
-            raise TimeoutError("session request timed out")
+            raise ValueError("invalid delete response")
         return {}
 
     monkeypatch.setattr(
@@ -1598,7 +1598,7 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert uncertain_result["macro"]["name"] == "renamed"
     assert uncertain_result["warning"] == (
         "Macro saved as 'renamed', but removal of 'original' could not be confirmed: "
-        "session request timed out. Check whether both macros remain."
+        "invalid delete response. Check whether both macros remain."
     )
 
     dialog._apply_macro_state(dialog._initial_macro_data)

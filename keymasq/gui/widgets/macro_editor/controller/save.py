@@ -122,7 +122,7 @@ class SaveControllerMixin:
                         "expected_revision": target.revision,
                     }
                 ) or {}
-            except (OSError, RuntimeError) as exc:
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
                 create_result["warning"] = (
                     f"Macro saved as '{target.requested_name}', but removal of "

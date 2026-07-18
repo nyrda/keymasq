@@ -855,7 +855,9 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
 def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
-    frame = dialog.get_child()
+    overlay = dialog.get_child()
+    assert isinstance(overlay, Gtk.Overlay)
+    frame = overlay.get_child()
     assert isinstance(frame, Gtk.Frame)
     root = frame.get_child()
     children = list(iter_widget_children(root))
@@ -1049,6 +1051,128 @@ def test_macro_editor_failed_load_closes_without_unsaved_warning(monkeypatch) ->
 
     assert alerts == []
     assert closed == [True]
+
+
+def test_macro_editor_content_is_read_only_until_initial_load_finishes(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._loading_overlay.get_visible() is True
+    assert dialog._loading_spinner.get_property("spinning") is True
+
+    dialog._exit_loading_state()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._loading_overlay.get_visible() is False
+    assert dialog._loading_spinner.get_property("spinning") is False
+
+    dialog._exit_loading_state()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._loading_overlay.get_visible() is False
+
+
+def test_macro_editor_load_completion_unlocks_content(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+    from keymasq.gui.widgets.macro_editor.controller.load import LoadControllerMixin
+
+    dialog = _build_macro_dialog(monkeypatch)
+
+    scheduled: list[
+        tuple[
+            Callable[[], dict[str, object]],
+            Callable[[GuiTaskResult[dict[str, object]]], bool | None],
+            Callable[[], None] | None,
+        ]
+    ] = []
+
+    def fake_run_gui_task(worker, callback, *, on_start=None, on_done=None) -> None:
+        if on_start is not None:
+            on_start()
+        scheduled.append((worker, callback, on_done))
+
+    def fake_session_request(payload):
+        if payload["command"] == "get_macro":
+            return {
+                "status": "ok",
+                "macro": {
+                    "name": "demo_macro",
+                    "revision": 2,
+                    "events": [
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 1,
+                            "t_us": 1000,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 0,
+                            "t_us": 2000,
+                        },
+                    ],
+                    "duration_us": 2000,
+                },
+            }
+        return {"status": "ok", "macro_exec_timeout_max_ms": 30000}
+
+    monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+
+    LoadControllerMixin._load_initial_state_async(dialog)
+
+    assert dialog._editor_content.get_sensitive() is False
+    assert len(scheduled) == 1
+
+    worker, callback, on_done = scheduled[0]
+    assert callback(GuiTaskResult(value=worker())) is False
+    if on_done is not None:
+        on_done()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._loading_overlay.get_visible() is False
+    assert len(dialog._events) == 1
+    assert dialog._initial_state_loaded is True
+
+
+def test_macro_editor_load_ignored_after_close_during_load(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+
+    dialog._force_close_without_warning()
+
+    assert closed == [True]
+    assert dialog._load_aborted is True
+
+    result = {
+        "macro": {
+            "name": "demo_macro",
+            "revision": 2,
+            "events": [
+                {
+                    "device_type": "keyboard",
+                    "type": evdev.ecodes.EV_KEY,
+                    "code": evdev.ecodes.KEY_A,
+                    "value": 1,
+                    "t_us": 1000,
+                },
+            ],
+            "duration_us": 1000,
+        },
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    dialog._exit_loading_state()
+
+    assert dialog._events == []
+    assert dialog._initial_state_loaded is False
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._loading_overlay.get_visible() is True
 
 
 def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:

@@ -35,7 +35,33 @@ class EditorChromeMixin:
         frame = Gtk.Frame()
         frame.add_css_class("macro-editor-outline")
         frame.set_child(root)
-        self.set_child(frame)
+
+        loading_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        loading_content.set_halign(Gtk.Align.CENTER)
+        loading_content.set_valign(Gtk.Align.CENTER)
+        loading_spinner = Gtk.Spinner()
+        loading_spinner.set_size_request(32, 32)
+        loading_content.append(loading_spinner)
+        loading_label = Gtk.Label(label="Loading macro…")
+        loading_label.add_css_class("dim-label")
+        loading_content.append(loading_label)
+
+        loading_overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        loading_overlay.add_css_class("macro-editor-loading-overlay")
+        loading_overlay.append(loading_content)
+
+        overlay = Gtk.Overlay()
+        overlay.set_child(frame)
+        overlay.add_overlay(loading_overlay)
+        self.set_child(overlay)
+
+        # The editor starts read-only until the initial macro load finishes;
+        # see LoadControllerMixin._exit_loading_state.
+        self._editor_content = frame
+        self._loading_overlay = loading_overlay
+        self._loading_spinner = loading_spinner
+        frame.set_sensitive(False)
+        loading_spinner.start()
         GLib.idle_add(self._update_canvas_width)
 
     def _build_toolbar(self) -> Gtk.Widget:

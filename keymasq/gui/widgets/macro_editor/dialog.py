@@ -144,6 +144,10 @@ class MacroEditorDialog(
         self._close_warning_dialog: Adw.AlertDialog | None = None
         self._save_in_flight = False
         self._footer_action_buttons: list[Gtk.Button] = []
+        self._editor_content: Gtk.Widget | None = None
+        self._loading_overlay: Gtk.Widget | None = None
+        self._loading_spinner: Gtk.Spinner | None = None
+        self._load_aborted: bool = False
         self._updating_props = False
         self._drag_locked: bool = True
         self._erase_mode: bool = False
@@ -160,6 +164,9 @@ class MacroEditorDialog(
             .macro-editor-outline {
                 border: 1px solid #000;
                 border-radius: 6px;
+            }
+            .macro-editor-loading-overlay {
+                background-color: alpha(@window_bg_color, 0.7);
             }
             """
         )

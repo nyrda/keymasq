@@ -366,7 +366,9 @@ Name** (copies the exact macro name for use in profiles, superkeys, combos, or
 the CLI), **Play**, **Edit**, **Duplicate**, and **Delete**. In Macro Manager
 you can also just start typing (or press Ctrl+F) to filter the list by name,
 device type, or event count. The editor shows your macro as a visual timeline
-of keyboard, mouse, and movement events.
+of keyboard, mouse, and movement events. While the saved macro is being loaded,
+the editor stays read-only behind a spinner, so edits can't be made and lost
+before the existing content arrives.
 
 You can:
 

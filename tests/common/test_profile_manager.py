@@ -89,6 +89,42 @@ class TestProfileManager:
         assert invalid_default.read_text(encoding="utf-8") == "not = [valid toml"
         assert invalid_fallback.read_text(encoding="utf-8") == "also = [invalid toml"
 
+    def test_auto_create_default_adopts_concurrently_created_profile(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ) -> None:
+        profiles_dir = temp_config_dir / "profiles"
+        original_allocate = ProfileManager._profile_path_for_name
+        created = False
+
+        def allocate_after_concurrent_create(manager, profile_name, *args, **kwargs):
+            nonlocal created
+            if not created:
+                created = True
+                _write_profile_toml(
+                    temp_config_dir,
+                    "Default.toml",
+                    name="Default",
+                    enabled=True,
+                    is_permanent=True,
+                )
+            return original_allocate(manager, profile_name, *args, **kwargs)
+
+        monkeypatch.setattr(
+            ProfileManager,
+            "_profile_path_for_name",
+            allocate_after_concurrent_create,
+        )
+
+        manager = ProfileManager(auto_create_default_if_empty=True)
+
+        profiles = manager.list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].config.name == "Default"
+        assert profiles[0].path == profiles_dir / "Default.toml"
+        assert not (profiles_dir / "Default_2.toml").exists()
+
     def test_save_and_load_profile(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

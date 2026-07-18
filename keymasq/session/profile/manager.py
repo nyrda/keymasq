@@ -130,6 +130,11 @@ class ProfileManager:
         )
         for _attempt in range(MAX_PATH_ATTEMPTS):
             path = self._profile_path_for_name(config.name)
+            if path != self._repository.canonical_path(config.name):
+                concurrently_loaded = self._load_profiles(strict=strict)
+                if concurrently_loaded:
+                    return concurrently_loaded
+                path = self._profile_path_for_name(config.name)
             try:
                 self._write_profile_file(
                     config,
@@ -138,6 +143,9 @@ class ProfileManager:
                     exclusive=True,
                 )
             except FileExistsError:
+                concurrently_loaded = self._load_profiles(strict=strict)
+                if concurrently_loaded:
+                    return concurrently_loaded
                 continue
             break
         else:

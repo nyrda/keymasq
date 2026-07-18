@@ -106,8 +106,9 @@ class ManagerViewMixin:
         scrolled.set_vexpand(True)
 
         self._listbox = Gtk.ListBox()
-        self._listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self._listbox.add_css_class("boxed-list")
+        self._listbox.connect("row-activated", self._on_row_activated)
         install_listbox_fuzzy_filter(self._listbox, self._search_entry)
         scrolled.set_child(self._listbox)
         content.append(scrolled)
@@ -156,7 +157,35 @@ class ManagerViewMixin:
         if keyval in (Gdk.KEY_f, Gdk.KEY_F) and state & Gdk.ModifierType.CONTROL_MASK:
             self._show_search()
             return True
-        return False
+        if keyval == Gdk.KEY_Escape and self._search_entry.get_visible():
+            self._hide_search()
+            return True
+        if state & (
+            Gdk.ModifierType.CONTROL_MASK
+            | Gdk.ModifierType.ALT_MASK
+            | Gdk.ModifierType.SUPER_MASK
+            | Gdk.ModifierType.META_MASK
+        ):
+            return False
+        if self._search_focused():
+            return False
+        unicode_value = Gdk.keyval_to_unicode(keyval)
+        if not unicode_value:
+            return False
+        char = chr(unicode_value)
+        if not char.isprintable() or char.isspace():
+            return False
+        self._show_search()
+        self._search_entry.set_text(char)
+        self._search_entry.set_position(-1)
+        return True
+
+    def _search_focused(self) -> bool:
+        root = self.get_root()
+        focus = root.get_focus() if root is not None else None
+        return focus is not None and (
+            focus is self._search_entry or focus.is_ancestor(self._search_entry)
+        )
 
     def _show_search(self) -> None:
         self._catalog.show_search()
@@ -168,9 +197,11 @@ class ManagerViewMixin:
         self._catalog.hide_search()
         self._search_entry.set_text("")
         self._search_entry.set_visible(False)
+        self._update_empty_state()
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         self._catalog.set_query(entry.get_text())
+        self._update_empty_state()
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:
         self._show_search()

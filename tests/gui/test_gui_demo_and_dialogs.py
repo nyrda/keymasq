@@ -2231,6 +2231,181 @@ class TestDialogConstruction:
         assert captured["callback"] == dialog._on_editor_closed
         assert captured["present_parent"] is parent
 
+    def test_macro_manager_row_activation_opens_editor_or_slot_save(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        dialog = MacroManagerDialog(Gtk.Window())
+        dialog._on_macros_loaded(
+            {
+                "macros": [
+                    {
+                        "name": "stored",
+                        "duration_us": 250_000,
+                        "device_types": ["keyboard"],
+                        "event_count": 2,
+                    },
+                    {
+                        "name": "slot_1",
+                        "kind": "recording_slot",
+                        "recording_slot": 1,
+                        "duration_us": 100_000,
+                        "event_count": 1,
+                    },
+                ]
+            }
+        )
+
+        opened: list[str] = []
+        saved: list[dict] = []
+        monkeypatch.setattr(dialog, "_open_macro_editor", opened.append)
+        monkeypatch.setattr(
+            dialog,
+            "_on_save_slot_clicked",
+            lambda _btn, macro: saved.append(macro),
+        )
+
+        dialog._on_row_activated(dialog._listbox, dialog._listbox.get_row_at_index(0))
+        assert opened == ["stored"]
+        assert saved == []
+
+        dialog._on_row_activated(dialog._listbox, dialog._listbox.get_row_at_index(1))
+        assert opened == ["stored"]
+        assert saved and saved[0]["name"] == "slot_1"
+
+    def test_macro_manager_row_context_menu_lists_actions(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        dialog = MacroManagerDialog(Gtk.Window())
+        dialog._on_macros_loaded(
+            {
+                "macros": [
+                    {
+                        "name": "stored",
+                        "duration_us": 250_000,
+                        "device_types": ["keyboard"],
+                        "event_count": 2,
+                    },
+                    {
+                        "name": "slot_1",
+                        "kind": "recording_slot",
+                        "recording_slot": 1,
+                        "duration_us": 100_000,
+                        "event_count": 1,
+                    },
+                ]
+            }
+        )
+
+        popovers: list[Gtk.PopoverMenu] = []
+        monkeypatch.setattr(Gtk.PopoverMenu, "popup", lambda popover: popovers.append(popover))
+
+        row = dialog._listbox.get_row_at_index(0)
+
+        class FakeGesture:
+            def set_state(self, _state) -> bool:
+                return True
+
+        dialog._on_row_right_pressed(FakeGesture(), 1, 10.0, 10.0, row, "stored")
+
+        assert dialog._listbox.get_selected_row() is row
+        assert len(popovers) == 1
+        model = popovers[0].get_menu_model()
+        labels: list[str] = []
+        for index in range(model.get_n_items()):
+            label = model.get_item_attribute_value(index, "label", None)
+            if label is not None:
+                labels.append(label.get_string())
+                continue
+            section = model.get_item_link(index, "section")
+            assert section is not None
+            for section_index in range(section.get_n_items()):
+                section_label = section.get_item_attribute_value(section_index, "label", None)
+                assert section_label is not None
+                labels.append(section_label.get_string())
+        assert labels == ["Copy Name", "Play", "Edit", "Duplicate", "Delete"]
+
+        called: list[str] = []
+        monkeypatch.setattr(dialog, "_open_macro_editor", called.append)
+        assert row.activate_action("macro-row.edit") is True
+        assert called == ["stored"]
+
+        copied: list[str] = []
+        monkeypatch.setattr(dialog, "_copy_macro_name", copied.append)
+        assert row.activate_action("macro-row.copy-name") is True
+        assert copied == ["stored"]
+
+        slot_row = dialog._listbox.get_row_at_index(1)
+        assert slot_row.observe_controllers().get_n_items() == 0
+
+    def test_macro_manager_typing_starts_search(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gdk, GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        dialog = MacroManagerDialog(Gtk.Window())
+
+        assert dialog._search_entry.get_visible() is False
+        assert dialog._on_key_pressed(None, Gdk.KEY_d, 0, Gdk.ModifierType(0)) is True
+        assert dialog._search_entry.get_visible() is True
+        assert dialog._search_entry.get_text() == "d"
+
+        assert dialog._on_key_pressed(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0)) is True
+        assert dialog._search_entry.get_visible() is False
+        assert dialog._search_entry.get_text() == ""
+
+        modified = dialog._on_key_pressed(
+            None,
+            Gdk.KEY_d,
+            0,
+            Gdk.ModifierType.CONTROL_MASK,
+        )
+        assert modified is False
+        assert dialog._search_entry.get_visible() is False
+
+    def test_macro_manager_search_without_matches_shows_empty_state(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        dialog = MacroManagerDialog(Gtk.Window())
+        dialog._on_macros_loaded(
+            {
+                "macros": [
+                    {
+                        "name": "stored",
+                        "duration_us": 250_000,
+                        "device_types": ["keyboard"],
+                        "event_count": 2,
+                    }
+                ]
+            }
+        )
+        assert dialog._empty_label.get_visible() is False
+
+        dialog._show_search()
+        dialog._search_entry.set_text("zzzz")
+        assert dialog._empty_label.get_visible() is True
+        assert dialog._empty_label.get_label() == "No macros match your search"
+
+        dialog._search_entry.set_text("stored")
+        assert dialog._empty_label.get_visible() is False
+
+        dialog._search_entry.set_text("zzzz")
+        dialog._hide_search()
+        assert dialog._empty_label.get_visible() is False
+
     def test_macro_manager_initial_state_populates_macro_rows(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

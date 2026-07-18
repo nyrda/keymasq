@@ -2,12 +2,20 @@
 
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 
+from collections.abc import Callable
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
+    Adw,  # pyright: ignore[reportAttributeAccessIssue]
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    Gio,  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 from keymasq.gui.session_client import GuiTaskResult, JsonDict
 from keymasq.gui.widgets.macro_manager.state import (
@@ -22,20 +30,123 @@ class MacroActionsMixin:
     def _on_edit_clicked(self, _btn: Gtk.Button, name: str) -> None:
         self._open_macro_editor(name)
 
+    def _on_row_right_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        x: float,
+        y: float,
+        row: Gtk.ListBoxRow,
+        name: str,
+    ) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._listbox.select_row(row)
+        self._show_macro_context_menu(row, name, x, y)
+
+    def _show_macro_context_menu(
+        self,
+        row: Gtk.ListBoxRow,
+        name: str,
+        x: float,
+        y: float,
+    ) -> None:
+        def make_action(action_name: str, handler: Callable[[], None]) -> Gio.SimpleAction:
+            def on_activate(_action: Gio.SimpleAction, _param: object) -> None:
+                handler()
+
+            action = Gio.SimpleAction.new(action_name, None)
+            action.connect("activate", on_activate)
+            return action
+
+        def copy_name() -> None:
+            self._copy_macro_name(name)
+
+        def play() -> None:
+            self._play_macro(name)
+
+        def edit() -> None:
+            self._open_macro_editor(name)
+
+        def duplicate() -> None:
+            self._duplicate_macro(name)
+
+        def delete() -> None:
+            self._on_delete_clicked(None, name)
+
+        actions = Gio.SimpleActionGroup()
+        menu = Gio.Menu()
+        for action_name, label, handler in (
+            ("copy-name", "Copy Name", copy_name),
+            ("play", "Play", play),
+            ("edit", "Edit", edit),
+            ("duplicate", "Duplicate", duplicate),
+        ):
+            actions.add_action(make_action(action_name, handler))
+            menu.append(label, f"macro-row.{action_name}")
+
+        actions.add_action(make_action("delete", delete))
+        delete_section = Gio.Menu()
+        delete_section.append("Delete", "macro-row.delete")
+        menu.append_section(None, delete_section)
+
+        row.insert_action_group("macro-row", actions)
+        popover = Gtk.PopoverMenu.new_from_model(menu)
+        popover.set_parent(row)
+        popover.set_has_arrow(False)
+        popover.set_halign(Gtk.Align.START)
+        pointing_rect = Gdk.Rectangle()
+        pointing_rect.x = int(x)
+        pointing_rect.y = int(y)
+        pointing_rect.width = 1
+        pointing_rect.height = 1
+        popover.set_pointing_to(pointing_rect)
+        popover.connect("closed", self._on_context_menu_closed, row)
+        popover.popup()
+
+    def _on_context_menu_closed(self, popover: Gtk.PopoverMenu, row: Gtk.ListBoxRow) -> None:
+        # Unparenting while the menu-item activation is still being dispatched
+        # would cancel it, so defer teardown to idle.
+        def teardown() -> bool:
+            popover.unparent()
+            row.insert_action_group("macro-row", None)
+            return False
+
+        GLib.idle_add(teardown)
+
+    def _copy_macro_name(self, name: str) -> None:
+        display = Gdk.Display.get_default()
+        if display is not None:
+            display.get_clipboard().set(name)
+
+    def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        macro = getattr(row, "_macro", None)
+        state = getattr(row, "_row_state", None)
+        if not isinstance(macro, dict) or state is None:
+            return
+        if state.is_temporary_slot:
+            self._on_save_slot_clicked(None, macro)
+        elif state.name:
+            self._open_macro_editor(state.name)
+
     def _on_duplicate_clicked(
         self,
         _btn: Gtk.Button,
         name: str,
         duplicate_btn: Gtk.Button,
     ) -> None:
+        self._duplicate_macro(name, duplicate_btn)
+
+    def _duplicate_macro(self, name: str, duplicate_btn: Gtk.Button | None = None) -> None:
         def request_duplicate() -> JsonDict | None:
             return self._duplicate_macro_request(name)
 
         def on_duplicate_start() -> None:
-            duplicate_btn.set_sensitive(False)
+            if duplicate_btn is not None:
+                duplicate_btn.set_sensitive(False)
 
         def on_duplicate_done() -> None:
-            duplicate_btn.set_sensitive(True)
+            if duplicate_btn is not None:
+                duplicate_btn.set_sensitive(True)
 
         self._run_gui_task(
             request_duplicate,
@@ -72,7 +183,7 @@ class MacroActionsMixin:
         dialog.present(self._parent)
         return False
 
-    def _on_save_slot_clicked(self, _btn: Gtk.Button, macro: JsonDict) -> None:
+    def _on_save_slot_clicked(self, _btn: Gtk.Button | None, macro: JsonDict) -> None:
         from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 
         dialog = SaveMacroDialog(self._parent, dict(macro))
@@ -133,7 +244,11 @@ class MacroActionsMixin:
         self._load_macros()
 
     def _on_play_clicked(self, play_btn: Gtk.Button, name: str) -> None:
-        play_btn.set_sensitive(False)
+        self._play_macro(name, play_btn)
+
+    def _play_macro(self, name: str, play_btn: Gtk.Button | None = None) -> None:
+        if play_btn is not None:
+            play_btn.set_sensitive(False)
 
         def on_play_requested(result: JsonDict | None) -> bool:
             return self._on_play_requested(result, play_btn)
@@ -146,12 +261,13 @@ class MacroActionsMixin:
     def _on_play_requested(
         self,
         _result: JsonDict | None,
-        play_btn: Gtk.Button,
+        play_btn: Gtk.Button | None,
     ) -> bool:
-        play_btn.set_sensitive(True)
+        if play_btn is not None:
+            play_btn.set_sensitive(True)
         return False
 
-    def _on_delete_clicked(self, _btn: Gtk.Button, name: str) -> None:
+    def _on_delete_clicked(self, _btn: Gtk.Button | None, name: str) -> None:
         dialog = Adw.AlertDialog()
         dialog.set_heading("Delete Macro")
         dialog.set_body(f"Delete '{name}'? This cannot be undone.")

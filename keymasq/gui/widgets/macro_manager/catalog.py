@@ -72,20 +72,33 @@ class CatalogControllerMixin:
         while self._listbox.get_first_child():
             self._listbox.remove(self._listbox.get_first_child())
 
-        if not self._catalog.macros:
-            self._empty_label.set_visible(True)
-            return
-
-        self._empty_label.set_visible(False)
         for macro in self._catalog.macros:
             self._listbox.append(self._build_macro_row(macro))
         self._listbox.invalidate_filter()
+        self._update_empty_state()
+
+    def _update_empty_state(self) -> None:
+        if not self._catalog.macros:
+            self._empty_label.set_label("No macros recorded yet")
+            self._empty_label.set_visible(True)
+            return
+        if self._catalog.query and not self._catalog.filtered_macros():
+            self._empty_label.set_label("No macros match your search")
+            self._empty_label.set_visible(True)
+            return
+        self._empty_label.set_visible(False)
 
     def _build_macro_row(self, macro: JsonDict) -> Gtk.ListBoxRow:
         state = MacroRowState.from_macro(macro)
         row = Gtk.ListBoxRow()
-        row.set_selectable(False)
         row._search_text = state.search_text
+        row._macro = macro
+        row._row_state = state
+        if not state.is_temporary_slot and state.name:
+            right_click = Gtk.GestureClick()
+            right_click.set_button(3)
+            right_click.connect("pressed", self._on_row_right_pressed, row, state.name)
+            row.add_controller(right_click)
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         row_box.set_margin_top(6)

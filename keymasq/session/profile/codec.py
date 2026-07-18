@@ -82,11 +82,20 @@ class ProfileCodec:
         created_at_raw = profile.get("created_at")
         if isinstance(created_at_raw, str):
             try:
-                created_at = datetime.fromisoformat(created_at_raw)
+                parsed_created_at = datetime.fromisoformat(created_at_raw)
             except ValueError:
                 created_at_repair_reason = f"malformed created_at '{created_at_raw}'"
-        else:
+            else:
+                if parsed_created_at.utcoffset() is None:
+                    created_at = parsed_created_at
+                else:
+                    created_at_repair_reason = (
+                        f"timezone-aware created_at '{created_at_raw}'"
+                    )
+        elif created_at_raw is None:
             created_at_repair_reason = "missing created_at"
+        else:
+            created_at_repair_reason = "noncanonical created_at"
 
         device_layers: dict[str, DeviceProfileLayer] = {}
         devices_data = data.get("devices", {})

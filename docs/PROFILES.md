@@ -152,6 +152,11 @@ The last applied mapping wins. In practice:
 - if priorities are equal, newer `created_at` overrides older
 - if both are equal, name order is the tiebreaker
 
+`created_at` is internal ordering bookkeeping. Keymasq stores it as a quoted,
+timezone-naive ISO timestamp. Missing, malformed, timezone-aware, or native TOML
+datetime values are replaced with the current time and repaired to that
+canonical form when the profile loads.
+
 Conditional profiles always override permanent profiles, even if the permanent profile has a higher numeric priority.
 
 Runtime profile activations are temporary overlays. They do not write

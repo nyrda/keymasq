@@ -935,6 +935,56 @@ created_at = "not-a-date"
         assert 'created_at = "' in content
         assert 'created_at = "not-a-date"' not in content
 
+    @pytest.mark.parametrize(
+        "created_at_line",
+        [
+            'created_at = "2026-03-09T12:34:56+02:00"',
+            "created_at = 2026-03-09T12:34:56Z",
+        ],
+    )
+    def test_noncanonical_created_at_is_repaired_before_resolution(
+        self,
+        temp_config_dir,
+        created_at_line: str,
+    ) -> None:
+        _write_profile_toml(
+            Path(temp_config_dir),
+            "canonical.toml",
+            name="Canonical",
+            priority=1,
+            created_at="2026-03-09T12:34:56",
+        )
+        profile_path = Path(temp_config_dir) / "profiles" / "noncanonical.toml"
+        profile_path.write_text(
+            "\n".join(
+                [
+                    "[profile]",
+                    'name = "Noncanonical"',
+                    "enabled = true",
+                    "is_permanent = true",
+                    "priority = 1",
+                    "notify_on_activation = true",
+                    created_at_line,
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        loaded = manager.get_profile("Noncanonical")
+        resolved = manager.resolve_active_profiles()
+
+        assert loaded is not None
+        assert loaded.config.created_at is not None
+        assert loaded.config.created_at.utcoffset() is None
+        assert {profile.name for profile in resolved.active_profiles} == {
+            "Canonical",
+            "Noncanonical",
+        }
+        repaired_content = profile_path.read_text(encoding="utf-8")
+        assert 'created_at = "' in repaired_content
+        assert created_at_line not in repaired_content
+
     def test_created_at_repair_logs_unexpected_failure(
         self,
         temp_config_dir,

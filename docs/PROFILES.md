@@ -252,6 +252,11 @@ action = "mpris"
 command = "play_pause"
 ```
 
+Window-rule fields are `class`, `title`, and `tag`. The hand-edited alias
+`tags` is accepted and normalized to `tag` on the next save. Unknown fields and
+unexpected non-string class/title values safely fail to match instead of
+interrupting profile resolution.
+
 `activation_macro` and `deactivation_macro` are optional stored macro names.
 When set, `keymasq-session` asks `keymasqd` to play the macro after the global
 active profile set changes. They fire once when a profile enters or leaves the

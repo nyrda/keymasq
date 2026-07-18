@@ -10,11 +10,17 @@ from keymasq.common.model.profiles import (
 from .types import TomlDict
 
 log = logging.getLogger("keymasq-session.profiles")
+SUPPORTED_WINDOW_RULE_FIELDS = frozenset({"class", "title", "tag"})
+
+
+def normalize_window_rule_field(value: object) -> str:
+    field = str(value).strip().lower()
+    return "tag" if field == "tags" else field
 
 
 def has_unsupported_rules(config: ProfileConfig, capabilities: list[str]) -> bool:
     return "window_tags" not in capabilities and any(
-        rule.field == "tag" for rule in config.window_rules
+        normalize_window_rule_field(rule.field) == "tag" for rule in config.window_rules
     )
 
 
@@ -34,17 +40,22 @@ def matches_window_rules(profile: ProfileConfig, window_info: TomlDict | None) -
 
     for rule in profile.window_rules:
         try:
-            if rule.field == "tag":
+            field = normalize_window_rule_field(rule.field)
+            if field == "tag":
                 window_tags = window_info.get("tags", [])
                 if not isinstance(window_tags, list):
                     window_tags = []
                 tags = cast(list[object], window_tags)
                 if not any(re.search(rule.pattern, str(tag)) for tag in tags):
                     return False
-            else:
-                field_value = window_info.get(rule.field, "")
-                if not field_value or not re.search(rule.pattern, cast(str, field_value)):
+            elif field in {"class", "title"}:
+                field_value = window_info.get(field, "")
+                if not isinstance(field_value, str):
                     return False
+                if not field_value or not re.search(rule.pattern, field_value):
+                    return False
+            else:
+                return False
         except re.error as exc:
             log.warning(
                 "Invalid window rule regex for profile '%s' field '%s': %s",

@@ -890,6 +890,83 @@ pattern = "("
 
         assert resolved.active_profiles == []
 
+    def test_plural_tags_window_rule_is_normalized_and_matches(self, temp_config_dir):
+        profile_path = Path(temp_config_dir) / "profiles" / "tagged.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Tagged"
+enabled = true
+is_permanent = false
+priority = 1
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "tags"
+pattern = "game"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        loaded = manager.get_profile("Tagged")
+        resolved = manager.resolve_active_profiles(
+            window_info={"tags": ["game", "fullscreen"]},
+            capabilities=["window_tags"],
+        )
+
+        assert loaded is not None
+        assert loaded.config.window_rules == [WindowRule(field="tag", pattern="game")]
+        assert [profile.name for profile in resolved.active_profiles] == ["Tagged"]
+
+        manager.save_profile(loaded.config)
+
+        content = profile_path.read_text(encoding="utf-8")
+        assert 'field = "tag"' in content
+        assert 'field = "tags"' not in content
+
+    def test_unknown_or_nonscalar_window_rule_fields_do_not_crash_matching(
+        self,
+        temp_config_dir,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        profile_path = Path(temp_config_dir) / "profiles" / "unknown-rule.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Unknown Rule"
+enabled = true
+is_permanent = false
+priority = 1
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "workspace"
+pattern = "one"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        unknown_resolved = manager.resolve_active_profiles(
+            window_info={"workspace": ["one"]},
+        )
+
+        assert unknown_resolved.active_profiles == []
+        assert "Unknown window rule field 'workspace'; rule will not match" in caplog.text
+
+        loaded = manager.get_profile("Unknown Rule")
+        assert loaded is not None
+        loaded.config.window_rules = [WindowRule(field="class", pattern="steam")]
+
+        nonscalar_resolved = manager.resolve_active_profiles(
+            window_info={"class": ["steam"]},
+        )
+
+        assert nonscalar_resolved.active_profiles == []
+
     def test_missing_created_at_is_repaired_on_load(self, temp_config_dir):
         profile_path = Path(temp_config_dir) / "profiles" / "missing-created-at.toml"
         profile_path.write_text(

@@ -1244,7 +1244,7 @@ def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
         is False
     )
 
-    generic = GuiTaskResult(value={"status": "error", "message": "Revision conflict"})
+    generic = GuiTaskResult(value={"status": "error", "message": "Read-only file system"})
     assert (
         dialog._on_save_finished(
             generic,
@@ -1272,9 +1272,53 @@ def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
             "A macro named 'demo_macro' already exists. Choose a different name.",
             dialog._parent,
         ),
-        ("Unable To Save Macro", "Revision conflict", dialog._parent),
+        ("Unable To Save Macro", "Read-only file system", dialog._parent),
         ("Unable To Save Macro", "worker failed", dialog._parent),
     ]
+
+
+def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    alerts: list[tuple[str | None, str | None, object]] = []
+    reloads: list[bool] = []
+    requested = dialog._current_macro_payload()
+    requested["name"] = "renamed"
+    saved = {**requested, "revision": 3}
+    warning = (
+        "Macro saved as 'renamed', but 'demo_macro' could not be removed: "
+        "Read-only file system. Both macros remain."
+    )
+
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append(
+            (alert.get_heading(), alert.get_body(), parent)
+        ),
+    )
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "notify_session_reload_async",
+        lambda: reloads.append(True),
+    )
+
+    result = GuiTaskResult(value={"status": "ok", "macro": saved, "warning": warning})
+    assert (
+        dialog._on_save_finished(
+            result,
+            "renamed",
+            requested,
+            close_after_save=False,
+        )
+        is False
+    )
+
+    assert dialog._macro_name == "renamed"
+    assert dialog._macro_data["revision"] == 3
+    assert reloads == [True]
+    assert alerts == [("Macro Saved With Warning", warning, dialog._parent)]
 
 
 def test_macro_editor_save_in_flight_blocks_editor_duplicates_and_tracks_snapshot(
@@ -1482,6 +1526,32 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert requests[0]["command"] == "create_macro"
     assert requests[1]["command"] == "delete_macro"
     assert requests[1]["expected_revision"] == 7
+
+    requests.clear()
+
+    def fake_partial_rename_request(payload):
+        requests.append(payload)
+        if payload["command"] == "create_macro":
+            return {"status": "ok", "macro": {"name": "renamed", "revision": 1}}
+        if payload["command"] == "delete_macro":
+            return {"status": "error", "message": "Read-only file system"}
+        return {}
+
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "session_request",
+        fake_partial_rename_request,
+    )
+
+    partial_result = dialog._save_macro_request("renamed", {"name": "renamed"}, 7)
+
+    assert isinstance(partial_result, dict)
+    assert partial_result["status"] == "ok"
+    assert partial_result["macro"]["name"] == "renamed"
+    assert partial_result["warning"] == (
+        "Macro saved as 'renamed', but 'original' could not be removed: "
+        "Read-only file system. Both macros remain."
+    )
 
     dialog._apply_macro_state(dialog._initial_macro_data)
     dialog._events[0].press_t_us = 9000

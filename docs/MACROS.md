@@ -370,7 +370,9 @@ of keyboard, mouse, and movement events. While the saved macro is being loaded,
 the editor stays read-only behind a spinner, so edits can't be made and lost
 before the existing content arrives. The same read-only state is shown while
 applying or saving changes, preventing newer edits from being mistaken for
-persisted ones.
+persisted ones. Save failures are shown immediately. If a renamed macro is saved
+successfully but its old file cannot be removed, the editor keeps the successful
+save and warns that both names remain.
 
 You can:
 

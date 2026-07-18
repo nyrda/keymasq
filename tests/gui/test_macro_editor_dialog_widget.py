@@ -1026,31 +1026,56 @@ def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
     assert closed == [True]
 
 
-def test_macro_editor_failed_load_closes_without_unsaved_warning(monkeypatch) -> None:
+def test_macro_editor_failed_existing_load_shows_error_and_closes(monkeypatch) -> None:
     from keymasq.gui.session_client import GuiTaskResult
 
     dialog = _build_macro_dialog(monkeypatch)
     closed: list[bool] = []
-    alerts: list[tuple[object, object]] = []
+    alerts: list[tuple[str | None, str | None, object]] = []
     monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
     monkeypatch.setattr(
         macro_editor_dialog_module.Adw.AlertDialog,
         "present",
-        lambda alert, parent: alerts.append((alert, parent)),
+        lambda alert, parent: alerts.append(
+            (alert.get_heading(), alert.get_body(), parent)
+        ),
     )
 
     result = {
         "timeout_max": 30000,
         "macro": None,
+        "macro_load_error": "Read-only file system",
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
-    assert dialog.get_can_close() is True
-    assert dialog._initial_macro_data == dialog._current_macro_payload()
-
-    dialog._request_close()
-
-    assert alerts == []
     assert closed == [True]
+    assert dialog._dialog_closed is True
+    assert dialog._initial_state_loaded is False
+    assert alerts == [
+        ("Unable To Load Macro", "Read-only file system", dialog._parent)
+    ]
+
+
+def test_macro_editor_create_new_skips_lookup_and_opens_empty(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch, create_new=True)
+    requests: list[dict] = []
+
+    def fake_session_request(payload):
+        requests.append(payload)
+        return {"status": "ok", "macro_exec_timeout_max_ms": 30000}
+
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+
+    result = dialog._load_initial_state()
+
+    assert requests == [{"command": "get_status"}]
+    assert result["macro"] is None
+    assert result["macro_load_error"] is None
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    assert dialog._initial_state_loaded is True
+    assert dialog._macro_exists is False
+    assert dialog._initial_macro_data == dialog._current_macro_payload()
 
 
 def test_macro_editor_content_is_read_only_until_initial_load_finishes(monkeypatch) -> None:

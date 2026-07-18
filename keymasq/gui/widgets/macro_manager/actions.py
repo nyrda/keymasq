@@ -231,12 +231,12 @@ class MacroActionsMixin:
         return False
 
     def _open_empty_macro_editor(self, name: str) -> None:
-        self._open_macro_editor(name)
+        self._open_macro_editor(name, create_new=True)
 
-    def _open_macro_editor(self, name: str) -> None:
+    def _open_macro_editor(self, name: str, *, create_new: bool = False) -> None:
         from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 
-        dialog = MacroEditorDialog(self._parent, name)
+        dialog = MacroEditorDialog(self._parent, name, create_new=create_new)
         dialog.connect("closed", self._on_editor_closed)
         dialog.present(self._parent)
 

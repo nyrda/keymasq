@@ -2208,9 +2208,10 @@ class TestDialogConstruction:
         captured: dict[str, object] = {}
 
         class DummyEditorDialog:
-            def __init__(self, parent, name):
+            def __init__(self, parent, name, *, create_new=False):
                 captured["parent"] = parent
                 captured["name"] = name
+                captured["create_new"] = create_new
 
             def connect(self, signal_name, callback):
                 captured["signal_name"] = signal_name
@@ -2227,9 +2228,15 @@ class TestDialogConstruction:
 
         assert captured["parent"] is parent
         assert captured["name"] == "demo_macro"
+        assert captured["create_new"] is False
         assert captured["signal_name"] == "closed"
         assert captured["callback"] == dialog._on_editor_closed
         assert captured["present_parent"] is parent
+
+        dialog._open_empty_macro_editor("new_macro")
+
+        assert captured["name"] == "new_macro"
+        assert captured["create_new"] is True
 
     def test_macro_manager_row_activation_opens_editor_or_slot_save(self, monkeypatch):
         gi.require_version("Gtk", "4.0")

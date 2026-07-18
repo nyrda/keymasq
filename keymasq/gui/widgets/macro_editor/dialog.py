@@ -80,6 +80,7 @@ class MacroEditorDialog(
         macro_name: str,
         *,
         select_initial_event: bool = True,
+        create_new: bool = False,
     ):
         dialog_width, dialog_height = _compute_macro_editor_dialog_size(parent)
         super().__init__(
@@ -90,6 +91,7 @@ class MacroEditorDialog(
         self._parent = parent
         self._macro_name = macro_name
         self._select_initial_event = bool(select_initial_event)
+        self._create_new = bool(create_new)
         self._macro_data: dict = {}
         self._events: list[EditableEvent] = []
         self._rel_events: list[MacroEvent] = []

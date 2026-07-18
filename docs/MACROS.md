@@ -374,6 +374,10 @@ persisted ones. Save failures are shown immediately. If a renamed macro is saved
 successfully but its old file cannot be removed, the editor keeps the successful
 save and warns that both names remain.
 
+The editor only starts with an empty document when opened through **Create Empty
+Macro**. If an existing macro cannot be loaded, the editor closes and shows the
+daemon or filesystem error instead of treating the failed load as a new macro.
+
 You can:
 
 - Add or delete individual events.

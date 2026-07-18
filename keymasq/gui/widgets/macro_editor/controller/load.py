@@ -4,6 +4,12 @@
 
 from typing import Any
 
+import gi
+
+gi.require_version("Adw", "1")
+
+from gi.repository import Adw  # pyright: ignore[reportAttributeAccessIssue]
+
 from keymasq.gui.session_client import GuiTaskResult
 from keymasq.gui.widgets.macro_editor.document import MacroDocument, selection_order
 
@@ -61,26 +67,48 @@ class LoadControllerMixin:
             timeout_max = 30000
 
         macro: dict[str, Any] | None = None
-        try:
-            response = (
-                self._session_request({"command": "get_macro", "name": self._macro_name}) or {}
-            )
-            loaded_macro = response.get("macro")
-            if response.get("status") == "ok" and isinstance(loaded_macro, dict):
-                macro = loaded_macro
-        except (OSError, RuntimeError, TypeError, ValueError):
-            macro = None
+        macro_load_error: str | None = None
+        if not self._create_new:
+            try:
+                response = (
+                    self._session_request({"command": "get_macro", "name": self._macro_name})
+                    or {}
+                )
+                loaded_macro = response.get("macro")
+                if response.get("status") == "ok" and isinstance(loaded_macro, dict):
+                    macro = loaded_macro
+                else:
+                    macro_load_error = str(
+                        response.get("message", "Failed to load macro")
+                        or "Failed to load macro"
+                    )
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                macro_load_error = str(exc).strip() or exc.__class__.__name__
 
         return {
             "timeout_max": max(1, timeout_max),
             "compositor_status": compositor_status,
             "macro": macro,
+            "macro_load_error": macro_load_error,
         }
 
     def _on_initial_state_loaded(self, result: GuiTaskResult[dict[str, object]]) -> bool:
         if self._dialog_closed:
             return False
         payload = result.value if result.ok and isinstance(result.value, dict) else {}
+        load_error = payload.get("macro_load_error")
+        if result.error is not None:
+            load_error = str(result.error).strip() or result.error.__class__.__name__
+        if (
+            not self._create_new
+            and not isinstance(payload.get("macro"), dict)
+            and not load_error
+        ):
+            load_error = "The macro response did not contain a valid macro"
+        if isinstance(load_error, str) and load_error:
+            self._show_macro_load_error(load_error)
+            return False
+
         timeout_max_raw = payload.get("timeout_max", 30000)
         timeout_max = timeout_max_raw if isinstance(timeout_max_raw, int) else 30000
         self._macro_exec_timeout_max_ms = max(1, timeout_max)
@@ -108,6 +136,16 @@ class LoadControllerMixin:
         self._initial_state_loaded = True
         self._sync_close_guard()
         return False
+
+    def _show_macro_load_error(self, message: str) -> None:
+        self._force_close_without_warning()
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Unable To Load Macro")
+        dialog.set_body(message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.set_close_response("ok")
+        dialog.present(self._parent)
 
     def _refresh_loaded_macro_state(self) -> None:
         self._update_stats()

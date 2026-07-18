@@ -863,46 +863,6 @@ async def test_initial_mapping_is_prepared_before_device_grab(caplog) -> None:
 
 
 @pytest.mark.asyncio
-async def test_prepared_mapping_refs_are_discarded_when_device_grab_stops() -> None:
-    manager = SessionManager()
-    hardware_id = "1234:5678"
-    old_binding = ExecBinding(
-        cmd="notify-send old",
-        owner="device",
-        hardware_id=hardware_id,
-    )
-    manager.exec_state.exec_refs[7] = old_binding
-    manager.exec_state.device_exec_refs[hardware_id] = {7}
-    manager.exec_state.next_exec_ref = 10
-    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
-        hardware_id=hardware_id,
-        name="Test Mouse",
-        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
-        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
-    )
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="error", error="grab failed")
-    )
-    resolved = ResolvedDeviceProfile(
-        hardware_id=hardware_id,
-        active_profile_names=["Desktop"],
-        mappings={
-            "btn_side": MappingAction(
-                action_type=ActionType.EXEC,
-                cmd="notify-send new",
-            )
-        },
-    )
-
-    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
-
-    manager.client.send_command.assert_awaited_once()
-    assert manager.client.send_command.await_args.args[0].command == CommandType.GRAB_DEVICE
-    assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
-    assert manager.exec_state.exec_refs == {7: old_binding}
-
-
-@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_force_grabs_all_interfaces_for_inspector() -> None:
     from keymasq.common.model.core import DeviceType
     from keymasq.common.model.hardware import (

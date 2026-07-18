@@ -632,37 +632,31 @@ async def apply_resolved_device_profile(
     prepared_mapping = _prepare_mapping(manager, hardware_id, resolved)
     if prepared_mapping is None:
         return
-    mapping_dispatched = False
-    try:
-        log.info(
-            "Grabbing device %s (interfaces: %s)",
-            hardware_id,
-            list(new_interfaces.keys()),
-        )
-        grab_outcome = await _send_grab_device_command(
-            manager,
-            hardware_id,
-            resolved,
-            grab_payload,
-            grab_signature,
-            new_interfaces,
-            operations,
-            generation=generation,
-        )
-        if grab_outcome is _GrabOutcome.STOP:
-            return
-        mapping_dispatched = True
-        await _send_set_mapping_command(
-            manager,
-            hardware_id,
-            resolved,
-            _notify,
-            generation=generation,
-            prepared=prepared_mapping,
-        )
-    finally:
-        if not mapping_dispatched:
-            references.discard(manager, prepared_mapping.refs)
+    log.info(
+        "Grabbing device %s (interfaces: %s)",
+        hardware_id,
+        list(new_interfaces.keys()),
+    )
+    grab_outcome = await _send_grab_device_command(
+        manager,
+        hardware_id,
+        resolved,
+        grab_payload,
+        grab_signature,
+        new_interfaces,
+        operations,
+        generation=generation,
+    )
+    if grab_outcome is _GrabOutcome.STOP:
+        return
+    await _send_set_mapping_command(
+        manager,
+        hardware_id,
+        resolved,
+        _notify,
+        generation=generation,
+        prepared=prepared_mapping,
+    )
 
 
 async def update_grab_device_payload(

@@ -355,6 +355,12 @@ Relevant controls:
     defaults to `10`, and `0` disables the time limit
   - `macro_edit_requires_unlock`
 
+Policy boolean values must use the TOML literals `true` or `false`. Strings,
+numbers, arrays, and other types are rejected rather than interpreted by
+truthiness. An invalid security policy prevents both `keymasqd` and
+`keymasq-session` from starting; their logs identify the invalid field so the
+administrator can correct `/etc/keymasq/security.toml` and restart the services.
+
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
 
 `[recording_guard].unlock_required` controls whether sensitive original-input

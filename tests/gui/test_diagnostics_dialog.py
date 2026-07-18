@@ -98,6 +98,36 @@ def test_diagnostics_dialog_sends_settings_and_renders_snapshot(monkeypatch) -> 
     ]
 
 
+def test_diagnostics_dialog_ignores_snapshot_queued_before_close(monkeypatch) -> None:
+    import keymasq.gui.widgets.diagnostics_dialog as dialog_module
+    from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog
+
+    SessionIpcHarness(request_handler=_diagnostics_request_handler).install(
+        monkeypatch, dialog_module
+    )
+    dialog = DiagnosticsDialog(Gtk.Window())
+    dialog._on_closed(dialog)
+
+    dialog._on_diagnostics_snapshot(
+        {
+            "event": "diagnostics_snapshot",
+            "enabled": True,
+            "samples": {
+                "passthrough_mapped": {
+                    "n": 1,
+                    "p50": 1,
+                    "p95": 1,
+                    "p99": 1,
+                    "max": 1,
+                }
+            },
+        }
+    )
+
+    assert dialog._enabled is False
+    assert dialog._rows == {}
+
+
 def test_diagnostics_sort_by_priority(monkeypatch) -> None:
     import keymasq.gui.widgets.diagnostics_dialog as dialog_module
     from keymasq.gui.widgets.diagnostics_dialog import DiagnosticsDialog, _label_sort_key

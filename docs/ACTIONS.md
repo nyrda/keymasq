@@ -563,6 +563,11 @@ after_actions = 1
 timeout_ms = 1500
 ```
 
+Hand-edited `on_trigger_end` values are parsed with Keymasq's tolerant boolean
+coercion for compatibility: common strings such as `"false"` and `"true"`, and
+numeric `0` and `1`, keep their expected meaning. A later save writes the
+canonical TOML boolean form.
+
 ![Profile tab — Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/key_selector_profile.png)
 
 ## Action Modifiers

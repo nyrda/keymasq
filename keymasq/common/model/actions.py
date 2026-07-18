@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast
 
-from keymasq.common.coercion import bool_value, coerce_int
+from keymasq.common.coercion import bool_value, coerce_bool, coerce_int
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.model.core import ActionType
 
@@ -299,7 +299,7 @@ def parse_profile_deactivation_policy(data: object) -> ProfileDeactivationPolicy
         return None
     payload = cast(dict[str, object], data)
     policy = ProfileDeactivationPolicy(
-        on_trigger_end=bool(payload.get("on_trigger_end", False)),
+        on_trigger_end=coerce_bool(payload.get("on_trigger_end"), False),
         after_actions=_positive_int_or_none(payload.get("after_actions")),
         timeout_ms=_positive_int_or_none(payload.get("timeout_ms")),
     )

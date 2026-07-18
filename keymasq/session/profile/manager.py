@@ -19,7 +19,7 @@ from keymasq.common.model.profiles import (
 from . import references
 from .codec import ProfileCodec
 from .repair import repair_created_at
-from .repository import ProfileRepository
+from .repository import MAX_PATH_ATTEMPTS, ProfileRepository
 from .resolution import ProfileResolver
 from .rules import has_unsupported_rules, matches_window_rules, validate_window_rules
 from .types import ProfileInfo, ResolvedProfiles, TomlDict
@@ -128,16 +128,22 @@ class ProfileManager:
             notify_on_activation=False,
             created_at=datetime.now(),
         )
-        path = self._repository.canonical_path(config.name)
-        try:
-            self._write_profile_file(
-                config,
-                path,
-                validate_window_rules=False,
-                exclusive=True,
+        for _attempt in range(MAX_PATH_ATTEMPTS):
+            path = self._profile_path_for_name(config.name)
+            try:
+                self._write_profile_file(
+                    config,
+                    path,
+                    validate_window_rules=False,
+                    exclusive=True,
+                )
+            except FileExistsError:
+                continue
+            break
+        else:
+            raise RuntimeError(
+                f"Unable to allocate default profile storage path for '{config.name}'"
             )
-        except FileExistsError:
-            return self._load_profiles(strict=strict)
 
         profiles[config.name] = ProfileInfo(path=path, config=config)
         log.info("Created default profile: %s", path)

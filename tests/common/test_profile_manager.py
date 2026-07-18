@@ -69,6 +69,26 @@ class TestProfileManager:
         assert profiles[0].path == temp_config_dir / "profiles" / "Default.toml"
         assert profiles[0].path.exists()
 
+    def test_auto_create_default_profile_preserves_invalid_colliding_files(
+        self,
+        temp_config_dir,
+    ) -> None:
+        profiles_dir = temp_config_dir / "profiles"
+        invalid_default = profiles_dir / "Default.toml"
+        invalid_fallback = profiles_dir / "Default_2.toml"
+        invalid_default.write_text("not = [valid toml", encoding="utf-8")
+        invalid_fallback.write_text("also = [invalid toml", encoding="utf-8")
+
+        manager = ProfileManager(auto_create_default_if_empty=True)
+
+        profiles = manager.list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].config.name == "Default"
+        assert profiles[0].path == profiles_dir / "Default_3.toml"
+        assert profiles[0].path.exists()
+        assert invalid_default.read_text(encoding="utf-8") == "not = [valid toml"
+        assert invalid_fallback.read_text(encoding="utf-8") == "also = [invalid toml"
+
     def test_save_and_load_profile(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)

@@ -30,6 +30,33 @@ def test_gamepad_output_deadzone_defaults_to_zero() -> None:
     assert AnalogGamepadOutputConfig().deadzone == 0.0
 
 
+def test_analog_control_non_finite_mouse_values_use_defaults(temp_config_dir) -> None:
+    config_path = temp_config_dir / "analog_controls" / "non_finite.toml"
+    config_path.write_text(
+        """\
+name = "Non-finite Mouse"
+
+[mouse_motion]
+enabled = true
+speed = inf
+speed_x = nan
+speed_y = -inf
+area_radius_x = inf
+area_radius_y = nan
+""",
+        encoding="utf-8",
+    )
+
+    loaded = AnalogControlManager().get_analog_control("Non-finite Mouse")
+
+    assert loaded is not None
+    assert loaded.mouse_motion.speed == 900.0
+    assert loaded.mouse_motion.speed_x == 900.0
+    assert loaded.mouse_motion.speed_y == 900.0
+    assert loaded.mouse_motion.area_radius_x == 400.0
+    assert loaded.mouse_motion.area_radius_y == 400.0
+
+
 def test_analog_control_manager_round_trip_rename_delete(temp_config_dir) -> None:
     manager = AnalogControlManager()
     config = AnalogControlConfig(

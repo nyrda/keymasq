@@ -63,6 +63,41 @@ def test_mapping_action_from_toml_parses_false_rapidfire_string_as_disabled() ->
     assert action.rapidfire_enabled is False
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("false", False),
+        ("off", False),
+        ("true", True),
+        ("yes", True),
+        (0, False),
+        (1, True),
+        ("not-a-boolean", False),
+    ],
+)
+def test_mapping_action_from_toml_coerces_profile_trigger_end(
+    value: object,
+    expected: bool,
+) -> None:
+    action = _parse_mapping_action_toml(
+        {
+            "action": "profile_enable",
+            "profile_name": "Gaming",
+            "deactivation": {"on_trigger_end": value},
+        }
+    )
+
+    if expected:
+        assert action.profile_deactivation == ProfileDeactivationPolicy(on_trigger_end=True)
+    else:
+        assert action.profile_deactivation is None
+        serialized = mapping_action_to_toml(
+            action,
+            rapidfire_warning_context="test config",
+        )
+        assert "deactivation" not in serialized
+
+
 def test_mapping_action_type_from_toml_can_passthrough_unknown_actions() -> None:
     logger = Mock()
 

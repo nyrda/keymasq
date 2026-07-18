@@ -32,7 +32,12 @@ class _FakeSlurpCapture:
         self.capture_callback = callback
 
 
-def _build_macro_dialog(monkeypatch, *, slurp_available: bool = False) -> MacroEditorDialog:
+def _build_macro_dialog(
+    monkeypatch,
+    *,
+    slurp_available: bool = False,
+    create_new: bool = False,
+) -> MacroEditorDialog:
     fake_slurp = _FakeSlurpCapture(available=slurp_available)
     monkeypatch.setattr(macro_editor_dialog_module, "get_slurp_capture", lambda: fake_slurp)
     monkeypatch.setattr(macro_editor_dialog_module, "session_compositor_id", lambda: "hyprland")
@@ -42,6 +47,6 @@ def _build_macro_dialog(monkeypatch, *, slurp_available: bool = False) -> MacroE
         lambda parent: (800, 600),
     )
     monkeypatch.setattr(MacroEditorDialog, "_load_initial_state_async", lambda self: None)
-    dialog = MacroEditorDialog(Gtk.Window(), "demo_macro")
+    dialog = MacroEditorDialog(Gtk.Window(), "demo_macro", create_new=create_new)
     dialog._test_slurp = fake_slurp  # type: ignore[attr-defined]
     return dialog

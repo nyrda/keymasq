@@ -855,7 +855,9 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
 def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
-    frame = dialog.get_child()
+    overlay = dialog.get_child()
+    assert isinstance(overlay, Gtk.Overlay)
+    frame = overlay.get_child()
     assert isinstance(frame, Gtk.Frame)
     root = frame.get_child()
     children = list(iter_widget_children(root))
@@ -1024,31 +1026,179 @@ def test_macro_editor_clean_close_skips_unsaved_warning(monkeypatch) -> None:
     assert closed == [True]
 
 
-def test_macro_editor_failed_load_closes_without_unsaved_warning(monkeypatch) -> None:
+def test_macro_editor_failed_existing_load_shows_error_and_closes(monkeypatch) -> None:
     from keymasq.gui.session_client import GuiTaskResult
 
     dialog = _build_macro_dialog(monkeypatch)
     closed: list[bool] = []
-    alerts: list[tuple[object, object]] = []
+    alerts: list[tuple[str | None, str | None, object]] = []
     monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
     monkeypatch.setattr(
         macro_editor_dialog_module.Adw.AlertDialog,
         "present",
-        lambda alert, parent: alerts.append((alert, parent)),
+        lambda alert, parent: alerts.append(
+            (alert.get_heading(), alert.get_body(), parent)
+        ),
     )
 
     result = {
         "timeout_max": 30000,
         "macro": None,
+        "macro_load_error": "Read-only file system",
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
-    assert dialog.get_can_close() is True
+    assert closed == [True]
+    assert dialog._dialog_closed is True
+    assert dialog._initial_state_loaded is False
+    assert alerts == [
+        ("Unable To Load Macro", "Read-only file system", dialog._parent)
+    ]
+
+
+def test_macro_editor_create_new_skips_lookup_and_opens_empty(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch, create_new=True)
+    requests: list[dict] = []
+
+    def fake_session_request(payload):
+        requests.append(payload)
+        return {"status": "ok", "macro_exec_timeout_max_ms": 30000}
+
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+
+    result = dialog._load_initial_state()
+
+    assert requests == [{"command": "get_status"}]
+    assert result["macro"] is None
+    assert result["macro_load_error"] is None
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    assert dialog._initial_state_loaded is True
+    assert dialog._macro_exists is False
     assert dialog._initial_macro_data == dialog._current_macro_payload()
 
-    dialog._request_close()
 
-    assert alerts == []
+def test_macro_editor_content_is_read_only_until_initial_load_finishes(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._editor_busy_overlay.get_visible() is True
+    assert dialog._editor_busy_spinner.get_property("spinning") is True
+    assert dialog._editor_busy_label.get_label() == "Loading macro…"
+
+    dialog._exit_loading_state()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._editor_busy_overlay.get_visible() is False
+    assert dialog._editor_busy_spinner.get_property("spinning") is False
+
+    dialog._exit_loading_state()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._editor_busy_overlay.get_visible() is False
+
+
+def test_macro_editor_load_completion_unlocks_content(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+    from keymasq.gui.widgets.macro_editor.controller.load import LoadControllerMixin
+
+    dialog = _build_macro_dialog(monkeypatch)
+
+    scheduled: list[
+        tuple[
+            Callable[[], dict[str, object]],
+            Callable[[GuiTaskResult[dict[str, object]]], bool | None],
+            Callable[[], None] | None,
+        ]
+    ] = []
+
+    def fake_run_gui_task(worker, callback, *, on_start=None, on_done=None) -> None:
+        if on_start is not None:
+            on_start()
+        scheduled.append((worker, callback, on_done))
+
+    def fake_session_request(payload):
+        if payload["command"] == "get_macro":
+            return {
+                "status": "ok",
+                "macro": {
+                    "name": "demo_macro",
+                    "revision": 2,
+                    "events": [
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 1,
+                            "t_us": 1000,
+                        },
+                        {
+                            "device_type": "keyboard",
+                            "type": evdev.ecodes.EV_KEY,
+                            "code": evdev.ecodes.KEY_A,
+                            "value": 0,
+                            "t_us": 2000,
+                        },
+                    ],
+                    "duration_us": 2000,
+                },
+            }
+        return {"status": "ok", "macro_exec_timeout_max_ms": 30000}
+
+    monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
+    monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
+
+    LoadControllerMixin._load_initial_state_async(dialog)
+
+    assert dialog._editor_content.get_sensitive() is False
+    assert len(scheduled) == 1
+
+    worker, callback, on_done = scheduled[0]
+    assert callback(GuiTaskResult(value=worker())) is False
+    if on_done is not None:
+        on_done()
+
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._editor_busy_overlay.get_visible() is False
+    assert len(dialog._events) == 1
+    assert dialog._initial_state_loaded is True
+
+
+def test_macro_editor_load_ignored_after_close_during_load(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    closed: list[bool] = []
+    monkeypatch.setattr(dialog, "force_close", lambda: closed.append(True))
+
+    dialog._force_close_without_warning()
+
     assert closed == [True]
+    assert dialog._dialog_closed is True
+
+    result = {
+        "macro": {
+            "name": "demo_macro",
+            "revision": 2,
+            "events": [
+                {
+                    "device_type": "keyboard",
+                    "type": evdev.ecodes.EV_KEY,
+                    "code": evdev.ecodes.KEY_A,
+                    "value": 1,
+                    "t_us": 1000,
+                },
+            ],
+            "duration_us": 1000,
+        },
+    }
+    assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
+    dialog._exit_loading_state()
+
+    assert dialog._events == []
+    assert dialog._initial_state_loaded is False
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._editor_busy_overlay.get_visible() is True
 
 
 def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:
@@ -1119,7 +1269,7 @@ def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
         is False
     )
 
-    generic = GuiTaskResult(value={"status": "error", "message": "Revision conflict"})
+    generic = GuiTaskResult(value={"status": "error", "message": "Read-only file system"})
     assert (
         dialog._on_save_finished(
             generic,
@@ -1147,15 +1297,60 @@ def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
             "A macro named 'demo_macro' already exists. Choose a different name.",
             dialog._parent,
         ),
-        ("Unable To Save Macro", "Revision conflict", dialog._parent),
+        ("Unable To Save Macro", "Read-only file system", dialog._parent),
         ("Unable To Save Macro", "worker failed", dialog._parent),
     ]
 
 
-def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
+def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -> None:
+    from keymasq.gui.session_client import GuiTaskResult
+
+    dialog = _build_macro_dialog(monkeypatch)
+    alerts: list[tuple[str | None, str | None, object]] = []
+    reloads: list[bool] = []
+    requested = dialog._current_macro_payload()
+    requested["name"] = "renamed"
+    saved = {**requested, "revision": 3}
+    warning = (
+        "Macro saved as 'renamed', but 'demo_macro' could not be removed: "
+        "Read-only file system. Both macros remain."
+    )
+
+    monkeypatch.setattr(
+        macro_editor_dialog_module.Adw.AlertDialog,
+        "present",
+        lambda alert, parent: alerts.append(
+            (alert.get_heading(), alert.get_body(), parent)
+        ),
+    )
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "notify_session_reload_async",
+        lambda: reloads.append(True),
+    )
+
+    result = GuiTaskResult(value={"status": "ok", "macro": saved, "warning": warning})
+    assert (
+        dialog._on_save_finished(
+            result,
+            "renamed",
+            requested,
+            close_after_save=False,
+        )
+        is False
+    )
+
+    assert dialog._macro_name == "renamed"
+    assert dialog._macro_data["revision"] == 3
+    assert reloads == [True]
+    assert alerts == [("Macro Saved With Warning", warning, dialog._parent)]
+
+
+def test_macro_editor_save_in_flight_blocks_editor_duplicates_and_tracks_snapshot(
     monkeypatch,
 ) -> None:
     dialog = _build_macro_dialog(monkeypatch)
+    dialog._exit_loading_state()
     dialog._macro_name = "demo_macro"
     dialog._macro_exists = True
     dialog._macro_data = {"name": "demo_macro", "revision": 2}
@@ -1188,6 +1383,10 @@ def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
     dialog._on_apply(apply_btn)
 
     assert dialog._save_in_flight is True
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._editor_busy_overlay.get_visible() is True
+    assert dialog._editor_busy_spinner.get_property("spinning") is True
+    assert dialog._editor_busy_label.get_label() == "Saving macro…"
     assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
         False,
         False,
@@ -1202,19 +1401,35 @@ def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
     assert len(scheduled) == 1
     assert requests == []
 
+    dialog._events = [
+        EditableEvent(
+            device_type="keyboard",
+            ev_type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_B,
+            press_t_us=1000,
+            release_t_us=2000,
+        )
+    ]
+
     worker, callback, on_done = scheduled[0]
     assert callback(macro_editor_dialog_module.GuiTaskResult(value=worker())) is False
     if on_done is not None:
         on_done()
 
     assert requests[0]["command"] == "update_macro"
+    assert requests[0]["macro"]["events"] == []
     assert dialog._save_in_flight is False
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._editor_busy_overlay.get_visible() is False
+    assert dialog._editor_busy_spinner.get_property("spinning") is False
     assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
         True,
         True,
         True,
         True,
     ]
+    assert dialog._initial_macro_data["events"] == []
+    assert dialog._has_pending_changes() is True
 
 
 def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) -> None:
@@ -1336,6 +1551,32 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert requests[0]["command"] == "create_macro"
     assert requests[1]["command"] == "delete_macro"
     assert requests[1]["expected_revision"] == 7
+
+    requests.clear()
+
+    def fake_partial_rename_request(payload):
+        requests.append(payload)
+        if payload["command"] == "create_macro":
+            return {"status": "ok", "macro": {"name": "renamed", "revision": 1}}
+        if payload["command"] == "delete_macro":
+            return {"status": "error", "message": "Read-only file system"}
+        return {}
+
+    monkeypatch.setattr(
+        macro_editor_dialog_module,
+        "session_request",
+        fake_partial_rename_request,
+    )
+
+    partial_result = dialog._save_macro_request("renamed", {"name": "renamed"}, 7)
+
+    assert isinstance(partial_result, dict)
+    assert partial_result["status"] == "ok"
+    assert partial_result["macro"]["name"] == "renamed"
+    assert partial_result["warning"] == (
+        "Macro saved as 'renamed', but 'original' could not be removed: "
+        "Read-only file system. Both macros remain."
+    )
 
     dialog._apply_macro_state(dialog._initial_macro_data)
     dialog._events[0].press_t_us = 9000

@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from typing import cast, overload
 
@@ -108,7 +109,7 @@ def coerce_float(
     value: object,
     default: float | None = 0.0,
 ) -> float | None:
-    """Return float(value), or default when the value is missing or invalid."""
+    """Return a finite float(value), or default when missing or invalid."""
     return _coerce_number(value, default, _coerce_float)
 
 
@@ -154,7 +155,10 @@ def _coerce_int(value: object) -> int:
 
 
 def _coerce_float(value: object) -> float:
-    return float(cast(_NumberInput, value))
+    converted = float(cast(_NumberInput, value))
+    if not math.isfinite(converted):
+        raise ValueError("float must be finite")
+    return converted
 
 
 def _is_empty_number_text(value: object) -> bool:

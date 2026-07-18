@@ -57,6 +57,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
     RECORDING_SETTINGS_PATH = CONFIG_DIR / "recording_settings.toml"
     MAX_SESSION_CLIENT_BUFFER_BYTES = 16 * 1024 * 1024
     SESSION_CLIENT_CLOSE_TIMEOUT_S = 0.5
+    RELOAD_DEBOUNCE_S = 0.5
 
     def __init__(self, verbosity: int = 0) -> None:
         async def _client_event_handler(event_type: CommandType, data: JsonObject) -> None:
@@ -287,19 +288,19 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
             log.debug("Reload already pending, skipping")
             return
 
-        self.reload_pending = True
-
         if self.reload_task and not self.reload_task.done():
-            log.debug("Reload task still running, will retry after")
+            log.debug("Reload task still running, dropping reload request")
             return
 
+        self.reload_pending = True
         log.info("Received reload signal (SIGHUP)")
         self.reload_task = asyncio.create_task(self.reload_profiles())
 
     async def reload_profiles(self) -> bool:
-        await asyncio.sleep(0.05)
-
-        self.reload_pending = False
+        try:
+            await asyncio.sleep(self.RELOAD_DEBOUNCE_S)
+        finally:
+            self.reload_pending = False
 
         try:
             await asyncio.to_thread(self.reload_config_from_disk)

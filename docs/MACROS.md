@@ -150,6 +150,8 @@ devices from direct physical input sources.
 Recording preferences are stored in
 `~/.config/keymasq/recording_settings.toml`. Device-specific overrides use
 stable recording IDs instead of volatile `/dev/input/eventN` paths.
+If the preferences cannot be written to disk, they remain active for the
+current session and Keymasq warns that they may revert after a restart.
 
 ![Recording settings — initial mouse position and source options](assets/screenshots/keymasq_macro_recording_settings.png)
 
@@ -364,7 +366,17 @@ Name** (copies the exact macro name for use in profiles, superkeys, combos, or
 the CLI), **Play**, **Edit**, **Duplicate**, and **Delete**. In Macro Manager
 you can also just start typing (or press Ctrl+F) to filter the list by name,
 device type, or event count. The editor shows your macro as a visual timeline
-of keyboard, mouse, and movement events.
+of keyboard, mouse, and movement events. While the saved macro is being loaded,
+the editor stays read-only behind a spinner, so edits can't be made and lost
+before the existing content arrives. The same read-only state is shown while
+applying or saving changes, preventing newer edits from being mistaken for
+persisted ones. Save failures are shown immediately. If a renamed macro is saved
+successfully but its old file cannot be removed, the editor keeps the successful
+save and warns that both names remain.
+
+The editor only starts with an empty document when opened through **Create Empty
+Macro**. If an existing macro cannot be loaded, the editor closes and shows the
+daemon or filesystem error instead of treating the failed load as a new macro.
 
 You can:
 

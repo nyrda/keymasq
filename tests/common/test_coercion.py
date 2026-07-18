@@ -28,6 +28,22 @@ def test_coerce_float_uses_default_for_missing_or_invalid_values() -> None:
     assert coerce_float("2.25", 1.5) == 2.25
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "nan",
+        "inf",
+        "-inf",
+    ],
+)
+def test_coerce_float_uses_default_for_non_finite_values(value: object) -> None:
+    assert coerce_float(value, 1.5) == 1.5
+    assert coerce_float(value, None) is None
+
+
 def test_coerce_bool_parses_common_boolean_values() -> None:
     assert coerce_bool(True) is True
     assert coerce_bool(False, True) is False

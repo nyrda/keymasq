@@ -80,6 +80,7 @@ class MacroEditorDialog(
         macro_name: str,
         *,
         select_initial_event: bool = True,
+        create_new: bool = False,
     ):
         dialog_width, dialog_height = _compute_macro_editor_dialog_size(parent)
         super().__init__(
@@ -90,6 +91,7 @@ class MacroEditorDialog(
         self._parent = parent
         self._macro_name = macro_name
         self._select_initial_event = bool(select_initial_event)
+        self._create_new = bool(create_new)
         self._macro_data: dict = {}
         self._events: list[EditableEvent] = []
         self._rel_events: list[MacroEvent] = []
@@ -144,6 +146,11 @@ class MacroEditorDialog(
         self._close_warning_dialog: Adw.AlertDialog | None = None
         self._save_in_flight = False
         self._footer_action_buttons: list[Gtk.Button] = []
+        self._editor_content: Gtk.Widget | None = None
+        self._editor_busy_overlay: Gtk.Widget | None = None
+        self._editor_busy_spinner: Gtk.Spinner | None = None
+        self._editor_busy_label: Gtk.Label | None = None
+        self._dialog_closed: bool = False
         self._updating_props = False
         self._drag_locked: bool = True
         self._erase_mode: bool = False
@@ -160,6 +167,9 @@ class MacroEditorDialog(
             .macro-editor-outline {
                 border: 1px solid #000;
                 border-radius: 6px;
+            }
+            .macro-editor-busy-overlay {
+                background-color: alpha(@window_bg_color, 0.7);
             }
             """
         )

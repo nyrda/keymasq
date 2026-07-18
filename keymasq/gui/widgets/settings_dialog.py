@@ -171,6 +171,7 @@ class SettingsDialog(Adw.Dialog):
                 raw_saved = response.get("virtual_gamepad_count", count)
                 saved_count = _count_value(raw_saved, count)
                 applied_count = clamp_virtual_gamepad_count(saved_count)
+                warning = str(response.get("warning") or "")
                 if save_seq != self._save_seq:
                     if save_seq > self._applied_save_seq:
                         self._applied_gamepad_count = applied_count
@@ -187,6 +188,7 @@ class SettingsDialog(Adw.Dialog):
                 self._save_applied = True
                 self._gamepad_count = applied_count
                 self._sync_gamepad_count_controls()
+                self._status.set_text(warning)
                 return False
             if save_seq != self._save_seq:
                 return False

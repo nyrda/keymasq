@@ -327,6 +327,10 @@ the GUI hamburger menu under **Settings**. The setting is stored in
 virtual_count = 1
 ```
 
+If the setting cannot be written to disk, the requested count remains active
+for the current session and Keymasq shows a warning that it may revert after a
+restart.
+
 Each virtual gamepad uses Xbox 360 hardware IDs:
 
 - **Name**: `keymasq-gamepad` (first), `keymasq-gamepad-2` through `-4`

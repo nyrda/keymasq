@@ -35,8 +35,47 @@ class EditorChromeMixin:
         frame = Gtk.Frame()
         frame.add_css_class("macro-editor-outline")
         frame.set_child(root)
-        self.set_child(frame)
+
+        busy_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        busy_content.set_halign(Gtk.Align.CENTER)
+        busy_content.set_valign(Gtk.Align.CENTER)
+        busy_spinner = Gtk.Spinner()
+        busy_spinner.set_size_request(32, 32)
+        busy_content.append(busy_spinner)
+        busy_label = Gtk.Label(label="Loading macro…")
+        busy_label.add_css_class("dim-label")
+        busy_content.append(busy_label)
+
+        busy_overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        busy_overlay.add_css_class("macro-editor-busy-overlay")
+        busy_overlay.append(busy_content)
+
+        overlay = Gtk.Overlay()
+        overlay.set_child(frame)
+        overlay.add_overlay(busy_overlay)
+        self.set_child(overlay)
+
+        self._editor_content = frame
+        self._editor_busy_overlay = busy_overlay
+        self._editor_busy_spinner = busy_spinner
+        self._editor_busy_label = busy_label
+        self._set_editor_busy(True, "Loading macro…")
         GLib.idle_add(self._update_canvas_width)
+
+    def _set_editor_busy(self, busy: bool, message: str = "") -> None:
+        if self._dialog_closed:
+            return
+        if self._editor_content is not None:
+            self._editor_content.set_sensitive(not busy)
+        if self._editor_busy_overlay is not None:
+            self._editor_busy_overlay.set_visible(busy)
+        if message and self._editor_busy_label is not None:
+            self._editor_busy_label.set_label(message)
+        if self._editor_busy_spinner is not None:
+            if busy:
+                self._editor_busy_spinner.start()
+            else:
+                self._editor_busy_spinner.stop()
 
     def _build_toolbar(self) -> Gtk.Widget:
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)

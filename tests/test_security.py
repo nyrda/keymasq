@@ -128,6 +128,28 @@ def test_load_security_policy_gui_section(tmp_path: Path) -> None:
     assert policy.emergency_cancel_combo_enabled is False
 
 
+@pytest.mark.parametrize(
+    ("section", "setting"),
+    [
+        ("recording_guard", "unlock_required"),
+        ("recording_guard", "macro_edit_requires_unlock"),
+        ("gui", "emergency_cancel_combo_enabled"),
+    ],
+)
+@pytest.mark.parametrize("value", ['"false"', "[]", "0"])
+def test_load_security_policy_rejects_non_boolean_policy_values(
+    tmp_path: Path,
+    section: str,
+    setting: str,
+    value: str,
+) -> None:
+    policy_path = tmp_path / "security.toml"
+    policy_path.write_text(f"[{section}]\n{setting} = {value}\n")
+
+    with pytest.raises(SecurityPolicyError, match=rf"{section}\.{setting} must be a boolean"):
+        load_security_policy(policy_path)
+
+
 def test_uid_allowlist_optional_and_enforced(tmp_path: Path) -> None:
     default_policy = load_security_policy(tmp_path / "missing-security.toml")
     assert default_policy.daemon_allowed_uids == []

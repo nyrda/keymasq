@@ -50,6 +50,14 @@ def _to_int_list(value: Any, setting_name: str) -> list[int]:
     return out
 
 
+def _to_bool(value: Any, setting_name: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise SecurityPolicyError(f"{setting_name} must be a boolean")
+    return value
+
+
 def load_security_policy(config_path: Path) -> SecurityPolicy:
     policy = SecurityPolicy()
 
@@ -86,11 +94,15 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     recording_guard_cfg = raw.get("recording_guard")
     if isinstance(recording_guard_cfg, dict):
         recording_guard = cast(dict[str, Any], recording_guard_cfg)
-        policy.recording_unlock_required = bool(
-            recording_guard.get("unlock_required", policy.recording_unlock_required)
+        policy.recording_unlock_required = _to_bool(
+            recording_guard.get("unlock_required"),
+            "recording_guard.unlock_required",
+            policy.recording_unlock_required,
         )
-        policy.macro_edit_requires_unlock = bool(
-            recording_guard.get("macro_edit_requires_unlock", policy.macro_edit_requires_unlock)
+        policy.macro_edit_requires_unlock = _to_bool(
+            recording_guard.get("macro_edit_requires_unlock"),
+            "recording_guard.macro_edit_requires_unlock",
+            policy.macro_edit_requires_unlock,
         )
         time_limit = recording_guard.get(
             "macro_recording_time_limit",
@@ -109,11 +121,10 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     gui_cfg = raw.get("gui")
     if isinstance(gui_cfg, dict):
         gui_settings = cast(dict[str, Any], gui_cfg)
-        policy.emergency_cancel_combo_enabled = bool(
-            gui_settings.get(
-                "emergency_cancel_combo_enabled",
-                policy.emergency_cancel_combo_enabled,
-            )
+        policy.emergency_cancel_combo_enabled = _to_bool(
+            gui_settings.get("emergency_cancel_combo_enabled"),
+            "gui.emergency_cancel_combo_enabled",
+            policy.emergency_cancel_combo_enabled,
         )
 
     return policy

@@ -1,5 +1,7 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+
+import pytest
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
@@ -70,6 +72,32 @@ def test_codec_reports_timestamp_repair_without_filesystem_state() -> None:
     assert decoded.created_at_repair_reason == "missing created_at"
     assert decoded.config.created_at == datetime(2026, 7, 10, 12, 0)
     assert decoded.config.device_layers["mouse"].mappings["btn_side"].target == "key_f13"
+
+
+@pytest.mark.parametrize(
+    ("created_at", "reason"),
+    [
+        (
+            "2026-07-10T12:00:00+02:00",
+            "timezone-aware created_at '2026-07-10T12:00:00+02:00'",
+        ),
+        (datetime(2026, 7, 10, 12, 0, tzinfo=UTC), "noncanonical created_at"),
+    ],
+)
+def test_codec_replaces_noncanonical_timestamps_with_current_time(
+    created_at: object,
+    reason: str,
+) -> None:
+    now = datetime(2026, 7, 18, 9, 30)
+
+    decoded = ProfileCodec().decode(
+        {"profile": {"name": "Portable", "created_at": created_at}},
+        default_name="fallback",
+        now=now,
+    )
+
+    assert decoded.created_at_repair_reason == reason
+    assert decoded.config.created_at == now
 
 
 def test_codec_round_trip_preserves_combo_scope() -> None:

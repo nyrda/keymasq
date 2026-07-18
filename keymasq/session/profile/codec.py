@@ -24,6 +24,7 @@ from keymasq.session.action_toml import (
     mapping_action_type_from_toml,
 )
 
+from .rules import SUPPORTED_WINDOW_RULE_FIELDS, normalize_window_rule_field
 from .types import TomlDict
 
 log = logging.getLogger("keymasq-session.profiles")
@@ -68,25 +69,40 @@ class ProfileCodec:
         now: datetime | None = None,
     ) -> DecodedProfile:
         profile = as_toml_dict(data.get("profile")) or {}
-        window_rules = [
-            WindowRule(
-                field=str(rule_dict.get("field", "class")),
-                pattern=str(rule_dict.get("pattern", "")),
+        window_rules: list[WindowRule] = []
+        for rule_data in as_toml_list(profile.get("window_rules", [])):
+            rule_dict = as_toml_dict(rule_data)
+            if rule_dict is None:
+                continue
+            field = normalize_window_rule_field(rule_dict.get("field", "class"))
+            if field not in SUPPORTED_WINDOW_RULE_FIELDS:
+                log.warning("Unknown window rule field '%s'; rule will not match", field)
+            window_rules.append(
+                WindowRule(
+                    field=field,
+                    pattern=str(rule_dict.get("pattern", "")),
+                )
             )
-            for rule_data in as_toml_list(profile.get("window_rules", []))
-            if (rule_dict := as_toml_dict(rule_data)) is not None
-        ]
 
         created_at = now or datetime.now()
         created_at_repair_reason: str | None = None
         created_at_raw = profile.get("created_at")
         if isinstance(created_at_raw, str):
             try:
-                created_at = datetime.fromisoformat(created_at_raw)
+                parsed_created_at = datetime.fromisoformat(created_at_raw)
             except ValueError:
                 created_at_repair_reason = f"malformed created_at '{created_at_raw}'"
-        else:
+            else:
+                if parsed_created_at.utcoffset() is None:
+                    created_at = parsed_created_at
+                else:
+                    created_at_repair_reason = (
+                        f"timezone-aware created_at '{created_at_raw}'"
+                    )
+        elif created_at_raw is None:
             created_at_repair_reason = "missing created_at"
+        else:
+            created_at_repair_reason = "noncanonical created_at"
 
         device_layers: dict[str, DeviceProfileLayer] = {}
         devices_data = data.get("devices", {})

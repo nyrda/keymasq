@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_int
@@ -15,6 +17,18 @@ from .common import daemon_unavailable_response, send_daemon_request
 
 if TYPE_CHECKING:
     from ..core import SessionManager
+
+log = logging.getLogger("keymasq-session")
+_PERSISTENCE_WARNING = (
+    "Virtual gamepad count was applied for this session but could not be saved. "
+    "It may revert after Keymasq restarts."
+)
+
+
+def _warn_persistence_failed(manager: "SessionManager") -> str:
+    log.exception("Failed to persist virtual gamepad count; keeping the runtime value")
+    manager.send_notification("Keymasq Settings Warning", _PERSISTENCE_WARNING)
+    return _PERSISTENCE_WARNING
 
 
 async def handle_virtual_gamepad_commands(
@@ -46,17 +60,25 @@ async def handle_virtual_gamepad_commands(
         if isinstance(response.data, dict):
             data = cast(JsonObject, response.data)
             count = coerce_int(data.get("count"), count)
-    count = save_virtual_gamepad_count(count)
+    persistence_warning = ""
+    try:
+        count = await asyncio.to_thread(save_virtual_gamepad_count, count)
+    except OSError:
+        persistence_warning = _warn_persistence_failed(manager)
     manager.virtual_gamepad_count = count
     manager.broadcast_to_session_clients(
         {"event": "virtual_gamepads_changed", "count": int(manager.virtual_gamepad_count)}
     )
-    return {
+    payload: JsonObject = {
         "status": "ok",
         "count": int(manager.virtual_gamepad_count),
         "min_count": MIN_VIRTUAL_GAMEPADS,
         "max_count": MAX_VIRTUAL_GAMEPADS,
     }
+    if persistence_warning:
+        payload["persisted"] = False
+        payload["warning"] = persistence_warning
+    return payload
 
 
 async def handle_settings_commands(
@@ -98,13 +120,22 @@ async def handle_settings_commands(
             data = cast(JsonObject, response.data)
             count = coerce_int(data.get("count"), count)
 
-    saved = save_global_settings(
-        GlobalSettings(
-            virtual_gamepad_count=count,
+    persistence_warning = ""
+    try:
+        saved = await asyncio.to_thread(
+            save_global_settings,
+            GlobalSettings(
+                virtual_gamepad_count=count,
+            ),
         )
-    )
-    manager.virtual_gamepad_count = saved.virtual_gamepad_count
+        count = saved.virtual_gamepad_count
+    except OSError:
+        persistence_warning = _warn_persistence_failed(manager)
+    manager.virtual_gamepad_count = count
     payload = _settings_payload(manager)
+    if persistence_warning:
+        payload["persisted"] = False
+        payload["warning"] = persistence_warning
     manager.broadcast_to_session_clients(
         {
             "event": "settings_changed",

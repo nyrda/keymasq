@@ -57,6 +57,7 @@ class LifecycleControllerMixin:
         self._show_unsaved_close_warning()
 
     def _force_close_without_warning(self) -> None:
+        self._dialog_closed = True
         self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self.set_can_close(True)

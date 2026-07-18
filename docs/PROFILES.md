@@ -93,9 +93,11 @@ Profiles are stored in:
 
 The visible profile name can contain arbitrary characters. The on-disk filename is derived from that name by replacing unsafe filename characters so the file always stays inside `profiles/`.
 
-Keymasq keeps at least one editable profile. On first start, and whenever the
-session reloads an empty profiles directory, `keymasq-session` seeds a permanent
-profile named `Default` so new devices can be remapped immediately.
+Keymasq keeps at least one editable profile. On startup when no valid profile can
+be loaded, and whenever the session reloads an empty profiles directory,
+`keymasq-session` seeds a permanent profile named `Default` so new devices can
+be remapped immediately. Existing files are never overwritten; filename
+collisions use `Default_2.toml`, `Default_3.toml`, and so on.
 
 Hardware definitions are still separate:
 
@@ -149,6 +151,11 @@ The last applied mapping wins. In practice:
 - higher `priority` overrides lower `priority`
 - if priorities are equal, newer `created_at` overrides older
 - if both are equal, name order is the tiebreaker
+
+`created_at` is internal ordering bookkeeping. Keymasq stores it as a quoted,
+timezone-naive ISO timestamp. Missing, malformed, timezone-aware, or native TOML
+datetime values are replaced with the current time and repaired to that
+canonical form when the profile loads.
 
 Conditional profiles always override permanent profiles, even if the permanent profile has a higher numeric priority.
 
@@ -244,6 +251,11 @@ always_grab_all = true
 action = "mpris"
 command = "play_pause"
 ```
+
+Window-rule fields are `class`, `title`, and `tag`. The hand-edited alias
+`tags` is accepted and normalized to `tag` on the next save. Unknown fields and
+unexpected non-string class/title values safely fail to match instead of
+interrupting profile resolution.
 
 `activation_macro` and `deactivation_macro` are optional stored macro names.
 When set, `keymasq-session` asks `keymasqd` to play the macro after the global

@@ -58,6 +58,7 @@ class SaveControllerMixin:
 
         def on_save_start() -> None:
             self._set_save_controls_sensitive(False, extra_button=btn)
+            self._set_editor_busy(True, "Saving macro…")
 
         def on_save_done() -> None:
             self._finish_save_request(extra_button=btn)
@@ -86,6 +87,9 @@ class SaveControllerMixin:
 
     def _finish_save_request(self, *, extra_button: Gtk.Button | None = None) -> None:
         self._save_in_flight = False
+        if self._dialog_closed:
+            return
+        self._set_editor_busy(False)
         self._set_save_controls_sensitive(True, extra_button=extra_button)
         self._sync_close_guard()
 
@@ -110,13 +114,23 @@ class SaveControllerMixin:
             )
             if create_result.get("status") != "ok":
                 return create_result
-            self._session_request(
+            delete_result = self._session_request(
                 {
                     "command": "delete_macro",
                     "name": target.current_name,
                     "expected_revision": target.revision,
                 }
-            )
+            ) or {}
+            if delete_result.get("status") != "ok":
+                detail = str(
+                    delete_result.get("message", "Failed to remove the old macro")
+                    or "Failed to remove the old macro"
+                )
+                create_result["warning"] = (
+                    f"Macro saved as '{target.requested_name}', but "
+                    f"'{target.current_name}' could not be removed: {detail}. "
+                    "Both macros remain."
+                )
             return create_result
 
         return (
@@ -149,6 +163,9 @@ class SaveControllerMixin:
 
         self._apply_saved_macro_state(payload, requested_name, requested_payload)
         self._notify_session_reload()
+        warning = payload.get("warning")
+        if isinstance(warning, str) and warning.strip():
+            self._show_save_warning(warning)
         if close_after_save:
             self._force_close_without_warning()
         return False
@@ -188,7 +205,7 @@ class SaveControllerMixin:
         _set_entry_text_if_needed(self._name_entry, saved_name)
         self.set_title(f"Edit macro ({saved_name})")
         self._initial_state_loaded = True
-        self._initial_macro_data = self._current_macro_payload()
+        self._initial_macro_data = copy.deepcopy(saved_macro)
         self._sync_close_guard()
 
     def _on_save_as_copy(self, _btn) -> None:
@@ -301,6 +318,15 @@ class SaveControllerMixin:
     def _show_save_error(self, message: str) -> None:
         dialog = Adw.AlertDialog()
         dialog.set_heading("Unable To Save Macro")
+        dialog.set_body(message)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.set_close_response("ok")
+        dialog.present(self._parent)
+
+    def _show_save_warning(self, message: str) -> None:
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Macro Saved With Warning")
         dialog.set_body(message)
         dialog.add_response("ok", "OK")
         dialog.set_default_response("ok")

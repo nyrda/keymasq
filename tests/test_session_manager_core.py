@@ -462,6 +462,7 @@ async def test_reload_profiles_failure_keeps_previous_config_and_notifies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
+    manager.reload_pending = True
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     reevaluate_profiles = AsyncMock()
@@ -481,6 +482,7 @@ async def test_reload_profiles_failure_keeps_previous_config_and_notifies(
     )
     manager.broadcast_to_session_clients.assert_called_once()  # type: ignore[attr-defined]
     reevaluate_profiles.assert_not_awaited()
+    assert manager.reload_pending is False
 
 
 def test_reload_config_from_disk_rolls_back_user_config_on_failure(
@@ -1238,18 +1240,33 @@ async def test_wait_for_session_clients_to_close_logs_timeout(
 
 
 @pytest.mark.asyncio
-async def test_reload_handler_defers_when_existing_reload_task_is_running() -> None:
+async def test_reload_handler_drops_request_when_existing_reload_task_is_running() -> None:
     manager = SessionManager()
     running_task = asyncio.create_task(asyncio.sleep(1))
     manager.reload_task = running_task
 
     manager._reload_handler()
 
-    assert manager.reload_pending is True
+    assert manager.reload_pending is False
     assert manager.reload_task is running_task
     running_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await running_task
+
+
+@pytest.mark.asyncio
+async def test_reload_profiles_clears_pending_when_debounce_is_cancelled() -> None:
+    manager = SessionManager()
+    manager.reload_pending = True
+
+    reload_task = asyncio.create_task(manager.reload_profiles())
+    await asyncio.sleep(0)
+    reload_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await reload_task
+
+    assert manager.reload_pending is False
 
 
 @pytest.mark.asyncio

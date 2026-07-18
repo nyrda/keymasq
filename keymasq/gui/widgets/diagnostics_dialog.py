@@ -328,6 +328,8 @@ class DiagnosticsDialog(Adw.Dialog):
             self._syncing_controls = False
 
     def _on_diagnostics_snapshot(self, event: JsonDict) -> bool:
+        if self._closing:
+            return False
         samples = event.get("samples")
         if not isinstance(samples, dict):
             return False

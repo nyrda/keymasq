@@ -22,11 +22,12 @@ def repair_created_at(path: Path, created_at: datetime) -> None:
     current_created_at = profile.get("created_at")
     if isinstance(current_created_at, str):
         try:
-            datetime.fromisoformat(current_created_at)
+            parsed_created_at = datetime.fromisoformat(current_created_at)
         except ValueError:
             pass
         else:
-            return
+            if parsed_created_at.utcoffset() is None:
+                return
 
     profile["created_at"] = created_at.isoformat()
     write_toml_atomically(path, data)

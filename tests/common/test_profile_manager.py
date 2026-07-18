@@ -69,6 +69,62 @@ class TestProfileManager:
         assert profiles[0].path == temp_config_dir / "profiles" / "Default.toml"
         assert profiles[0].path.exists()
 
+    def test_auto_create_default_profile_preserves_invalid_colliding_files(
+        self,
+        temp_config_dir,
+    ) -> None:
+        profiles_dir = temp_config_dir / "profiles"
+        invalid_default = profiles_dir / "Default.toml"
+        invalid_fallback = profiles_dir / "Default_2.toml"
+        invalid_default.write_text("not = [valid toml", encoding="utf-8")
+        invalid_fallback.write_text("also = [invalid toml", encoding="utf-8")
+
+        manager = ProfileManager(auto_create_default_if_empty=True)
+
+        profiles = manager.list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].config.name == "Default"
+        assert profiles[0].path == profiles_dir / "Default_3.toml"
+        assert profiles[0].path.exists()
+        assert invalid_default.read_text(encoding="utf-8") == "not = [valid toml"
+        assert invalid_fallback.read_text(encoding="utf-8") == "also = [invalid toml"
+
+    def test_auto_create_default_adopts_concurrently_created_profile(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ) -> None:
+        profiles_dir = temp_config_dir / "profiles"
+        original_allocate = ProfileManager._profile_path_for_name
+        created = False
+
+        def allocate_after_concurrent_create(manager, profile_name, *args, **kwargs):
+            nonlocal created
+            if not created:
+                created = True
+                _write_profile_toml(
+                    temp_config_dir,
+                    "Default.toml",
+                    name="Default",
+                    enabled=True,
+                    is_permanent=True,
+                )
+            return original_allocate(manager, profile_name, *args, **kwargs)
+
+        monkeypatch.setattr(
+            ProfileManager,
+            "_profile_path_for_name",
+            allocate_after_concurrent_create,
+        )
+
+        manager = ProfileManager(auto_create_default_if_empty=True)
+
+        profiles = manager.list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].config.name == "Default"
+        assert profiles[0].path == profiles_dir / "Default.toml"
+        assert not (profiles_dir / "Default_2.toml").exists()
+
     def test_save_and_load_profile(self, temp_config_dir, sample_profile_config):
         manager = ProfileManager()
         manager.save_profile(sample_profile_config)
@@ -870,6 +926,83 @@ pattern = "("
 
         assert resolved.active_profiles == []
 
+    def test_plural_tags_window_rule_is_normalized_and_matches(self, temp_config_dir):
+        profile_path = Path(temp_config_dir) / "profiles" / "tagged.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Tagged"
+enabled = true
+is_permanent = false
+priority = 1
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "tags"
+pattern = "game"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        loaded = manager.get_profile("Tagged")
+        resolved = manager.resolve_active_profiles(
+            window_info={"tags": ["game", "fullscreen"]},
+            capabilities=["window_tags"],
+        )
+
+        assert loaded is not None
+        assert loaded.config.window_rules == [WindowRule(field="tag", pattern="game")]
+        assert [profile.name for profile in resolved.active_profiles] == ["Tagged"]
+
+        manager.save_profile(loaded.config)
+
+        content = profile_path.read_text(encoding="utf-8")
+        assert 'field = "tag"' in content
+        assert 'field = "tags"' not in content
+
+    def test_unknown_or_nonscalar_window_rule_fields_do_not_crash_matching(
+        self,
+        temp_config_dir,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        profile_path = Path(temp_config_dir) / "profiles" / "unknown-rule.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Unknown Rule"
+enabled = true
+is_permanent = false
+priority = 1
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "workspace"
+pattern = "one"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        unknown_resolved = manager.resolve_active_profiles(
+            window_info={"workspace": ["one"]},
+        )
+
+        assert unknown_resolved.active_profiles == []
+        assert "Unknown window rule field 'workspace'; rule will not match" in caplog.text
+
+        loaded = manager.get_profile("Unknown Rule")
+        assert loaded is not None
+        loaded.config.window_rules = [WindowRule(field="class", pattern="steam")]
+
+        nonscalar_resolved = manager.resolve_active_profiles(
+            window_info={"class": ["steam"]},
+        )
+
+        assert nonscalar_resolved.active_profiles == []
+
     def test_missing_created_at_is_repaired_on_load(self, temp_config_dir):
         profile_path = Path(temp_config_dir) / "profiles" / "missing-created-at.toml"
         profile_path.write_text(
@@ -914,6 +1047,56 @@ created_at = "not-a-date"
         content = profile_path.read_text(encoding="utf-8")
         assert 'created_at = "' in content
         assert 'created_at = "not-a-date"' not in content
+
+    @pytest.mark.parametrize(
+        "created_at_line",
+        [
+            'created_at = "2026-03-09T12:34:56+02:00"',
+            "created_at = 2026-03-09T12:34:56Z",
+        ],
+    )
+    def test_noncanonical_created_at_is_repaired_before_resolution(
+        self,
+        temp_config_dir,
+        created_at_line: str,
+    ) -> None:
+        _write_profile_toml(
+            Path(temp_config_dir),
+            "canonical.toml",
+            name="Canonical",
+            priority=1,
+            created_at="2026-03-09T12:34:56",
+        )
+        profile_path = Path(temp_config_dir) / "profiles" / "noncanonical.toml"
+        profile_path.write_text(
+            "\n".join(
+                [
+                    "[profile]",
+                    'name = "Noncanonical"',
+                    "enabled = true",
+                    "is_permanent = true",
+                    "priority = 1",
+                    "notify_on_activation = true",
+                    created_at_line,
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        loaded = manager.get_profile("Noncanonical")
+        resolved = manager.resolve_active_profiles()
+
+        assert loaded is not None
+        assert loaded.config.created_at is not None
+        assert loaded.config.created_at.utcoffset() is None
+        assert {profile.name for profile in resolved.active_profiles} == {
+            "Canonical",
+            "Noncanonical",
+        }
+        repaired_content = profile_path.read_text(encoding="utf-8")
+        assert 'created_at = "' in repaired_content
+        assert created_at_line not in repaired_content
 
     def test_created_at_repair_logs_unexpected_failure(
         self,

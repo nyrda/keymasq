@@ -368,7 +368,9 @@ you can also just start typing (or press Ctrl+F) to filter the list by name,
 device type, or event count. The editor shows your macro as a visual timeline
 of keyboard, mouse, and movement events. While the saved macro is being loaded,
 the editor stays read-only behind a spinner, so edits can't be made and lost
-before the existing content arrives.
+before the existing content arrives. The same read-only state is shown while
+applying or saving changes, preventing newer edits from being mistaken for
+persisted ones.
 
 You can:
 

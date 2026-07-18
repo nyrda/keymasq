@@ -46,16 +46,9 @@ class LoadControllerMixin:
         )
 
     def _exit_loading_state(self) -> None:
-        if (
-            self._load_aborted
-            or self._loading_overlay is None
-            or self._editor_content is None
-        ):
+        if self._dialog_closed:
             return
-        self._loading_overlay.set_visible(False)
-        self._editor_content.set_sensitive(True)
-        if self._loading_spinner is not None:
-            self._loading_spinner.stop()
+        self._set_editor_busy(False)
 
     def _load_initial_state(self) -> dict[str, object]:
         timeout_max = 30000
@@ -85,7 +78,7 @@ class LoadControllerMixin:
         }
 
     def _on_initial_state_loaded(self, result: GuiTaskResult[dict[str, object]]) -> bool:
-        if self._load_aborted:
+        if self._dialog_closed:
             return False
         payload = result.value if result.ok and isinstance(result.value, dict) else {}
         timeout_max_raw = payload.get("timeout_max", 30000)

@@ -58,6 +58,7 @@ class SaveControllerMixin:
 
         def on_save_start() -> None:
             self._set_save_controls_sensitive(False, extra_button=btn)
+            self._set_editor_busy(True, "Saving macro…")
 
         def on_save_done() -> None:
             self._finish_save_request(extra_button=btn)
@@ -86,6 +87,9 @@ class SaveControllerMixin:
 
     def _finish_save_request(self, *, extra_button: Gtk.Button | None = None) -> None:
         self._save_in_flight = False
+        if self._dialog_closed:
+            return
+        self._set_editor_busy(False)
         self._set_save_controls_sensitive(True, extra_button=extra_button)
         self._sync_close_guard()
 
@@ -188,7 +192,7 @@ class SaveControllerMixin:
         _set_entry_text_if_needed(self._name_entry, saved_name)
         self.set_title(f"Edit macro ({saved_name})")
         self._initial_state_loaded = True
-        self._initial_macro_data = self._current_macro_payload()
+        self._initial_macro_data = copy.deepcopy(saved_macro)
         self._sync_close_guard()
 
     def _on_save_as_copy(self, _btn) -> None:

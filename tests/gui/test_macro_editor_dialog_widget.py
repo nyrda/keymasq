@@ -1057,19 +1057,20 @@ def test_macro_editor_content_is_read_only_until_initial_load_finishes(monkeypat
     dialog = _build_macro_dialog(monkeypatch)
 
     assert dialog._editor_content.get_sensitive() is False
-    assert dialog._loading_overlay.get_visible() is True
-    assert dialog._loading_spinner.get_property("spinning") is True
+    assert dialog._editor_busy_overlay.get_visible() is True
+    assert dialog._editor_busy_spinner.get_property("spinning") is True
+    assert dialog._editor_busy_label.get_label() == "Loading macro…"
 
     dialog._exit_loading_state()
 
     assert dialog._editor_content.get_sensitive() is True
-    assert dialog._loading_overlay.get_visible() is False
-    assert dialog._loading_spinner.get_property("spinning") is False
+    assert dialog._editor_busy_overlay.get_visible() is False
+    assert dialog._editor_busy_spinner.get_property("spinning") is False
 
     dialog._exit_loading_state()
 
     assert dialog._editor_content.get_sensitive() is True
-    assert dialog._loading_overlay.get_visible() is False
+    assert dialog._editor_busy_overlay.get_visible() is False
 
 
 def test_macro_editor_load_completion_unlocks_content(monkeypatch) -> None:
@@ -1133,7 +1134,7 @@ def test_macro_editor_load_completion_unlocks_content(monkeypatch) -> None:
         on_done()
 
     assert dialog._editor_content.get_sensitive() is True
-    assert dialog._loading_overlay.get_visible() is False
+    assert dialog._editor_busy_overlay.get_visible() is False
     assert len(dialog._events) == 1
     assert dialog._initial_state_loaded is True
 
@@ -1148,7 +1149,7 @@ def test_macro_editor_load_ignored_after_close_during_load(monkeypatch) -> None:
     dialog._force_close_without_warning()
 
     assert closed == [True]
-    assert dialog._load_aborted is True
+    assert dialog._dialog_closed is True
 
     result = {
         "macro": {
@@ -1172,7 +1173,7 @@ def test_macro_editor_load_ignored_after_close_during_load(monkeypatch) -> None:
     assert dialog._events == []
     assert dialog._initial_state_loaded is False
     assert dialog._editor_content.get_sensitive() is False
-    assert dialog._loading_overlay.get_visible() is True
+    assert dialog._editor_busy_overlay.get_visible() is True
 
 
 def test_macro_editor_unsaved_close_warns_and_can_discard(monkeypatch) -> None:
@@ -1276,10 +1277,11 @@ def test_macro_editor_save_failures_distinguish_conflict_from_generic_error(
     ]
 
 
-def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
+def test_macro_editor_save_in_flight_blocks_editor_duplicates_and_tracks_snapshot(
     monkeypatch,
 ) -> None:
     dialog = _build_macro_dialog(monkeypatch)
+    dialog._exit_loading_state()
     dialog._macro_name = "demo_macro"
     dialog._macro_exists = True
     dialog._macro_data = {"name": "demo_macro", "revision": 2}
@@ -1312,6 +1314,10 @@ def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
     dialog._on_apply(apply_btn)
 
     assert dialog._save_in_flight is True
+    assert dialog._editor_content.get_sensitive() is False
+    assert dialog._editor_busy_overlay.get_visible() is True
+    assert dialog._editor_busy_spinner.get_property("spinning") is True
+    assert dialog._editor_busy_label.get_label() == "Saving macro…"
     assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
         False,
         False,
@@ -1326,19 +1332,35 @@ def test_macro_editor_save_in_flight_disables_footer_and_blocks_duplicate(
     assert len(scheduled) == 1
     assert requests == []
 
+    dialog._events = [
+        EditableEvent(
+            device_type="keyboard",
+            ev_type=evdev.ecodes.EV_KEY,
+            code=evdev.ecodes.KEY_B,
+            press_t_us=1000,
+            release_t_us=2000,
+        )
+    ]
+
     worker, callback, on_done = scheduled[0]
     assert callback(macro_editor_dialog_module.GuiTaskResult(value=worker())) is False
     if on_done is not None:
         on_done()
 
     assert requests[0]["command"] == "update_macro"
+    assert requests[0]["macro"]["events"] == []
     assert dialog._save_in_flight is False
+    assert dialog._editor_content.get_sensitive() is True
+    assert dialog._editor_busy_overlay.get_visible() is False
+    assert dialog._editor_busy_spinner.get_property("spinning") is False
     assert [button.get_sensitive() for button in dialog._footer_action_buttons] == [
         True,
         True,
         True,
         True,
     ]
+    assert dialog._initial_macro_data["events"] == []
+    assert dialog._has_pending_changes() is True
 
 
 def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) -> None:

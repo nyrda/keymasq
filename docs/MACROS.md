@@ -356,9 +356,15 @@ responsible for the result.
 
 ## Editing Macros
 
-Open a saved macro in the editor from Macro Manager (or from a profile's macro
-action context). The editor shows your macro as a visual timeline of keyboard,
-mouse, and movement events.
+Open a saved macro in the editor from Macro Manager — click anywhere on its
+row, or use the pencil button (or open it from a profile's macro action
+context). Clicking a temporary recording slot row opens the save dialog
+instead. Right-clicking a saved macro's row opens a context menu with **Copy
+Name** (copies the exact macro name for use in profiles, superkeys, combos, or
+the CLI), **Play**, **Edit**, **Duplicate**, and **Delete**. In Macro Manager
+you can also just start typing (or press Ctrl+F) to filter the list by name,
+device type, or event count. The editor shows your macro as a visual timeline
+of keyboard, mouse, and movement events.
 
 You can:
 

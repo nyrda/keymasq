@@ -114,13 +114,22 @@ class SaveControllerMixin:
             )
             if create_result.get("status") != "ok":
                 return create_result
-            delete_result = self._session_request(
-                {
-                    "command": "delete_macro",
-                    "name": target.current_name,
-                    "expected_revision": target.revision,
-                }
-            ) or {}
+            try:
+                delete_result = self._session_request(
+                    {
+                        "command": "delete_macro",
+                        "name": target.current_name,
+                        "expected_revision": target.revision,
+                    }
+                ) or {}
+            except (OSError, RuntimeError) as exc:
+                detail = str(exc).strip() or exc.__class__.__name__
+                create_result["warning"] = (
+                    f"Macro saved as '{target.requested_name}', but removal of "
+                    f"'{target.current_name}' could not be confirmed: {detail}. "
+                    "Check whether both macros remain."
+                )
+                return create_result
             if delete_result.get("status") != "ok":
                 detail = str(
                     delete_result.get("message", "Failed to remove the old macro")

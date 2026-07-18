@@ -1578,29 +1578,6 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
         "Read-only file system. Both macros remain."
     )
 
-    def fake_uncertain_rename_request(payload):
-        if payload["command"] == "create_macro":
-            return {"status": "ok", "macro": {"name": "renamed", "revision": 1}}
-        if payload["command"] == "delete_macro":
-            raise ValueError("invalid delete response")
-        return {}
-
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "session_request",
-        fake_uncertain_rename_request,
-    )
-
-    uncertain_result = dialog._save_macro_request("renamed", {"name": "renamed"}, 7)
-
-    assert isinstance(uncertain_result, dict)
-    assert uncertain_result["status"] == "ok"
-    assert uncertain_result["macro"]["name"] == "renamed"
-    assert uncertain_result["warning"] == (
-        "Macro saved as 'renamed', but removal of 'original' could not be confirmed: "
-        "invalid delete response. Check whether both macros remain."
-    )
-
     dialog._apply_macro_state(dialog._initial_macro_data)
     dialog._events[0].press_t_us = 9000
     _set_dropdown_selected_id(

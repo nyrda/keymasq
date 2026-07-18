@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -61,7 +62,7 @@ async def handle_virtual_gamepad_commands(
             count = coerce_int(data.get("count"), count)
     persistence_warning = ""
     try:
-        count = save_virtual_gamepad_count(count)
+        count = await asyncio.to_thread(save_virtual_gamepad_count, count)
     except OSError:
         persistence_warning = _warn_persistence_failed(manager)
     manager.virtual_gamepad_count = count
@@ -121,10 +122,11 @@ async def handle_settings_commands(
 
     persistence_warning = ""
     try:
-        saved = save_global_settings(
+        saved = await asyncio.to_thread(
+            save_global_settings,
             GlobalSettings(
                 virtual_gamepad_count=count,
-            )
+            ),
         )
         count = saved.virtual_gamepad_count
     except OSError:

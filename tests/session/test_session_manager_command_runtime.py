@@ -179,11 +179,15 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
     )
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        settings_commands_module,
-        save_name,
-        Mock(side_effect=OSError("disk full")),
-    )
+    save = Mock(side_effect=OSError("disk full"))
+    monkeypatch.setattr(settings_commands_module, save_name, save)
+    thread_calls: list[object] = []
+
+    async def fake_to_thread(function, *args):
+        thread_calls.append(function)
+        return function(*args)
+
+    monkeypatch.setattr(settings_commands_module.asyncio, "to_thread", fake_to_thread)
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
@@ -201,6 +205,7 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
         "Keymasq Settings Warning",
         result["warning"],
     )
+    assert thread_calls == [save]
     manager.broadcast_to_session_clients.assert_called_once_with(event)  # type: ignore[attr-defined]
 
 

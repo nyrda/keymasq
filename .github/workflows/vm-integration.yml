@@ -64,7 +64,7 @@ jobs:
           ls -l /dev/kvm
 
       - name: Install Nix
-        uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes

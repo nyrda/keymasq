@@ -199,7 +199,7 @@ def test_combo_inspector_search_scopes_visible_and_runtime_fields(monkeypatch) -
     window.search_entry.set_text("movetoworkspace 4")
     assert visible_combo_ids() == ["workspace-4"]
 
-    window.search_entry.set_text("test t3")
+    window.search_entry.set_text("keyboard controller")
     assert visible_combo_ids() == []
     assert window.section_label.get_text() == "No matching active combos."
 

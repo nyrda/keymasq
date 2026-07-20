@@ -133,7 +133,9 @@ def test_combo_search_keeps_runtime_device_fields_scoped() -> None:
     )
 
     assert combo_search_matches("test kbd", document)
-    assert not combo_search_matches("test t3", document)
+    assert combo_search_matches("quick f5", document)
+    assert combo_search_matches("quick desktop", document)
+    assert not combo_search_matches("keyboard controller", document)
     assert not combo_search_matches("quick t3", document)
     assert combo_search_matches("qs", document)
 

@@ -569,7 +569,7 @@ class TestComboTabWidget:
         profile_manager = ProfileManager()
         profile_manager.save_profile(
             ProfileConfig(
-                name="Desktop",
+                name="Office",
                 enabled=True,
                 is_permanent=True,
                 combos=[
@@ -610,7 +610,7 @@ class TestComboTabWidget:
         )
 
         tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
-        tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
+        tab.refresh_profiles(preferred_profile_name="Office", publish_selection=False)
 
         assert tab.search_entry.get_visible() is False
         assert (
@@ -624,6 +624,7 @@ class TestComboTabWidget:
         )
         assert tab.search_entry.get_visible() is True
         assert tab.search_entry.get_text() == "m"
+        assert tab._combo_list.visible_count() == 1
 
         tab.search_entry.set_text("mouse")
         assert tab._combo_list.visible_count() == 1

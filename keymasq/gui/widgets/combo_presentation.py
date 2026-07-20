@@ -230,9 +230,9 @@ def combo_search_document(
 def combo_search_matches(query: str, document: ComboSearchDocument) -> bool:
     if fuzzy_query_matches(query, ""):
         return True
-    return any(
-        fuzzy_query_matches(query, field)
-        for field in (*document.visible_fields, *document.supplemental_fields)
+    visible_text = " ".join(document.visible_fields)
+    return fuzzy_query_matches(query, visible_text) or any(
+        fuzzy_query_matches(query, field) for field in document.supplemental_fields
     )
 
 

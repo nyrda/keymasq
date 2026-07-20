@@ -81,6 +81,9 @@ Open **Super Keys** from the GUI. The dialog has two panels:
 - **Right panel**: edit the selected super key's name, description, mode,
   actions, and timing.
 
+Start typing while focus is outside an editor field to search the saved Super
+Keys immediately. Ctrl+F and the search button provide the same filter.
+
 Use **Save** to apply changes. If you close the dialog or press Escape with
 unsaved edits, Keymasq asks whether to save, discard, or keep editing.
 

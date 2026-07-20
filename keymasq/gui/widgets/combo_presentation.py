@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import gi
 
@@ -13,7 +14,14 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches
 from keymasq.gui.widgets.key_selector.targets import EVDEV_TO_GAMEPAD, EVDEV_TO_KEY
+
+
+@dataclass(frozen=True)
+class ComboSearchDocument:
+    visible_fields: tuple[str, ...] = ()
+    supplemental_fields: tuple[str, ...] = ()
 
 
 def sort_combo_keys(keys: list[str]) -> list[str]:
@@ -174,25 +182,65 @@ def combo_default_name(combo: ComboConfig) -> str:
     return "Combo"
 
 
-def combo_search_text(combo: ComboConfig, *, profile_name: str = "") -> str:
-    parts = [
+def combo_search_document(
+    combo: ComboConfig,
+    *,
+    profile_name: str = "",
+    additional_event_fields: Sequence[str] = (),
+) -> ComboSearchDocument:
+    visible_parts = [
         combo.name or combo_default_name(combo),
         combo_trigger_label(combo.steps),
         describe_mapping_action_compact(combo.action),
         profile_name,
     ]
+    supplemental_fields: list[str] = []
     for step in combo.steps:
         if step.timeout_ms is not None:
-            parts.append(f"{int(step.timeout_ms)}ms")
+            supplemental_fields.append(f"timeout {int(step.timeout_ms)}ms")
         for event in step.events:
-            parts.extend([event.evdev, event.hardware_id, event.source or ""])
+            supplemental_fields.extend(
+                field
+                for field in (
+                    f"{combo_key_label(event.evdev)} {event.evdev}",
+                    event.hardware_id,
+                    event.source or "",
+                )
+                if field.strip()
+            )
     if combo.recall_trigger_keys:
-        parts.append("recall trigger keys")
+        supplemental_fields.append("recall trigger keys")
     if combo.restore_trigger_keys:
-        parts.extend(combo.restore_trigger_keys)
+        supplemental_fields.append(
+            "restore trigger keys " + " ".join(combo.restore_trigger_keys)
+        )
     if combo.match_across_devices:
-        parts.append("any device across devices")
-    return " ".join(str(part) for part in parts if str(part or "").strip())
+        supplemental_fields.append("any device across devices")
+    supplemental_fields.extend(
+        str(field) for field in additional_event_fields if str(field or "").strip()
+    )
+    return ComboSearchDocument(
+        visible_fields=tuple(
+            str(part) for part in visible_parts if str(part or "").strip()
+        ),
+        supplemental_fields=tuple(supplemental_fields),
+    )
+
+
+def combo_search_matches(query: str, document: ComboSearchDocument) -> bool:
+    if fuzzy_query_matches(query, ""):
+        return True
+    return any(
+        fuzzy_query_matches(query, field)
+        for field in (*document.visible_fields, *document.supplemental_fields)
+    )
+
+
+def combo_row_search_matches(query: str, row: Gtk.ListBoxRow) -> bool:
+    document = getattr(row, "_combo_search_document", None)
+    if not isinstance(document, ComboSearchDocument):
+        return fuzzy_query_matches(query, "")
+    return combo_search_matches(query, document)
 
 
 def create_combo_summary_row(

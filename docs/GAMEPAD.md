@@ -256,6 +256,9 @@ Open **Analog Controls** from the GUI main menu. The dialog has two panels:
 - **Right panel**: edit the selected config's name, description, input
   type, mode, and mode-specific settings.
 
+Start typing while focus is outside an editor field to search the saved Analog
+Controls immediately. Ctrl+F and the search button provide the same filter.
+
 ![Analog Controls manager dialog](assets/screenshots/keymasq_analog_controls_manager.png)
 
 Use **Save** to apply changes. If you switch selection or close the dialog

@@ -9,7 +9,10 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.actions import MAX_MACRO_RECORDING_SLOTS
-from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
+from keymasq.gui.widgets.fuzzy_search import (
+    install_listbox_fuzzy_filter,
+    start_search_from_keypress,
+)
 
 
 class ManagerViewMixin:
@@ -160,31 +163,12 @@ class ManagerViewMixin:
         if keyval == Gdk.KEY_Escape and self._search_entry.get_visible():
             self._hide_search()
             return True
-        if state & (
-            Gdk.ModifierType.CONTROL_MASK
-            | Gdk.ModifierType.ALT_MASK
-            | Gdk.ModifierType.SUPER_MASK
-            | Gdk.ModifierType.META_MASK
-        ):
-            return False
-        if self._search_focused():
-            return False
-        unicode_value = Gdk.keyval_to_unicode(keyval)
-        if not unicode_value:
-            return False
-        char = chr(unicode_value)
-        if not char.isprintable() or char.isspace():
-            return False
-        self._show_search()
-        self._search_entry.set_text(char)
-        self._search_entry.set_position(-1)
-        return True
-
-    def _search_focused(self) -> bool:
-        root = self.get_root()
-        focus = root.get_focus() if root is not None else None
-        return focus is not None and (
-            focus is self._search_entry or focus.is_ancestor(self._search_entry)
+        return start_search_from_keypress(
+            self,
+            self._search_entry,
+            keyval,
+            state,
+            show_search=self._show_search,
         )
 
     def _show_search(self) -> None:

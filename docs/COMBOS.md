@@ -36,9 +36,9 @@ sending the keys to your apps.
 
 ![Choose the action to fire when the combo matches](assets/screenshots/keymasq_combo_select_action_dialog.png)
 
-In the **Active Combos** inspector, start typing to reveal its search field and
-filter the captured combo list immediately. Ctrl+F and the search button remain
-available as explicit alternatives.
+In the **Combos** tab or **Active Combos** inspector, start typing to reveal the
+search field and filter the combo list immediately. Ctrl+F and the search button
+remain available as explicit alternatives.
 
 Combo searches match visible name, trigger, action, and profile details, or one
 individual device/source field; unrelated hidden metadata is not combined.

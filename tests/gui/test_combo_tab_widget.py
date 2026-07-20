@@ -558,6 +558,8 @@ class TestComboTabWidget:
         assert opened == ["combo-c"]
 
     def test_combo_tab_search_filters_rows(self, temp_config_dir):
+        from gi.repository import Gdk, Gtk
+
         from keymasq.common.model.core import ActionType
         from keymasq.common.model.profiles import ComboConfig, ComboEvent, ComboStep, ProfileConfig
         from keymasq.common.model.actions import MappingAction
@@ -611,8 +613,17 @@ class TestComboTabWidget:
         tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
 
         assert tab.search_entry.get_visible() is False
-        tab.search_button.emit("clicked")
+        assert (
+            tab._on_key_pressed(
+                Gtk.EventControllerKey(),
+                Gdk.KEY_m,
+                0,
+                Gdk.ModifierType(0),
+            )
+            is True
+        )
         assert tab.search_entry.get_visible() is True
+        assert tab.search_entry.get_text() == "m"
 
         tab.search_entry.set_text("mouse")
         assert tab._combo_list.visible_count() == 1
@@ -636,6 +647,17 @@ class TestComboTabWidget:
 
         tab._combo_list.show_search()
         assert tab.search_entry.get_visible() is False
+        assert (
+            tab._on_key_pressed(
+                Gtk.EventControllerKey(),
+                Gdk.KEY_m,
+                0,
+                Gdk.ModifierType(0),
+            )
+            is False
+        )
+        assert tab.search_entry.get_visible() is False
+        assert tab.search_entry.get_text() == ""
 
         tab.search_entry.set_visible(True)
         tab.search_entry.set_text("stale")

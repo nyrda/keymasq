@@ -21,6 +21,7 @@ from keymasq.gui.widgets.combo_presentation import (
     combo_trigger_label,
     create_combo_summary_row,
 )
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.profile.types import ProfileInfo
@@ -223,7 +224,13 @@ class ComboTab(ProfileManagedTab):
         if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
             self._combo_list.hide_search()
             return True
-        return False
+        return start_search_from_keypress(
+            self,
+            self.search_entry,
+            keyval,
+            state,
+            show_search=self._combo_list.show_search,
+        )
 
     def _on_inspect_combos_clicked(self, _button: Gtk.Button) -> None:
         root = self.main_window or self.get_root()

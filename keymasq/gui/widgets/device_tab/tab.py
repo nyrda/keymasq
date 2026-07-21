@@ -82,8 +82,11 @@ class DeviceTab(
         self,
         payload: JsonDict,
         callback: SessionCallback,
+        timeout: float | None = None,
     ) -> object:
-        return session_request_async(payload, callback)
+        if timeout is None:
+            return session_request_async(payload, callback)
+        return session_request_async(payload, callback, timeout=timeout)
 
     def _create_key_selector_dialog(
         self,

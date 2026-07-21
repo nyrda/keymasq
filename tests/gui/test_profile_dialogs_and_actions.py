@@ -30,6 +30,92 @@ class TestProfileCreateDialog:
 
 
 class TestProfileManagedTab:
+    def test_window_rules_summary_wraps_all_rules_in_action_row_subtitle(self):
+        from pathlib import Path
+
+        from gi.repository import Gtk
+
+        from keymasq.common.model.profiles import ProfileConfig, WindowRule
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+        from keymasq.session.profile.types import ProfileInfo
+
+        class ProfileManagerStub:
+            def list_profiles(self):
+                return []
+
+        tab = ProfileManagedTab(ProfileManagerStub(), demo_mode=True)
+        tab.settings_btn = Gtk.Button()
+        tab._setup_profile_settings()
+        tab._selected_profile = ProfileInfo(
+            Path("browser.toml"),
+            ProfileConfig(
+                name="browser",
+                window_rules=[
+                    WindowRule(field="class", pattern="brave\\-origin|librewolf"),
+                    WindowRule(
+                        field="title",
+                        pattern="Subscriptions\\ \\-\\ YouTube\\ \\-\\ Brave\\ Origin",
+                    ),
+                    WindowRule(field="tag", pattern="browser"),
+                ],
+            ),
+        )
+
+        tab._update_rules_label()
+
+        assert tab.window_rules_row.get_subtitle_lines() == 0
+        assert tab.window_rules_row.get_subtitle() == (
+            "class=brave\\-origin|librewolf\n"
+            "title=Subscriptions\\ \\-\\ YouTube\\ \\-\\ Brave\\ Origin\n"
+            "tag=browser - conditional"
+        )
+
+    def test_window_rule_capture_forwards_timeout_and_restores_ui(self, monkeypatch):
+        from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+
+        class ProfileManagerStub:
+            def list_profiles(self):
+                return []
+
+        class LabelStub:
+            def __init__(self):
+                self.text = ""
+
+            def set_text(self, text):
+                self.text = text
+
+        class ButtonStub:
+            def __init__(self):
+                self.sensitive = False
+
+            def set_sensitive(self, sensitive):
+                self.sensitive = sensitive
+
+        requests = []
+
+        def session_request_async(payload, callback, timeout=5.0):
+            requests.append((payload, timeout))
+            callback({"status": "error", "message": "Capture unavailable"})
+
+        monkeypatch.setattr(
+            profile_managed_tab_module,
+            "session_request_async",
+            session_request_async,
+        )
+
+        tab = ProfileManagedTab(ProfileManagerStub())
+        tab._window_rule_capture_pending = True
+        tab._window_rule_capture_generation = 1
+        tab._window_rule_capture_status = LabelStub()
+        tab._window_rule_capture_btn = ButtonStub()
+
+        assert tab._capture_window_rules_after_delay() is False
+        assert requests == [({"command": "get_active_window"}, 5.0)]
+        assert tab._window_rule_capture_pending is False
+        assert tab._window_rule_capture_btn.sensitive is True
+        assert tab._window_rule_capture_status.text == "Capture unavailable"
+
     def test_lifecycle_macro_dropdown_reloads_on_macro_saved_event(self, monkeypatch):
         from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
         from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab

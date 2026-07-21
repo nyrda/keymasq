@@ -50,14 +50,14 @@ class ProfileSettingsMixin:
         priority_row.add_suffix(self.priority_spin)
         settings_group.add(priority_row)
 
-        self.window_rules_row = Adw.ActionRow(title="Window Rules")
+        self.window_rules_row = Adw.ActionRow(
+            title="Window Rules",
+            subtitle="No rules",
+            subtitle_lines=0,
+        )
         self.window_rules_row.set_tooltip_text(
             "Profiles are always active unless window rules are configured."
         )
-        self.rules_list_label = Gtk.Label(label="No rules")
-        self.rules_list_label.add_css_class("dim-label")
-        self.rules_list_label.set_valign(Gtk.Align.CENTER)
-        self.window_rules_row.add_suffix(self.rules_list_label)
         edit_rules_btn = Gtk.Button(label="Edit")
         edit_rules_btn.set_valign(Gtk.Align.CENTER)
         edit_rules_btn.connect("clicked", self._on_edit_window_rules)

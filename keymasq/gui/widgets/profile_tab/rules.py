@@ -486,15 +486,14 @@ class WindowRulesMixin:
 
     def _update_rules_label(self: Any) -> None:
         if not self._selected_profile:
-            self.rules_list_label.set_text("No profile selected")
+            self.window_rules_row.set_subtitle("No profile selected")
             return
 
         rules = self._selected_profile.config.window_rules
         if not rules:
-            self.rules_list_label.set_text("No rules - always active")
+            self.window_rules_row.set_subtitle("No rules - always active")
             return
 
-        parts = [f"{rule.field}={rule.pattern}" for rule in rules[:2]]
-        if len(rules) > 2:
-            parts.append(f"... (+{len(rules) - 2})")
-        self.rules_list_label.set_text(f"{', '.join(parts)} - conditional")
+        parts = [f"{rule.field}={rule.pattern}" for rule in rules]
+        parts[-1] = f"{parts[-1]} - conditional"
+        self.window_rules_row.set_subtitle("\n".join(parts))

@@ -70,6 +70,10 @@ if [ "$brotway_auto" = 0 ] && [ "$brotway_help" = 0 ]; then
 		case "$display_number" in
 		''|*[!0-9]*) die "invalid Broadway display: $brotway_display" ;;
 		esac
+		while [ "${display_number#0}" != "$display_number" ]; do
+			display_number=${display_number#0}
+		done
+		[ -n "$display_number" ] || display_number=0
 		brotway_port=$((8080 + display_number))
 	fi
 	case "$brotway_port" in

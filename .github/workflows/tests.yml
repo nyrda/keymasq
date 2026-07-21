@@ -57,7 +57,7 @@ jobs:
               - "keymasq/common/**"
               - "keymasq/record.py"
               - "nix/**"
-              - "packaging/appimage/encode-symbolic-icon.py"
+              - "packaging/appimage/**"
               - "pyproject.toml"
               - "scripts/**"
               - "tests/common/**"

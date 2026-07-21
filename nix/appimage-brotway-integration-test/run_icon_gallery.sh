@@ -10,7 +10,7 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 gallery=${KEYMASQ_ICON_GALLERY_SCRIPT:-$script_dir/icon_gallery.py}
 appdir=${KEYMASQ_APPDIR:-/opt/keymasq/runtime/current}
 address=${KEYMASQ_ICON_GALLERY_ADDRESS:-0.0.0.0}
-port=${KEYMASQ_ICON_GALLERY_PORT:-18101}
+port=${KEYMASQ_ICON_GALLERY_PORT:-18102}
 
 [ -f "$gallery" ] || die "gallery script not found: $gallery"
 [ -x "$appdir/bin/gtk4-brotway-run" ] || die "Brotway launcher not found in $appdir"

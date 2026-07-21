@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CHECK_SCRIPT = ROOT / "scripts/check.sh"
+CI_WORKFLOW = ROOT / ".github/workflows/tests.yml"
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
 APPIMAGE_ASSETS = ROOT / "packaging/appimage/assets"
@@ -17,6 +19,7 @@ BROTWAY_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-run.sh"
 BROTWAY_DEBUGMENU_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-debugmenu.sh"
 BROTWAY_TEST_RUNNER = ROOT / "scripts/test-appimage-brotway"
 GLIBC_COMPATIBILITY_CHECK = ROOT / "packaging/appimage/check-glibc-compatibility.sh"
+ICON_GALLERY_RUNNER = ROOT / "nix/appimage-brotway-integration-test/run_icon_gallery.sh"
 PYTHON_RUNTIME_PACKAGE_MANIFEST = APPIMAGE_ASSETS / "python-runtime-site-packages.txt"
 
 
@@ -53,6 +56,24 @@ def test_appimage_dependency_scan_limits_file_probes() -> None:
 
     assert "-name '*.so' -o -name '*.so.*' -o -perm /111" in builder
     assert 'find "$root" -type f -print0' not in builder
+
+
+def test_all_appimage_changes_select_the_full_ci_and_local_gates() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    check_script = CHECK_SCRIPT.read_text(encoding="utf-8")
+
+    assert '"packaging/appimage/**"' in workflow
+    auto_category = check_script.split("resolve_auto_category() {", maxsplit=1)[1].split(
+        "\n}", maxsplit=1
+    )[0]
+    assert auto_category.count("packaging/appimage") == 3
+    assert "packaging/appimage/*)" in auto_category
+
+
+def test_icon_gallery_runner_defaults_to_its_dedicated_port() -> None:
+    runner = ICON_GALLERY_RUNNER.read_text(encoding="utf-8")
+
+    assert "port=${KEYMASQ_ICON_GALLERY_PORT:-18102}" in runner
 
 
 def test_appimage_checks_brotway_against_bundled_glibc_before_dependency_scan() -> None:
@@ -235,7 +256,7 @@ printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
             "sh",
             str(BROTWAY_LAUNCHER),
             "--display",
-            ":9",
+            ":09",
             "/opt/keymasq/bin/keymasq",
         ],
         check=True,
@@ -247,10 +268,10 @@ printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
     assert "LD_LIBRARY_PATH=/host/libraries\n" in launcher_env
     assert f"BROTWAY_LIBRARY_PATH={library_path}\n" in launcher_env
     assert "BROTWAY_ADDRESS=127.0.0.1\n" in launcher_env
-    assert "BROTWAY_DISPLAY=:9\n" in launcher_env
-    assert "DISPLAY=:9\n" in launcher_env
+    assert "BROTWAY_DISPLAY=:09\n" in launcher_env
+    assert "DISPLAY=:09\n" in launcher_env
     assert f"argv=--library-path {library_path} " in launcher_env
-    assert launcher_env.endswith(" --display :9 /opt/keymasq/bin/keymasq\n")
+    assert launcher_env.endswith(" --display :09 /opt/keymasq/bin/keymasq\n")
 
 
 def test_brotway_launcher_rejects_an_occupied_port_before_starting_gtk(
@@ -784,6 +805,8 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert (runtime_dir / "bin/waypipe").is_file()
     assert (runtime_dir / "bin/gtk4-brotway-run").is_file()
     assert (runtime_dir / "lib/gtk4-brotway/gtk4-broadwayd").is_file()
+    assert (runtime_dir / "lib/gtk4-brotway/gtk4-brotway-run").is_file()
+    assert (runtime_dir / "lib/gtk4-brotway/gtk4-brotway-debugmenu").is_file()
     assert 'exec "$APPDIR/bin/waypipe" "$@"' in (fake_root / "opt/keymasq/bin/waypipe").read_text(
         encoding="utf-8"
     )

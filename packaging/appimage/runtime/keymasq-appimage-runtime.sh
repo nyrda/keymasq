@@ -276,6 +276,8 @@ validate_runtime_dir() {
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
 	[ -x "$keymasq_validate_dir/bin/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher"
 	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || die "extracted runtime missing Brotway daemon"
+	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher binary"
+	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-debugmenu" ] || die "extracted runtime missing Brotway debug menu binary"
 	[ -e "$keymasq_validate_dir/lib/gtk4-brotway/libgtk-4.so.1" ] || die "extracted runtime missing Brotway GTK library"
 }
 

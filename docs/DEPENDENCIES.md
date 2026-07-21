@@ -170,7 +170,9 @@ for supported Wayland environments.
 
 - The AppImage bundles the checksum-pinned `nyrda/gtk-brotway` Arch overlay.
 - gtk-brotway supplies a private Broadway-only `libgtk-4`, `gtk4-broadwayd`,
-  its launcher, and debug menu; it is activated only by `gtk4-brotway-run`.
+  its launcher, and debug menu. The `gtk4-brotway-run` and
+  `gtk4-brotway-debugmenu` wrappers activate the private backend; stock GTK
+  remains the default elsewhere.
 - Native packages do not depend on or install gtk-brotway.
 
 ### Capture unlock helper

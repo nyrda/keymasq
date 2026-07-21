@@ -67,7 +67,7 @@ gtk-brotway checkout:
 
 ```bash
 KEYMASQ_APPIMAGE_BROTWAY_BUNDLE=/path/to/gtk4-brotway-keymasq-x86_64.tar.zst \
-KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256=<sha256> \
+KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256=REPLACE_WITH_SHA256 \
   bash packaging/appimage/make-appimage.sh
 ```
 
@@ -98,8 +98,10 @@ requires every tile and the gamepad artwork to be available. Run both checks
 for every release candidate:
 
 ```bash
-bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
-scripts/test-appimage-brotway dist/appimage/Keymasq-*-x86_64.AppImage
+bash packaging/appimage/verify-appimage.sh \
+  "dist/appimage/Keymasq-0.19.0-x86_64.AppImage"
+scripts/test-appimage-brotway \
+  "dist/appimage/Keymasq-0.19.0-x86_64.AppImage"
 ```
 
 ### Updating pinned build helpers
@@ -133,14 +135,15 @@ verification in a clean Arch environment:
 ```bash
 bash packaging/appimage/get-dependencies.sh
 bash packaging/appimage/make-appimage.sh
-bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
+bash packaging/appimage/verify-appimage.sh \
+  "dist/appimage/Keymasq-0.19.0-x86_64.AppImage"
 ```
 
 Review the helper diff for new network fetches whenever `ANYLINUX_REV` changes;
 the build deliberately disables optional hooks, GTK class fixes, and static
 launcher/path-mapping optimization so those paths cannot introduce unverified
-downloads. The Brotway overlay and AppImage must also be built against
-compatible Arch snapshots: dependency collection resolves the overlay's ELF
+downloads. The Brotway overlay and AppImage must also be built in compatible
+Arch environments/toolchains: dependency collection resolves the overlay's ELF
 dependencies from the AppImage build container. The private icon payload is
 also generated from that container's `adwaita-icon-theme` and `rsvg-convert`.
 Always rerun the Brotway VM gate after changing either pin or build environment.

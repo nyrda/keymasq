@@ -78,7 +78,8 @@ Every AppImage release candidate must additionally pass its artifact-specific
 gate after it has been built:
 
 ```bash
-scripts/test-appimage-brotway dist/appimage/Keymasq-*-x86_64.AppImage
+scripts/test-appimage-brotway \
+  "dist/appimage/Keymasq-0.19.0-x86_64.AppImage"
 ```
 
 ## Optional: running the gates on GitHub

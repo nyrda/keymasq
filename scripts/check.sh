@@ -7,8 +7,8 @@ Usage: ./scripts/check.sh [--vm] [--evdev current|1.6.1|1.7.0] [auto|keymasqd|se
 
 Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
 Defaults to auto, which selects the category from pending and untracked changes
-under keymasq/, tests/, the checked Nix Python helpers, and the AppImage icon
-encoder.
+under keymasq/, tests/, the checked Nix Python helpers, and the AppImage
+packaging tree.
 
 The default evdev lane is current nixpkgs. Use --evdev for compatibility pytest
 or pytest VM runs against specific python-evdev versions.
@@ -82,12 +82,12 @@ resolve_auto_category() {
   mapfile -t changed_paths < <(
     git diff --name-only HEAD -- \
       keymasq tests nix/docshots nix/appimage-brotway-integration-test \
-      packaging/appimage/encode-symbolic-icon.py
+      packaging/appimage
   )
   mapfile -t untracked_paths < <(
     git ls-files --others --exclude-standard -- \
       keymasq tests nix/docshots nix/appimage-brotway-integration-test \
-      packaging/appimage/encode-symbolic-icon.py
+      packaging/appimage
   )
 
   for path in "${changed_paths[@]}" "${untracked_paths[@]}"; do
@@ -122,7 +122,7 @@ resolve_auto_category() {
           selected="full"
         fi
         ;;
-      nix/appimage-brotway-integration-test/*|packaging/appimage/encode-symbolic-icon.py)
+      nix/appimage-brotway-integration-test/*|packaging/appimage/*)
         selected="full"
         ;;
       keymasq/*|tests/*)

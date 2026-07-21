@@ -93,8 +93,9 @@ class TestProfileManagedTab:
                 self.sensitive = sensitive
 
         requests = []
+        timeout_not_provided = object()
 
-        def session_request_async(payload, callback, timeout=5.0):
+        def session_request_async(payload, callback, timeout=timeout_not_provided):
             requests.append((payload, timeout))
             callback({"status": "error", "message": "Capture unavailable"})
 

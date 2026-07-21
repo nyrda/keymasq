@@ -47,8 +47,7 @@ def _docs_url() -> str:
 
 
 def _application_flags() -> Gio.ApplicationFlags:
-    backends = os.environ.get("GDK_BACKEND", "").split(",")
-    if "broadway" in backends:
+    if os.environ.get("GDK_BACKEND", "").strip() == "broadway":
         return Gio.ApplicationFlags.NON_UNIQUE
     return Gio.ApplicationFlags.FLAGS_NONE
 

@@ -152,6 +152,19 @@ def test_application_uses_non_unique_instance_for_broadway(monkeypatch) -> None:
     assert app.get_flags() & application_module.Gio.ApplicationFlags.NON_UNIQUE
 
 
+def test_application_remains_unique_when_broadway_is_only_a_fallback(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
+    import keymasq.gui.application as application_module
+    from keymasq.gui.application import Application
+
+    monkeypatch.setenv("GDK_BACKEND", "wayland,broadway")
+
+    app = Application()
+
+    assert not app.get_flags() & application_module.Gio.ApplicationFlags.NON_UNIQUE
+
+
 def test_gui_appearance_preference_round_trips(temp_config_dir) -> None:
     from keymasq.gui.preferences import load_appearance_mode, save_appearance_mode
 

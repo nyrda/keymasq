@@ -42,6 +42,7 @@ brotway_option=
 brotway_scanning=1
 for argument do
 	if [ -n "$brotway_option" ]; then
+		[ -n "$argument" ] || die "missing value for --$brotway_option"
 		case "$brotway_option" in
 		port) brotway_port=$argument ;;
 		address) brotway_address=$argument ;;
@@ -52,6 +53,18 @@ for argument do
 	fi
 	[ "$brotway_scanning" = 1 ] || continue
 	case "$argument" in
+	--port=*)
+		brotway_port=${argument#--port=}
+		[ -n "$brotway_port" ] || die "missing value for --port"
+		;;
+	--address=*)
+		brotway_address=${argument#--address=}
+		[ -n "$brotway_address" ] || die "missing value for --address"
+		;;
+	--display=*)
+		brotway_display=${argument#--display=}
+		[ -n "$brotway_display" ] || die "missing value for --display"
+		;;
 	--port) brotway_option=port ;;
 	--address) brotway_option=address ;;
 	--display) brotway_option=display ;;

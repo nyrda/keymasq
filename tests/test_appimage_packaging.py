@@ -40,10 +40,15 @@ def test_appimage_builder_pins_the_brotway_release() -> None:
     assert "KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_NAME:-" in builder
     assert "github.com/nyrda/gtk-brotway/releases/download" in builder
     checksum_match = re.search(
-        r'BROTWAY_BUNDLE_SHA256="\$\{KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256:-([0-9a-f]{64})\}"',
+        r'BROTWAY_BUNDLE_DEFAULT_SHA256="([0-9a-f]{64})"',
         builder,
     )
     assert checksum_match is not None
+    assert 'BROTWAY_BUNDLE_DEFAULT_SHA256=""' in builder
+    assert (
+        'BROTWAY_BUNDLE_SHA256="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256:-'
+        '$BROTWAY_BUNDLE_DEFAULT_SHA256}"'
+    ) in builder
     checksum_guard = 'if [[ -z "$BROTWAY_BUNDLE_SHA256" ]]'
     local_bundle_branch = 'if [[ -n "$local_bundle" ]]'
     assert builder.index(checksum_guard) < builder.index(local_bundle_branch)
@@ -301,10 +306,8 @@ def test_brotway_launcher_rejects_an_occupied_port_before_starting_gtk(
             [
                 "sh",
                 str(BROTWAY_LAUNCHER),
-                "--address",
-                "127.0.0.1",
-                "--port",
-                str(port),
+                "--address=127.0.0.1",
+                f"--port={port}",
                 "/opt/keymasq/bin/keymasq",
             ],
             env={**os.environ, "APPDIR": str(appdir)},

@@ -3,6 +3,7 @@ set -euo pipefail
 
 pacman -Syu --noconfirm --needed \
   acl \
+  adwaita-icon-theme \
   base-devel \
   ca-certificates \
   curl \

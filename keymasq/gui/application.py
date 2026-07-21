@@ -46,11 +46,18 @@ def _docs_url() -> str:
     return docs_page_url(version=APP_VERSION)
 
 
+def _application_flags() -> Gio.ApplicationFlags:
+    backends = os.environ.get("GDK_BACKEND", "").split(",")
+    if "broadway" in backends:
+        return Gio.ApplicationFlags.NON_UNIQUE
+    return Gio.ApplicationFlags.FLAGS_NONE
+
+
 class Application(Adw.Application):
     def __init__(self, demo_mode: bool = False) -> None:
         super().__init__(
             application_id=APP_ID,
-            flags=Gio.ApplicationFlags.FLAGS_NONE,
+            flags=_application_flags(),
         )
         self.demo_mode = demo_mode
         self.window: MainWindow | None = None

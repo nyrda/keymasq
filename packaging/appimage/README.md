@@ -8,9 +8,10 @@ documented in `docs/INSTALL.md` and `docs/STEAMOS.md`.
 
 The AppImage path builds one x86_64 AnyLinux AppImage. It bundles the Python
 runtime, Keymasq, Python dependencies, GTK4/libadwaita, GObject introspection
-data, the `slurp` point-pick helper, and the `waypipe` helper for forwarding
-the GUI to a remote workstation. Host integration is installed by the AppImage
-at runtime.
+data, the `slurp` point-pick helper, the `waypipe` helper for forwarding the
+GUI to a remote workstation, and the private gtk-brotway GTK backend for using
+Keymasq from a browser. Host integration is installed by the AppImage at
+runtime.
 
 SteamOS is the primary target. The installer uses systemd when available and
 falls back to a core install plus manual daemon-supervisor instructions on
@@ -23,7 +24,10 @@ Actions package workflow uses `archlinux:base-devel`, installs dependencies
 with `pacman`, then downloads the pinned AnyLinux `quick-sharun` helper. The
 build also downloads checksum-pinned `sharun`, `appimagetool`, `uruntime`,
 `mkdwarfs`, and `anylinux.c` inputs up front; the helper is prevented from
-fetching moving, unverified, or optional inputs during the build.
+fetching optional inputs during the build. The Arch container and packages
+installed from its rolling repositories are not pinned snapshots; they supply
+the bundled libraries, overlay ELF dependencies, `adwaita-icon-theme`, and
+`rsvg-convert` used to rasterize the private icon payload.
 
 ```bash
 bash packaging/appimage/get-dependencies.sh
@@ -31,6 +35,72 @@ bash packaging/appimage/make-appimage.sh
 ```
 
 The output is written to `dist/appimage/`.
+
+Only the runtime Python packages declared in
+`assets/python-runtime-site-packages.txt` are copied from the Arch environment.
+Build and installer tooling from the system `site-packages` is deliberately
+excluded. `verify-appimage.sh` imports the runtime dependencies and rejects any
+undeclared top-level package in the extracted artifact.
+
+### gtk-brotway overlay
+
+gtk-brotway is built and published by `nyrda/gtk-brotway` as a minimal Arch
+overlay archive. Release builds download a checksum-pinned release asset and
+verify its SHA-256 before extracting it into `lib/gtk4-brotway`. Normal GUI
+launches continue using the bundled stock GTK; `gtk4-brotway-run` opts into the
+private library for the browser session only. The launcher sets
+the direct GUI child's `GDK_BACKEND` to `broadway`, which also lets Keymasq run
+that browser-facing GUI independently of an existing desktop instance. The
+wrapper forces `DISPLAY` to the selected Brotway display instead of inheriting
+a host X11 or desktop display. Because Brotway has no authentication, the
+AppImage launcher defaults its listener to `127.0.0.1`; remote access should
+use an SSH tunnel. Binding to another address requires an explicit `--address`
+option or `BROTWAY_ADDRESS` override.
+
+During assembly, the build compares every `GLIBC_*` symbol version required by
+the Brotway `libgtk-4.so.1` with the versions defined by the AppImage's bundled
+`libc.so.6`. The build fails and lists missing versions before dependency
+collection if the overlay was built against a newer incompatible glibc.
+
+For a local end-to-end build using an artifact produced by a neighboring
+gtk-brotway checkout:
+
+```bash
+KEYMASQ_APPIMAGE_BROTWAY_BUNDLE=/path/to/gtk4-brotway-keymasq-x86_64.tar.zst \
+KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256=<sha256> \
+  bash packaging/appimage/make-appimage.sh
+```
+
+`KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_VERSION`,
+`KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_NAME`,
+`KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_URL`, and
+`KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256` override the release pin together.
+
+### GUI icon payload
+
+The AppImage builds a private `Keymasq` icon theme from the names in
+`packaging/appimage/assets/gui-icon-names.txt`. Each named icon is stored as a
+pre-rendered symbolic PNG at the supported GTK sizes, and the input-picker's
+gamepad artwork is stored as a regular PNG. AppImage GUI startup selects this
+theme only when its index and every icon named by the bundled manifest exist
+below `$APPDIR`; native packages keep using the desktop's configured icon theme.
+
+This makes the AppImage independent of host icon themes and SVG image loaders.
+In particular, SteamOS does not need Glycin or another SVG loader to display
+the bundled GUI icons. When adding or renaming an icon in the GUI, update the
+manifest and the one-shot gallery inventory together. The focused tests require
+those inventories to match.
+
+`verify-appimage.sh` checks every manifest entry through the bundled private
+GTK, resolves it to a PNG, and decodes it. The Brotway VM gate additionally
+runs the gallery through the installed AppImage, renders it in Chromium, and
+requires every tile and the gamepad artwork to be available. Run both checks
+for every release candidate:
+
+```bash
+bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
+scripts/test-appimage-brotway dist/appimage/Keymasq-*-x86_64.AppImage
+```
 
 ### Updating pinned build helpers
 
@@ -69,13 +139,18 @@ bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppIm
 Review the helper diff for new network fetches whenever `ANYLINUX_REV` changes;
 the build deliberately disables optional hooks, GTK class fixes, and static
 launcher/path-mapping optimization so those paths cannot introduce unverified
-downloads.
+downloads. The Brotway overlay and AppImage must also be built against
+compatible Arch snapshots: dependency collection resolves the overlay's ELF
+dependencies from the AppImage build container. The private icon payload is
+also generated from that container's `adwaita-icon-theme` and `rsvg-convert`.
+Always rerun the Brotway VM gate after changing either pin or build environment.
 
 ## Graphics Policy
 
-Default builds leave GTK rendering on `auto` and do not bundle Mesa, GLVND,
-OpenGL, Vulkan, GBM, DRM, or DRI driver files. Real SteamOS hardware uses the
-host graphics stack through GTK's normal GL/Vulkan-capable path.
+Default builds leave GTK rendering on `auto`. They retain the graphics loader
+libraries in GTK's dependency closure, but do not bundle DRI drivers, Vulkan
+ICDs, or their configuration. Real SteamOS hardware supplies the graphics
+drivers through GTK's normal GL/Vulkan-capable path.
 
 For a special VM-only software-rendering artifact, set:
 
@@ -97,8 +172,8 @@ KEYMASQ_APPIMAGE_RENDERING=software keymasq
 /opt/keymasq/Keymasq.AppImage
 /opt/keymasq/runtime/<sha256>/
 /opt/keymasq/runtime/current -> <sha256>
-/opt/keymasq/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe}
-~/.local/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe}
+/opt/keymasq/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe,gtk4-brotway-run}
+~/.local/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe,gtk4-brotway-run}
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
 /etc/systemd/system/keymasqd.service

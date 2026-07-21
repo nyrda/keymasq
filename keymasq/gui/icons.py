@@ -3,6 +3,7 @@ import os
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -21,6 +22,9 @@ COMBO_ICON_NAMES = (
     "input-keyboard-symbolic",
     "preferences-desktop-keyboard-shortcuts",
 )
+
+APPIMAGE_ICON_THEME = "Keymasq"
+APPIMAGE_ICON_MANIFEST = "gui-icon-names.txt"
 
 MOUSE_ICON_NAMES = (
     "keymasq-mouse-symbolic",
@@ -51,10 +55,37 @@ def _icon_theme() -> Gtk.IconTheme | None:
     return Gtk.IconTheme.get_for_display(display)
 
 
+def _appimage_icon_theme_is_complete(appdir: str) -> bool:
+    theme_root = os.path.join(appdir, "share", "icons", APPIMAGE_ICON_THEME)
+    manifest_path = os.path.join(appdir, "share", "keymasq", "appimage", APPIMAGE_ICON_MANIFEST)
+    if not os.path.isfile(os.path.join(theme_root, "index.theme")):
+        return False
+    try:
+        with open(manifest_path, encoding="utf-8") as manifest:
+            icon_names = tuple(line.strip() for line in manifest if line.strip())
+    except OSError:
+        return False
+    icon_dir = os.path.join(theme_root, "48x48", "apps")
+    return bool(icon_names) and all(
+        os.path.isfile(
+            os.path.join(
+                icon_dir,
+                f"{name}.png" if name == "tools.keymasq.keymasq" else f"{name}.symbolic.png",
+            )
+        )
+        for name in icon_names
+    )
+
+
 def register_icon_search_path() -> None:
-    theme = _icon_theme()
-    if not theme:
+    display = Gdk.Display.get_default()
+    if not display:
         return
+    appdir = os.environ.get("APPDIR")
+    if appdir and _appimage_icon_theme_is_complete(appdir):
+        settings = Gtk.Settings.get_for_display(display)
+        settings.set_property("gtk-icon-theme-name", APPIMAGE_ICON_THEME)
+    theme = Gtk.IconTheme.get_for_display(display)
     theme.add_search_path(os.path.join(os.path.dirname(__file__), "assets"))
 
 

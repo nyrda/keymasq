@@ -92,7 +92,14 @@ extend-select = ["BLE", "S110", "S112"]
 "keymasq/session/listeners/kde.py" = ["N802", "F821"]
 
 [tool.pyright]
-include = ["keymasq", "tests", "benchmarks", "nix/docshots"]
+include = [
+    "keymasq",
+    "tests",
+    "benchmarks",
+    "nix/docshots",
+    "nix/appimage-brotway-integration-test",
+    "packaging/appimage/encode-symbolic-icon.py",
+]
 exclude = ["build", "pkg", "benchmarks/macro_replay_fidelity.py"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
@@ -111,6 +118,7 @@ executionEnvironments = [
     { root = "keymasq/keymasqd", extraPaths = ["."], reportMissingTypeStubs = "error", reportUnknownMemberType = "error", reportUnknownArgumentType = "error", reportUnknownVariableType = "error", reportUnknownParameterType = "error", reportMissingParameterType = "error", reportMissingTypeArgument = "error", reportPrivateUsage = "error", reportUntypedBaseClass = "error" },
     { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportUnknownLambdaType = "none" },
     { root = "nix/docshots", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportPrivateUsage = "none" },
+    { root = "nix/appimage-brotway-integration-test", extraPaths = [".", "nix/appimage-brotway-integration-test"], reportMissingImports = "none", reportUnknownLambdaType = "none" },
 ]
 
 [tool.pytest.ini_options]

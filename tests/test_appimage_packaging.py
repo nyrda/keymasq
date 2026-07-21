@@ -1,19 +1,412 @@
 import json
 import os
 import pwd
+import re
 import shutil
+import socket
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
 APPIMAGE_ASSETS = ROOT / "packaging/appimage/assets"
+APPIMAGE_BUILDER = ROOT / "packaging/appimage/make-appimage.sh"
+BROTWAY_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-run.sh"
+BROTWAY_DEBUGMENU_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-debugmenu.sh"
+BROTWAY_TEST_RUNNER = ROOT / "scripts/test-appimage-brotway"
+GLIBC_COMPATIBILITY_CHECK = ROOT / "packaging/appimage/check-glibc-compatibility.sh"
+PYTHON_RUNTIME_PACKAGE_MANIFEST = APPIMAGE_ASSETS / "python-runtime-site-packages.txt"
 
 
 def _write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def test_appimage_builder_pins_the_brotway_release() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    version_match = re.search(
+        r'BROTWAY_BUNDLE_VERSION="\$\{KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_VERSION:-([^}]+)\}"',
+        builder,
+    )
+    assert version_match is not None
+    assert version_match.group(1) not in {"latest", "main", "master"}
+    assert "KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_NAME:-" in builder
+    assert "github.com/nyrda/gtk-brotway/releases/download" in builder
+    checksum_match = re.search(
+        r'BROTWAY_BUNDLE_SHA256="\$\{KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256:-([0-9a-f]{64})\}"',
+        builder,
+    )
+    assert checksum_match is not None
+    checksum_guard = 'if [[ -z "$BROTWAY_BUNDLE_SHA256" ]]'
+    local_bundle_branch = 'if [[ -n "$local_bundle" ]]'
+    assert builder.index(checksum_guard) < builder.index(local_bundle_branch)
+    assert 'verify_sha256 "gtk-brotway bundle" "$local_bundle"' in builder
+    assert "command -v bsdtar" in builder
+
+
+def test_appimage_dependency_scan_limits_file_probes() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    assert "-name '*.so' -o -name '*.so.*' -o -perm /111" in builder
+    assert 'find "$root" -type f -print0' not in builder
+
+
+def test_appimage_checks_brotway_against_bundled_glibc_before_dependency_scan() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    install = "install_brotway_runtime\n"
+    compatibility = "verify_brotway_glibc_compatibility\n"
+    dependency_scan = 'bundle_elf_dependencies "$python_lib_dir"'
+    assert builder.index(install) < builder.index(compatibility)
+    assert builder.index(compatibility) < builder.index(dependency_scan)
+    assert "check-glibc-compatibility.sh" in builder
+    assert '"$APPDIR/lib/gtk4-brotway/libgtk-4.so.1"' in builder
+    assert '"$APPDIR/lib/libc.so.6"' in builder
+
+
+def test_glibc_compatibility_check_accepts_and_rejects_symbol_version_sets(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "readelf",
+        '#!/bin/sh\nfor path do :; done\nexec cat "$path"\n',
+    )
+    consumer = tmp_path / "libgtk-4.so.1"
+    consumer.write_text(
+        """Version needs section '.gnu.version_r' contains 1 entry:
+  000000: Version: 1  File: libc.so.6  Cnt: 2
+  0x0010:   Name: GLIBC_2.34  Flags: none  Version: 3
+  0x0020:   Name: GLIBC_2.38  Flags: none  Version: 2
+""",
+        encoding="utf-8",
+    )
+    libc = tmp_path / "libc.so.6"
+    libc.write_text(
+        """Version definition section '.gnu.version_d' contains 2 entries:
+  000000: Rev: 1  Flags: none  Index: 2  Cnt: 1  Name: GLIBC_2.34
+  0x001c: Rev: 1  Flags: none  Index: 3  Cnt: 1  Name: GLIBC_2.38
+""",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+
+    compatible = subprocess.run(
+        ["bash", str(GLIBC_COMPATIBILITY_CHECK), str(consumer), str(libc)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert compatible.returncode == 0
+    assert "2 required symbol versions are available" in compatible.stdout
+
+    libc.write_text(
+        """Version definition section '.gnu.version_d' contains 1 entry:
+  000000: Rev: 1  Flags: none  Index: 2  Cnt: 1  Name: GLIBC_2.34
+""",
+        encoding="utf-8",
+    )
+    incompatible = subprocess.run(
+        ["bash", str(GLIBC_COMPATIBILITY_CHECK), str(consumer), str(libc)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert incompatible.returncode == 1
+    assert "Brotway GTK is incompatible with the AppImage libc" in incompatible.stderr
+    assert "missing GLIBC symbol versions:\n  GLIBC_2.38\n" in incompatible.stderr
+
+
+def test_appimage_builder_copies_only_the_python_runtime_closure() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+    packages = frozenset(PYTHON_RUNTIME_PACKAGE_MANIFEST.read_text(encoding="utf-8").splitlines())
+
+    assert packages == {
+        "PyGObject-*.dist-info",
+        "Xlib",
+        "cairo",
+        "dbus_next",
+        "dbus_next-*.dist-info",
+        "evdev",
+        "evdev-*.dist-info",
+        "gi",
+        "pycairo-*.dist-info",
+        "python_xlib-*.dist-info",
+        "six-*.dist-info",
+        "six.py",
+        "tomli_w",
+        "tomli_w-*.dist-info",
+        "uvloop",
+        "uvloop-*.dist-info",
+    }
+    copy_function = builder.split("copy_python_packages() {", maxsplit=1)[1].split(
+        "\n}", maxsplit=1
+    )[0]
+    assert "python-runtime-site-packages.txt" in copy_function
+    assert "rsync" not in copy_function
+    assert 'rm -rf "$bundled_site"' in copy_function
+    assert 'cp -aL "$source"' in copy_function
+
+
+def test_appimage_builder_installs_a_private_raster_icon_theme() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    assert "install_appimage_icons" in builder
+    assert "encode-symbolic-icon.py" in builder
+    assert "keymasq-icon-theme.index.theme" in builder
+    assert 'rm -f "$package_assets"/*-symbolic.svg "$package_assets/gamepad.svg"' in builder
+    assert "gtk-update-icon-cache --force" in builder
+
+
+def test_appimage_builder_makes_the_installed_payload_world_readable() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    permissions = 'chmod -R a+rX "$APPDIR"'
+    assert permissions in builder
+    assert builder.index(permissions) < builder.index('"$quick_sharun" --make-appimage')
+
+
+def test_brotway_launcher_keeps_child_processes_in_the_appimage_runtime() -> None:
+    launcher = BROTWAY_LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'export BROTWAY_LOADER="$loader"' in launcher
+    assert 'export BROTWAY_LIBRARY_PATH="$library_path"' in launcher
+    assert 'export BROTWAY_HELPER_PATH="$appdir/bin"' in launcher
+    assert "brotway_address=${BROTWAY_ADDRESS:-127.0.0.1}" in launcher
+    assert 'export BROTWAY_ADDRESS="$brotway_address"' in launcher
+    assert 'export BROTWAY_DISPLAY="$brotway_display"' in launcher
+    assert "export KEYMASQ_APPIMAGE_RENDERING=auto" in launcher
+    assert "export GSK_RENDERER=broadway" in launcher
+    assert 'export DISPLAY="$brotway_display"' in launcher
+    assert "KEYMASQ_GUI_NON_UNIQUE" not in launcher
+    assert "export LD_LIBRARY_PATH=" not in launcher
+
+
+def test_brotway_debugmenu_uses_the_loader_without_exporting_library_path() -> None:
+    launcher = BROTWAY_DEBUGMENU_LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'exec "$loader" --library-path "$library_path"' in launcher
+    assert "export LD_LIBRARY_PATH=" not in launcher
+
+
+def test_brotway_launcher_does_not_expose_appimage_libraries_to_host_shells(
+    tmp_path: Path,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    brotway_dir = appdir / "lib/gtk4-brotway"
+    brotway_dir.mkdir(parents=True)
+    (appdir / "bin").mkdir()
+    (appdir / "shared/bin").mkdir(parents=True)
+    log_path = tmp_path / "launcher-env.log"
+    _write_executable(brotway_dir / "gtk4-brotway-run", "#!/bin/sh\nexit 0\n")
+    _write_executable(appdir / "shared/bin/python3", "#!/bin/sh\nexit 0\n")
+    _write_executable(
+        appdir / "lib/ld-linux-x86-64.so.2",
+        """#!/bin/sh
+printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH-unset}" > "$KEYMASQ_LAUNCHER_ENV_LOG"
+printf 'BROTWAY_LIBRARY_PATH=%s\n' "$BROTWAY_LIBRARY_PATH" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+printf 'BROTWAY_ADDRESS=%s\n' "$BROTWAY_ADDRESS" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+printf 'BROTWAY_DISPLAY=%s\n' "$BROTWAY_DISPLAY" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+printf 'DISPLAY=%s\n' "$DISPLAY" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+""",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "APPDIR": str(appdir),
+            "KEYMASQ_LAUNCHER_ENV_LOG": str(log_path),
+            "LD_LIBRARY_PATH": "/host/libraries",
+            "BROTWAY_DISPLAY": ":8",
+            "DISPLAY": ":99",
+        }
+    )
+    env.pop("BROTWAY_ADDRESS", None)
+
+    subprocess.run(
+        [
+            "sh",
+            str(BROTWAY_LAUNCHER),
+            "--display",
+            ":9",
+            "/opt/keymasq/bin/keymasq",
+        ],
+        check=True,
+        env=env,
+    )
+
+    launcher_env = log_path.read_text(encoding="utf-8")
+    library_path = f"{brotway_dir}:{appdir}/lib"
+    assert "LD_LIBRARY_PATH=/host/libraries\n" in launcher_env
+    assert f"BROTWAY_LIBRARY_PATH={library_path}\n" in launcher_env
+    assert "BROTWAY_ADDRESS=127.0.0.1\n" in launcher_env
+    assert "BROTWAY_DISPLAY=:9\n" in launcher_env
+    assert "DISPLAY=:9\n" in launcher_env
+    assert f"argv=--library-path {library_path} " in launcher_env
+    assert launcher_env.endswith(" --display :9 /opt/keymasq/bin/keymasq\n")
+
+
+def test_brotway_launcher_rejects_an_occupied_port_before_starting_gtk(
+    tmp_path: Path,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    brotway_dir = appdir / "lib/gtk4-brotway"
+    brotway_dir.mkdir(parents=True)
+    (appdir / "bin").mkdir()
+    (appdir / "shared/bin").mkdir(parents=True)
+    started = tmp_path / "gtk-started"
+    _write_executable(
+        brotway_dir / "gtk4-brotway-run",
+        f"#!/bin/sh\ntouch {started}\n",
+    )
+    _write_executable(
+        appdir / "lib/ld-linux-x86-64.so.2",
+        '#!/bin/sh\nshift 2\nexec "$@"\n',
+    )
+    (appdir / "shared/bin/python3").symlink_to(sys.executable)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        result = subprocess.run(
+            [
+                "sh",
+                str(BROTWAY_LAUNCHER),
+                "--address",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "/opt/keymasq/bin/keymasq",
+            ],
+            env={**os.environ, "APPDIR": str(appdir)},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    assert result.returncode == 1
+    assert result.stderr == (f"gtk4-brotway-run: port {port} is already in use on 127.0.0.1\n")
+    assert not started.exists()
+
+
+def test_brotway_launcher_allows_an_immediate_server_restart(tmp_path: Path) -> None:
+    appdir = tmp_path / "AppDir"
+    brotway_dir = appdir / "lib/gtk4-brotway"
+    brotway_dir.mkdir(parents=True)
+    (appdir / "bin").mkdir()
+    (appdir / "shared/bin").mkdir(parents=True)
+    started = tmp_path / "gtk-started"
+    _write_executable(
+        brotway_dir / "gtk4-brotway-run",
+        f"#!/bin/sh\ntouch {started}\n",
+    )
+    _write_executable(
+        appdir / "lib/ld-linux-x86-64.so.2",
+        '#!/bin/sh\nshift 2\nexec "$@"\n',
+    )
+    (appdir / "shared/bin/python3").symlink_to(sys.executable)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        with socket.create_connection(("127.0.0.1", port)) as client:
+            connection, _ = listener.accept()
+            connection.close()
+            assert client.recv(1) == b""
+
+    subprocess.run(
+        [
+            "sh",
+            str(BROTWAY_LAUNCHER),
+            "--address",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "/opt/keymasq/bin/keymasq",
+        ],
+        env={**os.environ, "APPDIR": str(appdir)},
+        check=True,
+    )
+
+    assert started.exists()
+
+
+def _run_brotway_test_runner(
+    tmp_path: Path,
+    *,
+    path_info_status: int,
+) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
+    appimage = tmp_path / "Keymasq.AppImage"
+    _write_executable(appimage, "fake AppImage\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log_path = tmp_path / "nix-calls.log"
+    _write_executable(
+        bin_dir / "nix",
+        """#!/bin/sh
+printf 'artifact=%s args=%s\n' "$KEYMASQ_APPIMAGE_TEST_ARTIFACT" "$*" >> "$KEYMASQ_TEST_NIX_LOG"
+if [ "${1:-}" = path-info ]; then
+  exit "$KEYMASQ_TEST_PATH_INFO_STATUS"
+fi
+exit 0
+""",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "KEYMASQ_TEST_NIX_LOG": str(log_path),
+            "KEYMASQ_TEST_PATH_INFO_STATUS": str(path_info_status),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(BROTWAY_TEST_RUNNER), str(appimage)],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result, log_path.read_text(encoding="utf-8").splitlines(), appimage
+
+
+def test_brotway_test_runner_builds_a_new_artifact_without_a_store_precopy(
+    tmp_path: Path,
+) -> None:
+    result, calls, appimage = _run_brotway_test_runner(
+        tmp_path,
+        path_info_status=1,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 2
+    assert f"artifact={appimage}" in calls[0]
+    assert "args=path-info --impure" in calls[0]
+    assert "args=build --no-link --impure" in calls[1]
+    assert "--rebuild" not in calls[1]
+    assert all("store add-path" not in call for call in calls)
+
+
+def test_brotway_test_runner_rebuilds_an_existing_result(tmp_path: Path) -> None:
+    result, calls, appimage = _run_brotway_test_runner(
+        tmp_path,
+        path_info_status=0,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 2
+    assert f"artifact={appimage}" in calls[1]
+    assert "args=build --no-link --rebuild --impure" in calls[1]
 
 
 def _fake_command_dir(tmp_path: Path) -> tuple[Path, Path]:
@@ -115,8 +508,18 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
         "keymasq-record",
         "slurp",
         "waypipe",
+        "gtk4-brotway-run",
     ):
         _write_executable(bin_dir / name, f"#!/bin/sh\nprintf '%s\\n' {name}\n")
+    brotway_dir = appdir / "lib/gtk4-brotway"
+    brotway_dir.mkdir(parents=True)
+    for name in (
+        "gtk4-broadwayd",
+        "gtk4-brotway-run",
+        "gtk4-brotway-debugmenu",
+        "libgtk-4.so.1",
+    ):
+        _write_executable(brotway_dir / name, "#!/bin/sh\nexit 0\n")
     shutil.copytree(assets, appdir / "share/keymasq/appimage")
     return appdir
 
@@ -207,6 +610,22 @@ case "${1:-}" in
     chmod 0755 "$root/bin/slurp"
     printf '#!/bin/sh\\nexit 0\\n' > "$root/bin/waypipe"
     chmod 0755 "$root/bin/waypipe"
+    printf '#!/bin/sh\\nexit 0\\n' > "$root/bin/gtk4-brotway-run"
+    chmod 0755 "$root/bin/gtk4-brotway-run"
+    mkdir -p \
+      "$root/lib/gtk4-brotway" \
+      "$root/lib/python3.12/site-packages" \
+      "$root/share/doc/keymasq" \
+      "$root/share/icons/Keymasq" \
+      "$root/share/keymasq/appimage"
+    for name in gtk4-broadwayd gtk4-brotway-run gtk4-brotway-debugmenu libgtk-4.so.1; do
+      printf '#!/bin/sh\\nexit 0\\n' > "$root/lib/gtk4-brotway/$name"
+      chmod 0755 "$root/lib/gtk4-brotway/$name"
+    done
+    printf '{}\\n' > "$root/share/doc/keymasq/gtk4-brotway-manifest.json"
+    printf '[Icon Theme]\\nName=Keymasq\\n' > "$root/share/icons/Keymasq/index.theme"
+    printf 'list-add-symbolic\\n' > "$root/share/keymasq/appimage/gui-icon-names.txt"
+    printf 'gi\\n' > "$root/share/keymasq/appimage/python-runtime-site-packages.txt"
     cat > "$root/lib/ld-linux-x86-64.so.2" <<'LOADER'
 #!/bin/sh
 printf '%s\\n' "$APPDIR" > "$KEYMASQ_FAKE_VERIFY_APPDIR_LOG"
@@ -297,30 +716,25 @@ exit 0
 
 
 def test_appimage_builder_does_not_force_software_rendering_by_default() -> None:
-    builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(
-        encoding="utf-8"
-    )
+    builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(encoding="utf-8")
 
     assert "KEYMASQ_APPIMAGE_BUNDLE_OPENGL" not in builder
     assert "KEYMASQ_APPIMAGE_BUNDLE_VULKAN" not in builder
     assert "export DEPLOY_OPENGL=0" in builder
     assert "export DEPLOY_VULKAN=0" in builder
-    assert "remove_bundled_graphics_stack" in builder
-    assert "libEGL.so\\*" in builder
-    assert "libGLX.so\\*" in builder
-    assert "libGLdispatch.so\\*" in builder
-    assert "libvulkan.so\\*" in builder
-    assert "libdrm.so\\*" in builder
-    assert "libgbm.so\\*" in builder
+    assert "remove_bundled_graphics_drivers" in builder
+    graphics_cleanup = builder.split("remove_bundled_graphics_drivers() {", 1)[1].split("\n}", 1)[0]
+    assert "libEGL.so\\*" not in graphics_cleanup
+    assert "libvulkan.so\\*" not in graphics_cleanup
+    assert '"$APPDIR/lib/dri"' in graphics_cleanup
+    assert '"$APPDIR/share/vulkan"' in graphics_cleanup
     assert "KEYMASQ_APPIMAGE_ALWAYS_SOFTWARE" in builder
-    assert 'ALWAYS_SOFTWARE:-0' in builder
-    assert 'ALWAYS_SOFTWARE:-1' not in builder
+    assert "ALWAYS_SOFTWARE:-0" in builder
+    assert "ALWAYS_SOFTWARE:-1" not in builder
 
 
 def test_appimage_builder_verifies_transitive_inputs() -> None:
-    builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(
-        encoding="utf-8"
-    )
+    builder = (ROOT / "packaging/appimage/make-appimage.sh").read_text(encoding="utf-8")
 
     assert "prepare_verified_appimage_inputs" in builder
     assert "ANYLINUX_SOURCE_SHA256" in builder
@@ -332,10 +746,10 @@ def test_appimage_builder_verifies_transitive_inputs() -> None:
     assert 'DWARFS_CMD="$mkdwarfs"' in builder
     assert "/releases/latest/" not in builder
     assert "refs/heads/main" not in builder
-    assert 'export ADD_HOOKS=' in builder
+    assert "export ADD_HOOKS=" in builder
     assert "export GTK_CLASS_FIX=0" in builder
     assert "export OPTIMIZE_LAUNCH=0" in builder
-    assert 'export PATH_MAPPING=' in builder
+    assert "export PATH_MAPPING=" in builder
     assert "remove_generated_hardcoded_path_mapping" in builder
     assert 'hook="$APPDIR/bin/01-path-mapping-hardcoded.hook"' in builder
     assert "hook.unlink()" in builder
@@ -368,25 +782,28 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert (runtime_dir / "bin/keymasqd").is_file()
     assert (runtime_dir / "bin/slurp").is_file()
     assert (runtime_dir / "bin/waypipe").is_file()
-    assert 'exec "$APPDIR/bin/waypipe" "$@"' in (
-        fake_root / "opt/keymasq/bin/waypipe"
-    ).read_text(encoding="utf-8")
-    assert 'APPDIR=${KEYMASQ_APPDIR:-/opt/keymasq/runtime/current}' in (
-        fake_root / "opt/keymasq/bin/keymasqd"
-    ).read_text(encoding="utf-8")
-    assert 'exec "$APPDIR/bin/keymasqd" "$@"' in (
-        fake_root / "opt/keymasq/bin/keymasqd"
-    ).read_text(encoding="utf-8")
-    assert 'exec "$APPDIR/bin/keymasq" "$@"' in (
-        fake_root / "opt/keymasq/bin/keymasq"
-    ).read_text(encoding="utf-8")
-    assert (fake_root / "root/.local/bin/keymasq").is_file()
-    assert "/opt/keymasq/bin:$PATH" in (
-        fake_root / "etc/profile.d/keymasq.sh"
-    ).read_text(encoding="utf-8")
-    keymasqd_unit = (fake_root / "etc/systemd/system/keymasqd.service").read_text(
+    assert (runtime_dir / "bin/gtk4-brotway-run").is_file()
+    assert (runtime_dir / "lib/gtk4-brotway/gtk4-broadwayd").is_file()
+    assert 'exec "$APPDIR/bin/waypipe" "$@"' in (fake_root / "opt/keymasq/bin/waypipe").read_text(
         encoding="utf-8"
     )
+    assert 'exec "$APPDIR/bin/gtk4-brotway-run" "$@"' in (
+        fake_root / "opt/keymasq/bin/gtk4-brotway-run"
+    ).read_text(encoding="utf-8")
+    assert "APPDIR=${KEYMASQ_APPDIR:-/opt/keymasq/runtime/current}" in (
+        fake_root / "opt/keymasq/bin/keymasqd"
+    ).read_text(encoding="utf-8")
+    assert 'exec "$APPDIR/bin/keymasqd" "$@"' in (fake_root / "opt/keymasq/bin/keymasqd").read_text(
+        encoding="utf-8"
+    )
+    assert 'exec "$APPDIR/bin/keymasq" "$@"' in (fake_root / "opt/keymasq/bin/keymasq").read_text(
+        encoding="utf-8"
+    )
+    assert (fake_root / "root/.local/bin/keymasq").is_file()
+    assert "/opt/keymasq/bin:$PATH" in (fake_root / "etc/profile.d/keymasq.sh").read_text(
+        encoding="utf-8"
+    )
+    keymasqd_unit = (fake_root / "etc/systemd/system/keymasqd.service").read_text(encoding="utf-8")
     assert "ExecStart=/opt/keymasq/bin/keymasqd" in keymasqd_unit
     assert "NotifyAccess=all" in keymasqd_unit
     assert "APPIMAGE_EXTRACT_AND_RUN" not in keymasqd_unit
@@ -403,9 +820,9 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "WantedBy=default.target" in keymasq_session_unit
     assert "WantedBy=graphical-session.target" in keymasq_session_unit
     assert (fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc").is_file()
-    assert "unlock_required = false" in (
-        fake_root / "etc/keymasq/security.toml"
-    ).read_text(encoding="utf-8")
+    assert "unlock_required = false" in (fake_root / "etc/keymasq/security.toml").read_text(
+        encoding="utf-8"
+    )
     record_rule = (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").read_text(
         encoding="utf-8"
     )
@@ -414,9 +831,7 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "com.keymasq.record-macro" in record_rule
     assert "polkit.Result.AUTH_SELF" in record_rule
     assert "AUTH_SELF_KEEP" not in record_rule
-    assert not (
-        fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
-    ).exists()
+    assert not (fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy").exists()
     atomic_keep_list = (fake_root / "etc/atomic-update.conf.d/keymasq.conf").read_text(
         encoding="utf-8"
     )
@@ -534,9 +949,7 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
     assert "auth_self_keep" in record_policy
     assert (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").is_file()
     assert not (fake_root / "etc/atomic-update.conf.d/keymasq.conf").exists()
-    assert not (
-        fake_root / "root/.config/autostart/tools.keymasq.keymasq-session.desktop"
-    ).exists()
+    assert not (fake_root / "root/.config/autostart/tools.keymasq.keymasq-session.desktop").exists()
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "systemd-sysusers" in command_log
     assert "systemd-tmpfiles --create" in command_log
@@ -658,9 +1071,9 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     ).read_text(encoding="utf-8")
     assert "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" in autostart
     assert "Exec=env " in autostart
-    instructions = (
-        fake_root / "opt/keymasq/share/keymasq/non-systemd-services.txt"
-    ).read_text(encoding="utf-8")
+    instructions = (fake_root / "opt/keymasq/share/keymasq/non-systemd-services.txt").read_text(
+        encoding="utf-8"
+    )
     assert "command: /opt/keymasq/bin/keymasqd" in instructions
     assert "user: keymasq" in instructions
     assert "restart policy: restart on failure" in instructions
@@ -709,9 +1122,7 @@ def test_appimage_install_does_not_follow_existing_user_file_symlinks(
     assert not autostart.is_symlink()
     assert "# Managed by Keymasq AppImage" in wrapper.read_text(encoding="utf-8")
     assert 'exec "$APPDIR/bin/keymasq" "$@"' in wrapper.read_text(encoding="utf-8")
-    assert "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" in autostart.read_text(
-        encoding="utf-8"
-    )
+    assert "KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1" in autostart.read_text(encoding="utf-8")
 
 
 def test_appimage_install_preserves_non_keymasq_user_wrapper(tmp_path: Path) -> None:
@@ -795,9 +1206,7 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert not (fake_root / "etc/profile.d/keymasq.sh").exists()
     assert not (fake_root / "etc/udev/rules.d/91-keymasq-acl.rules").exists()
     assert not (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").exists()
-    assert not (
-        fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
-    ).exists()
+    assert not (fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy").exists()
     assert not (fake_root / "root/.local/bin/keymasq").exists()
     assert user_waypipe.read_text(encoding="utf-8") == "#!/bin/sh\necho user-waypipe\n"
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
@@ -870,10 +1279,7 @@ exit 0
 
     runtime_env = log_path.read_text(encoding="utf-8")
     assert f"GI_TYPELIB_PATH={appdir}/lib/girepository-1.0" in runtime_env
-    assert (
-        f"GDK_PIXBUF_MODULE_FILE={appdir}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
-        in runtime_env
-    )
+    assert f"GDK_PIXBUF_MODULE_FILE={appdir}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache" in runtime_env
     assert f"GDK_PIXBUF_MODULEDIR={appdir}/lib/gdk-pixbuf-2.0/2.10.0/loaders" in runtime_env
     assert f"GIO_MODULE_DIR={appdir}/lib/gio/modules" in runtime_env
     assert f"XKB_CONFIG_ROOT={appdir}/share/X11/xkb" in runtime_env
@@ -924,6 +1330,40 @@ exit 0
     assert "GDK_DISABLE=gl,vulkan\n" in runtime_env
     assert "GDK_GL=disable\n" in runtime_env
     assert "QT_QUICK_BACKEND=software\n" in runtime_env
+
+
+def test_appimage_runtime_uses_private_gtk_when_brotway_is_enabled(
+    tmp_path: Path,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    log_path = tmp_path / "runtime-env.log"
+    (appdir / "shared/bin").mkdir(parents=True)
+    (appdir / "lib/gtk4-brotway").mkdir(parents=True)
+    (appdir / "share").mkdir()
+    _write_executable(appdir / "shared/bin/python3.12", "#!/bin/sh\nexit 99\n")
+    _write_executable(
+        appdir / "lib/ld-linux-x86-64.so.2",
+        """#!/bin/sh
+printf 'LD_LIBRARY_PATH=%s\nargv=%s\n' "$LD_LIBRARY_PATH" "$*" > "$KEYMASQ_RUNTIME_ENV_LOG"
+exit 0
+""",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "APPDIR": str(appdir),
+            "KEYMASQ_APPIMAGE_BROTWAY": "1",
+            "KEYMASQ_RUNTIME_ENV_LOG": str(log_path),
+        }
+    )
+    env.pop("LD_LIBRARY_PATH", None)
+
+    subprocess.run(["sh", str(RUNTIME_SCRIPT), "keymasq"], check=True, env=env)
+
+    runtime_env = log_path.read_text(encoding="utf-8")
+    expected = f"{appdir}/lib/gtk4-brotway:{appdir}/lib"
+    assert f"LD_LIBRARY_PATH={expected}\n" in runtime_env
+    assert f"argv=--library-path {expected} " in runtime_env
 
 
 def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
@@ -982,12 +1422,12 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     assert "WantedBy=graphical-session.target" in (
         fake_root / "root/.config/systemd/user/keymasq-session.service"
     ).read_text(encoding="utf-8")
-    assert (
-        fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc"
-    ).read_text(encoding="utf-8") == "new-update-public-key\n"
-    assert 'exec "$APPDIR/bin/keymasq" "$@"' in (
-        fake_root / "opt/keymasq/bin/keymasq"
-    ).read_text(encoding="utf-8")
+    assert (fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc").read_text(
+        encoding="utf-8"
+    ) == "new-update-public-key\n"
+    assert 'exec "$APPDIR/bin/keymasq" "$@"' in (fake_root / "opt/keymasq/bin/keymasq").read_text(
+        encoding="utf-8"
+    )
     assert "/etc/systemd/system/keymasqd.service" in (
         fake_root / "etc/atomic-update.conf.d/keymasq.conf"
     ).read_text(encoding="utf-8")
@@ -1048,9 +1488,7 @@ def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
         "update manifest architecture aarch64 does not match system architecture x86_64"
         in result.stderr
     )
-    assert "gpg --homedir" in Path(env["KEYMASQ_COMMAND_LOG"]).read_text(
-        encoding="utf-8"
-    )
+    assert "gpg --homedir" in Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert target.read_text(encoding="utf-8") == "old\n"
     assert not (fake_root / "opt/keymasq/runtime/current").exists()
 
@@ -1163,9 +1601,7 @@ def test_appimage_self_update_reports_service_restart_failure(tmp_path: Path) ->
     target.write_text("old\n", encoding="utf-8")
     target.chmod(0o755)
     (fake_root / "etc/systemd/system").mkdir(parents=True)
-    (fake_root / "etc/systemd/system/keymasqd.service").write_text(
-        "stale\n", encoding="utf-8"
-    )
+    (fake_root / "etc/systemd/system/keymasqd.service").write_text("stale\n", encoding="utf-8")
 
     update_dir = tmp_path / "updates"
     update_dir.mkdir()

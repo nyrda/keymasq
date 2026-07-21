@@ -17,6 +17,7 @@ when in doubt.
 | Suite | Command | Documented in |
 | ----- | ------- | ------------- |
 | Daemon/session runtime | `./scripts/integration.sh daemon-session` | [DAEMON_SESSION_INTEGRATION_TEST.md](DAEMON_SESSION_INTEGRATION_TEST.md) |
+| AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [APPIMAGE_BROTWAY_INTEGRATION_TEST.md](APPIMAGE_BROTWAY_INTEGRATION_TEST.md) |
 | Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [LISTENER_VM_TESTS.md](LISTENER_VM_TESTS.md) |
 | Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|gnome-bridge>` | [LISTENER_VM_TESTS.md](LISTENER_VM_TESTS.md) |
 | Documentation screenshots | `scripts/check-doc-screenshots` | [SCREENSHOTS.md](SCREENSHOTS.md) |
@@ -37,6 +38,7 @@ listener matrix. All VM suites want a Linux host with KVM acceleration.
 | GNOME Shell extension | `gnome-extension/**` | `gnome-bridge` and `gnome` |
 | Nix/VM infrastructure | `flake.nix`, `flake.lock`, `nix/**` | `daemon-session` and the full `listeners` matrix |
 | Services, udev, packaging payload | `systemd/**`, `udev/**`, `sysusers.d/**`, `tmpfiles.d/**`, `polkit/**`, and packaged copies of these payloads (for example `packaging/appimage/assets/**`) | `daemon-session` |
+| AppImage Brotway payload, runtime, or test harness | `packaging/appimage/**` Brotway artifact, dependency collection, launcher, installer/runtime layout, or GUI startup integration; `nix/appimage-brotway-integration-test.nix`; `nix/appimage-brotway-integration-test/**`; `scripts/test-appimage-brotway` | Build the candidate AppImage and run `scripts/test-appimage-brotway <artifact>` |
 | Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself: `daemon-session` plus at least one listener suite for `integration.sh`; `scripts/check-doc-screenshots` for the screenshot scripts |
 | Docs, packaging metadata, unrelated tooling only | `docs/**`, `.github/**`, `scripts/**` not listed above, and `packaging/**` metadata that does not ship service/udev payloads | None |
 
@@ -71,6 +73,13 @@ scripts/check-doc-screenshots
 Prereleases built through the `Package` workflow's manual dispatch should meet
 the same bar unless the prerelease exists specifically to test packaging
 changes.
+
+Every AppImage release candidate must additionally pass its artifact-specific
+gate after it has been built:
+
+```bash
+scripts/test-appimage-brotway dist/appimage/Keymasq-*-x86_64.AppImage
+```
 
 ## Optional: running the gates on GitHub
 

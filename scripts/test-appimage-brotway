@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/test-appimage-brotway <Keymasq.AppImage>
+
+Boots the two-node NixOS AppImage/Brotway integration test. The exact local
+AppImage is imported once by Nix, installed in the Deck VM, and exercised from
+a separate headless-Chromium VM.
+
+Example:
+  scripts/test-appimage-brotway dist/appimage/Keymasq-0.19.0-x86_64.AppImage
+EOF
+}
+
+if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  [[ $# -eq 1 ]] && exit 0
+  exit 2
+fi
+
+appimage="$(realpath -- "$1")"
+if [[ ! -f "$appimage" ]]; then
+  echo "AppImage does not exist: $appimage" >&2
+  exit 1
+fi
+if [[ ! -x "$appimage" ]]; then
+  echo "AppImage is not executable: $appimage" >&2
+  echo "Run: chmod +x '$appimage'" >&2
+  exit 1
+fi
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  echo "The AppImage/Brotway VM test currently requires an x86_64-linux host." >&2
+  exit 1
+fi
+
+artifact_hash="$(sha256sum "$appimage" | awk '{print $1}')"
+target="path:.#checks.x86_64-linux.appimage-brotway-integration-test"
+
+echo "appimage-brotway: artifact=$appimage"
+echo "appimage-brotway: sha256=$artifact_hash"
+echo "appimage-brotway: target=$target"
+
+export KEYMASQ_APPIMAGE_TEST_ARTIFACT="$appimage"
+if nix path-info --impure "$target" >/dev/null 2>&1; then
+  exec nix build --no-link --rebuild --impure "$target"
+fi
+exec nix build --no-link --impure "$target"

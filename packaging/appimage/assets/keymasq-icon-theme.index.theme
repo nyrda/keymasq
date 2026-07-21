@@ -1,0 +1,35 @@
+[Icon Theme]
+Name=Keymasq
+Comment=Private raster icon theme for the Keymasq AppImage
+Inherits=hicolor
+Directories=16x16/apps,24x24/apps,32x32/apps,48x48/apps,64x64/apps,96x96/apps
+
+[16x16/apps]
+Size=16
+Type=Fixed
+Context=Applications
+
+[24x24/apps]
+Size=24
+Type=Fixed
+Context=Applications
+
+[32x32/apps]
+Size=32
+Type=Fixed
+Context=Applications
+
+[48x48/apps]
+Size=48
+Type=Fixed
+Context=Applications
+
+[64x64/apps]
+Size=64
+Type=Fixed
+Context=Applications
+
+[96x96/apps]
+Size=96
+Type=Fixed
+Context=Applications

@@ -216,8 +216,15 @@ class ProfileManagedTab(
                 source_widget=self,
             )
 
-    def _request_session_async(self, payload: dict, callback) -> object:
-        return session_request_async(payload, callback)
+    def _request_session_async(
+        self,
+        payload: dict,
+        callback,
+        timeout: float | None = None,
+    ) -> object:
+        if timeout is None:
+            return session_request_async(payload, callback)
+        return session_request_async(payload, callback, timeout=timeout)
 
     def _notify_session_reload(self) -> bool:
         return notify_session_reload()

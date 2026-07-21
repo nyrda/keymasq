@@ -35,6 +35,7 @@ class SortableComboList[ItemT]:
         get_items: Callable[[], Iterable[ItemT]],
         sort_keys: Mapping[int, Callable[[ItemT], str]],
         create_row: Callable[[ItemT], Gtk.ListBoxRow],
+        search_matches: Callable[[str, Gtk.ListBoxRow], bool] | None = None,
         is_available: Callable[[], bool] | None = None,
         row_activated: Callable[[Gtk.ListBox, Gtk.ListBoxRow], None] | None = None,
         trailing_header_width: int | None = None,
@@ -44,6 +45,7 @@ class SortableComboList[ItemT]:
         self._get_items = get_items
         self._sort_keys = dict(sort_keys)
         self._create_row = create_row
+        self._search_matches = search_matches or self._default_search_matches
         self._is_available = is_available or (lambda: True)
         self._sort_column = SORT_NONE
         self._sort_ascending = True
@@ -70,6 +72,7 @@ class SortableComboList[ItemT]:
         install_listbox_fuzzy_filter(
             self.listbox,
             self.search_entry,
+            row_matches=self._search_matches,
             after_filter_changed=self._after_search_filter_changed,
         )
 
@@ -148,11 +151,11 @@ class SortableComboList[ItemT]:
 
     def visible_count(self) -> int:
         query = self.search_entry.get_text()
-        return sum(
-            1
-            for row in self.iter_rows()
-            if fuzzy_query_matches(query, getattr(row, "_search_text", ""))
-        )
+        return sum(1 for row in self.iter_rows() if self._search_matches(query, row))
+
+    @staticmethod
+    def _default_search_matches(query: str, row: Gtk.ListBoxRow) -> bool:
+        return fuzzy_query_matches(query, getattr(row, "_search_text", ""))
 
     def update_state(self, *, has_combos: bool | None = None) -> None:
         if not self._is_available():

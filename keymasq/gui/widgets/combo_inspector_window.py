@@ -24,13 +24,16 @@ from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.gui.widgets.action_payloads import mapping_action_from_payload
 from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER, SortableComboList
 from keymasq.gui.widgets.combo_presentation import (
+    ComboSearchDocument,
     combo_action_label,
     combo_default_name,
     combo_key_label,
-    combo_search_text,
+    combo_row_search_matches,
+    combo_search_document,
     combo_trigger_label,
     create_combo_summary_row,
 )
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
 
 
 @dataclass
@@ -45,7 +48,7 @@ class ComboInspectorItem:
     restore_trigger_keys: list[str] | None = None
     match_across_devices: bool = False
     step_tooltips: list[str] | None = None
-    search_text: str = ""
+    search_document: ComboSearchDocument = ComboSearchDocument()
 
 
 @dataclass
@@ -158,6 +161,7 @@ class ComboInspectorWindow(Adw.Window):
                 SORT_ACTION: lambda item: describe_mapping_action_compact(item.action),
             },
             create_row=self._create_combo_row,
+            search_matches=combo_row_search_matches,
         )
         self.search_entry = self._combo_list.search_entry
         self.section_label = self._combo_list.section_label
@@ -334,7 +338,7 @@ class ComboInspectorWindow(Adw.Window):
             step_tooltips=item.step_tooltips,
         )
         row._combo_id = item.combo_id  # type: ignore[attr-defined]
-        row._search_text = item.search_text  # type: ignore[attr-defined]
+        row._combo_search_document = item.search_document  # type: ignore[attr-defined]
         return row
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:
@@ -353,7 +357,13 @@ class ComboInspectorWindow(Adw.Window):
         if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
             self._combo_list.hide_search()
             return True
-        return False
+        return start_search_from_keypress(
+            self,
+            self.search_entry,
+            keyval,
+            state,
+            show_search=self._combo_list.show_search,
+        )
 
     def _on_profiles_changed(self, _event: JsonDict) -> bool:
         self._request_snapshot()
@@ -486,7 +496,7 @@ def _profile_summary(active_profiles: list[str]) -> str:
 def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
     steps: list[ComboStep] = []
     step_tooltips: list[str] = []
-    search_parts: list[str] = []
+    event_search_fields: list[str] = []
     for step_payload in _list_of_dicts(payload.get("steps")):
         events: list[ComboEvent] = []
         scope_lines: list[str] = []
@@ -499,12 +509,13 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
             device_name = _text(event_payload.get("device_name"))
             events.append(ComboEvent(evdev=evdev, hardware_id=hardware_id, source=source or None))
             scope_lines.append(_event_scope_label(evdev, hardware_id, source, device_name))
-            search_parts.extend([evdev, hardware_id, source, device_name])
+            if device_name:
+                event_search_fields.append(device_name)
+                if source:
+                    event_search_fields.append(f"{device_name} {source}")
         if not events:
             continue
         timeout_ms = coerce_int(step_payload.get("timeout_ms"), None)
-        if timeout_ms is not None:
-            search_parts.append(f"{timeout_ms}ms")
         steps.append(ComboStep(events=events, timeout_ms=timeout_ms))
         step_tooltips.append("\n".join(scope_lines))
     if not steps:
@@ -543,12 +554,10 @@ def _combo_item_from_payload(payload: JsonDict) -> ComboInspectorItem | None:
         restore_trigger_keys=restore_trigger_keys,
         match_across_devices=match_across_devices,
         step_tooltips=step_tooltips,
-        search_text=" ".join(
-            [
-                combo_search_text(search_config, profile_name=profile_name),
-                " ".join(search_parts),
-                f"order {coerce_int(payload.get('order'), 0) + 1}",
-            ]
+        search_document=combo_search_document(
+            search_config,
+            profile_name=profile_name,
+            additional_event_fields=event_search_fields,
         ),
     )
 

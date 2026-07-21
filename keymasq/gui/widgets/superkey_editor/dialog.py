@@ -20,7 +20,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.superkeys import SuperkeyAction, SuperkeyConfig
 from keymasq.gui.widgets.action_sequence import ActionSequenceDialog, ActionSequenceMode
 from keymasq.gui.widgets.docs_links import docs_page_url
-from keymasq.gui.widgets.fuzzy_search import superkey_search_text
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress, superkey_search_text
 from keymasq.gui.widgets.managed_editor.shell import (
     ManagedEditorCallbacks,
     ManagedEditorLabels,
@@ -150,7 +150,13 @@ class SuperkeyDialog(Adw.Dialog):
         if keyval == Gdk.KEY_Escape:
             self._request_close()
             return True
-        return False
+        return start_search_from_keypress(
+            self,
+            self.shell.search_entry,
+            keyval,
+            state,
+            show_search=self.shell.show_search,
+        )
 
     def do_close_attempt(self) -> None:
         self._request_close()

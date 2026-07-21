@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
@@ -30,6 +30,7 @@ from keymasq.gui.widgets.compositor_actions import (
     build_compositor_action_pages,
     compositor_action_tab_name,
 )
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
 from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
@@ -435,8 +436,27 @@ class KeySelectorDialog(
         main_box.append(frame)
         self.set_child(main_box)
 
+        search_key_controller = Gtk.EventControllerKey()
+        search_key_controller.connect("key-pressed", self._on_search_key_pressed)
+        self.add_controller(search_key_controller)
+
         self.stack.connect("notify::visible-child", self._on_tab_changed)
         self._on_tab_changed(self.stack, None)
+
+    def _on_search_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        search_entry = {
+            "macro": getattr(self, "_macro_search_entry", None),
+            "superkey": getattr(self, "_superkey_search_entry", None),
+        }.get(self.stack.get_visible_child_name())
+        if search_entry is None:
+            return False
+        return start_search_from_keypress(self, search_entry, keyval, state)
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()

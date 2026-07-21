@@ -27,6 +27,114 @@ def test_fuzzy_query_matches_substrings_and_abbreviations() -> None:
     )
 
 
+def test_type_to_search_does_not_steal_from_text_inputs() -> None:
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+
+    owner = Gtk.Window()
+    editor = Gtk.Entry()
+    owner.set_child(editor)
+    editor.grab_focus()
+    search_entry = Gtk.SearchEntry()
+
+    handled = start_search_from_keypress(
+        owner,
+        search_entry,
+        Gdk.KEY_a,
+        Gdk.ModifierType(0),
+    )
+
+    assert handled is False
+    assert search_entry.get_text() == ""
+
+
+def test_type_to_search_appends_to_a_visible_unfocused_query() -> None:
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+
+    owner = Gtk.Window()
+    content = Gtk.Box()
+    search_entry = Gtk.SearchEntry()
+    search_entry.set_text("existing")
+    other_button = Gtk.Button()
+    content.append(search_entry)
+    content.append(other_button)
+    owner.set_child(content)
+    other_button.grab_focus()
+
+    handled = start_search_from_keypress(
+        owner,
+        search_entry,
+        Gdk.KEY_q,
+        Gdk.ModifierType(0),
+        show_search=lambda: pytest.fail("visible search must not be reselected"),
+    )
+
+    assert handled is True
+    assert search_entry.get_text() == "existingq"
+
+
+def test_type_to_search_does_not_mutate_a_hidden_entry_when_show_declines() -> None:
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+
+    owner = Gtk.Window()
+    search_entry = Gtk.SearchEntry()
+    search_entry.set_visible(False)
+    owner.set_child(search_entry)
+
+    handled = start_search_from_keypress(
+        owner,
+        search_entry,
+        Gdk.KEY_q,
+        Gdk.ModifierType(0),
+        show_search=lambda: None,
+    )
+
+    assert handled is False
+    assert search_entry.get_text() == ""
+
+
+def test_type_to_search_ignores_space_and_modified_keys() -> None:
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+
+    owner = Gtk.Window()
+    content = Gtk.Box()
+    search_entry = Gtk.SearchEntry()
+    other_button = Gtk.Button()
+    content.append(search_entry)
+    content.append(other_button)
+    owner.set_child(content)
+    other_button.grab_focus()
+
+    assert not start_search_from_keypress(
+        owner,
+        search_entry,
+        Gdk.KEY_space,
+        Gdk.ModifierType(0),
+    )
+    assert not start_search_from_keypress(
+        owner,
+        search_entry,
+        Gdk.KEY_q,
+        Gdk.ModifierType.CONTROL_MASK,
+    )
+    assert search_entry.get_text() == ""
+
+
 def test_macro_manager_search_entry_filters_against_row_metadata(monkeypatch) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import GLib, Gtk
@@ -100,12 +208,12 @@ def test_key_selector_macro_search_clears_hidden_selection(monkeypatch) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
-    import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    import keymasq.gui.widgets.key_selector.macro_tab as macro_tab_module
     from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
-    monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
+    monkeypatch.setattr(macro_tab_module.GLib, "idle_add", lambda callback, *args: 0)
     monkeypatch.setattr(
-        key_selector_dialog_module,
+        macro_tab_module,
         "session_request_async",
         lambda _payload, _callback: None,
     )
@@ -134,6 +242,58 @@ def test_key_selector_macro_search_clears_hidden_selection(monkeypatch) -> None:
 
     assert dialog._selected_macro is None
     assert dialog.map_btn.get_sensitive() is False
+
+
+def test_key_selector_typing_searches_active_saved_action_tab(monkeypatch) -> None:
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gdk, Gtk
+
+    import keymasq.gui.widgets.key_selector.macro_tab as macro_tab_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+    monkeypatch.setattr(macro_tab_module.GLib, "idle_add", lambda callback, *args: 0)
+    monkeypatch.setattr(
+        macro_tab_module,
+        "session_request_async",
+        lambda _payload, _callback: None,
+    )
+    dialog = KeySelectorDialog(Gtk.Window(), "Back")
+
+    dialog.stack.set_visible_child_name("macro")
+    assert (
+        dialog._on_search_key_pressed(
+            Gtk.EventControllerKey(),
+            Gdk.KEY_m,
+            0,
+            Gdk.ModifierType(0),
+        )
+        is True
+    )
+    assert dialog._macro_search_entry.get_text() == "m"
+
+    dialog.stack.set_visible_child_name("superkey")
+    assert (
+        dialog._on_search_key_pressed(
+            Gtk.EventControllerKey(),
+            Gdk.KEY_s,
+            0,
+            Gdk.ModifierType(0),
+        )
+        is True
+    )
+    assert dialog._superkey_search_entry.get_text() == "s"
+
+    dialog.stack.set_visible_child_name("keyboard")
+    assert (
+        dialog._on_search_key_pressed(
+            Gtk.EventControllerKey(),
+            Gdk.KEY_k,
+            0,
+            Gdk.ModifierType(0),
+        )
+        is False
+    )
 
 
 def test_key_selector_macro_refresh_clears_missing_selection(monkeypatch) -> None:
@@ -465,6 +625,18 @@ def test_superkey_dialog_search_is_revealed_by_button_and_ctrl_f(
     assert handled is True
     assert dialog.shell.search_entry.get_visible() is True
 
+    dialog.shell.hide_search()
+    handled = dialog._on_key_pressed(
+        Gtk.EventControllerKey(),
+        Gdk.KEY_s,
+        0,
+        Gdk.ModifierType(0),
+    )
+
+    assert handled is True
+    assert dialog.shell.search_entry.get_visible() is True
+    assert dialog.shell.search_entry.get_text() == "s"
+
 
 def test_analog_control_dialog_search_is_revealed_by_button_and_ctrl_f(
     temp_config_dir,
@@ -493,3 +665,15 @@ def test_analog_control_dialog_search_is_revealed_by_button_and_ctrl_f(
 
     assert handled is True
     assert dialog.shell.search_entry.get_visible() is True
+
+    dialog.shell.hide_search()
+    handled = dialog._on_key_pressed(
+        Gtk.EventControllerKey(),
+        Gdk.KEY_a,
+        0,
+        Gdk.ModifierType(0),
+    )
+
+    assert handled is True
+    assert dialog.shell.search_entry.get_visible() is True
+    assert dialog.shell.search_entry.get_text() == "a"

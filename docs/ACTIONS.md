@@ -457,6 +457,9 @@ so only a small allowlisted set of actions is available.
 Assign a [super key](SUPERKEYS.md) to this button. Select one from the Super
 Keys tab, then click **Map**.
 
+On the Super Keys and Macro tabs, start typing to focus the visible search box
+and filter the corresponding saved-action list immediately.
+
 Use **Open Super Keys…** to create or edit reusable super keys. Right-click a
 saved super key in the selector to open the Super Keys dialog with that super
 key selected.

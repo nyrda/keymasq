@@ -3,11 +3,12 @@ import pytest
 from tests.gui.support import SessionIpcHarness, collect_listbox_row_labels
 
 gi = pytest.importorskip("gi")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 
 
 def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None:
-    from gi.repository import Gtk
+    from gi.repository import Gdk, Gtk
 
     from keymasq.gui.widgets import combo_inspector_window as inspector_module
     from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
@@ -87,6 +88,19 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
 
     assert collect_listbox_row_labels(window.combo_listbox) == ["Quick Save"]
 
+    assert (
+        window._on_key_pressed(
+            Gtk.EventControllerKey(),
+            Gdk.KEY_q,
+            0,
+            Gdk.ModifierType(0),
+        )
+        is True
+    )
+    assert window.search_entry.get_visible() is True
+    assert window.search_entry.get_text() == "q"
+    window._combo_list.hide_search()
+
     window.search_button.emit("clicked")
     assert window.search_entry.get_visible() is True
 
@@ -129,6 +143,70 @@ def test_combo_inspector_window_renders_snapshot_and_search(monkeypatch) -> None
     assert session.callbacks["profiles_changed"] == []
     assert session.callbacks["runtime_reset"] == []
     assert session.callbacks["keymasqd_status"] == []
+
+
+def test_combo_inspector_search_scopes_visible_and_runtime_fields(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import combo_inspector_window as inspector_module
+    from keymasq.gui.widgets.combo_inspector_window import ComboInspectorWindow
+
+    def workspace_combo(workspace: int) -> dict[str, object]:
+        suffix = f" {workspace}" if workspace > 1 else ""
+        return {
+            "id": f"workspace-{workspace}",
+            "name": f"movetoworkspace{suffix}",
+            "profile_name": "Desktop",
+            "order": workspace - 1,
+            "steps": [
+                {
+                    "events": [
+                        {
+                            "evdev": f"key_f{workspace + 4}",
+                            "hardware_id": "t3-controller-4",
+                            "source": "kbd",
+                            "device_name": "Test Keyboard",
+                        }
+                    ]
+                }
+            ],
+            "action": {
+                "action": "compositor_dispatch",
+                "dispatcher": "movetoworkspace",
+                "args": str(workspace),
+            },
+        }
+
+    snapshot = {
+        "status": "ok",
+        "active_profiles": ["Desktop"],
+        "combos": [workspace_combo(workspace) for workspace in range(1, 7)],
+    }
+
+    def request_handler(_payload, callback, _timeout):
+        callback(snapshot)
+
+    SessionIpcHarness(request_handler=request_handler).install(monkeypatch, inspector_module)
+    window = ComboInspectorWindow(Gtk.Window())
+
+    def visible_combo_ids() -> list[str]:
+        return [
+            row._combo_id
+            for row in window._combo_list.iter_rows()
+            if row.get_child_visible()
+        ]
+
+    window.search_entry.set_text("movetoworkspace 4")
+    assert visible_combo_ids() == ["workspace-4"]
+
+    window.search_entry.set_text("keyboard controller")
+    assert visible_combo_ids() == []
+    assert window.section_label.get_text() == "No matching active combos."
+
+    window.search_entry.set_text("")
+    assert visible_combo_ids() == [f"workspace-{workspace}" for workspace in range(1, 7)]
+
+    window._finalize()
 
 
 def test_combo_inspector_window_ignores_stale_snapshot_responses(monkeypatch) -> None:

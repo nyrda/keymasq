@@ -30,6 +30,7 @@ from keymasq.gui.widgets.analog_control.options import (
 from keymasq.gui.widgets.analog_control.persistence import AnalogControlPersistence
 from keymasq.gui.widgets.analog_control.view import AnalogControlEditorView, OutputChoicesLoader
 from keymasq.gui.widgets.docs_links import actions_docs_url
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
 from keymasq.gui.widgets.gamepad_output_choices import virtual_gamepad_count
 from keymasq.gui.widgets.managed_editor.shell import (
     ManagedEditorCallbacks,
@@ -201,7 +202,13 @@ class AnalogControlDialog(Adw.Dialog):
         if keyval == Gdk.KEY_Escape:
             self._request_close()
             return True
-        return False
+        return start_search_from_keypress(
+            self,
+            self.shell.search_entry,
+            keyval,
+            state,
+            show_search=self.shell.show_search,
+        )
 
     def _on_key_released(
         self,

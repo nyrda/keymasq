@@ -16,10 +16,12 @@ from keymasq.gui.widgets.combo_editor_dialog import ComboEditorDialog, combo_tri
 from keymasq.gui.widgets.combo_list import SORT_ACTION, SORT_NAME, SORT_TRIGGER, SortableComboList
 from keymasq.gui.widgets.combo_presentation import (
     combo_default_name,
-    combo_search_text,
+    combo_row_search_matches,
+    combo_search_document,
     combo_trigger_label,
     create_combo_summary_row,
 )
+from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.profile.types import ProfileInfo
@@ -132,6 +134,7 @@ class ComboTab(ProfileManagedTab):
                 SORT_ACTION: lambda combo: describe_mapping_action_compact(combo.action),
             },
             create_row=self._create_combo_row,
+            search_matches=combo_row_search_matches,
             is_available=lambda: self._selected_profile is not None,
             row_activated=self._on_row_activated,
             trailing_header_width=36,
@@ -199,7 +202,7 @@ class ComboTab(ProfileManagedTab):
             trailing_widget=delete_button,
         )
         row._combo_id = combo.id  # type: ignore[attr-defined]
-        row._search_text = combo_search_text(  # type: ignore[attr-defined]
+        row._combo_search_document = combo_search_document(  # type: ignore[attr-defined]
             combo,
             profile_name=self.selected_profile_name() or "",
         )
@@ -221,7 +224,13 @@ class ComboTab(ProfileManagedTab):
         if keyval == Gdk.KEY_Escape and self.search_entry.get_visible():
             self._combo_list.hide_search()
             return True
-        return False
+        return start_search_from_keypress(
+            self,
+            self.search_entry,
+            keyval,
+            state,
+            show_search=self._combo_list.show_search,
+        )
 
     def _on_inspect_combos_clicked(self, _button: Gtk.Button) -> None:
         root = self.main_window or self.get_root()

@@ -212,8 +212,8 @@ Debian, Arch, Fedora, openSUSE, and Nix packaging paths).
 
 The AppImage path lives under `packaging/appimage/`. It targets SteamOS first
 and currently builds x86_64 only. The AppImage bundles Python, Keymasq, Python
-dependencies, GTK4/libadwaita, and GObject introspection data using AnyLinux
-`quick-sharun`.
+dependencies, GTK4/libadwaita, GObject introspection data, and the pinned
+gtk-brotway browser backend overlay using AnyLinux `quick-sharun`.
 
 Build inside an Arch environment:
 
@@ -229,7 +229,25 @@ downloading the pinned AnyLinux `quick-sharun` helper from
 `pkgforge-dev/Anylinux-AppImages`. The helper's `sharun`, `appimagetool`, and
 `uruntime`, `mkdwarfs`, and `anylinux.c` inputs are separately
 version/checksum-pinned and prepared before the helper runs, so release builds
-do not consume moving or unverified transitive inputs.
+do not let those helpers fetch optional transitive inputs. The
+`archlinux:base-devel` image and packages installed from Arch's rolling
+repositories are not snapshot-pinned; they supply the bundled libraries,
+gtk-brotway ELF dependencies, `adwaita-icon-theme`, and `rsvg-convert` used for
+the private raster icon payload.
+
+The gtk-brotway overlay is built against Arch in the dedicated
+`nyrda/gtk-brotway` repository. Keymasq consumes its minimal release archive,
+verifies the pinned SHA-256, and keeps its `libgtk-4` under
+`lib/gtk4-brotway`; stock GTK remains the default for every other AppImage
+command.
+
+The AppImage also contains a private rasterized `Keymasq` icon theme covering
+every GTK icon name in `packaging/appimage/assets/gui-icon-names.txt`, plus PNG
+input-picker artwork. AppImage GUI startup selects it from `$APPDIR`; other
+package formats continue using the host icon theme. This avoids depending on a
+SteamOS icon theme or SVG/Glycin loader. The extracted-runtime verifier decodes
+every manifest icon with the bundled GTK, and the Brotway VM gate renders the
+matching one-shot gallery in Chromium.
 
 The AppImage installs the signed payload at `/opt/keymasq/Keymasq.AppImage`,
 extracts it once into `/opt/keymasq/runtime/<sha256>`, points

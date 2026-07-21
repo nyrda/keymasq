@@ -85,6 +85,7 @@ plugins:
   - search
 
 # Docs intentionally omitted from the published site (developer-facing):
+#   - APPIMAGE_BROTWAY_INTEGRATION_TEST.md
 #   - DEPENDENCIES.md
 #   - LISTENER_VM_TESTS.md
 #   - PACKAGING.md

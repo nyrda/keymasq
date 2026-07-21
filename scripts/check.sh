@@ -7,7 +7,8 @@ Usage: ./scripts/check.sh [--vm] [--evdev current|1.6.1|1.7.0] [auto|keymasqd|se
 
 Runs ruff, basedpyright, stylelint for GUI CSS, and the selected pytest category.
 Defaults to auto, which selects the category from pending and untracked changes
-under keymasq/, tests/, and nix/docshots/.
+under keymasq/, tests/, the checked Nix Python helpers, and the AppImage
+packaging tree.
 
 The default evdev lane is current nixpkgs. Use --evdev for compatibility pytest
 or pytest VM runs against specific python-evdev versions.
@@ -78,8 +79,16 @@ resolve_auto_category() {
   local -a changed_paths=()
   local -a untracked_paths=()
 
-  mapfile -t changed_paths < <(git diff --name-only HEAD -- keymasq tests nix/docshots)
-  mapfile -t untracked_paths < <(git ls-files --others --exclude-standard -- keymasq tests nix/docshots)
+  mapfile -t changed_paths < <(
+    git diff --name-only HEAD -- \
+      keymasq tests nix/docshots nix/appimage-brotway-integration-test \
+      packaging/appimage
+  )
+  mapfile -t untracked_paths < <(
+    git ls-files --others --exclude-standard -- \
+      keymasq tests nix/docshots nix/appimage-brotway-integration-test \
+      packaging/appimage
+  )
 
   for path in "${changed_paths[@]}" "${untracked_paths[@]}"; do
     [[ -n "$path" ]] || continue
@@ -112,6 +121,9 @@ resolve_auto_category() {
         elif [[ "$selected" != "docshots" ]]; then
           selected="full"
         fi
+        ;;
+      nix/appimage-brotway-integration-test/*|packaging/appimage/*)
+        selected="full"
         ;;
       keymasq/*|tests/*)
         selected="full"
@@ -385,7 +397,20 @@ run_pytest_vm() {
   fi
 }
 
-if ! run_compact_check "ruff" run_default_nix ruff check keymasq tests nix/docshots; then
+STATIC_PYTHON_TARGETS=(
+  keymasq
+  tests
+  nix/docshots
+  nix/appimage-brotway-integration-test
+  packaging/appimage/encode-symbolic-icon.py
+)
+
+if ! run_compact_check "ruff" run_default_nix ruff check "${STATIC_PYTHON_TARGETS[@]}"; then
+  exit 1
+fi
+
+if ! run_compact_check "ruff-format-appimage" run_default_nix ruff format --check \
+  nix/appimage-brotway-integration-test packaging/appimage/encode-symbolic-icon.py; then
   exit 1
 fi
 

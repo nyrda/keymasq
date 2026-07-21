@@ -295,6 +295,23 @@
           checkSuffix = "-evdev170";
           evdevPackage = evdevPackages.evdev170;
         };
+      appimageBrotwayArtifact = builtins.getEnv "KEYMASQ_APPIMAGE_TEST_ARTIFACT";
+      appimageBrotwayIntegrationChecks =
+        if appimageBrotwayArtifact == "" then
+          { checks = { }; }
+        else
+          let
+            pkgs = mkPkgs "x86_64-linux";
+          in
+          {
+            checks.appimage-brotway-integration-test = import ./nix/appimage-brotway-integration-test.nix {
+              inherit pkgs;
+              appimageArtifact = builtins.path {
+                path = appimageBrotwayArtifact;
+                name = "Keymasq-under-test.AppImage";
+              };
+            };
+          };
       docshotVm =
         let
           pkgs = mkPkgs "x86_64-linux";
@@ -335,6 +352,7 @@
           // daemonSessionIntegrationChecks.checks
           // daemonSessionIntegrationEvdev161Checks.checks
           // daemonSessionIntegrationEvdev170Checks.checks
+          // appimageBrotwayIntegrationChecks.checks
           // docshotVm.checks;
       };
 

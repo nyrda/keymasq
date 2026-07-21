@@ -110,6 +110,24 @@ involved: `waypipe` gives the GUI its own Wayland display, so the Deck keeps
 running Game Mode untouched. This needs a Wayland compositor on your
 workstation.
 
+## Remote Configuration in a Browser
+
+The AppImage bundles gtk-brotway so the real GTK4 GUI can be used from a web
+browser. Prefer an SSH tunnel because the Brotway endpoint does not provide
+authentication:
+
+```bash
+ssh -L 18101:127.0.0.1:18101 deck@<deck-ip> \
+  /opt/keymasq/bin/gtk4-brotway-run --port 18101 /opt/keymasq/bin/keymasq
+```
+
+Then open `http://127.0.0.1:18101/` locally. The AppImage launcher defaults to
+binding Brotway only to `127.0.0.1`; the endpoint has no authentication. On a
+trusted private network, an explicit `--address 0.0.0.0` makes it reachable
+directly. Do not expose such a listener to an untrusted network. The launcher
+also forces the selected Brotway display, so an inherited SSH X11 `DISPLAY`
+cannot redirect the GUI away from Brotway.
+
 ## Updates
 
 Self-updates run through polkit and prompt for your password like the

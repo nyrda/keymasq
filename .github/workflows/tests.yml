@@ -57,6 +57,7 @@ jobs:
               - "keymasq/common/**"
               - "keymasq/record.py"
               - "nix/**"
+              - "packaging/appimage/**"
               - "pyproject.toml"
               - "scripts/**"
               - "tests/common/**"
@@ -95,7 +96,12 @@ jobs:
           python -m pip install "ruff>=0.12.0"
 
       - name: Run Ruff
-        run: ruff check keymasq tests
+        run: |
+          ruff check keymasq tests nix/docshots \
+            nix/appimage-brotway-integration-test \
+            packaging/appimage/encode-symbolic-icon.py
+          ruff format --check nix/appimage-brotway-integration-test \
+            packaging/appimage/encode-symbolic-icon.py
 
   typecheck:
     needs: changes

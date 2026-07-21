@@ -166,6 +166,15 @@ differentiator is the compositor/session environment itself.
 `slurp` is not a universal base runtime dependency. It is a GUI Capture helper
 for supported Wayland environments.
 
+### Browser GUI backend
+
+- The AppImage bundles the checksum-pinned `nyrda/gtk-brotway` Arch overlay.
+- gtk-brotway supplies a private Broadway-only `libgtk-4`, `gtk4-broadwayd`,
+  its launcher, and debug menu. The `gtk4-brotway-run` and
+  `gtk4-brotway-debugmenu` wrappers activate the private backend; stock GTK
+  remains the default elsewhere.
+- Native packages do not depend on or install gtk-brotway.
+
 ### Capture unlock helper
 
 - `keymasq-record` must be installed alongside the rest of Keymasq

@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -39,8 +40,13 @@ def _gamepad_button(label: str) -> tuple[str, str]:
     return label, GAMEPAD_BUTTONS[label]
 
 
-def _get_gamepad_svg_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "..", "assets", "gamepad.svg")
+def _get_gamepad_image_path() -> str:
+    """Prefer the AppImage's generated PNG, with the source SVG for native installs."""
+    asset_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
+    png_path = os.path.join(asset_dir, "gamepad.png")
+    if os.path.isfile(png_path):
+        return png_path
+    return os.path.join(asset_dir, "gamepad.svg")
 
 
 def build_keyboard_tab(
@@ -548,18 +554,18 @@ def _build_gamepad_center_col(owner) -> Gtk.Box:
 
     box.append(center_btns)
 
-    svg_pic = Gtk.Picture()
-    svg_pic.set_halign(Gtk.Align.CENTER)
-    svg_pic.set_can_shrink(True)
-    svg_pic.set_size_request(260, 170)
+    gamepad_picture = Gtk.Picture()
+    gamepad_picture.set_halign(Gtk.Align.CENTER)
+    gamepad_picture.set_can_shrink(True)
+    gamepad_picture.set_size_request(260, 170)
 
     try:
-        texture = Gdk.Texture.new_from_filename(_get_gamepad_svg_path())
-        svg_pic.set_paintable(texture)
+        texture = Gdk.Texture.new_from_filename(_get_gamepad_image_path())
+        gamepad_picture.set_paintable(texture)
     except Exception:
         log.exception("Failed to load gamepad picker texture")
 
-    box.append(svg_pic)
+    box.append(gamepad_picture)
 
     if hasattr(owner, "_on_gamepad_code_clicked"):
         box.append(_build_gamepad_code_row(owner))

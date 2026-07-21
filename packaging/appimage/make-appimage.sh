@@ -18,6 +18,20 @@ SHARUN_VERSION="${KEYMASQ_APPIMAGE_SHARUN_VERSION:-2.2.3}"
 APPIMAGETOOL_VERSION="${KEYMASQ_APPIMAGE_APPIMAGETOOL_VERSION:-0.3.2}"
 URUNTIME_VERSION="${KEYMASQ_APPIMAGE_URUNTIME_VERSION:-0.5.8}"
 DWARFS_VERSION="${KEYMASQ_APPIMAGE_DWARFS_VERSION:-0.15.3}"
+BROTWAY_BUNDLE_VERSION="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_VERSION:-keymasq-v2}"
+BROTWAY_BUNDLE_NAME="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_NAME:-gtk4-brotway-keymasq-$ARCH.tar.zst}"
+BROTWAY_BUNDLE_URL="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_URL:-https://github.com/nyrda/gtk-brotway/releases/download/$BROTWAY_BUNDLE_VERSION/$BROTWAY_BUNDLE_NAME}"
+case "$ARCH" in
+  x86_64)
+    BROTWAY_BUNDLE_DEFAULT_SHA256="4827d8ba915f875ca0437794625b713232c670adf05bf210a9d4103dfb03e388"
+    ;;
+  *)
+    # keymasq-v2 currently publishes only x86_64. Experimental architectures
+    # must provide a matching bundle and checksum explicitly.
+    BROTWAY_BUNDLE_DEFAULT_SHA256=""
+    ;;
+esac
+BROTWAY_BUNDLE_SHA256="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256:-$BROTWAY_BUNDLE_DEFAULT_SHA256}"
 
 download_to() {
   local url="$1"
@@ -299,6 +313,95 @@ install_runtime_files() {
   cp -a "$REPO_ROOT/assets/tools.keymasq.keymasq.svg" "$APPDIR/share/keymasq/appimage/"
 }
 
+resolve_brotway_bundle() {
+  local dst="$BUILD_ROOT/verified-inputs/$BROTWAY_BUNDLE_NAME"
+  local local_bundle="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE:-}"
+
+  if [[ -z "$BROTWAY_BUNDLE_SHA256" ]]; then
+    echo "KEYMASQ_APPIMAGE_BROTWAY_BUNDLE_SHA256 is required for Brotway bundles" >&2
+    return 1
+  fi
+
+  if [[ -n "$local_bundle" ]]; then
+    local_bundle="$(realpath "$local_bundle")"
+    [[ -f "$local_bundle" ]] || {
+      echo "local Brotway bundle does not exist: $local_bundle" >&2
+      return 1
+    }
+    verify_sha256 "gtk-brotway bundle" "$local_bundle" "$BROTWAY_BUNDLE_SHA256"
+    printf '%s\n' "$local_bundle"
+    return 0
+  fi
+
+  download_verified \
+    "gtk-brotway bundle" \
+    "$BROTWAY_BUNDLE_URL" \
+    "$BROTWAY_BUNDLE_SHA256" \
+    "$dst"
+  printf '%s\n' "$dst"
+}
+
+install_brotway_runtime() {
+  local bundle
+  local bundle_root="$WORKDIR/gtk-brotway-bundle"
+
+  if ! command -v bsdtar >/dev/null 2>&1; then
+    echo "bsdtar is required to extract the Brotway bundle" >&2
+    return 1
+  fi
+
+  bundle="$(resolve_brotway_bundle)"
+
+  rm -rf "$bundle_root"
+  install -d -m 0755 "$bundle_root"
+  bsdtar -xf "$bundle" -C "$bundle_root"
+
+  local brotway_root="$bundle_root/lib/gtk4-brotway"
+  for executable in gtk4-broadwayd gtk4-brotway-run gtk4-brotway-debugmenu; do
+    [[ -x "$brotway_root/$executable" ]] || {
+      echo "Brotway bundle is missing executable: lib/gtk4-brotway/$executable" >&2
+      return 1
+    }
+  done
+  [[ -e "$brotway_root/libgtk-4.so.1" ]] || {
+    echo "Brotway bundle is missing lib/gtk4-brotway/libgtk-4.so.1" >&2
+    return 1
+  }
+  [[ -f "$bundle_root/manifest.json" ]] || {
+    echo "Brotway bundle is missing manifest.json" >&2
+    return 1
+  }
+  [[ -f "$bundle_root/share/licenses/gtk4-brotway/COPYING" ]] || {
+    echo "Brotway bundle is missing its license" >&2
+    return 1
+  }
+
+  install -d -m 0755 \
+    "$APPDIR/lib/gtk4-brotway" \
+    "$APPDIR/share/licenses/gtk4-brotway" \
+    "$APPDIR/share/doc/keymasq"
+  cp -a "$brotway_root/." "$APPDIR/lib/gtk4-brotway/"
+  install -Dm644 \
+    "$bundle_root/share/licenses/gtk4-brotway/COPYING" \
+    "$APPDIR/share/licenses/gtk4-brotway/COPYING"
+  install -Dm644 "$bundle_root/manifest.json" \
+    "$APPDIR/share/doc/keymasq/gtk4-brotway-manifest.json"
+  install -Dm755 \
+    "$REPO_ROOT/packaging/appimage/runtime/gtk4-brotway-run.sh" \
+    "$APPDIR/bin/gtk4-brotway-run"
+  install -Dm755 \
+    "$REPO_ROOT/packaging/appimage/runtime/gtk4-brotway-debugmenu.sh" \
+    "$APPDIR/bin/gtk4-brotway-debugmenu"
+}
+
+verify_brotway_glibc_compatibility() {
+  local brotway_gtk="$APPDIR/lib/gtk4-brotway/libgtk-4.so.1"
+  local appimage_libc="$APPDIR/lib/libc.so.6"
+
+  bash "$REPO_ROOT/packaging/appimage/check-glibc-compatibility.sh" \
+    "$brotway_gtk" "$appimage_libc"
+}
+
 ensure_bundled_python_command() {
   local versioned
   versioned="$("$PYTHON_EXE" - <<'PY'
@@ -330,24 +433,145 @@ find_bundled_python_lib_dir() {
 
 copy_python_packages() {
   local python_lib_dir="$1"
+  local bundled_site="$python_lib_dir/site-packages"
+  local manifest="$REPO_ROOT/packaging/appimage/assets/python-runtime-site-packages.txt"
+  local pattern
+  local source
   local staged_site
   local runtime_site
+  local -a matches
 
   staged_site="$(find "$STAGING" -type d -name site-packages -print -quit)"
   if [[ -z "$staged_site" ]]; then
     echo "failed to locate staged site-packages" >&2
-    exit 1
+    return 1
   fi
+  [[ -f "$manifest" ]] || {
+    echo "AppImage Python runtime package manifest is missing: $manifest" >&2
+    return 1
+  }
 
   runtime_site="$(resolve_runtime_site_packages)"
-  mkdir -p "$python_lib_dir/site-packages"
-  rsync -aL \
-    --exclude '/keymasq/' \
-    --exclude '/python_keymasq-*.dist-info/' \
-    "$runtime_site"/ "$python_lib_dir/site-packages"/
-  chmod -R u+w "$python_lib_dir/site-packages"
-  cp -a "$staged_site"/keymasq "$python_lib_dir/site-packages/"
-  cp -a "$staged_site"/python_keymasq-*.dist-info "$python_lib_dir/site-packages/"
+  case "$bundled_site" in
+    "$APPDIR"/lib/python*/site-packages) ;;
+    *)
+      echo "refusing to replace unexpected bundled site-packages: $bundled_site" >&2
+      return 1
+      ;;
+  esac
+  rm -rf "$bundled_site"
+  mkdir -p "$bundled_site"
+  while IFS= read -r pattern; do
+    [[ -n "$pattern" && "$pattern" != \#* ]] || continue
+    matches=()
+    mapfile -t matches < <(compgen -G "$runtime_site/$pattern" || true)
+    if [[ ${#matches[@]} -eq 0 ]]; then
+      echo "required AppImage Python runtime package is missing: $pattern" >&2
+      return 1
+    fi
+    for source in "${matches[@]}"; do
+      cp -aL "$source" "$bundled_site/"
+    done
+  done < "$manifest"
+  chmod -R u+w "$bundled_site"
+  cp -a "$staged_site"/keymasq "$bundled_site/"
+  cp -a "$staged_site"/python_keymasq-*.dist-info "$bundled_site/"
+}
+
+install_appimage_icons() {
+  local python_lib_dir="$1"
+  local package_assets="$python_lib_dir/site-packages/keymasq/gui/assets"
+  local manifest="$REPO_ROOT/packaging/appimage/assets/gui-icon-names.txt"
+  local theme_root="$APPDIR/share/icons/Keymasq"
+  local source_root="$WORKDIR/appimage-icon-sources"
+  local icon_name
+  local source_name
+  local source_svg
+  local staged_svg
+  local size
+  local output_dir
+
+  for command in gtk-update-icon-cache rsvg-convert; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+      echo "$command is required to build the AppImage icon payload" >&2
+      return 1
+    fi
+  done
+  [[ -f "$manifest" ]] || {
+    echo "AppImage GUI icon manifest is missing: $manifest" >&2
+    return 1
+  }
+  [[ -d /usr/share/icons/Adwaita ]] || {
+    echo "Adwaita icon sources are required to build the AppImage icon payload" >&2
+    return 1
+  }
+
+  install -d -m 0755 "$source_root" "$theme_root"
+  install -Dm644 \
+    "$REPO_ROOT/packaging/appimage/assets/keymasq-icon-theme.index.theme" \
+    "$theme_root/index.theme"
+  for size in 16 24 32 48 64 96; do
+    install -d -m 0755 "$theme_root/${size}x${size}/apps"
+  done
+
+  while IFS= read -r icon_name; do
+    [[ -n "$icon_name" ]] || continue
+    if [[ "$icon_name" == tools.keymasq.keymasq ]]; then
+      for size in 16 24 32 48 64 96; do
+        rsvg-convert \
+          --width "$size" --height "$size" --keep-aspect-ratio \
+          --output "$theme_root/${size}x${size}/apps/$icon_name.png" \
+          "$REPO_ROOT/assets/tools.keymasq.keymasq.svg"
+      done
+      continue
+    fi
+
+    source_name="$icon_name"
+    case "$icon_name" in
+      applications-games|edit-delete|input-gaming|input-keyboard|input-mouse|input-tablet|list-add|preferences-desktop-keyboard-shortcuts)
+        source_name="$icon_name-symbolic"
+        ;;
+    esac
+    case "$source_name" in
+      keymasq-*-symbolic)
+        source_svg="$package_assets/$source_name.svg"
+        ;;
+      *)
+        source_svg="$(find /usr/share/icons/Adwaita -type f -name "$source_name.svg" -print -quit)"
+        ;;
+    esac
+    [[ -f "$source_svg" ]] || {
+      echo "no symbolic source found for AppImage GUI icon: $icon_name" >&2
+      return 1
+    }
+
+    staged_svg="$source_root/$icon_name.svg"
+    cp "$source_svg" "$staged_svg"
+    for size in 16 24 32 48 64 96; do
+      output_dir="$theme_root/${size}x${size}/apps"
+      "$PYTHON_EXE" "$REPO_ROOT/packaging/appimage/encode-symbolic-icon.py" \
+        "$staged_svg" "$output_dir/$icon_name.symbolic.png" "$size"
+      [[ -f "$output_dir/$icon_name.symbolic.png" ]] || {
+        echo "symbolic icon encoder did not produce $icon_name at ${size}x${size}" >&2
+        return 1
+      }
+    done
+  done < "$manifest"
+
+  rsvg-convert \
+    --width 660 --height 430 --keep-aspect-ratio \
+    --output "$package_assets/gamepad.png" \
+    "$package_assets/gamepad.svg"
+  [[ -s "$package_assets/gamepad.png" ]] || {
+    echo "failed to rasterize the AppImage gamepad artwork" >&2
+    return 1
+  }
+
+  # Direct package search paths take precedence over the selected icon theme.
+  # Remove AppImage-local SVG variants so every GUI icon uses the private PNG
+  # payload and never depends on a host SVG loader.
+  rm -f "$package_assets"/*-symbolic.svg "$package_assets/gamepad.svg"
+  gtk-update-icon-cache --force "$theme_root"
 }
 
 copy_host_library() {
@@ -370,21 +594,34 @@ copy_host_library() {
 
 bundle_elf_dependencies() {
   local deps_file="$BUILD_ROOT/elf-deps.txt"
-  local pass
   local copied
   local dep
+  local file_type
   local root
 
-  for pass in 1 2 3; do
+  if ! command -v file >/dev/null 2>&1; then
+    echo "file is required to identify AppImage ELF dependencies" >&2
+    return 1
+  fi
+
+  for _ in 1 2 3; do
     : > "$deps_file"
     for root in "$@"; do
       [[ -d "$root" ]] || continue
       while IFS= read -r -d '' elf; do
+        if ! file_type="$(file -Lb "$elf")"; then
+          echo "failed to identify AppImage dependency candidate: $elf" >&2
+          return 1
+        fi
+        [[ "$file_type" == ELF\ * ]] || continue
         ldd "$elf" 2>/dev/null | awk '
           $2 == "=>" && $3 ~ /^\// { print $3 }
           $1 ~ /^\// { print $1 }
         ' >> "$deps_file" || true
-      done < <(find "$root" -type f \( -name '*.so' -o -name '*.so.*' \) -print0)
+      done < <(
+        find "$root" -type f \
+          \( -name '*.so' -o -name '*.so.*' -o -perm /111 \) -print0
+      )
     done
 
     sort -u "$deps_file" -o "$deps_file"
@@ -427,29 +664,7 @@ bundle_typelib_libraries() {
   done < "$names_file"
 }
 
-remove_bundled_graphics_stack() {
-  local name
-  local path
-
-  for name in \
-    libEGL.so\* \
-    libGL.so\* \
-    libGLES.so\* \
-    libGLESv1_CM.so\* \
-    libGLESv2.so\* \
-    libGLX.so\* \
-    libGLdispatch.so\* \
-    libOpenGL.so\* \
-    libdrm.so\* \
-    libgbm.so\* \
-    libvulkan.so\*
-  do
-    for path in "$APPDIR/lib"/$name; do
-      [[ -e "$path" ]] || continue
-      rm -f "$path"
-    done
-  done
-
+remove_bundled_graphics_drivers() {
   rm -rf \
     "$APPDIR/lib/dri" \
     "$APPDIR/lib/gbm" \
@@ -512,6 +727,8 @@ export PATH_MAPPING=
 
 chmod -R u+w "$APPDIR"
 remove_generated_hardcoded_path_mapping
+install_brotway_runtime
+verify_brotway_glibc_compatibility
 ensure_bundled_python_command
 
 python_lib_dir="$(find_bundled_python_lib_dir)"
@@ -520,9 +737,15 @@ if [[ -z "$python_lib_dir" ]]; then
   exit 1
 fi
 copy_python_packages "$python_lib_dir"
+install_appimage_icons "$python_lib_dir"
 bundle_typelib_libraries
-bundle_elf_dependencies "$python_lib_dir" "$APPDIR/lib"
-remove_bundled_graphics_stack
+bundle_elf_dependencies "$python_lib_dir" "$APPDIR/lib" "$APPDIR/bin"
+remove_bundled_graphics_drivers
+
+# The installed runtime is executed by unprivileged services even though the
+# AppImage is assembled as root in CI. Preserve executable files and make the
+# complete read-only payload traversable and readable by those users.
+chmod -R a+rX "$APPDIR"
 
 "$quick_sharun" --make-appimage
 

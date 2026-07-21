@@ -235,7 +235,7 @@ validate_user_wrapper_destinations() {
 	keymasq_wrapper_user=$1
 	keymasq_wrapper_home=$(resolve_user_home "$keymasq_wrapper_user")
 	keymasq_wrapper_dir=$(root_path "$keymasq_wrapper_home/.local/bin")
-	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
+	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		keymasq_wrapper_path="$keymasq_wrapper_dir/$keymasq_wrapper_name"
 		if { [ -e "$keymasq_wrapper_path" ] || [ -L "$keymasq_wrapper_path" ]; } && \
 			! user_wrapper_is_managed "$keymasq_wrapper_user" "$keymasq_wrapper_name" "$keymasq_wrapper_path"; then
@@ -274,6 +274,11 @@ validate_runtime_dir() {
 	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-record" ] || die "extracted runtime missing keymasq-record launcher"
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
+	[ -x "$keymasq_validate_dir/bin/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher"
+	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || die "extracted runtime missing Brotway daemon"
+	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher binary"
+	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-debugmenu" ] || die "extracted runtime missing Brotway debug menu binary"
+	[ -e "$keymasq_validate_dir/lib/gtk4-brotway/libgtk-4.so.1" ] || die "extracted runtime missing Brotway GTK library"
 }
 
 copy_extracted_runtime() {
@@ -637,7 +642,7 @@ install_user_wrappers() {
 	validate_user_wrapper_destinations "$user"
 	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
-	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		write_user_wrapper "$user" "$name" "$bin_dir/$name"
 	done
 }
@@ -840,7 +845,7 @@ refresh_common_integration() {
 	install_root=$(root_path "$INSTALL_DIR")
 	install -d -m 0755 "$install_root/bin" "$install_root/share/keymasq"
 
-	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		write_wrapper "$name" "$install_root/bin/$name"
 	done
 
@@ -1103,7 +1108,7 @@ uninstall_keymasq() {
 	remove_user_path "$target_user" "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
-	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		remove_user_wrapper_if_managed "$target_user" "$name" "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
@@ -1319,15 +1324,24 @@ run_python() {
 	if resolve_appdir_python; then
 		(
 			setup_appimage_python_environment
-			"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
+			"$loader" --library-path "$keymasq_library_path" "$python_bin" -P "$@"
 		)
 		return $?
 	fi
 	python -P "$@"
 }
 
+appimage_library_path() {
+	if [ "${KEYMASQ_APPIMAGE_BROTWAY:-0}" = 1 ] && [ -d "$APPDIR/lib/gtk4-brotway" ]; then
+		printf '%s:%s\n' "$APPDIR/lib/gtk4-brotway" "$APPDIR/lib"
+	else
+		printf '%s\n' "$APPDIR/lib"
+	fi
+}
+
 setup_appimage_python_environment() {
-	export LD_LIBRARY_PATH="$APPDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	keymasq_library_path=$(appimage_library_path)
+	export LD_LIBRARY_PATH="$keymasq_library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	export PYTHONHOME="$APPDIR"
 	export PYTHONNOUSERSITE=true
 	unset PYTHONPATH
@@ -1367,7 +1381,7 @@ run_python_module() {
 	shift
 	if resolve_appdir_python; then
 		setup_appimage_python_environment
-		exec "$loader" --library-path "$APPDIR/lib" "$python_bin" -P -m "$module" "$@"
+		exec "$loader" --library-path "$keymasq_library_path" "$python_bin" -P -m "$module" "$@"
 	fi
 	exec python -P -m "$module" "$@"
 }

@@ -876,42 +876,6 @@ async def test_get_recording_settings_uses_unlock_and_owner_state_only(
 
 
 @pytest.mark.asyncio
-async def test_play_macro_payload_forwards_sanitized_events() -> None:
-    manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    sent_commands = []
-
-    async def send_command(command):
-        sent_commands.append(command)
-        return Response(status="ok", data={"status": "ok", "played": True})
-
-    manager.client.send_command = send_command  # type: ignore[method-assign]
-    manager.security_policy.macro_exec_timeout_max_ms = 100
-
-    result = await manager._handle_session_request(
-        {
-            "command": "play_macro_payload",
-            "macro_events": [
-                {
-                    "device_type": "macro",
-                    "macro_action": "exec_sync",
-                    "timeout_ms": 999,
-                    "t_us": 0,
-                }
-            ],
-            "speed": 1.5,
-        },
-        peer,
-        object(),
-    )
-
-    assert result == {"status": "ok", "played": True}
-    assert sent_commands[0].command == CommandType.PLAY_MACRO
-    assert sent_commands[0].data["speed"] == 1.5
-    assert sent_commands[0].data["macro_events"][0]["timeout_ms"] == 100
-
-
-@pytest.mark.asyncio
 async def test_type_text_compiles_in_thread_and_forwards_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -950,64 +914,6 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     assert sent_commands[0].data["speed"] == 1.25
     assert len(sent_commands[0].data["macro_events"]) > 0
     assert to_thread_calls == [macro_commands_module._compile_type_text_macro]
-
-
-@pytest.mark.asyncio
-async def test_play_compact_macro_compiles_in_thread_and_forwards_events(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    sent_commands = []
-    to_thread_calls = []
-
-    async def fake_to_thread(func, /, *args, **kwargs):
-        to_thread_calls.append(func)
-        return func(*args, **kwargs)
-
-    async def send_command(command):
-        sent_commands.append(command)
-        return Response(status="ok", data={"status": "ok"})
-
-    monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
-    manager.client.send_command = send_command  # type: ignore[method-assign]
-
-    result = await manager._handle_session_request(
-        {
-            "command": "play_compact_macro",
-            "tokens": ["key_a", "wait:10:20", "btn_left"],
-            "speed": 0.5,
-        },
-        peer,
-        object(),
-    )
-
-    assert result["status"] == "ok"
-    assert result["event_count"] == len(sent_commands[0].data["macro_events"])
-    assert sent_commands[0].command == CommandType.PLAY_MACRO
-    assert sent_commands[0].data["speed"] == 0.5
-    wait_random = next(
-        event
-        for event in sent_commands[0].data["macro_events"]
-        if event.get("macro_action") == "wait_random"
-    )
-    assert wait_random["min_us"] == 10_000
-    assert wait_random["max_us"] == 20_000
-    assert to_thread_calls == [macro_commands_module._compile_compact_macro]
-
-
-@pytest.mark.asyncio
-async def test_play_macro_payload_requires_events() -> None:
-    manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-
-    result = await manager._handle_session_request(
-        {"command": "play_macro_payload", "macro_events": []},
-        peer,
-        object(),
-    )
-
-    assert result == {"status": "error", "message": "macro_events required"}
 
 
 @pytest.mark.asyncio
@@ -3825,32 +3731,16 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
         peer,
         object(),
     )
-    compact_empty = await manager._handle_session_request(
-        {"command": "play_compact_macro", "tokens": []},
-        peer,
-        object(),
-    )
-    compact_error = await manager._handle_session_request(
-        {"command": "play_compact_macro", "tokens": ["key_a"]},
-        peer,
-        object(),
-    )
-
     assert create_missing == {"status": "error", "message": "macro payload required"}
     assert update_missing == {"status": "error", "message": "macro payload required"}
     assert type_text_error == {"status": "error", "message": "bad macro"}
-    assert compact_empty == {"status": "error", "message": "tokens required"}
-    assert compact_error == {"status": "error", "message": "bad macro"}
 
 
 @pytest.mark.asyncio
-async def test_adhoc_macro_payload_reports_daemon_failures() -> None:
+async def test_type_text_reports_daemon_failures() -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
-    payload = {
-        "command": "play_macro_payload",
-        "macro_events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-    }
+    payload = {"command": "type_text", "text": "a"}
 
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
     unavailable = await manager._handle_session_request(payload, peer, object())

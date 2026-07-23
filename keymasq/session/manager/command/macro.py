@@ -179,28 +179,6 @@ async def handle_macro_commands(
             result.setdefault("event_count", len(events))
         return result
 
-    if command == "play_compact_macro":
-        tokens = [str(token) for token in json_list(request.get("tokens")) if str(token)]
-        if not tokens:
-            return {"status": "error", "message": "tokens required"}
-
-        try:
-            events, payload = await asyncio.to_thread(
-                _compile_compact_macro,
-                tokens,
-                coerce_float(request.get("speed"), 1.0),
-            )
-        except (TypeError, ValueError) as exc:
-            return {"status": "error", "message": str(exc)}
-
-        result = await _send_adhoc_macro_payload(manager, payload)
-        if result.get("status") == "ok":
-            result.setdefault("event_count", len(events))
-        return result
-
-    if command == "play_macro_payload":
-        return await _send_adhoc_macro_payload(manager, request)
-
     if command == "cancel_macro_playback":
         result = await send_daemon_request(
             manager,
@@ -231,13 +209,6 @@ def _compile_type_text_macro(
         pause_ms,
         use_unicode_input=use_unicode_input,
     )
-    return events, build_macro_payload(events, speed=speed)
-
-
-def _compile_compact_macro(tokens: list[str], speed: float) -> tuple[list[JsonObject], JsonObject]:
-    from keymasq.common.macro_compile import build_compact_macro_events, build_macro_payload
-
-    events = build_compact_macro_events(tokens)
     return events, build_macro_payload(events, speed=speed)
 
 

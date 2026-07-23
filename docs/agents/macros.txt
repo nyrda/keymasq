@@ -24,9 +24,10 @@ keymasq macros delete <name>
 keymasq macros cancel
 ```
 
-`macros create` reads stdin when no JSON argument is provided. It accepts
-either a macro object with `events` or a raw event list. The CLI-provided name
-is always used as the stored macro name.
+`macros create` accepts either a macro object with `events` or a raw event
+list. The CLI-provided name is always used as the stored macro name. It reads
+JSON from stdin when no JSON argument is provided. Created macros use the
+normal timeline model and can be opened in the GUI editor.
 
 ## Built-in compilers
 
@@ -42,13 +43,6 @@ keymasq type "hello<enter>" --print-json
 # create a stored type macro
 keymasq type "hello<enter>" --print-json \
   | keymasq macros create say_hello --force
-
-# play compact tokens immediately
-keymasq play key_leftctrl:down key_c key_leftctrl:up
-
-# create a stored compact macro
-keymasq play btn_left wait:10 btn_left --print-json \
-  | keymasq macros create double_click_10ms --force
 ```
 
 `keymasq type` inline controls:
@@ -84,29 +78,6 @@ keymasq play btn_left wait:10 btn_left --print-json \
 <wait:MS>
 <wait:MIN:MAX>
 ```
-
-`keymasq play` compact tokens:
-
-```text
-key_a              tap key
-key_a:down         press key
-key_a:up           release key
-btn_left           click button
-btn_left:down      press button
-btn_left:up        release button
-move_abs:X:Y       absolute mouse move
-move_rel:DX:DY     relative mouse move
-move:X:Y           natural absolute mouse move
-move:X:Y:SPEED[:JITTER[:CURVE[:TOLERANCE[:MAX_DURATION_MS[:STOP_ON_FAILURE]]]]]
-                   natural absolute mouse move with tuning; SPEED is px/s
-wait:MS            fixed wait
-wait:MIN:MAX       random wait
-```
-
-Prefer `move:X:Y` for reliable absolute cursor positioning. It uses the natural
-mouse movement runtime, which sends relative motion in a feedback loop and
-checks realtime cursor position until the cursor lands.
-`move` defaults to 100000 px/s, zero jitter, and linear curve.
 
 ## Macro JSON
 

@@ -105,36 +105,6 @@ def main() -> None:
         help="Print the compiled macro JSON instead of playing it",
     )
 
-    play_parser = subparsers.add_parser(
-        "play",
-        help="Play an ad-hoc macro",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Compact tokens: key_a, key_a:1, key_a:0, btn_left,\n"
-            "move_abs:X:Y, move_rel:DX:DY, move:X:Y[:SPEED],\n"
-            "wait:MS, wait:MIN:MAX\n"
-            "Example: keymasq play key_leftctrl:1 wait:20 key_c wait:20 key_leftctrl:0\n"
-            f"Full reference: {_docs_url()}"
-        ),
-    )
-    play_parser.add_argument(
-        "--json",
-        dest="input_json",
-        action="store_true",
-        help="Read canonical macro JSON instead of compact event tokens",
-    )
-    play_parser.add_argument("--speed", type=_positive_float, default=None, help="Playback speed")
-    play_parser.add_argument(
-        "--print-json",
-        action="store_true",
-        help="Print the compiled macro JSON instead of playing it",
-    )
-    play_parser.add_argument(
-        "events",
-        nargs="*",
-        help="Compact event tokens or JSON payload; stdin is used when omitted",
-    )
-
     macros_parser = subparsers.add_parser(
         "macros",
         help="Macro commands",
@@ -260,14 +230,6 @@ def main() -> None:
             pause_ms=args.pause_ms,
             speed=args.speed,
             use_unicode_input=not args.no_unicode,
-            print_json=args.print_json,
-            json_output=json_output,
-        )
-    elif args.command == "play":
-        commands.play_adhoc_cli(
-            args.events,
-            input_json=args.input_json,
-            speed=args.speed,
             print_json=args.print_json,
             json_output=json_output,
         )

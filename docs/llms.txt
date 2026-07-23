@@ -20,7 +20,7 @@ directly to kernel input devices or daemon-owned macro files.
 - Fetch profiles/actions for profile TOML, mappings, actions, rapidfire,
   tap, window rules, and binding saved macros:
   https://keymasq.tools/docs/latest/agents/profiles.txt
-- Fetch macros for `keymasq macros create`, `keymasq type`, `keymasq play`,
+- Fetch macros for `keymasq macros create` and `keymasq type`,
   macro JSON, loop modes, and macro storage:
   https://keymasq.tools/docs/latest/agents/macros.txt
 - Fetch hardware for hardware IDs, source button/key IDs, evdev devices,
@@ -146,6 +146,7 @@ rapidfire_wait_ms = 10
 Example stored macro:
 
 ```bash
-keymasq play btn_left wait:10 btn_left --print-json \
-  | keymasq macros create double_click_10ms --force
+keymasq macros create click_10ms --force \
+  '[{"device_type":"mouse","type":1,"code":272,"value":1,"t_us":0},
+    {"device_type":"mouse","type":1,"code":272,"value":0,"t_us":10000}]'
 ```

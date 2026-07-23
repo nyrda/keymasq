@@ -1,15 +1,12 @@
 import json
 import unicodedata
-from math import isfinite
 from typing import cast
 
 import evdev
 
-from keymasq.common.coercion import coerce_bool
 from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
-    NATURAL_MOUSE_MOVE_CURVES,
 )
 from keymasq.common.types import JsonObject
 
@@ -17,10 +14,9 @@ IntLike = int | float | str | bytes
 TypeMacroToken = tuple[str, str]
 DEFAULT_TYPE_MACRO_DOWN_MS = 5
 DEFAULT_TYPE_MACRO_PAUSE_MS = 10
-_COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED = 100_000.0
-_COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER = 0.0
-_COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE = "linear"
-_COMPACT_NATURAL_MOUSE_MOVE_SLOW_CURVE = "natural"
+_TYPE_MACRO_NATURAL_MOUSE_MOVE_SPEED = 100_000.0
+_TYPE_MACRO_NATURAL_MOUSE_MOVE_JITTER = 0.0
+_TYPE_MACRO_NATURAL_MOUSE_MOVE_CURVE = "linear"
 _TYPE_MACRO_SETTLE_WAIT_MS = 300
 _TYPE_MACRO_MAX_REPEAT_COUNT = 100
 
@@ -400,138 +396,6 @@ def _resolve_type_macro_key(value: str) -> tuple[int, bool]:
     return char_to_key(value)
 
 
-def build_compact_macro_events(tokens: list[str]) -> list[JsonObject]:
-    events: list[JsonObject] = []
-    held: dict[tuple[str, int], int] = {}
-    held_order: list[tuple[str, int]] = []
-    t_us = 0
-    sequence_step_us = 1
-
-    def advance_sequence() -> None:
-        nonlocal t_us
-        t_us += sequence_step_us
-
-    for token in tokens:
-        token = token.strip()
-        if not token:
-            continue
-
-        parts = token.split(":")
-        name = parts[0].strip().lower()
-        args = [part.strip() for part in parts[1:]]
-        if not name or any(arg == "" for arg in args):
-            raise ValueError(f"invalid macro token: {token!r}")
-
-        if name == "wait":
-            _append_wait_event(events, args, t_us)
-            advance_sequence()
-            continue
-
-        if name in {"move_abs", "move_rel"}:
-            if len(args) != 2:
-                raise ValueError(f"{name} requires x and y arguments")
-            x = _parse_int(args[0], f"{name} x")
-            y = _parse_int(args[1], f"{name} y")
-            if name == "move_abs":
-                _append_mouse_move_event(events, "mouse_move_abs", x, y, t_us)
-            else:
-                _append_mouse_move_event(events, "mouse_move_rel", x, y, t_us)
-            advance_sequence()
-            continue
-
-        if name in {"move", "move_nat", "move_natural", "move_natural_abs"}:
-            if len(args) < 2 or len(args) > 8:
-                raise ValueError(
-                    f"{name} requires x and y arguments, with optional speed, jitter, "
-                    "curve, tolerance, max_duration_ms, and stop_on_failure"
-                )
-            x = _parse_int(args[0], f"{name} x")
-            y = _parse_int(args[1], f"{name} y")
-            speed = (
-                _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED
-                if len(args) < 3
-                else _parse_positive_float(args[2], f"{name} speed")
-            )
-            jitter = (
-                _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER
-                if len(args) < 4
-                else _parse_non_negative_float(args[3], f"{name} jitter")
-            )
-            curve = (
-                _default_compact_natural_mouse_curve(speed)
-                if len(args) < 5
-                else _parse_natural_mouse_curve(args[4], f"{name} curve")
-            )
-            tolerance = (
-                DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE
-                if len(args) < 6
-                else _parse_non_negative_int(args[5], f"{name} tolerance")
-            )
-            max_duration_ms = (
-                DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS
-                if len(args) < 7
-                else _parse_positive_int(args[6], f"{name} max_duration_ms")
-            )
-            stop_on_failure = (
-                False if len(args) < 8 else _parse_bool(args[7], f"{name} stop_on_failure")
-            )
-            _append_mouse_move_event(
-                events,
-                "mouse_move_natural_abs",
-                x,
-                y,
-                t_us,
-                options={
-                    "speed": speed,
-                    "jitter": jitter,
-                    "curve": curve,
-                    "tolerance": tolerance,
-                    "max_duration_ms": max_duration_ms,
-                    "stop_on_failure": stop_on_failure,
-                },
-            )
-            advance_sequence()
-            continue
-
-        device_type, code = resolve_key_or_button(name)
-        if len(args) > 1:
-            raise ValueError(f"{name} accepts at most one state argument")
-
-        state = args[0].lower() if args else ""
-        held_key = (device_type, code)
-        if not state:
-            _append_key_event(events, device_type, code, 1, t_us)
-            _append_key_event(events, device_type, code, 0, t_us)
-            advance_sequence()
-            continue
-
-        if state in {"1", "down"}:
-            if held_key in held:
-                raise ValueError(f"{name} is already held")
-            _append_key_event(events, device_type, code, 1, t_us)
-            held[held_key] = 1
-            held_order.append(held_key)
-            advance_sequence()
-            continue
-
-        if state in {"0", "up"}:
-            if held_key not in held:
-                raise ValueError(f"{name} release without matching press")
-            _append_key_event(events, device_type, code, 0, t_us)
-            held.pop(held_key, None)
-            held_order.remove(held_key)
-            advance_sequence()
-            continue
-
-        raise ValueError(f"invalid state for {name}: {state!r}")
-
-    for device_type, code in reversed(held_order):
-        _append_key_event(events, device_type, code, 0, t_us)
-        t_us += sequence_step_us
-
-    return events
-
-
 def resolve_key_or_button(name: str) -> tuple[str, int]:
     normalized = name.strip().upper()
     if not normalized:
@@ -767,9 +631,9 @@ def _append_type_macro_natural_move_event(
         y,
         t_us,
         options={
-            "speed": _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED,
-            "jitter": _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_JITTER,
-            "curve": _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE,
+            "speed": _TYPE_MACRO_NATURAL_MOUSE_MOVE_SPEED,
+            "jitter": _TYPE_MACRO_NATURAL_MOUSE_MOVE_JITTER,
+            "curve": _TYPE_MACRO_NATURAL_MOUSE_MOVE_CURVE,
             "tolerance": DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
             "max_duration_ms": DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
             "stop_on_failure": stop_on_failure,
@@ -912,51 +776,6 @@ def _parse_positive_int(value: str, label: str) -> int:
     if parsed <= 0:
         raise ValueError(f"{label} must be greater than 0")
     return parsed
-
-
-def _parse_float(value: str, label: str) -> float:
-    try:
-        parsed = float(value)
-    except ValueError as exc:
-        raise ValueError(f"{label} must be a number") from exc
-    if not isfinite(parsed):
-        raise ValueError(f"{label} must be finite")
-    return parsed
-
-
-def _parse_positive_float(value: str, label: str) -> float:
-    parsed = _parse_float(value, label)
-    if parsed <= 0:
-        raise ValueError(f"{label} must be greater than 0")
-    return parsed
-
-
-def _parse_non_negative_float(value: str, label: str) -> float:
-    parsed = _parse_float(value, label)
-    if parsed < 0:
-        raise ValueError(f"{label} must be non-negative")
-    return parsed
-
-
-def _parse_natural_mouse_curve(value: str, label: str) -> str:
-    curve = value.strip().lower()
-    if curve not in NATURAL_MOUSE_MOVE_CURVES:
-        expected = ", ".join(sorted(NATURAL_MOUSE_MOVE_CURVES))
-        raise ValueError(f"{label} must be one of: {expected}")
-    return curve
-
-
-def _default_compact_natural_mouse_curve(speed: float) -> str:
-    if speed < _COMPACT_NATURAL_MOUSE_MOVE_DEFAULT_SPEED:
-        return _COMPACT_NATURAL_MOUSE_MOVE_SLOW_CURVE
-    return _COMPACT_NATURAL_MOUSE_MOVE_FAST_CURVE
-
-
-def _parse_bool(value: str, label: str) -> bool:
-    try:
-        return coerce_bool(value, strict=True)
-    except ValueError as exc:
-        raise ValueError(f"{label} must be a boolean") from exc
 
 
 def _infer_device_types(events: list[JsonObject]) -> list[str]:

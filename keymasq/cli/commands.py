@@ -11,7 +11,6 @@ from keymasq.common.model.actions import parse_mpris_command
 from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
 
-IntLike = int | float | str | bytes
 DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal")
 
 
@@ -492,91 +491,6 @@ def type_cli(
     print(f"Played type macro: {len(text)} chars")
 
 
-def play_adhoc_cli(
-    tokens: list[str],
-    *,
-    input_json: bool = False,
-    speed: float | None = None,
-    print_json: bool = False,
-    json_output: bool = False,
-) -> None:
-    print_device_types: list[str] | None = None
-    try:
-        if input_json:
-            from keymasq.common.macro_compile import build_macro_payload, parse_macro_json
-
-            macro_data = parse_macro_json(_json_input_from_args_or_stdin(tokens))
-            print_device_types = _macro_device_types(macro_data)
-            raw_events = macro_data.get("events", [])
-            if not isinstance(raw_events, list):
-                raise ValueError("macro JSON events must be a list")
-            events = _macro_events_from_json(raw_events)
-            playback_speed = (
-                float(speed)
-                if speed is not None
-                else float(cast(IntLike, macro_data.get("speed", 1.0)))
-            )
-            payload = build_macro_payload(
-                events,
-                name=str(macro_data.get("name", "") or ""),
-                speed=playback_speed,
-                loop_mode=str(macro_data.get("loop_mode", "none") or "none"),
-                loop_count=int(cast(IntLike, macro_data.get("loop_count", 1) or 1)),
-                loop_stop_behavior=str(
-                    macro_data.get("loop_stop_behavior", "finish_run") or "finish_run"
-                ),
-                move_to_start=bool(macro_data.get("move_to_start", False)),
-                start_x=int(cast(IntLike, macro_data.get("start_x", 0) or 0)),
-                start_y=int(cast(IntLike, macro_data.get("start_y", 0) or 0)),
-                block_mouse_movement=bool(macro_data.get("block_mouse_movement", False)),
-            )
-        else:
-            event_tokens = tokens or _read_stdin_tokens_or_exit("No macro events provided")
-            if print_json:
-                from keymasq.common.macro_compile import (
-                    build_compact_macro_events,
-                    build_macro_payload,
-                )
-
-                events = build_compact_macro_events(event_tokens)
-                payload = build_macro_payload(
-                    events,
-                    speed=1.0 if speed is None else float(speed),
-                )
-            else:
-                result = _request_or_error(
-                    {
-                        "command": "play_compact_macro",
-                        "tokens": event_tokens,
-                        "speed": 1.0 if speed is None else float(speed),
-                    }
-                )
-                if _handled_json_or_error(result, json_output):
-                    return
-                event_count = int(result.get("event_count", 0) or 0)
-                print(f"Played ad-hoc macro: {event_count} events")
-                return
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        print(f"Error: {exc}")
-        sys.exit(1)
-
-    if print_json:
-        _print_json(
-            _macro_definition_from_payload(
-                payload,
-                device_types=print_device_types,
-                include_playback_options=input_json,
-            )
-        )
-        return
-
-    result = _request_or_error({"command": "play_macro_payload", **payload})
-    if _handled_json_or_error(result, json_output):
-        return
-    event_count = len(cast(list[JsonObject], payload["macro_events"]))
-    print(f"Played ad-hoc macro: {event_count} events")
-
-
 def cancel_macro_cli(*, json_output: bool = False) -> None:
     result = _request_or_error({"command": "cancel_macro_playback"})
     if _handled_json_or_error(result, json_output):
@@ -593,15 +507,6 @@ def _read_stdin_or_exit(message: str) -> str:
         print(f"Error: {message}")
         sys.exit(1)
     return sys.stdin.read()
-
-
-def _read_stdin_tokens_or_exit(message: str) -> list[str]:
-    text = _read_stdin_or_exit(message)
-    tokens = text.split()
-    if not tokens:
-        print(f"Error: {message}")
-        sys.exit(1)
-    return tokens
 
 
 def _json_input_from_args_or_stdin(parts: list[str]) -> str:
@@ -635,35 +540,6 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
     ):
         if key in macro_data:
             macro[key] = macro_data[key]
-    return macro
-
-
-def _macro_definition_from_payload(
-    payload: JsonObject,
-    *,
-    device_types: list[str] | None = None,
-    include_playback_options: bool = False,
-) -> JsonObject:
-    from keymasq.common.macro_compile import macro_definition_from_events
-
-    macro = macro_definition_from_events(
-        cast(list[JsonObject], payload["macro_events"]),
-        name=str(payload.get("macro_name", "") or ""),
-        device_types=device_types,
-    )
-    if include_playback_options:
-        for key in (
-            "loop_mode",
-            "loop_count",
-            "loop_stop_behavior",
-            "speed",
-            "move_to_start",
-            "start_x",
-            "start_y",
-            "block_mouse_movement",
-        ):
-            if key in payload:
-                macro[key] = payload[key]
     return macro
 
 

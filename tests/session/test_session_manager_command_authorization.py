@@ -122,18 +122,26 @@ async def test_macro_rename_and_delete_require_edit_unlock(
     manager.client.send_command.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "does_not_exist",
+        "play_macro_payload",
+        "play_compact_macro",
+    ],
+)
 @pytest.mark.asyncio
-async def test_handle_session_request_returns_unknown_command_error() -> None:
+async def test_handle_session_request_returns_unknown_command_error(command: str) -> None:
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
     result = await manager._handle_session_request(
-        {"command": "does_not_exist"},
+        {"command": command},
         peer,
         object(),
     )
 
-    assert result == {"error": "Unknown command: does_not_exist"}
+    assert result == {"error": f"Unknown command: {command}"}
 
 
 @pytest.mark.asyncio

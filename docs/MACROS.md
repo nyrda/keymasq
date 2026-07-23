@@ -246,10 +246,10 @@ Type macro text supports inline controls. These work from the Macro Manager's
 Shortcut modifiers are `ctrl`, `shift`, `alt`, and `super`, with `control`,
 `meta`, and `win` accepted as modifier aliases.
 
-`<move:X:Y>` uses the same natural cursor movement as the compact `play`
-`move:X:Y` token with the fast defaults: `100000` px/s, zero jitter, linear
-curve, `2` px tolerance, `3000` ms timeout, and `stop_on_failure=false`. The
-type syntax does not expose tuning arguments for this control.
+`<move:X:Y>` uses the normal timeline's natural cursor movement engine with
+the fast defaults: `100000` px/s, zero jitter, linear curve, `2` px tolerance,
+`3000` ms timeout, and `stop_on_failure=false`. The type syntax does not expose
+tuning arguments for this control.
 
 Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
 text, so `\\<tab>` types `\<tab>`.
@@ -265,10 +265,12 @@ Once a macro is saved, you can trigger it in several ways:
 | Mapped key or button | Device tab → pick a key → set action to **Play Macro** |
 | Superkey action | Superkey editor → add a macro action |
 | Combo | Combo tab → set the combo's action to **Play Macro** |
-| CLI command | Terminal: `keymasq macro play <name>` |
+| CLI command | Terminal: `keymasq macros play <name> [--speed SPEED]` |
 | GUI button | Macro Manager → click **Play** next to a macro |
 
-**Playback options** (available from the mapping or the play command):
+`keymasq macros play` supports only the macro name and optional `--speed`
+multiplier. Mapped macro actions expose these playback options in the mapping
+dialog:
 
 - **Speed multiplier** — make the macro faster or slower than it was recorded.
 - **Replay mouse movement** — on or off.

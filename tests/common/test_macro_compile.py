@@ -4,7 +4,6 @@ import evdev
 import pytest
 
 from keymasq.common.macro_compile import (
-    build_compact_macro_events,
     build_type_macro_events,
     macro_definition_from_events,
     parse_macro_json,
@@ -25,178 +24,6 @@ def _press_codes(events: list[dict[str, object]]) -> list[int]:
         for event in events
         if event.get("type") == evdev.ecodes.EV_KEY and event.get("value") == 1
     ]
-
-
-def test_compact_key_token_emits_tap() -> None:
-    events = build_compact_macro_events(["key_a"])
-
-    assert _key_values(events, evdev.ecodes.KEY_A) == [1, 0]
-    assert events[0]["device_type"] == "keyboard"
-
-
-def test_compact_explicit_hold_release_and_waits() -> None:
-    events = build_compact_macro_events(["key_leftctrl:1", "wait:20", "key_c", "key_leftctrl:0"])
-
-    assert _key_values(events, evdev.ecodes.KEY_LEFTCTRL) == [1, 0]
-    assert _key_values(events, evdev.ecodes.KEY_C) == [1, 0]
-    wait = next(event for event in events if event.get("macro_action") == "wait")
-    assert wait["duration_us"] == 20_000
-
-
-def test_compact_random_wait() -> None:
-    events = build_compact_macro_events(["wait:10:20"])
-
-    assert events == [
-        {
-            "device_type": "macro",
-            "type": 0,
-            "code": 0,
-            "value": 0,
-            "t_us": 0,
-            "macro_action": "wait_random",
-            "min_us": 10_000,
-            "max_us": 20_000,
-        }
-    ]
-
-
-def test_compact_move_events_use_macro_action_shape() -> None:
-    events = build_compact_macro_events(["move_abs:100:200", "move_rel:-5:2"])
-
-    assert events == [
-        {
-            "device_type": "macro",
-            "type": 0,
-            "code": 0,
-            "value": 0,
-            "t_us": 0,
-            "macro_action": "mouse_move_abs",
-            "x": 100,
-            "y": 200,
-        },
-        {
-            "device_type": "macro",
-            "type": 0,
-            "code": 0,
-            "value": 0,
-            "t_us": 1,
-            "macro_action": "mouse_move_rel",
-            "x": -5,
-            "y": 2,
-        },
-    ]
-
-
-def test_compact_natural_move_event_uses_default_options() -> None:
-    events = build_compact_macro_events(["move:100:200"])
-
-    assert events == [
-        {
-            "device_type": "macro",
-            "type": 0,
-            "code": 0,
-            "value": 0,
-            "t_us": 0,
-            "macro_action": "mouse_move_natural_abs",
-            "x": 100,
-            "y": 200,
-            "speed": 100000.0,
-            "jitter": 0.0,
-            "curve": "linear",
-            "tolerance": 2,
-            "max_duration_ms": 3000,
-            "stop_on_failure": False,
-        }
-    ]
-
-
-def test_compact_natural_move_event_accepts_aliases() -> None:
-    for name in ("move", "move_nat", "move_natural", "move_natural_abs"):
-        events = build_compact_macro_events([f"{name}:100:200"])
-
-        assert events[0]["macro_action"] == "mouse_move_natural_abs"
-        assert events[0]["x"] == 100
-        assert events[0]["y"] == 200
-
-
-def test_compact_natural_move_uses_natural_curve_for_lower_custom_speed() -> None:
-    events = build_compact_macro_events(["move:100:200:99999"])
-
-    assert events[0]["speed"] == 99999.0
-    assert events[0]["jitter"] == 0.0
-    assert events[0]["curve"] == "natural"
-
-
-def test_compact_natural_move_allows_explicit_curve_for_lower_custom_speed() -> None:
-    events = build_compact_macro_events(["move:100:200:12000:0:linear"])
-
-    assert events[0]["speed"] == 12000.0
-    assert events[0]["curve"] == "linear"
-
-
-def test_compact_natural_move_event_accepts_tuning_options() -> None:
-    events = build_compact_macro_events(["move:300:400:100000:0:linear:1:500:true"])
-
-    assert events == [
-        {
-            "device_type": "macro",
-            "type": 0,
-            "code": 0,
-            "value": 0,
-            "t_us": 0,
-            "macro_action": "mouse_move_natural_abs",
-            "x": 300,
-            "y": 400,
-            "speed": 100000.0,
-            "jitter": 0.0,
-            "curve": "linear",
-            "tolerance": 1,
-            "max_duration_ms": 500,
-            "stop_on_failure": True,
-        }
-    ]
-
-
-def test_compact_explicit_key_move_still_taps_evdev_key_move() -> None:
-    events = build_compact_macro_events(["key_move"])
-
-    assert _key_values(events, evdev.ecodes.KEY_MOVE) == [1, 0]
-
-
-@pytest.mark.parametrize(
-    "token, match",
-    [
-        ("move:1", "requires x and y"),
-        ("move:1:2:0", "speed must be greater than 0"),
-        ("move:1:2:100:nan", "jitter must be finite"),
-        ("move:1:2:100:0:ease", "curve must be one of"),
-        ("move:1:2:100:0:linear:-1", "tolerance must be non-negative"),
-        ("move:1:2:100:0:linear:1:0", "max_duration_ms must be greater than 0"),
-        ("move:1:2:100:0:linear:1:500:maybe", "stop_on_failure must be a boolean"),
-    ],
-)
-def test_compact_natural_move_rejects_invalid_options(token: str, match: str) -> None:
-    with pytest.raises(ValueError, match=match):
-        build_compact_macro_events([token])
-
-
-def test_compact_releases_held_keys_at_end_in_reverse_order() -> None:
-    events = build_compact_macro_events(["key_leftctrl:1", "key_leftshift:1"])
-
-    assert events[-2]["code"] == evdev.ecodes.KEY_LEFTSHIFT
-    assert events[-2]["value"] == 0
-    assert events[-1]["code"] == evdev.ecodes.KEY_LEFTCTRL
-    assert events[-1]["value"] == 0
-
-
-def test_compact_rejects_release_without_press() -> None:
-    with pytest.raises(ValueError, match="release without matching press"):
-        build_compact_macro_events(["key_a:0"])
-
-
-def test_compact_rejects_duplicate_down() -> None:
-    with pytest.raises(ValueError, match="already held"):
-        build_compact_macro_events(["key_a:1", "key_a:down"])
 
 
 def test_type_macro_builder_normalizes_common_pasted_text() -> None:
@@ -552,3 +379,8 @@ def test_parse_macro_json_accepts_event_list_and_macro_object() -> None:
 
     assert parse_macro_json(events_json)["events"] == [{"t_us": 0}]
     assert parse_macro_json(macro_json)["name"] == "demo"
+
+
+def test_parse_macro_json_rejects_runtime_macro_events_payload() -> None:
+    with pytest.raises(ValueError, match="event list or macro object"):
+        parse_macro_json(json.dumps({"macro_events": [{"t_us": 0}]}))

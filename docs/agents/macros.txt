@@ -31,7 +31,7 @@ normal timeline model and can be opened in the GUI editor.
 
 ## Built-in compiler
 
-Prefer it over hand-written event JSON when possible.
+Prefer the `keymasq type` compiler over hand-written event JSON when possible.
 
 ```bash
 # type text immediately

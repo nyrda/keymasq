@@ -918,6 +918,22 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
 
 
 @pytest.mark.asyncio
+async def test_type_text_reports_error_when_compilation_produces_no_events() -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    manager.client.send_command = AsyncMock()
+
+    result = await manager._handle_session_request(
+        {"command": "type_text", "text": ""},
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "error", "message": "type macro produced no events"}
+    manager.client.send_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_sensitive_recording_commands_do_not_require_owner_when_unlock_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

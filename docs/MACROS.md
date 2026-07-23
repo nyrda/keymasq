@@ -265,10 +265,12 @@ Once a macro is saved, you can trigger it in several ways:
 | Mapped key or button | Device tab → pick a key → set action to **Play Macro** |
 | Superkey action | Superkey editor → add a macro action |
 | Combo | Combo tab → set the combo's action to **Play Macro** |
-| CLI command | Terminal: `keymasq macros play <name>` |
+| CLI command | Terminal: `keymasq macros play <name> [--speed SPEED]` |
 | GUI button | Macro Manager → click **Play** next to a macro |
 
-**Playback options** (available from the mapping or the play command):
+`keymasq macros play` supports only the macro name and optional `--speed`
+multiplier. Mapped macro actions expose these playback options in the mapping
+dialog:
 
 - **Speed multiplier** — make the macro faster or slower than it was recorded.
 - **Replay mouse movement** — on or off.

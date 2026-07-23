@@ -29,9 +29,9 @@ list. The CLI-provided name is always used as the stored macro name. It reads
 JSON from stdin when no JSON argument is provided. Created macros use the
 normal timeline model and can be opened in the GUI editor.
 
-## Built-in compilers
+## Built-in compiler
 
-Prefer these over hand-written event JSON when possible.
+Prefer it over hand-written event JSON when possible.
 
 ```bash
 # type text immediately

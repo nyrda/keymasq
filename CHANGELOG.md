@@ -152,7 +152,6 @@
 
 ### Improved
 
-- Added ad hoc macro CLI commands for one-off macro playback and compilation.
 - Removed the extra dialog before the recording Polkit prompt.
 
 ## 0.9.0

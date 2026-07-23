@@ -379,3 +379,8 @@ def test_parse_macro_json_accepts_event_list_and_macro_object() -> None:
 
     assert parse_macro_json(events_json)["events"] == [{"t_us": 0}]
     assert parse_macro_json(macro_json)["name"] == "demo"
+
+
+def test_parse_macro_json_rejects_runtime_macro_events_payload() -> None:
+    with pytest.raises(ValueError, match="event list or macro object"):
+        parse_macro_json(json.dumps({"macro_events": [{"t_us": 0}]}))

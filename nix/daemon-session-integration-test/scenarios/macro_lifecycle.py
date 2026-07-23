@@ -53,12 +53,17 @@ def run(ctx: ScenarioContext) -> None:
 
     ctx.request(
         {
-            "command": "play_macro_payload",
-            "macro_events": key_events(evdev.ecodes.KEY_3),
-            "loop_mode": "count",
-            "loop_count": 2,
+            "command": "update_macro",
+            "name": RENAMED_MACRO_NAME,
+            "macro": {
+                "name": RENAMED_MACRO_NAME,
+                "events": key_events(evdev.ecodes.KEY_3),
+                "loop_mode": "count",
+                "loop_count": 2,
+            },
         }
     )
+    ctx.request({"command": "play_macro", "name": RENAMED_MACRO_NAME})
     ctx.expect_keys(
         [
             (evdev.ecodes.KEY_3, 1),

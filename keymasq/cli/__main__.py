@@ -71,7 +71,7 @@ def main() -> None:
 
     type_parser = subparsers.add_parser(
         "type",
-        help="Type text using an ad-hoc macro",
+        help="Type text and inline controls",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             'Example: keymasq type "user<tab><wait:100:250>password<enter>"\n'

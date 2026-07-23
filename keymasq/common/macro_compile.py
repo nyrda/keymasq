@@ -423,38 +423,7 @@ def parse_macro_json(value: str) -> JsonObject:
         raw = cast(JsonObject, decoded)
         if "events" in raw:
             return raw
-        if "macro_events" in raw:
-            payload = dict(raw)
-            payload["events"] = payload.pop("macro_events")
-            return payload
     raise ValueError("macro JSON must be an event list or macro object")
-
-
-def build_macro_payload(
-    events: list[JsonObject],
-    *,
-    name: str = "",
-    speed: float = 1.0,
-    loop_mode: str = "none",
-    loop_count: int = 1,
-    loop_stop_behavior: str = "finish_run",
-    move_to_start: bool = False,
-    start_x: int = 0,
-    start_y: int = 0,
-    block_mouse_movement: bool = False,
-) -> JsonObject:
-    return {
-        "macro_name": name,
-        "macro_events": events,
-        "speed": float(speed),
-        "loop_mode": loop_mode,
-        "loop_count": int(loop_count),
-        "loop_stop_behavior": loop_stop_behavior,
-        "move_to_start": bool(move_to_start),
-        "start_x": int(start_x),
-        "start_y": int(start_y),
-        "block_mouse_movement": bool(block_mouse_movement),
-    }
 
 
 def macro_definition_from_events(

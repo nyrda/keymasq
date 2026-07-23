@@ -911,6 +911,7 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     assert result["char_count"] == 2
     assert result["event_count"] == len(sent_commands[0].data["macro_events"])
     assert sent_commands[0].command == CommandType.PLAY_MACRO
+    assert set(sent_commands[0].data) == {"macro_events", "speed"}
     assert sent_commands[0].data["speed"] == 1.25
     assert len(sent_commands[0].data["macro_events"]) > 0
     assert to_thread_calls == [macro_commands_module._compile_type_text_macro]

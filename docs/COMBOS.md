@@ -275,8 +275,9 @@ secondary click can remove that click **everywhere**.
 `Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency combo on grabbed
 keyboards. The daemon injects it into the active combo set, and the GUI rejects
 that exact trigger while the safety combo is enabled. One tap cancels macro
-playback after a 200 ms double-tap window; a double tap releases all grabbed
-devices and asks the session to reapply active profiles.
+playback and releases tracked held outputs after a 200 ms double-tap window; a
+double tap releases all grabbed devices and asks the session to reapply active
+profiles.
 
 ## Overlap And Conflicts
 

@@ -488,7 +488,7 @@ async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
+async def test_cancel_macro_playback_preserves_grabbed_device_outputs() -> None:
     manager = DeviceManager()
     device = MagicMock()
     manager.grabbed_devices = {"hw": [device]}
@@ -496,7 +496,8 @@ async def test_cancel_macro_playback_releases_tracked_outputs() -> None:
     result = await manager.cancel_macro_playback()
 
     assert result["status"] == "ok"
-    device.release_tracked_outputs.assert_called_once()
+    assert result["cancelled"] is False
+    device.release_tracked_outputs.assert_not_called()
     assert loops.running_macro_instance_ids(manager.macro_state) == []
 
 

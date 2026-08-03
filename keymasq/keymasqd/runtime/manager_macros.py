@@ -28,6 +28,7 @@ class MacroManagerMixin:
 
     macro_store: Any | None
     macro_state: MacroRuntimeState
+    grabbed_devices: dict[str, list[Any]]
 
     def _initialize_macro_runtime(self, deps_factory: MacroRuntimeDepsFactory) -> None:
         self._macro_runtime_deps_factory = deps_factory
@@ -138,6 +139,15 @@ class MacroManagerMixin:
                 CommandType.MACRO_PLAYBACK_CANCELLED,
                 {"reason": "cancel_macro_playback", "cancelled": True},
             )
+        return result
+
+    async def cancel_macro_playback_and_release_outputs(self) -> JsonObject:
+        """Cancel macros, then neutralize outputs tracked by grabbed devices."""
+
+        result = await self.cancel_macro_playback()
+        for devices in self.grabbed_devices.values():
+            for device in devices:
+                device.release_tracked_outputs()
         return result
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:

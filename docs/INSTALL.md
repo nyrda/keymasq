@@ -329,9 +329,10 @@ This does not enable macro recording; macro recording still requires the
 **Settings > Macro recording**.
 
 `Ctrl+Alt+Esc` is reserved by default as an emergency combo while Keymasq has a
-keyboard grabbed. One tap cancels macro playback; a double tap releases all
-grabbed devices and asks the session to reapply active profiles. You can
-disable it if you really need that exact combo:
+keyboard grabbed. One tap cancels macro playback and releases tracked held
+outputs; a double tap releases all grabbed devices and asks the session to
+reapply active profiles. You can disable it if you really need that exact
+combo:
 
 ```toml
 [gui]

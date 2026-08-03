@@ -49,6 +49,13 @@ def effective_config(
     )
 
 
+def releases_outputs_on_cancel(manager: ComboManager, combo_id: str) -> bool:
+    return any(
+        combo.id == combo_id and combo.release_outputs_on_cancel
+        for combo in manager.combo_state.active_combos
+    )
+
+
 async def build_machine(
     manager: ComboManager,
     combo_id: str,
@@ -64,6 +71,11 @@ async def build_machine(
         return None
 
     trigger_name = f"combo:{combo_id}"
+    cancel_macro_playback = (
+        manager.cancel_macro_playback_and_release_outputs
+        if releases_outputs_on_cancel(manager, combo_id)
+        else manager.cancel_macro_playback
+    )
     machine_bindings = tuple(ordered_unique_bindings(trigger_bindings or (trigger_binding,)))
     existing = manager.combo_state.superkey_machines.get(combo_id)
     if existing is not None:
@@ -82,7 +94,7 @@ async def build_machine(
         payload = dict(data)
         action_type = str(payload.get("action_type", "") or "")
         if action_type == ActionType.CANCEL_MACRO_PLAYBACK.value:
-            await manager.cancel_macro_playback()
+            await cancel_macro_playback()
             return
         if action_type == ActionType.EMERGENCY_RESET.value:
             deps.fire_and_observe_fn(
@@ -131,7 +143,7 @@ async def build_machine(
         ),
         macro_player=manager.play_macro,
         emergency_resetter=manager.emergency_reset,
-        cancel_macro_playback=manager.cancel_macro_playback,
+        cancel_macro_playback=cancel_macro_playback,
         action_deps=action_execution_deps(deps),
         await_action_tasks=False,
         repeat_path_recorder=repeat_path_recorder,

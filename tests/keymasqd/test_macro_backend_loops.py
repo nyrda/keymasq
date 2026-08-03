@@ -490,15 +490,53 @@ async def test_cancel_macro_playback_cancels_all_running_instances() -> None:
 @pytest.mark.asyncio
 async def test_cancel_macro_playback_preserves_grabbed_device_outputs() -> None:
     manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
     device = MagicMock()
     manager.grabbed_devices = {"hw": [device]}
+
+    await manager.play_macro(
+        macro_events=[
+            {
+                "t_us": 0,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_J,
+                "value": 1,
+                "device_type": "keyboard",
+            },
+            {
+                "t_us": 2_000_000,
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_J,
+                "value": 0,
+                "device_type": "keyboard",
+            },
+        ],
+        macro_name="active_cancel",
+    )
+    await asyncio.sleep(0.01)
 
     result = await manager.cancel_macro_playback()
 
     assert result["status"] == "ok"
-    assert result["cancelled"] is False
+    assert result["cancelled"] is True
     device.release_tracked_outputs.assert_not_called()
     assert loops.running_macro_instance_ids(manager.macro_state) == []
+
+
+@pytest.mark.asyncio
+async def test_emergency_macro_cancel_releases_every_device_when_cancellation_fails() -> None:
+    manager = DeviceManager()
+    first = MagicMock()
+    second = MagicMock()
+    first.release_tracked_outputs.side_effect = RuntimeError("first device failed")
+    manager.grabbed_devices = {"hw": [first, second]}
+    manager.cancel_macro_playback = AsyncMock(side_effect=ValueError("cancel failed"))  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="cancel failed"):
+        await manager.cancel_macro_playback_and_release_outputs()
+
+    first.release_tracked_outputs.assert_called_once()
+    second.release_tracked_outputs.assert_called_once()
 
 
 def test_profile_macro_roundtrip_and_special_actions(temp_config_dir, monkeypatch) -> None:

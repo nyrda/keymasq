@@ -74,6 +74,7 @@ def combo_runtime_signature(combo: RuntimeCombo) -> tuple[object, ...]:
         bool(combo.recall_trigger_keys),
         tuple(combo.restore_trigger_keys),
         bool(combo.match_across_devices),
+        bool(combo.release_outputs_on_cancel),
     )
 
 
@@ -306,6 +307,7 @@ class ComboManagerMixin:
             profile_name=EMERGENCY_CANCEL_COMBO_PROFILE,
             recall_trigger_keys=True,
             restore_trigger_keys=[],
+            release_outputs_on_cancel=True,
         )
 
     def _is_emergency_cancel_duplicate(

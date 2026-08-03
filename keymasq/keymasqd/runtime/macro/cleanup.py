@@ -63,9 +63,6 @@ async def cancel_macro_playback(
 
     running_ids = running_macro_instance_ids(manager.macro_state)
     cancelled = await cancel_instances_fn(manager, running_ids, deps=deps)
-    for devices in manager.grabbed_devices.values():
-        for device in devices:
-            device.release_tracked_outputs()
     controls.complete_all_macro_exec_waiters(manager, -1)
     manager.macro_state.mouse_inhibit_count = 0
     end_suppression_fn(manager)

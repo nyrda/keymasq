@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable, Iterator
 from functools import partial
@@ -22,12 +23,15 @@ from keymasq.keymasqd.runtime.macro.state import (
 
 type MacroRuntimeDepsFactory = Callable[[], MacroRuntimeDeps]
 
+log = logging.getLogger("keymasqd.devices")
+
 
 class MacroManagerMixin:
     """Macro playback, storage lookup, and cancellation for ``DeviceManager``."""
 
     macro_store: Any | None
     macro_state: MacroRuntimeState
+    grabbed_devices: dict[str, list[Any]]
 
     def _initialize_macro_runtime(self, deps_factory: MacroRuntimeDepsFactory) -> None:
         self._macro_runtime_deps_factory = deps_factory
@@ -139,6 +143,27 @@ class MacroManagerMixin:
                 {"reason": "cancel_macro_playback", "cancelled": True},
             )
         return result
+
+    async def cancel_macro_playback_and_release_outputs(self) -> JsonObject:
+        """Cancel macros, then neutralize outputs tracked by grabbed devices."""
+
+        try:
+            return await self.cancel_macro_playback()
+        finally:
+            for devices in self.grabbed_devices.values():
+                for device in devices:
+                    try:
+                        device.release_tracked_outputs()
+                    except OSError:
+                        log.debug(
+                            "Failed to release tracked outputs during emergency macro cancel",
+                            exc_info=True,
+                        )
+                    except Exception:
+                        log.exception(
+                            "Unexpected failure releasing tracked outputs during "
+                            "emergency macro cancel"
+                        )
 
     def complete_macro_exec_wait(self, wait_id: str, returncode: int) -> JsonObject:
         return controls.complete_macro_exec_wait(self, wait_id, returncode)

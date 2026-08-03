@@ -59,6 +59,7 @@ class TestCombos:
             ActionType.EMERGENCY_RESET.value,
         ]
         assert combo.recall_trigger_keys is True
+        assert combo.release_outputs_on_cancel is True
         assert [
             (binding.hardware_id, binding.evdev, binding.source)
             for binding in combo.steps[0].bindings
@@ -131,9 +132,12 @@ class TestCombos:
         ]
 
     @pytest.mark.asyncio
-    async def test_emergency_cancel_combo_calls_daemon_cancel(self, monkeypatch):
+    async def test_emergency_cancel_combo_cancels_macros_and_releases_outputs(
+        self, monkeypatch
+    ):
         manager = DeviceManager()
         manager.cancel_macro_playback = AsyncMock(return_value={"cancelled": True})  # type: ignore[method-assign]
+        release_tracked_outputs = Mock()
         manager.grabbed_devices = {
             "1234:5678": [
                 SimpleNamespace(
@@ -142,6 +146,7 @@ class TestCombos:
                     interface_id="kbd",
                     combo_passthrough_binding_active=lambda _evdev: True,
                     emit_combo_release=Mock(),
+                    release_tracked_outputs=release_tracked_outputs,
                 )
             ]
         }
@@ -198,6 +203,49 @@ class TestCombos:
 
         assert decision is not None and decision.consume_current_event is True
         manager.cancel_macro_playback.assert_awaited_once()
+        release_tracked_outputs.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_cancel_combo_preserves_grabbed_device_outputs(self):
+        manager = DeviceManager()
+        manager.emergency_cancel_combo_enabled = False
+        manager.cancel_macro_playback = AsyncMock(return_value={"cancelled": True})  # type: ignore[method-assign]
+        release_tracked_outputs = Mock()
+        manager.grabbed_devices = {
+            "1234:5678": [SimpleNamespace(release_tracked_outputs=release_tracked_outputs)]
+        }
+        await manager.set_combos(
+            [
+                {
+                    "id": "user-cancel",
+                    "name": "User cancel",
+                    "steps": [
+                        {
+                            "events": [
+                                {"hardware_id": "1234:5678", "evdev": "key_f13"},
+                            ]
+                        }
+                    ],
+                    "action": {"action": ActionType.CANCEL_MACRO_PLAYBACK.value},
+                }
+            ]
+        )
+        combo = manager.combo_state.active_combos[0]
+        assert combo.action is not None
+        binding = combo.steps[0].bindings[0]
+
+        await actions.start_combo_action(
+            manager,
+            combo.id,
+            combo.action,
+            binding,
+            combo.steps[0].bindings,
+            deps=combo_runtime_deps(),
+        )
+        await asyncio.sleep(0)
+
+        manager.cancel_macro_playback.assert_awaited_once()
+        release_tracked_outputs.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_emergency_cancel_combo_double_tap_resets_runtime(self):

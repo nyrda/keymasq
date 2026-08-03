@@ -152,7 +152,8 @@ class TestCombos:
         assert combo.match_across_devices is True
         assert binding.hardware_id == ""
         assert binding.source == ""
-        assert combo_runtime_signature(combo)[-1] is True
+        assert combo_runtime_signature(combo)[-2] is True
+        assert combo_runtime_signature(combo)[-1] is False
 
     @pytest.mark.asyncio
     async def test_set_combos_allows_omitted_hardware_id_as_wildcard(self):

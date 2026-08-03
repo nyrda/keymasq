@@ -37,6 +37,7 @@ class RuntimeCombo:
     recall_trigger_keys: bool = False
     restore_trigger_keys: list[str] = field(default_factory=list)
     match_across_devices: bool = False
+    release_outputs_on_cancel: bool = False
 
 
 @dataclass(frozen=True)

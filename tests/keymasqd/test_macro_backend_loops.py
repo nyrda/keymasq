@@ -22,6 +22,11 @@ async def _wait_for_no_running_macros(manager: DeviceManager) -> None:
         await asyncio.sleep(0.005)
 
 
+async def _wait_for_running_macros(manager: DeviceManager) -> None:
+    while not loops.running_macro_instance_ids(manager.macro_state):
+        await asyncio.sleep(0.005)
+
+
 @pytest.mark.asyncio
 async def test_recording_manager_start_opens_extra_devices_via_to_thread(monkeypatch) -> None:
     broadcast_callback = AsyncMock()
@@ -513,7 +518,7 @@ async def test_cancel_macro_playback_preserves_grabbed_device_outputs() -> None:
         ],
         macro_name="active_cancel",
     )
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(_wait_for_running_macros(manager), timeout=0.5)
 
     result = await manager.cancel_macro_playback()
 

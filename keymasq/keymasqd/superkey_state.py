@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -196,6 +197,7 @@ class SuperkeyMachine:
         action_deps: "ActionExecutionDeps | None" = None,
         await_action_tasks: bool = True,
         repeat_path_recorder: Callable[[str], None] | None = None,
+        monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -215,8 +217,10 @@ class SuperkeyMachine:
         self.action_deps = action_deps or _default_action_deps()
         self.await_action_tasks = await_action_tasks
         self.repeat_path_recorder = repeat_path_recorder
+        self._monotonic_clock = monotonic_clock
 
         self.state = SuperkeyState.IDLE
+        self._press_started_at: float | None = None
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
         self._rapidfire_tasks: list[asyncio.Task[None]] = []
@@ -240,6 +244,7 @@ class SuperkeyMachine:
 
     async def stop(self) -> None:
         self._running = False
+        self._press_started_at = None
         self._action_runtime.stop()
         self._rapidfire_active = False
         if self._hold_task:
@@ -275,6 +280,7 @@ class SuperkeyMachine:
 
     async def _transition_to_down_wait(self) -> None:
         self.state = SuperkeyState.DOWN_WAIT
+        self._press_started_at = self._monotonic_clock()
 
         if self.config.hold_actions:
             self._hold_task = asyncio.create_task(self._hold_timeout())
@@ -295,10 +301,12 @@ class SuperkeyMachine:
             pass
 
     async def _start_holding(self) -> None:
+        self._press_started_at = None
         self.state = SuperkeyState.HOLDING
         await self._emit_hold_down()
 
     async def _start_tap_holding(self) -> None:
+        self._press_started_at = None
         if not self.config.tap_hold_actions:
             await self._start_holding()
             return
@@ -307,9 +315,14 @@ class SuperkeyMachine:
         await self._emit_tap_hold_down()
 
     async def _on_first_up(self) -> None:
+        is_tap = self._release_qualifies_as_tap()
         if self._hold_task:
             self._hold_task.cancel()
             self._hold_task = None
+
+        if not is_tap:
+            self.state = SuperkeyState.IDLE
+            return
 
         # Tap+hold uses the same second-press window as double tap. Without
         # this branch, a quick tap followed by a held second press falls back
@@ -344,21 +357,35 @@ class SuperkeyMachine:
             self._double_tap_task = None
 
         self.state = SuperkeyState.DOWN_WAIT_2
+        self._press_started_at = self._monotonic_clock()
 
         if self.config.tap_hold_actions or self.config.hold_actions:
             self._hold_task = asyncio.create_task(self._hold_timeout())
 
     async def _on_second_up(self) -> None:
+        is_tap = self._release_qualifies_as_tap()
         if self._hold_task:
             self._hold_task.cancel()
             self._hold_task = None
 
-        if self.config.double_tap_actions:
+        if is_tap and self.config.double_tap_actions:
             await self._emit_double_tap()
         elif self.config.tap_actions:
+            # The first tap was deferred while waiting for a second gesture.
+            # If that second press is too long to be a tap, preserve the
+            # already-recognized first tap instead of dropping both presses.
             await self._emit_tap()
 
         self.state = SuperkeyState.IDLE
+
+    def _release_qualifies_as_tap(self) -> bool:
+        started_at = self._press_started_at
+        self._press_started_at = None
+        if started_at is None:
+            return False
+
+        elapsed_ms = max(0.0, self._monotonic_clock() - started_at) * 1000.0
+        return elapsed_ms <= max(0, self.config.tap_timeout_ms)
 
     async def _on_hold_release(self) -> None:
         self._rapidfire_active = False

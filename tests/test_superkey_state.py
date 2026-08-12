@@ -13,6 +13,17 @@ from keymasq.keymasqd.superkey_state import (
 )
 
 
+class _ManualClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance_ms(self, milliseconds: int) -> None:
+        self.now += milliseconds / 1000.0
+
+
 @pytest.mark.asyncio
 async def test_default_action_deps_observes_background_task_exceptions(
     caplog: pytest.LogCaptureFixture,
@@ -64,6 +75,127 @@ async def test_double_tap_action_fires_on_second_tap() -> None:
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1) in writes
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0) in writes
     assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) not in writes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("press_duration_ms", "expected_values"), [(99, [1, 0]), (101, [])])
+async def test_tap_timeout_bounds_single_tap(
+    press_duration_ms: int,
+    expected_values: list[int],
+) -> None:
+    clock = _ManualClock()
+    keyboard_uinput = MagicMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="tap_timeout",
+            tap_timeout_ms=100,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        monotonic_clock=clock,
+    )
+
+    await machine.on_down()
+    clock.advance_ms(press_duration_ms)
+    await machine.on_up()
+
+    assert [
+        call.args[2]
+        for call in keyboard_uinput.write.call_args_list
+        if call.args[:2] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A)
+    ] == expected_values
+
+
+@pytest.mark.asyncio
+async def test_release_between_tap_timeout_and_hold_threshold_does_nothing() -> None:
+    clock = _ManualClock()
+    keyboard_uinput = MagicMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="tap_hold_gap",
+            tap_timeout_ms=100,
+            hold_threshold_ms=300,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        monotonic_clock=clock,
+    )
+
+    await machine.on_down()
+    clock.advance_ms(200)
+    await machine.on_up()
+
+    assert keyboard_uinput.write.call_args_list == []
+    assert machine.state.value == "idle"
+
+
+@pytest.mark.asyncio
+async def test_hold_wins_when_it_activates_before_tap_timeout() -> None:
+    keyboard_uinput = MagicMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="hold_before_tap_timeout",
+            tap_timeout_ms=1000,
+            hold_threshold_ms=0,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+    )
+
+    await machine.on_down()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await machine.on_up()
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_slow_second_press_preserves_first_tap() -> None:
+    clock = _ManualClock()
+    keyboard_uinput = MagicMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="slow_second_press",
+            tap_timeout_ms=100,
+            double_tap_window_ms=500,
+            hold_threshold_ms=300,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            tap_hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        monotonic_clock=clock,
+    )
+
+    await machine.on_down()
+    clock.advance_ms(50)
+    await machine.on_up()
+    await machine.on_down()
+    clock.advance_ms(150)
+    await machine.on_up()
+
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+    ]
 
 
 @pytest.mark.asyncio

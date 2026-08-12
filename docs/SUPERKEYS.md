@@ -179,6 +179,13 @@ The **Timing** section only matters in pattern mode.
 | **Double Tap Window** | Time between taps for a double tap. | 300 ms | 50-1000 ms |
 | **Hold Threshold** | Time before Hold or Tap + Hold activates. | 300 ms | 50-2000 ms |
 
+Each press in a Tap or Double Tap must be released within **Tap Timeout**.
+Releasing after Tap Timeout but before Hold Threshold does not trigger a slot.
+Once Hold or Tap + Hold activates, that held gesture wins even when Tap Timeout
+is configured to be longer than Hold Threshold. If a valid first tap is
+followed by a second press that is too long to be a tap and too short to become
+a held gesture, the original Tap still fires.
+
 Overload mode ignores these timing values because it does not do gesture
 recognition.
 

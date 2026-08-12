@@ -283,6 +283,20 @@ class TestDeviceManagerHelpers:
         assert created[0].kwargs["name"] == "keymasq-test-keyboard"
         assert created[0].kwargs["vendor"] == 0x4B46
         assert created[0].kwargs["product"] == 0x1001
+        keyboard_key_caps = set(created[0].kwargs["events"][evdev.ecodes.EV_KEY])
+        expected_extended_keys = {
+            *(getattr(evdev.ecodes, f"KEY_F{number}") for number in range(13, 25)),
+            evdev.ecodes.KEY_PREVIOUSSONG,
+            evdev.ecodes.KEY_PLAYPAUSE,
+            evdev.ecodes.KEY_NEXTSONG,
+            evdev.ecodes.KEY_STOP,
+            evdev.ecodes.KEY_PLAY,
+            evdev.ecodes.KEY_PAUSE,
+            evdev.ecodes.KEY_MICMUTE,
+            evdev.ecodes.KEY_BRIGHTNESSDOWN,
+            evdev.ecodes.KEY_BRIGHTNESSUP,
+        }
+        assert expected_extended_keys <= keyboard_key_caps
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002

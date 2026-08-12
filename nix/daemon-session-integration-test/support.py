@@ -25,6 +25,7 @@ LOWER_PROFILE_NAME = "Integration Lower Fallback"
 PASSTHROUGH_PROFILE_NAME = "Integration Passthrough Override"
 TEMP_PROFILE_NAME = "Integration Temporary Layer"
 REPEAT_PROFILE_NAME = "Integration Repeat"
+EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME = "Integration Extended Keyboard Outputs"
 MACRO_SLOT_PROFILE_NAME = "Integration Macro Slot Actions"
 MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
@@ -118,6 +119,7 @@ class ScenarioContext:
                 "Integration Analog Gamepad Invert",
                 MACRO_SLOT_PROFILE_NAME,
                 REPEAT_PROFILE_NAME,
+                EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME,
             ):
                 self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
             self.request(
@@ -338,6 +340,11 @@ class ScenarioContext:
             "profiles/repeat.toml",
             values,
         )
+        self.write_fixture(
+            profiles_dir / "integration-extended-keyboard-outputs.toml",
+            "profiles/extended-keyboard-outputs.toml",
+            values,
+        )
         (profiles_dir / "integration-macro-slot-actions.toml").write_text(
             Template(MACRO_SLOT_PROFILE_TEMPLATE).safe_substitute(values),
             encoding="utf-8",
@@ -410,6 +417,7 @@ class ScenarioContext:
             "PASSTHROUGH_PROFILE_NAME": PASSTHROUGH_PROFILE_NAME,
             "TEMP_PROFILE_NAME": TEMP_PROFILE_NAME,
             "REPEAT_PROFILE_NAME": REPEAT_PROFILE_NAME,
+            "EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME": EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME,
             "MACRO_SLOT_PROFILE_NAME": MACRO_SLOT_PROFILE_NAME,
             "MACRO_NAME": MACRO_NAME,
             "LONG_MACRO_NAME": LONG_MACRO_NAME,

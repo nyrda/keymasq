@@ -1,0 +1,90 @@
+[profile]
+name = "$EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 600
+notify_on_activation = false
+created_at = "2026-08-12T00:00:00"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_f13]
+action = "keyboard"
+target = "key_f13"
+
+[devices."$HARDWARE_ID".mapping.key_f14]
+action = "keyboard"
+target = "key_f14"
+
+[devices."$HARDWARE_ID".mapping.key_f15]
+action = "keyboard"
+target = "key_f15"
+
+[devices."$HARDWARE_ID".mapping.key_f16]
+action = "keyboard"
+target = "key_f16"
+
+[devices."$HARDWARE_ID".mapping.key_f17]
+action = "keyboard"
+target = "key_f17"
+
+[devices."$HARDWARE_ID".mapping.key_f18]
+action = "keyboard"
+target = "key_f18"
+
+[devices."$HARDWARE_ID".mapping.key_f19]
+action = "keyboard"
+target = "key_f19"
+
+[devices."$HARDWARE_ID".mapping.key_f20]
+action = "keyboard"
+target = "key_f20"
+
+[devices."$HARDWARE_ID".mapping.key_f21]
+action = "keyboard"
+target = "key_f21"
+
+[devices."$HARDWARE_ID".mapping.key_f22]
+action = "keyboard"
+target = "key_f22"
+
+[devices."$HARDWARE_ID".mapping.key_f23]
+action = "keyboard"
+target = "key_f23"
+
+[devices."$HARDWARE_ID".mapping.key_f24]
+action = "keyboard"
+target = "key_f24"
+
+[devices."$HARDWARE_ID".mapping.key_a]
+action = "keyboard"
+target = "key_previoussong"
+
+[devices."$HARDWARE_ID".mapping.key_b]
+action = "keyboard"
+target = "key_playpause"
+
+[devices."$HARDWARE_ID".mapping.key_e]
+action = "keyboard"
+target = "key_nextsong"
+
+[devices."$HARDWARE_ID".mapping.key_k]
+action = "keyboard"
+target = "key_stop"
+
+[devices."$HARDWARE_ID".mapping.key_l]
+action = "keyboard"
+target = "key_play"
+
+[devices."$HARDWARE_ID".mapping.key_m]
+action = "keyboard"
+target = "key_micmute"
+
+[devices."$HARDWARE_ID".mapping.key_n]
+action = "keyboard"
+target = "key_brightnessdown"
+
+[devices."$HARDWARE_ID".mapping.key_o]
+action = "keyboard"
+target = "key_brightnessup"

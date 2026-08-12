@@ -166,6 +166,18 @@ class _Ecodes(Protocol):
     KEY_F10: Final[int]
     KEY_F11: Final[int]
     KEY_F12: Final[int]
+    KEY_F13: Final[int]
+    KEY_F14: Final[int]
+    KEY_F15: Final[int]
+    KEY_F16: Final[int]
+    KEY_F17: Final[int]
+    KEY_F18: Final[int]
+    KEY_F19: Final[int]
+    KEY_F20: Final[int]
+    KEY_F21: Final[int]
+    KEY_F22: Final[int]
+    KEY_F23: Final[int]
+    KEY_F24: Final[int]
     KEY_RIGHTCTRL: Final[int]
     KEY_RIGHTALT: Final[int]
     KEY_RIGHTMETA: Final[int]
@@ -186,6 +198,14 @@ class _Ecodes(Protocol):
     KEY_MUTE: Final[int]
     KEY_VOLUMEDOWN: Final[int]
     KEY_VOLUMEUP: Final[int]
+    KEY_MICMUTE: Final[int]
+    KEY_BRIGHTNESSDOWN: Final[int]
+    KEY_BRIGHTNESSUP: Final[int]
+    KEY_PREVIOUSSONG: Final[int]
+    KEY_PLAYPAUSE: Final[int]
+    KEY_NEXTSONG: Final[int]
+    KEY_STOP: Final[int]
+    KEY_PLAY: Final[int]
     KEY_NUMLOCK: Final[int]
     KEY_KPSLASH: Final[int]
     KEY_KPASTERISK: Final[int]
@@ -530,6 +550,18 @@ def create_global_uinputs(
                 evdev_mod.ecodes.KEY_F10,
                 evdev_mod.ecodes.KEY_F11,
                 evdev_mod.ecodes.KEY_F12,
+                evdev_mod.ecodes.KEY_F13,
+                evdev_mod.ecodes.KEY_F14,
+                evdev_mod.ecodes.KEY_F15,
+                evdev_mod.ecodes.KEY_F16,
+                evdev_mod.ecodes.KEY_F17,
+                evdev_mod.ecodes.KEY_F18,
+                evdev_mod.ecodes.KEY_F19,
+                evdev_mod.ecodes.KEY_F20,
+                evdev_mod.ecodes.KEY_F21,
+                evdev_mod.ecodes.KEY_F22,
+                evdev_mod.ecodes.KEY_F23,
+                evdev_mod.ecodes.KEY_F24,
                 evdev_mod.ecodes.KEY_RIGHTCTRL,
                 evdev_mod.ecodes.KEY_RIGHTALT,
                 evdev_mod.ecodes.KEY_RIGHTMETA,
@@ -550,6 +582,14 @@ def create_global_uinputs(
                 evdev_mod.ecodes.KEY_MUTE,
                 evdev_mod.ecodes.KEY_VOLUMEDOWN,
                 evdev_mod.ecodes.KEY_VOLUMEUP,
+                evdev_mod.ecodes.KEY_MICMUTE,
+                evdev_mod.ecodes.KEY_BRIGHTNESSDOWN,
+                evdev_mod.ecodes.KEY_BRIGHTNESSUP,
+                evdev_mod.ecodes.KEY_PREVIOUSSONG,
+                evdev_mod.ecodes.KEY_PLAYPAUSE,
+                evdev_mod.ecodes.KEY_NEXTSONG,
+                evdev_mod.ecodes.KEY_STOP,
+                evdev_mod.ecodes.KEY_PLAY,
                 evdev_mod.ecodes.KEY_NUMLOCK,
                 evdev_mod.ecodes.KEY_KPSLASH,
                 evdev_mod.ecodes.KEY_KPASTERISK,

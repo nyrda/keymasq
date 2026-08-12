@@ -11,6 +11,7 @@ The test is intentionally a smoke/integration suite, not exhaustive unit
 coverage. It verifies that the core runtime classes still work together:
 
 - simple keyboard remap
+- extended function, media, microphone mute, and brightness keyboard outputs
 - suppress
 - tap-enabled remap
 - repeat last action across direct mappings, passthrough input, combos, and superkeys

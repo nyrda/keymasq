@@ -57,6 +57,7 @@ class ComboRuntimeState:
     capture_queues: dict[str, ComboCaptureQueueState] = field(default_factory=dict)
     active_combos: list[RuntimeCombo] = field(default_factory=list)
     progression: ComboProgressionMachine = field(default_factory=ComboProgressionMachine)
+    transition_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     runtime_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)

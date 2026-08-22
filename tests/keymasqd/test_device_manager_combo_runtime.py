@@ -632,33 +632,42 @@ class TestCombos:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "superkey_payload",
+        ("superkey_payload", "expected_writes"),
         [
-            {
-                "name": "overload-start-order",
-                "mode": "overload",
-                "overload_actions": [
-                    {
-                        "action": "macro",
-                        "macro_name": "held-child",
-                        "macro_loop_mode": "hold",
-                    }
+            (
+                {
+                    "name": "overload-start-order",
+                    "mode": "overload",
+                    "overload_actions": [
+                        {
+                            "action": "macro",
+                            "macro_name": "held-child",
+                            "macro_loop_mode": "hold",
+                        }
+                    ],
+                },
+                [],
+            ),
+            (
+                {
+                    "name": "split-overload-start-order",
+                    "mode": "overload",
+                    "overload_actions": [
+                        {
+                            "action": "macro",
+                            "macro_name": "held-child",
+                            "macro_loop_mode": "hold",
+                        }
+                    ],
+                    "overload_up_actions": [
+                        {"action": "keyboard", "target": "key_f6"},
+                    ],
+                },
+                [
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 0),
                 ],
-            },
-            {
-                "name": "split-overload-start-order",
-                "mode": "overload",
-                "overload_actions": [
-                    {
-                        "action": "macro",
-                        "macro_name": "held-child",
-                        "macro_loop_mode": "hold",
-                    }
-                ],
-                "overload_up_actions": [
-                    {"action": "keyboard", "target": "key_f6"},
-                ],
-            },
+            ),
         ],
         ids=("overload", "split-overload"),
     )
@@ -666,9 +675,11 @@ class TestCombos:
         self,
         monkeypatch: pytest.MonkeyPatch,
         superkey_payload: dict[str, object],
+        expected_writes: list[tuple[int, int, int]],
     ) -> None:
         manager = DeviceManager()
-        manager.output_state.keyboard_uinput = FakeUInput()
+        keyboard_uinput = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
         press_started = asyncio.Event()
         allow_press = asyncio.Event()
         trigger_values: list[int] = []
@@ -764,6 +775,7 @@ class TestCombos:
             await asyncio.wait_for(release_task, timeout=1.0)
 
             assert trigger_values == [1, 0]
+            assert keyboard_uinput.writes == expected_writes
             assert manager.combo_state.active_actions == {}
         finally:
             allow_press.set()
@@ -772,6 +784,63 @@ class TestCombos:
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
             await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_emergency_reset_does_not_deadlock_transition(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        reset_finished = asyncio.Event()
+
+        async def emergency_reset() -> dict[str, object]:
+            await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+            reset_finished.set()
+            return {"status": "ok"}
+
+        manager.emergency_reset = emergency_reset  # type: ignore[method-assign]
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-emergency-reset",
+                    "name": "Emergency Reset",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_f13",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {"action": "emergency_reset"},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
+
+        await asyncio.wait_for(
+            events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_F13,
+                1,
+                None,
+                "kbd",
+                **combo_event_runtime_kwargs(),
+            ),
+            timeout=1.0,
+        )
+        await asyncio.wait_for(reset_finished.wait(), timeout=1.0)
+
+        assert manager.combo_state.active_actions == {}
+        assert manager.combo_state.timeout_task is None
 
     @pytest.mark.asyncio
     async def test_runtime_combo_release_waits_for_repeat_start(

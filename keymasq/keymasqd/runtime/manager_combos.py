@@ -207,26 +207,28 @@ class ComboManagerMixin:
         preserve_combo_ids: set[str] | None = None,
     ) -> list[RuntimeCombo]:
         active_combos = self._with_emergency_cancel_combos(self._configured_combos)
-        self.combo_state.active_combos = active_combos
-        if preserve_combo_ids is None:
-            await lifecycle.clear_combo_runtime(self, deps=combo_runtime_deps())
-        else:
-            await lifecycle.clear_combo_runtime_except(
-                self,
-                preserve_combo_ids,
-                deps=combo_runtime_deps(),
-            )
-        async with self.combo_state.runtime_lock:
-            if preserve_combo_ids is None:
-                self.combo_state.progression.engine.set_combos(active_combos)
-            else:
-                self.combo_state.progression.engine.set_combos(
-                    active_combos,
-                    preserve_candidate_ids=preserve_combo_ids,
-                )
-            recall.prime_combo_engine_with_held_bindings(self)
-            lifecycle.refresh_combo_timeout_watchdog(self, deps=combo_runtime_deps())
-            return active_combos
+        deps = combo_runtime_deps()
+        async with self.combo_state.transition_lock:
+            async with self.combo_state.runtime_lock:
+                self.combo_state.active_combos = active_combos
+                if preserve_combo_ids is None:
+                    await lifecycle.clear_combo_runtime_unlocked(self, deps=deps)
+                else:
+                    await lifecycle.clear_combo_runtime_except_unlocked(
+                        self,
+                        preserve_combo_ids,
+                        deps=deps,
+                    )
+                if preserve_combo_ids is None:
+                    self.combo_state.progression.engine.set_combos(active_combos)
+                else:
+                    self.combo_state.progression.engine.set_combos(
+                        active_combos,
+                        preserve_candidate_ids=preserve_combo_ids,
+                    )
+                recall.prime_combo_engine_with_held_bindings(self)
+                lifecycle.refresh_combo_timeout_watchdog(self, deps=deps)
+                return active_combos
 
     async def _refresh_combo_runtime_preserving_unchanged(
         self: Any,

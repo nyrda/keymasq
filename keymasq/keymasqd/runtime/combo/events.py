@@ -228,6 +228,8 @@ async def process_runtime_combo_event(
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
     )
+    # Grabbed devices have independent read-loop tasks. Keep the decision and
+    # every resulting action transition ordered as one runtime transaction.
     async with manager.combo_state.runtime_lock:
         held_modifiers = (
             held_combo_modifier_bindings_for_scope(
@@ -245,15 +247,14 @@ async def process_runtime_combo_event(
         )
         if decision.recall_events:
             emit_combo_recalls(manager, decision.recall_events)
-    if decision.action_transition is not None:
-        await apply_combo_action_transition(
-            manager,
-            decision.action_transition,
-            deps=deps,
-        )
-    for transition in decision.extra_action_transitions:
-        await apply_combo_action_transition(manager, transition, deps=deps)
-    async with manager.combo_state.runtime_lock:
+        if decision.action_transition is not None:
+            await apply_combo_action_transition(
+                manager,
+                decision.action_transition,
+                deps=deps,
+            )
+        for transition in decision.extra_action_transitions:
+            await apply_combo_action_transition(manager, transition, deps=deps)
         refresh_combo_timeout_watchdog(manager, deps=deps)
     if (
         decision.consume_current_event

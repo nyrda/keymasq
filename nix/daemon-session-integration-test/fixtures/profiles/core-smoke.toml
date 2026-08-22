@@ -255,6 +255,17 @@ steps = [
 action = { action = "keyboard", target = "key_f10" }
 
 [[combos]]
+id = "integration-cross-device-transition-order"
+name = "Integration cross-device transition order"
+steps = [
+  { events = [
+    { evdev = "key_f24", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_h", hardware_id = "$SECOND_HARDWARE_ID" },
+  ] },
+]
+action = { action = "superkey", superkey_name = "$COMBO_SERIALIZATION_SUPERKEY_NAME" }
+
+[[combos]]
 id = "integration-profile-lifetime"
 name = "Integration profile lifetime"
 steps = [

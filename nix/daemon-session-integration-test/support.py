@@ -31,6 +31,7 @@ MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
 SUPERKEY_NAME = "integration-tap-superkey"
 COMBO_SUPERKEY_NAME = "integration-combo-superkey"
+COMBO_SERIALIZATION_SUPERKEY_NAME = "integration-combo-serialization-superkey"
 OVERLOAD_SUPERKEY_NAME = "integration-overload-superkey"
 PROFILE_LIFETIME_HOLD_SUPERKEY_NAME = "integration-profile-lifetime-hold-superkey"
 PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME = "integration-profile-lifetime-overload-superkey"
@@ -296,6 +297,11 @@ class ScenarioContext:
             values,
         )
         self.write_fixture(
+            superkeys_dir / "integration-combo-serialization-superkey.toml",
+            "superkeys/combo-serialization-superkey.toml",
+            values,
+        )
+        self.write_fixture(
             superkeys_dir / "integration-overload-superkey.toml",
             "superkeys/overload-superkey.toml",
             values,
@@ -423,6 +429,7 @@ class ScenarioContext:
             "LONG_MACRO_NAME": LONG_MACRO_NAME,
             "SUPERKEY_NAME": SUPERKEY_NAME,
             "COMBO_SUPERKEY_NAME": COMBO_SUPERKEY_NAME,
+            "COMBO_SERIALIZATION_SUPERKEY_NAME": COMBO_SERIALIZATION_SUPERKEY_NAME,
             "OVERLOAD_SUPERKEY_NAME": OVERLOAD_SUPERKEY_NAME,
             "PROFILE_LIFETIME_HOLD_SUPERKEY_NAME": (
                 PROFILE_LIFETIME_HOLD_SUPERKEY_NAME

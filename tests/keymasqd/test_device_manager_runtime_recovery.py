@@ -1114,9 +1114,13 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        clear_combo_runtime = AsyncMock()
+        clear_combo_runtime_unlocked = AsyncMock()
         refresh_combo_timeout_watchdog = Mock()
-        monkeypatch.setattr(lifecycle, "clear_combo_runtime", clear_combo_runtime)
+        monkeypatch.setattr(
+            lifecycle,
+            "clear_combo_runtime_unlocked",
+            clear_combo_runtime_unlocked,
+        )
         monkeypatch.setattr(
             lifecycle,
             "refresh_combo_timeout_watchdog",
@@ -1152,7 +1156,7 @@ class TestDeviceManagerHelpers:
         assert result == {"updated": True, "combo_count": 1}
         assert len(manager.combo_state.active_combos) == 1
         assert manager.combo_state.active_combos[0].steps[0].timeout_ms == 250
-        clear_combo_runtime.assert_awaited_once()
+        clear_combo_runtime_unlocked.assert_awaited_once()
         refresh_combo_timeout_watchdog.assert_called_once()
 
     @pytest.mark.asyncio

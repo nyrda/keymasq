@@ -548,7 +548,10 @@ async def _start_combo_action_instance(
         )
         return
 
-    await drain_action_tasks(handle)
+    # Emergency reset tears down combo state itself. Its observed task must run
+    # after the current combo transition releases the ordering lock.
+    if action.action_type != ActionType.EMERGENCY_RESET:
+        await drain_action_tasks(handle)
 
 
 async def _pulse_combo_action_instance(

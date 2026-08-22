@@ -1,0 +1,7 @@
+name = "$COMBO_SERIALIZATION_SUPERKEY_NAME"
+mode = "overload"
+
+[actions]
+overload = [
+  { action = "keyboard", target = "key_f11", tap_enabled = true, tap_hold_ms = 5000 },
+]

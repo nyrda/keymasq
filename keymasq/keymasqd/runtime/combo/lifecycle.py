@@ -13,8 +13,9 @@ async def clear_combo_runtime(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
-    async with manager.combo_state.runtime_lock:
-        await clear_combo_runtime_unlocked(manager, deps=deps)
+    async with manager.combo_state.transition_lock:
+        async with manager.combo_state.runtime_lock:
+            await clear_combo_runtime_unlocked(manager, deps=deps)
 
 
 async def clear_combo_runtime_unlocked(
@@ -42,12 +43,13 @@ async def clear_combo_runtime_except(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
-    async with manager.combo_state.runtime_lock:
-        await clear_combo_runtime_except_unlocked(
-            manager,
-            preserve_combo_ids,
-            deps=deps,
-        )
+    async with manager.combo_state.transition_lock:
+        async with manager.combo_state.runtime_lock:
+            await clear_combo_runtime_except_unlocked(
+                manager,
+                preserve_combo_ids,
+                deps=deps,
+            )
 
 
 async def clear_combo_runtime_except_unlocked(
@@ -85,13 +87,14 @@ async def clear_combo_runtime_for_binding_scope(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
-    async with manager.combo_state.runtime_lock:
-        await clear_combo_runtime_for_binding_scope_unlocked(
-            manager,
-            hardware_id,
-            source,
-            deps=deps,
-        )
+    async with manager.combo_state.transition_lock:
+        async with manager.combo_state.runtime_lock:
+            await clear_combo_runtime_for_binding_scope_unlocked(
+                manager,
+                hardware_id,
+                source,
+                deps=deps,
+            )
 
 
 async def clear_combo_runtime_for_binding_scope_unlocked(
@@ -159,11 +162,12 @@ async def combo_timeout_watchdog(
 ) -> None:
     try:
         await deps.asyncio_mod.sleep(max(0.0, deadline - time.monotonic()))
-        async with manager.combo_state.runtime_lock:
-            manager.combo_state.progression.engine.expire_timeouts(time.monotonic())
-            if manager.combo_state.timeout_task is deps.asyncio_mod.current_task():
-                manager.combo_state.timeout_task = None
-            refresh_combo_timeout_watchdog(manager, deps=deps)
+        async with manager.combo_state.transition_lock:
+            async with manager.combo_state.runtime_lock:
+                manager.combo_state.progression.engine.expire_timeouts(time.monotonic())
+                if manager.combo_state.timeout_task is deps.asyncio_mod.current_task():
+                    manager.combo_state.timeout_task = None
+                refresh_combo_timeout_watchdog(manager, deps=deps)
     except deps.asyncio_mod.CancelledError:
         raise
 

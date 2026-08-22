@@ -228,33 +228,38 @@ async def process_runtime_combo_event(
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
     )
-    async with manager.combo_state.runtime_lock:
-        held_modifiers = (
-            held_combo_modifier_bindings_for_scope(
-                manager,
-                binding.hardware_id,
-                binding.source,
+    # Grabbed devices have independent read-loop tasks, so this lock must cover
+    # action startup as well as the engine decision. Startup never waits for a
+    # later input event: for hold macros it waits only until play_macro has
+    # registered the separate long-running playback task.
+    async with manager.combo_state.transition_lock:
+        async with manager.combo_state.runtime_lock:
+            held_modifiers = (
+                held_combo_modifier_bindings_for_scope(
+                    manager,
+                    binding.hardware_id,
+                    binding.source,
+                )
+                if value == 1 and not is_combo_pulse_evdev(binding.evdev)
+                else ()
             )
-            if value == 1 and not is_combo_pulse_evdev(binding.evdev)
-            else ()
-        )
-        decision = manager.combo_state.progression.handle(
-            binding,
-            value,
-            held_bindings=held_modifiers,
-        )
-        if decision.recall_events:
-            emit_combo_recalls(manager, decision.recall_events)
-    if decision.action_transition is not None:
-        await apply_combo_action_transition(
-            manager,
-            decision.action_transition,
-            deps=deps,
-        )
-    for transition in decision.extra_action_transitions:
-        await apply_combo_action_transition(manager, transition, deps=deps)
-    async with manager.combo_state.runtime_lock:
-        refresh_combo_timeout_watchdog(manager, deps=deps)
+            decision = manager.combo_state.progression.handle(
+                binding,
+                value,
+                held_bindings=held_modifiers,
+            )
+            if decision.recall_events:
+                emit_combo_recalls(manager, decision.recall_events)
+        if decision.action_transition is not None:
+            await apply_combo_action_transition(
+                manager,
+                decision.action_transition,
+                deps=deps,
+            )
+        for transition in decision.extra_action_transitions:
+            await apply_combo_action_transition(manager, transition, deps=deps)
+        async with manager.combo_state.runtime_lock:
+            refresh_combo_timeout_watchdog(manager, deps=deps)
     if (
         decision.consume_current_event
         or decision.passthrough_current_event

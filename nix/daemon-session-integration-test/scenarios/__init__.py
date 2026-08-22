@@ -15,6 +15,7 @@ from . import (
     analog_trigger_deadzone,
     cancel_macro_playback,
     combo_chord,
+    combo_cross_device_transition_order,
     combo_negative_timeout,
     combo_prefix_overlap,
     combo_superkey,
@@ -67,6 +68,10 @@ SCENARIOS = [
         superkey_overload_multi_action.run,
     ),
     ScenarioCase("combo chord", combo_chord.run),
+    ScenarioCase(
+        "combo cross-device transition order",
+        combo_cross_device_transition_order.run,
+    ),
     ScenarioCase("combo bound to superkey", combo_superkey.run),
     ScenarioCase("combo superkey recall and restore", combo_superkey_recall_restore.run),
     ScenarioCase("multi-step combo", multi_step_combo.run),

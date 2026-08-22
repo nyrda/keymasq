@@ -6,7 +6,10 @@ import evdev
 import pytest
 
 from keymasq.common import devices
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import repeat
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from tests.keymasqd.device_manager_support import (
@@ -563,6 +566,7 @@ class TestCombos:
             fire_and_observe_fn=delayed_fire_and_observe,
         )
         press_b_task = None
+        release_b_task = None
         try:
             await events.on_device_event(
                 manager,
@@ -590,19 +594,25 @@ class TestCombos:
             )
             await asyncio.wait_for(action_task_waiting.wait(), timeout=1.0)
 
-            await events.on_device_event(
-                manager,
-                "1234:5678",
-                "/dev/input/by-id/test-kbd-b",
-                evdev.ecodes.EV_KEY,
-                evdev.ecodes.KEY_B,
-                0,
-                None,
-                "kbd-b",
-                **kwargs,
+            release_b_task = asyncio.create_task(
+                events.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-b",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_B,
+                    0,
+                    None,
+                    "kbd-b",
+                    **kwargs,
+                )
             )
+            await asyncio.sleep(0)
+            assert not release_b_task.done()
+
             release_action_task.set()
             await asyncio.wait_for(press_b_task, timeout=1.0)
+            await asyncio.wait_for(release_b_task, timeout=1.0)
             await asyncio.gather(*action_tasks, return_exceptions=True)
 
             assert manager.combo_state.active_actions == {}
@@ -611,7 +621,430 @@ class TestCombos:
             if press_b_task is not None and not press_b_task.done():
                 press_b_task.cancel()
                 await asyncio.gather(press_b_task, return_exceptions=True)
+            if release_b_task is not None and not release_b_task.done():
+                release_b_task.cancel()
+                await asyncio.gather(release_b_task, return_exceptions=True)
             await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+            for task in action_tasks:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("superkey_payload", "expected_writes"),
+        [
+            (
+                {
+                    "name": "overload-start-order",
+                    "mode": "overload",
+                    "overload_actions": [
+                        {
+                            "action": "macro",
+                            "macro_name": "held-child",
+                            "macro_loop_mode": "hold",
+                        }
+                    ],
+                },
+                [],
+            ),
+            (
+                {
+                    "name": "split-overload-start-order",
+                    "mode": "overload",
+                    "overload_actions": [
+                        {
+                            "action": "macro",
+                            "macro_name": "held-child",
+                            "macro_loop_mode": "hold",
+                        }
+                    ],
+                    "overload_up_actions": [
+                        {"action": "keyboard", "target": "key_f6"},
+                    ],
+                },
+                [
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 1),
+                    (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F6, 0),
+                ],
+            ),
+        ],
+        ids=("overload", "split-overload"),
+    )
+    async def test_runtime_combo_release_waits_for_overload_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        superkey_payload: dict[str, object],
+        expected_writes: list[tuple[int, int, int]],
+    ) -> None:
+        manager = DeviceManager()
+        keyboard_uinput = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard_uinput
+        press_started = asyncio.Event()
+        allow_press = asyncio.Event()
+        trigger_values: list[int] = []
+
+        async def play_macro(**kwargs: object) -> dict[str, object]:
+            trigger_value = int(kwargs["trigger_value"])
+            trigger_values.append(trigger_value)
+            if trigger_value == 1:
+                press_started.set()
+                await allow_press.wait()
+            return {"status": "ok"}
+
+        manager.play_macro = play_macro  # type: ignore[method-assign]
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-cross-device-overload",
+                    "name": "Cross Device Overload",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-a",
+                                    "evdev": "key_leftalt",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-b",
+                                    "evdev": "key_b",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {
+                        "action": "superkey",
+                        "superkey": superkey_payload,
+                    },
+                }
+            ]
+        )
+
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "")
+        kwargs = combo_event_runtime_kwargs()
+        press_task = None
+        release_task = None
+        try:
+            await events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd-a",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_LEFTALT,
+                1,
+                None,
+                "kbd-a",
+                **kwargs,
+            )
+            press_task = asyncio.create_task(
+                events.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-b",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_B,
+                    1,
+                    None,
+                    "kbd-b",
+                    **kwargs,
+                )
+            )
+            await asyncio.wait_for(press_started.wait(), timeout=1.0)
+
+            release_task = asyncio.create_task(
+                events.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-a",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_LEFTALT,
+                    0,
+                    None,
+                    "kbd-a",
+                    **kwargs,
+                )
+            )
+            await asyncio.sleep(0)
+            assert not release_task.done()
+
+            allow_press.set()
+            await asyncio.wait_for(press_task, timeout=1.0)
+            await asyncio.wait_for(release_task, timeout=1.0)
+
+            assert trigger_values == [1, 0]
+            assert keyboard_uinput.writes == expected_writes
+            assert manager.combo_state.active_actions == {}
+        finally:
+            allow_press.set()
+            for task in (press_task, release_task):
+                if task is not None and not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+            await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_emergency_reset_does_not_deadlock_transition(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        reset_finished = asyncio.Event()
+
+        async def emergency_reset() -> dict[str, object]:
+            await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+            reset_finished.set()
+            return {"status": "ok"}
+
+        manager.emergency_reset = emergency_reset  # type: ignore[method-assign]
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-emergency-reset",
+                    "name": "Emergency Reset",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd",
+                                    "evdev": "key_f13",
+                                }
+                            ]
+                        }
+                    ],
+                    "action": {"action": "emergency_reset"},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
+
+        await asyncio.wait_for(
+            events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_F13,
+                1,
+                None,
+                "kbd",
+                **combo_event_runtime_kwargs(),
+            ),
+            timeout=1.0,
+        )
+        await asyncio.wait_for(reset_finished.wait(), timeout=1.0)
+
+        assert manager.combo_state.active_actions == {}
+        assert manager.combo_state.timeout_task is None
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_release_waits_for_repeat_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        press_started = asyncio.Event()
+        allow_press = asyncio.Event()
+        trigger_values: list[int] = []
+
+        async def play_macro(**kwargs: object) -> dict[str, object]:
+            trigger_value = int(kwargs["trigger_value"])
+            trigger_values.append(trigger_value)
+            if trigger_value == 1:
+                press_started.set()
+                await allow_press.wait()
+            return {"status": "ok"}
+
+        manager.play_macro = play_macro  # type: ignore[method-assign]
+        repeat.remember_action(
+            manager.repeat_state,
+            MappingAction(
+                action_type=ActionType.MACRO,
+                macro_name="held-repeat",
+                macro_loop_mode="hold",
+            ),
+        )
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-cross-device-repeat",
+                    "name": "Cross Device Repeat",
+                    "steps": [
+                        {
+                            "events": [
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-a",
+                                    "evdev": "key_leftalt",
+                                },
+                                {
+                                    "hardware_id": "1234:5678",
+                                    "source": "kbd-b",
+                                    "evdev": "key_b",
+                                },
+                            ]
+                        }
+                    ],
+                    "action": {"action": "repeat", "repeat_categories": ["macro"]},
+                }
+            ]
+        )
+
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "")
+        kwargs = combo_event_runtime_kwargs()
+        press_task = None
+        release_task = None
+        try:
+            await events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd-a",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_LEFTALT,
+                1,
+                None,
+                "kbd-a",
+                **kwargs,
+            )
+            press_task = asyncio.create_task(
+                events.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-b",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_B,
+                    1,
+                    None,
+                    "kbd-b",
+                    **kwargs,
+                )
+            )
+            await asyncio.wait_for(press_started.wait(), timeout=1.0)
+
+            release_task = asyncio.create_task(
+                events.on_device_event(
+                    manager,
+                    "1234:5678",
+                    "/dev/input/by-id/test-kbd-a",
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.KEY_LEFTALT,
+                    0,
+                    None,
+                    "kbd-a",
+                    **kwargs,
+                )
+            )
+            await asyncio.sleep(0)
+            assert not release_task.done()
+
+            allow_press.set()
+            await asyncio.wait_for(press_task, timeout=1.0)
+            await asyncio.wait_for(release_task, timeout=1.0)
+
+            assert trigger_values == [1, 0]
+            assert manager.combo_state.active_actions == {}
+        finally:
+            allow_press.set()
+            for task in (press_task, release_task):
+                if task is not None and not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+            await lifecycle.clear_combo_runtime(manager, deps=combo_runtime_deps())
+
+    @pytest.mark.asyncio
+    async def test_runtime_combo_refresh_waits_for_action_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FakeUInput()
+        action_started = asyncio.Event()
+        allow_action = asyncio.Event()
+        action_tasks: list[asyncio.Task[object]] = []
+
+        def delayed_fire_and_observe(coro, _label):
+            async def runner():
+                try:
+                    action_started.set()
+                    await allow_action.wait()
+                    return await coro
+                finally:
+                    if not allow_action.is_set():
+                        close = getattr(coro, "close", None)
+                        if callable(close):
+                            close()
+
+            task = asyncio.create_task(runner())
+            action_tasks.append(task)
+            return task
+
+        combo_payload = {
+            "id": "combo-refresh-during-start",
+            "name": "Refresh During Start",
+            "steps": [
+                {
+                    "events": [
+                        {
+                            "hardware_id": "1234:5678",
+                            "source": "kbd",
+                            "evdev": "key_f13",
+                        }
+                    ]
+                }
+            ],
+            "action": {
+                "action": "keyboard",
+                "target": "key_f5",
+                "tap_enabled": True,
+                "tap_hold_ms": 10,
+            },
+        }
+        await manager.set_combos([combo_payload])
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "kbd")
+        kwargs = combo_event_runtime_kwargs()
+        kwargs["deps"] = combo_runtime_deps(
+            fire_and_observe_fn=delayed_fire_and_observe,
+        )
+        press_task = asyncio.create_task(
+            events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-kbd",
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.KEY_F13,
+                1,
+                None,
+                "kbd",
+                **kwargs,
+            )
+        )
+        refresh_task = None
+        try:
+            await asyncio.wait_for(action_started.wait(), timeout=1.0)
+            refresh_task = asyncio.create_task(manager.set_combos([]))
+            await asyncio.sleep(0)
+            assert not refresh_task.done()
+
+            allow_action.set()
+            await asyncio.wait_for(press_task, timeout=1.0)
+            await asyncio.wait_for(refresh_task, timeout=1.0)
+            await asyncio.gather(*action_tasks, return_exceptions=True)
+
+            assert manager.combo_state.active_actions == {}
+            assert manager.combo_state.active_combos == []
+        finally:
+            allow_action.set()
+            for task in (press_task, refresh_task):
+                if task is not None and not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
             for task in action_tasks:
                 if not task.done():
                     task.cancel()

@@ -335,7 +335,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         )
         async with self._op_lock:
             self.device_inspector_state.reset()
-            await self._refresh_combo_runtime_unlocked()
+            await self._refresh_combo_runtime()
 
     async def emergency_reset(self) -> JsonObject:
         await self.release_all_devices()
@@ -442,7 +442,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             transition = self.device_inspector_state.stop(hardware_id)
             if transition.reset_runtime:
                 await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
-                await self._refresh_combo_runtime_unlocked()
+                await self._refresh_combo_runtime()
             self._broadcast_device_inspector_status(transition.hardware_id, "stop")
             return transition.response()
 
@@ -450,7 +450,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         async with self._op_lock:
             transition = self.device_inspector_state.enable_suppression(hardware_id)
             await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
-            await self._refresh_combo_runtime_unlocked()
+            await self._refresh_combo_runtime()
             self._broadcast_device_inspector_status(transition.hardware_id, "enable_suppression")
             return transition.response()
 
@@ -463,7 +463,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             transition = self.device_inspector_state.disable_suppression(hardware_id)
             if transition.reset_runtime:
                 await self._reset_device_inspector_runtime_unlocked(transition.hardware_id)
-                await self._refresh_combo_runtime_unlocked()
+                await self._refresh_combo_runtime()
             self._broadcast_device_inspector_status(transition.hardware_id, reason)
             return transition.response(reason=str(reason or ""))
 

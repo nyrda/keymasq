@@ -104,7 +104,7 @@ from runner import _scenario_key, selected_scenarios
 from scenarios import SCENARIOS
 
 keys = [_scenario_key(scenario.name) for scenario in SCENARIOS]
-assert len(SCENARIOS) == 48
+assert len(SCENARIOS) == 49
 assert len(keys) == len(set(keys))
 assert all(key and key.replace('-', '').isalnum() for key in keys)
 assert _scenario_key('simple 1->1 remap') == 'simple-1-1-remap'
@@ -145,7 +145,11 @@ def test_runner_lists_all_registered_scenarios_without_starting_context() -> Non
 
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 48
+    assert len(lines) == 49
+    assert (
+        "combo-cross-device-transition-order\t"
+        "combo cross-device transition order"
+    ) in lines
     assert "simple-1-1-remap\tsimple 1->1 remap" in lines
     assert (
         "superkey-overload-multi-action-press-release\t"

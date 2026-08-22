@@ -228,9 +228,10 @@ async def process_runtime_combo_event(
         evdev=str_value_fn(payload.get("evdev"), ""),
         source=str_value_fn(payload.get("source"), ""),
     )
-    # Grabbed devices have independent read-loop tasks. Serialize the full
-    # decision/action sequence, but do not hold the state lock while an action
-    # waits for asynchronous startup work.
+    # Grabbed devices have independent read-loop tasks, so this lock must cover
+    # action startup as well as the engine decision. Startup never waits for a
+    # later input event: for hold macros it waits only until play_macro has
+    # registered the separate long-running playback task.
     async with manager.combo_state.transition_lock:
         async with manager.combo_state.runtime_lock:
             held_modifiers = (

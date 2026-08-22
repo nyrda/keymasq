@@ -191,7 +191,7 @@ class ComboManagerMixin:
                 source_button_prefix="combo:",
             )
             self._configured_combos = parsed
-            active_combos = await self._refresh_combo_runtime_unlocked(
+            active_combos = await self._refresh_combo_runtime(
                 preserve_combo_ids=preserve_combo_ids,
             )
             log.info(
@@ -201,7 +201,7 @@ class ComboManagerMixin:
             )
             return {"updated": True, "combo_count": len(active_combos)}
 
-    async def _refresh_combo_runtime_unlocked(
+    async def _refresh_combo_runtime(
         self: Any,
         *,
         preserve_combo_ids: set[str] | None = None,
@@ -237,7 +237,7 @@ class ComboManagerMixin:
             combo_runtime_signatures(self.combo_state.active_combos),
             self._with_emergency_cancel_combos(self._configured_combos),
         )
-        return await self._refresh_combo_runtime_unlocked(
+        return await self._refresh_combo_runtime(
             preserve_combo_ids=unchanged_ids if unchanged_ids else None,
         )
 

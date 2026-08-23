@@ -29,7 +29,6 @@ class TimelineGap:
     next_items: tuple[GapItem, ...]
     scope: GapScope = "timeline"
     track: str | None = None
-    following_items: tuple[GapItem, ...] = ()
 
     @property
     def duration_us(self) -> int:
@@ -88,9 +87,6 @@ def build_track_gaps(
     gaps: list[TimelineGap] = []
     for index, step in enumerate(steps[1:], start=1):
         previous = steps[index - 1]
-        following_items = tuple(
-            item for following_step in steps[index:] for item in following_step.items
-        )
         gaps.append(
             TimelineGap(
                 previous_step_start_us=previous.start_us,
@@ -100,7 +96,6 @@ def build_track_gaps(
                 next_items=step.items,
                 scope="track",
                 track=track,
-                following_items=following_items,
             )
         )
     return gaps
@@ -180,17 +175,43 @@ def set_timeline_gap_track_following(
         return 0
 
     repeat_owners = _repeat_owners(events, passthrough_events)
+    following_items = _track_items_at_or_after(
+        events,
+        moves,
+        controls,
+        track=gap.track,
+        at_us=gap.next_start_us,
+    )
     _shift_items(
         events,
         rel_events,
         passthrough_events,
         moves,
         controls,
-        items=gap.following_items,
+        items=following_items,
         delta_us=delta_us,
         repeat_owners=repeat_owners,
     )
     return delta_us
+
+
+def _track_items_at_or_after(
+    events: list[EditableEvent],
+    moves: list[EditableMove],
+    controls: list[EditableControl],
+    *,
+    track: str | None,
+    at_us: int,
+) -> tuple[GapItem, ...]:
+    if track in {"keyboard", "mouse", "gamepad"}:
+        items: list[GapItem] = [event for event in events if event.device_type == track]
+    elif track == "movement":
+        items = list(moves)
+    elif track == "control":
+        items = list(controls)
+    else:
+        return ()
+    return tuple(item for item in items if _item_start_us(item) >= at_us)
 
 
 def _build_steps_from_items(items: list[GapItem]) -> list[_TimelineStep]:

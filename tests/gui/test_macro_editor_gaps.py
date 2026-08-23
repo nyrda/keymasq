@@ -124,6 +124,26 @@ def test_track_following_moves_only_later_events_from_that_track() -> None:
     assert (mouse_hold.press_t_us, mouse_hold.release_t_us) == (0, 1_000_000)
 
 
+def test_track_following_resolves_the_suffix_when_the_edit_is_applied() -> None:
+    key_a = _key(evdev.ecodes.KEY_A, 0, 100_000)
+    key_d = _key(evdev.ecodes.KEY_D, 300_000, 400_000)
+    gap = build_track_gaps([key_a, key_d], track="keyboard")[0]
+    later_key = _key(evdev.ecodes.KEY_W, 600_000, 700_000)
+
+    set_timeline_gap_track_following(
+        [key_a, key_d, later_key],
+        [],
+        [],
+        [],
+        [],
+        gap,
+        50_000,
+    )
+
+    assert (key_d.press_t_us, key_d.release_t_us) == (150_000, 250_000)
+    assert (later_key.press_t_us, later_key.release_t_us) == (450_000, 550_000)
+
+
 def test_setting_one_gap_and_following_moves_the_suffix_and_owned_repeats() -> None:
     first = _key(evdev.ecodes.KEY_A, 0, 100_000)
     second = _key(evdev.ecodes.KEY_B, 300_000, 500_000)

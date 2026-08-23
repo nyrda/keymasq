@@ -3,6 +3,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 
 import math
+from typing import Literal
 
 import evdev
 import gi
@@ -24,6 +25,8 @@ from keymasq.gui.widgets.macro_editor.model import (
     EditableMove,
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+
+type GapMoveScope = Literal["next", "track", "timeline"]
 
 
 class TimelineControllerMixin:
@@ -191,7 +194,7 @@ class TimelineControllerMixin:
         gap: TimelineGap,
         target_us: int,
         *,
-        move_scope: str,
+        move_scope: GapMoveScope,
     ) -> None:
         previous_duration_us = self._duration_us
         if move_scope == "track":

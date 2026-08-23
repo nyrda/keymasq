@@ -7,7 +7,7 @@ from keymasq.gui.widgets.macro_editor.gaps import (
     set_timeline_gap_next_action,
     set_timeline_gap_track_following,
 )
-from keymasq.gui.widgets.macro_editor.model import EditableEvent, MacroEvent
+from keymasq.gui.widgets.macro_editor.model import EditableEvent, MacroEvent, parse_events
 
 
 def _key(code: int, start_us: int, end_us: int) -> EditableEvent:
@@ -241,3 +241,82 @@ def test_setting_one_gap_next_action_leaves_later_times_unchanged() -> None:
     )
     assert next(gap for gap in updated if gap.next_start_us == 150_000).duration_us == 50_000
     assert next(gap for gap in updated if gap.next_start_us == 800_000).duration_us == 450_000
+
+
+def test_repeat_ownership_uses_original_order_at_tied_boundaries() -> None:
+    raw_events: list[MacroEvent] = [
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_B,
+            "value": 1,
+            "t_us": 0,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_B,
+            "value": 0,
+            "t_us": 100_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 300_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 2,
+            "t_us": 400_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 400_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 1,
+            "t_us": 400_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 2,
+            "t_us": 400_000,
+        },
+        {
+            "device_type": "keyboard",
+            "type": evdev.ecodes.EV_KEY,
+            "code": evdev.ecodes.KEY_A,
+            "value": 0,
+            "t_us": 500_000,
+        },
+    ]
+    events, rel_events, repeats, moves, controls = parse_events(raw_events)
+    gap = next(
+        gap
+        for gap in build_timeline_gaps(events, moves, controls)
+        if gap.next_start_us == 300_000
+    )
+
+    set_timeline_gap_next_action(
+        events,
+        rel_events,
+        repeats,
+        moves,
+        controls,
+        gap,
+        100_000,
+    )
+
+    assert [int(repeat["t_us"]) for repeat in repeats] == [300_000, 400_000]

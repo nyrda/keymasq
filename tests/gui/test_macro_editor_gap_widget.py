@@ -102,6 +102,54 @@ def test_timeline_gap_editor_can_move_next_and_later_actions(monkeypatch) -> Non
     assert [gap.duration_us for gap in timeline._gap_segments] == [100_000, 600_000]
 
 
+def test_gap_edit_preserves_explicit_trailing_duration(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    first = _key(evdev.ecodes.KEY_A, 0, 100_000)
+    second = _key(evdev.ecodes.KEY_B, 300_000, 400_000)
+    dialog._events = [first, second]
+    dialog._duration_us = 1_000_000
+    dialog._update_stats()
+    dialog._lock_btn.set_active(False)
+    gap = dialog._timeline._track_gaps["keyboard"][0]
+
+    dialog._edit_timeline_gap(gap, 100_000, move_scope="next")
+
+    assert dialog._duration_us == 1_000_000
+
+
+def test_timeline_gap_edit_moves_explicit_trailing_duration(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    first = _key(evdev.ecodes.KEY_A, 0, 100_000)
+    second = _key(evdev.ecodes.KEY_B, 300_000, 400_000)
+    dialog._events = [first, second]
+    dialog._duration_us = 1_000_000
+    dialog._update_stats()
+    dialog._lock_btn.set_active(False)
+    gap = dialog._timeline._track_gaps["keyboard"][0]
+
+    dialog._edit_timeline_gap(gap, 100_000, move_scope="timeline")
+
+    assert dialog._duration_us == 900_000
+
+
+def test_gap_editor_accepts_gaps_longer_than_one_hour(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    first = _key(evdev.ecodes.KEY_A, 0, 100_000)
+    second = _key(evdev.ecodes.KEY_B, 3_700_100_000, 3_700_200_000)
+    dialog._events = [first, second]
+    dialog._duration_us = second.release_t_us
+    dialog._update_stats()
+    dialog._lock_btn.set_active(False)
+    timeline = dialog._timeline
+    gap = timeline._track_gaps["keyboard"][0]
+
+    timeline._select_gap(gap, 100.0, timeline._kb_y + 12)
+
+    assert timeline._gap_spin is not None
+    assert timeline._gap_spin.get_value() == pytest.approx(3_700_000.0)
+    assert timeline._gap_spin.get_adjustment().get_upper() > 3_700_000.0
+
+
 def test_hover_uses_next_track_action_instead_of_rendered_sublane(
     monkeypatch,
 ) -> None:

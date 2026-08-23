@@ -1,6 +1,5 @@
 """Step-gap calculations for the macro editor timeline."""
 
-from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Literal
 
@@ -331,10 +330,14 @@ def _repeat_owners(
             continue
         owners_by_key.setdefault(_editable_key_identity(event), []).append(event)
     for candidates in owners_by_key.values():
-        candidates.sort(key=lambda event: event.press_t_us)
-    starts_by_key = {
-        key: [event.press_t_us for event in candidates] for key, candidates in owners_by_key.items()
-    }
+        candidates.sort(
+            key=lambda event: (
+                event.press_t_us,
+                event.original_press_order
+                if event.original_press_order is not None
+                else -1,
+            )
+        )
 
     owners: dict[int, EditableEvent] = {}
     for repeat in passthrough_events:
@@ -343,13 +346,38 @@ def _repeat_owners(
         timestamp_us = int(repeat.get("t_us", 0))
         identity = _raw_key_identity(repeat)
         candidates = owners_by_key.get(identity, ())
-        candidate_index = bisect_right(starts_by_key.get(identity, ()), timestamp_us) - 1
-        if candidate_index < 0:
-            continue
-        candidate = candidates[candidate_index]
-        if timestamp_us < candidate.release_t_us:
-            owners[id(repeat)] = candidate
+        repeat_order = _raw_original_order(repeat)
+        for candidate in reversed(candidates):
+            if _event_owns_repeat(candidate, timestamp_us, repeat_order):
+                owners[id(repeat)] = candidate
+                break
     return owners
+
+
+def _event_owns_repeat(
+    event: EditableEvent,
+    timestamp_us: int,
+    repeat_order: int | None,
+) -> bool:
+    if timestamp_us < event.press_t_us or timestamp_us > event.release_t_us:
+        return False
+    if (
+        timestamp_us == event.press_t_us
+        and repeat_order is not None
+        and event.original_press_order is not None
+        and repeat_order <= event.original_press_order
+    ):
+        return False
+    if timestamp_us != event.release_t_us:
+        return True
+    if repeat_order is None or event.original_release_order is None:
+        return False
+    return repeat_order < event.original_release_order
+
+
+def _raw_original_order(event: MacroEvent) -> int | None:
+    source, order, _priority = selection_order(event)
+    return order if source == 0 else None
 
 
 def _is_repeat(event: MacroEvent) -> bool:

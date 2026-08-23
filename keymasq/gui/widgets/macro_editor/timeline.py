@@ -650,7 +650,7 @@ class TimelineWidget(Gtk.DrawingArea):
             Gtk.Adjustment(
                 value=gap.duration_us / 1000.0,
                 lower=gap.minimum_us / 1000.0,
-                upper=3_600_000.0,
+                upper=(2**63 - 1) / 1000.0,
                 step_increment=1.0,
                 page_increment=10.0,
             )

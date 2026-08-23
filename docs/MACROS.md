@@ -329,11 +329,6 @@ pressing a toggle trigger again lets the current macro pass complete and only
 prevents the next repeat. When it is disabled, stop input cancels playback
 immediately.
 
-When a Super Key runs a macro on press and another macro on hold, the press
-macro runs once to completion before the hold macro starts. The hold macro
-starts only if the physical trigger is still held afterward. Releasing the
-trigger while the press macro is running prevents the hold macro from starting.
-
 Macro duration is the minimum timeline length of one pass. If the pass reaches
 the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by

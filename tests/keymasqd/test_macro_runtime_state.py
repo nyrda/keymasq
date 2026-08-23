@@ -69,6 +69,10 @@ def test_macro_runtime_state_allocates_explicit_instance_metadata() -> None:
         "macro_name": "hold action",
         "loop_active": True,
         "loop_stop_behavior": "finish_run",
+        "parent_instance_id": None,
+        "root_instance_id": 1,
+        "source_lifecycle_available": True,
+        "source_lifecycle_active": True,
     }
 
 

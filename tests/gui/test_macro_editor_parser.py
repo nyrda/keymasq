@@ -344,6 +344,64 @@ def test_parse_reconstruct_compositor_macro_action() -> None:
     assert rebuilt == raw
 
 
+def test_parse_reconstruct_macro_call_actions() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 12_000,
+            "macro_action": "macro_parallel",
+            "macro_name": "child",
+            "replay_mouse_movement": False,
+            "replay_mouse_clicks": True,
+            "speed": 1.5,
+            "loop_mode": "count",
+            "loop_count": 3,
+            "loop_stop_behavior": "cancel_run",
+        }
+    ]
+
+    editable, rel_events, passthrough, moves, controls = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, moves, controls)
+
+    assert len(controls) == 1
+    control = controls[0]
+    assert control.mode == "macro_parallel"
+    assert control.macro_name == "child"
+    assert control.macro_replay_mouse_movement is False
+    assert control.macro_speed == 1.5
+    assert control.macro_loop_mode == "count"
+    assert control.macro_loop_count == 3
+    assert rebuilt == raw
+
+
+def test_parse_reconstruct_parallel_exec_action() -> None:
+    raw = [
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": 12_000,
+            "macro_action": "exec_parallel",
+            "command": "sleep 1",
+            "timeout_ms": 2500,
+            "inhibit_mouse": True,
+        }
+    ]
+
+    editable, rel_events, passthrough, moves, controls = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, moves, controls)
+
+    assert len(controls) == 1
+    assert controls[0].mode == "exec_parallel"
+    assert controls[0].timeout_ms == 2500
+    assert controls[0].inhibit_mouse is True
+    assert rebuilt == raw
+
+
 def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     raw = [
         {

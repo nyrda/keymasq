@@ -23,7 +23,7 @@ async def cancel_macro_instances(
     """Cancel selected tasks after synchronously neutralizing their outputs."""
 
     asyncio_mod = deps.asyncio_mod
-    unique_ids = list(dict.fromkeys(int(instance_id) for instance_id in instance_ids))
+    unique_ids = manager.macro_state.descendant_instance_ids(instance_ids)
     if not unique_ids:
         return 0
 

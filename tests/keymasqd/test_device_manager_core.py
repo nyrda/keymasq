@@ -3532,8 +3532,13 @@ class TestMacroControlActions:
         }
         assert result == 0.0
 
+    @pytest.mark.parametrize("action_type", ["exec_sync", "exec_parallel"])
     @pytest.mark.asyncio
-    async def test_run_macro_control_action_exec_sync_wait_id_and_cleanup(self, monkeypatch):
+    async def test_run_macro_control_action_exec_wait_id_timeout_and_cleanup(
+        self,
+        monkeypatch,
+        action_type,
+    ):
         manager = DeviceManager()
         clock = {"now": 30.0}
         callback = AsyncMock()
@@ -3569,7 +3574,7 @@ class TestMacroControlActions:
         result = await controls.run_macro_control_action(
             manager,
             {
-                "macro_action": "exec_sync",
+                "macro_action": action_type,
                 "command": "echo hi",
                 "inhibit_mouse": True,
                 "timeout_ms": 100,
@@ -3588,6 +3593,44 @@ class TestMacroControlActions:
         assert called_data["macro_exec_timeout_ms"] == 100
         assert called_data["macro_exec_wait_id"]
         assert result == pytest.approx(0.025)
+
+    @pytest.mark.asyncio
+    async def test_run_macro_control_action_cancellation_requests_process_cancel(self):
+        manager = DeviceManager()
+        started = asyncio.Event()
+        broadcasts: list[tuple[CommandType, dict[str, object]]] = []
+
+        async def cb(command: CommandType, data: dict[str, object]) -> None:
+            broadcasts.append((command, data))
+            if data.get("macro_exec_wait_id"):
+                started.set()
+
+        manager.broadcast_callback = cb
+        task = asyncio.create_task(
+            controls.run_macro_control_action(
+                manager,
+                {
+                    "macro_action": "exec_parallel",
+                    "command": "sleep 30",
+                    "timeout_ms": 30_000,
+                },
+                deps=device_manager._macro_runtime_deps(),
+            )
+        )
+
+        await asyncio.wait_for(started.wait(), timeout=1.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert len(broadcasts) == 2
+        start_data = broadcasts[0][1]
+        cancel_data = broadcasts[1][1]
+        assert cancel_data == {
+            "action_type": "exec",
+            "macro_exec_cancel_id": start_data["macro_exec_wait_id"],
+        }
+        assert manager.macro_state.exec_waiters == {}
 
 
 class TestReleaseScheduling:

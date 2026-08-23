@@ -94,9 +94,9 @@ class MacroTabMixin:
     def _build_macro_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        outer.append(self._build_macro_slot_console())
-
-        outer.append(Gtk.Separator())
+        if not self._macro_library_only:
+            outer.append(self._build_macro_slot_console())
+            outer.append(Gtk.Separator())
 
         library_label = Gtk.Label(label="Macro Library")
         library_label.add_css_class("dim-label")

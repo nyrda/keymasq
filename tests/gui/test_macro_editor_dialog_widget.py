@@ -158,7 +158,9 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert len(dialog._control_events) == 1
     assert dialog._duration_us == 25000
     assert dialog._stats_label.get_label() == "0.025s · 4 events"
-    assert dialog._exec_summary_label.get_label() == "Exec actions: 1 (sync 1, async 0)"
+    assert dialog._exec_summary_label.get_label() == (
+        "Exec actions: 1 (wait 1, parallel 0, detached 0)"
+    )
     assert dialog._control_timeout_spin.get_adjustment().get_upper() == 45000
     assert dialog._name_entry.get_text() == "demo_macro"
     assert (
@@ -551,6 +553,26 @@ def test_macro_editor_compositor_control_selection_shows_action(monkeypatch) -> 
     assert dialog._control_sync_row.get_visible() is False
 
 
+def test_macro_call_selection_shows_called_macro_in_heading(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    control = EditableControl(
+        mode="macro_parallel",
+        t_us=12_000,
+        macro_name="a2",
+        macro_loop_mode="count",
+        macro_loop_count=6,
+    )
+    dialog._timeline._selected = control
+
+    dialog._on_selection_changed(control)
+
+    assert dialog._prop_title.get_label() == "Macro Call:"
+    assert dialog._prop_context_label.get_label() == "a2"
+    assert dialog._prop_context_label.get_visible() is True
+    assert dialog._control_mode_label.get_visible() is False
+    assert dialog._key_info_label.get_label() == "Run in parallel, 6 times"
+
+
 def test_macro_editor_abs_move_capture_updates_selected_move(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
     move = EditableMove(mode="abs", t_us=5000, x=10, y=20)
@@ -675,7 +697,11 @@ def test_set_entry_text_if_needed_skips_redundant_updates() -> None:
 def test_macro_editor_exec_command_edit_does_not_refresh_control_panel(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
-    for mode, command_text in (("exec_sync", "echo hi"), ("exec_async", "printf 'x'")):
+    for mode, command_text in (
+        ("exec_sync", "echo hi"),
+        ("exec_parallel", "sleep 1"),
+        ("exec_async", "printf 'x'"),
+    ):
         control = EditableControl(mode=mode, t_us=5000, command="")
         dialog._control_events = [control]
         dialog._timeline._selected = control
@@ -693,6 +719,45 @@ def test_macro_editor_exec_command_edit_does_not_refresh_control_panel(monkeypat
 
         assert control.command == command_text
         assert dialog._control_cmd_entry.get_text() == command_text
+
+
+def test_macro_editor_exec_mode_switch_updates_event_and_sync_options(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    control = EditableControl(
+        mode="exec_sync",
+        t_us=5000,
+        command="sleep 1",
+        timeout_ms=1200,
+        inhibit_mouse=True,
+    )
+    dialog._control_events = [control]
+    dialog._timeline._selected = control
+    dialog._on_selection_changed(control)
+
+    assert dialog._control_exec_mode_row.get_visible() is True
+    assert dialog._control_exec_mode_dropdown.get_selected() == 0
+    assert dialog._control_sync_row.get_visible() is True
+
+    dialog._control_exec_mode_dropdown.set_selected(1)
+
+    assert control.mode == "exec_parallel"
+    assert dialog._control_exec_mode_dropdown.get_selected() == 1
+    assert dialog._control_sync_row.get_visible() is True
+    assert dialog._control_timeout_hint_label.get_visible() is True
+
+    dialog._control_exec_mode_dropdown.set_selected(2)
+
+    assert control.mode == "exec_async"
+    assert dialog._control_exec_mode_dropdown.get_selected() == 2
+    assert dialog._control_sync_row.get_visible() is False
+    assert dialog._control_timeout_hint_label.get_visible() is False
+
+    dialog._control_exec_mode_dropdown.set_selected(0)
+
+    assert control.mode == "exec_sync"
+    assert control.timeout_ms == 1200
+    assert control.inhibit_mouse is True
+    assert dialog._control_sync_row.get_visible() is True
 
 
 def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> None:
@@ -2281,6 +2346,32 @@ def test_macro_editor_erase_mode_right_press_defers_context_menu(monkeypatch) ->
     dialog._erase_btn.set_active(False)
     timeline._on_right_drag_begin(None, 40.0, timeline._kb_y + 5.0)
     assert timeline._erase_track is None
+
+
+def test_macro_editor_context_menu_has_one_command_and_macro_call_action(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    timeline = dialog._timeline
+    popovers: list[Gtk.Popover] = []
+    monkeypatch.setattr(Gtk.Popover, "popup", lambda popover: popovers.append(popover))
+
+    timeline._on_right_click(None, 1, 50.0, timeline._kb_y + 5.0)
+
+    assert len(popovers) == 1
+    buttons = collect_widgets(popovers[0].get_child(), Gtk.Button)
+    labels = [button.get_label() or "" for button in buttons]
+    command_labels = [label for label in labels if label.startswith("Run Command at ")]
+    macro_labels = [label for label in labels if label.startswith("Call Macro at ")]
+    assert len(command_labels) == 1
+    assert len(macro_labels) == 1
+    assert not any("Exec Sync" in label or "Exec Async" in label for label in labels)
+    assert not any("Macro and Wait" in label or "Macro in Parallel" in label for label in labels)
+
+    command_button = next(button for button in buttons if button.get_label() in command_labels)
+    command_button.emit("clicked")
+
+    assert len(dialog._control_events) == 1
+    assert dialog._control_events[0].mode == "exec_sync"
+    assert dialog._control_exec_mode_row.get_visible() is True
 
 
 def test_macro_editor_erase_mode_click_still_selects_and_never_moves(monkeypatch) -> None:

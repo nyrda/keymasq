@@ -42,13 +42,15 @@ class TimelineControllerMixin:
         if not hasattr(self, "_exec_summary_label"):
             return
         sync_count = sum(1 for c in self._control_events if c.mode == "exec_sync")
+        parallel_count = sum(1 for c in self._control_events if c.mode == "exec_parallel")
         async_count = sum(1 for c in self._control_events if c.mode == "exec_async")
-        total = sync_count + async_count
+        total = sync_count + parallel_count + async_count
         if total == 0:
             self._exec_summary_label.set_label("Exec actions: none")
             return
         self._exec_summary_label.set_label(
-            f"Exec actions: {total} (sync {sync_count}, async {async_count})"
+            f"Exec actions: {total} "
+            f"(wait {sync_count}, parallel {parallel_count}, detached {async_count})"
         )
 
     def _timeline_end_us(self) -> int:

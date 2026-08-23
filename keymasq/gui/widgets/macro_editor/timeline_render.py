@@ -704,12 +704,21 @@ def _draw_control_markers(cr, state: TimelineRenderState, width: int) -> None:
         elif control.mode == "exec_sync":
             rgba = (1.00, 0.62, 0.12, 0.95)
             label = "XS"
+        elif control.mode == "exec_parallel":
+            rgba = (0.98, 0.56, 0.13, 0.95)
+            label = "XP"
         elif control.mode == "exec_async":
             rgba = (0.95, 0.50, 0.15, 0.95)
             label = "XA"
         elif control.mode == "compositor_dispatch":
             rgba = (0.70, 0.45, 1.00, 0.95)
             label = "C"
+        elif control.mode == "macro_sync":
+            rgba = (0.30, 0.72, 1.00, 0.95)
+            label = "MW"
+        elif control.mode == "macro_parallel":
+            rgba = (0.25, 0.88, 0.75, 0.95)
+            label = "MP"
         else:
             rgba = (0.65, 0.65, 0.65, 0.95)
             label = "?"

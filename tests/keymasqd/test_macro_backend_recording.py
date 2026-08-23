@@ -2102,3 +2102,58 @@ async def test_play_macro_wait_control_actions_shift_later_deadlines(
     )
 
     assert sleep_calls == [pytest.approx(0.3), 0]
+
+
+@pytest.mark.asyncio
+async def test_play_macro_parallel_exec_continues_timeline_and_joins_at_end() -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    command_started = asyncio.Event()
+    finish_command = asyncio.Event()
+
+    async def run_control_action(*_args: object, **_kwargs: object) -> float:
+        command_started.set()
+        await finish_command.wait()
+        return 0.0
+
+    task = asyncio.create_task(
+        scheduler.play_macro_task(
+            manager,
+            instance_id=1,
+            macro_events=[
+                {"t_us": 0, "macro_action": "exec_parallel", "command": "sleep 1"},
+                {
+                    "t_us": 0,
+                    "type": evdev.ecodes.EV_KEY,
+                    "code": evdev.ecodes.KEY_A,
+                    "value": 1,
+                    "device_type": "keyboard",
+                },
+            ],
+            macro_name="parallel_exec",
+            replay_mouse_movement=True,
+            replay_mouse_clicks=True,
+            speed=1.0,
+            loop_mode="none",
+            loop_count=1,
+            move_to_start=False,
+            start_x=0,
+            start_y=0,
+            block_mouse_movement=False,
+            deps=device_manager._macro_runtime_deps(),
+            control_action_fn=run_control_action,
+        )
+    )
+
+    await asyncio.wait_for(command_started.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    manager.output_state.keyboard_uinput.write.assert_called_once_with(
+        evdev.ecodes.EV_KEY,
+        evdev.ecodes.KEY_A,
+        1,
+    )
+    assert task.done() is False
+
+    finish_command.set()
+    await asyncio.wait_for(task, timeout=1.0)

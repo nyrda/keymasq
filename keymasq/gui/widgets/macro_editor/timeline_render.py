@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import evdev
 
+from keymasq.gui.widgets.macro_editor.gaps import TimelineGap
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -34,6 +35,8 @@ class TimelineRenderState:
     _hover_x: float | None
     _hover_y: float | None
     _context_menu_x: float | None
+    _hover_gap: TimelineGap | None
+    _selected_gap: TimelineGap | None
     events: list[EditableEvent]
     rel_events: list[MacroEvent]
     passthrough_events: list[MacroEvent]
@@ -200,6 +203,7 @@ def draw(cr, state: TimelineRenderState, width: int, height: int) -> None:
     state._draw_passthrough_markers(cr, width)
     state._draw_synthetic_move_markers(cr, width)
     state._draw_control_markers(cr, width)
+    _draw_gap_feedback(cr, state, width, height)
     _draw_erase_band(cr, state, width)
     state._draw_labels(cr, height)
     state._draw_pointer_guide(cr, width, height)
@@ -816,11 +820,111 @@ def _draw_erase_band(cr, state: TimelineRenderState, width: int) -> None:
     cr.show_text(label)
 
 
+def _draw_gap_feedback(
+    cr,
+    state: TimelineRenderState,
+    width: int,
+    height: int,
+) -> None:
+    gap = state._selected_gap or state._hover_gap
+    if gap is None:
+        return
+
+    boundary_x = state._time_to_x(gap.previous_end_us)
+    next_x = state._time_to_x(gap.next_start_us)
+    x0 = max(min(boundary_x, next_x), float(state.LABEL_WIDTH))
+    x1 = min(max(boundary_x, next_x), float(width))
+    if x1 < state.LABEL_WIDTH or x0 > width:
+        return
+
+    selected = gap is state._selected_gap
+    overlap = gap.duration_us < 0
+    color = (1.0, 0.56, 0.24) if overlap else (0.48, 0.72, 1.0)
+    span_width = max(x1 - x0, 1.0)
+    feedback_y, feedback_h = _gap_feedback_bounds(state, gap, height)
+    feedback_bottom = feedback_y + feedback_h
+
+    cr.set_source_rgba(*color, 0.13 if selected else 0.08)
+    cr.rectangle(x0, feedback_y, span_width, feedback_h)
+    cr.fill()
+
+    cr.set_source_rgba(*color, 0.92 if selected else 0.68)
+    cr.set_line_width(1.5 if selected else 1.0)
+    for x in (boundary_x, next_x):
+        if state.LABEL_WIDTH <= x <= width:
+            cr.move_to(x + 0.5, feedback_y)
+            cr.line_to(x + 0.5, feedback_bottom)
+            cr.stroke()
+
+    hover_y = state._hover_y
+    bracket_y = (
+        float(hover_y)
+        if hover_y is not None and feedback_y <= hover_y <= feedback_bottom
+        else feedback_y + feedback_h / 2
+    )
+    bracket_y = min(max(bracket_y, feedback_y + 8.0), feedback_bottom - 8.0)
+    cr.move_to(x0, bracket_y + 0.5)
+    cr.line_to(x1, bracket_y + 0.5)
+    cr.stroke()
+    for x in (x0, x1):
+        cr.move_to(x + 0.5, bracket_y - 4.0)
+        cr.line_to(x + 0.5, bracket_y + 5.0)
+        cr.stroke()
+
+    label = _format_time_us(gap.duration_us)
+
+    cr.select_font_face("monospace", 0, 0)
+    cr.set_font_size(10)
+    extents = cr.text_extents(label)
+    pad_x = 6.0
+    pad_y = 3.0
+    bubble_w = extents[2] + pad_x * 2
+    bubble_h = extents[3] + pad_y * 2
+    bubble_x = (boundary_x + next_x - bubble_w) / 2
+    bubble_x = min(max(bubble_x, state.LABEL_WIDTH + 4.0), width - bubble_w - 4.0)
+    bubble_y = min(
+        max(bracket_y - bubble_h - 7.0, feedback_y + 2.0),
+        feedback_bottom - bubble_h - 2.0,
+    )
+
+    cr.set_source_rgba(0.08, 0.08, 0.08, 0.94)
+    cr.rectangle(bubble_x, bubble_y, bubble_w, bubble_h)
+    cr.fill()
+    cr.set_source_rgba(*color, 0.98)
+    cr.rectangle(bubble_x + 0.5, bubble_y + 0.5, bubble_w - 1.0, bubble_h - 1.0)
+    cr.stroke()
+    cr.move_to(bubble_x + pad_x - extents[0], bubble_y + pad_y - extents[1])
+    cr.show_text(label)
+
+
+def _gap_feedback_bounds(
+    state: TimelineRenderState,
+    gap: TimelineGap,
+    height: int,
+) -> tuple[float, float]:
+    if gap.scope != "track" or gap.track is None:
+        return float(state.RULER_HEIGHT), float(height - state.RULER_HEIGHT)
+
+    if gap.track == "keyboard":
+        return float(state._kb_y), float(state._kb_track_h)
+    if gap.track == "mouse":
+        return float(state._m_y), float(state._m_track_h)
+    if gap.track == "gamepad":
+        return float(state._g_y), float(state._g_track_h)
+    if gap.track == "movement":
+        return float(state._wave_y), state.TRACK_HEIGHT / 2
+    if gap.track == "control":
+        return state._wave_y + state.TRACK_HEIGHT / 2, state.TRACK_HEIGHT / 2
+    return float(state.RULER_HEIGHT), float(height - state.RULER_HEIGHT)
+
+
 def _draw_pointer_guide(cr, state: TimelineRenderState, width: int, height: int) -> None:
     if state._context_menu_x is not None:
         state._draw_vertical_guide(cr, width, height, float(state._context_menu_x))
 
     if state._hover_x is None or state._hover_y is None:
+        return
+    if state._hover_gap is not None:
         return
 
     x = float(state._hover_x)

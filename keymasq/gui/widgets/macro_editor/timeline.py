@@ -4,12 +4,19 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
+from bisect import bisect_right
 from typing import Any
 
 import evdev
 from gi.repository import Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.widgets.macro_editor import timeline_render
+from keymasq.gui.widgets.macro_editor.gaps import (
+    GapItem,
+    TimelineGap,
+    build_timeline_gaps,
+    build_track_gaps,
+)
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -59,6 +66,25 @@ class TimelineWidget(Gtk.DrawingArea):
         self._hover_x: float | None = None
         self._hover_y: float | None = None
         self._context_menu_x: float | None = None
+        self._gap_segments: list[TimelineGap] = []
+        self._gap_next_starts: list[int] = []
+        self._positive_gap_starts: list[int] = []
+        self._positive_gaps: list[TimelineGap] = []
+        self._track_gaps: dict[str, list[TimelineGap]] = {}
+        self._track_next_starts: dict[str, list[int]] = {}
+        self._track_positive_gaps: dict[str, list[TimelineGap]] = {}
+        self._track_positive_starts: dict[str, list[int]] = {}
+        self._hover_gap: TimelineGap | None = None
+        self._selected_gap: TimelineGap | None = None
+        self._suppressed_hover_gap: TimelineGap | None = None
+        self._gap_double_click_handled = False
+        self._gap_popover: Gtk.Popover | None = None
+        self._gap_spin: Gtk.SpinButton | None = None
+        self._gap_next_only_check: Gtk.CheckButton | None = None
+        self._gap_track_following_check: Gtk.CheckButton | None = None
+        self._gap_timeline_following_check: Gtk.CheckButton | None = None
+        self._gap_cancel_button: Gtk.Button | None = None
+        self._gap_apply_button: Gtk.Button | None = None
 
         # Lane assignment — recomputed before each draw
         self._kb_lanes: dict[int, int] = {}  # id(ev) -> lane index
@@ -73,6 +99,7 @@ class TimelineWidget(Gtk.DrawingArea):
         self._drag_move: EditableMove | None = None
         self._drag_control: EditableControl | None = None
         self._drag_selected_obj: object | None = None
+        self._drag_selected_gap: TimelineGap | None = None
         self._drag_orig_press: int = 0
         self._drag_orig_release: int = 0
         self._in_drag: bool = False
@@ -81,6 +108,7 @@ class TimelineWidget(Gtk.DrawingArea):
         # The drag delta is gesture-relative, so the scroll movement since
         # drag-begin has to be folded into the applied time delta.
         self._drag_start_x: float = 0.0
+        self._drag_start_y: float = 0.0
         self._drag_scroll_origin: float = 0.0
         self._drag_last_offset_x: float = 0.0
         self._autoscroll_velocity: float = 0.0
@@ -114,6 +142,11 @@ class TimelineWidget(Gtk.DrawingArea):
         drag.connect("drag-end", self._on_drag_end)
         self.add_controller(drag)
 
+        gap_click = Gtk.GestureClick.new()
+        gap_click.set_button(1)
+        gap_click.connect("pressed", self._on_gap_click_pressed)
+        self.add_controller(gap_click)
+
         # Right-click context menu
         right_click = Gtk.GestureClick.new()
         right_click.set_button(3)
@@ -145,6 +178,99 @@ class TimelineWidget(Gtk.DrawingArea):
 
     def set_scroll_offset(self, offset: float) -> None:
         self._scroll_offset = offset
+        self.queue_draw()
+
+    def refresh_gaps(self) -> None:
+        """Refresh cached action gaps after the editor document changes."""
+        if self._editor._drag_locked:
+            self._set_gap_segments([])
+            self._set_track_gaps({})
+            self._hover_gap = None
+            self._selected_gap = None
+            self._suppressed_hover_gap = None
+            self.queue_draw()
+            return
+        self._rebuild_gaps()
+
+    def _rebuild_gaps(self) -> None:
+        """Build the gap cache when an interaction needs it."""
+        self._set_gap_segments(
+            build_timeline_gaps(
+                self._editor._events,
+                self._editor._synthetic_moves,
+                self._editor._control_events,
+            )
+        )
+        track_items: dict[str, list[GapItem]] = {}
+        for event in self._editor._events:
+            if event.device_type in {"keyboard", "mouse", "gamepad"}:
+                track_items.setdefault(event.device_type, []).append(event)
+        track_items["movement"] = list(self._editor._synthetic_moves)
+        track_items["control"] = list(self._editor._control_events)
+        self._set_track_gaps(
+            {
+                track: build_track_gaps(
+                    items,
+                    track=track,
+                )
+                for track, items in track_items.items()
+            }
+        )
+        self._hover_gap = None
+        self._selected_gap = None
+        self._suppressed_hover_gap = None
+        self.queue_draw()
+
+    def _set_gap_segments(self, gaps: list[TimelineGap]) -> None:
+        self._gap_segments = gaps
+        self._gap_next_starts = [gap.next_start_us for gap in gaps]
+        self._positive_gaps = [gap for gap in gaps if gap.duration_us > 0]
+        self._positive_gap_starts = [gap.previous_end_us for gap in self._positive_gaps]
+
+    def _set_track_gaps(
+        self,
+        track_gaps: dict[str, list[TimelineGap]],
+    ) -> None:
+        self._track_gaps = track_gaps
+        self._track_next_starts = {
+            track: [gap.next_start_us for gap in gaps]
+            for track, gaps in track_gaps.items()
+        }
+        self._track_positive_gaps = {
+            track: sorted(
+                (gap for gap in gaps if gap.duration_us > 0),
+                key=lambda gap: gap.previous_end_us,
+            )
+            for track, gaps in track_gaps.items()
+        }
+        self._track_positive_starts = {
+            track: [gap.previous_end_us for gap in gaps]
+            for track, gaps in self._track_positive_gaps.items()
+        }
+
+    def set_move_locked(self, locked: bool) -> None:
+        """Update gap interaction state after the Move lock changes."""
+        self.clear_gap_selection(suppress_hover=True)
+        if locked:
+            self._set_gap_segments([])
+            self._set_track_gaps({})
+        else:
+            self._rebuild_gaps()
+        if not self._editor._erase_mode:
+            self.set_cursor_from_name(None)
+        self.queue_draw()
+
+    def _ensure_gap_cache(self) -> None:
+        if not self._gap_segments and not self._track_gaps:
+            self._rebuild_gaps()
+
+    def clear_gap_selection(self, *, suppress_hover: bool = False) -> None:
+        if suppress_hover:
+            self._suppressed_hover_gap = self._selected_gap or self._hover_gap
+        self._hover_gap = None
+        self._selected_gap = None
+        if self._gap_popover is not None:
+            self._gap_popover.popdown()
         self.queue_draw()
 
     # ------------------------------------------------------------------
@@ -232,6 +358,8 @@ class TimelineWidget(Gtk.DrawingArea):
             _hover_x=self._hover_x,
             _hover_y=self._hover_y,
             _context_menu_x=self._context_menu_x,
+            _hover_gap=self._hover_gap,
+            _selected_gap=self._selected_gap,
             events=self._editor._events,
             rel_events=self._editor._rel_events,
             passthrough_events=self._editor._passthrough_events,
@@ -395,6 +523,234 @@ class TimelineWidget(Gtk.DrawingArea):
                 return ev
         return self._hit_test_passthrough(track, x, y)
 
+    def _gap_track_at_y(self, y: float) -> str | None:
+        track = self._get_track_at_y(y)
+        if track in {"keyboard", "mouse", "gamepad"}:
+            return track
+        if track == "movement":
+            if y < self._wave_y + self.TRACK_HEIGHT / 2:
+                return "movement"
+            return "control"
+        return None
+
+    def _gap_at_position(self, x: float, y: float) -> TimelineGap | None:
+        if x < self.LABEL_WIDTH:
+            return None
+        timestamp_us = max(0, self._x_to_time_us(x))
+
+        if y >= self.RULER_HEIGHT:
+            track = self._gap_track_at_y(y)
+            if track is None:
+                return None
+            gaps = self._track_gaps.get(track, ())
+            positive_gaps = self._track_positive_gaps.get(track, ())
+            positive_starts = self._track_positive_starts.get(track, ())
+            positive_index = bisect_right(positive_starts, timestamp_us) - 1
+            if positive_index >= 0:
+                gap = positive_gaps[positive_index]
+                if gap.previous_end_us < timestamp_us < gap.next_start_us:
+                    return gap
+
+            tolerance_us = int(6.0 / max(self._pps, 1.0) * 1e6)
+            next_starts = self._track_next_starts.get(track, ())
+            index = bisect_right(next_starts, timestamp_us) - 1
+            for candidate_index in (index, index + 1):
+                if 0 <= candidate_index < len(gaps):
+                    gap = gaps[candidate_index]
+                    if abs(timestamp_us - gap.next_start_us) <= tolerance_us:
+                        return gap
+            return None
+
+        if not self._gap_segments:
+            return None
+        positive_index = bisect_right(self._positive_gap_starts, timestamp_us) - 1
+        if positive_index >= 0:
+            gap = self._positive_gaps[positive_index]
+            if gap.previous_end_us < timestamp_us < gap.next_start_us:
+                return gap
+
+        index = bisect_right(self._gap_next_starts, timestamp_us) - 1
+        if index >= 0:
+            gap = self._gap_segments[index]
+            if gap.next_start_us <= timestamp_us <= gap.previous_end_us:
+                return gap
+
+        tolerance_us = int(6.0 / max(self._pps, 1.0) * 1e6)
+        for candidate_index in (index, index + 1):
+            if 0 <= candidate_index < len(self._gap_segments):
+                gap = self._gap_segments[candidate_index]
+                if abs(timestamp_us - gap.next_start_us) <= tolerance_us:
+                    return gap
+        return None
+
+    def _gap_item_label(self, item: object) -> str:
+        if isinstance(item, EditableEvent):
+            if item.ev_type == evdev.ecodes.EV_KEY:
+                return _get_key_name(item.code)
+            return _get_event_name(item.ev_type, item.code)
+        if isinstance(item, EditableMove):
+            return "Mouse move"
+        if isinstance(item, EditableControl):
+            return {
+                "wait": "Wait",
+                "wait_random": "Random wait",
+                "exec_sync": "Run command",
+                "exec_async": "Run command",
+                "compositor_dispatch": "Compositor action",
+            }.get(item.mode, item.mode.replace("_", " ").capitalize())
+        if isinstance(item, dict):
+            if int(item.get("type", -1)) == evdev.ecodes.EV_REL:
+                return "Mouse movement"
+            title, _detail = _describe_passthrough_event(item)
+            return title
+        return "Action"
+
+    def _gap_step_label(self, items: tuple[object, ...]) -> str:
+        labels = list(dict.fromkeys(self._gap_item_label(item) for item in items))
+        if len(labels) <= 2:
+            return " + ".join(labels)
+        return f"{labels[0]} + {len(labels) - 1} more"
+
+    def _select_gap(self, gap: TimelineGap, x: float, y: float) -> None:
+        self._selected = None
+        self._selected_gap = gap
+        self._hover_gap = gap
+        self._suppressed_hover_gap = None
+        self._editor._on_selection_changed(None)
+        self.queue_draw()
+        self._show_gap_editor(gap, x, y)
+
+    def _show_gap_editor(self, gap: TimelineGap, x: float, y: float) -> None:
+        if self._gap_popover is not None:
+            self._gap_popover.popdown()
+
+        popover = Gtk.Popover()
+        self._gap_popover = popover
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        previous_label = self._gap_step_label(gap.previous_items)
+        next_label = self._gap_step_label(gap.next_items)
+        title = Gtk.Label(label=f"{previous_label} → {next_label}")
+        title.add_css_class("heading")
+        title.set_halign(Gtk.Align.START)
+        title.set_max_width_chars(38)
+        title.set_ellipsize(3)
+        box.append(title)
+
+        value_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        value_row.append(Gtk.Label(label="Gap:"))
+        spin = Gtk.SpinButton()
+        self._gap_spin = spin
+        spin.set_adjustment(
+            Gtk.Adjustment(
+                value=gap.duration_us / 1000.0,
+                lower=gap.minimum_us / 1000.0,
+                upper=3_600_000.0,
+                step_increment=1.0,
+                page_increment=10.0,
+            )
+        )
+        spin.set_digits(1)
+        spin.set_width_chars(8)
+        value_row.append(spin)
+        value_row.append(Gtk.Label(label="ms"))
+        box.append(value_row)
+
+        hint = Gtk.Label(label="Negative values create an overlap.")
+        hint.add_css_class("dim-label")
+        hint.add_css_class("caption")
+        hint.set_halign(Gtk.Align.START)
+        box.append(hint)
+
+        scope_label = Gtk.Label(label="Move:")
+        scope_label.set_halign(Gtk.Align.START)
+        box.append(scope_label)
+
+        next_only_check = Gtk.CheckButton(label="Next action only")
+        self._gap_next_only_check = next_only_check
+        next_only_check.set_active(True)
+        box.append(next_only_check)
+
+        track_following_check: Gtk.CheckButton | None = None
+        if gap.scope == "track":
+            track_check = Gtk.CheckButton(label="Following actions in this track")
+            track_check.set_group(next_only_check)
+            box.append(track_check)
+            track_following_check = track_check
+            self._gap_track_following_check = track_check
+
+        timeline_following_check = Gtk.CheckButton(label="Everything after this time")
+        self._gap_timeline_following_check = timeline_following_check
+        timeline_following_check.set_group(next_only_check)
+        box.append(timeline_following_check)
+
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        button_row.set_halign(Gtk.Align.END)
+        cancel_button = Gtk.Button(label="Cancel")
+        self._gap_cancel_button = cancel_button
+
+        def _cancel_gap(_button: Gtk.Button) -> None:
+            self.clear_gap_selection(suppress_hover=True)
+
+        cancel_button.connect("clicked", _cancel_gap)
+        button_row.append(cancel_button)
+        apply_button = Gtk.Button(label="Apply")
+        self._gap_apply_button = apply_button
+        apply_button.add_css_class("suggested-action")
+
+        def _apply_gap(_button: Gtk.Button) -> None:
+            target_us = int(round(spin.get_value() * 1000))
+            if track_following_check is not None and track_following_check.get_active():
+                move_scope = "track"
+            elif timeline_following_check.get_active():
+                move_scope = "timeline"
+            else:
+                move_scope = "next"
+            popover.popdown()
+            self._editor._edit_timeline_gap(
+                gap,
+                target_us,
+                move_scope=move_scope,
+            )
+
+        apply_button.connect("clicked", _apply_gap)
+        spin.connect("activate", _apply_gap)
+        button_row.append(apply_button)
+        box.append(button_row)
+
+        def _on_popover_closed(closed_popover: Gtk.Popover) -> None:
+            if self._gap_popover is closed_popover:
+                if self._selected_gap is gap:
+                    self._suppressed_hover_gap = gap
+                    self._selected_gap = None
+                if self._hover_gap is gap:
+                    self._hover_gap = None
+                self._gap_popover = None
+                self._gap_spin = None
+                self._gap_next_only_check = None
+                self._gap_track_following_check = None
+                self._gap_timeline_following_check = None
+                self._gap_cancel_button = None
+                self._gap_apply_button = None
+                self.queue_draw()
+            if closed_popover.get_parent() is self:
+                closed_popover.unparent()
+
+        popover.connect("closed", _on_popover_closed)
+        popover.set_child(box)
+        popover.set_parent(self)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        popover.set_pointing_to(rect)
+        if self.get_realized():
+            popover.popup()
+            spin.grab_focus()
+
     # ------------------------------------------------------------------
     # Gesture handlers
     # ------------------------------------------------------------------
@@ -469,11 +825,29 @@ class TimelineWidget(Gtk.DrawingArea):
         self._erase_x1 = None
         self._erase_pending = []
 
+    def _on_gap_click_pressed(
+        self,
+        _gesture: Gtk.GestureClick,
+        press_count: int,
+        x: float,
+        y: float,
+    ) -> None:
+        if press_count != 2 or self._editor._erase_mode or self._hit_test(x, y) is not None:
+            return
+        self._ensure_gap_cache()
+        gap = self._gap_at_position(x, y)
+        if gap is None:
+            return
+        self._gap_double_click_handled = True
+        self._select_gap(gap, x, y)
+
     def _on_drag_begin(self, gesture, start_x, start_y) -> None:
         # Always hit-test on press; actual movement only starts after threshold.
         hit = self._hit_test(start_x, start_y)
         self._drag_selected_obj = hit
+        self._drag_selected_gap = None
         self._drag_start_x = float(start_x)
+        self._drag_start_y = float(start_y)
         self._drag_scroll_origin = self._scroll_offset
         self._drag_last_offset_x = 0.0
         self._stop_autoscroll()
@@ -488,6 +862,10 @@ class TimelineWidget(Gtk.DrawingArea):
             self._drag_control = None
             self._in_drag = False
             return
+        if hit is not None:
+            self.clear_gap_selection()
+        elif not self._editor._drag_locked and self._gap_popover is None:
+            self._drag_selected_gap = self._gap_at_position(start_x, start_y)
         self._drag_event = hit if isinstance(hit, EditableEvent) else None
         self._drag_move = hit if isinstance(hit, EditableMove) else None
         self._drag_control = hit if isinstance(hit, EditableControl) else None
@@ -512,6 +890,11 @@ class TimelineWidget(Gtk.DrawingArea):
             self._drag_last_offset_x = float(offset_x)
             self._apply_erase_band()
             self._update_autoscroll(self._drag_start_x + float(offset_x))
+            return
+        if self._drag_selected_gap is not None:
+            if abs(offset_x) >= 4 or abs(offset_y) >= 4:
+                self._drag_selected_gap = None
+                self._in_drag = True
             return
         if (
             self._drag_event is None and self._drag_move is None and self._drag_control is None
@@ -655,13 +1038,26 @@ class TimelineWidget(Gtk.DrawingArea):
             self._editor._refresh_after_timing_edit()
         elif not self._in_drag:
             selected_obj = self._drag_selected_obj
-            if selected_obj is not self._selected:
+            selected_gap = self._drag_selected_gap
+            if self._gap_double_click_handled:
+                pass
+            elif selected_gap is not None:
+                self._select_gap(selected_gap, self._drag_start_x, self._drag_start_y)
+            else:
+                self.clear_gap_selection()
+            if (
+                not self._gap_double_click_handled
+                and selected_gap is None
+                and selected_obj is not self._selected
+            ):
                 self._selected = selected_obj
                 self._editor._on_selection_changed(selected_obj)
         self._drag_event = None
         self._drag_move = None
         self._drag_control = None
         self._drag_selected_obj = None
+        self._drag_selected_gap = None
+        self._gap_double_click_handled = False
         self._in_drag = False
         self.queue_draw()
 
@@ -710,11 +1106,30 @@ class TimelineWidget(Gtk.DrawingArea):
     def _on_pointer_motion(self, controller, x, y) -> None:
         self._hover_x = x
         self._hover_y = y
+        gaps_visible = not self._editor._erase_mode and not self._editor._drag_locked
+        candidate = (
+            self._gap_at_position(x, y)
+            if gaps_visible and self._hit_test(x, y) is None
+            else None
+        )
+        if candidate is not None and candidate == self._suppressed_hover_gap:
+            candidate = None
+        elif candidate != self._suppressed_hover_gap:
+            self._suppressed_hover_gap = None
+        self._hover_gap = candidate
+        if gaps_visible:
+            self.set_cursor_from_name("pointer" if self._hover_gap is not None else None)
+        elif not self._editor._erase_mode:
+            self.set_cursor_from_name(None)
         self.queue_draw()
 
     def _on_pointer_leave(self, controller) -> None:
         self._hover_x = None
         self._hover_y = None
+        self._hover_gap = None
+        self._suppressed_hover_gap = None
+        if not self._editor._erase_mode:
+            self.set_cursor_from_name(None)
         self.queue_draw()
 
     def _on_scroll(self, controller, dx, dy) -> bool:

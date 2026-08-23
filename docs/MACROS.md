@@ -428,7 +428,7 @@ The three execution modes are:
 - **Wait for completion** pauses the timeline at the command until it exits or
   times out.
 - **Run in parallel** continues the timeline, then joins the command before the
-  parent iteration finishes. Count does not start its next iteration until all
+  parent iteration finishes. The next loop iteration does not start until all
   parallel commands finish. Canceling the macro kills the command.
 - **Run detached** continues the timeline and does not join or cancel the
   command. The command can outlive the macro.

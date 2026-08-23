@@ -11,6 +11,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     EditableEvent,
     EditableMove,
     MacroEvent,
+    _passthrough_track,
 )
 
 type GapItem = EditableEvent | EditableMove | EditableControl | MacroEvent
@@ -176,8 +177,11 @@ def set_timeline_gap_track_following(
     repeat_owners = _repeat_owners(events, passthrough_events)
     following_items = _track_items_at_or_after(
         events,
+        rel_events,
+        passthrough_events,
         moves,
         controls,
+        repeat_owners=repeat_owners,
         track=gap.track,
         at_us=gap.next_start_us,
     )
@@ -196,20 +200,29 @@ def set_timeline_gap_track_following(
 
 def _track_items_at_or_after(
     events: list[EditableEvent],
+    rel_events: list[MacroEvent],
+    passthrough_events: list[MacroEvent],
     moves: list[EditableMove],
     controls: list[EditableControl],
     *,
+    repeat_owners: dict[int, EditableEvent],
     track: str | None,
     at_us: int,
 ) -> tuple[GapItem, ...]:
     if track in {"keyboard", "mouse", "gamepad"}:
         items: list[GapItem] = [event for event in events if event.device_type == track]
     elif track == "movement":
-        items = list(moves)
+        items = [*moves, *rel_events]
     elif track == "control":
         items = list(controls)
     else:
         return ()
+    if track != "control":
+        items.extend(
+            event
+            for event in passthrough_events
+            if id(event) not in repeat_owners and _passthrough_track(event) == track
+        )
     return tuple(item for item in items if _item_start_us(item) >= at_us)
 
 

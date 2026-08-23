@@ -7,7 +7,12 @@ from keymasq.gui.widgets.macro_editor.gaps import (
     set_timeline_gap_next_action,
     set_timeline_gap_track_following,
 )
-from keymasq.gui.widgets.macro_editor.model import EditableEvent, MacroEvent, parse_events
+from keymasq.gui.widgets.macro_editor.model import (
+    EditableEvent,
+    EditableMove,
+    MacroEvent,
+    parse_events,
+)
 
 
 def _key(code: int, start_us: int, end_us: int) -> EditableEvent:
@@ -142,6 +147,56 @@ def test_track_following_resolves_the_suffix_when_the_edit_is_applied() -> None:
 
     assert (key_d.press_t_us, key_d.release_t_us) == (150_000, 250_000)
     assert (later_key.press_t_us, later_key.release_t_us) == (450_000, 550_000)
+
+
+def test_track_following_moves_unowned_raw_events_from_the_same_track() -> None:
+    key_a = _key(evdev.ecodes.KEY_A, 0, 400_000)
+    key_d = _key(evdev.ecodes.KEY_D, 300_000, 350_000)
+    gap = build_track_gaps([key_a, key_d], track="keyboard")[0]
+    owned_repeat = _repeat(evdev.ecodes.KEY_A, 350_000)
+    unowned_repeat = _repeat(evdev.ecodes.KEY_B, 320_000)
+    mouse_raw: MacroEvent = {
+        "device_type": "mouse",
+        "type": evdev.ecodes.EV_KEY,
+        "code": evdev.ecodes.BTN_RIGHT,
+        "value": 2,
+        "t_us": 330_000,
+    }
+
+    set_timeline_gap_track_following(
+        [key_a, key_d],
+        [],
+        [owned_repeat, unowned_repeat, mouse_raw],
+        [],
+        [],
+        gap,
+        -50_000,
+    )
+
+    assert (key_d.press_t_us, key_d.release_t_us) == (350_000, 400_000)
+    assert owned_repeat["t_us"] == 350_000
+    assert unowned_repeat["t_us"] == 370_000
+    assert mouse_raw["t_us"] == 330_000
+
+
+def test_movement_track_following_moves_later_raw_samples() -> None:
+    first = EditableMove(mode="rel", t_us=0, x=1, y=2)
+    second = EditableMove(mode="rel", t_us=300_000, x=3, y=4)
+    movement_sample = _rel(400_000)
+    gap = build_track_gaps([first, second], track="movement")[0]
+
+    set_timeline_gap_track_following(
+        [],
+        [movement_sample],
+        [],
+        [first, second],
+        [],
+        gap,
+        100_000,
+    )
+
+    assert second.t_us == 100_000
+    assert movement_sample["t_us"] == 200_000
 
 
 def test_setting_one_gap_and_following_moves_the_suffix_and_owned_repeats() -> None:

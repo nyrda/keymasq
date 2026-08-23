@@ -249,6 +249,8 @@ class ControlEditorMixin:
         self._control_macro_count_spin.set_adjustment(
             Gtk.Adjustment(value=1, lower=1, upper=1000000, step_increment=1)
         )
+        self._control_macro_count_spin.set_digits(0)
+        self._control_macro_count_spin.set_width_chars(7)
         self._control_macro_count_spin.connect(
             "value-changed", self._on_control_macro_count_changed
         )

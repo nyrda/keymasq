@@ -21,8 +21,17 @@ def _key_event(code: int, value: int, t_us: int) -> dict[str, object]:
     }
 
 
-async def _wait_for_no_running_macros(manager: DeviceManager) -> None:
+async def _wait_for_no_running_macros(
+    manager: DeviceManager,
+    timeout_s: float = 5.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_s
     while loops.running_macro_instance_ids(manager.macro_state):
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(
+                "macro instances still running: "
+                f"{loops.running_macro_instance_ids(manager.macro_state)}"
+            )
         await asyncio.sleep(0.005)
 
 

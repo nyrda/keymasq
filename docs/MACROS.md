@@ -329,6 +329,11 @@ pressing a toggle trigger again lets the current macro pass complete and only
 prevents the next repeat. When it is disabled, stop input cancels playback
 immediately.
 
+When a Super Key runs a macro on press and another macro on hold, the press
+macro runs once to completion before the hold macro starts. The hold macro
+starts only if the physical trigger is still held afterward. Releasing the
+trigger while the press macro is running prevents the hold macro from starting.
+
 Macro duration is the minimum timeline length of one pass. If the pass reaches
 the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by
@@ -420,8 +425,10 @@ The editor lets you insert several kinds of events into the timeline:
 | **Run command** | Run an external program. It can pause at the event, run in parallel and join at the end of the iteration, or detach from macro playback. |
 | **Compositor action** | Send a compositor dispatch through the active session listener. This uses the same Hyprland, Niri, KDE, or GNOME action picker as normal mappings. |
 
-Exec events use the configured timeout. A command that reaches it is killed by
-the session process. The three execution modes are:
+Waitable Exec events (**Wait for completion** and **Run in parallel**) use the
+configured timeout. A command that reaches it is killed by the session process.
+Detached commands instead use the session's default 300-second command timeout.
+The three execution modes are:
 
 - **Wait for completion** pauses the timeline at the command until it exits or
   times out.

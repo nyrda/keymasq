@@ -2146,7 +2146,12 @@ async def test_play_macro_parallel_exec_continues_timeline_and_joins_at_end() ->
     )
 
     await asyncio.wait_for(command_started.wait(), timeout=1.0)
-    await asyncio.sleep(0)
+
+    async def _wait_for_key_write() -> None:
+        while not manager.output_state.keyboard_uinput.write.called:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_wait_for_key_write(), timeout=1.0)
 
     manager.output_state.keyboard_uinput.write.assert_called_once_with(
         evdev.ecodes.EV_KEY,

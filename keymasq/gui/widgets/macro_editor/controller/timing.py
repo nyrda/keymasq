@@ -3,6 +3,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 
 import math
+from typing import Literal
 
 import evdev
 import gi
@@ -12,12 +13,20 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.widgets.macro_editor import timing_ops
+from keymasq.gui.widgets.macro_editor.gaps import (
+    TimelineGap,
+    set_timeline_gap_and_following,
+    set_timeline_gap_next_action,
+    set_timeline_gap_track_following,
+)
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
     EditableMove,
 )
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+
+type GapMoveScope = Literal["next", "track", "timeline"]
 
 
 class TimelineControllerMixin:
@@ -37,6 +46,8 @@ class TimelineControllerMixin:
         )
         self._stats_label.set_label(f"{duration_s:.3f}s · {event_count} events")
         self._update_exec_summary_label()
+        if hasattr(self, "_timeline"):
+            self._timeline.refresh_gaps()
 
     def _update_exec_summary_label(self) -> None:
         if not hasattr(self, "_exec_summary_label"):
@@ -167,15 +178,66 @@ class TimelineControllerMixin:
             self._control_events,
         )
 
-    def _refresh_after_timing_edit(self) -> None:
+    def _refresh_after_timing_edit(self, *, recompute_duration: bool = True) -> None:
         selected_obj = self._timeline._selected
-        self._recompute_duration()
+        if recompute_duration:
+            self._recompute_duration()
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
         if selected_obj is not None:
             self._on_selection_changed(selected_obj)
         self._sync_close_guard()
+
+    def _edit_timeline_gap(
+        self,
+        gap: TimelineGap,
+        target_us: int,
+        *,
+        move_scope: GapMoveScope,
+    ) -> None:
+        previous_duration_us = self._duration_us
+        previous_content_end_us = timing_ops.compute_duration_us(
+            self._events,
+            self._rel_events,
+            self._passthrough_events,
+            self._synthetic_moves,
+            self._control_events,
+        )
+        trailing_duration_us = max(
+            0,
+            previous_duration_us - previous_content_end_us,
+        )
+        if move_scope == "track":
+            edit_gap = set_timeline_gap_track_following
+        elif move_scope == "timeline":
+            edit_gap = set_timeline_gap_and_following
+        else:
+            edit_gap = set_timeline_gap_next_action
+        delta_us = edit_gap(
+            self._events,
+            self._rel_events,
+            self._passthrough_events,
+            self._synthetic_moves,
+            self._control_events,
+            gap,
+            target_us,
+        )
+        if delta_us == 0:
+            return
+        content_end_us = timing_ops.compute_duration_us(
+            self._events,
+            self._rel_events,
+            self._passthrough_events,
+            self._synthetic_moves,
+            self._control_events,
+        )
+        if move_scope == "timeline":
+            self._duration_us = content_end_us + trailing_duration_us
+        else:
+            self._duration_us = max(content_end_us, previous_duration_us)
+        self._timeline.clear_gap_selection()
+        self._refresh_after_timing_edit(recompute_duration=False)
 
     def _build_time_mapping_with_gap_limits(
         self,

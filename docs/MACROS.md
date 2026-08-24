@@ -505,6 +505,33 @@ logs the full call chain. If a macro tries to call a name already present in
 its active parent chain, Keymasq stops the call tree and logs the attempted
 cycle. This runtime check does not scan or rewrite saved macros.
 
+### Editing individual gaps
+
+Gap controls stay hidden while Move is locked. Double-click empty time between
+two actions to open the gap editor directly. Unlock Move to make gaps appear on
+hover; a single click on a highlighted gap then opens the editor. Right-clicking
+empty space still opens the event insertion menu.
+
+Inside an event track, the gap belongs to that input type. Keyboard events use
+the next keyboard action by start time, regardless of which temporary sub-lane
+the renderer uses to display parallel actions. Mouse-button, gamepad,
+mouse-move, and control tracks follow the same rule. Activity in other tracks
+does not affect the gap. Use the timeline ruler to select a macro-wide gap.
+
+Cancel, press Escape, click elsewhere, or lock Move again to close the gap
+editor and clear its highlight.
+
+Choose **Next action only** to move just the action after the gap. Track gaps
+also offer **Following actions in this track**, which leaves other tracks
+unchanged. Choose **Everything after this time** to move the rest of the macro
+together.
+
+For macro-wide ruler gaps, actions that start together count as one step. The
+gap starts after the last active editable action ends. Recorded mouse-movement
+samples, key-repeat markers, and other raw passthrough events do not split ruler
+gaps. A negative value moves the next step into an overlap. Select an overlap
+from the timeline ruler when there is no empty interval to click.
+
 ### Timing Tools
 
 The **Timing Tools** menu provides bulk adjustments to your macro's timing:

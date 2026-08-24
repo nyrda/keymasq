@@ -125,7 +125,10 @@ class EditorChromeMixin:
 
         self._lock_btn = Gtk.ToggleButton(label="Lock Move")
         self._lock_btn.set_active(True)
-        self._lock_btn.set_tooltip_text("When locked, events cannot be dragged")
+        self._lock_btn.set_tooltip_text(
+            "Unlock to drag actions or click highlighted gaps; "
+            "double-click a hidden gap while locked"
+        )
         self._lock_btn.connect("toggled", self._on_move_lock_toggled)
         bar.append(self._lock_btn)
 
@@ -390,10 +393,12 @@ class EditorChromeMixin:
     def _on_move_lock_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._drag_locked = btn.get_active()
         btn.set_label("Lock Move" if self._drag_locked else "Move Unlocked")
+        self._timeline.set_move_locked(self._drag_locked)
 
     def _on_erase_mode_toggled(self, btn: Gtk.ToggleButton) -> None:
         self._erase_mode = btn.get_active()
         if self._erase_mode:
+            self._timeline.clear_gap_selection()
             btn.add_css_class("destructive-action")
             self._timeline.set_cursor_from_name("crosshair")
         else:
@@ -421,6 +426,7 @@ class EditorChromeMixin:
         self._timeline._context_menu_x = None
         self._timeline._hover_x = None
         self._timeline._hover_y = None
+        self._timeline.clear_gap_selection()
 
         self._sync_macro_settings_controls()
         self._macro_capture_delay_spin.set_value(self._start_position_capture.delay_seconds)

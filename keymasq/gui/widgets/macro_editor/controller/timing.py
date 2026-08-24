@@ -197,6 +197,17 @@ class TimelineControllerMixin:
         move_scope: GapMoveScope,
     ) -> None:
         previous_duration_us = self._duration_us
+        previous_content_end_us = timing_ops.compute_duration_us(
+            self._events,
+            self._rel_events,
+            self._passthrough_events,
+            self._synthetic_moves,
+            self._control_events,
+        )
+        trailing_duration_us = max(
+            0,
+            previous_duration_us - previous_content_end_us,
+        )
         if move_scope == "track":
             edit_gap = set_timeline_gap_track_following
         elif move_scope == "timeline":
@@ -221,11 +232,10 @@ class TimelineControllerMixin:
             self._synthetic_moves,
             self._control_events,
         )
-        duration_delta_us = delta_us if move_scope == "timeline" else 0
-        self._duration_us = max(
-            content_end_us,
-            max(0, previous_duration_us + duration_delta_us),
-        )
+        if move_scope == "timeline":
+            self._duration_us = content_end_us + trailing_duration_us
+        else:
+            self._duration_us = max(content_end_us, previous_duration_us)
         self._timeline.clear_gap_selection()
         self._refresh_after_timing_edit(recompute_duration=False)
 

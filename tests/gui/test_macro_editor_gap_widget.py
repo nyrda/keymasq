@@ -132,6 +132,32 @@ def test_timeline_gap_edit_moves_explicit_trailing_duration(monkeypatch) -> None
     assert dialog._duration_us == 900_000
 
 
+def test_timeline_gap_edit_does_not_add_silence_past_unchanged_hold(
+    monkeypatch,
+) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    long_hold = _key(evdev.ecodes.KEY_LEFTCTRL, 0, 10_000_000)
+    nested_tap = _key(evdev.ecodes.KEY_A, 1_000_000, 1_100_000)
+    dialog._events = [long_hold, nested_tap]
+    dialog._duration_us = long_hold.release_t_us
+    dialog._update_stats()
+    dialog._lock_btn.set_active(False)
+    gap = dialog._timeline._gap_segments[0]
+
+    dialog._edit_timeline_gap(
+        gap,
+        gap.duration_us + 1_000_000,
+        move_scope="timeline",
+    )
+
+    assert (long_hold.press_t_us, long_hold.release_t_us) == (0, 10_000_000)
+    assert (nested_tap.press_t_us, nested_tap.release_t_us) == (
+        2_000_000,
+        2_100_000,
+    )
+    assert dialog._duration_us == 10_000_000
+
+
 def test_gap_editor_accepts_gaps_longer_than_one_hour(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     first = _key(evdev.ecodes.KEY_A, 0, 100_000)

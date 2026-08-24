@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 
 import evdev
-from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.gamepad_axes import (
     clamp_gamepad_axis_value,
@@ -54,8 +54,15 @@ class EventPropertiesMixin:
         self._prop_title = Gtk.Label()
         self._prop_title.add_css_class("heading")
         self._prop_title.set_halign(Gtk.Align.START)
-        self._prop_title.set_hexpand(True)
         title_row.append(self._prop_title)
+        self._prop_context_label = Gtk.Label()
+        self._prop_context_label.add_css_class("heading")
+        self._prop_context_label.add_css_class("dim-label")
+        self._prop_context_label.set_halign(Gtk.Align.START)
+        self._prop_context_label.set_hexpand(True)
+        self._prop_context_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self._prop_context_label.set_visible(False)
+        title_row.append(self._prop_context_label)
         panel.append(title_row)
 
         timing_row = Gtk.Box(
@@ -240,12 +247,14 @@ class EventPropertiesMixin:
 
     def _on_selection_changed(self, selected_obj: object | None) -> None:
         if selected_obj is None:
+            self._prop_context_label.set_visible(False)
             self._cancel_capture_selected_move("")
             self._revealer.set_reveal_child(False)
             self._update_selected_move_capture_controls(None)
             return
 
         self._revealer.set_reveal_child(True)
+        self._prop_context_label.set_visible(False)
         if not isinstance(selected_obj, EditableMove) or selected_obj.mode not in {
             "abs",
             "natural",
@@ -540,6 +549,9 @@ class EventPropertiesMixin:
         ev = self._timeline._selected
         if isinstance(ev, EditableControl) and ev.mode == "compositor_dispatch":
             self._present_compositor_action_dialog(control=ev)
+            return
+        if isinstance(ev, EditableControl) and ev.mode in {"macro_sync", "macro_parallel"}:
+            self._present_macro_call_dialog(control=ev)
             return
         if isinstance(ev, EditableMove):
             self._present_mouse_move_dialog(move=ev)

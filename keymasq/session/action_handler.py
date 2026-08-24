@@ -30,6 +30,7 @@ async def _kill_and_drain_process(process: asyncio.subprocess.Process) -> None:
 class ActionHandler:
     def __init__(self) -> None:
         self._background_tasks: set[asyncio.Task[int]] = set()
+        self._tracked_command_tasks: dict[str, asyncio.Task[object]] = {}
 
     async def handle_action(self, data: JsonObject) -> None:
         action_type = data.get("action_type")
@@ -90,6 +91,25 @@ class ActionHandler:
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._handle_background_task_done)
+
+    def track_command(self, command_id: str) -> None:
+        """Associate the current session event task with a macro command."""
+
+        task = asyncio.current_task()
+        if task is not None:
+            self._tracked_command_tasks[command_id] = task
+
+    def untrack_command(self, command_id: str) -> None:
+        task = asyncio.current_task()
+        if self._tracked_command_tasks.get(command_id) is task:
+            self._tracked_command_tasks.pop(command_id, None)
+
+    def cancel_tracked_command(self, command_id: str) -> bool:
+        task = self._tracked_command_tasks.get(command_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
 
     def _handle_background_task_done(self, task: asyncio.Task[int]) -> None:
         self._background_tasks.discard(task)

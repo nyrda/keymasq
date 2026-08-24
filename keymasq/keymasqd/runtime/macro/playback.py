@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from keymasq.common.model.actions import normalize_macro_loop_stop_behavior
 from keymasq.keymasqd.runtime.macro import cleanup, loops, scheduler
 from keymasq.keymasqd.runtime.macro.events import list_macro_event_source
+from keymasq.keymasqd.runtime.macro.exceptions import MacroCallError
 from keymasq.keymasqd.runtime.macro.options import MacroPlaybackOptions
 from keymasq.keymasqd.runtime.macro.state import MacroEventSource, MacroRuntimeDeps
 
@@ -36,6 +38,8 @@ async def play_macro(
     source_key = (str(playback_options.source_device), str(playback_options.source_button))
 
     if int(playback_options.trigger_value) == 0:
+        if source_key[0] or source_key[1]:
+            manager.macro_state.mark_source_released(source_key)
         hold_instances = loops.find_matching_macro_instances(
             manager.macro_state,
             loop_mode="hold",
@@ -59,6 +63,9 @@ async def play_macro(
             cancelled = await _stop_loop_instances(manager, toggle_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}
 
+    if normalized_loop == "hold" and not (source_key[0] or source_key[1]):
+        normalized_loop = "none"
+
     if normalized_loop == "hold" and loops.find_matching_macro_instances(
         manager.macro_state,
         loop_mode="hold",
@@ -73,24 +80,95 @@ async def play_macro(
     if event_source.event_count <= 0:
         return {"status": "ok"}
 
+    _start_macro_instance(
+        manager,
+        playback_options,
+        macro_event_source=event_source,
+        normalized_loop=normalized_loop,
+        normalized_loop_stop_behavior=normalized_loop_stop_behavior,
+        loop_count=count,
+        source_key=source_key,
+        deps=deps,
+    )
+
+    return {"status": "ok"}
+
+
+def start_child_macro(
+    manager: MacroManager,
+    playback_options: MacroPlaybackOptions,
+    *,
+    parent_instance_id: int,
+    macro_event_source: MacroEventSource,
+    deps: MacroRuntimeDeps,
+) -> asyncio.Task[None] | None:
+    """Start a structured child invocation and return its join handle."""
+
+    source_available, source_active = manager.macro_state.source_lifecycle(parent_instance_id)
+    normalized_loop = loops.normalize_loop_mode(playback_options.loop_mode)
+    if normalized_loop == "toggle":
+        normalized_loop = "none"
+    if normalized_loop == "hold":
+        if not source_available:
+            normalized_loop = "none"
+        elif not source_active:
+            return None
+
+    macro_name = str(playback_options.macro_name or "")
+    if manager.macro_state.call_chain_contains(parent_instance_id, macro_name):
+        raise MacroCallError("recursive macro call blocked")
+
+    parent_meta = manager.macro_state.instance_meta.get(parent_instance_id, {})
+    source_key = (
+        str(parent_meta.get("source_device", "")),
+        str(parent_meta.get("source_button", "")),
+    )
+    return _start_macro_instance(
+        manager,
+        playback_options,
+        macro_event_source=macro_event_source,
+        normalized_loop=normalized_loop,
+        normalized_loop_stop_behavior=normalize_macro_loop_stop_behavior(
+            playback_options.loop_stop_behavior
+        ),
+        loop_count=max(1, int(playback_options.loop_count or 1)),
+        source_key=source_key,
+        deps=deps,
+        parent_instance_id=parent_instance_id,
+    )
+
+
+def _start_macro_instance(
+    manager: MacroManager,
+    playback_options: MacroPlaybackOptions,
+    *,
+    macro_event_source: MacroEventSource,
+    normalized_loop: str,
+    normalized_loop_stop_behavior: str,
+    loop_count: int,
+    source_key: tuple[str, str],
+    deps: MacroRuntimeDeps,
+    parent_instance_id: int | None = None,
+) -> asyncio.Task[None]:
     instance_id = manager.macro_state.allocate_instance(
         loop_mode=normalized_loop,
         source_key=source_key,
         macro_name=str(playback_options.macro_name or ""),
         loop_stop_behavior=normalized_loop_stop_behavior,
+        parent_instance_id=parent_instance_id,
     )
     task = deps.asyncio_mod.create_task(
         scheduler.play_macro_task(
             manager,
             instance_id=instance_id,
             macro_events=playback_options.macro_events,
-            macro_event_source=event_source,
+            macro_event_source=macro_event_source,
             macro_name=playback_options.macro_name,
             replay_mouse_movement=playback_options.replay_mouse_movement,
             replay_mouse_clicks=playback_options.replay_mouse_clicks,
             speed=max(0.01, playback_options.speed),
             loop_mode=normalized_loop,
-            loop_count=count,
+            loop_count=loop_count,
             move_to_start=playback_options.move_to_start,
             start_x=int(playback_options.start_x),
             start_y=int(playback_options.start_y),
@@ -99,8 +177,7 @@ async def play_macro(
         )
     )
     manager.macro_state.tasks[instance_id] = task
-
-    return {"status": "ok"}
+    return task
 
 
 async def _stop_loop_instances(

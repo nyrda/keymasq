@@ -139,6 +139,71 @@ class MacroEditorAddPopoversMixin:
         self._refresh_after_timing_edit()
         self._on_selection_changed(control)
 
+    def _present_macro_call_dialog(
+        self,
+        *,
+        mode: str = "macro_sync",
+        default_t_us: int | None = None,
+        control: EditableControl | None = None,
+    ) -> None:
+        """Select a called macro through the shared macro library dialog."""
+
+        from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+        current_action = None
+        if control is not None and control.macro_name:
+            current_action = MappingAction(
+                action_type=ActionType.MACRO,
+                macro_name=control.macro_name,
+                macro_replay_mouse_movement=control.macro_replay_mouse_movement,
+                macro_replay_mouse_clicks=control.macro_replay_mouse_clicks,
+                macro_speed=control.macro_speed,
+            )
+        dialog = KeySelectorDialog(
+            self._parent,
+            "Macro Call",
+            current_action,
+            allow_passthrough=False,
+            allow_clear_mapping=False,
+            allow_suppress=False,
+            allow_superkey=False,
+            allow_repeat=False,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allowed_tabs={"macro"},
+            initial_tab="macro",
+            macro_library_only=True,
+            dialog_title="Choose Macro",
+        )
+        dialog.connect(
+            "key-selected",
+            self._on_macro_call_selected,
+            mode,
+            self._default_insert_time_us(default_t_us),
+            control,
+        )
+        dialog.present(self._parent)
+
+    def _on_macro_call_selected(
+        self,
+        _dialog: Gtk.Widget,
+        action: MappingAction | None,
+        mode: str,
+        default_t_us: int,
+        control: EditableControl | None,
+    ) -> None:
+        if action is None or action.action_type != ActionType.MACRO or not action.macro_name:
+            return
+        target = control or EditableControl(mode=mode, t_us=max(0, int(default_t_us)))
+        target.macro_name = action.macro_name
+        target.macro_replay_mouse_movement = action.macro_replay_mouse_movement
+        target.macro_replay_mouse_clicks = action.macro_replay_mouse_clicks
+        target.macro_speed = max(0.01, action.macro_speed)
+        if control is None:
+            self._insert_control_event(target)
+        else:
+            self._refresh_after_control_change(target)
+
     def _present_compositor_action_dialog(
         self,
         default_t_us: int | None = None,
@@ -242,6 +307,7 @@ class MacroEditorAddPopoversMixin:
             "wait": "Insert Wait (Fixed)",
             "wait_random": "Insert Wait (Random)",
             "exec_sync": "Insert Exec Sync",
+            "exec_parallel": "Insert Exec Parallel",
             "exec_async": "Insert Exec Async",
         }.get(control_mode, "Insert Control")
 
@@ -303,7 +369,7 @@ class MacroEditorAddPopoversMixin:
             max_spin_widget.set_width_chars(7)
             row.append(max_spin_widget)
             box.append(row)
-        elif control_mode in {"exec_sync", "exec_async"}:
+        elif control_mode in {"exec_sync", "exec_parallel", "exec_async"}:
             cmd_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             cmd_label = Gtk.Label(label="Command:")
             cmd_label.set_halign(Gtk.Align.START)
@@ -314,7 +380,7 @@ class MacroEditorAddPopoversMixin:
             cmd_row.append(cmd_entry_widget)
             box.append(cmd_row)
 
-            if control_mode == "exec_sync":
+            if control_mode in {"exec_sync", "exec_parallel"}:
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 row.append(Gtk.Label(label="Timeout (ms):"))
                 timeout_spin_widget = Gtk.SpinButton()
@@ -364,10 +430,13 @@ class MacroEditorAddPopoversMixin:
                 mx = max(mn, int(max_spin.get_value() * 1000))
                 control.min_us = mn
                 control.max_us = mx
-            elif control_mode in {"exec_sync", "exec_async"} and cmd_entry is not None:
+            elif (
+                control_mode in {"exec_sync", "exec_parallel", "exec_async"}
+                and cmd_entry is not None
+            ):
                 command = cmd_entry.get_text().strip()
                 control.command = command
-                if control_mode == "exec_sync":
+                if control_mode in {"exec_sync", "exec_parallel"}:
                     control.timeout_ms = (
                         max(1, int(timeout_spin.get_value())) if timeout_spin is not None else 30000
                     )

@@ -93,6 +93,7 @@ class KeySelectorDialog(
         allow_rapidfire: bool = True,
         allow_tap: bool = True,
         allow_macro_options: bool = True,
+        macro_library_only: bool = False,
         source_type: str = "button",
         analog_input_type: str | None = None,
         allowed_tabs: set[str] | list[str] | tuple[str, ...] | None = None,
@@ -103,10 +104,13 @@ class KeySelectorDialog(
         include_mouse_move_controls: bool | None = None,
         include_mouse_move_failure_controls: bool = False,
         mouse_move_commit_label: str = "Map Move",
+        dialog_title: str | None = None,
     ):
-        super().__init__(title=f"Map: {button_label}", content_width=570, content_height=580)
+        resolved_title = dialog_title or f"Map: {button_label}"
+        super().__init__(title=resolved_title, content_width=570, content_height=580)
         self._parent = parent
         self._button_label = button_label
+        self._dialog_title = resolved_title
         self._current_action = current_action
         self._allow_passthrough = allow_passthrough
         self._allow_clear_mapping = allow_clear_mapping
@@ -116,6 +120,7 @@ class KeySelectorDialog(
         self._allow_rapidfire = allow_rapidfire
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
+        self._macro_library_only = bool(macro_library_only)
         self._source_type = str(source_type or "button")
         self._allowed_tabs = set(allowed_tabs) if allowed_tabs is not None else None
         self._initial_tab = initial_tab
@@ -351,7 +356,7 @@ class KeySelectorDialog(
         title_row.set_margin_top(12)
         title_row.set_margin_bottom(6)
 
-        title_label = Gtk.Label(label=f"Map: {self._button_label}")
+        title_label = Gtk.Label(label=self._dialog_title)
         title_label.add_css_class("title-3")
         title_label.set_halign(Gtk.Align.CENTER)
         title_row.append(title_label)
@@ -584,9 +589,15 @@ class KeySelectorDialog(
         self.map_btn.set_visible(
             is_superkey or is_analog_control or is_type or is_macro or is_profile or is_mouse_move
         )
-        self.map_btn.set_label(self._mouse_move_commit_label if is_mouse_move else "Map")
+        self.map_btn.set_label(
+            self._mouse_move_commit_label
+            if is_mouse_move
+            else "Select Macro"
+            if is_macro and self._macro_library_only
+            else "Map"
+        )
         if self._cancel_macro_playback_btn is not None:
-            self._cancel_macro_playback_btn.set_visible(is_macro)
+            self._cancel_macro_playback_btn.set_visible(is_macro and not self._macro_library_only)
         if is_superkey:
             self.map_btn.set_sensitive(self._selected_superkey is not None)
         elif is_analog_control:

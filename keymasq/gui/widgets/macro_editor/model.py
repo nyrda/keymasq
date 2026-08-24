@@ -7,6 +7,7 @@ import evdev
 
 from keymasq.common.coercion import bool_value, coerce_float, coerce_int
 from keymasq.common.model.actions import (
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     DEFAULT_NATURAL_MOUSE_MOVE_CURVE,
     DEFAULT_NATURAL_MOUSE_MOVE_JITTER,
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
@@ -110,8 +111,11 @@ _CONTROL_MACRO_ACTIONS = {
     "wait",
     "wait_random",
     "exec_sync",
+    "exec_parallel",
     "exec_async",
     "compositor_dispatch",
+    "macro_sync",
+    "macro_parallel",
 }
 
 # ---------------------------------------------------------------------------
@@ -149,7 +153,7 @@ class EditableMove:
 
 @dataclass
 class EditableControl:
-    mode: str  # wait | wait_random | exec_sync | exec_async | compositor_dispatch
+    mode: str
     t_us: int
     duration_us: int = 0
     min_us: int = 0
@@ -160,6 +164,13 @@ class EditableControl:
     compositor_id: str = ""
     compositor_dispatcher: str = ""
     compositor_args: str = ""
+    macro_name: str = ""
+    macro_replay_mouse_movement: bool = True
+    macro_replay_mouse_clicks: bool = True
+    macro_speed: float = 1.0
+    macro_loop_mode: str = "none"
+    macro_loop_count: int = 1
+    macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
     original_order: int | None = None
 
 
@@ -310,6 +321,16 @@ def parse_events(
                     compositor_id=str(ev.get("compositor", "") or ""),
                     compositor_dispatcher=str(ev.get("dispatcher", "") or ""),
                     compositor_args=str(ev.get("args", "") or ""),
+                    macro_name=str(ev.get("macro_name", "") or ""),
+                    macro_replay_mouse_movement=bool_value(ev.get("replay_mouse_movement", True)),
+                    macro_replay_mouse_clicks=bool_value(ev.get("replay_mouse_clicks", True)),
+                    macro_speed=max(0.01, coerce_float(ev.get("speed"), 1.0)),
+                    macro_loop_mode=str(ev.get("loop_mode", "none") or "none"),
+                    macro_loop_count=max(1, coerce_int(ev.get("loop_count"), 1)),
+                    macro_loop_stop_behavior=str(
+                        ev.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
+                        or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+                    ),
                     original_order=original_order,
                 )
             )
@@ -478,9 +499,9 @@ def reconstruct_events(
         elif control.mode == "wait_random":
             control_event["min_us"] = int(control.min_us)
             control_event["max_us"] = int(control.max_us)
-        elif control.mode in {"exec_sync", "exec_async"}:
+        elif control.mode in {"exec_sync", "exec_parallel", "exec_async"}:
             control_event["command"] = str(control.command)
-            if control.mode == "exec_sync":
+            if control.mode in {"exec_sync", "exec_parallel"}:
                 control_event["timeout_ms"] = int(control.timeout_ms)
                 control_event["inhibit_mouse"] = bool(control.inhibit_mouse)
         elif control.mode == "compositor_dispatch":
@@ -488,6 +509,16 @@ def reconstruct_events(
                 control_event["compositor"] = str(control.compositor_id)
             control_event["dispatcher"] = str(control.compositor_dispatcher)
             control_event["args"] = str(control.compositor_args)
+        elif control.mode in {"macro_sync", "macro_parallel"}:
+            control_event["macro_name"] = str(control.macro_name)
+            control_event["replay_mouse_movement"] = bool(control.macro_replay_mouse_movement)
+            control_event["replay_mouse_clicks"] = bool(control.macro_replay_mouse_clicks)
+            control_event["speed"] = max(0.01, float(control.macro_speed))
+            control_event["loop_mode"] = str(control.macro_loop_mode)
+            control_event["loop_count"] = max(1, int(control.macro_loop_count))
+            control_event["loop_stop_behavior"] = str(
+                control.macro_loop_stop_behavior or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+            )
         if control.original_order is not None:
             control_event = _with_editor_order(control_event, control.original_order)
         raw.append(control_event)

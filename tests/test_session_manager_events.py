@@ -483,7 +483,7 @@ async def test_handle_event_high_exec_ref_schedules_command_without_numeric_spli
 
 
 @pytest.mark.asyncio
-async def test_handle_event_macro_async_exec_uses_exec_trigger_path() -> None:
+async def test_handle_event_detached_macro_exec_uses_exec_trigger_path() -> None:
     manager = SessionManager()
     manager.action_handler.handle_action = AsyncMock()
     manager.action_handler.execute_command_sync = Mock()
@@ -581,6 +581,45 @@ async def test_handle_event_macro_sync_exec_clamps_timeout_to_session_policy() -
         "echo macro",
         timeout_s=0.75,
     )
+
+
+@pytest.mark.asyncio
+async def test_handle_exec_trigger_cancels_tracked_macro_command() -> None:
+    manager = SessionManager()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _execute_command(_cmd: str, *, timeout_s: float = 300.0) -> int:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return 0
+
+    manager.action_handler.execute_command = AsyncMock(side_effect=_execute_command)
+    command_task = asyncio.create_task(
+        session_events_module.handle_exec_trigger(
+            manager,
+            {
+                "cmd": "sleep 30",
+                "macro_exec_wait_id": "wait-1",
+                "macro_exec_timeout_ms": 30_000,
+            },
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    await session_events_module.handle_exec_trigger(
+        manager,
+        {"macro_exec_cancel_id": "wait-1"},
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await command_task
+    assert cancelled.is_set()
+    assert manager.action_handler._tracked_command_tasks == {}  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.asyncio

@@ -92,8 +92,8 @@ async def run_macro_control_action(
             )
         return 0.0
 
-    if action_type == "exec_sync":
-        return await _run_exec_sync(
+    if action_type in {"exec_sync", "exec_parallel"}:
+        return await _run_exec_wait(
             manager,
             event,
             renew_mouse_suppression=renew_mouse_suppression,
@@ -143,7 +143,7 @@ async def _sleep_control_action(
     return max(0.0, loop.time() - started_at)
 
 
-async def _run_exec_sync(
+async def _run_exec_wait(
     manager: MacroManager,
     event: dict[str, object],
     *,
@@ -180,11 +180,13 @@ async def _run_exec_sync(
         )
 
     wait_id = uuid.uuid4().hex
+    command_started = False
     try:
         waiter = loop.create_future()
         manager.macro_state.exec_waiters[wait_id] = waiter
 
         if manager.broadcast_callback:
+            command_started = True
             await manager.broadcast_callback(
                 CommandType.ACTION_TRIGGER,
                 {
@@ -199,6 +201,17 @@ async def _run_exec_sync(
                     waiter,
                     timeout=max(0.1, timeout_ms / 1000.0),
                 )
+    except asyncio_mod.CancelledError:
+        if command_started and manager.broadcast_callback:
+            with contextlib.suppress(Exception):
+                await manager.broadcast_callback(
+                    CommandType.ACTION_TRIGGER,
+                    {
+                        "action_type": "exec",
+                        "macro_exec_cancel_id": wait_id,
+                    },
+                )
+        raise
     finally:
         manager.macro_state.exec_waiters.pop(wait_id, None)
         if inhibit_mouse:

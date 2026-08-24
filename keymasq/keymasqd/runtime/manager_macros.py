@@ -7,10 +7,12 @@ from collections.abc import Callable, Iterator
 from functools import partial
 from typing import Any, cast
 
-from keymasq.common.coercion import coerce_int
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import CommandType
+from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.runtime.macro import cleanup, controls, playback
+from keymasq.keymasqd.runtime.macro.exceptions import MacroCallError
 from keymasq.keymasqd.runtime.macro.options import (
     MacroPlaybackOptions,
     macro_playback_options_from_mapping,
@@ -130,6 +132,59 @@ class MacroManagerMixin:
                 snapshot_revision.verify_unchanged if snapshot_revision is not None else None
             ),
             begin_cache_candidate=begin_cache_candidate,
+        )
+
+    async def start_macro_child(
+        self,
+        parent_instance_id: int,
+        event: dict[str, object],
+        *,
+        deps: MacroRuntimeDeps,
+    ) -> asyncio.Task[None] | None:
+        """Resolve and start one dynamic child-macro timeline event."""
+
+        macro_name = coerce_str(event.get("macro_name", "")).strip()
+        if not macro_name:
+            raise MacroCallError("macro call event has no macro name")
+        store = self.macro_store
+        if store is None:
+            raise MacroCallError("macro storage is unavailable")
+
+        try:
+            meta = cast(JsonObject, await asyncio.to_thread(store.get_meta, macro_name))
+            event_source = await self._stored_macro_event_source(macro_name, deps=deps)
+        except FileNotFoundError as exc:
+            raise MacroCallError(f"Macro '{macro_name}' not found") from exc
+        if event_source is None:
+            raise MacroCallError(f"Macro '{macro_name}' not found")
+        if event_source.event_count <= 0:
+            return None
+
+        options = MacroPlaybackOptions(
+            macro_name=macro_name,
+            replay_mouse_movement=coerce_bool(event.get("replay_mouse_movement"), True),
+            replay_mouse_clicks=coerce_bool(event.get("replay_mouse_clicks"), True),
+            speed=max(0.01, coerce_float(event.get("speed"), 1.0)),
+            loop_mode=coerce_str(event.get("loop_mode"), "none") or "none",
+            loop_count=max(1, coerce_int(event.get("loop_count"), 1)),
+            loop_stop_behavior=(
+                coerce_str(
+                    event.get("loop_stop_behavior"),
+                    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+                )
+                or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+            ),
+            move_to_start=coerce_bool(meta.get("move_to_start"), False),
+            start_x=coerce_int(meta.get("start_x"), 0),
+            start_y=coerce_int(meta.get("start_y"), 0),
+            block_mouse_movement=coerce_bool(meta.get("block_mouse_movement"), False),
+        )
+        return playback.start_child_macro(
+            self,
+            options,
+            parent_instance_id=parent_instance_id,
+            macro_event_source=event_source,
+            deps=deps,
         )
 
     async def cancel_macro_playback(self) -> JsonObject:

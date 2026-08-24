@@ -696,6 +696,13 @@ async def handle_profile_deactivate_requested(
 
 
 async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> None:
+    cancel_id = str(data.get("macro_exec_cancel_id", "") or "").strip()
+    action_handler = manager.action_handler
+    if cancel_id:
+        if action_handler is not None:
+            action_handler.cancel_tracked_command(cancel_id)
+        return
+
     cmd = str(data.get("cmd", "") or "").strip()
     if not cmd:
         return
@@ -703,7 +710,6 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
     wait_id = str(data.get("macro_exec_wait_id", "") or "").strip()
     is_async = bool(data.get("macro_exec_async", False))
 
-    action_handler = manager.action_handler
     if action_handler is None:
         return
 
@@ -714,21 +720,25 @@ async def handle_exec_trigger(manager: "SessionManager", data: JsonObject) -> No
             coerce_int(data.get("macro_exec_timeout_ms"), policy_timeout_ms),
         )
         timeout_ms = min(timeout_ms, policy_timeout_ms)
-        returncode = await action_handler.execute_command(
-            cmd,
-            timeout_s=timeout_ms / 1000.0,
-        )
+        action_handler.track_command(wait_id)
         try:
-            await manager.client.send_command(
-                Command(
-                    command=CommandType.MACRO_EXEC_COMPLETE,
-                    data={"wait_id": wait_id, "returncode": int(returncode)},
-                )
+            returncode = await action_handler.execute_command(
+                cmd,
+                timeout_s=timeout_ms / 1000.0,
             )
-        except OSError:
-            log.debug("Failed to report macro exec completion", exc_info=True)
-        except Exception:
-            log.exception("Unexpected failure reporting macro exec completion")
+            try:
+                await manager.client.send_command(
+                    Command(
+                        command=CommandType.MACRO_EXEC_COMPLETE,
+                        data={"wait_id": wait_id, "returncode": int(returncode)},
+                    )
+                )
+            except OSError:
+                log.debug("Failed to report macro exec completion", exc_info=True)
+            except Exception:
+                log.exception("Unexpected failure reporting macro exec completion")
+        finally:
+            action_handler.untrack_command(wait_id)
         return
 
     if is_async:

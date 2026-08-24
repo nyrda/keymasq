@@ -73,15 +73,38 @@ def test_control_editor_state_resolves_command_policy() -> None:
         ),
         30_000,
     )
+    parallel_command = control_editor_state(
+        EditableControl(
+            mode="exec_parallel",
+            t_us=0,
+            command="sleep 2",
+            timeout_ms=15_000,
+            inhibit_mouse=True,
+        ),
+        30_000,
+    )
 
     assert async_command.show_command is True
     assert async_command.command == "notify-send done"
+    assert async_command.title == "Run Command"
+    assert async_command.detail == "Run detached"
+    assert async_command.show_exec_mode is True
+    assert async_command.exec_mode == "exec_async"
     assert async_command.show_sync is False
     assert sync_command.show_command is True
+    assert sync_command.title == "Run Command"
+    assert sync_command.detail == "Wait for completion"
+    assert sync_command.show_exec_mode is True
+    assert sync_command.exec_mode == "exec_sync"
     assert sync_command.show_sync is True
     assert sync_command.timeout_ms == 45_000
     assert sync_command.inhibit_mouse is True
     assert sync_command.timeout_hint == "Runtime clamp: 45000ms -> 30000ms"
+    assert parallel_command.detail == "Run in parallel"
+    assert parallel_command.exec_mode == "exec_parallel"
+    assert parallel_command.show_sync is True
+    assert parallel_command.timeout_ms == 15_000
+    assert parallel_command.inhibit_mouse is True
     assert timeout_policy_hint(1_000, 30_000) == "Policy max timeout: 30000ms"
 
 
@@ -101,3 +124,30 @@ def test_control_editor_state_resolves_compositor_action() -> None:
     assert state.show_change is True
     assert state.change_label == "Change Action..."
     assert "workspace" in state.detail
+
+
+def test_control_editor_state_resolves_macro_call() -> None:
+    state = control_editor_state(
+        EditableControl(
+            mode="macro_parallel",
+            t_us=0,
+            macro_name="child",
+            macro_speed=1.5,
+            macro_loop_mode="hold",
+            macro_loop_stop_behavior="cancel_run",
+            macro_replay_mouse_movement=False,
+        ),
+        30_000,
+    )
+
+    assert state.title == "Macro Call"
+    assert state.title_context == "child"
+    assert state.detail == "Run in parallel, while held"
+    assert state.show_change is True
+    assert state.change_label == "Change Macro..."
+    assert state.show_macro is True
+    assert state.macro_wait is False
+    assert state.macro_loop_mode == "hold"
+    assert state.macro_loop_stop_behavior == "cancel_run"
+    assert state.macro_speed == 1.5
+    assert state.macro_replay_mouse_movement is False

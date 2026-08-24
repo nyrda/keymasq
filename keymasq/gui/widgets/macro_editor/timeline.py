@@ -844,10 +844,10 @@ class TimelineWidget(Gtk.DrawingArea):
             wait_random_btn.connect("clicked", _insert_wait_random)
             box.append(wait_random_btn)
 
-            exec_sync_btn = Gtk.Button(label=f"Insert Exec Sync at {t_label}")
-            exec_sync_btn.add_css_class("flat")
+            exec_btn = Gtk.Button(label=f"Run Command at {t_label}")
+            exec_btn.add_css_class("flat")
 
-            def _insert_exec_sync(_b, _t=t_us, _p=popover):
+            def _insert_exec(_b, _t=t_us, _p=popover):
                 _p.popdown()
                 control = EditableControl(
                     mode="exec_sync",
@@ -858,19 +858,21 @@ class TimelineWidget(Gtk.DrawingArea):
                 )
                 self._editor._insert_control_event(control)
 
-            exec_sync_btn.connect("clicked", _insert_exec_sync)
-            box.append(exec_sync_btn)
+            exec_btn.connect("clicked", _insert_exec)
+            box.append(exec_btn)
 
-            exec_async_btn = Gtk.Button(label=f"Insert Exec Async at {t_label}")
-            exec_async_btn.add_css_class("flat")
+            macro_btn = Gtk.Button(label=f"Call Macro at {t_label}")
+            macro_btn.add_css_class("flat")
 
-            def _insert_exec_async(_b, _t=t_us, _p=popover):
+            def _insert_macro(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                control = EditableControl(mode="exec_async", t_us=int(_t), command="")
-                self._editor._insert_control_event(control)
+                self._editor._present_macro_call_dialog(
+                    mode="macro_sync",
+                    default_t_us=_t,
+                )
 
-            exec_async_btn.connect("clicked", _insert_exec_async)
-            box.append(exec_async_btn)
+            macro_btn.connect("clicked", _insert_macro)
+            box.append(macro_btn)
 
             compositor_btn = Gtk.Button(label=f"Insert Compositor Action at {t_label}")
             compositor_btn.add_css_class("flat")
@@ -960,6 +962,10 @@ class TimelineWidget(Gtk.DrawingArea):
             label = (
                 "Compositor Action"
                 if ev.mode == "compositor_dispatch"
+                else f"Macro Call {ev.macro_name}"
+                if ev.mode in {"macro_sync", "macro_parallel"}
+                else "Run Command"
+                if ev.mode in {"exec_sync", "exec_parallel", "exec_async"}
                 else ev.mode.replace("_", " ").title()
             )
             del_control_btn = Gtk.Button(label=f"Delete {label}")

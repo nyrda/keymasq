@@ -115,6 +115,11 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_rel","x":10,"y":0}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_natural_abs","x":100,"y":200,"speed":12000.0,"jitter":0.3,"curve":"natural","tolerance":2,"max_duration_ms":3000,"stop_on_failure":false}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"exec_sync","command":"echo ready","timeout_ms":30000,"inhibit_mouse":false}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"exec_parallel","command":"sleep 1","timeout_ms":30000,"inhibit_mouse":false}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"exec_async","command":"notify-send done"}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_sync","macro_name":"child","loop_mode":"none","loop_count":1,"loop_stop_behavior":"finish_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_parallel","macro_name":"child","loop_mode":"hold","loop_count":1,"loop_stop_behavior":"cancel_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
 ```
 
 Recorded macro start positioning is represented as the first
@@ -128,6 +133,23 @@ stops before later events execute.
 
 Loop modes for saved macros: `none`, `count`, `hold`, `toggle`.
 Stop behavior for `hold` and `toggle`: `finish_run` or `cancel_run`.
+
+Macro call events dynamically resolve `macro_name`. `macro_sync` blocks the
+parent at the call site; `macro_parallel` continues the parent timeline but joins
+the child before the parent iteration completes. Child `loop_mode` accepts
+`none`, `count`, or `hold`; nested toggle is treated as `none`. Hold inherits
+the root key lifecycle and is treated as one run when playback has no source.
+Parallel children never detach from the parent. Child failures abort the call
+tree and log the dynamic call chain. Before spawning a child, the runtime
+rejects its name if that name already appears in the active parent chain. The
+failure includes the attempted cycle and aborts the call tree. Keymasq does not
+scan saved macros or impose a separate depth limit.
+
+Exec modes: `exec_sync` waits at the event; `exec_parallel` continues the
+timeline and joins before the parent iteration completes; `exec_async` is
+detached and can outlive the macro. `exec_sync` and `exec_parallel` share the
+same `timeout_ms` policy and optional `inhibit_mouse` behavior. Canceling a
+joined command kills its session-owned process group.
 
 ## Binding a macro from a profile
 

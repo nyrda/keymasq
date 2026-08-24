@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
@@ -14,6 +16,10 @@ from keymasq.keymasqd.runtime.macro import controls, events, mouse, outputs
 from keymasq.keymasqd.runtime.macro.cache import (
     MAX_CACHEABLE_MACRO_RUNTIME_US,
     MacroCacheCandidate,
+)
+from keymasq.keymasqd.runtime.macro.exceptions import (
+    MacroCallError,
+    MacroChildPlaybackError,
 )
 from keymasq.keymasqd.runtime.macro.loops import (
     MacroLoopStateMachine,
@@ -32,6 +38,8 @@ type RuntimeAction = Callable[..., None]
 
 _MOUSE_BUTTON_CODES = frozenset(range(0x110, 0x118))
 _SEMANTIC_MOUSE_ACTIONS = frozenset({"mouse_move_abs", "mouse_move_rel", "mouse_move_natural_abs"})
+_MACRO_CALL_ACTIONS = frozenset({"macro_sync", "macro_parallel"})
+_PARALLEL_CONTROL_ACTIONS = frozenset({"exec_parallel"})
 
 
 async def play_macro_task(
@@ -122,44 +130,51 @@ async def play_macro_task(
                 await manager.set_cursor_position(int(start_x), int(start_y))
 
             timeline = MacroPlaybackTimeline(event_loop.time(), speed_factor)
-            stop_current_run = await _play_iteration(
-                manager,
-                instance_id=instance_id,
-                macro_event_source=macro_event_source,
-                macro_name=macro_name,
-                replay_mouse_movement=replay_mouse_movement,
-                replay_mouse_clicks=replay_mouse_clicks,
-                block_mouse_movement=block_mouse_movement,
-                timeline=timeline,
-                event_loop=event_loop,
-                deps=deps,
-                control_action_fn=control_action,
-                renew_mouse_suppression_fn=renew_mouse_suppression,
-                diagnostic_initial_load_us=diagnostic_initial_load_us,
-                cached_events=cached_events,
-                verify_cached_revision=verify_cached_revision,
-                cache_candidate=cache_candidate,
-            )
-            if diagnostic_initial_load_us is not None:
-                diagnostic_initial_load_us = 0.0
-            if cached_events is not None:
-                verify_cached_revision = True
-            if stop_current_run:
-                break
-
-            if instance_id not in manager.macro_state.cancel_instance_ids:
-                remaining = timeline.nominal_end_delay(
-                    macro_duration_us,
-                    now_s=event_loop.time(),
+            parallel_tasks: set[asyncio.Task[Any]] = set()
+            try:
+                stop_current_run = await _play_iteration(
+                    manager,
+                    instance_id=instance_id,
+                    macro_event_source=macro_event_source,
+                    macro_name=macro_name,
+                    replay_mouse_movement=replay_mouse_movement,
+                    replay_mouse_clicks=replay_mouse_clicks,
+                    block_mouse_movement=block_mouse_movement,
+                    timeline=timeline,
+                    event_loop=event_loop,
+                    deps=deps,
+                    control_action_fn=control_action,
+                    renew_mouse_suppression_fn=renew_mouse_suppression,
+                    diagnostic_initial_load_us=diagnostic_initial_load_us,
+                    cached_events=cached_events,
+                    verify_cached_revision=verify_cached_revision,
+                    cache_candidate=cache_candidate,
+                    parallel_tasks=parallel_tasks,
                 )
-                if remaining >= 0.0005:
-                    if block_mouse_movement:
-                        renew_mouse_suppression(
-                            manager,
-                            timeout_s=remaining + 1.0,
-                            deps=deps,
-                        )
-                    await asyncio_mod.sleep(remaining)
+                if diagnostic_initial_load_us is not None:
+                    diagnostic_initial_load_us = 0.0
+                if cached_events is not None:
+                    verify_cached_revision = True
+                if stop_current_run:
+                    break
+
+                if instance_id not in manager.macro_state.cancel_instance_ids:
+                    remaining = timeline.nominal_end_delay(
+                        macro_duration_us,
+                        now_s=event_loop.time(),
+                    )
+                    if remaining >= 0.0005:
+                        if block_mouse_movement:
+                            renew_mouse_suppression(
+                                manager,
+                                timeout_s=remaining + 1.0,
+                                deps=deps,
+                            )
+                        await asyncio_mod.sleep(remaining)
+
+                await _join_parallel_tasks(parallel_tasks, asyncio_mod=asyncio_mod)
+            finally:
+                await _cancel_parallel_tasks(parallel_tasks, asyncio_mod=asyncio_mod)
 
             iteration_elapsed_us = (
                 max(0, time.perf_counter_ns() - iteration_started_ns) / 1000.0
@@ -192,14 +207,28 @@ async def play_macro_task(
             if not loop_state.should_continue():
                 break
     except asyncio_mod.CancelledError:
-        pass
+        raise
+    except MacroCallError as exc:
+        if _is_child_instance(manager, instance_id):
+            raise
+        deps.log.error("Macro playback aborted: %s", exc)
     except MacroFileChangedError:
+        if _is_child_instance(manager, instance_id):
+            raise MacroCallError(
+                f"{manager.macro_state.call_chain(instance_id)}: macro was modified or removed"
+            ) from None
         deps.log.debug(
             "Macro playback ended because %s was modified or removed",
             macro_name or "<unnamed>",
         )
-    except Exception:
-        deps.log.exception("Macro playback aborted")
+    except Exception as exc:
+        if _is_child_instance(manager, instance_id):
+            if isinstance(exc, MacroChildPlaybackError):
+                raise
+            raise MacroChildPlaybackError(
+                f"{manager.macro_state.call_chain(instance_id)}: {exc}"
+            ) from exc
+        deps.log.exception("Macro playback aborted: %s", exc)
     finally:
         if cache_candidate is not None:
             cache_candidate.discard()
@@ -230,6 +259,7 @@ async def _play_iteration(
     cached_events: tuple[dict[str, object], ...] | None,
     verify_cached_revision: bool,
     cache_candidate: MacroCacheCandidate | None,
+    parallel_tasks: set[asyncio.Task[Any]],
 ) -> bool:
     """Replay one source iteration; return true when a semantic move aborts it."""
 
@@ -242,6 +272,7 @@ async def _play_iteration(
         cached_events=cached_events,
         verify_cached_revision=verify_cached_revision,
     ):
+        _raise_finished_parallel_errors(parallel_tasks)
         if instance_id in manager.macro_state.cancel_instance_ids:
             break
         if cache_candidate is not None:
@@ -254,8 +285,46 @@ async def _play_iteration(
         remaining = timeline.event_delay(timestamp_us, now_s=event_loop.time())
         if remaining >= 0.0005:
             await asyncio_mod.sleep(remaining)
+            _raise_finished_parallel_errors(parallel_tasks)
 
         action_type = str(event.get("macro_action", "") or "")
+        if action_type in _MACRO_CALL_ACTIONS:
+            await asyncio_mod.sleep(0)
+            child_name = deps.str_value_fn(event.get("macro_name"), "").strip()
+            try:
+                child_task = await manager.start_macro_child(
+                    instance_id,
+                    event,
+                    deps=deps,
+                )
+            except MacroCallError as exc:
+                chain = manager.macro_state.call_chain(instance_id, child_name or "<missing>")
+                raise MacroCallError(f"{chain}: {exc}") from None
+            except Exception as exc:
+                chain = manager.macro_state.call_chain(instance_id, child_name or "<missing>")
+                raise MacroChildPlaybackError(f"{chain}: {exc}") from exc
+            if child_task is None:
+                continue
+            if action_type == "macro_sync":
+                started_at = event_loop.time()
+                await _await_child(child_task, asyncio_mod=asyncio_mod)
+                timeline.extend_for_blocking_action(event_loop.time() - started_at)
+            else:
+                parallel_tasks.add(child_task)
+            continue
+        if action_type in _PARALLEL_CONTROL_ACTIONS:
+            task = asyncio_mod.create_task(
+                control_action_fn(
+                    manager,
+                    event,
+                    renew_mouse_suppression=block_mouse_movement,
+                    deps=deps,
+                )
+            )
+            parallel_tasks.add(task)
+            await asyncio_mod.sleep(0)
+            _raise_finished_parallel_errors(parallel_tasks)
+            continue
         if action_type in _SEMANTIC_MOUSE_ACTIONS:
             should_stop = await _run_semantic_mouse_action(
                 manager,
@@ -313,6 +382,63 @@ async def _play_iteration(
             deps=deps,
         )
     return False
+
+
+def _is_child_instance(manager: MacroManager, instance_id: int) -> bool:
+    meta = manager.macro_state.instance_meta.get(instance_id, {})
+    return meta.get("parent_instance_id") is not None
+
+
+def _raise_finished_parallel_errors(tasks: set[asyncio.Task[Any]]) -> None:
+    for task in tuple(tasks):
+        if not task.done():
+            continue
+        tasks.discard(task)
+        if task.cancelled():
+            continue
+        error = task.exception()
+        if error is not None:
+            raise error
+
+
+async def _await_child(child: asyncio.Task[None], *, asyncio_mod: Any) -> None:
+    try:
+        await child
+    except asyncio_mod.CancelledError:
+        current = asyncio_mod.current_task()
+        if current is not None and current.cancelling():
+            raise
+
+
+async def _join_parallel_tasks(
+    tasks: set[asyncio.Task[Any]],
+    *,
+    asyncio_mod: Any,
+) -> None:
+    if not tasks:
+        return
+    results = await asyncio_mod.gather(*tuple(tasks), return_exceptions=True)
+    tasks.clear()
+    for result in results:
+        if isinstance(result, asyncio_mod.CancelledError):
+            continue
+        if isinstance(result, BaseException):
+            raise result
+
+
+async def _cancel_parallel_tasks(
+    tasks: set[asyncio.Task[Any]],
+    *,
+    asyncio_mod: Any,
+) -> None:
+    all_tasks = tuple(tasks)
+    pending = [task for task in all_tasks if not task.done()]
+    tasks.clear()
+    for task in pending:
+        task.cancel()
+    if all_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio_mod.gather(*all_tasks, return_exceptions=True)
 
 
 async def _run_semantic_mouse_action(

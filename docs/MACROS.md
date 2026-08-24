@@ -417,13 +417,24 @@ The editor lets you insert several kinds of events into the timeline:
 | **Absolute mouse movement** | Attempt to move the pointer to a screen coordinate with the older reset-and-offset virtual mouse action. Use it as a fallback when natural movement is unavailable. |
 | **Wait** | Pause macro playback for a fixed duration. The editor stores it at its timestamp and does not move later events. |
 | **Wait (random)** | Pause macro playback for a random duration in a configured range. The editor stores it at its timestamp and does not estimate the eventual delay. |
-| **Exec (synchronous)** | Run an external program and wait for it to finish before the macro continues. Macro playback is paused until the process exits. |
-| **Exec (asynchronous)** | Fire-and-forget an external program. The macro continues immediately — the launched process runs independently. |
+| **Run command** | Run an external program. It can pause at the event, run in parallel and join at the end of the iteration, or detach from macro playback. |
 | **Compositor action** | Send a compositor dispatch through the active session listener. This uses the same Hyprland, Niri, KDE, or GNOME action picker as normal mappings. |
 
-Exec events are powerful but be cautious: a synchronous exec that hangs will
-stall the macro indefinitely. Prefer asynchronous exec for anything that
-doesn't need to gate later events.
+Waitable Exec events (**Wait for completion** and **Run in parallel**) use the
+configured timeout. A command that reaches it is killed by the session process.
+Detached commands instead use the session's default 300-second command timeout.
+The three execution modes are:
+
+- **Wait for completion** pauses the timeline at the command until it exits or
+  times out.
+- **Run in parallel** continues the timeline, then joins the command before the
+  parent iteration finishes. The next loop iteration does not start until all
+  parallel commands finish. Canceling the macro kills the command.
+- **Run detached** continues the timeline and does not join or cancel the
+  command. The command can outlive the macro.
+
+The timeline context menu has one **Run Command** action. After inserting it,
+choose its execution mode in the event properties.
 
 Exec events are the recommended way to call existing hardware/vendor tooling
 from a macro. For example, DPI changes can be delegated to OpenRazer or
@@ -465,6 +476,34 @@ Wait controls appear as **W** or **WR** markers on the timeline. You can move
 them, edit their duration, or delete them at any time.
 
 ![Wait and random-wait controls on the macro timeline](assets/screenshots/macro_edit_wait_wait_random_markers.png)
+
+### Calling macros from macros
+
+A macro can call another saved macro from its timeline. Right-click the
+timeline at the desired time, choose **Call Macro**, then select the macro from
+the normal Macro Library selector. Choose **Run and wait** or **Run in parallel**
+in the event properties. The resulting **MW** or **MP** marker remains editable.
+
+- **Run and wait** pauses the parent at the marker until the child completes.
+  Later parent deadlines move back by the time spent in the child.
+- **Run in parallel** lets the parent timeline continue. It is still a child,
+  not a detached task: the parent iteration waits for it at the end before the
+  next Count/Hold/Toggle iteration can start.
+- Each call chooses its own Once, Count, or While Held playback, speed, and
+  mouse replay options. Toggle is intentionally a top-level trigger mode and
+  is not offered for child calls.
+- While Held children share the original trigger's lifecycle. If that key was
+  released before the call marker is reached, the child is skipped. Without a
+  key lifecycle, such as playback from the GUI or CLI, While Held runs once.
+- A child configured to cancel its current run also cancels its descendants.
+  Emergency macro cancellation cancels and reaps the entire call tree.
+
+Child names are resolved when the marker is reached, so edits to a saved child
+take effect without rebuilding the parent. Renaming or deleting a child does
+not rewrite callers. A missing or failed child aborts the parent call tree and
+logs the full call chain. If a macro tries to call a name already present in
+its active parent chain, Keymasq stops the call tree and logs the attempted
+cycle. This runtime check does not scan or rewrite saved macros.
 
 ### Timing Tools
 

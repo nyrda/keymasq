@@ -21,7 +21,16 @@ _UINPUT_BEGIN_UPLOAD: Final[str] = "_uinput_begin_upload"
 _UINPUT_BEGIN_ERASE: Final[str] = "_uinput_begin_erase"
 _WORKER_UPLOAD: Final[Literal["upload"]] = "upload"
 _WORKER_ERASE: Final[Literal["erase"]] = "erase"
-type _WorkerRequest = tuple[Literal["upload", "erase"], int] | None
+type _OperationTail = asyncio.Future[None]
+type _WorkerRequest = (
+    tuple[
+        Literal["upload", "erase"],
+        int,
+        _OperationTail | None,
+        asyncio.Future[None],
+    ]
+    | None
+)
 
 
 class InputEventLike(Protocol):
@@ -211,7 +220,7 @@ class PassthroughFeedbackProxy:
         self._request_queue: asyncio.Queue[_WorkerRequest] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._write_tasks: set[asyncio.Task[None]] = set()
-        self._write_tail: asyncio.Task[None] | None = None
+        self._operation_tail: _OperationTail | None = None
 
     @property
     def effect_mappings(self) -> Mapping[int, EffectMapping]:
@@ -322,7 +331,7 @@ class PassthroughFeedbackProxy:
                 self.label,
             )
             return
-        self._schedule_physical_ff(mapping.physical_id, event_value)
+        self._schedule_mapped_ff(event_code, event_value)
 
     def _effect_mapping_for_play(
         self,
@@ -340,19 +349,23 @@ class PassthroughFeedbackProxy:
             request = await queue.get()
             if request is None:
                 return
-            kind, request_id = request
+            kind, request_id, previous, completion = request
             try:
+                await self._wait_for_operation(previous)
                 if kind == _WORKER_UPLOAD:
-                    await self._wait_for_write_tasks()
                     completed_upload = await self.asyncio_mod.to_thread(
                         self._handle_upload,
                         request_id,
                     )
                     if completed_upload is not None:
-                        self._finish_upload(*completed_upload)
-                        await self._wait_for_write_tasks()
+                        virtual_id, physical_id = completed_upload
+                        for value in self._finish_upload(virtual_id, physical_id):
+                            await self._write_physical_event(
+                                evdev.ecodes.EV_FF,
+                                physical_id,
+                                value,
+                            )
                 elif kind == _WORKER_ERASE:
-                    await self._wait_for_write_tasks()
                     await self.asyncio_mod.to_thread(self._handle_erase, request_id)
             except Exception:
                 self.log.exception(
@@ -360,6 +373,11 @@ class PassthroughFeedbackProxy:
                     self.label,
                     kind,
                 )
+            finally:
+                if not completion.done():
+                    completion.set_result(None)
+                if self._operation_tail is completion:
+                    self._operation_tail = None
 
     def _log_worker_result(self, task: asyncio.Task[None]) -> None:
         try:
@@ -372,7 +390,10 @@ class PassthroughFeedbackProxy:
     def _queue_request(self, kind: Literal["upload", "erase"], request_id: int) -> None:
         queue = self._request_queue
         if self._running and queue is not None:
-            queue.put_nowait((kind, int(request_id)))
+            completion = asyncio.get_running_loop().create_future()
+            previous = self._operation_tail
+            self._operation_tail = completion
+            queue.put_nowait((kind, int(request_id), previous, completion))
             return
         self.log.debug(
             "Dropping force-feedback request for %s because proxy is not running",
@@ -437,17 +458,16 @@ class PassthroughFeedbackProxy:
                     completed_upload = None
         return completed_upload
 
-    def _finish_upload(self, virtual_id: int, physical_id: int) -> None:
+    def _finish_upload(self, virtual_id: int, physical_id: int) -> list[int]:
         with self._effects_lock:
             mapping = self._effects.get(virtual_id)
             if mapping is None or mapping.physical_id != physical_id:
                 self._pending_uploads.discard(virtual_id)
                 self._queued_upload_plays.pop(virtual_id, None)
-                return
+                return []
             queued_values = self._queued_upload_plays.pop(virtual_id, [])
             self._pending_uploads.discard(virtual_id)
-        for value in queued_values:
-            self._schedule_physical_ff(physical_id, value)
+        return queued_values
 
     def _handle_erase(self, request_id: int) -> None:
         erase: object | None = None
@@ -539,10 +559,36 @@ class PassthroughFeedbackProxy:
             return
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _wait_for_operation(self, operation: _OperationTail | None) -> None:
+        if operation is None:
+            return
+        await asyncio.gather(operation, return_exceptions=True)
+
     def _schedule_physical_ff(self, code: int, value: int) -> None:
         self._schedule_physical_event(evdev.ecodes.EV_FF, code, value)
 
-    def _schedule_physical_event(self, event_type: int, code: int, value: int) -> None:
+    def _schedule_mapped_ff(self, virtual_id: int, value: int) -> None:
+        self._schedule_physical_event(
+            evdev.ecodes.EV_FF,
+            virtual_id,
+            value,
+            mapped_virtual_id=virtual_id,
+        )
+
+    def _schedule_physical_event(
+        self,
+        event_type: int,
+        code: int,
+        value: int,
+        *,
+        mapped_virtual_id: int | None = None,
+    ) -> None:
+        if not self._running:
+            self.log.debug(
+                "Dropping output event for %s because proxy is not running",
+                self.label,
+            )
+            return
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -552,10 +598,11 @@ class PassthroughFeedbackProxy:
             )
             return
         coro = self._write_physical_event_after(
-            self._write_tail,
+            self._operation_tail,
             event_type,
             code,
             value,
+            mapped_virtual_id=mapped_virtual_id,
         )
         try:
             task = self.asyncio_mod.create_task(coro)
@@ -567,13 +614,13 @@ class PassthroughFeedbackProxy:
             )
             return
         self._write_tasks.add(task)
-        self._write_tail = task
+        self._operation_tail = task
         task.add_done_callback(self._log_write_result)
 
     def _log_write_result(self, task: asyncio.Task[None]) -> None:
         self._write_tasks.discard(task)
-        if self._write_tail is task:
-            self._write_tail = None
+        if self._operation_tail is task:
+            self._operation_tail = None
         try:
             task.result()
         except asyncio.CancelledError:
@@ -583,13 +630,25 @@ class PassthroughFeedbackProxy:
 
     async def _write_physical_event_after(
         self,
-        previous: asyncio.Task[None] | None,
+        previous: _OperationTail | None,
         event_type: int,
         code: int,
         value: int,
+        *,
+        mapped_virtual_id: int | None,
     ) -> None:
-        if previous is not None:
-            await previous
+        await self._wait_for_operation(previous)
+        if mapped_virtual_id is not None:
+            with self._effects_lock:
+                mapping = self._effects.get(mapped_virtual_id)
+            if mapping is None:
+                self.log.debug(
+                    "Dropping force-feedback play for unknown virtual effect %s on %s",
+                    mapped_virtual_id,
+                    self.label,
+                )
+                return
+            code = mapping.physical_id
         await self._write_physical_event(event_type, code, value)
 
     async def _write_physical_event(self, event_type: int, code: int, value: int) -> None:

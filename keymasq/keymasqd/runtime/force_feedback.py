@@ -349,6 +349,7 @@ class PassthroughFeedbackProxy:
                     )
                     if completed_upload is not None:
                         self._finish_upload(*completed_upload)
+                        await self._wait_for_write_tasks()
                 elif kind == _WORKER_ERASE:
                     await self.asyncio_mod.to_thread(self._handle_erase, request_id)
             except Exception:

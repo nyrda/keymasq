@@ -142,7 +142,6 @@ async def test_restart_after_prepare_processes_the_next_suspend() -> None:
     assert await coordinator.start() is True
     manager.emit(True)
     await _flush_worker()
-    manager.emit(False)
     await coordinator.stop()
 
     assert await coordinator.start() is True
@@ -152,6 +151,22 @@ async def test_restart_after_prepare_processes_the_next_suspend() -> None:
     assert prepare.await_count == 2
     assert closed_fds == [41, 42]
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_discards_queued_sleep_state_events() -> None:
+    manager = _FakeLoginManager()
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+    )
+
+    assert await coordinator.start() is True
+    manager.emit(False)
+    await coordinator.stop()
+
+    assert coordinator._events.empty()
 
 
 @pytest.mark.asyncio

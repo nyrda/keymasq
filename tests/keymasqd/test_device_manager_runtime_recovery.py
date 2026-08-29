@@ -361,6 +361,33 @@ class TestSuspendCleanup:
         manager.recording_manager.abort.assert_awaited_once_with()
         assert device.input_suspended is True
 
+    def test_passthrough_multitouch_cleanup_restores_source_slot(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            passthrough_uinput=passthrough,
+        )
+        device.state.passthrough_mt_slot = 0
+        device.state.passthrough_mt_active_slots = {0, 2}
+
+        device_outputs.neutralize_passthrough_abs(
+            device,
+            evdev_mod=evdev,
+            uinput_writer=adapters.identity_uinput_writer,
+        )
+
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_SLOT, 0),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_TRACKING_ID, -1),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_SLOT, 2),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_TRACKING_ID, -1),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_SLOT, 0),
+        ]
+        assert device.state.passthrough_mt_active_slots == set()
+
     @pytest.mark.asyncio
     async def test_cleanup_drains_inflight_event_before_global_runtime(
         self,

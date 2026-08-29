@@ -366,6 +366,12 @@ def neutralize_passthrough_abs(
     for slot in sorted(active_slots):
         writer.write(evdev_mod.ecodes.EV_ABS, slot_code, slot)
         writer.write(evdev_mod.ecodes.EV_ABS, tracking_id_code, -1)
+    if active_slots:
+        writer.write(
+            evdev_mod.ecodes.EV_ABS,
+            slot_code,
+            state.passthrough_mt_slot,
+        )
     for code in sorted(held_axes):
         writer.write(
             evdev_mod.ecodes.EV_ABS,

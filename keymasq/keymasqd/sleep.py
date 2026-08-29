@@ -98,6 +98,10 @@ class LogindSleepCoordinator:
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
+        self._preparing = False
+        while not self._events.empty():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self._events.get_nowait()
         await self._close_connection()
 
     def _on_prepare_for_sleep(self, preparing: bool) -> None:

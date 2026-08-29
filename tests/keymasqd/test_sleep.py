@@ -127,6 +127,34 @@ async def test_cleanup_failure_still_releases_delay_inhibitor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_restart_after_prepare_processes_the_next_suspend() -> None:
+    manager = _FakeLoginManager()
+    bus = _FakeBus(manager)
+    prepare = AsyncMock()
+    closed_fds: list[int] = []
+    coordinator = LogindSleepCoordinator(
+        prepare,
+        AsyncMock(),
+        bus_factory=lambda: bus,
+        close_fd=closed_fds.append,
+    )
+
+    assert await coordinator.start() is True
+    manager.emit(True)
+    await _flush_worker()
+    manager.emit(False)
+    await coordinator.stop()
+
+    assert await coordinator.start() is True
+    manager.emit(True)
+    await _flush_worker()
+
+    assert prepare.await_count == 2
+    assert closed_fds == [41, 42]
+    await coordinator.stop()
+
+
+@pytest.mark.asyncio
 async def test_logind_unavailable_does_not_prevent_daemon_start() -> None:
     class _UnavailableBus:
         async def connect(self):

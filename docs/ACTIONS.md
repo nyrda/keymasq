@@ -198,8 +198,8 @@ Linux input key codes such as `key_playpause`, `key_play`, or `key_nextsong`.
 
 ### Mouse Buttons
 
-Map to a mouse button press: Left, Right, Middle, Side, Extra, Forward, or
-Back.
+Map to a mouse button press: Left, Right, Middle, Side, Extra, Forward, Back,
+or Task (`btn_task`).
 
 Mouse wheel directions can also be remapped from the device tab when the
 hardware profile contains wheel inputs. Keymasq treats each wheel tick as a

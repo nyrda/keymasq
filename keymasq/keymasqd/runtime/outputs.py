@@ -105,6 +105,7 @@ class _Ecodes(Protocol):
     BTN_EXTRA: Final[int]
     BTN_FORWARD: Final[int]
     BTN_BACK: Final[int]
+    BTN_TASK: Final[int]
     REL_X: Final[int]
     REL_Y: Final[int]
     REL_WHEEL: Final[int]
@@ -398,6 +399,7 @@ def create_global_uinputs(
                 evdev_mod.ecodes.BTN_EXTRA,
                 evdev_mod.ecodes.BTN_FORWARD,
                 evdev_mod.ecodes.BTN_BACK,
+                evdev_mod.ecodes.BTN_TASK,
             ],
             evdev_mod.ecodes.EV_REL: [
                 evdev_mod.ecodes.REL_X,

@@ -305,6 +305,17 @@ class TestDeviceManagerHelpers:
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002
+        mouse_key_caps = set(created[1].kwargs["events"][evdev.ecodes.EV_KEY])
+        assert mouse_key_caps == {
+            evdev.ecodes.BTN_LEFT,
+            evdev.ecodes.BTN_RIGHT,
+            evdev.ecodes.BTN_MIDDLE,
+            evdev.ecodes.BTN_SIDE,
+            evdev.ecodes.BTN_EXTRA,
+            evdev.ecodes.BTN_FORWARD,
+            evdev.ecodes.BTN_BACK,
+            evdev.ecodes.BTN_TASK,
+        }
         mouse_rel_caps = created[1].kwargs["events"][evdev.ecodes.EV_REL]
         assert evdev.ecodes.REL_WHEEL in mouse_rel_caps
         rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)

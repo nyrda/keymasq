@@ -47,6 +47,10 @@ action = "mouse_move_rel"
 x = 12
 y = -7
 
+[devices."$HARDWARE_ID".mapping.key_0]
+action = "mouse"
+target = "btn_task"
+
 [devices."$HARDWARE_ID".mapping.key_r]
 action = "keyboard"
 target = "key_i"

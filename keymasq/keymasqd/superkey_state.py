@@ -284,6 +284,11 @@ class SuperkeyMachine:
         )
         self.state = SuperkeyState.IDLE
 
+    async def cancel_pending_gesture_timers(self) -> None:
+        """Prevent pending gesture thresholds from firing during suspend cleanup."""
+
+        await self._cancel_timer_tasks()
+
     async def _cancel_timer_tasks(self) -> None:
         tasks = [task for task in (self._hold_task, self._double_tap_task) if task is not None]
         self._hold_task = None

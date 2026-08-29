@@ -376,6 +376,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         for device in devices:
             device.input_suspended = True
         await asyncio.gather(
+            *(device.cancel_pending_superkey_timers() for device in devices),
+        )
+        await asyncio.gather(
             *(device.cancel_inflight_actions() for device in devices),
         )
 

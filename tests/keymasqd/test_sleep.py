@@ -216,6 +216,8 @@ async def test_inhibitor_hangup_rearms_after_logind_restart() -> None:
     manager = _FakeLoginManager()
     closed_fds: list[int] = []
     readers: dict[int, Callable[[], None]] = {}
+    prepare = AsyncMock()
+    resume = AsyncMock()
 
     def add_reader(fd: int, callback) -> None:
         readers[fd] = callback
@@ -224,8 +226,8 @@ async def test_inhibitor_hangup_rearms_after_logind_restart() -> None:
         readers.pop(fd, None)
 
     coordinator = LogindSleepCoordinator(
-        AsyncMock(),
-        AsyncMock(),
+        prepare,
+        resume,
         bus_factory=lambda: _FakeBus(manager),
         close_fd=closed_fds.append,
         add_fd_reader=add_reader,
@@ -241,6 +243,8 @@ async def test_inhibitor_hangup_rearms_after_logind_restart() -> None:
     assert closed_fds == [41]
     assert coordinator._inhibitor_fd == 42
     assert set(readers) == {42}
+    prepare.assert_awaited_once_with()
+    resume.assert_awaited_once_with()
     await coordinator.stop()
     assert closed_fds == [41, 42]
 

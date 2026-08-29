@@ -330,6 +330,34 @@ class TestRuntimeFailureCleanup:
 
 
 class TestSuspendCleanup:
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_superkey_timers_before_action_drain(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
+        timers_cancelled = asyncio.Event()
+
+        async def cancel_timers() -> None:
+            timers_cancelled.set()
+
+        machine = SimpleNamespace(
+            cancel_pending_gesture_timers=AsyncMock(side_effect=cancel_timers),
+            neutralize=AsyncMock(),
+        )
+        device.state.superkey_machines["key_a"] = machine  # type: ignore[assignment]
+
+        async def cancel_actions(*_args, **_kwargs) -> None:
+            assert timers_cancelled.is_set()
+
+        device.cancel_inflight_actions = AsyncMock(side_effect=cancel_actions)  # type: ignore[method-assign]
+
+        await manager.prepare_for_sleep()
+
+        machine.cancel_pending_gesture_timers.assert_awaited_once_with()
+
     def test_resume_suppresses_orphaned_release_until_fresh_press(
         self,
         monkeypatch: pytest.MonkeyPatch,

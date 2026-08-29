@@ -393,12 +393,19 @@ async def _send_grab_device_command(
             manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
             return _GrabOutcome.STOP
 
+        error_text = str(result.error or "").lower()
         log.error("keymasqd: Failed to grab device %s: %s", hardware_id, result.error)
-        if "timed out waiting" in str(result.error or "").lower():
+        if "timed out waiting" in error_text:
             manager.profile_state.grab_status[hardware_id] = {
                 "state": "timed_out",
                 "path": next(iter(new_interfaces.values()), ""),
             }
+            operations.schedule_grab_retry(
+                manager,
+                hardware_id,
+                delay_s=GRAB_RETRY_DELAY_S,
+            )
+        elif "interrupted before suspend" in error_text:
             operations.schedule_grab_retry(
                 manager,
                 hardware_id,

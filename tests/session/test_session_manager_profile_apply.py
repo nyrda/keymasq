@@ -1052,6 +1052,46 @@ async def test_apply_resolved_device_profile_retries_after_grab_timeout(
 
 
 @pytest.mark.asyncio
+async def test_apply_resolved_device_profile_retries_after_suspend_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={
+            "btn_side": MappingAction(
+                action_type=ActionType.KEYBOARD,
+                target="key_f13",
+            )
+        },
+    )
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        hardware_id=hardware_id,
+        name="Test Mouse",
+        evdev_devices=[SimpleNamespace(id="mouse", path="/dev/input/event10")],
+        buttons=[SimpleNamespace(id="btn_side", evdev="btn_side", source="mouse")],
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="error",
+            error="Grab of /dev/input/event10 interrupted before suspend",
+        )
+    )
+    schedule_grab_retry = Mock()
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", schedule_grab_retry)
+
+    await coordinator.apply_resolved_device_profile(manager, hardware_id, resolved)
+
+    schedule_grab_retry.assert_called_once_with(
+        manager,
+        hardware_id,
+        delay_s=manager_constants.GRAB_RETRY_DELAY_S,
+    )
+
+
+@pytest.mark.asyncio
 async def test_apply_resolved_device_profile_logs_unexpected_grab_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

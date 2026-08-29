@@ -192,14 +192,19 @@ class LogindSleepCoordinator:
             else:
                 self._start_inhibitor_rearm()
 
-    def _start_inhibitor_rearm(self) -> None:
+    def _start_inhibitor_rearm(self, *, gate_input: bool = False) -> None:
         if self._stopping:
             return
         task = self._rearm_task
         if task is not None and not task.done():
             return
+        rearm = (
+            self._gate_input_and_rearm_inhibitor()
+            if gate_input
+            else self._rearm_inhibitor_until_ready()
+        )
         self._rearm_task = asyncio.create_task(
-            self._rearm_inhibitor_until_ready(),
+            rearm,
             name="keymasqd-logind-inhibitor-rearm",
         )
 
@@ -211,6 +216,16 @@ class LogindSleepCoordinator:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+    async def _gate_input_and_rearm_inhibitor(self) -> None:
+        self._resume_pending = True
+        try:
+            await self._prepare_for_sleep()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Input cleanup after logind inhibitor loss failed")
+        await self._rearm_inhibitor_until_ready()
 
     async def _rearm_inhibitor_until_ready(self) -> None:
         retry_s = self._rearm_retry_s
@@ -276,7 +291,7 @@ class LogindSleepCoordinator:
         log.warning("The logind inhibitor closed; reacquiring after a service restart")
         self._release_inhibitor()
         if self._manager is not None and not self._preparing and not self._stopping:
-            self._start_inhibitor_rearm()
+            self._start_inhibitor_rearm(gate_input=True)
 
     def _release_inhibitor(self) -> None:
         inhibitor_fd = self._inhibitor_fd

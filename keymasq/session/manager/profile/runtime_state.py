@@ -40,7 +40,7 @@ def schedule_grab_retry(
     if not hardware_id:
         return
     existing = manager.profile_state.grab_retry_tasks.get(hardware_id)
-    if existing is not None and not existing.done():
+    if existing is not None and not existing.done() and existing is not asyncio.current_task():
         return
 
     async def _retry() -> None:

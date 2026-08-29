@@ -388,6 +388,31 @@ async def test_stop_cancels_grab_retry_tasks(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
+async def test_grab_retry_can_reschedule_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    reason = f"grab retry for {hardware_id}"
+    attempts: list[str] = []
+    second_attempt = asyncio.Event()
+
+    async def reevaluate_profiles(_manager: SessionManager, *, reason: str) -> None:
+        attempts.append(reason)
+        if len(attempts) == 1:
+            coordinator.schedule_grab_retry(manager, hardware_id, delay_s=0)
+        else:
+            second_attempt.set()
+
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+    coordinator.schedule_grab_retry(manager, hardware_id, delay_s=0)
+    await asyncio.wait_for(second_attempt.wait(), timeout=0.25)
+
+    assert attempts == [reason, reason]
+    assert manager.profile_state.grab_retry_tasks == {}
+
+
+@pytest.mark.asyncio
 async def test_stop_times_out_hanging_session_client_wait_closed() -> None:
     manager = SessionManager()
     manager.running = True

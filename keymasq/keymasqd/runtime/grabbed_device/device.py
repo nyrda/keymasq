@@ -476,6 +476,10 @@ class GrabbedDevice:
             await machine.neutralize()
         self.state.superkey_machines.clear()
 
+    async def cancel_pending_superkey_timers(self) -> None:
+        for machine in self.state.superkey_machines.values():
+            await machine.cancel_pending_gesture_timers()
+
     async def reset_analog_controls(
         self,
         preserve_state_keys: set[str] | None = None,

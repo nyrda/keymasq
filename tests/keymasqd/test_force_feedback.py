@@ -20,6 +20,7 @@ from keymasq.keymasqd.runtime.force_feedback import (
 )
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.outputs import uinput_supports_max_effects
 
 
 class _Upload:
@@ -385,8 +386,8 @@ def test_uinput_supports_max_effects_detects_evdev_constructor_shapes() -> None:
             self.input_props = input_props
             self.max_effects = max_effects
 
-    assert grabbed_device._uinput_supports_max_effects(_Evdev16StyleUInput) is False
-    assert grabbed_device._uinput_supports_max_effects(_Evdev17StyleUInput) is True
+    assert uinput_supports_max_effects(_Evdev16StyleUInput) is False
+    assert uinput_supports_max_effects(_Evdev17StyleUInput) is True
 
 
 class _FakeLoop:

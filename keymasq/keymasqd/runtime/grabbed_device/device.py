@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import logging
 import os
 import time
@@ -49,6 +48,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 from keymasq.keymasqd.runtime.outputs import (
     create_uinput_with_permission_hint,
     uinput_identity,
+    uinput_supports_max_effects,
 )
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
@@ -178,16 +178,6 @@ def _copy_passthrough_capabilities(
     if ff_max_effects <= 0:
         force_feedback.disable_force_feedback(caps)
     return caps, ff_max_effects
-
-
-def _uinput_supports_max_effects(uinput_factory: Callable[..., object]) -> bool:
-    try:
-        parameters = inspect.signature(uinput_factory).parameters
-    except (TypeError, ValueError):
-        return True
-    return "max_effects" in parameters or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-    )
 
 
 def _passthrough_uinput_kwargs(
@@ -517,7 +507,7 @@ class GrabbedDevice:
                 passthrough_bustype = None
                 passthrough_input_props = None
 
-            supports_max_effects = _uinput_supports_max_effects(evdev.UInput)
+            supports_max_effects = uinput_supports_max_effects(evdev.UInput)
             if ff_max_effects > 0 and not supports_max_effects:
                 log.debug(
                     "python-evdev UInput does not support max_effects; "

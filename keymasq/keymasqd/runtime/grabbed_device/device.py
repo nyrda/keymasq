@@ -607,6 +607,10 @@ class GrabbedDevice:
             finally:
                 if self.pending_key_clear_task is key_clear_task:
                     self.pending_key_clear_task = None
+            if self.input_suspended:
+                raise grab.GrabInterruptedForSleepError(
+                    f"Grab of {self.path} interrupted before suspend"
+                )
             self.device.grab()
             if is_gamepad_passthrough:
                 self.source_hidden_kernel_names = []

@@ -220,6 +220,53 @@ async def test_grab_started_during_suspend_aborts_before_device_grab(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_suspend_after_key_wait_aborts_before_device_grab(monkeypatch) -> None:
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+    wait_started = asyncio.Event()
+    finish_wait = asyncio.Event()
+
+    async def controlled_wait(*_args, **_kwargs) -> None:
+        wait_started.set()
+        await finish_wait.wait()
+
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda _path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", lambda **_kwargs: MagicMock())
+    monkeypatch.setattr(
+        grabbed_device.grab,
+        "wait_for_active_keys_to_clear",
+        controlled_wait,
+    )
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+    grab_task = asyncio.create_task(grabbed.grab())
+    await wait_started.wait()
+
+    grabbed.input_suspended = True
+    finish_wait.set()
+
+    with pytest.raises(grabbed_device.grab.GrabInterruptedForSleepError):
+        await grab_task
+    fake_device.grab.assert_not_called()
+    assert grabbed.device is None
+
+
+@pytest.mark.asyncio
 async def test_release_uses_normal_superkey_release_semantics(monkeypatch) -> None:
     grabbed = GrabbedDevice(
         path="/dev/input/event-test",

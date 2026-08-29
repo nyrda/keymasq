@@ -118,6 +118,34 @@ def _int_u16(value: object) -> int | None:
     return None
 
 
+def _passthrough_abs_neutral_value(code: int, info: object | None) -> int:
+    """Infer a stable resting value without sampling the current axis position."""
+
+    minimum = getattr(info, "min", None)
+    maximum = getattr(info, "max", None)
+    if not isinstance(minimum, int) or not isinstance(maximum, int):
+        return 0
+
+    hat_first = int(getattr(evdev.ecodes, "ABS_HAT0X", 0x10))
+    hat_last = int(getattr(evdev.ecodes, "ABS_HAT3Y", 0x17))
+    if hat_first <= code <= hat_last:
+        return min(max(0, minimum), maximum)
+
+    centered_codes = {
+        int(getattr(evdev.ecodes, "ABS_X", 0x00)),
+        int(getattr(evdev.ecodes, "ABS_Y", 0x01)),
+        int(getattr(evdev.ecodes, "ABS_RX", 0x03)),
+        int(getattr(evdev.ecodes, "ABS_RY", 0x04)),
+    }
+    if code in centered_codes:
+        if minimum < 0 < maximum:
+            return 0
+        return minimum + ((maximum - minimum) // 2)
+    if minimum <= 0 <= maximum:
+        return 0
+    return minimum
+
+
 def _hardware_id_vendor_product(hardware_id: str) -> tuple[int | None, int | None]:
     parts = str(hardware_id or "").split(":", 1)
     if len(parts) != 2:
@@ -998,8 +1026,19 @@ class GrabbedDevice:
         if self.device is None:
             return
         neutral_values = self.state.passthrough_abs_neutral_values
+        slot_code = int(getattr(evdev.ecodes, "ABS_MT_SLOT", -1))
         tracking_id_code = int(getattr(evdev.ecodes, "ABS_MT_TRACKING_ID", -1))
-        for entry in caps.get(evdev.ecodes.EV_ABS, ()):
+        abs_entries = caps.get(evdev.ecodes.EV_ABS, ())
+        abs_codes = {
+            raw_code
+            for entry in abs_entries
+            if isinstance(
+                raw_code := (cast(object, entry[0]) if isinstance(entry, tuple) else entry),
+                int,
+            )
+        }
+        self.state.passthrough_mt_uses_slots = slot_code in abs_codes
+        for entry in abs_entries:
             raw_code = cast(object, entry[0]) if isinstance(entry, tuple) else entry
             if not isinstance(raw_code, int):
                 continue
@@ -1011,8 +1050,7 @@ class GrabbedDevice:
                 info = self.device.absinfo(code)
             except Exception:  # noqa: BLE001 - optional neutral-state probe.
                 info = None
-            current = getattr(info, "value", None)
-            neutral_values[code] = int(current) if isinstance(current, int) else 0
+            neutral_values[code] = _passthrough_abs_neutral_value(code, info)
 
 
 def _axis_code(axis: dict[str, object]) -> int | None:

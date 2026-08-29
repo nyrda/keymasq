@@ -70,6 +70,7 @@ class LogindSleepCoordinator:
         self._watched_inhibitor_fd: int | None = None
         self._events: asyncio.Queue[bool] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
+        self._setup_retry_task: asyncio.Task[None] | None = None
         self._rearm_task: asyncio.Task[None] | None = None
         self._subscribed = False
         self._preparing = False
@@ -100,16 +101,18 @@ class LogindSleepCoordinator:
                 self._events.put_nowait(True)
         except Exception:  # noqa: BLE001 - integration must remain optional.
             log.warning(
-                "systemd-logind sleep coordination is unavailable; pre-suspend cleanup is disabled",
+                "systemd-logind sleep coordination is unavailable; retrying in the background",
                 exc_info=True,
             )
             await self._close_connection()
+            self._start_setup_retry()
             return False
 
         log.info("Enabled systemd-logind pre-suspend cleanup")
         return True
 
     async def stop(self) -> None:
+        await self._stop_setup_retry()
         worker = self._worker
         self._worker = None
         if worker is not None:
@@ -122,6 +125,36 @@ class LogindSleepCoordinator:
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._events.get_nowait()
         await self._close_connection()
+
+    def _start_setup_retry(self) -> None:
+        task = self._setup_retry_task
+        if task is not None and not task.done():
+            return
+        self._setup_retry_task = asyncio.create_task(
+            self._retry_setup_until_ready(),
+            name="keymasqd-logind-setup-retry",
+        )
+
+    async def _stop_setup_retry(self) -> None:
+        task = self._setup_retry_task
+        self._setup_retry_task = None
+        if task is None or task is asyncio.current_task():
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _retry_setup_until_ready(self) -> None:
+        retry_s = self._rearm_retry_s
+        try:
+            while self._bus is None:
+                await asyncio.sleep(retry_s)
+                if await self.start():
+                    return
+                retry_s = min(30.0, max(0.1, retry_s * 2.0))
+        finally:
+            if self._setup_retry_task is asyncio.current_task():
+                self._setup_retry_task = None
 
     def _on_prepare_for_sleep(self, preparing: bool) -> None:
         self._events.put_nowait(bool(preparing))

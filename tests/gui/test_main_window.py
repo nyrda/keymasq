@@ -1,5 +1,6 @@
 # ruff: noqa: E402, I001
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -1497,6 +1498,24 @@ class TestMainWindow:
 
         macro_recording._on_save_macro_dialog_closed(window, first_dialog)
         assert window._save_macro_dialog is None
+
+    def test_main_window_recording_abort_does_not_open_save_dialog(self, monkeypatch):
+        from keymasq.gui.window.core import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        show_save = Mock()
+        monkeypatch.setattr(macro_recording, "_on_recording_stopped", show_save)
+
+        connection._handle_session_event(
+            window,
+            {
+                "event": "recording_stopped",
+                "aborted": True,
+                "reason": "suspend",
+            },
+        )
+
+        show_save.assert_not_called()
 
     def test_main_window_ignores_status_response_after_destroy(self, temp_config_dir):
         from keymasq.gui.window.core import MainWindow

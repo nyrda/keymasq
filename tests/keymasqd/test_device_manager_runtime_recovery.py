@@ -8,6 +8,7 @@ import evdev
 import pytest
 from evdev.uinput import UInputError
 
+from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd import device_manager
@@ -305,8 +306,13 @@ class TestRuntimeFailureCleanup:
 
 class TestSuspendCleanup:
     @pytest.mark.asyncio
-    async def test_cleanup_serializes_with_recording_start(self) -> None:
+    async def test_cleanup_gates_input_before_waiting_for_recording_start(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
         start_entered = asyncio.Event()
         finish_start = asyncio.Event()
         recording_manager = SimpleNamespace(is_recording=False)
@@ -330,6 +336,7 @@ class TestSuspendCleanup:
         await asyncio.sleep(0)
 
         assert manager.sleep_preparing is True
+        assert device.input_suspended is True
         finish_start.set()
         assert await start_task == {"status": "ok"}
         await prepare_task
@@ -377,16 +384,18 @@ class TestSuspendCleanup:
         assert device.state.held_output_abs["passthrough"] == set()
 
     @pytest.mark.asyncio
-    async def test_cleanup_aborts_recording_before_input_is_suspended(
+    async def test_cleanup_aborts_recording_after_input_is_suspended(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
         device = make_grabbed_device(monkeypatch, running=True)
         manager.grabbed_devices["1234:5678"] = [device]
+        broadcast = AsyncMock()
+        manager.broadcast_callback = broadcast
 
         async def abort() -> None:
-            assert device.input_suspended is False
+            assert device.input_suspended is True
 
         manager.recording_manager = SimpleNamespace(  # type: ignore[assignment]
             is_recording=True,
@@ -396,6 +405,10 @@ class TestSuspendCleanup:
         await manager.prepare_for_sleep()
 
         manager.recording_manager.abort.assert_awaited_once_with()
+        broadcast.assert_awaited_once_with(
+            CommandType.RECORDING_ABORTED,
+            {"reason": "suspend"},
+        )
         assert device.input_suspended is True
 
     @pytest.mark.asyncio
@@ -425,6 +438,7 @@ class TestSuspendCleanup:
             passthrough_uinput=passthrough,
         )
         device.state.passthrough_mt_slot = 0
+        device.state.passthrough_mt_uses_slots = True
         device.state.passthrough_mt_active_slots = {0, 2}
 
         device_outputs.neutralize_passthrough_abs(
@@ -441,6 +455,58 @@ class TestSuspendCleanup:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_MT_SLOT, 0),
         ]
         assert device.state.passthrough_mt_active_slots == set()
+
+    def test_passthrough_multitouch_cleanup_handles_slotless_type_a(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            passthrough_uinput=passthrough,
+        )
+        device.state.passthrough_mt_uses_slots = False
+        device.state.passthrough_mt_active_slots = {0}
+
+        device_outputs.neutralize_passthrough_abs(
+            device,
+            evdev_mod=evdev,
+            uinput_writer=adapters.identity_uinput_writer,
+        )
+
+        assert passthrough.writes == [
+            (
+                evdev.ecodes.EV_ABS,
+                evdev.ecodes.ABS_MT_TRACKING_ID,
+                -1,
+            ),
+            (evdev.ecodes.EV_SYN, evdev.ecodes.SYN_MT_REPORT, 0),
+        ]
+
+    def test_passthrough_abs_neutral_ignores_displaced_grab_sample(self) -> None:
+        displaced = SimpleNamespace(min=0, max=255, value=240)
+
+        assert (
+            grabbed_device._passthrough_abs_neutral_value(
+                evdev.ecodes.ABS_X,
+                displaced,
+            )
+            == 127
+        )
+        assert (
+            grabbed_device._passthrough_abs_neutral_value(
+                evdev.ecodes.ABS_Z,
+                displaced,
+            )
+            == 0
+        )
+        assert (
+            grabbed_device._passthrough_abs_neutral_value(
+                evdev.ecodes.ABS_X,
+                SimpleNamespace(min=-32768, max=32767, value=12000),
+            )
+            == 0
+        )
 
     @pytest.mark.asyncio
     async def test_cleanup_drains_inflight_event_before_global_runtime(

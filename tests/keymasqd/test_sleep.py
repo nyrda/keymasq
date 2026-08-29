@@ -296,6 +296,40 @@ async def test_logind_unavailable_does_not_prevent_daemon_start() -> None:
 
 
 @pytest.mark.asyncio
+async def test_logind_setup_is_retried_after_transient_startup_failure() -> None:
+    class _UnavailableBus:
+        async def connect(self):
+            raise OSError("system bus not ready")
+
+    manager = _FakeLoginManager()
+    bus = _FakeBus(manager)
+    attempts = 0
+
+    def bus_factory():
+        nonlocal attempts
+        attempts += 1
+        return _UnavailableBus() if attempts == 1 else bus
+
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=bus_factory,
+        rearm_retry_s=0,
+    )
+
+    assert await coordinator.start() is False
+    for _ in range(10):
+        if coordinator._inhibitor_fd == 41:
+            break
+        await asyncio.sleep(0)
+
+    assert attempts == 2
+    assert coordinator._inhibitor_fd == 41
+    assert coordinator._worker is not None
+    await coordinator.stop()
+
+
+@pytest.mark.asyncio
 async def test_logind_setup_timeout_does_not_prevent_daemon_start() -> None:
     class _UnresponsiveBus:
         def __init__(self) -> None:

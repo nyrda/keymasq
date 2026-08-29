@@ -174,12 +174,12 @@ sudo journalctl -u keymasqd --rotate --vacuum-time=1s
 When systemd-logind is available, `keymasqd` holds a delay inhibitor and listens
 for its `PrepareForSleep` signal. Before suspend, the daemon cancels active
 macros, combos, superkeys, and analog actions, releases generated keys and axes,
-and pauses input dispatch. It keeps physical device grabs, mappings, and virtual
-devices intact; after resume, it only resumes input dispatch and rearms the
-inhibitor.
+pauses input dispatch, and discards any active macro recording. It keeps physical
+device grabs, mappings, and virtual devices intact; after resume, it only resumes
+input dispatch and rearms the inhibitor.
 
 If the system bus or logind is unavailable, the daemon continues normally and
-logs that pre-suspend cleanup is disabled.
+retries the optional integration in the background.
 
 ### Services not running
 

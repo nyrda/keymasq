@@ -1189,6 +1189,33 @@ async def test_recording_stopped_event_notifies_user_with_slot_summary() -> None
 
 
 @pytest.mark.asyncio
+async def test_recording_aborted_event_clears_state_without_pending_save() -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.recording_state.active = True
+    manager.recording_state.active_slot = 2
+    manager.recording_state.start_cursor = (123, 456)
+
+    await session_events_module.handle_event(
+        manager,
+        CommandType.RECORDING_ABORTED,
+        {"reason": "suspend"},
+    )
+
+    assert manager.recording_state.active is False
+    assert manager.recording_state.active_slot == 0
+    assert manager.recording_state.start_cursor is None
+    assert manager.recording_state.pending_slots == {}
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {
+            "event": "recording_stopped",
+            "aborted": True,
+            "reason": "suspend",
+        }
+    )
+
+
+@pytest.mark.asyncio
 async def test_recording_duration_limit_event_explains_automatic_stop() -> None:
     manager = SessionManager()
     manager.send_notification = Mock()  # type: ignore[method-assign]

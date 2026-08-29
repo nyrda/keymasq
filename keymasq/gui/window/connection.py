@@ -66,7 +66,8 @@ def _handle_session_event(window, event: dict) -> None:
     elif event_type == "recording_stopped":
         window._recording_overlay.on_stopped()
         window._recording_overlay.set_visible(False)
-        macro_recording._on_recording_stopped(window, event)
+        if not bool(event.get("aborted", False)):
+            macro_recording._on_recording_stopped(window, event)
     elif event_type == "recording_progress":
         window._recording_overlay.on_progress(event)
     elif event_type == "recording_auth_requested":

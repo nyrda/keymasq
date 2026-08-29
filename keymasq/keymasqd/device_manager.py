@@ -368,13 +368,6 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         """Neutralize active input state while retaining grabs and mappings."""
 
         self.sleep_preparing = True
-        async with self._recording_transition_lock:
-            recording_manager = self.recording_manager
-            if recording_manager is not None and recording_manager.is_recording:
-                try:
-                    await recording_manager.abort()
-                except Exception:
-                    log.exception("Failed to abort active recording before suspend")
         devices = [
             device
             for hardware_devices in self.grabbed_devices.values()
@@ -385,6 +378,25 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         await asyncio.gather(
             *(device.cancel_inflight_actions() for device in devices),
         )
+
+        recording_aborted = False
+        async with self._recording_transition_lock:
+            recording_manager = self.recording_manager
+            if recording_manager is not None and recording_manager.is_recording:
+                try:
+                    await recording_manager.abort()
+                except Exception:
+                    log.exception("Failed to abort active recording before suspend")
+                else:
+                    recording_aborted = True
+        if recording_aborted and self.broadcast_callback is not None:
+            try:
+                await self.broadcast_callback(
+                    CommandType.RECORDING_ABORTED,
+                    {"reason": "suspend"},
+                )
+            except Exception:
+                log.exception("Failed to broadcast recording abort before suspend")
 
         async with self._op_lock:
             devices = [

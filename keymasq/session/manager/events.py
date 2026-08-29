@@ -355,6 +355,19 @@ async def handle_event(
         manager.broadcast_to_session_clients(stopped_payload)
         return
 
+    if event_type == CommandType.RECORDING_ABORTED:
+        manager.recording_state.active = False
+        manager.recording_state.start_cursor = None
+        manager.recording_state.active_slot = 0
+        manager.broadcast_to_session_clients(
+            {
+                "event": "recording_stopped",
+                "aborted": True,
+                "reason": coerce_str(data.get("reason"), "suspend"),
+            }
+        )
+        return
+
     if event_type == CommandType.RECORDING_PROGRESS:
         progress_data = dict(data)
         if manager.recording_state.active_slot:

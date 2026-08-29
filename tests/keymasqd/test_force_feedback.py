@@ -266,7 +266,7 @@ async def test_global_output_feedback_fans_out_only_supported_types() -> None:
 async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
-    runtime = _InlineAsyncioRuntime()
+    runtime = _DelayedAsyncioRuntime()
     proxy = PassthroughFeedbackProxy(
         uinput,
         physical,
@@ -281,10 +281,13 @@ async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> Non
     proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
 
     assert physical.writes == []
-
+    await runtime.to_thread_started.wait()
     await asyncio.sleep(0)
-    await asyncio.sleep(0)
 
+    assert runtime.to_thread_calls == ["_write_physical_event_sync"]
+
+    runtime.finish_to_thread.set()
+    await proxy._wait_for_write_tasks()
     assert runtime.to_thread_calls == [
         "_write_physical_event_sync",
         "_write_physical_event_sync",
@@ -413,6 +416,34 @@ class _RejectingAsyncioRuntime(_InlineAsyncioRuntime):
         raise RuntimeError("task scheduling unavailable")
 
 
+@pytest.mark.asyncio
+async def test_global_output_feedback_writes_preserve_event_order() -> None:
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    runtime = _DelayedAsyncioRuntime()
+    proxy = OutputFeedbackFanoutProxy(
+        uinput,
+        lambda _event_type, _event_code: [physical],
+        label="global keyboard",
+        event_types=frozenset({evdev.ecodes.EV_LED}),
+        asyncio_mod=runtime,  # type: ignore[arg-type]
+    )
+
+    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1))
+    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 0))
+    await runtime.to_thread_started.wait()
+    await asyncio.sleep(0)
+
+    assert runtime.to_thread_calls == ["_write_target_sync"]
+
+    runtime.finish_to_thread.set()
+    await proxy.stop_and_wait()
+    assert physical.writes == [
+        (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1),
+        (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 0),
+    ]
+
+
 def test_output_feedback_is_dropped_without_running_loop(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("DEBUG")
     uinput = _FakeUInput()
@@ -530,10 +561,12 @@ async def test_stop_and_wait_drains_inflight_worker_before_returning() -> None:
 
 
 @pytest.mark.asyncio
-async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> None:
+async def test_force_feedback_play_order_is_preserved_during_inflight_upload() -> None:
     uinput = _FakeUInput()
     entered_upload = threading.Event()
     finish_upload = threading.Event()
+    entered_ack = threading.Event()
+    finish_ack = threading.Event()
 
     class _BlockingPhysicalDevice(_FakePhysicalDevice):
         def upload_effect(self, effect: object) -> int:
@@ -546,17 +579,30 @@ async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> No
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
+    def hold_upload_ack(_upload: evdev.ff.UInputUpload) -> None:
+        entered_ack.set()
+        if not finish_ack.wait(timeout=1.0):
+            raise TimeoutError("timed out waiting to finish force-feedback upload ack")
+
+    uinput.end_upload_hook = hold_upload_ack
+
     upload_task = asyncio.create_task(asyncio.to_thread(proxy._handle_upload, 100))
     assert await asyncio.to_thread(entered_upload.wait, 1.0)
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
     finish_upload.set()
-    queued_plays = await upload_task
-    for physical_id, value in queued_plays:
-        proxy._schedule_physical_ff(physical_id, value)
+    assert await asyncio.to_thread(entered_ack.wait, 1.0)
+    proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 0))
+    finish_ack.set()
+    completed_upload = await upload_task
+    assert completed_upload is not None
+    proxy._finish_upload(*completed_upload)
     await proxy._wait_for_write_tasks()
 
-    assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
+    assert physical.writes == [
+        (evdev.ecodes.EV_FF, 23, 1),
+        (evdev.ecodes.EV_FF, 23, 0),
+    ]
 
 
 @pytest.mark.asyncio

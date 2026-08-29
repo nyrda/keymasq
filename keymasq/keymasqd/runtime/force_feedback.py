@@ -211,6 +211,7 @@ class PassthroughFeedbackProxy:
         self._request_queue: asyncio.Queue[_WorkerRequest] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._write_tasks: set[asyncio.Task[None]] = set()
+        self._write_tail: asyncio.Task[None] | None = None
 
     @property
     def effect_mappings(self) -> Mapping[int, EffectMapping]:
@@ -329,13 +330,10 @@ class PassthroughFeedbackProxy:
         event_value: int,
     ) -> tuple[EffectMapping | None, bool]:
         with self._effects_lock:
-            mapping = self._effects.get(virtual_id)
-            if mapping is not None:
-                return mapping, False
-            if virtual_id not in self._pending_uploads:
-                return None, False
-            self._queued_upload_plays.setdefault(virtual_id, []).append(int(event_value))
-            return None, True
+            if virtual_id in self._pending_uploads:
+                self._queued_upload_plays.setdefault(virtual_id, []).append(int(event_value))
+                return None, True
+            return self._effects.get(virtual_id), False
 
     async def _request_worker(self, queue: asyncio.Queue[_WorkerRequest]) -> None:
         while True:
@@ -345,12 +343,12 @@ class PassthroughFeedbackProxy:
             kind, request_id = request
             try:
                 if kind == _WORKER_UPLOAD:
-                    queued_plays = await self.asyncio_mod.to_thread(
+                    completed_upload = await self.asyncio_mod.to_thread(
                         self._handle_upload,
                         request_id,
                     )
-                    for physical_id, value in queued_plays:
-                        self._schedule_physical_ff(physical_id, value)
+                    if completed_upload is not None:
+                        self._finish_upload(*completed_upload)
                 elif kind == _WORKER_ERASE:
                     await self.asyncio_mod.to_thread(self._handle_erase, request_id)
             except Exception:
@@ -374,19 +372,20 @@ class PassthroughFeedbackProxy:
             queue.put_nowait((kind, int(request_id)))
             return
         if kind == _WORKER_UPLOAD:
-            for physical_id, value in self._handle_upload(request_id):
-                self._schedule_physical_ff(physical_id, value)
+            completed_upload = self._handle_upload(request_id)
+            if completed_upload is not None:
+                self._finish_upload(*completed_upload)
         else:
             self._handle_erase(request_id)
 
-    def _handle_upload(self, request_id: int) -> list[tuple[int, int]]:
+    def _handle_upload(self, request_id: int) -> tuple[int, int] | None:
         upload: object | None = None
         retval = 0
         virtual_id: int | None = None
         previous_mapping: EffectMapping | None = None
         physical_id: int | None = None
         published_mapping = False
-        queued_physical_plays: list[tuple[int, int]] = []
+        completed_upload: tuple[int, int] | None = None
         try:
             upload = _begin_upload(self.uinput, request_id)
             effect = cast(_UploadLike, upload).effect
@@ -404,12 +403,8 @@ class PassthroughFeedbackProxy:
                 _set_effect_id(effect, virtual_id)
             with self._effects_lock:
                 self._effects[virtual_id] = EffectMapping(physical_id=physical_id)
-                self._pending_uploads.discard(virtual_id)
-                queued_values = self._queued_upload_plays.pop(virtual_id, [])
             published_mapping = True
-            queued_physical_plays = [
-                (physical_id, queued_value) for queued_value in queued_values
-            ]
+            completed_upload = (virtual_id, physical_id)
         except Exception as exc:  # noqa: BLE001 - request must be acked on upload failure.
             self._discard_pending_upload(virtual_id)
             retval = _negative_errno(exc)
@@ -437,8 +432,21 @@ class PassthroughFeedbackProxy:
                         "Failed to finish force-feedback upload request for %s",
                         self.label,
                     )
-                    queued_physical_plays.clear()
-        return queued_physical_plays
+                    self._discard_pending_upload(virtual_id)
+                    completed_upload = None
+        return completed_upload
+
+    def _finish_upload(self, virtual_id: int, physical_id: int) -> None:
+        with self._effects_lock:
+            mapping = self._effects.get(virtual_id)
+            if mapping is None or mapping.physical_id != physical_id:
+                self._pending_uploads.discard(virtual_id)
+                self._queued_upload_plays.pop(virtual_id, None)
+                return
+            queued_values = self._queued_upload_plays.pop(virtual_id, [])
+            self._pending_uploads.discard(virtual_id)
+        for value in queued_values:
+            self._schedule_physical_ff(physical_id, value)
 
     def _handle_erase(self, request_id: int) -> None:
         erase: object | None = None
@@ -542,7 +550,12 @@ class PassthroughFeedbackProxy:
                 self.label,
             )
             return
-        coro = self._write_physical_event(event_type, code, value)
+        coro = self._write_physical_event_after(
+            self._write_tail,
+            event_type,
+            code,
+            value,
+        )
         try:
             task = self.asyncio_mod.create_task(coro)
         except RuntimeError:
@@ -553,16 +566,30 @@ class PassthroughFeedbackProxy:
             )
             return
         self._write_tasks.add(task)
+        self._write_tail = task
         task.add_done_callback(self._log_write_result)
 
     def _log_write_result(self, task: asyncio.Task[None]) -> None:
         self._write_tasks.discard(task)
+        if self._write_tail is task:
+            self._write_tail = None
         try:
             task.result()
         except asyncio.CancelledError:
             return
         except Exception:
             self.log.exception("Output-feedback write task failed for %s", self.label)
+
+    async def _write_physical_event_after(
+        self,
+        previous: asyncio.Task[None] | None,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        if previous is not None:
+            await previous
+        await self._write_physical_event(event_type, code, value)
 
     async def _write_physical_event(self, event_type: int, code: int, value: int) -> None:
         await self.asyncio_mod.to_thread(
@@ -616,6 +643,7 @@ class OutputFeedbackFanoutProxy:
         self._fd: int | None = None
         self._running = False
         self._write_tasks: set[asyncio.Task[None]] = set()
+        self._write_tail: asyncio.Task[None] | None = None
 
     def start(self) -> None:
         if self._running:
@@ -690,7 +718,13 @@ class OutputFeedbackFanoutProxy:
                 self.label,
             )
             return
-        coro = self._write_target(target, event_type, code, value)
+        coro = self._write_target_after(
+            self._write_tail,
+            target,
+            event_type,
+            code,
+            value,
+        )
         try:
             task = self.asyncio_mod.create_task(coro)
         except RuntimeError:
@@ -701,16 +735,31 @@ class OutputFeedbackFanoutProxy:
             )
             return
         self._write_tasks.add(task)
+        self._write_tail = task
         task.add_done_callback(self._log_write_result)
 
     def _log_write_result(self, task: asyncio.Task[None]) -> None:
         self._write_tasks.discard(task)
+        if self._write_tail is task:
+            self._write_tail = None
         try:
             task.result()
         except asyncio.CancelledError:
             return
         except Exception:
             self.log.exception("Output-feedback write task failed for %s", self.label)
+
+    async def _write_target_after(
+        self,
+        previous: asyncio.Task[None] | None,
+        target: ForceFeedbackTarget,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        if previous is not None:
+            await previous
+        await self._write_target(target, event_type, code, value)
 
     async def _write_target(
         self,

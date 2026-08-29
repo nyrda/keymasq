@@ -183,6 +183,9 @@ class GrabbedDeviceState:
     superkey_machines: dict[str, "SuperkeyMachine"] = field(default_factory=dict)
     repeat_active_actions: dict[str, MappingAction] = field(default_factory=dict)
     passthrough_frame_output: object | None = None
+    passthrough_abs_neutral_values: dict[int, int] = field(default_factory=dict)
+    passthrough_mt_slot: int = 0
+    passthrough_mt_active_slots: set[int] = field(default_factory=set)
     held_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)

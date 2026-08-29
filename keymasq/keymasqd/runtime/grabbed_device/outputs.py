@@ -298,10 +298,83 @@ def passthrough(
     if writer is None:
         return
     writer.write(event.type, event.code, event.value)
+    if event.type == evdev_mod.ecodes.EV_ABS:
+        track_passthrough_abs_state(
+            device_runtime,
+            int(event.code),
+            int(event.value),
+            evdev_mod=evdev_mod,
+        )
     if sync:
         writer.syn()
     else:
         mark_passthrough_frame_open(device_runtime, uinput)
+
+
+def track_passthrough_abs_state(
+    device_runtime: ActionRuntime,
+    code: int,
+    value: int,
+    *,
+    evdev_mod: EvdevModule,
+) -> None:
+    state = device_runtime.state
+    slot_code = int(getattr(evdev_mod.ecodes, "ABS_MT_SLOT", -1))
+    tracking_id_code = int(getattr(evdev_mod.ecodes, "ABS_MT_TRACKING_ID", -1))
+    if code == slot_code:
+        state.passthrough_mt_slot = value
+        return
+    if code == tracking_id_code:
+        if value < 0:
+            state.passthrough_mt_active_slots.discard(state.passthrough_mt_slot)
+        else:
+            state.passthrough_mt_active_slots.add(state.passthrough_mt_slot)
+        return
+
+    mt_first = int(getattr(evdev_mod.ecodes, "ABS_MT_TOUCH_MAJOR", 0x30))
+    mt_last = int(getattr(evdev_mod.ecodes, "ABS_MT_TOOL_Y", 0x3D))
+    if mt_first <= code <= mt_last:
+        return
+
+    neutral = state.passthrough_abs_neutral_values.get(code, 0)
+    held = state.held_output_abs.setdefault("passthrough", set())
+    if value == neutral:
+        held.discard(code)
+    else:
+        held.add(code)
+
+
+def neutralize_passthrough_abs(
+    device_runtime: ActionRuntime,
+    *,
+    evdev_mod: EvdevModule,
+    uinput_writer: UInputWriter,
+) -> None:
+    state = device_runtime.state
+    held_axes = set(state.held_output_abs.get("passthrough", set()))
+    active_slots = set(state.passthrough_mt_active_slots)
+    if not held_axes and not active_slots:
+        return
+    writer = uinput_writer(device_runtime.uinput)
+    if writer is None:
+        state.held_output_abs.setdefault("passthrough", set()).clear()
+        state.passthrough_mt_active_slots.clear()
+        return
+
+    slot_code = int(getattr(evdev_mod.ecodes, "ABS_MT_SLOT", -1))
+    tracking_id_code = int(getattr(evdev_mod.ecodes, "ABS_MT_TRACKING_ID", -1))
+    for slot in sorted(active_slots):
+        writer.write(evdev_mod.ecodes.EV_ABS, slot_code, slot)
+        writer.write(evdev_mod.ecodes.EV_ABS, tracking_id_code, -1)
+    for code in sorted(held_axes):
+        writer.write(
+            evdev_mod.ecodes.EV_ABS,
+            code,
+            state.passthrough_abs_neutral_values.get(code, 0),
+        )
+    writer.syn()
+    state.held_output_abs.setdefault("passthrough", set()).clear()
+    state.passthrough_mt_active_slots.clear()
 
 
 def ensure_abs_axis_released(

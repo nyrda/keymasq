@@ -500,6 +500,7 @@ class GrabbedDevice:
         try:
             self._refresh_analog_axis_ranges()
             caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
+            self._refresh_passthrough_abs_neutral_values(caps)
             is_gamepad_passthrough = _is_gamepad_passthrough(
                 self.device_type,
                 self.device_types,
@@ -720,6 +721,14 @@ class GrabbedDevice:
                 )
             except Exception:
                 log.exception("Failed to flush passthrough input on %s", self.path)
+            try:
+                outputs.neutralize_passthrough_abs(
+                    self,
+                    evdev_mod=evdev,
+                    uinput_writer=identity_uinput_writer,
+                )
+            except Exception:
+                log.exception("Failed to neutralize passthrough ABS input on %s", self.path)
         try:
             if neutralize:
                 await self.neutralize_analog_controls()
@@ -981,6 +990,29 @@ class GrabbedDevice:
             maximum_value = calibration.get("maximum", maximum)
             if isinstance(minimum_value, int) and isinstance(maximum_value, int):
                 self.analog_axis_ranges[key] = (minimum_value, maximum_value)
+
+    def _refresh_passthrough_abs_neutral_values(
+        self,
+        caps: dict[int, Sequence[object]],
+    ) -> None:
+        if self.device is None:
+            return
+        neutral_values = self.state.passthrough_abs_neutral_values
+        tracking_id_code = int(getattr(evdev.ecodes, "ABS_MT_TRACKING_ID", -1))
+        for entry in caps.get(evdev.ecodes.EV_ABS, ()):
+            raw_code = cast(object, entry[0]) if isinstance(entry, tuple) else entry
+            if not isinstance(raw_code, int):
+                continue
+            code = raw_code
+            if code == tracking_id_code:
+                neutral_values[code] = -1
+                continue
+            try:
+                info = self.device.absinfo(code)
+            except Exception:  # noqa: BLE001 - optional neutral-state probe.
+                info = None
+            current = getattr(info, "value", None)
+            neutral_values[code] = int(current) if isinstance(current, int) else 0
 
 
 def _axis_code(axis: dict[str, object]) -> int | None:

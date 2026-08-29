@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from unittest.mock import AsyncMock
 
 import pytest
@@ -197,6 +198,40 @@ async def test_resume_inhibitor_failure_is_retried_until_rearmed() -> None:
 
     assert len(manager.inhibit_calls) == 3
     assert coordinator._inhibitor_fd == 42
+    await coordinator.stop()
+    assert closed_fds == [41, 42]
+
+
+@pytest.mark.asyncio
+async def test_inhibitor_hangup_rearms_after_logind_restart() -> None:
+    manager = _FakeLoginManager()
+    closed_fds: list[int] = []
+    readers: dict[int, Callable[[], None]] = {}
+
+    def add_reader(fd: int, callback) -> None:
+        readers[fd] = callback
+
+    def remove_reader(fd: int) -> None:
+        readers.pop(fd, None)
+
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+        close_fd=closed_fds.append,
+        add_fd_reader=add_reader,
+        remove_fd_reader=remove_reader,
+    )
+
+    assert await coordinator.start() is True
+    callback = readers[41]
+    assert callable(callback)
+    callback()
+    await _flush_worker()
+
+    assert closed_fds == [41]
+    assert coordinator._inhibitor_fd == 42
+    assert set(readers) == {42}
     await coordinator.stop()
     assert closed_fds == [41, 42]
 

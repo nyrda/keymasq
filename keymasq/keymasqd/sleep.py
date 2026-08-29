@@ -20,10 +20,20 @@ LOGIND_REARM_RETRY_S = 1.0
 
 type AsyncCallback = Callable[[], Awaitable[object]]
 type BusFactory = Callable[[], Any]
+type FdReaderAdder = Callable[[int, Callable[[], None]], None]
+type FdReaderRemover = Callable[[int], object]
 
 
 def _system_bus() -> MessageBus:
     return MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True)
+
+
+def _add_fd_reader(fd: int, callback: Callable[[], None]) -> None:
+    asyncio.get_running_loop().add_reader(fd, callback)
+
+
+def _remove_fd_reader(fd: int) -> object:
+    return asyncio.get_running_loop().remove_reader(fd)
 
 
 class LogindSleepCoordinator:
@@ -43,6 +53,8 @@ class LogindSleepCoordinator:
         close_fd: Callable[[int], None] = os.close,
         setup_timeout_s: float = LOGIND_SETUP_TIMEOUT_S,
         rearm_retry_s: float = LOGIND_REARM_RETRY_S,
+        add_fd_reader: FdReaderAdder = _add_fd_reader,
+        remove_fd_reader: FdReaderRemover = _remove_fd_reader,
     ) -> None:
         self._prepare_for_sleep = prepare_for_sleep
         self._resume_from_sleep = resume_from_sleep
@@ -50,9 +62,12 @@ class LogindSleepCoordinator:
         self._close_fd = close_fd
         self._setup_timeout_s = max(0.0, float(setup_timeout_s))
         self._rearm_retry_s = max(0.0, float(rearm_retry_s))
+        self._add_fd_reader = add_fd_reader
+        self._remove_fd_reader = remove_fd_reader
         self._bus: Any | None = None
         self._manager: Any | None = None
         self._inhibitor_fd: int | None = None
+        self._watched_inhibitor_fd: int | None = None
         self._events: asyncio.Queue[bool] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._rearm_task: asyncio.Task[None] | None = None
@@ -175,7 +190,7 @@ class LogindSleepCoordinator:
         manager = self._manager
         if manager is None or self._inhibitor_fd is not None:
             return
-        self._inhibitor_fd = int(
+        inhibitor_fd = int(
             await manager.call_inhibit(
                 "sleep",
                 "keymasqd",
@@ -183,12 +198,31 @@ class LogindSleepCoordinator:
                 "delay",
             )
         )
+        self._inhibitor_fd = inhibitor_fd
+        try:
+            self._add_fd_reader(inhibitor_fd, self._on_inhibitor_hangup)
+        except (OSError, RuntimeError, ValueError):
+            log.debug("Unable to monitor the logind inhibitor fd", exc_info=True)
+        else:
+            self._watched_inhibitor_fd = inhibitor_fd
+
+    def _on_inhibitor_hangup(self) -> None:
+        if self._inhibitor_fd is None:
+            return
+        log.warning("The logind inhibitor closed; reacquiring after a service restart")
+        self._release_inhibitor()
+        if self._manager is not None and not self._preparing:
+            self._start_inhibitor_rearm()
 
     def _release_inhibitor(self) -> None:
         inhibitor_fd = self._inhibitor_fd
         self._inhibitor_fd = None
         if inhibitor_fd is None:
             return
+        if self._watched_inhibitor_fd == inhibitor_fd:
+            self._watched_inhibitor_fd = None
+            with contextlib.suppress(Exception):
+                self._remove_fd_reader(inhibitor_fd)
         try:
             self._close_fd(inhibitor_fd)
         except OSError:

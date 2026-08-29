@@ -342,6 +342,12 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         """Neutralize active input state while retaining grabs and mappings."""
 
         self.sleep_preparing = True
+        recording_manager = self.recording_manager
+        if recording_manager is not None and recording_manager.is_recording:
+            try:
+                await recording_manager.abort()
+            except Exception:
+                log.exception("Failed to abort active recording before suspend")
         devices = [
             device
             for hardware_devices in self.grabbed_devices.values()

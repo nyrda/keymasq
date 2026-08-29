@@ -316,12 +316,50 @@ class TestSuspendCleanup:
             passthrough_uinput=passthrough,
             running=True,
         )
-        device_outputs.mark_passthrough_frame_open(device, passthrough)
+        device.state.passthrough_abs_neutral_values[evdev.ecodes.ABS_X] = 0
+        device_outputs.passthrough(
+            device,
+            SimpleNamespace(
+                type=evdev.ecodes.EV_ABS,
+                code=evdev.ecodes.ABS_X,
+                value=123,
+            ),
+            evdev_mod=evdev,
+            uinput_writer=adapters.identity_uinput_writer,
+            sync=False,
+        )
 
         await device.neutralize_runtime_state()
 
-        passthrough.syn.assert_called_once_with()
+        assert passthrough.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 123),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        ]
+        assert passthrough.syn.call_count == 2
         assert not device_outputs.passthrough_frame_open(device, passthrough)
+        assert device.state.held_output_abs["passthrough"] == set()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_aborts_recording_before_input_is_suspended(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
+
+        async def abort() -> None:
+            assert device.input_suspended is False
+
+        manager.recording_manager = SimpleNamespace(  # type: ignore[assignment]
+            is_recording=True,
+            abort=AsyncMock(side_effect=abort),
+        )
+
+        await manager.prepare_for_sleep()
+
+        manager.recording_manager.abort.assert_awaited_once_with()
+        assert device.input_suspended is True
 
     @pytest.mark.asyncio
     async def test_cleanup_drains_inflight_event_before_global_runtime(

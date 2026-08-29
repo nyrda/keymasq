@@ -211,7 +211,7 @@ class ScenarioContext:
         source_keys = [
             getattr(evdev.ecodes, f"KEY_{letter}") for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         ]
-        source_keys.append(evdev.ecodes.KEY_SPACE)
+        source_keys.extend((evdev.ecodes.KEY_0, evdev.ecodes.KEY_SPACE))
         source_keys.extend(getattr(evdev.ecodes, f"KEY_F{index}") for index in range(1, 25))
         device = evdev.UInput(
             events={
@@ -407,7 +407,7 @@ class ScenarioContext:
         primary_source_path: str,
         secondary_source_path: str,
     ) -> dict[str, str]:
-        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["space"] + [
+        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["0", "space"] + [
             f"f{index}" for index in range(1, 25)
         ]
         secondary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["f13", "f14"]

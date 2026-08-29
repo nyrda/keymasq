@@ -95,134 +95,9 @@ class _Ecodes(Protocol):
     EV_SYN: Final[int]
     EV_REL: Final[int]
     EV_ABS: Final[int]
-    KEY_ESC: Final[int]
-    KEY_1: Final[int]
-    KEY_2: Final[int]
-    KEY_3: Final[int]
-    KEY_4: Final[int]
-    KEY_5: Final[int]
-    KEY_6: Final[int]
-    KEY_7: Final[int]
-    KEY_8: Final[int]
-    KEY_9: Final[int]
-    KEY_0: Final[int]
-    KEY_MINUS: Final[int]
-    KEY_EQUAL: Final[int]
-    KEY_BACKSPACE: Final[int]
-    KEY_TAB: Final[int]
-    KEY_Q: Final[int]
-    KEY_W: Final[int]
-    KEY_E: Final[int]
-    KEY_R: Final[int]
-    KEY_T: Final[int]
-    KEY_Y: Final[int]
-    KEY_U: Final[int]
-    KEY_I: Final[int]
-    KEY_O: Final[int]
-    KEY_P: Final[int]
-    KEY_LEFTBRACE: Final[int]
-    KEY_RIGHTBRACE: Final[int]
-    KEY_ENTER: Final[int]
-    KEY_LEFTCTRL: Final[int]
-    KEY_A: Final[int]
-    KEY_S: Final[int]
-    KEY_D: Final[int]
-    KEY_F: Final[int]
-    KEY_G: Final[int]
-    KEY_H: Final[int]
-    KEY_J: Final[int]
-    KEY_K: Final[int]
-    KEY_L: Final[int]
-    KEY_SEMICOLON: Final[int]
-    KEY_APOSTROPHE: Final[int]
-    KEY_GRAVE: Final[int]
-    KEY_LEFTSHIFT: Final[int]
-    KEY_BACKSLASH: Final[int]
-    KEY_102ND: Final[int]
-    KEY_Z: Final[int]
-    KEY_X: Final[int]
-    KEY_C: Final[int]
-    KEY_V: Final[int]
-    KEY_B: Final[int]
-    KEY_N: Final[int]
-    KEY_M: Final[int]
-    KEY_COMMA: Final[int]
-    KEY_DOT: Final[int]
-    KEY_SLASH: Final[int]
-    KEY_RIGHTSHIFT: Final[int]
-    KEY_LEFTALT: Final[int]
-    KEY_LEFTMETA: Final[int]
-    KEY_SPACE: Final[int]
-    KEY_CAPSLOCK: Final[int]
-    KEY_F1: Final[int]
-    KEY_F2: Final[int]
-    KEY_F3: Final[int]
-    KEY_F4: Final[int]
-    KEY_F5: Final[int]
-    KEY_F6: Final[int]
-    KEY_F7: Final[int]
-    KEY_F8: Final[int]
-    KEY_F9: Final[int]
-    KEY_F10: Final[int]
-    KEY_F11: Final[int]
-    KEY_F12: Final[int]
-    KEY_F13: Final[int]
-    KEY_F14: Final[int]
-    KEY_F15: Final[int]
-    KEY_F16: Final[int]
-    KEY_F17: Final[int]
-    KEY_F18: Final[int]
-    KEY_F19: Final[int]
-    KEY_F20: Final[int]
-    KEY_F21: Final[int]
-    KEY_F22: Final[int]
-    KEY_F23: Final[int]
-    KEY_F24: Final[int]
-    KEY_RIGHTCTRL: Final[int]
-    KEY_RIGHTALT: Final[int]
-    KEY_RIGHTMETA: Final[int]
-    KEY_MENU: Final[int]
-    KEY_SYSRQ: Final[int]
-    KEY_SCROLLLOCK: Final[int]
-    KEY_PAUSE: Final[int]
-    KEY_HOME: Final[int]
-    KEY_UP: Final[int]
-    KEY_PAGEUP: Final[int]
-    KEY_LEFT: Final[int]
-    KEY_RIGHT: Final[int]
-    KEY_END: Final[int]
-    KEY_DOWN: Final[int]
-    KEY_PAGEDOWN: Final[int]
-    KEY_INSERT: Final[int]
-    KEY_DELETE: Final[int]
-    KEY_MUTE: Final[int]
-    KEY_VOLUMEDOWN: Final[int]
-    KEY_VOLUMEUP: Final[int]
-    KEY_MICMUTE: Final[int]
-    KEY_BRIGHTNESSDOWN: Final[int]
-    KEY_BRIGHTNESSUP: Final[int]
-    KEY_PREVIOUSSONG: Final[int]
-    KEY_PLAYPAUSE: Final[int]
-    KEY_NEXTSONG: Final[int]
-    KEY_STOP: Final[int]
-    KEY_PLAY: Final[int]
-    KEY_NUMLOCK: Final[int]
-    KEY_KPSLASH: Final[int]
-    KEY_KPASTERISK: Final[int]
-    KEY_KPMINUS: Final[int]
-    KEY_KP7: Final[int]
-    KEY_KP8: Final[int]
-    KEY_KP9: Final[int]
-    KEY_KPPLUS: Final[int]
-    KEY_KP4: Final[int]
-    KEY_KP5: Final[int]
-    KEY_KP6: Final[int]
-    KEY_KP1: Final[int]
-    KEY_KP2: Final[int]
-    KEY_KP3: Final[int]
-    KEY_KPENTER: Final[int]
-    KEY_KP0: Final[int]
-    KEY_KPDOT: Final[int]
+    KEY: Final[Mapping[int, object]]
+    KEY_RESERVED: Final[int]
+    KEY_MAX: Final[int]
     BTN_LEFT: Final[int]
     BTN_RIGHT: Final[int]
     BTN_MIDDLE: Final[int]
@@ -345,6 +220,19 @@ def uinput_identity(
         TEST_UINPUT_VENDOR,
         TEST_UINPUT_PRODUCTS[kind],
     )
+
+
+def keyboard_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
+    ecodes = evdev_mod.ecodes
+    key_codes = sorted(
+        int(code)
+        for code in ecodes.KEY
+        if ecodes.KEY_RESERVED < int(code) < ecodes.KEY_MAX
+    )
+    return {
+        ecodes.EV_KEY: key_codes,
+        ecodes.EV_SYN: [],
+    }
 
 
 def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
@@ -477,139 +365,7 @@ def create_global_uinputs(
     if manager.output_state.device_count == 0:
         log.info("Creating global output uinput devices")
 
-        keyboard_caps = {
-            evdev_mod.ecodes.EV_KEY: [
-                evdev_mod.ecodes.KEY_ESC,
-                evdev_mod.ecodes.KEY_1,
-                evdev_mod.ecodes.KEY_2,
-                evdev_mod.ecodes.KEY_3,
-                evdev_mod.ecodes.KEY_4,
-                evdev_mod.ecodes.KEY_5,
-                evdev_mod.ecodes.KEY_6,
-                evdev_mod.ecodes.KEY_7,
-                evdev_mod.ecodes.KEY_8,
-                evdev_mod.ecodes.KEY_9,
-                evdev_mod.ecodes.KEY_0,
-                evdev_mod.ecodes.KEY_MINUS,
-                evdev_mod.ecodes.KEY_EQUAL,
-                evdev_mod.ecodes.KEY_BACKSPACE,
-                evdev_mod.ecodes.KEY_TAB,
-                evdev_mod.ecodes.KEY_Q,
-                evdev_mod.ecodes.KEY_W,
-                evdev_mod.ecodes.KEY_E,
-                evdev_mod.ecodes.KEY_R,
-                evdev_mod.ecodes.KEY_T,
-                evdev_mod.ecodes.KEY_Y,
-                evdev_mod.ecodes.KEY_U,
-                evdev_mod.ecodes.KEY_I,
-                evdev_mod.ecodes.KEY_O,
-                evdev_mod.ecodes.KEY_P,
-                evdev_mod.ecodes.KEY_LEFTBRACE,
-                evdev_mod.ecodes.KEY_RIGHTBRACE,
-                evdev_mod.ecodes.KEY_ENTER,
-                evdev_mod.ecodes.KEY_LEFTCTRL,
-                evdev_mod.ecodes.KEY_A,
-                evdev_mod.ecodes.KEY_S,
-                evdev_mod.ecodes.KEY_D,
-                evdev_mod.ecodes.KEY_F,
-                evdev_mod.ecodes.KEY_G,
-                evdev_mod.ecodes.KEY_H,
-                evdev_mod.ecodes.KEY_J,
-                evdev_mod.ecodes.KEY_K,
-                evdev_mod.ecodes.KEY_L,
-                evdev_mod.ecodes.KEY_SEMICOLON,
-                evdev_mod.ecodes.KEY_APOSTROPHE,
-                evdev_mod.ecodes.KEY_GRAVE,
-                evdev_mod.ecodes.KEY_LEFTSHIFT,
-                evdev_mod.ecodes.KEY_BACKSLASH,
-                evdev_mod.ecodes.KEY_102ND,
-                evdev_mod.ecodes.KEY_Z,
-                evdev_mod.ecodes.KEY_X,
-                evdev_mod.ecodes.KEY_C,
-                evdev_mod.ecodes.KEY_V,
-                evdev_mod.ecodes.KEY_B,
-                evdev_mod.ecodes.KEY_N,
-                evdev_mod.ecodes.KEY_M,
-                evdev_mod.ecodes.KEY_COMMA,
-                evdev_mod.ecodes.KEY_DOT,
-                evdev_mod.ecodes.KEY_SLASH,
-                evdev_mod.ecodes.KEY_RIGHTSHIFT,
-                evdev_mod.ecodes.KEY_LEFTALT,
-                evdev_mod.ecodes.KEY_LEFTMETA,
-                evdev_mod.ecodes.KEY_SPACE,
-                evdev_mod.ecodes.KEY_CAPSLOCK,
-                evdev_mod.ecodes.KEY_F1,
-                evdev_mod.ecodes.KEY_F2,
-                evdev_mod.ecodes.KEY_F3,
-                evdev_mod.ecodes.KEY_F4,
-                evdev_mod.ecodes.KEY_F5,
-                evdev_mod.ecodes.KEY_F6,
-                evdev_mod.ecodes.KEY_F7,
-                evdev_mod.ecodes.KEY_F8,
-                evdev_mod.ecodes.KEY_F9,
-                evdev_mod.ecodes.KEY_F10,
-                evdev_mod.ecodes.KEY_F11,
-                evdev_mod.ecodes.KEY_F12,
-                evdev_mod.ecodes.KEY_F13,
-                evdev_mod.ecodes.KEY_F14,
-                evdev_mod.ecodes.KEY_F15,
-                evdev_mod.ecodes.KEY_F16,
-                evdev_mod.ecodes.KEY_F17,
-                evdev_mod.ecodes.KEY_F18,
-                evdev_mod.ecodes.KEY_F19,
-                evdev_mod.ecodes.KEY_F20,
-                evdev_mod.ecodes.KEY_F21,
-                evdev_mod.ecodes.KEY_F22,
-                evdev_mod.ecodes.KEY_F23,
-                evdev_mod.ecodes.KEY_F24,
-                evdev_mod.ecodes.KEY_RIGHTCTRL,
-                evdev_mod.ecodes.KEY_RIGHTALT,
-                evdev_mod.ecodes.KEY_RIGHTMETA,
-                evdev_mod.ecodes.KEY_MENU,
-                evdev_mod.ecodes.KEY_SYSRQ,
-                evdev_mod.ecodes.KEY_SCROLLLOCK,
-                evdev_mod.ecodes.KEY_PAUSE,
-                evdev_mod.ecodes.KEY_HOME,
-                evdev_mod.ecodes.KEY_UP,
-                evdev_mod.ecodes.KEY_PAGEUP,
-                evdev_mod.ecodes.KEY_LEFT,
-                evdev_mod.ecodes.KEY_RIGHT,
-                evdev_mod.ecodes.KEY_END,
-                evdev_mod.ecodes.KEY_DOWN,
-                evdev_mod.ecodes.KEY_PAGEDOWN,
-                evdev_mod.ecodes.KEY_INSERT,
-                evdev_mod.ecodes.KEY_DELETE,
-                evdev_mod.ecodes.KEY_MUTE,
-                evdev_mod.ecodes.KEY_VOLUMEDOWN,
-                evdev_mod.ecodes.KEY_VOLUMEUP,
-                evdev_mod.ecodes.KEY_MICMUTE,
-                evdev_mod.ecodes.KEY_BRIGHTNESSDOWN,
-                evdev_mod.ecodes.KEY_BRIGHTNESSUP,
-                evdev_mod.ecodes.KEY_PREVIOUSSONG,
-                evdev_mod.ecodes.KEY_PLAYPAUSE,
-                evdev_mod.ecodes.KEY_NEXTSONG,
-                evdev_mod.ecodes.KEY_STOP,
-                evdev_mod.ecodes.KEY_PLAY,
-                evdev_mod.ecodes.KEY_NUMLOCK,
-                evdev_mod.ecodes.KEY_KPSLASH,
-                evdev_mod.ecodes.KEY_KPASTERISK,
-                evdev_mod.ecodes.KEY_KPMINUS,
-                evdev_mod.ecodes.KEY_KP7,
-                evdev_mod.ecodes.KEY_KP8,
-                evdev_mod.ecodes.KEY_KP9,
-                evdev_mod.ecodes.KEY_KPPLUS,
-                evdev_mod.ecodes.KEY_KP4,
-                evdev_mod.ecodes.KEY_KP5,
-                evdev_mod.ecodes.KEY_KP6,
-                evdev_mod.ecodes.KEY_KP1,
-                evdev_mod.ecodes.KEY_KP2,
-                evdev_mod.ecodes.KEY_KP3,
-                evdev_mod.ecodes.KEY_KPENTER,
-                evdev_mod.ecodes.KEY_KP0,
-                evdev_mod.ecodes.KEY_KPDOT,
-            ],
-            evdev_mod.ecodes.EV_SYN: [],
-        }
+        keyboard_capabilities = keyboard_caps(evdev_mod)
         keyboard_name, keyboard_vendor, keyboard_product = uinput_identity(
             "keymasq-keyboard",
             "keyboard",
@@ -618,7 +374,7 @@ def create_global_uinputs(
             manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
                 "keyboard",
                 lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    events=cast(dict[int, Sequence[int]], keyboard_capabilities),
                     name=keyboard_name,
                 ),
             )
@@ -626,7 +382,7 @@ def create_global_uinputs(
             manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
                 "keyboard",
                 lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], keyboard_caps),
+                    events=cast(dict[int, Sequence[int]], keyboard_capabilities),
                     name=keyboard_name,
                     vendor=keyboard_vendor,
                     product=keyboard_product,

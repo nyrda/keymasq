@@ -149,7 +149,10 @@ def _start_macro_instance(
     source_key: tuple[str, str],
     deps: MacroRuntimeDeps,
     parent_instance_id: int | None = None,
-) -> asyncio.Task[None]:
+) -> asyncio.Task[None] | None:
+    if bool(getattr(manager, "sleep_preparing", False)):
+        return None
+
     instance_id = manager.macro_state.allocate_instance(
         loop_mode=normalized_loop,
         source_key=source_key,

@@ -81,8 +81,7 @@ class LogindSleepCoordinator:
                 self._events.put_nowait(True)
         except Exception:  # noqa: BLE001 - integration must remain optional.
             log.warning(
-                "systemd-logind sleep coordination is unavailable; "
-                "pre-suspend cleanup is disabled",
+                "systemd-logind sleep coordination is unavailable; pre-suspend cleanup is disabled",
                 exc_info=True,
             )
             await self._close_connection()
@@ -128,7 +127,8 @@ class LogindSleepCoordinator:
             except Exception:
                 log.exception("Post-resume input reactivation failed")
             try:
-                await self._acquire_inhibitor()
+                async with asyncio.timeout(self._setup_timeout_s):
+                    await self._acquire_inhibitor()
             except Exception:
                 log.exception("Failed to rearm the logind sleep inhibitor after resume")
 

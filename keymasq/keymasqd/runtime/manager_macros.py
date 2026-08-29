@@ -34,6 +34,7 @@ class MacroManagerMixin:
     macro_store: Any | None
     macro_state: MacroRuntimeState
     grabbed_devices: dict[str, list[Any]]
+    sleep_preparing: bool
 
     def _initialize_macro_runtime(self, deps_factory: MacroRuntimeDepsFactory) -> None:
         self._macro_runtime_deps_factory = deps_factory
@@ -60,6 +61,9 @@ class MacroManagerMixin:
         elif playback_kwargs:
             raise TypeError("playback kwargs cannot be combined with playback_options")
 
+        if self.sleep_preparing and int(playback_options.trigger_value) == 1:
+            return {"status": "ok", "suspended": True}
+
         deps = self._macro_runtime_deps_factory()
         if (
             playback_options.load_stored_macro
@@ -71,6 +75,8 @@ class MacroManagerMixin:
                 playback_options.macro_name,
                 deps=deps,
             )
+        if self.sleep_preparing and int(playback_options.trigger_value) == 1:
+            return {"status": "ok", "suspended": True}
         return await playback.play_macro(
             self,
             playback_options,
@@ -143,6 +149,9 @@ class MacroManagerMixin:
     ) -> asyncio.Task[None] | None:
         """Resolve and start one dynamic child-macro timeline event."""
 
+        if self.sleep_preparing:
+            return None
+
         macro_name = coerce_str(event.get("macro_name", "")).strip()
         if not macro_name:
             raise MacroCallError("macro call event has no macro name")
@@ -158,6 +167,8 @@ class MacroManagerMixin:
         if event_source is None:
             raise MacroCallError(f"Macro '{macro_name}' not found")
         if event_source.event_count <= 0:
+            return None
+        if self.sleep_preparing:
             return None
 
         options = MacroPlaybackOptions(

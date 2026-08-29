@@ -15,7 +15,11 @@ from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
-from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
+from keymasq.keymasqd.superkey_state import (
+    SuperkeyActionData,
+    SuperkeyConfig,
+    SuperkeyMachine,
+)
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     grabbed_event_processing_deps,
@@ -24,6 +28,34 @@ from tests.keymasqd.device_manager_support import (
 
 
 class TestSuperkeys:
+    @pytest.mark.asyncio
+    async def test_neutralize_waits_for_cancelled_gesture_timer(self) -> None:
+        timer_started = asyncio.Event()
+        timer_finished = asyncio.Event()
+
+        async def timer() -> None:
+            timer_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                timer_finished.set()
+
+        machine = SuperkeyMachine(
+            SuperkeyConfig(name="test"),
+            "key_a",
+            FakeUInput(),
+            FakeUInput(),
+            FakeUInput(),
+        )
+        machine._hold_task = asyncio.create_task(timer())
+        await timer_started.wait()
+
+        await machine.neutralize()
+
+        assert timer_finished.is_set()
+        assert machine._hold_task is None
+
     @pytest.mark.asyncio
     async def test_mapping_reset_clears_combo_passthrough_hold_but_preserves_passthrough_release(
         self,

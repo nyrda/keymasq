@@ -248,13 +248,7 @@ class SuperkeyMachine:
         self._press_started_at = None
         self._action_runtime.stop()
         self._rapidfire_active = False
-        if self._hold_task:
-            self._hold_task.cancel()
-            self._hold_task = None
-        if self._double_tap_task:
-            self._double_tap_task.cancel()
-            self._double_tap_task = None
-
+        await self._cancel_timer_tasks()
         await self._stop_rapidfire_tasks()
 
         if self.state == SuperkeyState.HOLDING:
@@ -270,11 +264,7 @@ class SuperkeyMachine:
         self._press_started_at = None
         self._action_runtime.stop()
         self._rapidfire_active = False
-        for task in (self._hold_task, self._double_tap_task):
-            if task is not None:
-                task.cancel()
-        self._hold_task = None
-        self._double_tap_task = None
+        await self._cancel_timer_tasks()
         await self._stop_rapidfire_tasks()
 
         tasks = list(self._action_tasks)
@@ -293,6 +283,16 @@ class SuperkeyMachine:
             uinput_writer=identity_uinput_writer,
         )
         self.state = SuperkeyState.IDLE
+
+    async def _cancel_timer_tasks(self) -> None:
+        tasks = [task for task in (self._hold_task, self._double_tap_task) if task is not None]
+        self._hold_task = None
+        self._double_tap_task = None
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def on_down(self) -> None:
         if self.state == SuperkeyState.IDLE:
@@ -596,24 +596,29 @@ class SuperkeyMachine:
         from keymasq.keymasqd.runtime import action_runner
         from keymasq.keymasqd.runtime.action.state import (
             ActionExecutionHandle,
+            cancel_action_tasks,
             drain_action_tasks,
         )
 
         event_name = action_event_name or self.event_name
         started = asyncio.Event()
         handle = ActionExecutionHandle(started=started)
-        await action_runner.execute_action(
-            self._action_runtime,
-            self._mapping_action(action),
-            SyntheticInputEvent(evdev.ecodes.EV_KEY, 0, value),
-            event_name,
-            deps=self.action_deps,
-            shared_output_tracker=self.key_event_tracker,
-            shared_abs_output_tracker=self.axis_event_tracker,
-            execution_handle=handle,
-            cancel_macro_playback=self.cancel_macro_playback,
-        )
-        await started.wait()
+        try:
+            await action_runner.execute_action(
+                self._action_runtime,
+                self._mapping_action(action),
+                SyntheticInputEvent(evdev.ecodes.EV_KEY, 0, value),
+                event_name,
+                deps=self.action_deps,
+                shared_output_tracker=self.key_event_tracker,
+                shared_abs_output_tracker=self.axis_event_tracker,
+                execution_handle=handle,
+                cancel_macro_playback=self.cancel_macro_playback,
+            )
+            await started.wait()
+        except asyncio.CancelledError:
+            await cancel_action_tasks(handle)
+            raise
         if self.await_action_tasks:
             await drain_action_tasks(handle)
         else:

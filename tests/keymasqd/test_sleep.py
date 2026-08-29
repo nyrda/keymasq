@@ -127,6 +127,45 @@ async def test_cleanup_failure_still_releases_delay_inhibitor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
+    manager = _FakeLoginManager()
+    bus = _FakeBus(manager)
+    prepare = AsyncMock()
+    resume = AsyncMock()
+    rearm_started = asyncio.Event()
+
+    async def inhibit(*args: str) -> int:
+        manager.inhibit_calls.append(args)
+        if len(manager.inhibit_calls) == 1:
+            return 41
+        rearm_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    manager.call_inhibit = inhibit  # type: ignore[method-assign]
+    coordinator = LogindSleepCoordinator(
+        prepare,
+        resume,
+        bus_factory=lambda: bus,
+        setup_timeout_s=0.01,
+    )
+
+    assert await coordinator.start() is True
+    manager.emit(True)
+    await _flush_worker()
+    manager.emit(False)
+    await rearm_started.wait()
+    await asyncio.sleep(0.02)
+
+    manager.emit(True)
+    await _flush_worker()
+
+    assert prepare.await_count == 2
+    resume.assert_awaited_once_with()
+    await coordinator.stop()
+
+
+@pytest.mark.asyncio
 async def test_restart_after_prepare_processes_the_next_suspend() -> None:
     manager = _FakeLoginManager()
     bus = _FakeBus(manager)

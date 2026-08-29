@@ -127,7 +127,7 @@ async def test_grab_failure_closes_opened_input_device(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_suspend_bypasses_pending_active_key_wait(monkeypatch) -> None:
+async def test_suspend_aborts_pending_active_key_grab(monkeypatch) -> None:
     fake_device = SimpleNamespace(
         name="fake input",
         info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
@@ -169,11 +169,33 @@ async def test_suspend_bypasses_pending_active_key_wait(monkeypatch) -> None:
 
     grabbed.input_suspended = True
     await grabbed.cancel_inflight_actions()
-    await grab_task
+    with pytest.raises(
+        grabbed_device.grab.GrabInterruptedForSleepError,
+        match="interrupted before suspend",
+    ):
+        await grab_task
 
-    fake_device.grab.assert_called_once_with()
-    assert grabbed.running is True
+    fake_device.grab.assert_not_called()
+    assert grabbed.running is False
     assert grabbed.pending_key_clear_task is None
+
+
+@pytest.mark.asyncio
+async def test_release_uses_normal_superkey_release_semantics(monkeypatch) -> None:
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+    machine = SimpleNamespace(stop=AsyncMock(), neutralize=AsyncMock())
+    grabbed.state.superkey_machines["key_a"] = machine
+
+    await grabbed.release()
+
+    machine.stop.assert_awaited_once_with()
+    machine.neutralize.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -786,6 +786,42 @@ async def test_stored_macro_playback_uses_revision_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_stored_macro_does_not_start_after_suspend_cleanup_begins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+    lookup_started = asyncio.Event()
+    finish_lookup = asyncio.Event()
+
+    async def delayed_event_source(
+        _macro_name: str,
+        *,
+        deps: MacroRuntimeDeps,
+    ) -> MacroEventSource:
+        del deps
+        lookup_started.set()
+        await finish_lookup.wait()
+        return MacroEventSource(
+            event_count=1,
+            duration_us=0,
+            iter_events=lambda: iter([{"t_us": 0, "macro_action": "wait", "duration_us": 0}]),
+        )
+
+    manager.macro_store = SimpleNamespace()
+    monkeypatch.setattr(manager, "_stored_macro_event_source", delayed_event_source)
+    play_task = asyncio.create_task(manager.play_macro(macro_name="stored"))
+    await lookup_started.wait()
+
+    manager.sleep_preparing = True
+    finish_lookup.set()
+    result = await play_task
+
+    assert result == {"status": "ok", "suspended": True}
+    assert manager.macro_state.tasks == {}
+
+
+@pytest.mark.asyncio
 async def test_short_stored_macro_streams_once_then_reuses_cached_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

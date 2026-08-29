@@ -20,6 +20,10 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 )
 
 
+class GrabInterruptedForSleepError(RuntimeError):
+    """The daemon aborted a pre-grab key wait to enter suspend safely."""
+
+
 async def broadcast_grab_status(
     device_runtime: GrabbedDeviceRuntime,
     state: str,

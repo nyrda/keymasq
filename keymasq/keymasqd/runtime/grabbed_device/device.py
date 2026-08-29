@@ -589,7 +589,9 @@ class GrabbedDevice:
                         current_task is not None and current_task.cancelling()
                     ):
                         raise
-                    log.info("Bypassing active-key wait for suspend on %s", self.path)
+                    raise grab.GrabInterruptedForSleepError(
+                        f"Grab of {self.path} interrupted before suspend"
+                    ) from None
                 finally:
                     if self.pending_key_clear_task is key_clear_task:
                         self.pending_key_clear_task = None
@@ -641,7 +643,7 @@ class GrabbedDevice:
 
     async def release(self) -> None:
         await self.stop_event_loop()
-        await self.neutralize_runtime_state()
+        await self.reset_runtime_state()
 
         await self._stop_force_feedback_proxy()
 
@@ -682,13 +684,26 @@ class GrabbedDevice:
     async def neutralize_runtime_state(self) -> None:
         """Release generated state without dropping the physical device grab."""
 
+        await self._clear_runtime_state(neutralize_superkeys=True)
+
+    async def reset_runtime_state(self) -> None:
+        """Release runtime state using normal input-release semantics."""
+
+        await self._clear_runtime_state(neutralize_superkeys=False)
+
+    async def _clear_runtime_state(self, *, neutralize_superkeys: bool) -> None:
+        """Cancel runtime work and release every generated output."""
+
         await self.cancel_inflight_actions()
         try:
             await self.reset_analog_controls()
         except Exception:
             log.exception("Failed to reset analog controls on %s", self.path)
         try:
-            await self.neutralize_superkeys()
+            if neutralize_superkeys:
+                await self.neutralize_superkeys()
+            else:
+                await self.reset_superkeys()
         except Exception:
             log.exception("Failed to reset superkeys on %s", self.path)
         pipeline.observe_profile_trigger_end_for_held_sources(self)

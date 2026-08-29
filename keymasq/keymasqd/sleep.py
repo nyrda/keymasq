@@ -75,12 +75,14 @@ class LogindSleepCoordinator:
         self._subscribed = False
         self._preparing = False
         self._resume_pending = False
+        self._stopping = False
 
     async def start(self) -> bool:
         """Connect to logind, returning false when it is unavailable."""
 
         if self._bus is not None:
             return True
+        self._stopping = False
 
         try:
             async with asyncio.timeout(self._setup_timeout_s):
@@ -114,6 +116,7 @@ class LogindSleepCoordinator:
         return True
 
     async def stop(self) -> None:
+        self._stopping = True
         await self._stop_setup_retry()
         worker = self._worker
         self._worker = None
@@ -190,6 +193,8 @@ class LogindSleepCoordinator:
                 self._start_inhibitor_rearm()
 
     def _start_inhibitor_rearm(self) -> None:
+        if self._stopping:
+            return
         task = self._rearm_task
         if task is not None and not task.done():
             return
@@ -210,7 +215,7 @@ class LogindSleepCoordinator:
     async def _rearm_inhibitor_until_ready(self) -> None:
         retry_s = self._rearm_retry_s
         try:
-            while self._manager is not None and not self._preparing:
+            while self._manager is not None and not self._preparing and not self._stopping:
                 await self._try_rearm_inhibitor_once()
                 if self._inhibitor_fd is not None:
                     await self._resume_input_if_ready()
@@ -231,11 +236,7 @@ class LogindSleepCoordinator:
             log.exception("Failed to rearm the logind sleep inhibitor after resume")
 
     async def _resume_input_if_ready(self) -> None:
-        if (
-            not self._resume_pending
-            or self._preparing
-            or self._inhibitor_fd is None
-        ):
+        if not self._resume_pending or self._preparing or self._inhibitor_fd is None:
             return
         self._resume_pending = False
         try:
@@ -255,6 +256,12 @@ class LogindSleepCoordinator:
                 "delay",
             )
         )
+        if self._stopping or manager is not self._manager:
+            try:
+                self._close_fd(inhibitor_fd)
+            except OSError:
+                log.debug("Failed to close stale logind inhibitor", exc_info=True)
+            return
         self._inhibitor_fd = inhibitor_fd
         try:
             self._add_fd_reader(inhibitor_fd, self._on_inhibitor_hangup)
@@ -268,7 +275,7 @@ class LogindSleepCoordinator:
             return
         log.warning("The logind inhibitor closed; reacquiring after a service restart")
         self._release_inhibitor()
-        if self._manager is not None and not self._preparing:
+        if self._manager is not None and not self._preparing and not self._stopping:
             self._start_inhibitor_rearm()
 
     def _release_inhibitor(self) -> None:

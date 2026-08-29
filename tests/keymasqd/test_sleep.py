@@ -246,6 +246,86 @@ async def test_inhibitor_hangup_rearms_after_logind_restart() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stop_rejects_inflight_inhibitor_result() -> None:
+    manager = _FakeLoginManager()
+    closed_fds: list[int] = []
+    added_readers: list[int] = []
+    rearm_started = asyncio.Event()
+    rearm_cancelled = asyncio.Event()
+    release_rearm = asyncio.Event()
+
+    async def inhibit(*args: str) -> int:
+        manager.inhibit_calls.append(args)
+        if len(manager.inhibit_calls) == 1:
+            return 41
+        rearm_started.set()
+        try:
+            await release_rearm.wait()
+        except asyncio.CancelledError:
+            rearm_cancelled.set()
+            await release_rearm.wait()
+        return 42
+
+    manager.call_inhibit = inhibit  # type: ignore[method-assign]
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+        close_fd=closed_fds.append,
+        add_fd_reader=lambda fd, _callback: added_readers.append(fd),
+    )
+
+    assert await coordinator.start() is True
+    coordinator._on_inhibitor_hangup()
+    await asyncio.wait_for(rearm_started.wait(), timeout=0.25)
+    stop_task = asyncio.create_task(coordinator.stop())
+    await asyncio.wait_for(rearm_cancelled.wait(), timeout=0.25)
+    release_rearm.set()
+    await stop_task
+
+    assert added_readers == [41]
+    assert closed_fds == [41, 42]
+    assert coordinator._rearm_task is None
+    assert coordinator._inhibitor_fd is None
+
+
+@pytest.mark.asyncio
+async def test_inhibitor_hangup_does_not_rearm_during_stop() -> None:
+    manager = _FakeLoginManager()
+    readers: dict[int, Callable[[], None]] = {}
+    setup_retry_cancelled = asyncio.Event()
+    release_setup_retry = asyncio.Event()
+
+    async def hold_setup_retry() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            setup_retry_cancelled.set()
+            await release_setup_retry.wait()
+
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+        add_fd_reader=lambda fd, callback: readers.__setitem__(fd, callback),
+        remove_fd_reader=lambda fd: readers.pop(fd, None),
+    )
+
+    assert await coordinator.start() is True
+    coordinator._setup_retry_task = asyncio.create_task(hold_setup_retry())
+    stop_task = asyncio.create_task(coordinator.stop())
+    await asyncio.wait_for(setup_retry_cancelled.wait(), timeout=0.25)
+    readers[41]()
+    await _flush_worker()
+
+    assert len(manager.inhibit_calls) == 1
+    assert coordinator._rearm_task is None
+    release_setup_retry.set()
+    await stop_task
+    assert coordinator._inhibitor_fd is None
+
+
+@pytest.mark.asyncio
 async def test_restart_after_prepare_processes_the_next_suspend() -> None:
     manager = _FakeLoginManager()
     bus = _FakeBus(manager)

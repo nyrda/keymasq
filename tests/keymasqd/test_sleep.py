@@ -73,12 +73,20 @@ async def test_delay_inhibitor_surrounds_suspend_cleanup(
     prepare = AsyncMock(side_effect=lambda: actions.append("cleanup"))
     closed_fds: list[int] = []
 
+    def pause_runtime() -> None:
+        actions.append("pause")
+
+    def resume_runtime() -> None:
+        actions.append("resume")
+
     def close_fd(fd: int) -> None:
         closed_fds.append(fd)
         actions.append(f"close:{fd}")
 
     coordinator = LogindSleepCoordinator(
         prepare,
+        pause_runtime=pause_runtime,
+        resume_runtime=resume_runtime,
         bus_factory=lambda: bus,
         close_fd=close_fd,
     )
@@ -98,15 +106,16 @@ async def test_delay_inhibitor_surrounds_suspend_cleanup(
     await _flush_worker()
     prepare.assert_awaited_once()
     assert closed_fds == [41]
-    assert actions == ["cleanup", "close:41"]
+    assert actions == ["pause", "cleanup", "close:41"]
     assert (
-        "Received logind suspend signal; running pre-suspend output cleanup"
+        "Received logind suspend signal; neutralizing input runtime before suspend"
         in caplog.messages
     )
 
     manager.emit(False)
     await _flush_worker()
     assert len(manager.inhibit_calls) == 2
+    assert actions == ["pause", "cleanup", "close:41", "resume"]
 
     await coordinator.stop()
     assert closed_fds == [41, 42]
@@ -139,8 +148,11 @@ async def test_stop_completes_queued_suspend_cleanup_before_closing_inhibitor() 
     bus = _FakeBus(manager)
     prepare = AsyncMock()
     closed_fds: list[int] = []
+    runtime_events: list[str] = []
     coordinator = LogindSleepCoordinator(
         prepare,
+        pause_runtime=lambda: runtime_events.append("pause"),
+        resume_runtime=lambda: runtime_events.append("resume"),
         bus_factory=lambda: bus,
         close_fd=closed_fds.append,
     )
@@ -151,6 +163,7 @@ async def test_stop_completes_queued_suspend_cleanup_before_closing_inhibitor() 
 
     prepare.assert_awaited_once()
     assert closed_fds == [41]
+    assert runtime_events == ["pause", "resume"]
 
 
 @pytest.mark.asyncio

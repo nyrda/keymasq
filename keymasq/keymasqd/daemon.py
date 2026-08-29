@@ -78,7 +78,9 @@ class Daemon:
         self.macro_store = MacroStore(STATE_DIR / "macros")
         self.capture_manager = CaptureManager()
         self.sleep_coordinator = LogindSleepCoordinator(
-            self.device_manager.cancel_macro_playback_and_release_outputs,
+            self.device_manager.neutralize_runtime,
+            pause_runtime=self.device_manager.pause_runtime_input,
+            resume_runtime=self.device_manager.resume_runtime_input,
         )
         self.socket_server: SocketServer | None = None
         self.running = False

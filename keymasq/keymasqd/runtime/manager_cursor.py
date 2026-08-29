@@ -22,6 +22,7 @@ class CursorManagerMixin:
 
     def _initialize_cursor_runtime(self) -> None:
         self._cursor_move_lock = asyncio.Lock()
+        self._cursor_move_cancel: asyncio.Event | None = None
         self._cursor_request_seq = 0
         self._cursor_position_waiters: dict[str, asyncio.Future[JsonObject]] = {}
 
@@ -110,6 +111,8 @@ class CursorManagerMixin:
         max_duration_ms: int,
     ) -> JsonObject:
         async with self._cursor_move_lock:
+            cancel_event = asyncio.Event()
+            self._cursor_move_cancel = cancel_event
             try:
                 return await natural_mouse.move_cursor_naturally(
                     uinput=cast(
@@ -127,6 +130,17 @@ class CursorManagerMixin:
                         max_duration_ms=int(max_duration_ms),
                     ),
                     asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                    should_cancel=cancel_event.is_set,
                 )
             finally:
+                if self._cursor_move_cancel is cancel_event:
+                    self._cursor_move_cancel = None
                 await self.stop_cursor_position_tracking()
+
+    async def cancel_cursor_move(self) -> None:
+        cancel_event = self._cursor_move_cancel
+        if cancel_event is None:
+            return
+        cancel_event.set()
+        async with self._cursor_move_lock:
+            pass

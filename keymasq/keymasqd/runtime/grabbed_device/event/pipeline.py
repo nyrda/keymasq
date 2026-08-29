@@ -211,6 +211,37 @@ def _observe_source_key_transition(
             observer(trigger_id)
 
 
+def _intercept_paused_or_quarantined_input(
+    device_runtime: GrabbedDeviceRuntime,
+    *,
+    event_class: EventClass,
+    event_name: str,
+    event_value: int,
+) -> str | None:
+    paused_getter = device_runtime.input_paused_getter
+    paused = bool(paused_getter and paused_getter())
+    quarantined = device_runtime.state.quarantined_source_keys
+
+    if event_class is not EventClass.KEY:
+        return "runtime_input_paused" if paused else None
+
+    if paused:
+        if event_value in {1, 2}:
+            quarantined.add(event_name)
+        elif event_value == 0:
+            quarantined.discard(event_name)
+        return "runtime_input_paused"
+
+    if event_name not in quarantined:
+        return None
+    if event_value == 1:
+        quarantined.discard(event_name)
+        return None
+    if event_value == 0:
+        quarantined.discard(event_name)
+    return "runtime_input_quarantined"
+
+
 def _finish_diagnostics(
     device_runtime: GrabbedDeviceRuntime,
     label: str,
@@ -242,6 +273,16 @@ async def process_event(
         evdev_mod=evdev_mod,
         analog_axis_bindings=device_runtime.analog_axis_bindings.keys(),
     )
+
+    paused_label = _intercept_paused_or_quarantined_input(
+        device_runtime,
+        event_class=event_class,
+        event_name=event_name,
+        event_value=int(event.value),
+    )
+    if paused_label is not None:
+        _finish_diagnostics(device_runtime, paused_label, started_ns, deps=deps)
+        return
 
     broadcast_inspector_event(
         device_runtime,

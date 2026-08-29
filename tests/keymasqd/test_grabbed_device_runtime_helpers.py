@@ -70,6 +70,62 @@ class _CountingUInput(FakeUInput):
 
 
 class TestGrabbedDeviceHelpers:
+    @pytest.mark.asyncio
+    async def test_paused_runtime_quarantines_held_key_until_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        paused = True
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            input_paused_getter=lambda: paused,
+            passthrough_uinput=passthrough,
+        )
+        press = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+        repeat_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 2)
+        release = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+        await pipeline.process_event(device, press, deps=grabbed_event_processing_deps())
+        assert device.state.quarantined_source_keys == {"key_a"}
+
+        paused = False
+        await pipeline.process_event(
+            device,
+            repeat_event,
+            deps=grabbed_event_processing_deps(),
+        )
+        await pipeline.process_event(device, release, deps=grabbed_event_processing_deps())
+
+        assert passthrough.writes == []
+        assert device.state.quarantined_source_keys == set()
+
+        await pipeline.process_event(device, press, deps=grabbed_event_processing_deps())
+
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+
+    @pytest.mark.asyncio
+    async def test_fresh_press_rearms_key_when_suspend_release_was_missed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            input_paused_getter=lambda: False,
+            passthrough_uinput=passthrough,
+        )
+        device.state.quarantined_source_keys.add("key_a")
+
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            deps=grabbed_event_processing_deps(),
+        )
+
+        assert device.state.quarantined_source_keys == set()
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+
     def test_event_name_helpers_handle_missing_ecode_tables(self) -> None:
         evdev_mod = SimpleNamespace(ecodes=SimpleNamespace(EV_KEY=evdev.ecodes.EV_KEY))
         event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=1)

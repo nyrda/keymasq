@@ -39,9 +39,10 @@ def make_daemon_testbed(monkeypatch):
         grabbed_devices={},
         play_macro=AsyncMock(return_value={"played": True}),
         cancel_macro_playback=AsyncMock(return_value={"canceled": True}),
-        cancel_macro_playback_and_release_outputs=AsyncMock(
-            return_value={"canceled": True}
-        ),
+        cancel_macro_playback_and_release_outputs=AsyncMock(return_value={"canceled": True}),
+        neutralize_runtime=AsyncMock(return_value={"neutralized": True}),
+        pause_runtime_input=Mock(),
+        resume_runtime_input=Mock(),
         emergency_reset=AsyncMock(return_value={"reset": True}),
         set_diagnostics=AsyncMock(return_value={"status": "ok"}),
         start_device_inspector=AsyncMock(return_value={"status": "ok", "active": True}),

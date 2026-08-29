@@ -184,6 +184,7 @@ class GrabbedDeviceState:
     repeat_active_actions: dict[str, MappingAction] = field(default_factory=dict)
     passthrough_frame_output: object | None = None
     held_source_keys: set[str] = field(default_factory=set)
+    quarantined_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)
     held_output_keys: dict[str, set[int]] = field(
@@ -309,6 +310,9 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     def inspector_suppressed_ids_getter(
         self,
     ) -> DeviceInspectorSuppressedIdsGetter | None: ...
+
+    @property
+    def input_paused_getter(self) -> Callable[[], bool] | None: ...
 
     @property
     def inspector_suppression_disabler(

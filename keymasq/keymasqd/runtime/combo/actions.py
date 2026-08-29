@@ -36,7 +36,12 @@ from keymasq.keymasqd.runtime.combo.state import (
     ComboRuntimeDeps,
     ResolveCodeFn,
 )
-from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps, ActionRuntime
+from keymasq.keymasqd.runtime.grabbed_device import outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import (
+    ActionExecutionDeps,
+    ActionRuntime,
+    EvdevModule,
+)
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,
     RepeatHistoryEntry,
@@ -649,21 +654,34 @@ async def stop_combo_action(
         action = state.action
         handle = state.execution_handle
         if runtime is not None and action is not None:
-            await action_runner.execute_action(
-                runtime,
-                action,
-                execution.synthetic_event(trigger_binding, 0),
-                source_button,
-                deps=execution.action_execution_deps(deps),
-                execution_handle=handle,
-                cancel_macro_playback=manager.cancel_macro_playback,
-                resolve_code_fn=deps.resolve_code_fn,
-            )
-            if execution.uses_tap_task(action):
-                await cancel_action_tasks(handle)
-            else:
-                await drain_action_tasks(handle)
-            runtime.stop()
+            release_completed = False
+            try:
+                await action_runner.execute_action(
+                    runtime,
+                    action,
+                    execution.synthetic_event(trigger_binding, 0),
+                    source_button,
+                    deps=execution.action_execution_deps(deps),
+                    execution_handle=handle,
+                    cancel_macro_playback=manager.cancel_macro_playback,
+                    resolve_code_fn=deps.resolve_code_fn,
+                )
+                if execution.uses_tap_task(action):
+                    await cancel_action_tasks(handle)
+                else:
+                    await drain_action_tasks(handle)
+                release_completed = True
+            finally:
+                try:
+                    await cancel_action_tasks(handle)
+                finally:
+                    runtime.stop()
+                    if not release_completed:
+                        outputs.release_all_keys(
+                            runtime,
+                            evdev_mod=cast(EvdevModule, deps.evdev_mod),
+                            uinput_writer=deps.uinput_writer,
+                        )
         restore_combo_trigger_bindings(manager, restore_bindings)
         return
     restore_combo_trigger_bindings(manager, restore_bindings)

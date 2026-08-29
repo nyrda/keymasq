@@ -272,6 +272,7 @@ class GrabbedDevice:
         inspector_suppression_getter: DeviceInspectorSuppressionGetter | None = None,
         inspector_suppressed_ids_getter: DeviceInspectorSuppressedIdsGetter | None = None,
         inspector_suppression_disabler: DeviceInspectorSuppressionDisabler | None = None,
+        input_paused_getter: Callable[[], bool] | None = None,
         profile_activation_recorder: Callable[[str | None, str | None], None] | None = None,
         profile_activation_trigger_start_observer: Callable[[str | None], None] | None = None,
         profile_activation_trigger_end_observer: Callable[[str | None], None] | None = None,
@@ -326,6 +327,7 @@ class GrabbedDevice:
         self.inspector_suppression_getter = inspector_suppression_getter
         self.inspector_suppressed_ids_getter = inspector_suppressed_ids_getter
         self.inspector_suppression_disabler = inspector_suppression_disabler
+        self.input_paused_getter = input_paused_getter
         self.profile_activation_recorder = profile_activation_recorder
         self.profile_activation_trigger_start_observer = profile_activation_trigger_start_observer
         self.profile_activation_trigger_end_observer = profile_activation_trigger_end_observer
@@ -628,6 +630,7 @@ class GrabbedDevice:
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
+        self.state.quarantined_source_keys.clear()
 
         await self._stop_force_feedback_proxy()
 

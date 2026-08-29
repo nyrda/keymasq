@@ -18,11 +18,16 @@ LOGIN1_MANAGER = "org.freedesktop.login1.Manager"
 SETUP_TIMEOUT_S = 2.0
 
 type AsyncCallback = Callable[[], Awaitable[object]]
+type SyncCallback = Callable[[], object]
 type BusFactory = Callable[[], Any]
 
 
 def _system_bus() -> MessageBus:
     return MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True)
+
+
+def _noop() -> None:
+    return None
 
 
 class LogindSleepCoordinator:
@@ -32,10 +37,14 @@ class LogindSleepCoordinator:
         self,
         prepare_for_sleep: AsyncCallback,
         *,
+        pause_runtime: SyncCallback = _noop,
+        resume_runtime: SyncCallback = _noop,
         bus_factory: BusFactory = _system_bus,
         close_fd: Callable[[int], None] = os.close,
     ) -> None:
         self._prepare_for_sleep = prepare_for_sleep
+        self._pause_runtime = pause_runtime
+        self._resume_runtime = resume_runtime
         self._bus_factory = bus_factory
         self._close_fd = close_fd
         self._bus: Any | None = None
@@ -44,6 +53,7 @@ class LogindSleepCoordinator:
         self._events: asyncio.Queue[bool | None] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._subscribed = False
+        self._runtime_paused = False
 
     async def start(self) -> bool:
         """Connect to logind, or return false when it is unavailable."""
@@ -91,9 +101,12 @@ class LogindSleepCoordinator:
                     await worker
                 raise
         finally:
+            self._resume_runtime_safely()
             await self._close_connection()
 
     def _on_prepare_for_sleep(self, preparing: bool) -> None:
+        if preparing:
+            self._pause_runtime_safely()
         self._events.put_nowait(bool(preparing))
 
     async def _run(self) -> None:
@@ -103,7 +116,7 @@ class LogindSleepCoordinator:
                 return
             if preparing:
                 log.info(
-                    "Received logind suspend signal; running pre-suspend output cleanup"
+                    "Received logind suspend signal; neutralizing input runtime before suspend"
                 )
                 try:
                     await self._prepare_for_sleep()
@@ -113,10 +126,31 @@ class LogindSleepCoordinator:
                     self._release_inhibitor()
                 continue
 
+            self._resume_runtime_safely()
             try:
                 await self._acquire_inhibitor()
             except Exception:
                 log.exception("Failed to reacquire the logind sleep inhibitor after resume")
+
+    def _pause_runtime_safely(self) -> None:
+        if self._runtime_paused:
+            return
+        try:
+            self._pause_runtime()
+        except Exception:
+            log.exception("Failed to pause input processing for suspend")
+        else:
+            self._runtime_paused = True
+
+    def _resume_runtime_safely(self) -> None:
+        if not self._runtime_paused:
+            return
+        try:
+            self._resume_runtime()
+        except Exception:
+            log.exception("Failed to resume input processing after suspend")
+        else:
+            self._runtime_paused = False
 
     async def _acquire_inhibitor(self) -> None:
         manager = self._manager

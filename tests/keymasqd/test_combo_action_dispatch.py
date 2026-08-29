@@ -180,6 +180,50 @@ class TestComboActionDispatch:
         ]
 
     @pytest.mark.asyncio
+    async def test_combo_stop_releases_tracked_output_when_release_action_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard
+        binding = RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_a",
+        )
+        action = MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")
+
+        await actions.start_combo_action(
+            manager,
+            "combo-key",
+            action,
+            binding,
+            (binding,),
+            deps=combo_runtime_deps(),
+        )
+        runtime = manager.combo_state.active_actions["combo-key"].action_runtime
+        monkeypatch.setattr(
+            actions.action_runner,
+            "execute_action",
+            AsyncMock(side_effect=RuntimeError("release failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="release failed"):
+            await actions.stop_combo_action(
+                manager,
+                "combo-key",
+                deps=combo_runtime_deps(),
+            )
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+        ]
+        assert runtime is not None
+        assert runtime.running is False
+
+    @pytest.mark.asyncio
     async def test_combo_repeat_replays_last_combo_action_and_releases_child(self) -> None:
         manager = DeviceManager()
         manager.output_state.keyboard_uinput = FakeUInput()

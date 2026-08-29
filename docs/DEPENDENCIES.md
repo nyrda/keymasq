@@ -168,9 +168,10 @@ for supported Wayland environments.
 
 ### Suspend cleanup
 
-When systemd-logind is available, `keymasqd` uses its system D-Bus API to run
-output cleanup before suspend. The daemon continues normally when logind or the
-system bus is unavailable.
+When systemd-logind is available, `keymasqd` uses its system D-Bus API to pause
+input processing, neutralize active runtime state, and release tracked outputs
+before suspend. Input processing resumes after logind announces wake-up. The
+daemon continues normally when logind or the system bus is unavailable.
 
 ### Browser GUI backend
 

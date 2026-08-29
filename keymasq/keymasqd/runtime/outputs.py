@@ -465,7 +465,7 @@ def _start_global_keyboard_feedback_proxy(
     manager.output_state.keyboard_feedback_proxy = proxy
 
 
-def create_global_uinputs(
+def _acquire_global_uinputs(
     manager: _OutputManager,
     *,
     evdev_mod: _EvdevModule,
@@ -558,34 +558,68 @@ def create_global_uinputs(
     manager.output_state.device_count += 1
 
 
+def _close_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
+    keyboard_feedback_proxy = getattr(
+        manager.output_state,
+        "keyboard_feedback_proxy",
+        None,
+    )
+    manager.output_state.keyboard_feedback_proxy = None
+    if keyboard_feedback_proxy is not None:
+        try:
+            keyboard_feedback_proxy.stop()
+        except OSError as exc:
+            log.warning("Failed to stop global keyboard feedback proxy: %s", exc)
+        except Exception:
+            log.exception("Unexpected failure stopping global keyboard feedback proxy")
+
+    virtual_gamepad_uinputs = getattr(
+        manager.output_state,
+        "virtual_gamepad_uinputs",
+        {},
+    )
+    for uinput_dev in [
+        manager.output_state.keyboard_uinput,
+        manager.output_state.mouse_uinput,
+        *virtual_gamepad_uinputs.values(),
+    ]:
+        if uinput_dev:
+            try:
+                uinput_dev.close()
+            except OSError as exc:
+                log.warning("Failed to close global uinput device: %s", exc)
+            except Exception:
+                log.exception("Unexpected failure closing global uinput device")
+
+    manager.output_state.keyboard_uinput = None
+    manager.output_state.mouse_uinput = None
+    virtual_gamepad_uinputs.clear()
+
+
+def create_global_uinputs(
+    manager: _OutputManager,
+    *,
+    evdev_mod: _EvdevModule,
+    log: logging.Logger,
+    uinput_writer: UInputWriter,
+) -> None:
+    should_roll_back = manager.output_state.device_count == 0
+    try:
+        _acquire_global_uinputs(
+            manager,
+            evdev_mod=evdev_mod,
+            log=log,
+            uinput_writer=uinput_writer,
+        )
+    except Exception:
+        if should_roll_back:
+            _close_global_uinputs(manager, log=log)
+        raise
+
+
 def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
     manager.output_state.device_count = max(0, manager.output_state.device_count - 1)
 
     if manager.output_state.device_count == 0:
         log.info("Destroying global output uinput devices")
-
-        keyboard_feedback_proxy = getattr(
-            manager.output_state,
-            "keyboard_feedback_proxy",
-            None,
-        )
-        manager.output_state.keyboard_feedback_proxy = None
-        if keyboard_feedback_proxy is not None:
-            keyboard_feedback_proxy.stop()
-
-        for uinput_dev in [
-            manager.output_state.keyboard_uinput,
-            manager.output_state.mouse_uinput,
-            *manager.output_state.virtual_gamepad_uinputs.values(),
-        ]:
-            if uinput_dev:
-                try:
-                    uinput_dev.close()
-                except OSError as exc:
-                    log.warning("Failed to close global uinput device: %s", exc)
-                except Exception:
-                    log.exception("Unexpected failure closing global uinput device")
-
-        manager.output_state.keyboard_uinput = None
-        manager.output_state.mouse_uinput = None
-        manager.output_state.virtual_gamepad_uinputs.clear()
+        _close_global_uinputs(manager, log=log)

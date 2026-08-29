@@ -7,12 +7,36 @@ import evdev
 import pytest
 from evdev.uinput import UInputError
 
+from keymasq.common.model.core import DeviceType
+from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
 from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device import outputs, repeat
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+
+
+async def _wait_for_uinput_events(
+    uinput: evdev.UInput,
+    expected: set[tuple[int, int, int]],
+    *,
+    timeout_s: float = 1.0,
+) -> set[tuple[int, int, int]]:
+    seen: set[tuple[int, int, int]] = set()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while loop.time() < deadline:
+        try:
+            seen.update(
+                (int(event.type), int(event.code), int(event.value)) for event in uinput.read()
+            )
+        except BlockingIOError:
+            pass
+        if expected <= seen:
+            return seen
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"Timed out waiting for uinput events {sorted(expected - seen)}")
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
@@ -84,6 +108,137 @@ class TestGrabbedDevice:
         await grabbed.release()
 
         assert event_callback.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_passthrough_led_and_sound_feedback_reaches_source(
+        self,
+        virtual_feedback_keyboard,
+        event_callback,
+        mapping_getter,
+    ) -> None:
+        grabbed = GrabbedDevice(
+            path=virtual_feedback_keyboard.device.path,
+            hardware_id="test:feedback-keyboard",
+            button_map={},
+            mapping_getter=mapping_getter,
+            event_callback=event_callback,
+        )
+
+        await grabbed.grab()
+        try:
+            assert grabbed.uinput is not None
+            assert grabbed.output_feedback_proxy is not None
+            passthrough_caps = grabbed.uinput.capabilities()
+            assert evdev.ecodes.LED_CAPSL in passthrough_caps[evdev.ecodes.EV_LED]
+            assert evdev.ecodes.SND_BELL in passthrough_caps[evdev.ecodes.EV_SND]
+
+            grabbed.uinput.device.write(
+                evdev.ecodes.EV_LED,
+                evdev.ecodes.LED_CAPSL,
+                1,
+            )
+            grabbed.uinput.device.write(
+                evdev.ecodes.EV_SND,
+                evdev.ecodes.SND_BELL,
+                1,
+            )
+            await _wait_for_uinput_events(
+                virtual_feedback_keyboard,
+                {
+                    (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1),
+                    (evdev.ecodes.EV_SND, evdev.ecodes.SND_BELL, 1),
+                },
+            )
+        finally:
+            await grabbed.release()
+
+    @pytest.mark.asyncio
+    async def test_global_keyboard_led_feedback_fans_out_and_outputs_do_not_advertise_ff(
+        self,
+        virtual_feedback_keyboard,
+        event_callback,
+        mapping_getter,
+    ) -> None:
+        grabbed = GrabbedDevice(
+            path=virtual_feedback_keyboard.device.path,
+            hardware_id="test:global-feedback-keyboard",
+            button_map={},
+            mapping_getter=mapping_getter,
+            event_callback=event_callback,
+        )
+        manager = DeviceManager()
+
+        await grabbed.grab()
+        manager.grabbed_devices[grabbed.hardware_id] = [grabbed]
+        manager.initialize_output_devices()
+        try:
+            keyboard = manager.output_state.keyboard_uinput
+            mouse = manager.output_state.mouse_uinput
+            gamepad = manager.output_state.gamepad_uinput
+            assert keyboard is not None
+            assert mouse is not None
+            assert gamepad is not None
+
+            keyboard_caps = keyboard.capabilities()
+            assert evdev.ecodes.LED_CAPSL in keyboard_caps[evdev.ecodes.EV_LED]
+            for output in (keyboard, mouse, gamepad):
+                assert evdev.ecodes.EV_FF not in output.capabilities()
+
+            keyboard.device.write(
+                evdev.ecodes.EV_LED,
+                evdev.ecodes.LED_CAPSL,
+                1,
+            )
+            await _wait_for_uinput_events(
+                virtual_feedback_keyboard,
+                {(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)},
+            )
+        finally:
+            manager.shutdown_output_devices()
+            manager.grabbed_devices.clear()
+            await grabbed.release()
+
+    @pytest.mark.asyncio
+    async def test_passthrough_force_feedback_capabilities_and_gain_reach_source(
+        self,
+        virtual_force_feedback_device,
+        event_callback,
+        mapping_getter,
+    ) -> None:
+        grabbed = GrabbedDevice(
+            path=virtual_force_feedback_device.device.path,
+            hardware_id="test:force-feedback",
+            button_map={},
+            mapping_getter=mapping_getter,
+            event_callback=event_callback,
+            device_type=DeviceType.OTHER,
+            device_types=[DeviceType.OTHER.value],
+        )
+
+        await grabbed.grab()
+        try:
+            assert grabbed.uinput is not None
+            assert grabbed.output_feedback_proxy is not None
+            source_caps = virtual_force_feedback_device.capabilities()
+            passthrough_caps = grabbed.uinput.capabilities()
+            assert set(passthrough_caps[evdev.ecodes.EV_FF]) == set(
+                source_caps[evdev.ecodes.EV_FF]
+            )
+            assert grabbed.uinput.device.ff_effects_count == (
+                virtual_force_feedback_device.device.ff_effects_count
+            )
+
+            grabbed.uinput.device.write(
+                evdev.ecodes.EV_FF,
+                evdev.ecodes.FF_GAIN,
+                37,
+            )
+            await _wait_for_uinput_events(
+                virtual_force_feedback_device,
+                {(evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 37)},
+            )
+        finally:
+            await grabbed.release()
 
 
 @pytest.mark.asyncio

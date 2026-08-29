@@ -12,8 +12,11 @@ import pytest
 
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.runtime.force_feedback import (
-    PassthroughForceFeedbackProxy,
+    OutputFeedbackFanoutProxy,
+    PassthroughFeedbackProxy,
     disable_force_feedback,
+    disable_passthrough_output_feedback,
+    has_passthrough_output_feedback,
     passthrough_ff_max_effects,
 )
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
@@ -118,7 +121,7 @@ def _event(event_type: int, code: int, value: int) -> object:
 def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
     proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
@@ -155,7 +158,7 @@ def test_upload_failure_sets_negative_errno_and_does_not_record_mapping() -> Non
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     physical.upload_error = OSError(errno.ENOSPC, "no slots")
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
     proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
@@ -168,7 +171,7 @@ def test_upload_failure_sets_negative_errno_and_does_not_record_mapping() -> Non
 def test_upload_mapping_is_available_before_ack_returns() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
     def play_during_ack(_upload: evdev.ff.UInputUpload) -> None:
@@ -185,7 +188,7 @@ def test_upload_mapping_is_available_before_ack_returns() -> None:
 def test_upload_end_failure_rolls_back_physical_effect() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
     uinput.end_upload_error = OSError(errno.EIO, "end failed")
 
@@ -199,7 +202,7 @@ def test_upload_end_failure_rolls_back_physical_effect() -> None:
 def test_global_force_feedback_events_forward_without_translation() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40))
     proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_AUTOCENTER, 1))
@@ -210,12 +213,51 @@ def test_global_force_feedback_events_forward_without_translation() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("event_type", "event_code"),
+    [
+        (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL),
+        (evdev.ecodes.EV_SND, evdev.ecodes.SND_BELL),
+    ],
+)
+def test_direct_output_feedback_events_forward_without_translation(
+    event_type: int,
+    event_code: int,
+) -> None:
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
+
+    proxy.handle_event(_event(event_type, event_code, 1))
+
+    assert physical.writes == [(event_type, event_code, 1)]
+
+
+def test_global_output_feedback_fans_out_only_supported_types() -> None:
+    uinput = _FakeUInput()
+    first = _FakePhysicalDevice()
+    second = _FakePhysicalDevice()
+    proxy = OutputFeedbackFanoutProxy(
+        uinput,
+        lambda _event_type, _event_code: [first, second, first],
+        label="test",
+        event_types=frozenset({evdev.ecodes.EV_LED}),
+    )
+
+    proxy.handle_event(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1))
+    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1))
+
+    expected = [(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)]
+    assert first.writes == expected
+    assert second.writes == expected
+
+
 @pytest.mark.asyncio
 async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     runtime = _InlineAsyncioRuntime()
-    proxy = PassthroughForceFeedbackProxy(
+    proxy = PassthroughFeedbackProxy(
         uinput,
         physical,
         label="test",
@@ -234,8 +276,8 @@ async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> Non
     await asyncio.sleep(0)
 
     assert runtime.to_thread_calls == [
-        "_write_physical_ff_sync",
-        "_write_physical_ff_sync",
+        "_write_physical_event_sync",
+        "_write_physical_event_sync",
     ]
     assert physical.writes == [
         (evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40),
@@ -255,6 +297,22 @@ def test_passthrough_ff_capability_helpers() -> None:
     disable_force_feedback(caps)
     assert evdev.ecodes.EV_FF not in caps
     assert passthrough_ff_max_effects(caps, physical) == 0
+
+
+def test_passthrough_output_feedback_capability_helpers() -> None:
+    caps = {
+        evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A],
+        evdev.ecodes.EV_LED: [evdev.ecodes.LED_CAPSL],
+        evdev.ecodes.EV_SND: [evdev.ecodes.SND_BELL],
+        evdev.ecodes.EV_FF: [evdev.ecodes.FF_RUMBLE],
+    }
+
+    assert has_passthrough_output_feedback(caps) is True
+
+    disable_passthrough_output_feedback(caps)
+
+    assert caps == {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+    assert has_passthrough_output_feedback(caps) is False
 
 
 def test_passthrough_uinput_kwargs_can_omit_unsupported_max_effects() -> None:
@@ -345,7 +403,7 @@ async def test_upload_requests_are_queued_to_worker_thread_adapter() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     runtime = _InlineAsyncioRuntime()
-    proxy = PassthroughForceFeedbackProxy(
+    proxy = PassthroughFeedbackProxy(
         uinput,
         physical,
         label="test",
@@ -377,7 +435,7 @@ async def test_stop_and_wait_drains_inflight_worker_before_returning() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     runtime = _DelayedAsyncioRuntime()
-    proxy = PassthroughForceFeedbackProxy(
+    proxy = PassthroughFeedbackProxy(
         uinput,
         physical,
         label="test",
@@ -420,7 +478,7 @@ async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> No
             return super().upload_effect(effect)
 
     physical = _BlockingPhysicalDevice()
-    proxy = PassthroughForceFeedbackProxy(uinput, physical, label="test")
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
     upload_task = asyncio.create_task(asyncio.to_thread(proxy._handle_upload, 100))
@@ -435,7 +493,7 @@ async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> No
 
 @pytest.mark.asyncio
 async def test_stop_and_wait_propagates_worker_cancellation_after_write_tasks() -> None:
-    proxy = PassthroughForceFeedbackProxy(
+    proxy = PassthroughFeedbackProxy(
         _FakeUInput(),
         _FakePhysicalDevice(),
         label="test",
@@ -472,7 +530,7 @@ def test_read_eintr_does_not_stop_proxy() -> None:
         def read(self):
             raise OSError(errno.EINTR, "interrupted")
 
-    proxy = PassthroughForceFeedbackProxy(
+    proxy = PassthroughFeedbackProxy(
         _EintrUInput(),
         _FakePhysicalDevice(),
         label="test",
@@ -486,7 +544,7 @@ def test_read_eintr_does_not_stop_proxy() -> None:
 
 
 @pytest.mark.asyncio
-async def test_grab_starts_passthrough_force_feedback_proxy(
+async def test_grab_starts_passthrough_output_feedback_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
@@ -564,7 +622,7 @@ async def test_grab_starts_passthrough_force_feedback_proxy(
     monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: physical)
     monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
     monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
-    monkeypatch.setattr(grabbed_device.force_feedback, "PassthroughForceFeedbackProxy", _Proxy)
+    monkeypatch.setattr(grabbed_device.force_feedback, "PassthroughFeedbackProxy", _Proxy)
 
     device = GrabbedDevice(
         path="/dev/input/event-pad",
@@ -594,7 +652,7 @@ async def test_grab_starts_passthrough_force_feedback_proxy(
 
 
 @pytest.mark.asyncio
-async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
+async def test_grab_retries_without_output_feedback_when_proxy_start_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
@@ -611,6 +669,8 @@ async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
         def capabilities(self) -> dict[int, list[int]]:
             return {
                 evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+                evdev.ecodes.EV_LED: [evdev.ecodes.LED_CAPSL],
+                evdev.ecodes.EV_SND: [evdev.ecodes.SND_BELL],
                 evdev.ecodes.EV_FF: [evdev.ecodes.FF_RUMBLE],
                 evdev.ecodes.EV_SYN: [],
             }
@@ -656,7 +716,7 @@ async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
     monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
     monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
     monkeypatch.setattr(
-        grabbed_device.force_feedback, "PassthroughForceFeedbackProxy", _FailingProxy
+        grabbed_device.force_feedback, "PassthroughFeedbackProxy", _FailingProxy
     )
 
     device = GrabbedDevice(
@@ -674,7 +734,11 @@ async def test_grab_retries_without_force_feedback_when_proxy_start_fails(
 
     assert len(created_uinputs) == 2
     assert evdev.ecodes.EV_FF in created_uinputs[0].kwargs["events"]
+    assert evdev.ecodes.EV_LED in created_uinputs[0].kwargs["events"]
+    assert evdev.ecodes.EV_SND in created_uinputs[0].kwargs["events"]
     assert created_uinputs[0].close_calls == 1
     assert evdev.ecodes.EV_FF not in created_uinputs[1].kwargs["events"]
+    assert evdev.ecodes.EV_LED not in created_uinputs[1].kwargs["events"]
+    assert evdev.ecodes.EV_SND not in created_uinputs[1].kwargs["events"]
     assert created_uinputs[1].kwargs["max_effects"] == 0
-    assert device.force_feedback_proxy is None
+    assert device.output_feedback_proxy is None

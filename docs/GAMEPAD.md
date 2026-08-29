@@ -23,6 +23,10 @@ upload, erase, play/stop, gain, and autocenter events back to the grabbed
 controller. Hardware motor behavior still depends on the controller driver and
 the physical device's own force-feedback support.
 
+Keymasq's synthetic Xbox-style gamepad outputs do not advertise force feedback,
+because they have no physical motor to drive. Use the physical controller's
+passthrough clone when a game needs rumble.
+
 While the grab is active, Keymasq hides the original physical gamepad source
 and leaves the passthrough clone visible. This prevents Steam, SDL games, and
 controller pickers from showing two identical controllers where one is the

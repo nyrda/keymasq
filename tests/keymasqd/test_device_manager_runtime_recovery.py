@@ -302,6 +302,14 @@ class TestDeviceManagerHelpers:
         assert evdev.ecodes.KEY_RESERVED not in keyboard_key_caps
         assert evdev.ecodes.KEY_MAX not in keyboard_key_caps
         assert evdev.ecodes.KEY_CNT not in keyboard_key_caps
+        keyboard_led_caps = set(created[0].kwargs["events"][evdev.ecodes.EV_LED])
+        assert {
+            evdev.ecodes.LED_NUML,
+            evdev.ecodes.LED_CAPSL,
+            evdev.ecodes.LED_SCROLLL,
+        } <= keyboard_led_caps
+        assert evdev.ecodes.LED_MAX not in keyboard_led_caps
+        assert evdev.ecodes.LED_CNT not in keyboard_led_caps
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002
@@ -313,6 +321,7 @@ class TestDeviceManagerHelpers:
         assert created[2].kwargs["name"] == "keymasq-test-gamepad"
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003
+        assert [device.kwargs.get("max_effects") for device in created] == [0, 0, 0]
 
     def test_create_global_uinputs_permission_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(

@@ -1,3 +1,4 @@
+import inspect
 import logging
 import os
 import re
@@ -6,6 +7,7 @@ from dataclasses import dataclass, field
 from hashlib import blake2b
 from typing import Any, Final, Protocol, cast
 
+import evdev
 from evdev.uinput import UInputError
 
 from keymasq.common.virtual_devices import (
@@ -17,6 +19,7 @@ from keymasq.keymasqd.permission_hints import (
     is_uinput_permission_error,
     uinput_permission_message,
 )
+from keymasq.keymasqd.runtime import force_feedback
 from keymasq.keymasqd.runtime.adapters import (
     ClosableUInput,
     UInputWriter,
@@ -33,6 +36,7 @@ class OutputRuntimeState:
     mouse_uinput: ClosableUInput | None = None
     virtual_gamepad_uinputs: dict[str, ClosableUInput] = field(default_factory=dict)
     virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
+    keyboard_feedback_proxy: force_feedback.OutputFeedbackFanoutProxy | None = None
 
     @property
     def gamepad_uinput(self) -> ClosableUInput | None:
@@ -65,10 +69,12 @@ class _OutputState(Protocol):
     gamepad_uinput: ClosableUInput | None
     virtual_gamepad_uinputs: dict[str, ClosableUInput]
     virtual_gamepad_count: int
+    keyboard_feedback_proxy: force_feedback.OutputFeedbackFanoutProxy | None
 
 
 class _OutputManager(Protocol):
     output_state: _OutputState
+    grabbed_devices: dict[str, list[object]]
 
 
 class _AbsInfoFactory(Protocol):
@@ -87,6 +93,7 @@ class _UInputFactory(Protocol):
         product: int = ...,
         version: int = ...,
         bustype: int = ...,
+        max_effects: int = ...,
     ) -> ClosableUInput: ...
 
 
@@ -95,9 +102,12 @@ class _Ecodes(Protocol):
     EV_SYN: Final[int]
     EV_REL: Final[int]
     EV_ABS: Final[int]
+    EV_LED: Final[int]
     KEY: Final[Mapping[int, object]]
     KEY_RESERVED: Final[int]
     KEY_MAX: Final[int]
+    LED: Final[Mapping[int, object]]
+    LED_MAX: Final[int]
     BTN_LEFT: Final[int]
     BTN_RIGHT: Final[int]
     BTN_MIDDLE: Final[int]
@@ -151,6 +161,16 @@ def create_uinput_with_permission_hint[T](context: str, create: Callable[[], T])
                 uinput_permission_message(f"Failed to create {context} uinput device: {exc}")
             ) from exc
         raise
+
+
+def uinput_supports_max_effects(uinput_factory: Callable[..., object]) -> bool:
+    try:
+        parameters = inspect.signature(uinput_factory).parameters
+    except (TypeError, ValueError):
+        return True
+    return "max_effects" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    )
 
 
 def _test_uinput_enabled() -> bool:
@@ -222,17 +242,26 @@ def uinput_identity(
     )
 
 
-def keyboard_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
+def keyboard_caps(
+    evdev_mod: _EvdevModule,
+    *,
+    include_leds: bool = True,
+) -> dict[int, Sequence[object]]:
     ecodes = evdev_mod.ecodes
     key_codes = sorted(
         int(code)
         for code in ecodes.KEY
         if ecodes.KEY_RESERVED < int(code) < ecodes.KEY_MAX
     )
-    return {
+    capabilities: dict[int, Sequence[object]] = {
         ecodes.EV_KEY: key_codes,
         ecodes.EV_SYN: [],
     }
+    if include_leds:
+        capabilities[ecodes.EV_LED] = sorted(
+            int(code) for code in ecodes.LED if 0 <= int(code) < ecodes.LED_MAX
+        )
+    return capabilities
 
 
 def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
@@ -290,6 +319,44 @@ def _initialize_gamepad_axes(
     uinput_dev.syn()
 
 
+def _non_ff_uinput_kwargs(
+    uinput_factory: Callable[..., object],
+    **kwargs: object,
+) -> dict[str, object]:
+    if uinput_supports_max_effects(uinput_factory):
+        kwargs["max_effects"] = 0
+    return kwargs
+
+
+def _create_non_ff_uinput(
+    context: str,
+    evdev_mod: _EvdevModule,
+    *,
+    events: Mapping[int, Sequence[object]],
+    name: str,
+    vendor: int | None = None,
+    product: int | None = None,
+    version: int | None = None,
+    bustype: int | None = None,
+) -> ClosableUInput:
+    kwargs: dict[str, object] = {
+        "events": dict(events),
+        "name": name,
+    }
+    if vendor is not None and product is not None:
+        kwargs["vendor"] = vendor
+        kwargs["product"] = product
+    if version is not None:
+        kwargs["version"] = version
+    if bustype is not None:
+        kwargs["bustype"] = bustype
+    kwargs = _non_ff_uinput_kwargs(evdev_mod.UInput, **kwargs)
+    return create_uinput_with_permission_hint(
+        context,
+        lambda: evdev_mod.UInput(**cast(Any, kwargs)),
+    )
+
+
 def create_virtual_gamepad(
     index: int,
     evdev_mod: _EvdevModule,
@@ -301,16 +368,15 @@ def create_virtual_gamepad(
         "gamepad",
         test_name="gamepad" if index == 1 else f"gamepad-{index}",
     )
-    uinput_dev = create_uinput_with_permission_hint(
+    uinput_dev = _create_non_ff_uinput(
         "virtual gamepad",
-        lambda: evdev_mod.UInput(
-            events=cast(dict[int, Sequence[int]], gamepad_caps(evdev_mod)),
-            name=gamepad_name,
-            vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
-            product=0x028E if gamepad_product is None else gamepad_product,
-            version=0x0110,
-            bustype=0x0003,
-        ),
+        evdev_mod,
+        events=gamepad_caps(evdev_mod),
+        name=gamepad_name,
+        vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
+        product=0x028E if gamepad_product is None else gamepad_product,
+        version=0x0110,
+        bustype=0x0003,
     )
     _initialize_gamepad_axes(uinput_writer(uinput_dev), evdev_mod)
     return uinput_dev
@@ -355,6 +421,50 @@ def configure_virtual_gamepads(
     return count
 
 
+def _global_keyboard_feedback_targets(
+    manager: _OutputManager,
+    event_type: int,
+    event_code: int,
+) -> list[force_feedback.ForceFeedbackTarget]:
+    targets: list[force_feedback.ForceFeedbackTarget] = []
+    for devices in manager.grabbed_devices.values():
+        for grabbed in devices:
+            capabilities = cast(
+                Mapping[int, Sequence[object]],
+                getattr(grabbed, "source_capabilities", {}),
+            )
+            supported_codes = capabilities.get(int(event_type), ())
+            if int(event_code) not in supported_codes:
+                continue
+            physical_device = getattr(grabbed, "device", None)
+            if physical_device is not None:
+                targets.append(cast(force_feedback.ForceFeedbackTarget, physical_device))
+    return targets
+
+
+def _start_global_keyboard_feedback_proxy(
+    manager: _OutputManager,
+    *,
+    log: logging.Logger,
+) -> None:
+    keyboard_uinput = manager.output_state.keyboard_uinput
+    if keyboard_uinput is None:
+        return
+    proxy = force_feedback.OutputFeedbackFanoutProxy(
+        cast(force_feedback.ReadableUInput, keyboard_uinput),
+        lambda event_type, event_code: _global_keyboard_feedback_targets(
+            manager,
+            event_type,
+            event_code,
+        ),
+        label="global keyboard",
+        event_types=frozenset({int(evdev.ecodes.EV_LED)}),
+        logger=log,
+    )
+    proxy.start()
+    manager.output_state.keyboard_feedback_proxy = proxy
+
+
 def create_global_uinputs(
     manager: _OutputManager,
     *,
@@ -370,24 +480,33 @@ def create_global_uinputs(
             "keymasq-keyboard",
             "keyboard",
         )
-        if keyboard_vendor is None or keyboard_product is None:
-            manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
-                "keyboard",
-                lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], keyboard_capabilities),
-                    name=keyboard_name,
-                ),
-            )
-        else:
-            manager.output_state.keyboard_uinput = create_uinput_with_permission_hint(
-                "keyboard",
-                lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], keyboard_capabilities),
+        manager.output_state.keyboard_uinput = _create_non_ff_uinput(
+            "keyboard",
+            evdev_mod,
+            events=keyboard_capabilities,
+            name=keyboard_name,
+            vendor=keyboard_vendor,
+            product=keyboard_product,
+        )
+
+        if hasattr(manager, "grabbed_devices"):
+            try:
+                _start_global_keyboard_feedback_proxy(manager, log=log)
+            except Exception:  # noqa: BLE001 - retry without advertised LED feedback.
+                log.warning(
+                    "Disabling global keyboard LED feedback after proxy start failure",
+                    exc_info=True,
+                )
+                manager.output_state.keyboard_feedback_proxy = None
+                manager.output_state.keyboard_uinput.close()
+                manager.output_state.keyboard_uinput = _create_non_ff_uinput(
+                    "keyboard",
+                    evdev_mod,
+                    events=keyboard_caps(evdev_mod, include_leds=False),
                     name=keyboard_name,
                     vendor=keyboard_vendor,
                     product=keyboard_product,
-                ),
-            )
+                )
 
         mouse_caps = {
             evdev_mod.ecodes.EV_KEY: [
@@ -419,24 +538,14 @@ def create_global_uinputs(
             "keymasq-mouse",
             "mouse",
         )
-        if mouse_vendor is None or mouse_product is None:
-            manager.output_state.mouse_uinput = create_uinput_with_permission_hint(
-                "mouse",
-                lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], mouse_caps),
-                    name=mouse_name,
-                ),
-            )
-        else:
-            manager.output_state.mouse_uinput = create_uinput_with_permission_hint(
-                "mouse",
-                lambda: evdev_mod.UInput(
-                    events=cast(dict[int, Sequence[int]], mouse_caps),
-                    name=mouse_name,
-                    vendor=mouse_vendor,
-                    product=mouse_product,
-                ),
-            )
+        manager.output_state.mouse_uinput = _create_non_ff_uinput(
+            "mouse",
+            evdev_mod,
+            events=mouse_caps,
+            name=mouse_name,
+            vendor=mouse_vendor,
+            product=mouse_product,
+        )
 
         configure_virtual_gamepads(
             manager,
@@ -454,6 +563,15 @@ def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> N
 
     if manager.output_state.device_count == 0:
         log.info("Destroying global output uinput devices")
+
+        keyboard_feedback_proxy = getattr(
+            manager.output_state,
+            "keyboard_feedback_proxy",
+            None,
+        )
+        manager.output_state.keyboard_feedback_proxy = None
+        if keyboard_feedback_proxy is not None:
+            keyboard_feedback_proxy.stop()
 
         for uinput_dev in [
             manager.output_state.keyboard_uinput,

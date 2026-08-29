@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -32,14 +33,18 @@ def _create_virtual_uinput(
     name: str,
     vendor: int,
     product: int,
+    max_effects: int | None = None,
 ) -> evdev.UInput:
+    kwargs: dict[str, object] = {
+        "events": capabilities,
+        "name": name,
+        "vendor": vendor,
+        "product": product,
+    }
+    if max_effects is not None and "max_effects" in inspect.signature(evdev.UInput).parameters:
+        kwargs["max_effects"] = max_effects
     try:
-        device = evdev.UInput(
-            events=capabilities,
-            name=name,
-            vendor=vendor,
-            product=product,
-        )
+        device = evdev.UInput(**kwargs)
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         pytest.skip(f"Virtual uinput device unavailable: {exc}")
 
@@ -185,6 +190,54 @@ def virtual_keyboard():
         name=f"{TEST_UINPUT_PREFIX}-source-keyboard",
         vendor=0xABCD,
         product=0xEF01,
+    )
+
+    yield device
+
+    device.close()
+
+
+@pytest.fixture
+def virtual_feedback_keyboard():
+    capabilities = {
+        evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_CAPSLOCK],
+        evdev.ecodes.EV_LED: [
+            evdev.ecodes.LED_NUML,
+            evdev.ecodes.LED_CAPSL,
+            evdev.ecodes.LED_SCROLLL,
+        ],
+        evdev.ecodes.EV_SND: [evdev.ecodes.SND_BELL],
+    }
+
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
+        name=f"{TEST_UINPUT_PREFIX}-source-feedback-keyboard",
+        vendor=0xABCD,
+        product=0xEF02,
+    )
+
+    yield device
+
+    device.close()
+
+
+@pytest.fixture
+def virtual_force_feedback_device():
+    capabilities = {
+        evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH],
+        evdev.ecodes.EV_FF: [
+            evdev.ecodes.FF_RUMBLE,
+            evdev.ecodes.FF_GAIN,
+            evdev.ecodes.FF_AUTOCENTER,
+        ],
+    }
+
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
+        name=f"{TEST_UINPUT_PREFIX}-source-force-feedback",
+        vendor=0xABCD,
+        product=0xEF03,
+        max_effects=4,
     )
 
     yield device

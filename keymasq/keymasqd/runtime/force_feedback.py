@@ -41,11 +41,13 @@ class ForceFeedbackTarget(Protocol):
     def write(self, event_type: int, code: int, value: int) -> None: ...
 
 
-class ForceFeedbackUInput(Protocol):
+class ReadableUInput(Protocol):
     fd: int
 
     def read(self) -> Iterable[InputEventLike]: ...
 
+
+class ForceFeedbackUInput(ReadableUInput, Protocol):
     def end_upload(self, upload: object) -> None: ...
 
     def end_erase(self, erase: object) -> None: ...
@@ -72,6 +74,30 @@ class EffectMapping:
     physical_id: int
 
 
+PASSTHROUGH_DIRECT_OUTPUT_EVENT_TYPES: Final[frozenset[int]] = frozenset(
+    int(event_type)
+    for event_type in (
+        getattr(evdev.ecodes, "EV_LED", None),
+        getattr(evdev.ecodes, "EV_SND", None),
+    )
+    if isinstance(event_type, int)
+)
+PASSTHROUGH_OUTPUT_EVENT_TYPES: Final[frozenset[int]] = frozenset(
+    {*PASSTHROUGH_DIRECT_OUTPUT_EVENT_TYPES, int(evdev.ecodes.EV_FF)}
+)
+
+
+def has_passthrough_output_feedback(caps: Mapping[int, Sequence[object]]) -> bool:
+    return any(caps.get(event_type) for event_type in PASSTHROUGH_OUTPUT_EVENT_TYPES)
+
+
+def disable_passthrough_output_feedback(
+    caps: dict[int, Sequence[object]],
+) -> None:
+    for event_type in PASSTHROUGH_OUTPUT_EVENT_TYPES:
+        caps.pop(event_type, None)
+
+
 def passthrough_ff_max_effects(
     caps: Mapping[int, Sequence[object]],
     physical_device: object,
@@ -93,7 +119,7 @@ def _negative_errno(exc: BaseException, default_errno: int = errno.EIO) -> int:
     return -int(default_errno)
 
 
-def _uinput_fd(uinput: ForceFeedbackUInput) -> int:
+def _uinput_fd(uinput: ReadableUInput) -> int:
     fd = getattr(uinput, "fd", None)
     if isinstance(fd, int):
         return fd
@@ -161,7 +187,7 @@ def _erase_effect_id(erase: object) -> int:
     return int(cast(_EraseLike, erase).effect_id)
 
 
-class PassthroughForceFeedbackProxy:
+class PassthroughFeedbackProxy:
     def __init__(
         self,
         uinput: ForceFeedbackUInput,
@@ -243,9 +269,9 @@ class PassthroughForceFeedbackProxy:
         try:
             self.asyncio_mod.get_running_loop().remove_reader(fd)
         except RuntimeError:
-            self.log.debug("No running loop while stopping force-feedback proxy %s", self.label)
+            self.log.debug("No running loop while stopping output-feedback proxy %s", self.label)
         except Exception:
-            self.log.exception("Failed to stop force-feedback proxy %s", self.label)
+            self.log.exception("Failed to stop output-feedback proxy %s", self.label)
         return worker_task
 
     def _on_readable(self) -> None:
@@ -257,10 +283,10 @@ class PassthroughForceFeedbackProxy:
         except OSError as exc:
             if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR):
                 return
-            self.log.warning("Force-feedback read failed for %s: %s", self.label, exc)
+            self.log.warning("Output-feedback read failed for %s: %s", self.label, exc)
             self.stop()
         except Exception:
-            self.log.exception("Unexpected force-feedback read failure for %s", self.label)
+            self.log.exception("Unexpected output-feedback read failure for %s", self.label)
             self.stop()
 
     def handle_event(self, event: InputEventLike) -> None:
@@ -272,6 +298,10 @@ class PassthroughForceFeedbackProxy:
                 self._queue_request(_WORKER_UPLOAD, event_value)
             elif event_code == evdev.ecodes.UI_FF_ERASE:
                 self._queue_request(_WORKER_ERASE, event_value)
+            return
+
+        if event_type in PASSTHROUGH_DIRECT_OUTPUT_EVENT_TYPES:
+            self._schedule_physical_event(event_type, event_code, event_value)
             return
 
         if event_type != evdev.ecodes.EV_FF:
@@ -492,17 +522,20 @@ class PassthroughForceFeedbackProxy:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def _schedule_physical_ff(self, code: int, value: int) -> None:
+        self._schedule_physical_event(evdev.ecodes.EV_FF, code, value)
+
+    def _schedule_physical_event(self, event_type: int, code: int, value: int) -> None:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            self._write_physical_ff_sync(code, value)
+            self._write_physical_event_sync(event_type, code, value)
             return
-        coro = self._write_physical_ff(code, value)
+        coro = self._write_physical_event(event_type, code, value)
         try:
             task = self.asyncio_mod.create_task(coro)
         except RuntimeError:
             coro.close()
-            self._write_physical_ff_sync(code, value)
+            self._write_physical_event_sync(event_type, code, value)
             return
         self._write_tasks.add(task)
         task.add_done_callback(self._log_write_result)
@@ -514,26 +547,188 @@ class PassthroughForceFeedbackProxy:
         except asyncio.CancelledError:
             return
         except Exception:
-            self.log.exception("Force-feedback write task failed for %s", self.label)
+            self.log.exception("Output-feedback write task failed for %s", self.label)
 
-    async def _write_physical_ff(self, code: int, value: int) -> None:
-        await self.asyncio_mod.to_thread(self._write_physical_ff_sync, code, value)
+    async def _write_physical_event(self, event_type: int, code: int, value: int) -> None:
+        await self.asyncio_mod.to_thread(
+            self._write_physical_event_sync,
+            event_type,
+            code,
+            value,
+        )
 
-    def _write_physical_ff_sync(self, code: int, value: int) -> None:
+    def _write_physical_event_sync(self, event_type: int, code: int, value: int) -> None:
         try:
-            self.physical_device.write(evdev.ecodes.EV_FF, int(code), int(value))
+            self.physical_device.write(int(event_type), int(code), int(value))
         except OSError as exc:
             self.log.warning(
-                "Failed to proxy force-feedback event for %s code=%s value=%s: %s",
+                "Failed to proxy output event for %s type=%s code=%s value=%s: %s",
                 self.label,
+                event_type,
                 code,
                 value,
                 exc,
             )
         except Exception:
             self.log.exception(
-                "Unexpected failure proxying force-feedback event for %s code=%s value=%s",
+                "Unexpected failure proxying output event for %s type=%s code=%s value=%s",
                 self.label,
+                event_type,
+                code,
+                value,
+            )
+
+
+class OutputFeedbackFanoutProxy:
+    """Forward direct output events from one uinput to matching physical devices."""
+
+    def __init__(
+        self,
+        uinput: ReadableUInput,
+        targets_getter: Callable[[int, int], Iterable[ForceFeedbackTarget]],
+        *,
+        label: str,
+        event_types: frozenset[int] = PASSTHROUGH_DIRECT_OUTPUT_EVENT_TYPES,
+        asyncio_mod: AsyncioRuntimeAdapter = ASYNCIO_RUNTIME,
+        logger: logging.Logger = log,
+    ) -> None:
+        self.uinput = uinput
+        self.targets_getter = targets_getter
+        self.label = label
+        self.event_types = event_types
+        self.asyncio_mod = asyncio_mod
+        self.log = logger
+        self._fd: int | None = None
+        self._running = False
+        self._write_tasks: set[asyncio.Task[None]] = set()
+
+    def start(self) -> None:
+        if self._running:
+            return
+        fd = _uinput_fd(self.uinput)
+        self.asyncio_mod.get_running_loop().add_reader(fd, self._on_readable)
+        self._fd = fd
+        self._running = True
+
+    def stop(self) -> None:
+        if not self._running:
+            return
+        fd = self._fd
+        self._fd = None
+        self._running = False
+        if fd is None:
+            return
+        try:
+            self.asyncio_mod.get_running_loop().remove_reader(fd)
+        except RuntimeError:
+            self.log.debug("No running loop while stopping output-feedback proxy %s", self.label)
+        except Exception:
+            self.log.exception("Failed to stop output-feedback proxy %s", self.label)
+
+    async def stop_and_wait(self) -> None:
+        self.stop()
+        tasks = set(self._write_tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _on_readable(self) -> None:
+        try:
+            for event in self.uinput.read():
+                self.handle_event(event)
+        except BlockingIOError:
+            return
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EINTR):
+                return
+            self.log.warning("Output-feedback read failed for %s: %s", self.label, exc)
+            self.stop()
+        except Exception:
+            self.log.exception("Unexpected output-feedback read failure for %s", self.label)
+            self.stop()
+
+    def handle_event(self, event: InputEventLike) -> None:
+        event_type = int(event.type)
+        if event_type not in self.event_types:
+            return
+        event_code = int(event.code)
+        event_value = int(event.value)
+        seen: set[int] = set()
+        for target in self.targets_getter(event_type, event_code):
+            identity = id(target)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            self._schedule_write(target, event_type, event_code, event_value)
+
+    def _schedule_write(
+        self,
+        target: ForceFeedbackTarget,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_target_sync(target, event_type, code, value)
+            return
+        coro = self._write_target(target, event_type, code, value)
+        try:
+            task = self.asyncio_mod.create_task(coro)
+        except RuntimeError:
+            coro.close()
+            self._write_target_sync(target, event_type, code, value)
+            return
+        self._write_tasks.add(task)
+        task.add_done_callback(self._log_write_result)
+
+    def _log_write_result(self, task: asyncio.Task[None]) -> None:
+        self._write_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            self.log.exception("Output-feedback write task failed for %s", self.label)
+
+    async def _write_target(
+        self,
+        target: ForceFeedbackTarget,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        await self.asyncio_mod.to_thread(
+            self._write_target_sync,
+            target,
+            event_type,
+            code,
+            value,
+        )
+
+    def _write_target_sync(
+        self,
+        target: ForceFeedbackTarget,
+        event_type: int,
+        code: int,
+        value: int,
+    ) -> None:
+        try:
+            target.write(event_type, code, value)
+        except OSError as exc:
+            self.log.warning(
+                "Failed to fan out output event for %s type=%s code=%s value=%s: %s",
+                self.label,
+                event_type,
+                code,
+                value,
+                exc,
+            )
+        except Exception:
+            self.log.exception(
+                "Unexpected failure fanning out output event for %s type=%s code=%s value=%s",
+                self.label,
+                event_type,
                 code,
                 value,
             )

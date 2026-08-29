@@ -114,6 +114,39 @@ async def test_recording_abort_discards_active_spool_without_stop_event(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_recording_abort_waits_for_concurrent_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = RecordingManager()
+    stop_started = asyncio.Event()
+    release_stop = asyncio.Event()
+    abort_started = asyncio.Event()
+
+    async def stop_locked(*, stop_reason: str | None = None) -> dict[str, str]:
+        assert stop_reason is None
+        stop_started.set()
+        await release_stop.wait()
+        return {"status": "ok"}
+
+    async def abort_failed_start() -> None:
+        abort_started.set()
+
+    monkeypatch.setattr(recorder, "_stop_locked", stop_locked)
+    monkeypatch.setattr(recorder, "_abort_failed_start", abort_failed_start)
+
+    stop_task = asyncio.create_task(recorder.stop())
+    await asyncio.wait_for(stop_started.wait(), timeout=0.25)
+    abort_task = asyncio.create_task(recorder.abort())
+    await asyncio.sleep(0)
+
+    assert not abort_started.is_set()
+    release_stop.set()
+    assert await stop_task == {"status": "ok"}
+    await abort_task
+    assert abort_started.is_set()
+
+
+@pytest.mark.asyncio
 async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path) -> None:
     recorder = RecordingManager(spool_dir=tmp_path)
     await recorder.start([], recording_slot=2)

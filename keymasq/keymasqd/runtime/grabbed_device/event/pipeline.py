@@ -96,6 +96,19 @@ def build_event_processing_deps(
     )
 
 
+def _track_suspended_key_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+) -> None:
+    if int(event.type) != int(evdev.ecodes.EV_KEY):
+        return
+    event_name = get_event_name(event, evdev_mod=evdev)
+    if int(event.value) == 1:
+        device_runtime.state.resume_suppressed_source_keys.add(event_name)
+    elif int(event.value) == 0:
+        device_runtime.state.resume_suppressed_source_keys.discard(event_name)
+
+
 async def event_loop(
     device_runtime: GrabbedDeviceRuntime,
     *,
@@ -132,6 +145,7 @@ async def event_loop(
             if not device_runtime.running:
                 break
             if device_runtime.input_suspended:
+                _track_suspended_key_event(device_runtime, event)
                 continue
             processing_task = asyncio_mod.create_task(process_one_event(event))
             device_runtime.current_event_task = processing_task

@@ -105,6 +105,31 @@ class TestEventLoopRecovery:
         )
 
         process_event.assert_not_awaited()
+        assert device.state.resume_suppressed_source_keys == {"key_a"}
+
+    @pytest.mark.asyncio
+    async def test_suspended_event_loop_clears_released_input(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        device.input_suspended = True
+
+        class _FakeInputDevice:
+            async def async_read_loop(self):
+                yield SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=1)
+                yield SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=0)
+
+        process_event = AsyncMock()
+        monkeypatch.setattr(pipeline, "process_event", process_event)
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+
+        await pipeline.event_loop(
+            device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
+        )
+
+        process_event.assert_not_awaited()
+        assert device.state.resume_suppressed_source_keys == set()
 
     @pytest.mark.asyncio
     async def test_event_processing_dependencies_are_reused_per_loop(

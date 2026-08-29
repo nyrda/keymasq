@@ -339,6 +339,40 @@ async def test_logind_setup_is_retried_after_transient_startup_failure() -> None
 
 
 @pytest.mark.asyncio
+async def test_failed_setup_discards_sleep_signal_before_retry() -> None:
+    manager = _FakeLoginManager()
+    prepare = AsyncMock()
+    retry_ready = asyncio.Event()
+    attempts = 0
+
+    async def inhibit(*args: str) -> int:
+        nonlocal attempts
+        manager.inhibit_calls.append(args)
+        attempts += 1
+        if attempts == 1:
+            manager.emit(True)
+            raise OSError("logind setup failed")
+        retry_ready.set()
+        return 42
+
+    manager.call_inhibit = inhibit  # type: ignore[method-assign]
+    coordinator = LogindSleepCoordinator(
+        prepare,
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+        rearm_retry_s=0,
+    )
+
+    assert await coordinator.start() is False
+    await asyncio.wait_for(retry_ready.wait(), timeout=0.25)
+    await _flush_worker()
+
+    prepare.assert_not_awaited()
+    assert coordinator._inhibitor_fd == 42
+    await coordinator.stop()
+
+
+@pytest.mark.asyncio
 async def test_logind_setup_timeout_does_not_prevent_daemon_start() -> None:
     class _UnresponsiveBus:
         def __init__(self) -> None:

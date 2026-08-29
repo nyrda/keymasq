@@ -106,6 +106,7 @@ class LogindSleepCoordinator:
                 exc_info=True,
             )
             await self._close_connection()
+            self._discard_queued_events()
             self._start_setup_retry()
             return False
 
@@ -123,10 +124,13 @@ class LogindSleepCoordinator:
         await self._stop_inhibitor_rearm()
         self._preparing = False
         self._resume_pending = False
+        self._discard_queued_events()
+        await self._close_connection()
+
+    def _discard_queued_events(self) -> None:
         while not self._events.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._events.get_nowait()
-        await self._close_connection()
 
     def _start_setup_retry(self) -> None:
         task = self._setup_retry_task

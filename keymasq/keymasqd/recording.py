@@ -236,7 +236,8 @@ class RecordingManager:
         idempotent so owner-disconnect and shutdown cleanup may safely overlap.
         """
 
-        await self._abort_failed_start()
+        async with self._stop_lock:
+            await self._abort_failed_start()
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
         if self._stopped:

@@ -37,6 +37,53 @@ from tests.keymasqd.device_manager_support import (
 
 class TestEventLoopRecovery:
     @pytest.mark.asyncio
+    async def test_cancelled_inflight_event_does_not_stop_loop_after_resume(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        first_started = asyncio.Event()
+        first_cancelled = asyncio.Event()
+        release_second = asyncio.Event()
+        processed_values: list[int] = []
+
+        class _FakeInputDevice:
+            async def async_read_loop(self):
+                yield SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=1)
+                await release_second.wait()
+                yield SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=0)
+
+        async def fake_process_event(_device, event, **_kwargs) -> None:
+            if int(event.value) == 1:
+                first_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    first_cancelled.set()
+                return
+            processed_values.append(int(event.value))
+
+        monkeypatch.setattr(pipeline, "process_event", fake_process_event)
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+        loop_task = asyncio.create_task(
+            pipeline.event_loop(
+                device,
+                asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                log=grabbed_device.log,
+            )
+        )
+        await first_started.wait()
+
+        device.input_suspended = True
+        await device.cancel_inflight_actions()
+        device.input_suspended = False
+        release_second.set()
+        await loop_task
+
+        assert first_cancelled.is_set()
+        assert processed_values == [0]
+
+    @pytest.mark.asyncio
     async def test_suspended_event_loop_discards_input(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -81,8 +128,12 @@ class TestEventLoopRecovery:
         def fake_build_event_processing_deps(
             *,
             log: logging.Logger,
+            fire_and_observe_fn=pipeline.fire_and_observe,
         ) -> EventProcessingDeps:
-            deps = original_build_event_processing_deps(log=log)
+            deps = original_build_event_processing_deps(
+                log=log,
+                fire_and_observe_fn=fire_and_observe_fn,
+            )
             built_deps.append(deps)
             return deps
 
@@ -253,6 +304,125 @@ class TestRuntimeFailureCleanup:
 
 
 class TestSuspendCleanup:
+    @pytest.mark.asyncio
+    async def test_cleanup_drains_inflight_event_before_global_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
+        started = asyncio.Event()
+        order: list[str] = []
+
+        async def inflight_event() -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                order.append("event_cancelled")
+
+        async def cancel_macros() -> dict[str, object]:
+            order.append("macro_cleanup")
+            return {"cancelled": False}
+
+        device.current_event_task = asyncio.create_task(inflight_event())
+        monkeypatch.setattr(manager, "cancel_macro_playback", cancel_macros)
+        await started.wait()
+
+        await manager.prepare_for_sleep()
+
+        assert order[:2] == ["event_cancelled", "macro_cleanup"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_detached_device_action_tasks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def detached_action() -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        device.fire_and_observe(detached_action(), "detached test action")
+        await started.wait()
+
+        await device.neutralize_runtime_state()
+
+        assert cancelled.is_set()
+        assert device.background_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_detached_tap_natural_move(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def natural_mouse_mover(*_args) -> dict[str, object]:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            return {"status": "ok"}
+
+        device = make_grabbed_device(
+            monkeypatch,
+            running=True,
+            natural_mouse_mover=natural_mouse_mover,
+        )
+        action = MappingAction(
+            action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+            move_x=100,
+            move_y=200,
+            tap_enabled=True,
+            tap_hold_ms=500,
+        )
+        await device_actions.execute_action(
+            device,
+            action,
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=1),
+            "key_a",
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=device.fire_and_observe,
+            ),
+        )
+        await started.wait()
+
+        await device.neutralize_runtime_state()
+
+        assert cancelled.is_set()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_preserves_conditional_profile_trackers(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
+        await manager.track_profile_activation(
+            "Temporary",
+            "activation-1",
+            "1234:5678:key_a",
+            {"timeout_ms": 60_000},
+        )
+
+        try:
+            await manager.prepare_for_sleep()
+
+            assert "activation-1" in manager.profile_activation_tracker._trackers
+        finally:
+            manager.profile_activation_tracker.reset()
+
     @pytest.mark.asyncio
     async def test_cleanup_releases_outputs_without_dropping_grabs_or_mappings(
         self,

@@ -342,9 +342,16 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         """Neutralize active input state while retaining grabs and mappings."""
 
         self.sleep_preparing = True
-        for devices in self.grabbed_devices.values():
-            for device in devices:
-                device.input_suspended = True
+        devices = [
+            device
+            for hardware_devices in self.grabbed_devices.values()
+            for device in hardware_devices
+        ]
+        for device in devices:
+            device.input_suspended = True
+        await asyncio.gather(
+            *(device.cancel_inflight_actions() for device in devices),
+        )
 
         async with self._op_lock:
             devices = [
@@ -354,6 +361,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             ]
             for device in devices:
                 device.input_suspended = True
+            await asyncio.gather(
+                *(device.cancel_inflight_actions() for device in devices),
+            )
 
             try:
                 await self.cancel_macro_playback()
@@ -372,7 +382,6 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 await device.neutralize_runtime_state()
 
             self.repeat_state.history.clear()
-            self.profile_activation_tracker.reset()
         log.info("Neutralized active input state before suspend")
 
     async def resume_from_sleep(self) -> None:

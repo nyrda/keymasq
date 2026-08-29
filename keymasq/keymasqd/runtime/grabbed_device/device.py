@@ -344,7 +344,8 @@ class GrabbedDevice:
         self.task: asyncio.Task[None] | None = None
         self.running = False
         self.input_suspended = False
-        self.event_processing_lock = asyncio.Lock()
+        self.current_event_task: asyncio.Task[None] | None = None
+        self.background_tasks: set[asyncio.Task[object]] = set()
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
         self.state = GrabbedDeviceState()
@@ -659,28 +660,57 @@ class GrabbedDevice:
     async def neutralize_runtime_state(self) -> None:
         """Release generated state without dropping the physical device grab."""
 
-        async with self.event_processing_lock:
-            try:
-                await self.reset_analog_controls()
-            except Exception:
-                log.exception("Failed to reset analog controls on %s", self.path)
-            try:
-                await self.reset_superkeys()
-            except Exception:
-                log.exception("Failed to reset superkeys on %s", self.path)
-            pipeline.observe_profile_trigger_end_for_held_sources(self)
-            try:
-                outputs.release_all_keys(
-                    self,
-                    evdev_mod=evdev,
-                    uinput_writer=identity_uinput_writer,
-                )
-            except Exception:
-                log.exception("Failed to release generated outputs on %s", self.path)
-            self.state.held_source_keys.clear()
-            self.state.held_source_actions.clear()
-            self.state.combo_passthrough_held.clear()
-            self.state.combo_recalled_bindings.clear()
+        await self.cancel_inflight_actions()
+        try:
+            await self.reset_analog_controls()
+        except Exception:
+            log.exception("Failed to reset analog controls on %s", self.path)
+        try:
+            await self.reset_superkeys()
+        except Exception:
+            log.exception("Failed to reset superkeys on %s", self.path)
+        pipeline.observe_profile_trigger_end_for_held_sources(self)
+        try:
+            outputs.release_all_keys(
+                self,
+                evdev_mod=evdev,
+                uinput_writer=identity_uinput_writer,
+            )
+        except Exception:
+            log.exception("Failed to release generated outputs on %s", self.path)
+        self.state.held_source_keys.clear()
+        self.state.held_source_actions.clear()
+        self.state.combo_passthrough_held.clear()
+        self.state.combo_recalled_bindings.clear()
+
+    def fire_and_observe(
+        self,
+        coro: Awaitable[object],
+        label: str,
+    ) -> asyncio.Task[object]:
+        """Launch and track action work that can outlive one input event."""
+
+        task = pipeline.fire_and_observe(coro, label)
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+        return task
+
+    async def cancel_inflight_actions(self) -> None:
+        """Cancel current event handling and detached action work."""
+
+        tasks: list[asyncio.Task[object]] = []
+        current_event_task = self.current_event_task
+        if current_event_task is not None:
+            tasks.append(cast(asyncio.Task[object], current_event_task))
+        tasks.extend(self.background_tasks)
+        self.background_tasks.clear()
+        current_task = asyncio.current_task()
+        tasks = list(dict.fromkeys(task for task in tasks if task is not current_task))
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _start_force_feedback_proxy(self) -> None:
         if self.uinput is None or self.device is None:

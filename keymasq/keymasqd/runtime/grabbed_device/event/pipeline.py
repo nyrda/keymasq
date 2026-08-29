@@ -106,28 +106,44 @@ async def event_loop(
     device = device_runtime.device
     if device is None:
         return
-    deps = build_event_processing_deps(log=log)
+    deps = build_event_processing_deps(
+        log=log,
+        fire_and_observe_fn=device_runtime.fire_and_observe,
+    )
+
+    async def process_one_event(event: InputEventLike) -> None:
+        nonlocal error_backoff
+        try:
+            await process_event(device_runtime, event, deps=deps)
+            error_backoff = 0.01
+        except Exception:
+            if device_runtime.running:
+                await recover_from_event_processing_error(device_runtime)
+                log.exception(
+                    "Event processing error on %s (backoff %.3fs)",
+                    device_runtime.path,
+                    error_backoff,
+                )
+                await asyncio_mod.sleep(error_backoff)
+                error_backoff = min(0.5, error_backoff * 2)
 
     try:
         async for event in device.async_read_loop():
             if not device_runtime.running:
                 break
-            async with device_runtime.event_processing_lock:
-                if device_runtime.input_suspended:
+            if device_runtime.input_suspended:
+                continue
+            processing_task = asyncio_mod.create_task(process_one_event(event))
+            device_runtime.current_event_task = processing_task
+            try:
+                await processing_task
+            except asyncio.CancelledError:
+                if device_runtime.running and device_runtime.input_suspended:
                     continue
-                try:
-                    await process_event(device_runtime, event, deps=deps)
-                    error_backoff = 0.01
-                except Exception:
-                    if device_runtime.running:
-                        await recover_from_event_processing_error(device_runtime)
-                        log.exception(
-                            "Event processing error on %s (backoff %.3fs)",
-                            device_runtime.path,
-                            error_backoff,
-                        )
-                        await asyncio_mod.sleep(error_backoff)
-                        error_backoff = min(0.5, error_backoff * 2)
+                raise
+            finally:
+                if device_runtime.current_event_task is processing_task:
+                    device_runtime.current_event_task = None
     except asyncio.CancelledError:
         pass
     except OSError as exc:

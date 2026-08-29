@@ -180,7 +180,6 @@ class LogindSleepCoordinator:
                 continue
 
             self._resume_pending = True
-            await self._try_rearm_inhibitor_once()
             if self._inhibitor_fd is not None:
                 await self._resume_input_if_ready()
             else:

@@ -134,6 +134,13 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
     prepare = AsyncMock()
     resume = AsyncMock()
     rearm_started = asyncio.Event()
+    second_prepare_started = asyncio.Event()
+
+    async def prepare_for_sleep() -> None:
+        if prepare.await_count == 2:
+            second_prepare_started.set()
+
+    prepare.side_effect = prepare_for_sleep
 
     async def inhibit(*args: str) -> int:
         manager.inhibit_calls.append(args)
@@ -148,7 +155,7 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
         prepare,
         resume,
         bus_factory=lambda: bus,
-        setup_timeout_s=0.01,
+        setup_timeout_s=1,
     )
 
     assert await coordinator.start() is True
@@ -156,10 +163,9 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
     await _flush_worker()
     manager.emit(False)
     await rearm_started.wait()
-    await asyncio.sleep(0.02)
 
     manager.emit(True)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(second_prepare_started.wait(), timeout=0.25)
 
     assert prepare.await_count == 2
     resume.assert_not_awaited()

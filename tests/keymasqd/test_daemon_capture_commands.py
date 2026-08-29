@@ -1040,6 +1040,8 @@ async def test_start_offloads_macro_store_prep_to_thread(
     device_manager.shutdown_output_devices.assert_called_once()
     device_manager.start_topology_watcher.assert_awaited_once()
     device_manager.stop_topology_watcher.assert_awaited_once()
+    daemon.sleep_coordinator.start.assert_awaited_once()
+    daemon.sleep_coordinator.stop.assert_awaited_once()
     assert device_manager.broadcast_callback == fake_socket_server.broadcast_event
     assert recording_manager.broadcast_callback == fake_socket_server.broadcast_event
     assert recording_manager.macro_recording_time_limit == 23
@@ -1093,6 +1095,7 @@ async def test_stop_lets_socket_server_own_socket_path_cleanup(
 
     await daemon.stop()
 
+    daemon.sleep_coordinator.stop.assert_awaited_once()
     socket_server.stop.assert_awaited_once()
     cleanup_socket_path.assert_not_called()
     recording_manager.abort.assert_awaited_once()

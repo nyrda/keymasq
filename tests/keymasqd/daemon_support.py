@@ -39,6 +39,9 @@ def make_daemon_testbed(monkeypatch):
         grabbed_devices={},
         play_macro=AsyncMock(return_value={"played": True}),
         cancel_macro_playback=AsyncMock(return_value={"canceled": True}),
+        cancel_macro_playback_and_release_outputs=AsyncMock(
+            return_value={"canceled": True}
+        ),
         emergency_reset=AsyncMock(return_value={"reset": True}),
         set_diagnostics=AsyncMock(return_value={"status": "ok"}),
         start_device_inspector=AsyncMock(return_value={"status": "ok", "active": True}),
@@ -106,6 +109,10 @@ def make_daemon_testbed(monkeypatch):
     monkeypatch.setattr(daemon, "CaptureManager", lambda: capture_manager)
 
     daemon_instance = daemon.Daemon()
+    daemon_instance.sleep_coordinator = SimpleNamespace(
+        start=AsyncMock(return_value=True),
+        stop=AsyncMock(return_value=None),
+    )
     return daemon_instance, device_manager, recording_manager, macro_store, capture_manager
 
 

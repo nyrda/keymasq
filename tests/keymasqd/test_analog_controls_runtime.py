@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import evdev
 import pytest
@@ -16,6 +17,7 @@ from keymasq.common.model.analog import (
 from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
+from keymasq.keymasqd.runtime.analog import reset as analog_reset
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.curves import (
     normalize_axis_value,
@@ -2019,3 +2021,39 @@ async def test_reset_analog_controls_releases_threshold_after_mapping_removed() 
     await reset_analog_controls(runtime, deps=_deps())
 
     assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+
+@pytest.mark.asyncio
+async def test_suspend_analog_reset_skips_threshold_release_transitions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    threshold = AnalogActionThreshold(
+        axis="x",
+        trigger_min=0.65,
+        trigger_max=1.0,
+        release_min=0.55,
+        release_max=1.0,
+        actions=[MappingAction(action_type=ActionType.EXEC, exec_ref=7)],
+    )
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Test",
+                thresholds=[threshold],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, FakeUInput())
+    runtime.state.analog_active_thresholds["left_stick"] = {"left_stick:0"}
+    release_actions = AsyncMock()
+    monkeypatch.setattr(analog_reset, "release_threshold_actions", release_actions)
+
+    await reset_analog_controls(
+        runtime,
+        deps=_deps(),
+        release_threshold_transitions=False,
+    )
+
+    release_actions.assert_not_awaited()
+    assert runtime.state.analog_active_thresholds == {}

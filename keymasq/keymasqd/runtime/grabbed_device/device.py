@@ -457,6 +457,15 @@ class GrabbedDevice:
             preserve_state_keys=preserve_state_keys,
         )
 
+    async def neutralize_analog_controls(self) -> None:
+        """Discard active analog gestures without emitting release actions."""
+
+        await reset_analog_controls(
+            self,
+            deps=pipeline.build_action_execution_deps(),
+            release_threshold_transitions=False,
+        )
+
     async def _cleanup_failed_grab(self) -> None:
         await self._stop_force_feedback_proxy()
         uinput = self.uinput
@@ -569,32 +578,35 @@ class GrabbedDevice:
                     ff_max_effects = 0
                     self.uinput = make_passthrough_uinput(ff_max_effects)
 
-            if not self.input_suspended:
-                key_clear_task = adapters.ASYNCIO_RUNTIME.create_task(
-                    grab.wait_for_active_keys_to_clear(
-                        self,
-                        asyncio_mod=adapters.ASYNCIO_RUNTIME,
-                        time_mod=time,
-                        log=log,
-                        active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                        active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
-                    )
+            if self.input_suspended:
+                raise grab.GrabInterruptedForSleepError(
+                    f"Grab of {self.path} interrupted before suspend"
                 )
-                self.pending_key_clear_task = key_clear_task
-                try:
-                    await key_clear_task
-                except asyncio.CancelledError:
-                    current_task = asyncio.current_task()
-                    if not self.input_suspended or (
-                        current_task is not None and current_task.cancelling()
-                    ):
-                        raise
-                    raise grab.GrabInterruptedForSleepError(
-                        f"Grab of {self.path} interrupted before suspend"
-                    ) from None
-                finally:
-                    if self.pending_key_clear_task is key_clear_task:
-                        self.pending_key_clear_task = None
+            key_clear_task = adapters.ASYNCIO_RUNTIME.create_task(
+                grab.wait_for_active_keys_to_clear(
+                    self,
+                    asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                    time_mod=time,
+                    log=log,
+                    active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                    active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                )
+            )
+            self.pending_key_clear_task = key_clear_task
+            try:
+                await key_clear_task
+            except asyncio.CancelledError:
+                current_task = asyncio.current_task()
+                if not self.input_suspended or (
+                    current_task is not None and current_task.cancelling()
+                ):
+                    raise
+                raise grab.GrabInterruptedForSleepError(
+                    f"Grab of {self.path} interrupted before suspend"
+                ) from None
+            finally:
+                if self.pending_key_clear_task is key_clear_task:
+                    self.pending_key_clear_task = None
             self.device.grab()
             if is_gamepad_passthrough:
                 self.source_hidden_kernel_names = []
@@ -684,23 +696,35 @@ class GrabbedDevice:
     async def neutralize_runtime_state(self) -> None:
         """Release generated state without dropping the physical device grab."""
 
-        await self._clear_runtime_state(neutralize_superkeys=True)
+        await self._clear_runtime_state(neutralize=True)
 
     async def reset_runtime_state(self) -> None:
         """Release runtime state using normal input-release semantics."""
 
-        await self._clear_runtime_state(neutralize_superkeys=False)
+        await self._clear_runtime_state(neutralize=False)
 
-    async def _clear_runtime_state(self, *, neutralize_superkeys: bool) -> None:
+    async def _clear_runtime_state(self, *, neutralize: bool) -> None:
         """Cancel runtime work and release every generated output."""
 
         await self.cancel_inflight_actions()
+        if neutralize:
+            try:
+                outputs.flush_passthrough_frame(
+                    self,
+                    self.uinput,
+                    uinput_writer=identity_uinput_writer,
+                )
+            except Exception:
+                log.exception("Failed to flush passthrough input on %s", self.path)
         try:
-            await self.reset_analog_controls()
+            if neutralize:
+                await self.neutralize_analog_controls()
+            else:
+                await self.reset_analog_controls()
         except Exception:
             log.exception("Failed to reset analog controls on %s", self.path)
         try:
-            if neutralize_superkeys:
+            if neutralize:
                 await self.neutralize_superkeys()
             else:
                 await self.reset_superkeys()

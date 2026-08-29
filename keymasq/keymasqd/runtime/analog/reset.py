@@ -26,6 +26,7 @@ async def reset_analog_controls(
     *,
     deps: ActionExecutionDeps,
     preserve_state_keys: set[str] | None = None,
+    release_threshold_transitions: bool = True,
 ) -> None:
     preserved = set(preserve_state_keys or ())
     mapping = device_runtime.mapping_getter()
@@ -39,29 +40,30 @@ async def reset_analog_controls(
             )
 
     reset_recorded_gamepad_outputs(device_runtime, deps=deps, preserved=preserved)
-    for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
-        if state_key in preserved:
-            continue
-        state_config = state_configs.get(state_key)
-        config = state_config[1] if state_config is not None else None
-        for key in list(active):
-            index = threshold_index(key)
-            actions = device_runtime.state.analog_active_threshold_actions.get(key)
-            threshold = (
-                config.thresholds[index]
-                if config is not None and index is not None and index < len(config.thresholds)
-                else None
-            )
-            if index is None or (threshold is None and actions is None):
+    if release_threshold_transitions:
+        for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
+            if state_key in preserved:
                 continue
-            await release_threshold_actions(
-                device_runtime,
-                state_key,
-                index,
-                threshold,
-                deps=deps,
-                active_actions=actions,
-            )
+            state_config = state_configs.get(state_key)
+            config = state_config[1] if state_config is not None else None
+            for key in list(active):
+                index = threshold_index(key)
+                actions = device_runtime.state.analog_active_threshold_actions.get(key)
+                threshold = (
+                    config.thresholds[index]
+                    if config is not None and index is not None and index < len(config.thresholds)
+                    else None
+                )
+                if index is None or (threshold is None and actions is None):
+                    continue
+                await release_threshold_actions(
+                    device_runtime,
+                    state_key,
+                    index,
+                    threshold,
+                    deps=deps,
+                    active_actions=actions,
+                )
 
     for state_key, (source_id, config) in state_configs.items():
         if state_key in preserved:

@@ -305,6 +305,25 @@ class TestRuntimeFailureCleanup:
 
 class TestSuspendCleanup:
     @pytest.mark.asyncio
+    async def test_cleanup_flushes_open_passthrough_frame(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = FakeUInput()
+        passthrough.syn = Mock()  # type: ignore[method-assign]
+        device = make_grabbed_device(
+            monkeypatch,
+            passthrough_uinput=passthrough,
+            running=True,
+        )
+        device_outputs.mark_passthrough_frame_open(device, passthrough)
+
+        await device.neutralize_runtime_state()
+
+        passthrough.syn.assert_called_once_with()
+        assert not device_outputs.passthrough_frame_open(device, passthrough)
+
+    @pytest.mark.asyncio
     async def test_cleanup_drains_inflight_event_before_global_runtime(
         self,
         monkeypatch: pytest.MonkeyPatch,

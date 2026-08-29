@@ -309,6 +309,7 @@ async def grab_one_interface(
                 interface_id,
                 probe_device,
             )
+            device.input_suspended = bool(getattr(manager, "sleep_preparing", False))
             state.devices.append(device)
             store_grabbed_devices(manager, request.hardware_id, state.devices)
             try:

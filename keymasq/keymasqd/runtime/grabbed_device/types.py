@@ -279,6 +279,12 @@ class ActionRuntime(Protocol):
 
 class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     @property
+    def input_suspended(self) -> bool: ...
+
+    @property
+    def event_processing_lock(self) -> asyncio.Lock: ...
+
+    @property
     def stable_path(self) -> str: ...
 
     @property

@@ -49,7 +49,8 @@ What they are used for:
 
 - `PyGObject`: GTK4 / libadwaita GUI
 - `dbus-next`: session D-Bus access for notifications and compositor/session
-  integrations
+  integrations, plus system D-Bus coordination with systemd-logind before
+  suspend
 - `evdev`: input device access, recording, capture, and remap runtime
 - `python-xlib`: X11 listener support, including cursor position read/write
 - `tomli-w`: writing profile, hardware, and superkey TOML files

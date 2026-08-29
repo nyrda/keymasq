@@ -37,6 +37,28 @@ from tests.keymasqd.device_manager_support import (
 
 class TestEventLoopRecovery:
     @pytest.mark.asyncio
+    async def test_suspended_event_loop_discards_input(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        device.input_suspended = True
+
+        class _FakeInputDevice:
+            async def async_read_loop(self):
+                yield SimpleNamespace(type=evdev.ecodes.EV_KEY, code=30, value=1)
+
+        process_event = AsyncMock()
+        monkeypatch.setattr(pipeline, "process_event", process_event)
+        device.device = _FakeInputDevice()  # type: ignore[assignment]
+
+        await pipeline.event_loop(
+            device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
+        )
+
+        process_event.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_event_processing_dependencies_are_reused_per_loop(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -228,6 +250,52 @@ class TestRuntimeFailureCleanup:
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0),
         ]
         assert device.state.held_output_keys["keyboard"] == set()
+
+
+class TestSuspendCleanup:
+    @pytest.mark.asyncio
+    async def test_cleanup_releases_outputs_without_dropping_grabs_or_mappings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        keyboard_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            hardware_id="cafe:0001",
+            keyboard_uinput=keyboard_uinput,
+            running=True,
+        )
+        device_outputs.write_key(
+            device,
+            keyboard_uinput,  # type: ignore[arg-type]
+            evdev.ecodes.KEY_A,
+            1,
+            evdev_mod=evdev,
+            uinput_writer=adapters.identity_uinput_writer,
+        )
+        manager = DeviceManager()
+        manager.grabbed_devices["cafe:0001"] = [device]
+        mapping = MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
+        manager.active_mappings["cafe:0001"] = {"key_a": mapping}
+        grabbed_devices = manager.grabbed_devices
+        active_mappings = manager.active_mappings
+
+        await manager.prepare_for_sleep()
+
+        assert manager.grabbed_devices is grabbed_devices
+        assert manager.grabbed_devices["cafe:0001"] == [device]
+        assert manager.active_mappings is active_mappings
+        assert manager.active_mappings["cafe:0001"] == {"key_a": mapping}
+        assert device.running is True
+        assert device.input_suspended is True
+        assert keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+
+        await manager.resume_from_sleep()
+
+        assert device.input_suspended is False
 
     @pytest.mark.asyncio
     async def test_event_processing_error_resets_analog_controls(

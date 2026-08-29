@@ -343,6 +343,8 @@ class GrabbedDevice:
         self.repeat_state = repeat_state if repeat_state is not None else RepeatRuntimeState()
         self.task: asyncio.Task[None] | None = None
         self.running = False
+        self.input_suspended = False
+        self.event_processing_lock = asyncio.Lock()
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
         self.state = GrabbedDeviceState()
@@ -616,18 +618,7 @@ class GrabbedDevice:
 
     async def release(self) -> None:
         await self.stop_event_loop()
-        await self.reset_analog_controls()
-        await self.reset_superkeys()
-        pipeline.observe_profile_trigger_end_for_held_sources(self)
-        outputs.release_all_keys(
-            self,
-            evdev_mod=evdev,
-            uinput_writer=identity_uinput_writer,
-        )
-        self.state.held_source_keys.clear()
-        self.state.held_source_actions.clear()
-        self.state.combo_passthrough_held.clear()
-        self.state.combo_recalled_bindings.clear()
+        await self.neutralize_runtime_state()
 
         await self._stop_force_feedback_proxy()
 
@@ -664,6 +655,32 @@ class GrabbedDevice:
                 log.exception("Unexpected failure restoring hidden source for %s", self.path)
 
         log.info("Released %s", self.path)
+
+    async def neutralize_runtime_state(self) -> None:
+        """Release generated state without dropping the physical device grab."""
+
+        async with self.event_processing_lock:
+            try:
+                await self.reset_analog_controls()
+            except Exception:
+                log.exception("Failed to reset analog controls on %s", self.path)
+            try:
+                await self.reset_superkeys()
+            except Exception:
+                log.exception("Failed to reset superkeys on %s", self.path)
+            pipeline.observe_profile_trigger_end_for_held_sources(self)
+            try:
+                outputs.release_all_keys(
+                    self,
+                    evdev_mod=evdev,
+                    uinput_writer=identity_uinput_writer,
+                )
+            except Exception:
+                log.exception("Failed to release generated outputs on %s", self.path)
+            self.state.held_source_keys.clear()
+            self.state.held_source_actions.clear()
+            self.state.combo_passthrough_held.clear()
+            self.state.combo_recalled_bindings.clear()
 
     def _start_force_feedback_proxy(self) -> None:
         if self.uinput is None or self.device is None:

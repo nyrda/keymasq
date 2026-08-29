@@ -170,6 +170,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self.macro_exec_timeout_max_ms = 30000
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
+        self.sleep_preparing = False
         self._initialize_cursor_runtime()
         self._diagnostics = diagnostics.DiagnosticsRuntime(log)
         self.diagnostics_state = self._diagnostics.state
@@ -336,6 +337,53 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         async with self._op_lock:
             self.device_inspector_state.reset()
             await self._refresh_combo_runtime()
+
+    async def prepare_for_sleep(self) -> None:
+        """Neutralize active input state while retaining grabs and mappings."""
+
+        self.sleep_preparing = True
+        for devices in self.grabbed_devices.values():
+            for device in devices:
+                device.input_suspended = True
+
+        async with self._op_lock:
+            devices = [
+                device
+                for hardware_devices in self.grabbed_devices.values()
+                for device in hardware_devices
+            ]
+            for device in devices:
+                device.input_suspended = True
+
+            try:
+                await self.cancel_macro_playback()
+            except Exception:
+                log.exception("Failed to cancel macros before suspend")
+            try:
+                await lifecycle.clear_combo_runtime(
+                    self,
+                    deps=support.combo_runtime_deps(
+                        fire_and_observe_fn=fire_and_observe,
+                    ),
+                )
+            except Exception:
+                log.exception("Failed to clear combo runtime before suspend")
+            for device in devices:
+                await device.neutralize_runtime_state()
+
+            self.repeat_state.history.clear()
+            self.profile_activation_tracker.reset()
+        log.info("Neutralized active input state before suspend")
+
+    async def resume_from_sleep(self) -> None:
+        """Allow retained grabbed devices to process input again."""
+
+        async with self._op_lock:
+            self.sleep_preparing = False
+            for devices in self.grabbed_devices.values():
+                for device in devices:
+                    device.input_suspended = False
+        log.info("Resumed input processing after suspend")
 
     async def emergency_reset(self) -> JsonObject:
         await self.release_all_devices()

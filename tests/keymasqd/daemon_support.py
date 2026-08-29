@@ -54,6 +54,8 @@ def make_daemon_testbed(monkeypatch):
         shutdown_output_devices=Mock(return_value=None),
         start_topology_watcher=AsyncMock(return_value=None),
         stop_topology_watcher=AsyncMock(return_value=None),
+        prepare_for_sleep=AsyncMock(return_value=None),
+        resume_from_sleep=AsyncMock(return_value=None),
         release_all_devices=AsyncMock(return_value=None),
     )
     recording_manager = SimpleNamespace(
@@ -104,6 +106,15 @@ def make_daemon_testbed(monkeypatch):
     monkeypatch.setattr(daemon, "RecordingManager", lambda: recording_manager)
     monkeypatch.setattr(daemon, "MacroStore", lambda _path: macro_store)
     monkeypatch.setattr(daemon, "CaptureManager", lambda: capture_manager)
+    sleep_coordinator = SimpleNamespace(
+        start=AsyncMock(return_value=True),
+        stop=AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        daemon,
+        "LogindSleepCoordinator",
+        lambda _prepare, _resume: sleep_coordinator,
+    )
 
     daemon_instance = daemon.Daemon()
     return daemon_instance, device_manager, recording_manager, macro_store, capture_manager

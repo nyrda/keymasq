@@ -15,7 +15,11 @@ log = logging.getLogger("keymasqd.sleep")
 LOGIN1_SERVICE = "org.freedesktop.login1"
 LOGIN1_PATH = "/org/freedesktop/login1"
 LOGIN1_MANAGER = "org.freedesktop.login1.Manager"
+DBUS_SERVICE = "org.freedesktop.DBus"
+DBUS_PATH = "/org/freedesktop/DBus"
+DBUS_INTERFACE = "org.freedesktop.DBus"
 SETUP_TIMEOUT_S = 2.0
+RECONNECT_DELAY_S = 1.0
 
 type AsyncCallback = Callable[[], Awaitable[object]]
 type SyncCallback = Callable[[], object]
@@ -49,10 +53,14 @@ class LogindSleepCoordinator:
         self._close_fd = close_fd
         self._bus: Any | None = None
         self._manager: Any | None = None
+        self._dbus_manager: Any | None = None
         self._inhibitor_fd: int | None = None
         self._events: asyncio.Queue[bool | None] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
+        self._connection_supervisor: asyncio.Task[None] | None = None
+        self._connection_refresh = asyncio.Event()
         self._subscribed = False
+        self._dbus_subscribed = False
         self._runtime_paused = False
 
     async def start(self) -> bool:
@@ -61,17 +69,9 @@ class LogindSleepCoordinator:
         if self._bus is not None:
             return True
 
+        self._connection_refresh.clear()
         try:
-            async with asyncio.timeout(SETUP_TIMEOUT_S):
-                bus = await self._bus_factory().connect()
-                self._bus = bus
-                introspection = await bus.introspect(LOGIN1_SERVICE, LOGIN1_PATH)
-                proxy = bus.get_proxy_object(LOGIN1_SERVICE, LOGIN1_PATH, introspection)
-                manager = proxy.get_interface(LOGIN1_MANAGER)
-                self._manager = manager
-                manager.on_prepare_for_sleep(self._on_prepare_for_sleep)
-                self._subscribed = True
-                await self._acquire_inhibitor()
+            await self._connect()
         except Exception as exc:  # noqa: BLE001 - logind integration is optional.
             log.warning(
                 "systemd-logind sleep notification is unavailable; "
@@ -82,10 +82,21 @@ class LogindSleepCoordinator:
             return False
 
         self._worker = asyncio.create_task(self._run(), name="keymasqd-logind-sleep")
+        self._connection_supervisor = asyncio.create_task(
+            self._supervise_connection(),
+            name="keymasqd-logind-connection",
+        )
         log.info("Enabled systemd-logind pre-suspend cleanup")
         return True
 
     async def stop(self) -> None:
+        supervisor = self._connection_supervisor
+        self._connection_supervisor = None
+        if supervisor is not None:
+            supervisor.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await supervisor
+
         self._unsubscribe()
         worker = self._worker
         self._worker = None
@@ -131,6 +142,80 @@ class LogindSleepCoordinator:
                 await self._acquire_inhibitor()
             except Exception:
                 log.exception("Failed to reacquire the logind sleep inhibitor after resume")
+
+    async def _connect(self) -> None:
+        async with asyncio.timeout(SETUP_TIMEOUT_S):
+            bus = await self._bus_factory().connect()
+            self._bus = bus
+
+            dbus_introspection = await bus.introspect(DBUS_SERVICE, DBUS_PATH)
+            dbus_proxy = bus.get_proxy_object(
+                DBUS_SERVICE,
+                DBUS_PATH,
+                dbus_introspection,
+            )
+            dbus_manager = dbus_proxy.get_interface(DBUS_INTERFACE)
+            self._dbus_manager = dbus_manager
+            dbus_manager.on_name_owner_changed(self._on_name_owner_changed)
+            self._dbus_subscribed = True
+
+            introspection = await bus.introspect(LOGIN1_SERVICE, LOGIN1_PATH)
+            proxy = bus.get_proxy_object(LOGIN1_SERVICE, LOGIN1_PATH, introspection)
+            manager = proxy.get_interface(LOGIN1_MANAGER)
+            self._manager = manager
+            manager.on_prepare_for_sleep(self._on_prepare_for_sleep)
+            self._subscribed = True
+            await self._acquire_inhibitor()
+
+    async def _supervise_connection(self) -> None:
+        while True:
+            bus = self._bus
+            if bus is None:
+                return
+
+            waiters = (
+                asyncio.create_task(self._connection_refresh.wait()),
+                asyncio.create_task(bus.wait_for_disconnect()),
+            )
+            try:
+                await asyncio.wait(
+                    waiters,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for waiter in waiters:
+                    waiter.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
+
+            self._connection_refresh.clear()
+            self._events.put_nowait(False)
+            await self._close_connection()
+
+            while True:
+                try:
+                    await self._connect()
+                except Exception as exc:  # noqa: BLE001 - retry runtime connection loss.
+                    log.warning(
+                        "Failed to restore systemd-logind sleep coordination; "
+                        "retrying in %.1fs: %s",
+                        RECONNECT_DELAY_S,
+                        exc,
+                    )
+                    await self._close_connection()
+                    await asyncio.sleep(RECONNECT_DELAY_S)
+                    continue
+
+                log.info("Restored systemd-logind sleep coordination")
+                break
+
+    def _on_name_owner_changed(
+        self,
+        name: str,
+        old_owner: str,
+        new_owner: str,
+    ) -> None:
+        if name == LOGIN1_SERVICE and old_owner != new_owner:
+            self._connection_refresh.set()
 
     def _pause_runtime_safely(self) -> None:
         if self._runtime_paused:
@@ -178,6 +263,7 @@ class LogindSleepCoordinator:
     async def _close_connection(self) -> None:
         self._unsubscribe()
         self._manager = None
+        self._dbus_manager = None
         self._release_inhibitor()
 
         bus = self._bus
@@ -192,3 +278,9 @@ class LogindSleepCoordinator:
             with contextlib.suppress(Exception):
                 manager.off_prepare_for_sleep(self._on_prepare_for_sleep)
         self._subscribed = False
+
+        dbus_manager = self._dbus_manager
+        if dbus_manager is not None and self._dbus_subscribed:
+            with contextlib.suppress(Exception):
+                dbus_manager.off_name_owner_changed(self._on_name_owner_changed)
+        self._dbus_subscribed = False

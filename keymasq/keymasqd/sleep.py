@@ -80,9 +80,14 @@ class LogindSleepCoordinator:
     async def start(self) -> bool:
         """Connect to logind, returning false when it is unavailable."""
 
+        self._stopping = False
+        return await self._start_connection()
+
+    async def _start_connection(self) -> bool:
+        if self._stopping:
+            return False
         if self._bus is not None:
             return True
-        self._stopping = False
 
         try:
             async with asyncio.timeout(self._setup_timeout_s):
@@ -109,9 +114,14 @@ class LogindSleepCoordinator:
             )
             await self._close_connection()
             self._discard_queued_events()
-            self._start_setup_retry()
+            if not self._stopping:
+                self._start_setup_retry()
             return False
 
+        if self._stopping:
+            await self._close_connection()
+            self._discard_queued_events()
+            return False
         log.info("Enabled systemd-logind pre-suspend cleanup")
         return True
 
@@ -136,6 +146,8 @@ class LogindSleepCoordinator:
                 self._events.get_nowait()
 
     def _start_setup_retry(self) -> None:
+        if self._stopping:
+            return
         task = self._setup_retry_task
         if task is not None and not task.done():
             return
@@ -156,9 +168,11 @@ class LogindSleepCoordinator:
     async def _retry_setup_until_ready(self) -> None:
         retry_s = self._rearm_retry_s
         try:
-            while self._bus is None:
+            while self._bus is None and not self._stopping:
                 await asyncio.sleep(retry_s)
-                if await self.start():
+                if self._stopping:
+                    return
+                if await self._start_connection():
                     return
                 retry_s = min(30.0, max(0.1, retry_s * 2.0))
         finally:

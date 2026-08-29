@@ -358,6 +358,37 @@ class TestSuspendCleanup:
 
         machine.cancel_pending_gesture_timers.assert_awaited_once_with()
 
+    @pytest.mark.asyncio
+    async def test_cleanup_snapshots_superkeys_before_cancelling_timers(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        manager.grabbed_devices["1234:5678"] = [device]
+        added_machine = SimpleNamespace(
+            cancel_pending_gesture_timers=AsyncMock(),
+            neutralize=AsyncMock(),
+        )
+
+        async def add_machine_during_cancel() -> None:
+            device.state.superkey_machines["key_b"] = added_machine  # type: ignore[assignment]
+
+        original_machine = SimpleNamespace(
+            cancel_pending_gesture_timers=AsyncMock(
+                side_effect=add_machine_during_cancel
+            ),
+            neutralize=AsyncMock(),
+        )
+        device.state.superkey_machines["key_a"] = original_machine  # type: ignore[assignment]
+
+        await manager.prepare_for_sleep()
+
+        original_machine.cancel_pending_gesture_timers.assert_awaited_once_with()
+        added_machine.cancel_pending_gesture_timers.assert_not_awaited()
+        original_machine.neutralize.assert_awaited_once_with()
+        added_machine.neutralize.assert_awaited_once_with()
+
     def test_resume_suppresses_orphaned_release_until_fresh_press(
         self,
         monkeypatch: pytest.MonkeyPatch,

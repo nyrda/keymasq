@@ -482,3 +482,39 @@ async def test_logind_setup_timeout_does_not_prevent_daemon_start() -> None:
     assert await coordinator.start() is False
     assert bus.disconnected is True
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_after_stop_does_not_restart_coordination() -> None:
+    connect_started = asyncio.Event()
+    release_connect = asyncio.Event()
+    attempts = 0
+
+    class _LateFailingBus:
+        async def connect(self):
+            nonlocal attempts
+            attempts += 1
+            connect_started.set()
+            try:
+                await release_connect.wait()
+            except asyncio.CancelledError:
+                await release_connect.wait()
+            raise OSError("late system bus failure")
+
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=_LateFailingBus,
+        rearm_retry_s=0,
+    )
+
+    start_task = asyncio.create_task(coordinator.start())
+    await asyncio.wait_for(connect_started.wait(), timeout=0.25)
+    await coordinator.stop()
+    release_connect.set()
+
+    assert await start_task is False
+    await _flush_worker()
+    assert attempts == 1
+    assert coordinator._setup_retry_task is None
+    assert coordinator._bus is None

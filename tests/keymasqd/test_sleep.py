@@ -140,3 +140,31 @@ async def test_logind_unavailable_does_not_prevent_daemon_start() -> None:
 
     assert await coordinator.start() is False
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_logind_setup_timeout_does_not_prevent_daemon_start() -> None:
+    class _UnresponsiveBus:
+        def __init__(self) -> None:
+            self.disconnected = False
+
+        async def connect(self):
+            return self
+
+        async def introspect(self, _service: str, _path: str):
+            await asyncio.Event().wait()
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    bus = _UnresponsiveBus()
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: bus,
+        setup_timeout_s=0.01,
+    )
+
+    assert await coordinator.start() is False
+    assert bus.disconnected is True
+    await coordinator.stop()

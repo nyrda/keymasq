@@ -2,10 +2,14 @@
 
 import contextlib
 import time
+from typing import cast
 
+from keymasq.keymasqd.runtime.action.state import cancel_action_tasks
 from keymasq.keymasqd.runtime.combo.actions import stop_combo_action
 from keymasq.keymasqd.runtime.combo.recall import binding_matches_scope
 from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
+from keymasq.keymasqd.runtime.grabbed_device import outputs
+from keymasq.keymasqd.runtime.grabbed_device.types import EvdevModule
 
 
 async def clear_combo_runtime(
@@ -35,6 +39,63 @@ async def clear_combo_runtime_unlocked(
         await machine.stop()
     _clear_tracked_outputs(manager)
     await _cancel_timeout_watchdog(manager, deps=deps)
+
+
+async def neutralize_combo_runtime(
+    manager: ComboManager,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    """Discard combo state without applying user-facing release actions."""
+
+    async with manager.combo_state.transition_lock:
+        async with manager.combo_state.runtime_lock:
+            manager.combo_state.progression.engine.reset()
+            states = list(manager.combo_state.active_actions.values())
+            manager.combo_state.active_actions.clear()
+
+            trigger_end_observer = getattr(manager, "observe_profile_trigger_end", None)
+            if callable(trigger_end_observer):
+                from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
+
+                for state in states:
+                    if state.trigger_binding is not None:
+                        trigger_end_observer(
+                            source_trigger_id(
+                                state.trigger_binding.hardware_id,
+                                str(state.source_button or "combo"),
+                            )
+                        )
+
+            for state in states:
+                runtime = state.action_runtime
+                if runtime is None:
+                    continue
+                runtime.stop()
+                await cancel_action_tasks(state.execution_handle)
+                rapidfire_tasks = list(runtime.state.rapidfire_tasks.values())
+                for task in rapidfire_tasks:
+                    if not task.done():
+                        task.cancel()
+                if rapidfire_tasks:
+                    await deps.asyncio_mod.gather(
+                        *rapidfire_tasks,
+                        return_exceptions=True,
+                    )
+                outputs.release_all_keys(
+                    runtime,
+                    evdev_mod=cast(EvdevModule, deps.evdev_mod),
+                    uinput_writer=deps.uinput_writer,
+                )
+
+            machines = list(manager.combo_state.superkey_machines.values())
+            manager.combo_state.superkey_machines.clear()
+            manager.combo_state.superkey_machine_bindings.clear()
+            for machine in dict.fromkeys(machines):
+                await machine.neutralize()
+
+            _clear_tracked_outputs(manager)
+            await _cancel_timeout_watchdog(manager, deps=deps)
 
 
 async def clear_combo_runtime_except(

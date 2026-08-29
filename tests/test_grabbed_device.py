@@ -127,6 +127,56 @@ async def test_grab_failure_closes_opened_input_device(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_suspend_bypasses_pending_active_key_wait(monkeypatch) -> None:
+    fake_device = SimpleNamespace(
+        name="fake input",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=MagicMock(
+            return_value={
+                evdev.ecodes.EV_SYN: [],
+                evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A],
+            }
+        ),
+        close=MagicMock(),
+        grab=MagicMock(),
+    )
+    wait_started = asyncio.Event()
+
+    async def wait_forever(*_args, **_kwargs) -> None:
+        wait_started.set()
+        await asyncio.Event().wait()
+
+    async def finished_event_loop(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda _path: fake_device)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", lambda **_kwargs: MagicMock())
+    monkeypatch.setattr(
+        grabbed_device.grab,
+        "wait_for_active_keys_to_clear",
+        wait_forever,
+    )
+    monkeypatch.setattr(grabbed_device.pipeline, "event_loop", finished_event_loop)
+    grabbed = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+    grab_task = asyncio.create_task(grabbed.grab())
+    await wait_started.wait()
+
+    grabbed.input_suspended = True
+    await grabbed.cancel_inflight_actions()
+    await grab_task
+
+    fake_device.grab.assert_called_once_with()
+    assert grabbed.running is True
+    assert grabbed.pending_key_clear_task is None
+
+
+@pytest.mark.asyncio
 async def test_grab_failure_closes_input_device_when_passthrough_creation_fails(
     monkeypatch,
 ):

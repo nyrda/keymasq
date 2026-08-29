@@ -345,6 +345,7 @@ class GrabbedDevice:
         self.running = False
         self.input_suspended = False
         self.current_event_task: asyncio.Task[None] | None = None
+        self.pending_key_clear_task: asyncio.Task[None] | None = None
         self.background_tasks: set[asyncio.Task[object]] = set()
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
@@ -439,6 +440,11 @@ class GrabbedDevice:
     async def reset_superkeys(self) -> None:
         for machine in self.state.superkey_machines.values():
             await machine.stop()
+        self.state.superkey_machines.clear()
+
+    async def neutralize_superkeys(self) -> None:
+        for machine in self.state.superkey_machines.values():
+            await machine.neutralize()
         self.state.superkey_machines.clear()
 
     async def reset_analog_controls(
@@ -563,14 +569,30 @@ class GrabbedDevice:
                     ff_max_effects = 0
                     self.uinput = make_passthrough_uinput(ff_max_effects)
 
-            await grab.wait_for_active_keys_to_clear(
-                self,
-                asyncio_mod=adapters.ASYNCIO_RUNTIME,
-                time_mod=time,
-                log=log,
-                active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
-                active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
-            )
+            if not self.input_suspended:
+                key_clear_task = adapters.ASYNCIO_RUNTIME.create_task(
+                    grab.wait_for_active_keys_to_clear(
+                        self,
+                        asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                        time_mod=time,
+                        log=log,
+                        active_key_idle_max_wait_s=ACTIVE_KEY_IDLE_MAX_WAIT_S,
+                        active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
+                    )
+                )
+                self.pending_key_clear_task = key_clear_task
+                try:
+                    await key_clear_task
+                except asyncio.CancelledError:
+                    current_task = asyncio.current_task()
+                    if not self.input_suspended or (
+                        current_task is not None and current_task.cancelling()
+                    ):
+                        raise
+                    log.info("Bypassing active-key wait for suspend on %s", self.path)
+                finally:
+                    if self.pending_key_clear_task is key_clear_task:
+                        self.pending_key_clear_task = None
             self.device.grab()
             if is_gamepad_passthrough:
                 self.source_hidden_kernel_names = []
@@ -666,7 +688,7 @@ class GrabbedDevice:
         except Exception:
             log.exception("Failed to reset analog controls on %s", self.path)
         try:
-            await self.reset_superkeys()
+            await self.neutralize_superkeys()
         except Exception:
             log.exception("Failed to reset superkeys on %s", self.path)
         pipeline.observe_profile_trigger_end_for_held_sources(self)
@@ -702,6 +724,9 @@ class GrabbedDevice:
         current_event_task = self.current_event_task
         if current_event_task is not None:
             tasks.append(cast(asyncio.Task[object], current_event_task))
+        pending_key_clear_task = self.pending_key_clear_task
+        if pending_key_clear_task is not None:
+            tasks.append(cast(asyncio.Task[object], pending_key_clear_task))
         tasks.extend(self.background_tasks)
         self.background_tasks.clear()
         current_task = asyncio.current_task()

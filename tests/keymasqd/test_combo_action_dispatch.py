@@ -505,6 +505,75 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
         ]
 
+    @pytest.mark.asyncio
+    async def test_suspend_neutralization_skips_split_overload_up_actions(self) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FakeUInput()
+        binding = RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-suspend-overload",
+                mode=SuperkeyMode.OVERLOAD,
+                overload_actions=[
+                    MappingAction(action_type=ActionType.KEYBOARD, target="key_leftctrl"),
+                ],
+                overload_down_actions=[
+                    MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+                ],
+                overload_up_actions=[
+                    MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                ],
+            ),
+        )
+
+        await actions.start_combo_action(
+            manager,
+            "combo-suspend-overload",
+            action,
+            binding,
+            (binding,),
+            deps=combo_runtime_deps(),
+        )
+        await lifecycle.neutralize_combo_runtime(manager, deps=combo_runtime_deps())
+
+        assert manager.output_state.keyboard_uinput.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_LEFTCTRL, 0),
+        ]
+        assert manager.combo_state.active_actions == {}
+
+    @pytest.mark.asyncio
+    async def test_suspend_neutralization_does_not_turn_pending_pattern_into_tap(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FakeUInput()
+        binding = RuntimeComboBinding(hardware_id="1234:5678", source="kbd", evdev="key_a")
+        action = MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="combo-suspend-pattern",
+                mode=SuperkeyMode.PATTERN,
+                tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_b")],
+            ),
+        )
+
+        await actions.start_combo_action(
+            manager,
+            "combo-suspend-pattern",
+            action,
+            binding,
+            (binding,),
+            deps=combo_runtime_deps(),
+        )
+        await lifecycle.neutralize_combo_runtime(manager, deps=combo_runtime_deps())
+
+        assert manager.output_state.keyboard_uinput.writes == []
+        assert manager.combo_state.active_actions == {}
+
     def test_combo_overload_superkey_rejects_nested_superkey_children(
         self,
     ) -> None:

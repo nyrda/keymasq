@@ -224,6 +224,7 @@ class SuperkeyMachine:
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
         self._rapidfire_tasks: list[asyncio.Task[None]] = []
+        self._action_tasks: set[asyncio.Task[object]] = set()
         self._rapidfire_active = False
         self._running = True
         from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
@@ -260,6 +261,37 @@ class SuperkeyMachine:
             await self._emit_hold_up()
         elif self.state == SuperkeyState.TAP_HOLDING:
             await self._emit_tap_hold_up()
+        self.state = SuperkeyState.IDLE
+
+    async def neutralize(self) -> None:
+        """Stop without interpreting suspend as a user key release."""
+
+        self._running = False
+        self._press_started_at = None
+        self._action_runtime.stop()
+        self._rapidfire_active = False
+        for task in (self._hold_task, self._double_tap_task):
+            if task is not None:
+                task.cancel()
+        self._hold_task = None
+        self._double_tap_task = None
+        await self._stop_rapidfire_tasks()
+
+        tasks = list(self._action_tasks)
+        self._action_tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        from keymasq.keymasqd.runtime.grabbed_device import outputs
+
+        outputs.release_all_keys(
+            self._action_runtime,
+            evdev_mod=evdev,
+            uinput_writer=identity_uinput_writer,
+        )
         self.state = SuperkeyState.IDLE
 
     async def on_down(self) -> None:
@@ -584,6 +616,11 @@ class SuperkeyMachine:
         await started.wait()
         if self.await_action_tasks:
             await drain_action_tasks(handle)
+        else:
+            for task in handle.tasks:
+                self._action_tasks.add(task)
+                task.add_done_callback(self._action_tasks.discard)
+            handle.tasks.clear()
 
     def _child_event_name(self, action: SuperkeyActionData, index: int) -> str:
         if not action.rapidfire_enabled:

@@ -370,7 +370,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             except Exception:
                 log.exception("Failed to cancel macros before suspend")
             try:
-                await lifecycle.clear_combo_runtime(
+                await lifecycle.neutralize_combo_runtime(
                     self,
                     deps=support.combo_runtime_deps(
                         fire_and_observe_fn=fire_and_observe,

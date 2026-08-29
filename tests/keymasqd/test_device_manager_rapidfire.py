@@ -253,7 +253,11 @@ class TestRapidfireRelease:
             return monotonic_last["value"]
 
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(
+            grabbed_device,
+            "time",
+            SimpleNamespace(monotonic=fake_monotonic),
+        )
         monkeypatch.setattr(
             grab,
             "wait_for_active_key_activity",
@@ -414,7 +418,11 @@ class TestRapidfireRelease:
             return monotonic_last["value"]
 
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(
+            grabbed_device,
+            "time",
+            SimpleNamespace(monotonic=fake_monotonic),
+        )
         monkeypatch.setattr(
             grab,
             "wait_for_active_key_activity",
@@ -495,7 +503,11 @@ class TestRapidfireRelease:
         monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
         monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(
+            grabbed_device,
+            "time",
+            SimpleNamespace(monotonic=fake_monotonic),
+        )
 
         device = GrabbedDevice(
             path="/dev/input/event-test",

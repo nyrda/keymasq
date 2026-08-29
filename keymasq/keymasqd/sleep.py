@@ -15,6 +15,7 @@ log = logging.getLogger("keymasqd.sleep")
 LOGIN1_SERVICE = "org.freedesktop.login1"
 LOGIN1_PATH = "/org/freedesktop/login1"
 LOGIN1_MANAGER = "org.freedesktop.login1.Manager"
+LOGIND_SETUP_TIMEOUT_S = 5.0
 
 type AsyncCallback = Callable[[], Awaitable[object]]
 type BusFactory = Callable[[], Any]
@@ -39,11 +40,13 @@ class LogindSleepCoordinator:
         *,
         bus_factory: BusFactory = _system_bus,
         close_fd: Callable[[int], None] = os.close,
+        setup_timeout_s: float = LOGIND_SETUP_TIMEOUT_S,
     ) -> None:
         self._prepare_for_sleep = prepare_for_sleep
         self._resume_from_sleep = resume_from_sleep
         self._bus_factory = bus_factory
         self._close_fd = close_fd
+        self._setup_timeout_s = max(0.0, float(setup_timeout_s))
         self._bus: Any | None = None
         self._manager: Any | None = None
         self._inhibitor_fd: int | None = None
@@ -59,16 +62,17 @@ class LogindSleepCoordinator:
             return True
 
         try:
-            bus = await self._bus_factory().connect()
-            introspection = await bus.introspect(LOGIN1_SERVICE, LOGIN1_PATH)
-            proxy = bus.get_proxy_object(LOGIN1_SERVICE, LOGIN1_PATH, introspection)
-            manager = proxy.get_interface(LOGIN1_MANAGER)
-            self._bus = bus
-            self._manager = manager
-            manager.on_prepare_for_sleep(self._on_prepare_for_sleep)
-            self._subscribed = True
-            await self._acquire_inhibitor()
-            preparing = bool(await manager.get_preparing_for_sleep())
+            async with asyncio.timeout(self._setup_timeout_s):
+                bus = await self._bus_factory().connect()
+                self._bus = bus
+                introspection = await bus.introspect(LOGIN1_SERVICE, LOGIN1_PATH)
+                proxy = bus.get_proxy_object(LOGIN1_SERVICE, LOGIN1_PATH, introspection)
+                manager = proxy.get_interface(LOGIN1_MANAGER)
+                self._manager = manager
+                manager.on_prepare_for_sleep(self._on_prepare_for_sleep)
+                self._subscribed = True
+                await self._acquire_inhibitor()
+                preparing = bool(await manager.get_preparing_for_sleep())
             self._worker = asyncio.create_task(
                 self._run(),
                 name="keymasqd-logind-sleep",

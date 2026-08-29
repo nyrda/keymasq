@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import evdev
 import pytest
@@ -2057,3 +2057,51 @@ async def test_suspend_analog_reset_skips_threshold_release_transitions(
 
     release_actions.assert_not_awaited()
     assert runtime.state.analog_active_thresholds == {}
+
+
+@pytest.mark.asyncio
+async def test_suspend_analog_reset_ends_profile_trigger_without_release_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile_action = MappingAction(
+        action_type=ActionType.PROFILE_ENABLE,
+        profile_name="Nav",
+        profile_deactivation=ProfileDeactivationPolicy(on_trigger_end=True),
+    )
+    threshold = AnalogActionThreshold(
+        axis="x",
+        trigger_min=0.65,
+        trigger_max=1.0,
+        release_min=0.55,
+        release_max=1.0,
+        actions=[profile_action],
+    )
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Test",
+                thresholds=[threshold],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, FakeUInput())
+    runtime.state.analog_active_thresholds["left_stick"] = {"left_stick:0"}
+    runtime.state.analog_active_threshold_actions["left_stick:0"] = (
+        (0, profile_action),
+    )
+    trigger_end = Mock()
+    runtime.profile_activation_trigger_end_observer = trigger_end
+    release_actions = AsyncMock()
+    monkeypatch.setattr(analog_reset, "release_threshold_actions", release_actions)
+
+    await reset_analog_controls(
+        runtime,
+        deps=_deps(),
+        release_threshold_transitions=False,
+    )
+
+    release_actions.assert_not_awaited()
+    trigger_end.assert_called_once_with(
+        "1234:5678:left_stick#analog_threshold#0#0"
+    )

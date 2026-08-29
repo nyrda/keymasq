@@ -162,7 +162,7 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
     await asyncio.sleep(0.01)
 
     assert prepare.await_count == 2
-    resume.assert_awaited_once_with()
+    resume.assert_not_awaited()
     await coordinator.stop()
 
 
@@ -182,9 +182,10 @@ async def test_resume_inhibitor_failure_is_retried_until_rearmed() -> None:
         return 42
 
     manager.call_inhibit = inhibit  # type: ignore[method-assign]
+    resume = AsyncMock()
     coordinator = LogindSleepCoordinator(
         AsyncMock(),
-        AsyncMock(),
+        resume,
         bus_factory=lambda: _FakeBus(manager),
         close_fd=closed_fds.append,
         rearm_retry_s=0,
@@ -195,9 +196,11 @@ async def test_resume_inhibitor_failure_is_retried_until_rearmed() -> None:
     await _flush_worker()
     manager.emit(False)
     await rearmed.wait()
+    await _flush_worker()
 
     assert len(manager.inhibit_calls) == 3
     assert coordinator._inhibitor_fd == 42
+    resume.assert_awaited_once_with()
     await coordinator.stop()
     assert closed_fds == [41, 42]
 

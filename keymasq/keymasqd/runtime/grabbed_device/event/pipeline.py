@@ -230,6 +230,23 @@ def _observe_source_key_transition(
             observer(trigger_id)
 
 
+def _intercept_resume_suppressed_key(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+) -> bool:
+    suppressed = device_runtime.state.resume_suppressed_source_keys
+    if event_name not in suppressed:
+        return False
+    value = int(event.value)
+    if value == 1:
+        suppressed.discard(event_name)
+        return False
+    if value == 0:
+        suppressed.discard(event_name)
+    return value in {0, 2}
+
+
 def _finish_diagnostics(
     device_runtime: GrabbedDeviceRuntime,
     label: str,
@@ -295,6 +312,18 @@ async def process_event(
         return
 
     event_is_key = event_class is EventClass.KEY
+    if event_is_key and _intercept_resume_suppressed_key(
+        device_runtime,
+        event,
+        event_name,
+    ):
+        _finish_diagnostics(
+            device_runtime,
+            "resume_orphaned_key_suppressed",
+            started_ns,
+            deps=deps,
+        )
+        return
     if event_is_key:
         _observe_source_key_transition(device_runtime, event, event_name)
 

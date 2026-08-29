@@ -740,6 +740,10 @@ class GrabbedDevice:
     async def _clear_runtime_state(self, *, neutralize: bool) -> None:
         """Cancel runtime work and release every generated output."""
 
+        if neutralize:
+            self.state.resume_suppressed_source_keys.update(self.state.held_source_keys)
+        else:
+            self.state.resume_suppressed_source_keys.clear()
         await self.cancel_inflight_actions()
         if neutralize:
             try:

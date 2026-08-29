@@ -134,13 +134,7 @@ async def release_threshold_actions(
     active_actions: tuple[tuple[int, MappingAction], ...] | None = None,
 ) -> None:
     synthetic = SyntheticInputEvent(event_type, event_code, 0)
-    action_entries = (
-        active_actions
-        if active_actions is not None
-        else tuple(enumerate(threshold.actions))
-        if threshold is not None
-        else ()
-    )
+    action_entries = _threshold_action_entries(threshold, active_actions)
     for action_index, action in action_entries:
         if action.action_type in {
             ActionType.PASSTHROUGH,
@@ -174,6 +168,38 @@ async def release_threshold_actions(
             child_event_name,
             active=False,
         )
+
+
+def observe_threshold_profile_trigger_ends(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    index: int,
+    threshold: AnalogActionThreshold | None,
+    *,
+    active_actions: tuple[tuple[int, MappingAction], ...] | None = None,
+) -> None:
+    """End tracked profile triggers without running user-facing release actions."""
+
+    for action_index, action in _threshold_action_entries(threshold, active_actions):
+        _observe_threshold_profile_trigger(
+            device_runtime,
+            action,
+            _child_event_name(source_id, index, action_index),
+            active=False,
+        )
+
+
+def _threshold_action_entries(
+    threshold: AnalogActionThreshold | None,
+    active_actions: tuple[tuple[int, MappingAction], ...] | None,
+) -> tuple[tuple[int, MappingAction], ...]:
+    return (
+        active_actions
+        if active_actions is not None
+        else tuple(enumerate(threshold.actions))
+        if threshold is not None
+        else ()
+    )
 
 
 def _observe_threshold_profile_trigger(

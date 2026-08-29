@@ -74,6 +74,7 @@ class LogindSleepCoordinator:
         self._rearm_task: asyncio.Task[None] | None = None
         self._subscribed = False
         self._preparing = False
+        self._resume_pending = False
 
     async def start(self) -> bool:
         """Connect to logind, returning false when it is unavailable."""
@@ -121,6 +122,7 @@ class LogindSleepCoordinator:
                 await worker
         await self._stop_inhibitor_rearm()
         self._preparing = False
+        self._resume_pending = False
         while not self._events.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
                 self._events.get_nowait()
@@ -167,6 +169,7 @@ class LogindSleepCoordinator:
             self._preparing = preparing
 
             if preparing:
+                self._resume_pending = False
                 await self._stop_inhibitor_rearm()
                 try:
                     await self._prepare_for_sleep()
@@ -176,11 +179,12 @@ class LogindSleepCoordinator:
                     self._release_inhibitor()
                 continue
 
-            try:
-                await self._resume_from_sleep()
-            except Exception:
-                log.exception("Post-resume input reactivation failed")
-            self._start_inhibitor_rearm()
+            self._resume_pending = True
+            await self._try_rearm_inhibitor_once()
+            if self._inhibitor_fd is not None:
+                await self._resume_input_if_ready()
+            else:
+                self._start_inhibitor_rearm()
 
     def _start_inhibitor_rearm(self) -> None:
         task = self._rearm_task
@@ -204,20 +208,37 @@ class LogindSleepCoordinator:
         retry_s = self._rearm_retry_s
         try:
             while self._manager is not None and not self._preparing:
-                try:
-                    async with asyncio.timeout(self._setup_timeout_s):
-                        await self._acquire_inhibitor()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    log.exception("Failed to rearm the logind sleep inhibitor after resume")
+                await self._try_rearm_inhibitor_once()
                 if self._inhibitor_fd is not None:
+                    await self._resume_input_if_ready()
                     return
                 await asyncio.sleep(retry_s)
                 retry_s = min(30.0, max(0.1, retry_s * 2.0))
         finally:
             if self._rearm_task is asyncio.current_task():
                 self._rearm_task = None
+
+    async def _try_rearm_inhibitor_once(self) -> None:
+        try:
+            async with asyncio.timeout(self._setup_timeout_s):
+                await self._acquire_inhibitor()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Failed to rearm the logind sleep inhibitor after resume")
+
+    async def _resume_input_if_ready(self) -> None:
+        if (
+            not self._resume_pending
+            or self._preparing
+            or self._inhibitor_fd is None
+        ):
+            return
+        self._resume_pending = False
+        try:
+            await self._resume_from_sleep()
+        except Exception:
+            log.exception("Post-resume input reactivation failed")
 
     async def _acquire_inhibitor(self) -> None:
         manager = self._manager

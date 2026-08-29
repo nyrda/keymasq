@@ -14,7 +14,10 @@ from keymasq.keymasqd.runtime.analog.threshold_state import (
     threshold_index,
     threshold_source_key,
 )
-from keymasq.keymasqd.runtime.analog.thresholds import release_threshold_actions
+from keymasq.keymasqd.runtime.analog.thresholds import (
+    observe_threshold_profile_trigger_ends,
+    release_threshold_actions,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -40,28 +43,36 @@ async def reset_analog_controls(
             )
 
     reset_recorded_gamepad_outputs(device_runtime, deps=deps, preserved=preserved)
-    if release_threshold_transitions:
-        for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
-            if state_key in preserved:
+    for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
+        if state_key in preserved:
+            continue
+        state_config = state_configs.get(state_key)
+        config = state_config[1] if state_config is not None else None
+        for key in list(active):
+            index = threshold_index(key)
+            actions = device_runtime.state.analog_active_threshold_actions.get(key)
+            threshold = (
+                config.thresholds[index]
+                if config is not None and index is not None and index < len(config.thresholds)
+                else None
+            )
+            if index is None or (threshold is None and actions is None):
                 continue
-            state_config = state_configs.get(state_key)
-            config = state_config[1] if state_config is not None else None
-            for key in list(active):
-                index = threshold_index(key)
-                actions = device_runtime.state.analog_active_threshold_actions.get(key)
-                threshold = (
-                    config.thresholds[index]
-                    if config is not None and index is not None and index < len(config.thresholds)
-                    else None
-                )
-                if index is None or (threshold is None and actions is None):
-                    continue
+            if release_threshold_transitions:
                 await release_threshold_actions(
                     device_runtime,
                     state_key,
                     index,
                     threshold,
                     deps=deps,
+                    active_actions=actions,
+                )
+            else:
+                observe_threshold_profile_trigger_ends(
+                    device_runtime,
+                    state_key,
+                    index,
+                    threshold,
                     active_actions=actions,
                 )
 

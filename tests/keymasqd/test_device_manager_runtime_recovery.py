@@ -305,6 +305,47 @@ class TestRuntimeFailureCleanup:
 
 
 class TestSuspendCleanup:
+    def test_resume_suppresses_orphaned_release_until_fresh_press(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+        event_name = "key_a"
+        device.state.resume_suppressed_source_keys.add(event_name)
+
+        assert pipeline._intercept_resume_suppressed_key(
+            device,
+            SimpleNamespace(value=2),
+            event_name,
+        )
+        assert event_name in device.state.resume_suppressed_source_keys
+        assert pipeline._intercept_resume_suppressed_key(
+            device,
+            SimpleNamespace(value=0),
+            event_name,
+        )
+        assert event_name not in device.state.resume_suppressed_source_keys
+
+        device.state.resume_suppressed_source_keys.add(event_name)
+        assert not pipeline._intercept_resume_suppressed_key(
+            device,
+            SimpleNamespace(value=1),
+            event_name,
+        )
+        assert event_name not in device.state.resume_suppressed_source_keys
+
+    @pytest.mark.asyncio
+    async def test_cleanup_marks_held_sources_for_resume_suppression(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+        device.state.held_source_keys.add("key_a")
+
+        await device.neutralize_runtime_state()
+
+        assert device.state.resume_suppressed_source_keys == {"key_a"}
+
     @pytest.mark.asyncio
     async def test_cancel_inflight_actions_bounds_uncooperative_tasks(
         self,

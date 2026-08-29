@@ -187,6 +187,7 @@ class GrabbedDeviceState:
     passthrough_mt_uses_slots: bool = False
     passthrough_mt_slot: int = 0
     passthrough_mt_active_slots: set[int] = field(default_factory=set)
+    resume_suppressed_source_keys: set[str] = field(default_factory=set)
     held_source_keys: set[str] = field(default_factory=set)
     combo_passthrough_held: set[str] = field(default_factory=set)
     combo_recalled_bindings: set[str] = field(default_factory=set)

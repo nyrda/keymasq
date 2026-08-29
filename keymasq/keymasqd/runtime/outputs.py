@@ -319,7 +319,7 @@ def _initialize_gamepad_axes(
     uinput_dev.syn()
 
 
-def _non_ff_uinput_kwargs(
+def _synthetic_uinput_kwargs(
     uinput_factory: Callable[..., object],
     **kwargs: object,
 ) -> dict[str, object]:
@@ -328,7 +328,7 @@ def _non_ff_uinput_kwargs(
     return kwargs
 
 
-def _create_non_ff_uinput(
+def _create_synthetic_uinput(
     context: str,
     evdev_mod: _EvdevModule,
     *,
@@ -350,7 +350,7 @@ def _create_non_ff_uinput(
         kwargs["version"] = version
     if bustype is not None:
         kwargs["bustype"] = bustype
-    kwargs = _non_ff_uinput_kwargs(evdev_mod.UInput, **kwargs)
+    kwargs = _synthetic_uinput_kwargs(evdev_mod.UInput, **kwargs)
     return create_uinput_with_permission_hint(
         context,
         lambda: evdev_mod.UInput(**cast(Any, kwargs)),
@@ -368,7 +368,7 @@ def create_virtual_gamepad(
         "gamepad",
         test_name="gamepad" if index == 1 else f"gamepad-{index}",
     )
-    uinput_dev = _create_non_ff_uinput(
+    uinput_dev = _create_synthetic_uinput(
         "virtual gamepad",
         evdev_mod,
         events=gamepad_caps(evdev_mod),
@@ -480,7 +480,7 @@ def create_global_uinputs(
             "keymasq-keyboard",
             "keyboard",
         )
-        manager.output_state.keyboard_uinput = _create_non_ff_uinput(
+        manager.output_state.keyboard_uinput = _create_synthetic_uinput(
             "keyboard",
             evdev_mod,
             events=keyboard_capabilities,
@@ -499,7 +499,7 @@ def create_global_uinputs(
                 )
                 manager.output_state.keyboard_feedback_proxy = None
                 manager.output_state.keyboard_uinput.close()
-                manager.output_state.keyboard_uinput = _create_non_ff_uinput(
+                manager.output_state.keyboard_uinput = _create_synthetic_uinput(
                     "keyboard",
                     evdev_mod,
                     events=keyboard_caps(evdev_mod, include_leds=False),
@@ -538,7 +538,7 @@ def create_global_uinputs(
             "keymasq-mouse",
             "mouse",
         )
-        manager.output_state.mouse_uinput = _create_non_ff_uinput(
+        manager.output_state.mouse_uinput = _create_synthetic_uinput(
             "mouse",
             evdev_mod,
             events=mouse_caps,

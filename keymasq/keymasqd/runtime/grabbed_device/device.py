@@ -58,6 +58,7 @@ ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
 COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 DEFAULT_UINPUT_VERSION = 0x0001
 DEFAULT_UINPUT_BUSTYPE = 0x0003
+INFLIGHT_ACTION_CANCEL_TIMEOUT_S = 0.5
 
 
 class _PassthroughUInputKwargs(TypedDict):
@@ -528,7 +529,7 @@ class GrabbedDevice:
         try:
             self._refresh_analog_axis_ranges()
             caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
-            self._refresh_passthrough_abs_neutral_values(caps)
+            await self._refresh_passthrough_abs_neutral_values(caps)
             is_gamepad_passthrough = _is_gamepad_passthrough(
                 self.device_type,
                 self.device_types,
@@ -797,7 +798,11 @@ class GrabbedDevice:
         task.add_done_callback(self.background_tasks.discard)
         return task
 
-    async def cancel_inflight_actions(self) -> None:
+    async def cancel_inflight_actions(
+        self,
+        *,
+        timeout_s: float = INFLIGHT_ACTION_CANCEL_TIMEOUT_S,
+    ) -> None:
         """Cancel current event handling and detached action work."""
 
         tasks: list[asyncio.Task[object]] = []
@@ -815,7 +820,21 @@ class GrabbedDevice:
             if not task.done():
                 task.cancel()
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=max(0.0, float(timeout_s)),
+            )
+            if done:
+                await asyncio.gather(*done, return_exceptions=True)
+            if pending:
+                log.warning(
+                    "Timed out draining %d cancelled input action task(s) on %s",
+                    len(pending),
+                    self.path,
+                )
+                self.background_tasks.update(pending)
+                for task in pending:
+                    task.add_done_callback(self.background_tasks.discard)
 
     def _start_force_feedback_proxy(self) -> None:
         if self.uinput is None or self.device is None:
@@ -1019,7 +1038,7 @@ class GrabbedDevice:
             if isinstance(minimum_value, int) and isinstance(maximum_value, int):
                 self.analog_axis_ranges[key] = (minimum_value, maximum_value)
 
-    def _refresh_passthrough_abs_neutral_values(
+    async def _refresh_passthrough_abs_neutral_values(
         self,
         caps: dict[int, Sequence[object]],
     ) -> None:
@@ -1047,7 +1066,7 @@ class GrabbedDevice:
                 neutral_values[code] = -1
                 continue
             try:
-                info = self.device.absinfo(code)
+                info = await asyncio.to_thread(self.device.absinfo, code)
             except Exception:  # noqa: BLE001 - optional neutral-state probe.
                 info = None
             neutral_values[code] = _passthrough_abs_neutral_value(code, info)

@@ -306,6 +306,36 @@ class TestRuntimeFailureCleanup:
 
 class TestSuspendCleanup:
     @pytest.mark.asyncio
+    async def test_cancel_inflight_actions_bounds_uncooperative_tasks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def ignore_cancellation() -> None:
+            started.set()
+            while not release.is_set():
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    continue
+
+        task = asyncio.create_task(ignore_cancellation())
+        device.background_tasks.add(task)
+        await started.wait()
+
+        await device.cancel_inflight_actions(timeout_s=0)
+
+        assert task.done() is False
+        assert task in device.background_tasks
+        release.set()
+        await task
+        await asyncio.sleep(0)
+        assert task not in device.background_tasks
+
+    @pytest.mark.asyncio
     async def test_cleanup_gates_input_before_waiting_for_recording_start(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -507,6 +537,32 @@ class TestSuspendCleanup:
             )
             == 0
         )
+
+    @pytest.mark.asyncio
+    async def test_passthrough_abs_probes_run_off_event_loop(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch)
+        source = SimpleNamespace(
+            absinfo=Mock(return_value=SimpleNamespace(min=0, max=255, value=240))
+        )
+        device.device = source  # type: ignore[assignment]
+        offloaded: list[tuple[object, tuple[object, ...]]] = []
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            assert kwargs == {}
+            offloaded.append((func, args))
+            return func(*args)
+
+        monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
+
+        await device._refresh_passthrough_abs_neutral_values(
+            {evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_X]}
+        )
+
+        assert offloaded == [(source.absinfo, (evdev.ecodes.ABS_X,))]
+        assert device.state.passthrough_abs_neutral_values[evdev.ecodes.ABS_X] == 127
 
     @pytest.mark.asyncio
     async def test_cleanup_drains_inflight_event_before_global_runtime(

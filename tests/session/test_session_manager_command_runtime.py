@@ -1195,6 +1195,12 @@ async def test_recording_aborted_event_clears_state_without_pending_save() -> No
     manager.recording_state.active = True
     manager.recording_state.active_slot = 2
     manager.recording_state.start_cursor = (123, 456)
+    retained = set_pending_recording_slot(
+        manager,
+        {"pending_recording_id": "recording-3"},
+        slot=3,
+        token="pending-3",
+    )
 
     await session_events_module.handle_event(
         manager,
@@ -1205,7 +1211,7 @@ async def test_recording_aborted_event_clears_state_without_pending_save() -> No
     assert manager.recording_state.active is False
     assert manager.recording_state.active_slot == 0
     assert manager.recording_state.start_cursor is None
-    assert manager.recording_state.pending_slots == {}
+    assert manager.recording_state.pending_slots == {3: retained}
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {
             "event": "recording_stopped",

@@ -118,6 +118,12 @@ def _event(event_type: int, code: int, value: int) -> object:
     return SimpleNamespace(type=event_type, code=code, value=value)
 
 
+def _complete_upload(proxy: PassthroughFeedbackProxy, request_id: int) -> None:
+    completed_upload = proxy._handle_upload(request_id)
+    if completed_upload is not None:
+        proxy._finish_upload(*completed_upload)
+
+
 @pytest.mark.asyncio
 async def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     uinput = _FakeUInput()
@@ -125,7 +131,7 @@ async def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    _complete_upload(proxy, 100)
 
     assert physical.upload_ids == [-1]
     assert len(uinput.ended_uploads) == 1
@@ -138,7 +144,7 @@ async def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
 
     uinput.uploads[101] = _Upload(effect_id=7)
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 101))
+    _complete_upload(proxy, 101)
 
     assert physical.upload_ids == [-1, 23]
     assert len(uinput.ended_uploads) == 2
@@ -147,7 +153,7 @@ async def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     assert proxy.effect_mappings[7].physical_id == 24
 
     uinput.erases[200] = _Erase(effect_id=7)
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_ERASE, 200))
+    proxy._handle_erase(200)
 
     assert physical.erased_ids == [24]
     assert len(uinput.ended_erases) == 1
@@ -163,7 +169,7 @@ def test_upload_failure_sets_negative_errno_and_does_not_record_mapping() -> Non
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
     uinput.uploads[100] = _Upload(effect_id=7)
 
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    _complete_upload(proxy, 100)
 
     assert len(uinput.ended_uploads) == 1
     assert uinput.ended_uploads[0].retval == -errno.ENOSPC
@@ -182,7 +188,7 @@ async def test_upload_mapping_is_available_before_ack_returns() -> None:
 
     uinput.end_upload_hook = play_during_ack
 
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    _complete_upload(proxy, 100)
     await proxy._wait_for_write_tasks()
 
     assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
@@ -196,7 +202,7 @@ def test_upload_end_failure_rolls_back_physical_effect() -> None:
     uinput.uploads[100] = _Upload(effect_id=7)
     uinput.end_upload_error = OSError(errno.EIO, "end failed")
 
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    _complete_upload(proxy, 100)
 
     assert physical.upload_ids == [-1]
     assert physical.erased_ids == [23]
@@ -274,7 +280,7 @@ async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> Non
         asyncio_mod=runtime,  # type: ignore[arg-type]
     )
     uinput.uploads[100] = _Upload(effect_id=7)
-    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    _complete_upload(proxy, 100)
     runtime.to_thread_calls.clear()
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40))
@@ -414,6 +420,26 @@ class _DelayedAsyncioRuntime(_InlineAsyncioRuntime):
 class _RejectingAsyncioRuntime(_InlineAsyncioRuntime):
     def create_task(self, coro):
         raise RuntimeError("task scheduling unavailable")
+
+
+def test_force_feedback_requests_are_dropped_when_proxy_is_not_running(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG")
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="passthrough")
+    uinput.uploads[100] = _Upload(effect_id=7)
+    uinput.erases[200] = _Erase(effect_id=7)
+
+    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_ERASE, 200))
+
+    assert physical.upload_ids == []
+    assert physical.erased_ids == []
+    assert uinput.ended_uploads == []
+    assert uinput.ended_erases == []
+    assert caplog.text.count("because proxy is not running") == 2
 
 
 @pytest.mark.asyncio

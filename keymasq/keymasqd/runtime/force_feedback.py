@@ -371,12 +371,10 @@ class PassthroughFeedbackProxy:
         if self._running and queue is not None:
             queue.put_nowait((kind, int(request_id)))
             return
-        if kind == _WORKER_UPLOAD:
-            completed_upload = self._handle_upload(request_id)
-            if completed_upload is not None:
-                self._finish_upload(*completed_upload)
-        else:
-            self._handle_erase(request_id)
+        self.log.debug(
+            "Dropping force-feedback request for %s because proxy is not running",
+            self.label,
+        )
 
     def _handle_upload(self, request_id: int) -> tuple[int, int] | None:
         upload: object | None = None

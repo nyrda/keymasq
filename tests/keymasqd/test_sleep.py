@@ -162,7 +162,7 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
     manager.emit(True)
     await _flush_worker()
     manager.emit(False)
-    await rearm_started.wait()
+    await asyncio.wait_for(rearm_started.wait(), timeout=0.25)
 
     manager.emit(True)
     await asyncio.wait_for(second_prepare_started.wait(), timeout=0.25)

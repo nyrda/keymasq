@@ -153,7 +153,7 @@ class TestGrabbedDevice:
             await grabbed.release()
 
     @pytest.mark.asyncio
-    async def test_global_keyboard_led_feedback_fans_out_and_outputs_do_not_advertise_ff(
+    async def test_synthetic_outputs_do_not_advertise_output_feedback(
         self,
         virtual_feedback_keyboard,
         event_callback,
@@ -179,20 +179,10 @@ class TestGrabbedDevice:
             assert mouse is not None
             assert gamepad is not None
 
-            keyboard_caps = keyboard.capabilities()
-            assert evdev.ecodes.LED_CAPSL in keyboard_caps[evdev.ecodes.EV_LED]
             for output in (keyboard, mouse, gamepad):
                 assert evdev.ecodes.EV_FF not in output.capabilities()
-
-            keyboard.device.write(
-                evdev.ecodes.EV_LED,
-                evdev.ecodes.LED_CAPSL,
-                1,
-            )
-            await _wait_for_uinput_events(
-                virtual_feedback_keyboard,
-                {(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)},
-            )
+            assert evdev.ecodes.EV_LED not in keyboard.capabilities()
+            assert evdev.ecodes.EV_SND not in keyboard.capabilities()
         finally:
             manager.shutdown_output_devices()
             manager.grabbed_devices.clear()

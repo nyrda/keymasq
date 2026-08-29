@@ -12,7 +12,6 @@ import pytest
 
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.runtime.force_feedback import (
-    OutputFeedbackFanoutProxy,
     PassthroughFeedbackProxy,
     disable_force_feedback,
     disable_passthrough_output_feedback,
@@ -248,27 +247,6 @@ async def test_direct_output_feedback_events_forward_without_translation(
 
 
 @pytest.mark.asyncio
-async def test_global_output_feedback_fans_out_only_supported_types() -> None:
-    uinput = _FakeUInput()
-    first = _FakePhysicalDevice()
-    second = _FakePhysicalDevice()
-    proxy = OutputFeedbackFanoutProxy(
-        uinput,
-        lambda _event_type, _event_code: [first, second, first],
-        label="test",
-        event_types=frozenset({evdev.ecodes.EV_LED}),
-    )
-
-    proxy.handle_event(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1))
-    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1))
-    await proxy.stop_and_wait()
-
-    expected = [(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)]
-    assert first.writes == expected
-    assert second.writes == expected
-
-
-@pytest.mark.asyncio
 async def test_force_feedback_play_and_global_writes_use_thread_adapter() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
@@ -442,52 +420,17 @@ def test_force_feedback_requests_are_dropped_when_proxy_is_not_running(
     assert caplog.text.count("because proxy is not running") == 2
 
 
-@pytest.mark.asyncio
-async def test_global_output_feedback_writes_preserve_event_order() -> None:
-    uinput = _FakeUInput()
-    physical = _FakePhysicalDevice()
-    runtime = _DelayedAsyncioRuntime()
-    proxy = OutputFeedbackFanoutProxy(
-        uinput,
-        lambda _event_type, _event_code: [physical],
-        label="global keyboard",
-        event_types=frozenset({evdev.ecodes.EV_LED}),
-        asyncio_mod=runtime,  # type: ignore[arg-type]
-    )
-
-    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1))
-    proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 0))
-    await runtime.to_thread_started.wait()
-    await asyncio.sleep(0)
-
-    assert runtime.to_thread_calls == ["_write_target_sync"]
-
-    runtime.finish_to_thread.set()
-    await proxy.stop_and_wait()
-    assert physical.writes == [
-        (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1),
-        (evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 0),
-    ]
-
-
 def test_output_feedback_is_dropped_without_running_loop(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("DEBUG")
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     proxy = PassthroughFeedbackProxy(uinput, physical, label="passthrough")
-    fanout = OutputFeedbackFanoutProxy(
-        uinput,
-        lambda _event_type, _event_code: [physical],
-        label="global keyboard",
-        event_types=frozenset({evdev.ecodes.EV_LED}),
-    )
 
     event = _event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)
     proxy.handle_event(event)
-    fanout.handle_event(event)
 
     assert physical.writes == []
-    assert caplog.text.count("because no event loop is running") == 2
+    assert caplog.text.count("because no event loop is running") == 1
 
 
 @pytest.mark.asyncio
@@ -504,20 +447,12 @@ async def test_output_feedback_is_dropped_when_task_scheduling_fails(
         label="passthrough",
         asyncio_mod=runtime,  # type: ignore[arg-type]
     )
-    fanout = OutputFeedbackFanoutProxy(
-        uinput,
-        lambda _event_type, _event_code: [physical],
-        label="global keyboard",
-        event_types=frozenset({evdev.ecodes.EV_LED}),
-        asyncio_mod=runtime,  # type: ignore[arg-type]
-    )
 
     event = _event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)
     proxy.handle_event(event)
-    fanout.handle_event(event)
 
     assert physical.writes == []
-    assert caplog.text.count("because task scheduling is unavailable") == 2
+    assert caplog.text.count("because task scheduling is unavailable") == 1
 
 
 @pytest.mark.asyncio

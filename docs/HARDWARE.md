@@ -112,17 +112,16 @@ to the evdev path string.
 
 ## Keyboard LEDs and Other Output Feedback
 
-When Keymasq grabs an interface, its passthrough device keeps the source's LED
-and sound capabilities. Output events sent to that passthrough device are
-forwarded to the physical interface, so applications can still control device
-indicators and bells.
+Keymasq creates a dedicated passthrough virtual device for each grabbed evdev
+interface. The passthrough device keeps the source interface's LED and sound
+capabilities. Keymasq forwards output events written to that virtual interface
+only to its corresponding physical interface, so applications can still
+control device indicators and bells.
 
-The global Keymasq keyboard also advertises the standard Linux keyboard LEDs.
-Caps Lock, Num Lock, Scroll Lock, and other LED state changes are forwarded to
-every currently grabbed interface that reports support for that LED. Synthetic
-mouse and gamepad outputs do not advertise force feedback; force feedback is
-available only through a passthrough clone backed by compatible physical
-hardware.
+The shared synthetic keyboard does not advertise LED or sound capabilities.
+Synthetic mouse and gamepad outputs do not advertise force feedback. Force
+feedback is available only through a passthrough clone backed by compatible
+physical hardware.
 
 ## TOML Reference
 

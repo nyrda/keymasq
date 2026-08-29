@@ -302,14 +302,8 @@ class TestDeviceManagerHelpers:
         assert evdev.ecodes.KEY_RESERVED not in keyboard_key_caps
         assert evdev.ecodes.KEY_MAX not in keyboard_key_caps
         assert evdev.ecodes.KEY_CNT not in keyboard_key_caps
-        keyboard_led_caps = set(created[0].kwargs["events"][evdev.ecodes.EV_LED])
-        assert {
-            evdev.ecodes.LED_NUML,
-            evdev.ecodes.LED_CAPSL,
-            evdev.ecodes.LED_SCROLLL,
-        } <= keyboard_led_caps
-        assert evdev.ecodes.LED_MAX not in keyboard_led_caps
-        assert evdev.ecodes.LED_CNT not in keyboard_led_caps
+        assert evdev.ecodes.EV_LED not in created[0].kwargs["events"]
+        assert evdev.ecodes.EV_SND not in created[0].kwargs["events"]
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002
@@ -389,10 +383,8 @@ class TestDeviceManagerHelpers:
     ) -> None:
         manager = SimpleNamespace(
             output_state=outputs.OutputRuntimeState(),
-            grabbed_devices={},
         )
         keyboard = Mock()
-        feedback_proxy = Mock()
 
         def fake_create(
             context: str,
@@ -404,20 +396,7 @@ class TestDeviceManagerHelpers:
             assert context == "keyboard"
             return keyboard
 
-        def fake_start(
-            current_manager: SimpleNamespace,
-            *,
-            log: logging.Logger,
-        ) -> None:
-            del log
-            current_manager.output_state.keyboard_feedback_proxy = feedback_proxy
-
         monkeypatch.setattr(outputs, "_create_synthetic_uinput", fake_create)
-        monkeypatch.setattr(
-            outputs,
-            "_start_global_keyboard_feedback_proxy",
-            fake_start,
-        )
 
         with pytest.raises(RuntimeError, match="mouse creation failed"):
             outputs.create_global_uinputs(
@@ -427,10 +406,8 @@ class TestDeviceManagerHelpers:
                 uinput_writer=lambda device: device,
             )
 
-        feedback_proxy.stop.assert_called_once_with()
         keyboard.close.assert_called_once_with()
         assert manager.output_state.device_count == 0
-        assert manager.output_state.keyboard_feedback_proxy is None
         assert manager.output_state.keyboard_uinput is None
         assert manager.output_state.mouse_uinput is None
         assert manager.output_state.virtual_gamepad_uinputs == {}
@@ -441,12 +418,10 @@ class TestDeviceManagerHelpers:
     ) -> None:
         manager = SimpleNamespace(
             output_state=outputs.OutputRuntimeState(virtual_gamepad_count=2),
-            grabbed_devices={},
         )
         keyboard = Mock()
         mouse = Mock()
         first_gamepad = Mock()
-        feedback_proxy = Mock()
         gamepad_creations = 0
 
         def fake_create(
@@ -465,20 +440,7 @@ class TestDeviceManagerHelpers:
                 raise RuntimeError("gamepad creation failed")
             return first_gamepad
 
-        def fake_start(
-            current_manager: SimpleNamespace,
-            *,
-            log: logging.Logger,
-        ) -> None:
-            del log
-            current_manager.output_state.keyboard_feedback_proxy = feedback_proxy
-
         monkeypatch.setattr(outputs, "_create_synthetic_uinput", fake_create)
-        monkeypatch.setattr(
-            outputs,
-            "_start_global_keyboard_feedback_proxy",
-            fake_start,
-        )
 
         with pytest.raises(RuntimeError, match="gamepad creation failed"):
             outputs.create_global_uinputs(
@@ -488,12 +450,10 @@ class TestDeviceManagerHelpers:
                 uinput_writer=lambda device: device,
             )
 
-        feedback_proxy.stop.assert_called_once_with()
         keyboard.close.assert_called_once_with()
         mouse.close.assert_called_once_with()
         first_gamepad.close.assert_called_once_with()
         assert manager.output_state.device_count == 0
-        assert manager.output_state.keyboard_feedback_proxy is None
         assert manager.output_state.keyboard_uinput is None
         assert manager.output_state.mouse_uinput is None
         assert manager.output_state.virtual_gamepad_uinputs == {}

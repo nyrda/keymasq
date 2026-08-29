@@ -16,6 +16,7 @@ LOGIN1_SERVICE = "org.freedesktop.login1"
 LOGIN1_PATH = "/org/freedesktop/login1"
 LOGIN1_MANAGER = "org.freedesktop.login1.Manager"
 LOGIND_SETUP_TIMEOUT_S = 5.0
+LOGIND_REARM_RETRY_S = 1.0
 
 type AsyncCallback = Callable[[], Awaitable[object]]
 type BusFactory = Callable[[], Any]
@@ -41,17 +42,20 @@ class LogindSleepCoordinator:
         bus_factory: BusFactory = _system_bus,
         close_fd: Callable[[int], None] = os.close,
         setup_timeout_s: float = LOGIND_SETUP_TIMEOUT_S,
+        rearm_retry_s: float = LOGIND_REARM_RETRY_S,
     ) -> None:
         self._prepare_for_sleep = prepare_for_sleep
         self._resume_from_sleep = resume_from_sleep
         self._bus_factory = bus_factory
         self._close_fd = close_fd
         self._setup_timeout_s = max(0.0, float(setup_timeout_s))
+        self._rearm_retry_s = max(0.0, float(rearm_retry_s))
         self._bus: Any | None = None
         self._manager: Any | None = None
         self._inhibitor_fd: int | None = None
         self._events: asyncio.Queue[bool] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
+        self._rearm_task: asyncio.Task[None] | None = None
         self._subscribed = False
         self._preparing = False
 
@@ -97,6 +101,7 @@ class LogindSleepCoordinator:
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
+        await self._stop_inhibitor_rearm()
         self._preparing = False
         while not self._events.empty():
             with contextlib.suppress(asyncio.QueueEmpty):
@@ -114,6 +119,7 @@ class LogindSleepCoordinator:
             self._preparing = preparing
 
             if preparing:
+                await self._stop_inhibitor_rearm()
                 try:
                     await self._prepare_for_sleep()
                 except Exception:
@@ -126,11 +132,44 @@ class LogindSleepCoordinator:
                 await self._resume_from_sleep()
             except Exception:
                 log.exception("Post-resume input reactivation failed")
-            try:
-                async with asyncio.timeout(self._setup_timeout_s):
-                    await self._acquire_inhibitor()
-            except Exception:
-                log.exception("Failed to rearm the logind sleep inhibitor after resume")
+            self._start_inhibitor_rearm()
+
+    def _start_inhibitor_rearm(self) -> None:
+        task = self._rearm_task
+        if task is not None and not task.done():
+            return
+        self._rearm_task = asyncio.create_task(
+            self._rearm_inhibitor_until_ready(),
+            name="keymasqd-logind-inhibitor-rearm",
+        )
+
+    async def _stop_inhibitor_rearm(self) -> None:
+        task = self._rearm_task
+        self._rearm_task = None
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _rearm_inhibitor_until_ready(self) -> None:
+        retry_s = self._rearm_retry_s
+        try:
+            while self._manager is not None and not self._preparing:
+                try:
+                    async with asyncio.timeout(self._setup_timeout_s):
+                        await self._acquire_inhibitor()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Failed to rearm the logind sleep inhibitor after resume")
+                if self._inhibitor_fd is not None:
+                    return
+                await asyncio.sleep(retry_s)
+                retry_s = min(30.0, max(0.1, retry_s * 2.0))
+        finally:
+            if self._rearm_task is asyncio.current_task():
+                self._rearm_task = None
 
     async def _acquire_inhibitor(self) -> None:
         manager = self._manager

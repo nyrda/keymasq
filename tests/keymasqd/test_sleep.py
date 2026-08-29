@@ -158,11 +158,47 @@ async def test_resume_inhibitor_timeout_does_not_block_next_suspend() -> None:
     await asyncio.sleep(0.02)
 
     manager.emit(True)
-    await _flush_worker()
+    await asyncio.sleep(0.01)
 
     assert prepare.await_count == 2
     resume.assert_awaited_once_with()
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_resume_inhibitor_failure_is_retried_until_rearmed() -> None:
+    manager = _FakeLoginManager()
+    closed_fds: list[int] = []
+    rearmed = asyncio.Event()
+
+    async def inhibit(*args: str) -> int:
+        manager.inhibit_calls.append(args)
+        if len(manager.inhibit_calls) == 1:
+            return 41
+        if len(manager.inhibit_calls) == 2:
+            raise OSError("temporary logind failure")
+        rearmed.set()
+        return 42
+
+    manager.call_inhibit = inhibit  # type: ignore[method-assign]
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        AsyncMock(),
+        bus_factory=lambda: _FakeBus(manager),
+        close_fd=closed_fds.append,
+        rearm_retry_s=0,
+    )
+
+    assert await coordinator.start() is True
+    manager.emit(True)
+    await _flush_worker()
+    manager.emit(False)
+    await rearmed.wait()
+
+    assert len(manager.inhibit_calls) == 3
+    assert coordinator._inhibitor_fd == 42
+    await coordinator.stop()
+    assert closed_fds == [41, 42]
 
 
 @pytest.mark.asyncio

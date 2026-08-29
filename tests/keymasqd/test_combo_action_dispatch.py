@@ -64,7 +64,37 @@ class FakeComboDevice:
         return set()
 
 
+class FailingUInput(FakeUInput):
+    def write(self, event_type: int, code: int, value: int) -> None:
+        raise OSError("uinput disconnected")
+
+
 class TestComboActionDispatch:
+    def test_combo_output_release_keeps_tracking_for_retry_after_write_failure(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FailingUInput()
+        held = manager.combo_state.held_output_keys["keyboard"]
+        refcounts = manager.combo_state.superkey_output_refcounts["keyboard"]
+        held.add(evdev.ecodes.KEY_F13)
+        refcounts[evdev.ecodes.KEY_F13] = 1
+
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert held == {evdev.ecodes.KEY_F13}
+        assert refcounts == {evdev.ecodes.KEY_F13: 1}
+
+        keyboard = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
+        ]
+        assert held == set()
+        assert refcounts == {}
+
     def test_combo_payload_handles_list_style_evdev_aliases(self) -> None:
         evdev_mod = SimpleNamespace(
             ecodes=SimpleNamespace(

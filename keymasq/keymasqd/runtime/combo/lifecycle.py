@@ -232,10 +232,9 @@ def release_tracked_outputs(
                 bucket,
                 held,
             )
-        finally:
+        else:
             held_keys.clear()
             manager.combo_state.superkey_output_refcounts.get(bucket, {}).clear()
-    _clear_tracked_outputs(manager)
 
 
 async def _cancel_timeout_watchdog(

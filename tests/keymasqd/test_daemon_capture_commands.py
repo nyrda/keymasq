@@ -375,7 +375,7 @@ async def test_macro_play_recording_does_not_create_start_move_on_play(daemon_te
 
 @pytest.mark.asyncio
 async def test_start_recording_resolves_recording_ids_before_start(daemon_testbed):
-    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
     selected = {
         "path": "/dev/input/event10",
         "recording_id": "keymasq:passthrough:1234:5678:mouse",
@@ -407,7 +407,7 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
     )
 
     assert result == {"recording": "started"}
-    recording_manager.start.assert_awaited_once_with(
+    device_manager.start_recording.assert_awaited_once_with(
         [selected],
         include_mouse_movement=True,
         include_mouse_clicks=False,
@@ -428,7 +428,7 @@ async def test_start_recording_forwards_requested_start_position_to_recording_ma
     daemon_testbed,
     extra_payload,
 ):
-    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
 
     result = await daemon._handle_command(
         CommandType.START_RECORDING,
@@ -442,7 +442,7 @@ async def test_start_recording_forwards_requested_start_position_to_recording_ma
     )
 
     assert result == {"recording": "started"}
-    recording_manager.start.assert_awaited_once_with(
+    device_manager.start_recording.assert_awaited_once_with(
         [],
         include_mouse_movement=False,
         include_mouse_clicks=False,
@@ -464,7 +464,7 @@ async def test_start_recording_ignores_unrequested_start_coordinates(
     daemon_testbed,
     extra_payload,
 ):
-    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
 
     result = await daemon._handle_command(
         CommandType.START_RECORDING,
@@ -478,7 +478,7 @@ async def test_start_recording_ignores_unrequested_start_coordinates(
     )
 
     assert result == {"recording": "started"}
-    recording_manager.start.assert_awaited_once_with(
+    device_manager.start_recording.assert_awaited_once_with(
         [],
         include_mouse_movement=False,
         include_mouse_clicks=False,
@@ -1156,6 +1156,41 @@ async def test_stop_continues_cleanup_after_topology_stop_fails(daemon_testbed, 
     device_manager.release_all_devices.assert_awaited_once()
     device_manager.shutdown_output_devices.assert_called_once()
     fake_socket_server.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_retains_sleep_inhibitor_until_input_cleanup_finishes(
+    daemon_testbed,
+    monkeypatch,
+):
+    daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
+    order: list[str] = []
+
+    async def abort_recording() -> None:
+        order.append("recording")
+
+    async def cancel_macros() -> None:
+        order.append("macros")
+
+    async def release_devices() -> None:
+        order.append("devices")
+
+    async def stop_inhibitor() -> None:
+        order.append("inhibitor")
+
+    daemon.socket_server = SimpleNamespace(stop=AsyncMock())
+    daemon.running = True
+    recording_manager.abort.side_effect = abort_recording
+    device_manager.cancel_macro_playback.side_effect = cancel_macros
+    device_manager.release_all_devices.side_effect = release_devices
+    daemon.sleep_coordinator.stop.side_effect = stop_inhibitor
+    monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
+
+    await daemon.stop()
+
+    assert order.index("inhibitor") > order.index("recording")
+    assert order.index("inhibitor") > order.index("macros")
+    assert order.index("inhibitor") > order.index("devices")
 
 
 @pytest.mark.asyncio

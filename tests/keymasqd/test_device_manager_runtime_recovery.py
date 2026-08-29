@@ -305,6 +305,43 @@ class TestRuntimeFailureCleanup:
 
 class TestSuspendCleanup:
     @pytest.mark.asyncio
+    async def test_cleanup_serializes_with_recording_start(self) -> None:
+        manager = DeviceManager()
+        start_entered = asyncio.Event()
+        finish_start = asyncio.Event()
+        recording_manager = SimpleNamespace(is_recording=False)
+
+        async def start(*_args, **_kwargs) -> dict[str, object]:
+            start_entered.set()
+            await finish_start.wait()
+            recording_manager.is_recording = True
+            return {"status": "ok"}
+
+        async def abort() -> None:
+            recording_manager.is_recording = False
+
+        recording_manager.start = AsyncMock(side_effect=start)
+        recording_manager.abort = AsyncMock(side_effect=abort)
+        manager.recording_manager = recording_manager  # type: ignore[assignment]
+
+        start_task = asyncio.create_task(manager.start_recording([]))
+        await start_entered.wait()
+        prepare_task = asyncio.create_task(manager.prepare_for_sleep())
+        await asyncio.sleep(0)
+
+        assert manager.sleep_preparing is True
+        finish_start.set()
+        assert await start_task == {"status": "ok"}
+        await prepare_task
+
+        recording_manager.abort.assert_awaited_once_with()
+        assert recording_manager.is_recording is False
+
+        with pytest.raises(RuntimeError, match="preparing for sleep"):
+            await manager.start_recording([])
+        assert recording_manager.start.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_cleanup_flushes_open_passthrough_frame(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -360,6 +397,23 @@ class TestSuspendCleanup:
 
         manager.recording_manager.abort.assert_awaited_once_with()
         assert device.input_suspended is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_clears_active_repeat_actions(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        device = make_grabbed_device(monkeypatch, running=True)
+        device.state.repeat_active_actions["key_a#repeat"] = MappingAction(
+            action_type=ActionType.KEYBOARD,
+            target="key_b",
+        )
+        manager.grabbed_devices["1234:5678"] = [device]
+
+        await manager.prepare_for_sleep()
+
+        assert device.state.repeat_active_actions == {}
 
     def test_passthrough_multitouch_cleanup_restores_source_slot(
         self,

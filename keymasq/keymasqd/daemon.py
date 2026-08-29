@@ -157,11 +157,6 @@ class Daemon:
         log.info("Stopping keymasqd")
         self.running = False
 
-        await self._run_async_cleanup(
-            "stop logind sleep coordination",
-            self.sleep_coordinator.stop,
-        )
-
         if self.socket_server:
             await self._run_async_cleanup("stop socket server", self.socket_server.stop)
         else:
@@ -187,6 +182,10 @@ class Daemon:
         await self._run_async_cleanup(
             "release all devices",
             self.device_manager.release_all_devices,
+        )
+        await self._run_async_cleanup(
+            "stop logind sleep coordination",
+            self.sleep_coordinator.stop,
         )
         await self._run_async_cleanup(
             "clear runtime unlocks",

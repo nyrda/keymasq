@@ -22,6 +22,16 @@ class _CaptureCommandDeviceManager(Protocol):
 
     async def list_devices(self) -> JsonObject: ...
 
+    async def start_recording(
+        self,
+        devices: JsonObjectList,
+        *,
+        include_mouse_movement: bool = False,
+        include_mouse_clicks: bool = False,
+        recording_slot: int = 0,
+        start_position: tuple[int, int] | None = None,
+    ) -> JsonObject: ...
+
     def begin_combo_capture(
         self, token: str, hardware_ids: set[str], notify_event: asyncio.Event
     ) -> None: ...
@@ -84,7 +94,7 @@ async def handle_capture_command(
         recording_ids = cast(list[str], data.get("recording_ids", []))
         if recording_ids:
             devices = await resolve_recording_devices(daemon, recording_ids)
-        return await daemon.recording_manager.start(
+        return await daemon.device_manager.start_recording(
             devices,
             include_mouse_movement=bool(data.get("include_mouse_movement", False)),
             include_mouse_clicks=bool(data.get("include_mouse_clicks", False)),

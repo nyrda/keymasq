@@ -30,6 +30,7 @@ def make_daemon_testbed(monkeypatch):
         set_combos=AsyncMock(return_value={"updated": True, "combo_count": 0}),
         set_cursor_position=AsyncMock(return_value={"status": "ok", "x": 0, "y": 0}),
         list_devices=AsyncMock(return_value={"devices": []}),
+        start_recording=AsyncMock(return_value={"recording": "started"}),
         device_runtime_status=AsyncMock(
             return_value={"status": "ok", "interfaces": [], "grabbed_interfaces": []}
         ),

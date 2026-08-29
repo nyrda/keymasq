@@ -21,7 +21,7 @@ from keymasq.common.devices import (
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
 from keymasq.common.model.core import DeviceType
-from keymasq.common.types import JsonObject
+from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.common.virtual_devices import (
     clamp_virtual_gamepad_count,
 )
@@ -170,6 +170,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self.macro_exec_timeout_max_ms = 30000
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
+        self._recording_transition_lock = asyncio.Lock()
         self.sleep_preparing = False
         self._initialize_cursor_runtime()
         self._diagnostics = diagnostics.DiagnosticsRuntime(log)
@@ -338,16 +339,42 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             self.device_inspector_state.reset()
             await self._refresh_combo_runtime()
 
+    async def start_recording(
+        self,
+        devices: JsonObjectList,
+        *,
+        include_mouse_movement: bool = False,
+        include_mouse_clicks: bool = False,
+        recording_slot: int = 0,
+        start_position: tuple[int, int] | None = None,
+    ) -> JsonObject:
+        """Serialize recording startup with pre-suspend cleanup."""
+
+        async with self._recording_transition_lock:
+            if self.sleep_preparing:
+                raise RuntimeError("Recording unavailable while preparing for sleep")
+            recording_manager = self.recording_manager
+            if recording_manager is None:
+                raise RuntimeError("Recording manager is unavailable")
+            return await recording_manager.start(
+                devices,
+                include_mouse_movement=include_mouse_movement,
+                include_mouse_clicks=include_mouse_clicks,
+                recording_slot=recording_slot,
+                start_position=start_position,
+            )
+
     async def prepare_for_sleep(self) -> None:
         """Neutralize active input state while retaining grabs and mappings."""
 
         self.sleep_preparing = True
-        recording_manager = self.recording_manager
-        if recording_manager is not None and recording_manager.is_recording:
-            try:
-                await recording_manager.abort()
-            except Exception:
-                log.exception("Failed to abort active recording before suspend")
+        async with self._recording_transition_lock:
+            recording_manager = self.recording_manager
+            if recording_manager is not None and recording_manager.is_recording:
+                try:
+                    await recording_manager.abort()
+                except Exception:
+                    log.exception("Failed to abort active recording before suspend")
         devices = [
             device
             for hardware_devices in self.grabbed_devices.values()
@@ -386,6 +413,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 log.exception("Failed to clear combo runtime before suspend")
             for device in devices:
                 await device.neutralize_runtime_state()
+                device.state.repeat_active_actions.clear()
 
             self.repeat_state.history.clear()
         log.info("Neutralized active input state before suspend")

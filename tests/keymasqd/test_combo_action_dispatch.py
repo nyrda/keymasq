@@ -89,9 +89,28 @@ class TestComboActionDispatch:
         manager.output_state.keyboard_uinput = keyboard
         lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
 
-        assert keyboard.writes == [
-            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)
-        ]
+        assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)]
+        assert held == set()
+        assert refcounts == {}
+
+    def test_combo_output_release_resolves_routed_gamepad_for_retry(self) -> None:
+        manager = DeviceManager()
+        bucket = "gamepad:virtual-gamepad-2"
+        held = manager.combo_state.held_output_keys.setdefault(bucket, set())
+        refcounts = manager.combo_state.superkey_output_refcounts.setdefault(bucket, {})
+        held.add(evdev.ecodes.BTN_SOUTH)
+        refcounts[evdev.ecodes.BTN_SOUTH] = 1
+
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert held == {evdev.ecodes.BTN_SOUTH}
+        assert refcounts == {evdev.ecodes.BTN_SOUTH: 1}
+
+        gamepad = FakeUInput()
+        manager.output_state.virtual_gamepad_uinputs["virtual-gamepad-2"] = gamepad
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert gamepad.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)]
         assert held == set()
         assert refcounts == {}
 

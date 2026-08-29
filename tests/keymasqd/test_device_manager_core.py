@@ -221,6 +221,40 @@ async def test_cancel_cursor_move_waits_for_active_move_to_stop(
 
 
 @pytest.mark.asyncio
+async def test_cancel_cursor_move_cancels_a_move_waiting_on_the_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    move_started = asyncio.Event()
+    move_calls: list[int] = []
+
+    async def move_cursor_naturally(**kwargs: object) -> JsonObject:
+        move_calls.append(cast(int, kwargs["target_x"]))
+        should_cancel = cast(Callable[[], bool], kwargs["should_cancel"])
+        move_started.set()
+        while not should_cancel():
+            await asyncio.sleep(0)
+        return {"status": "error", "message": "Cursor move cancelled"}
+
+    monkeypatch.setattr(
+        manager_cursor.natural_mouse,
+        "move_cursor_naturally",
+        move_cursor_naturally,
+    )
+
+    active = asyncio.create_task(manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500))
+    await move_started.wait()
+    queued = asyncio.create_task(manager.move_cursor_natural(30, 40, 5000, 0, "linear", 1, 500))
+    await asyncio.sleep(0)
+
+    await manager.cancel_cursor_move()
+
+    assert (await active)["message"] == "Cursor move cancelled"
+    assert (await queued)["message"] == "Cursor move cancelled"
+    assert move_calls == [10]
+
+
+@pytest.mark.asyncio
 async def test_neutralize_runtime_clears_active_runtime_and_releases_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

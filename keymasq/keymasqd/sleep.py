@@ -142,6 +142,7 @@ class LogindSleepCoordinator:
                 await self._acquire_inhibitor()
             except Exception:
                 log.exception("Failed to reacquire the logind sleep inhibitor after resume")
+                self._connection_refresh.set()
 
     async def _connect(self) -> None:
         async with asyncio.timeout(SETUP_TIMEOUT_S):

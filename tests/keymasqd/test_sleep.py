@@ -16,10 +16,16 @@ from keymasq.keymasqd.sleep import (
 
 
 class _FakeLoginManager:
-    def __init__(self, fds: tuple[int, ...] = (41, 42)) -> None:
+    def __init__(
+        self,
+        fds: tuple[int, ...] = (41, 42),
+        *,
+        fail_on_inhibit_calls: frozenset[int] = frozenset(),
+    ) -> None:
         self.callback = None
         self.inhibit_calls: list[tuple[str, str, str, str]] = []
         self.fds = iter(fds)
+        self.fail_on_inhibit_calls = fail_on_inhibit_calls
 
     def on_prepare_for_sleep(self, callback) -> None:
         self.callback = callback
@@ -30,6 +36,8 @@ class _FakeLoginManager:
 
     async def call_inhibit(self, *args: str) -> int:
         self.inhibit_calls.append(args)
+        if len(self.inhibit_calls) in self.fail_on_inhibit_calls:
+            raise OSError("transient inhibit failure")
         return next(self.fds)
 
     def emit(self, preparing: bool) -> None:
@@ -268,6 +276,33 @@ async def test_bus_disconnect_resumes_input_and_reconnects() -> None:
 
     assert second_manager.callback is not None
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_resume_inhibitor_failure_reconnects_and_retries() -> None:
+    first_manager = _FakeLoginManager((41,), fail_on_inhibit_calls=frozenset({2}))
+    second_manager = _FakeLoginManager((42,))
+    first_bus = _FakeBus(first_manager)
+    second_bus = _FakeBus(second_manager)
+    buses = iter((first_bus, second_bus))
+    closed_fds: list[int] = []
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        bus_factory=lambda: next(buses),
+        close_fd=closed_fds.append,
+    )
+
+    assert await coordinator.start() is True
+    first_manager.emit(True)
+    await _flush_worker()
+    first_manager.emit(False)
+    await _wait_until(lambda: len(first_manager.inhibit_calls) == 2)
+    await _wait_until(lambda: len(second_manager.inhibit_calls) == 1)
+
+    assert first_bus.disconnected is True
+    assert second_manager.callback is not None
+    await coordinator.stop()
+    assert closed_fds == [41, 42]
 
 
 @pytest.mark.asyncio

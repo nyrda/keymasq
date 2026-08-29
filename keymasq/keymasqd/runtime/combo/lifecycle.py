@@ -214,8 +214,17 @@ def release_tracked_outputs(
     for bucket, held_keys in manager.combo_state.held_output_keys.items():
         held = sorted(held_keys)
         try:
-            writer = deps.uinput_writer(uinputs.get(bucket))
-            if writer is not None and held:
+            uinput_dev = uinputs.get(bucket)
+            if bucket.startswith("gamepad:") and bucket not in uinputs:
+                target = manager.resolve_gamepad_output(
+                    bucket.removeprefix("gamepad:"),
+                    context=f"combo output cleanup {bucket}",
+                )
+                uinput_dev = getattr(target, "uinput", None)
+            writer = deps.uinput_writer(uinput_dev)
+            if writer is None:
+                continue
+            if held:
                 for code in held:
                     writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), 0)
                 writer.syn()

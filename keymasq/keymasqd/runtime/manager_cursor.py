@@ -23,6 +23,7 @@ class CursorManagerMixin:
     def _initialize_cursor_runtime(self) -> None:
         self._cursor_move_lock = asyncio.Lock()
         self._cursor_move_cancel: asyncio.Event | None = None
+        self._cursor_move_cancel_generation = 0
         self._cursor_request_seq = 0
         self._cursor_position_waiters: dict[str, asyncio.Future[JsonObject]] = {}
 
@@ -110,7 +111,16 @@ class CursorManagerMixin:
         tolerance: int,
         max_duration_ms: int,
     ) -> JsonObject:
+        cancel_generation = self._cursor_move_cancel_generation
         async with self._cursor_move_lock:
+            if cancel_generation != self._cursor_move_cancel_generation:
+                return {
+                    "status": "error",
+                    "message": "Cursor move cancelled",
+                    "target_x": int(x),
+                    "target_y": int(y),
+                    "reached": False,
+                }
             cancel_event = asyncio.Event()
             self._cursor_move_cancel = cancel_event
             try:
@@ -138,9 +148,9 @@ class CursorManagerMixin:
                 await self.stop_cursor_position_tracking()
 
     async def cancel_cursor_move(self) -> None:
+        self._cursor_move_cancel_generation += 1
         cancel_event = self._cursor_move_cancel
-        if cancel_event is None:
-            return
-        cancel_event.set()
+        if cancel_event is not None:
+            cancel_event.set()
         async with self._cursor_move_lock:
             pass

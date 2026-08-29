@@ -656,6 +656,49 @@ async def test_mapped_play_finishes_before_following_erase() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mapped_play_finishes_before_replacement_upload() -> None:
+    uinput = _FakeUInput()
+    operations: list[tuple[str, int]] = []
+
+    class _OrderedPhysicalDevice(_FakePhysicalDevice):
+        def upload_effect(self, effect: object) -> int:
+            operations.append(("upload", int(cast(evdev.ff.Effect, effect).id)))
+            return super().upload_effect(effect)
+
+        def write(self, event_type: int, code: int, value: int) -> None:
+            operations.append(("write", int(code)))
+            super().write(event_type, code, value)
+
+    physical = _OrderedPhysicalDevice()
+    runtime = _InlineAsyncioRuntime()
+    proxy = PassthroughFeedbackProxy(
+        uinput,
+        physical,
+        label="test",
+        asyncio_mod=runtime,  # type: ignore[arg-type]
+    )
+    uinput.uploads[100] = _Upload(effect_id=7)
+    uinput.uploads[101] = _Upload(effect_id=7)
+    _complete_upload(proxy, 100)
+    operations.clear()
+
+    proxy.start()
+    proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
+    proxy.handle_event(
+        _event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 101)
+    )
+
+    for _ in range(10):
+        if len(uinput.ended_uploads) == 2:
+            break
+        await asyncio.sleep(0)
+    await proxy.stop_and_wait()
+
+    assert operations == [("write", 23), ("upload", 23)]
+    assert uinput.ended_uploads[1].retval == 0
+
+
+@pytest.mark.asyncio
 async def test_stop_and_wait_propagates_worker_cancellation_after_write_tasks() -> None:
     proxy = PassthroughFeedbackProxy(
         _FakeUInput(),

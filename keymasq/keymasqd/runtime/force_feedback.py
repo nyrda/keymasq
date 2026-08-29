@@ -343,6 +343,7 @@ class PassthroughFeedbackProxy:
             kind, request_id = request
             try:
                 if kind == _WORKER_UPLOAD:
+                    await self._wait_for_write_tasks()
                     completed_upload = await self.asyncio_mod.to_thread(
                         self._handle_upload,
                         request_id,

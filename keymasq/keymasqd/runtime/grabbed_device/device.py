@@ -297,7 +297,6 @@ class GrabbedDevice:
         self.event_code_to_button: dict[tuple[int, int], str] = {}
         self.device: ManagedInputDevice | None = None
         self.uinput: evdev.UInput | None = None
-        self.source_capabilities: dict[int, Sequence[object]] = {}
         self.output_feedback_proxy: force_feedback.PassthroughFeedbackProxy | None = None
         self.update_button_map(button_map, button_codes, button_values)
         self.analog_inputs: dict[str, object] = {}
@@ -465,8 +464,6 @@ class GrabbedDevice:
             except Exception:
                 log.exception("Unexpected failure closing input device after failed grab")
         self.device = None
-        self.source_capabilities = {}
-
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
         self.source_pending_hidden_kernel_names = []
@@ -484,9 +481,6 @@ class GrabbedDevice:
         try:
             self._refresh_analog_axis_ranges()
             caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
-            self.source_capabilities = {
-                int(event_type): list(codes) for event_type, codes in caps.items()
-            }
             is_gamepad_passthrough = _is_gamepad_passthrough(
                 self.device_type,
                 self.device_types,
@@ -659,7 +653,6 @@ class GrabbedDevice:
 
         self.device = None
         self.uinput = None
-        self.source_capabilities = {}
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
         self.source_pending_hidden_kernel_names = []

@@ -284,19 +284,24 @@ class TestDeviceManagerHelpers:
         assert created[0].kwargs["vendor"] == 0x4B46
         assert created[0].kwargs["product"] == 0x1001
         keyboard_key_caps = set(created[0].kwargs["events"][evdev.ecodes.EV_KEY])
-        expected_extended_keys = {
-            *(getattr(evdev.ecodes, f"KEY_F{number}") for number in range(13, 25)),
-            evdev.ecodes.KEY_PREVIOUSSONG,
-            evdev.ecodes.KEY_PLAYPAUSE,
-            evdev.ecodes.KEY_NEXTSONG,
-            evdev.ecodes.KEY_STOP,
-            evdev.ecodes.KEY_PLAY,
-            evdev.ecodes.KEY_PAUSE,
-            evdev.ecodes.KEY_MICMUTE,
-            evdev.ecodes.KEY_BRIGHTNESSDOWN,
-            evdev.ecodes.KEY_BRIGHTNESSUP,
+        expected_keyboard_keys = {
+            int(code)
+            for code in evdev.ecodes.KEY
+            if evdev.ecodes.KEY_RESERVED < int(code) < evdev.ecodes.KEY_MAX
         }
-        assert expected_extended_keys <= keyboard_key_caps
+        assert keyboard_key_caps == expected_keyboard_keys
+        assert {
+            evdev.ecodes.KEY_COMPOSE,
+            evdev.ecodes.KEY_RO,
+            evdev.ecodes.KEY_YEN,
+            evdev.ecodes.KEY_KPEQUAL,
+            evdev.ecodes.KEY_BRL_DOT1,
+            evdev.ecodes.KEY_OK,
+        } <= keyboard_key_caps
+        assert keyboard_key_caps.isdisjoint(evdev.ecodes.BTN)
+        assert evdev.ecodes.KEY_RESERVED not in keyboard_key_caps
+        assert evdev.ecodes.KEY_MAX not in keyboard_key_caps
+        assert evdev.ecodes.KEY_CNT not in keyboard_key_caps
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002

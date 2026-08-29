@@ -127,7 +127,8 @@ when you enable them.
 
 You can also use **Capture Key** to press any key on your keyboard and have
 Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
-`125` or `key_leftmeta`). For a full list of evdev codes, see the
+`125` or `key_leftmeta`). The virtual keyboard advertises every usable
+`KEY_*` code known to the installed evdev table. For a full list, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
 ![Keyboard tab — visual layout with Capture Key and raw code entry](assets/screenshots/key_selector_keyboard.png)

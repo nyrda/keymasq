@@ -41,7 +41,7 @@ class LogindSleepCoordinator:
         self._bus: Any | None = None
         self._manager: Any | None = None
         self._inhibitor_fd: int | None = None
-        self._events: asyncio.Queue[bool] = asyncio.Queue()
+        self._events: asyncio.Queue[bool | None] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._subscribed = False
 
@@ -76,13 +76,22 @@ class LogindSleepCoordinator:
         return True
 
     async def stop(self) -> None:
+        self._unsubscribe()
         worker = self._worker
         self._worker = None
-        if worker is not None:
-            worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+        try:
+            if worker is None:
+                return
+            self._events.put_nowait(None)
+            try:
                 await worker
-        await self._close_connection()
+            except asyncio.CancelledError:
+                worker.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await worker
+                raise
+        finally:
+            await self._close_connection()
 
     def _on_prepare_for_sleep(self, preparing: bool) -> None:
         self._events.put_nowait(bool(preparing))
@@ -90,6 +99,8 @@ class LogindSleepCoordinator:
     async def _run(self) -> None:
         while True:
             preparing = await self._events.get()
+            if preparing is None:
+                return
             if preparing:
                 log.info(
                     "Received logind suspend signal; running pre-suspend output cleanup"
@@ -131,11 +142,7 @@ class LogindSleepCoordinator:
             log.debug("Failed to close logind sleep inhibitor", exc_info=True)
 
     async def _close_connection(self) -> None:
-        manager = self._manager
-        if manager is not None and self._subscribed:
-            with contextlib.suppress(Exception):
-                manager.off_prepare_for_sleep(self._on_prepare_for_sleep)
-        self._subscribed = False
+        self._unsubscribe()
         self._manager = None
         self._release_inhibitor()
 
@@ -144,3 +151,10 @@ class LogindSleepCoordinator:
         if bus is not None:
             with contextlib.suppress(Exception):
                 bus.disconnect()
+
+    def _unsubscribe(self) -> None:
+        manager = self._manager
+        if manager is not None and self._subscribed:
+            with contextlib.suppress(Exception):
+                manager.off_prepare_for_sleep(self._on_prepare_for_sleep)
+        self._subscribed = False

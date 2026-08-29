@@ -319,12 +319,7 @@ class TestDeviceManagerHelpers:
 
     def test_create_global_uinputs_permission_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(
-            output_state=SimpleNamespace(
-                device_count=0,
-                keyboard_uinput=None,
-                mouse_uinput=None,
-                gamepad_uinput=None,
-            )
+            output_state=outputs.OutputRuntimeState(),
         )
 
         def fail_uinput(**_kwargs) -> FakeUInput:
@@ -349,12 +344,7 @@ class TestDeviceManagerHelpers:
 
     def test_create_global_uinputs_uinput_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(
-            output_state=SimpleNamespace(
-                device_count=0,
-                keyboard_uinput=None,
-                mouse_uinput=None,
-                gamepad_uinput=None,
-            )
+            output_state=outputs.OutputRuntimeState(),
         )
 
         def fail_uinput(**_kwargs) -> FakeUInput:

@@ -480,11 +480,7 @@ def _acquire_global_uinputs(
 
 
 def _close_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
-    virtual_gamepad_uinputs = getattr(
-        manager.output_state,
-        "virtual_gamepad_uinputs",
-        {},
-    )
+    virtual_gamepad_uinputs = manager.output_state.virtual_gamepad_uinputs
     for uinput_dev in [
         manager.output_state.keyboard_uinput,
         manager.output_state.mouse_uinput,

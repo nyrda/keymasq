@@ -345,7 +345,12 @@ class PassthroughFeedbackProxy:
             kind, request_id = request
             try:
                 if kind == _WORKER_UPLOAD:
-                    await self.asyncio_mod.to_thread(self._handle_upload, request_id)
+                    queued_plays = await self.asyncio_mod.to_thread(
+                        self._handle_upload,
+                        request_id,
+                    )
+                    for physical_id, value in queued_plays:
+                        self._schedule_physical_ff(physical_id, value)
                 elif kind == _WORKER_ERASE:
                     await self.asyncio_mod.to_thread(self._handle_erase, request_id)
             except Exception:
@@ -369,18 +374,19 @@ class PassthroughFeedbackProxy:
             queue.put_nowait((kind, int(request_id)))
             return
         if kind == _WORKER_UPLOAD:
-            self._handle_upload(request_id)
+            for physical_id, value in self._handle_upload(request_id):
+                self._schedule_physical_ff(physical_id, value)
         else:
             self._handle_erase(request_id)
 
-    def _handle_upload(self, request_id: int) -> None:
+    def _handle_upload(self, request_id: int) -> list[tuple[int, int]]:
         upload: object | None = None
         retval = 0
         virtual_id: int | None = None
         previous_mapping: EffectMapping | None = None
         physical_id: int | None = None
         published_mapping = False
-        queued_plays: list[int] = []
+        queued_physical_plays: list[tuple[int, int]] = []
         try:
             upload = _begin_upload(self.uinput, request_id)
             effect = cast(_UploadLike, upload).effect
@@ -399,10 +405,11 @@ class PassthroughFeedbackProxy:
             with self._effects_lock:
                 self._effects[virtual_id] = EffectMapping(physical_id=physical_id)
                 self._pending_uploads.discard(virtual_id)
-                queued_plays = self._queued_upload_plays.pop(virtual_id, [])
+                queued_values = self._queued_upload_plays.pop(virtual_id, [])
             published_mapping = True
-            for queued_value in queued_plays:
-                self._schedule_physical_ff(physical_id, queued_value)
+            queued_physical_plays = [
+                (physical_id, queued_value) for queued_value in queued_values
+            ]
         except Exception as exc:  # noqa: BLE001 - request must be acked on upload failure.
             self._discard_pending_upload(virtual_id)
             retval = _negative_errno(exc)
@@ -430,6 +437,8 @@ class PassthroughFeedbackProxy:
                         "Failed to finish force-feedback upload request for %s",
                         self.label,
                     )
+                    queued_physical_plays.clear()
+        return queued_physical_plays
 
     def _handle_erase(self, request_id: int) -> None:
         erase: object | None = None
@@ -528,14 +537,20 @@ class PassthroughFeedbackProxy:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            self._write_physical_event_sync(event_type, code, value)
+            self.log.debug(
+                "Dropping output event for %s because no event loop is running",
+                self.label,
+            )
             return
         coro = self._write_physical_event(event_type, code, value)
         try:
             task = self.asyncio_mod.create_task(coro)
         except RuntimeError:
             coro.close()
-            self._write_physical_event_sync(event_type, code, value)
+            self.log.debug(
+                "Dropping output event for %s because task scheduling is unavailable",
+                self.label,
+            )
             return
         self._write_tasks.add(task)
         task.add_done_callback(self._log_write_result)
@@ -670,14 +685,20 @@ class OutputFeedbackFanoutProxy:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            self._write_target_sync(target, event_type, code, value)
+            self.log.debug(
+                "Dropping output event for %s because no event loop is running",
+                self.label,
+            )
             return
         coro = self._write_target(target, event_type, code, value)
         try:
             task = self.asyncio_mod.create_task(coro)
         except RuntimeError:
             coro.close()
-            self._write_target_sync(target, event_type, code, value)
+            self.log.debug(
+                "Dropping output event for %s because task scheduling is unavailable",
+                self.label,
+            )
             return
         self._write_tasks.add(task)
         task.add_done_callback(self._log_write_result)

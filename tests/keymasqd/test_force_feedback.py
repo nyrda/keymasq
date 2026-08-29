@@ -118,7 +118,8 @@ def _event(event_type: int, code: int, value: int) -> object:
     return SimpleNamespace(type=event_type, code=code, value=value)
 
 
-def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
+@pytest.mark.asyncio
+async def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
@@ -133,6 +134,7 @@ def test_upload_play_replace_and_erase_translate_effect_ids() -> None:
     assert proxy.effect_mappings[7].physical_id == 23
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
+    await proxy._wait_for_write_tasks()
     assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
 
     uinput.uploads[101] = _Upload(effect_id=7)
@@ -168,7 +170,8 @@ def test_upload_failure_sets_negative_errno_and_does_not_record_mapping() -> Non
     assert proxy.effect_mappings == {}
 
 
-def test_upload_mapping_is_available_before_ack_returns() -> None:
+@pytest.mark.asyncio
+async def test_upload_mapping_is_available_before_ack_returns() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
@@ -180,6 +183,7 @@ def test_upload_mapping_is_available_before_ack_returns() -> None:
     uinput.end_upload_hook = play_during_ack
 
     proxy.handle_event(_event(evdev.ecodes.EV_UINPUT, evdev.ecodes.UI_FF_UPLOAD, 100))
+    await proxy._wait_for_write_tasks()
 
     assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
     assert proxy.effect_mappings[7].physical_id == 23
@@ -199,13 +203,15 @@ def test_upload_end_failure_rolls_back_physical_effect() -> None:
     assert proxy.effect_mappings == {}
 
 
-def test_global_force_feedback_events_forward_without_translation() -> None:
+@pytest.mark.asyncio
+async def test_global_force_feedback_events_forward_without_translation() -> None:
     uinput = _FakeUInput()
     physical = _FakePhysicalDevice()
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40))
     proxy.handle_event(_event(evdev.ecodes.EV_FF, evdev.ecodes.FF_AUTOCENTER, 1))
+    await proxy._wait_for_write_tasks()
 
     assert physical.writes == [
         (evdev.ecodes.EV_FF, evdev.ecodes.FF_GAIN, 40),
@@ -220,7 +226,8 @@ def test_global_force_feedback_events_forward_without_translation() -> None:
         (evdev.ecodes.EV_SND, evdev.ecodes.SND_BELL),
     ],
 )
-def test_direct_output_feedback_events_forward_without_translation(
+@pytest.mark.asyncio
+async def test_direct_output_feedback_events_forward_without_translation(
     event_type: int,
     event_code: int,
 ) -> None:
@@ -229,11 +236,13 @@ def test_direct_output_feedback_events_forward_without_translation(
     proxy = PassthroughFeedbackProxy(uinput, physical, label="test")
 
     proxy.handle_event(_event(event_type, event_code, 1))
+    await proxy._wait_for_write_tasks()
 
     assert physical.writes == [(event_type, event_code, 1)]
 
 
-def test_global_output_feedback_fans_out_only_supported_types() -> None:
+@pytest.mark.asyncio
+async def test_global_output_feedback_fans_out_only_supported_types() -> None:
     uinput = _FakeUInput()
     first = _FakePhysicalDevice()
     second = _FakePhysicalDevice()
@@ -246,6 +255,7 @@ def test_global_output_feedback_fans_out_only_supported_types() -> None:
 
     proxy.handle_event(_event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_CAPSLOCK, 1))
     proxy.handle_event(_event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1))
+    await proxy.stop_and_wait()
 
     expected = [(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)]
     assert first.writes == expected
@@ -398,6 +408,61 @@ class _DelayedAsyncioRuntime(_InlineAsyncioRuntime):
         return func(*args, **kwargs)
 
 
+class _RejectingAsyncioRuntime(_InlineAsyncioRuntime):
+    def create_task(self, coro):
+        raise RuntimeError("task scheduling unavailable")
+
+
+def test_output_feedback_is_dropped_without_running_loop(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG")
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    proxy = PassthroughFeedbackProxy(uinput, physical, label="passthrough")
+    fanout = OutputFeedbackFanoutProxy(
+        uinput,
+        lambda _event_type, _event_code: [physical],
+        label="global keyboard",
+        event_types=frozenset({evdev.ecodes.EV_LED}),
+    )
+
+    event = _event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)
+    proxy.handle_event(event)
+    fanout.handle_event(event)
+
+    assert physical.writes == []
+    assert caplog.text.count("because no event loop is running") == 2
+
+
+@pytest.mark.asyncio
+async def test_output_feedback_is_dropped_when_task_scheduling_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG")
+    uinput = _FakeUInput()
+    physical = _FakePhysicalDevice()
+    runtime = _RejectingAsyncioRuntime()
+    proxy = PassthroughFeedbackProxy(
+        uinput,
+        physical,
+        label="passthrough",
+        asyncio_mod=runtime,  # type: ignore[arg-type]
+    )
+    fanout = OutputFeedbackFanoutProxy(
+        uinput,
+        lambda _event_type, _event_code: [physical],
+        label="global keyboard",
+        event_types=frozenset({evdev.ecodes.EV_LED}),
+        asyncio_mod=runtime,  # type: ignore[arg-type]
+    )
+
+    event = _event(evdev.ecodes.EV_LED, evdev.ecodes.LED_CAPSL, 1)
+    proxy.handle_event(event)
+    fanout.handle_event(event)
+
+    assert physical.writes == []
+    assert caplog.text.count("because task scheduling is unavailable") == 2
+
+
 @pytest.mark.asyncio
 async def test_upload_requests_are_queued_to_worker_thread_adapter() -> None:
     uinput = _FakeUInput()
@@ -486,7 +551,10 @@ async def test_force_feedback_play_during_inflight_upload_is_not_dropped() -> No
 
     proxy.handle_event(_event(evdev.ecodes.EV_FF, 7, 1))
     finish_upload.set()
-    await upload_task
+    queued_plays = await upload_task
+    for physical_id, value in queued_plays:
+        proxy._schedule_physical_ff(physical_id, value)
+    await proxy._wait_for_write_tasks()
 
     assert physical.writes == [(evdev.ecodes.EV_FF, 23, 1)]
 

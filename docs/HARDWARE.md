@@ -110,6 +110,19 @@ Switching saves the hardware file and reloads the session. Existing mappings
 keep working because they refer to the hardware ID and source control IDs, never
 to the evdev path string.
 
+## Keyboard LEDs and Other Output Feedback
+
+Keymasq creates a dedicated passthrough virtual device for each grabbed evdev
+interface. The passthrough device keeps the source interface's LED and sound
+capabilities. Keymasq forwards output events written to that virtual interface
+only to its corresponding physical interface, so applications can still
+control device indicators and bells.
+
+The shared synthetic keyboard does not advertise LED or sound capabilities.
+Synthetic mouse and gamepad outputs do not advertise force feedback. Force
+feedback is available only through a passthrough clone backed by compatible
+physical hardware.
+
 ## TOML Reference
 
 ```toml

@@ -302,6 +302,8 @@ class TestDeviceManagerHelpers:
         assert evdev.ecodes.KEY_RESERVED not in keyboard_key_caps
         assert evdev.ecodes.KEY_MAX not in keyboard_key_caps
         assert evdev.ecodes.KEY_CNT not in keyboard_key_caps
+        assert evdev.ecodes.EV_LED not in created[0].kwargs["events"]
+        assert evdev.ecodes.EV_SND not in created[0].kwargs["events"]
         assert created[1].kwargs["name"] == "keymasq-test-mouse"
         assert created[1].kwargs["vendor"] == 0x4B46
         assert created[1].kwargs["product"] == 0x1002
@@ -324,15 +326,11 @@ class TestDeviceManagerHelpers:
         assert created[2].kwargs["name"] == "keymasq-test-gamepad"
         assert created[2].kwargs["vendor"] == 0x4B46
         assert created[2].kwargs["product"] == 0x1003
+        assert [device.kwargs.get("max_effects") for device in created] == [0, 0, 0]
 
     def test_create_global_uinputs_permission_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(
-            output_state=SimpleNamespace(
-                device_count=0,
-                keyboard_uinput=None,
-                mouse_uinput=None,
-                gamepad_uinput=None,
-            )
+            output_state=outputs.OutputRuntimeState(),
         )
 
         def fail_uinput(**_kwargs) -> FakeUInput:
@@ -357,12 +355,7 @@ class TestDeviceManagerHelpers:
 
     def test_create_global_uinputs_uinput_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(
-            output_state=SimpleNamespace(
-                device_count=0,
-                keyboard_uinput=None,
-                mouse_uinput=None,
-                gamepad_uinput=None,
-            )
+            output_state=outputs.OutputRuntimeState(),
         )
 
         def fail_uinput(**_kwargs) -> FakeUInput:
@@ -384,6 +377,87 @@ class TestDeviceManagerHelpers:
         assert "keyboard uinput device" in message
         assert UINPUT_PERMISSION_HINT in message
         assert manager.output_state.device_count == 0
+
+    def test_create_global_uinputs_rolls_back_after_mouse_creation_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = SimpleNamespace(
+            output_state=outputs.OutputRuntimeState(),
+        )
+        keyboard = Mock()
+
+        def fake_create(
+            context: str,
+            _evdev_mod: object,
+            **_kwargs: object,
+        ) -> Mock:
+            if context == "mouse":
+                raise RuntimeError("mouse creation failed")
+            assert context == "keyboard"
+            return keyboard
+
+        monkeypatch.setattr(outputs, "_create_synthetic_uinput", fake_create)
+
+        with pytest.raises(RuntimeError, match="mouse creation failed"):
+            outputs.create_global_uinputs(
+                manager,
+                evdev_mod=evdev,
+                log=logging.getLogger("test"),
+                uinput_writer=lambda device: device,
+            )
+
+        keyboard.close.assert_called_once_with()
+        assert manager.output_state.device_count == 0
+        assert manager.output_state.keyboard_uinput is None
+        assert manager.output_state.mouse_uinput is None
+        assert manager.output_state.virtual_gamepad_uinputs == {}
+
+    def test_create_global_uinputs_rolls_back_after_gamepad_creation_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = SimpleNamespace(
+            output_state=outputs.OutputRuntimeState(virtual_gamepad_count=2),
+        )
+        keyboard = Mock()
+        mouse = Mock()
+        first_gamepad = Mock()
+        gamepad_creations = 0
+
+        def fake_create(
+            context: str,
+            _evdev_mod: object,
+            **_kwargs: object,
+        ) -> Mock:
+            nonlocal gamepad_creations
+            if context == "keyboard":
+                return keyboard
+            if context == "mouse":
+                return mouse
+            assert context == "virtual gamepad"
+            gamepad_creations += 1
+            if gamepad_creations == 2:
+                raise RuntimeError("gamepad creation failed")
+            return first_gamepad
+
+        monkeypatch.setattr(outputs, "_create_synthetic_uinput", fake_create)
+
+        with pytest.raises(RuntimeError, match="gamepad creation failed"):
+            outputs.create_global_uinputs(
+                manager,
+                evdev_mod=evdev,
+                log=logging.getLogger("test"),
+                uinput_writer=lambda device: device,
+            )
+
+        keyboard.close.assert_called_once_with()
+        mouse.close.assert_called_once_with()
+        first_gamepad.close.assert_called_once_with()
+        assert manager.output_state.device_count == 0
+        assert manager.output_state.keyboard_uinput is None
+        assert manager.output_state.mouse_uinput is None
+        assert manager.output_state.virtual_gamepad_uinputs == {}
 
     def test_configure_virtual_gamepads_logs_close_failures(
         self,

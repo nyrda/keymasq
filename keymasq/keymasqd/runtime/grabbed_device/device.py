@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import logging
 import os
 import time
@@ -49,6 +48,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 from keymasq.keymasqd.runtime.outputs import (
     create_uinput_with_permission_hint,
     uinput_identity,
+    uinput_supports_max_effects,
 )
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
@@ -180,16 +180,6 @@ def _copy_passthrough_capabilities(
     return caps, ff_max_effects
 
 
-def _uinput_supports_max_effects(uinput_factory: Callable[..., object]) -> bool:
-    try:
-        parameters = inspect.signature(uinput_factory).parameters
-    except (TypeError, ValueError):
-        return True
-    return "max_effects" in parameters or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-    )
-
-
 def _passthrough_uinput_kwargs(
     *,
     caps: dict[int, Sequence[object]],
@@ -297,7 +287,7 @@ class GrabbedDevice:
         self.event_code_to_button: dict[tuple[int, int], str] = {}
         self.device: ManagedInputDevice | None = None
         self.uinput: evdev.UInput | None = None
-        self.force_feedback_proxy: force_feedback.PassthroughForceFeedbackProxy | None = None
+        self.output_feedback_proxy: force_feedback.PassthroughFeedbackProxy | None = None
         self.update_button_map(button_map, button_codes, button_values)
         self.analog_inputs: dict[str, object] = {}
         self.analog_axis_bindings: dict[tuple[int, int], tuple[str, str]] = {}
@@ -449,7 +439,7 @@ class GrabbedDevice:
         )
 
     async def _cleanup_failed_grab(self) -> None:
-        await self._stop_force_feedback_proxy()
+        await self._stop_output_feedback_proxy()
         uinput = self.uinput
         if uinput is not None:
             _close_passthrough_uinput(uinput, context="failed grab")
@@ -464,7 +454,6 @@ class GrabbedDevice:
             except Exception:
                 log.exception("Unexpected failure closing input device after failed grab")
         self.device = None
-
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
         self.source_pending_hidden_kernel_names = []
@@ -518,7 +507,7 @@ class GrabbedDevice:
                 passthrough_bustype = None
                 passthrough_input_props = None
 
-            supports_max_effects = _uinput_supports_max_effects(evdev.UInput)
+            supports_max_effects = uinput_supports_max_effects(evdev.UInput)
             if ff_max_effects > 0 and not supports_max_effects:
                 log.debug(
                     "python-evdev UInput does not support max_effects; "
@@ -545,18 +534,18 @@ class GrabbedDevice:
                 )
 
             self.uinput = make_passthrough_uinput(ff_max_effects)
-            if ff_max_effects > 0:
+            if force_feedback.has_passthrough_output_feedback(caps):
                 try:
-                    self._start_force_feedback_proxy()
-                except Exception:  # noqa: BLE001 - retry without advertised FF support.
+                    self._start_output_feedback_proxy()
+                except Exception:  # noqa: BLE001 - retry without advertised feedback support.
                     log.warning(
-                        "Disabling passthrough force feedback for %s after proxy start failure",
+                        "Disabling passthrough output feedback for %s after proxy start failure",
                         self.path,
                         exc_info=True,
                     )
-                    _close_passthrough_uinput(self.uinput, context="force-feedback retry")
+                    _close_passthrough_uinput(self.uinput, context="output-feedback retry")
                     self.uinput = None
-                    force_feedback.disable_force_feedback(caps)
+                    force_feedback.disable_passthrough_output_feedback(caps)
                     ff_max_effects = 0
                     self.uinput = make_passthrough_uinput(ff_max_effects)
 
@@ -629,7 +618,7 @@ class GrabbedDevice:
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
 
-        await self._stop_force_feedback_proxy()
+        await self._stop_output_feedback_proxy()
 
         if self.device:
             try:
@@ -665,20 +654,20 @@ class GrabbedDevice:
 
         log.info("Released %s", self.path)
 
-    def _start_force_feedback_proxy(self) -> None:
+    def _start_output_feedback_proxy(self) -> None:
         if self.uinput is None or self.device is None:
             return
-        proxy = force_feedback.PassthroughForceFeedbackProxy(
+        proxy = force_feedback.PassthroughFeedbackProxy(
             cast(force_feedback.ForceFeedbackUInput, self.uinput),
             cast(force_feedback.ForceFeedbackTarget, self.device),
             label=f"{self.hardware_id}:{self.interface_id or self.path}",
         )
         proxy.start()
-        self.force_feedback_proxy = proxy
+        self.output_feedback_proxy = proxy
 
-    async def _stop_force_feedback_proxy(self) -> None:
-        proxy = self.force_feedback_proxy
-        self.force_feedback_proxy = None
+    async def _stop_output_feedback_proxy(self) -> None:
+        proxy = self.output_feedback_proxy
+        self.output_feedback_proxy = None
         if proxy is None:
             return
         stop_and_wait = cast(

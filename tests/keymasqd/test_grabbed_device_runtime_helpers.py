@@ -547,7 +547,11 @@ class TestGrabbedDeviceHelpers:
         device.uinput = passthrough  # type: ignore[assignment]
         deps = pipeline.build_event_processing_deps(log=logging.getLogger("test"))
 
-        for event_type in (evdev.ecodes.EV_FF, evdev.ecodes.EV_LED, evdev.ecodes.EV_SND):
+        for event_type in (
+            evdev.ecodes.EV_FF,
+            evdev.ecodes.EV_LED,
+            evdev.ecodes.EV_SND,
+        ):
             await pipeline.process_event(
                 device,
                 evdev.InputEvent(0, 0, int(event_type), 0, 1),

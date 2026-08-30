@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -65,14 +65,19 @@ async def move_cursor_naturally(
     get_cursor_position: CursorPositionGetter,
     config: NaturalMouseMoveConfig,
     asyncio_mod: _AsyncioModule,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, object]:
     if uinput is None:
         return {"status": "error", "message": "No mouse uinput device available"}
 
     config = config.normalized()
     target = (int(target_x), int(target_y))
+    if should_cancel is not None and should_cancel():
+        return _cancelled_result(target)
     tracking_hint_ms = config.max_duration_ms
     position = await get_cursor_position(tracking_hint_ms=tracking_hint_ms)
+    if should_cancel is not None and should_cancel():
+        return _cancelled_result(target)
     if position is None:
         return {
             "status": "error",
@@ -99,6 +104,8 @@ async def move_cursor_naturally(
     response_gain = 1.0
 
     while loop.time() <= deadline:
+        if should_cancel is not None and should_cancel():
+            return _cancelled_result(target)
         distance = distance_to_target(position, target)
         if distance <= config.tolerance_px:
             return _success_result(position, target, config.tolerance_px, emitted_frames)
@@ -154,6 +161,8 @@ async def move_cursor_naturally(
         emit_mouse_move(uinput, move_x, move_y)
         emitted_frames += 1
         await asyncio_mod.sleep(tick_s)
+        if should_cancel is not None and should_cancel():
+            return _cancelled_result(target)
 
         remaining_ms = max(1, int((deadline - loop.time()) * 1000.0))
         next_position = await get_cursor_position(tracking_hint_ms=remaining_ms)
@@ -211,6 +220,16 @@ async def move_cursor_naturally(
         "tolerance": int(config.tolerance_px),
         "reached": False,
         "frames": emitted_frames,
+    }
+
+
+def _cancelled_result(target: tuple[int, int]) -> dict[str, object]:
+    return {
+        "status": "error",
+        "message": "Cursor move cancelled",
+        "target_x": target[0],
+        "target_y": target[1],
+        "reached": False,
     }
 
 

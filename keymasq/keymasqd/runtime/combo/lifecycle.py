@@ -1,11 +1,14 @@
 """Topology cleanup and timeout lifecycle for the combo runtime."""
 
 import contextlib
+import logging
 import time
 
 from keymasq.keymasqd.runtime.combo.actions import stop_combo_action
 from keymasq.keymasqd.runtime.combo.recall import binding_matches_scope
 from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
+
+log = logging.getLogger("keymasqd.runtime.combo_lifecycle")
 
 
 async def clear_combo_runtime(
@@ -23,18 +26,35 @@ async def clear_combo_runtime_unlocked(
     *,
     deps: ComboRuntimeDeps,
 ) -> None:
+    errors: list[Exception] = []
     manager.combo_state.progression.engine.reset()
     for combo_id in list(manager.combo_state.active_actions):
-        await stop_combo_action(manager, combo_id, deps=deps)
+        try:
+            await stop_combo_action(manager, combo_id, deps=deps)
+        except Exception as exc:
+            errors.append(exc)
+            log.exception("Failed to stop combo action %s during runtime cleanup", combo_id)
     # Active actions perform their key-up transition. Cached machines still need
     # explicit teardown so their timers cannot outlive a runtime reset.
     machines = list(manager.combo_state.superkey_machines.values())
     manager.combo_state.superkey_machines.clear()
     manager.combo_state.superkey_machine_bindings.clear()
     for machine in machines:
-        await machine.stop()
-    _clear_tracked_outputs(manager)
-    await _cancel_timeout_watchdog(manager, deps=deps)
+        try:
+            await machine.stop()
+        except Exception as exc:
+            errors.append(exc)
+            log.exception("Failed to stop combo superkey during runtime cleanup")
+    try:
+        await _cancel_timeout_watchdog(manager, deps=deps)
+    except Exception as exc:
+        errors.append(exc)
+        log.exception("Failed to cancel combo timeout during runtime cleanup")
+    finally:
+        release_tracked_outputs(manager, deps=deps)
+
+    if errors:
+        raise errors[0]
 
 
 async def clear_combo_runtime_except(
@@ -177,6 +197,53 @@ def _clear_tracked_outputs(manager: ComboManager) -> None:
         held.clear()
     for refcounts in manager.combo_state.superkey_output_refcounts.values():
         refcounts.clear()
+
+
+def release_tracked_outputs(
+    manager: ComboManager,
+    *,
+    deps: ComboRuntimeDeps,
+) -> None:
+    """Release output keys still owned by the shared combo runtime."""
+
+    uinputs = {
+        "keyboard": manager.output_state.keyboard_uinput,
+        "mouse": manager.output_state.mouse_uinput,
+        "gamepad": manager.output_state.gamepad_uinput,
+    }
+    for bucket, held_keys in manager.combo_state.held_output_keys.items():
+        held = sorted(held_keys)
+        try:
+            uinput_dev = uinputs.get(bucket)
+            if bucket.startswith("gamepad:") and bucket not in uinputs:
+                target = manager.resolve_gamepad_output(
+                    bucket.removeprefix("gamepad:"),
+                    context=f"combo output cleanup {bucket}",
+                )
+                uinput_dev = getattr(target, "uinput", None)
+            writer = deps.uinput_writer(uinput_dev)
+            if writer is None:
+                continue
+            if held:
+                for code in held:
+                    writer.write(deps.evdev_mod.ecodes.EV_KEY, int(code), 0)
+                writer.syn()
+        except OSError:
+            log.debug(
+                "Failed to release combo-held outputs bucket=%s keys=%s",
+                bucket,
+                held,
+                exc_info=True,
+            )
+        except Exception:
+            log.exception(
+                "Unexpected failure releasing combo-held outputs bucket=%s keys=%s",
+                bucket,
+                held,
+            )
+        else:
+            held_keys.clear()
+            manager.combo_state.superkey_output_refcounts.get(bucket, {}).clear()
 
 
 async def _cancel_timeout_watchdog(

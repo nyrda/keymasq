@@ -59,6 +59,7 @@ from keymasq.keymasqd.runtime.grab.state import (
     GrabRuntimeState,
 )
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.macro.state import (
     DiagnosticRecorder,
     MacroRuntimeDeps,
@@ -170,6 +171,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self.macro_exec_timeout_max_ms = 30000
         self.macro_state = MacroRuntimeState()
         self._op_lock = asyncio.Lock()
+        self._neutralize_lock = asyncio.Lock()
+        self._runtime_input_paused = False
         self._initialize_cursor_runtime()
         self._diagnostics = diagnostics.DiagnosticsRuntime(log)
         self.diagnostics_state = self._diagnostics.state
@@ -336,6 +339,94 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         async with self._op_lock:
             self.device_inspector_state.reset()
             await self._refresh_combo_runtime()
+
+    def runtime_input_paused(self) -> bool:
+        return self._runtime_input_paused
+
+    def pause_runtime_input(self) -> None:
+        self._runtime_input_paused = True
+
+    def resume_runtime_input(self) -> None:
+        self._runtime_input_paused = False
+
+    async def neutralize_runtime(self) -> JsonObject:
+        """Stop active input runtimes and release every tracked output."""
+
+        async with self._neutralize_lock:
+            was_paused = self._runtime_input_paused
+            self._runtime_input_paused = True
+            devices = [
+                device
+                for grabbed in list(self.grabbed_devices.values())
+                for device in list(grabbed)
+            ]
+            errors: list[Exception] = []
+            combo_deps = support.combo_runtime_deps()
+
+            async def attempt(label: str, cleanup: Callable[[], Awaitable[object]]) -> None:
+                try:
+                    await cleanup()
+                except Exception as exc:
+                    errors.append(exc)
+                    log.exception("Runtime neutralization failed while %s", label)
+
+            def attempt_sync(label: str, cleanup: Callable[[], object]) -> None:
+                try:
+                    cleanup()
+                except Exception as exc:
+                    errors.append(exc)
+                    log.exception("Runtime neutralization failed while %s", label)
+
+            try:
+                await attempt("cancelling macro playback", self.cancel_macro_playback)
+                await attempt(
+                    "clearing combo runtime",
+                    lambda: lifecycle.clear_combo_runtime(self, deps=combo_deps),
+                )
+                await attempt("cancelling cursor movement", self.cancel_cursor_move)
+
+                for device in devices:
+                    held_sources = set(device.state.held_source_keys)
+                    held_sources.update(device.state.held_source_actions)
+                    held_sources.update(device.state.combo_passthrough_held)
+                    device.state.quarantined_source_keys.update(held_sources)
+
+                    await attempt(
+                        f"resetting analog controls for {device.path}",
+                        device.reset_analog_controls,
+                    )
+                    await attempt(
+                        f"resetting superkeys for {device.path}",
+                        device.reset_superkeys,
+                    )
+
+                await attempt("cancelling teardown macro playback", self.cancel_macro_playback)
+
+                for device in devices:
+                    attempt_sync(
+                        f"ending held profile triggers for {device.path}",
+                        lambda device=device: pipeline.observe_profile_trigger_end_for_held_sources(
+                            device
+                        ),
+                    )
+                    device.state.repeat_active_actions.clear()
+                    device.state.passthrough_frame_output = None
+            finally:
+                attempt_sync(
+                    "releasing combo outputs",
+                    lambda: lifecycle.release_tracked_outputs(self, deps=combo_deps),
+                )
+                for device in devices:
+                    attempt_sync(
+                        f"releasing tracked outputs for {device.path}",
+                        device.release_tracked_outputs,
+                    )
+                if not was_paused:
+                    self._runtime_input_paused = False
+
+            if errors:
+                raise errors[0]
+            return {"status": "ok", "neutralized": True}
 
     async def emergency_reset(self) -> JsonObject:
         await self.release_all_devices()

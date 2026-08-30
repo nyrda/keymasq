@@ -786,6 +786,36 @@ async def test_stored_macro_playback_uses_revision_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_stored_macro_does_not_start_if_runtime_pauses_during_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    manager.output_state.keyboard_uinput = MagicMock()
+
+    async def load_stored_macro(
+        _macro_name: str,
+        *,
+        deps: MacroRuntimeDeps,
+    ) -> MacroEventSource:
+        del deps
+        manager.pause_runtime_input()
+        return MacroEventSource(
+            event_count=1,
+            duration_us=0,
+            iter_events=lambda: iter(
+                [{"t_us": 0, "type": evdev.ecodes.EV_KEY, "code": 30, "value": 1}]
+            ),
+        )
+
+    monkeypatch.setattr(manager, "_stored_macro_event_source", load_stored_macro)
+
+    result = await manager.play_macro(macro_name="stored")
+
+    assert result == {"status": "error", "message": "Runtime input is paused"}
+    assert manager.macro_state.tasks == {}
+
+
+@pytest.mark.asyncio
 async def test_short_stored_macro_streams_once_then_reuses_cached_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

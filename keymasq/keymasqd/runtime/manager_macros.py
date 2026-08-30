@@ -45,6 +45,9 @@ class MacroManagerMixin:
     ) -> None:
         raise NotImplementedError
 
+    def runtime_input_paused(self) -> bool:
+        raise NotImplementedError
+
     async def play_macro(
         self,
         playback_options: MacroPlaybackOptions | None = None,
@@ -71,6 +74,8 @@ class MacroManagerMixin:
                 playback_options.macro_name,
                 deps=deps,
             )
+        if int(playback_options.trigger_value) == 1 and self.runtime_input_paused():
+            return {"status": "error", "message": "Runtime input is paused"}
         return await playback.play_macro(
             self,
             playback_options,

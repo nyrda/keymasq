@@ -49,7 +49,7 @@ What they are used for:
 
 - `PyGObject`: GTK4 / libadwaita GUI
 - `dbus-next`: session D-Bus access for notifications and compositor/session
-  integrations
+  integrations, plus system D-Bus access to logind for pre-suspend output cleanup
 - `evdev`: input device access, recording, capture, and remap runtime
 - `python-xlib`: X11 listener support, including cursor position read/write
 - `tomli-w`: writing profile, hardware, and superkey TOML files
@@ -165,6 +165,15 @@ differentiator is the compositor/session environment itself.
 
 `slurp` is not a universal base runtime dependency. It is a GUI Capture helper
 for supported Wayland environments.
+
+### Suspend cleanup
+
+When systemd-logind is available, `keymasqd` uses its system D-Bus API to pause
+input processing, neutralize active runtime state, and release tracked outputs
+before suspend. Input processing resumes after logind announces wake-up. The
+daemon continues normally when logind or the system bus is unavailable at
+startup. After a successful connection, it reconnects if logind or the system
+bus restarts.
 
 ### Browser GUI backend
 

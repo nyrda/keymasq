@@ -45,6 +45,7 @@ from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import source_hiding
+from keymasq.keymasqd.sleep import LogindSleepCoordinator
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
@@ -76,6 +77,11 @@ class Daemon:
         self.recording_manager = RecordingManager()
         self.macro_store = MacroStore(STATE_DIR / "macros")
         self.capture_manager = CaptureManager()
+        self.sleep_coordinator = LogindSleepCoordinator(
+            self.device_manager.neutralize_runtime,
+            pause_runtime=self.device_manager.pause_runtime_input,
+            resume_runtime=self.device_manager.resume_runtime_input,
+        )
         self.socket_server: SocketServer | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
@@ -136,6 +142,7 @@ class Daemon:
             self.device_manager.initialize_output_devices()
             await self.socket_server.start()
             await self.device_manager.start_topology_watcher()
+            await self.sleep_coordinator.start()
 
             sd_notify("READY=1")
 
@@ -150,6 +157,11 @@ class Daemon:
         sd_notify("STOPPING=1")
         log.info("Stopping keymasqd")
         self.running = False
+
+        await self._run_async_cleanup(
+            "stop logind sleep coordination",
+            self.sleep_coordinator.stop,
+        )
 
         if self.socket_server:
             await self._run_async_cleanup("stop socket server", self.socket_server.stop)

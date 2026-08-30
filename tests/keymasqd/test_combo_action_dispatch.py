@@ -64,7 +64,56 @@ class FakeComboDevice:
         return set()
 
 
+class FailingUInput(FakeUInput):
+    def write(self, event_type: int, code: int, value: int) -> None:
+        raise OSError("uinput disconnected")
+
+
 class TestComboActionDispatch:
+    def test_combo_output_release_keeps_tracking_for_retry_after_write_failure(
+        self,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FailingUInput()
+        held = manager.combo_state.held_output_keys["keyboard"]
+        refcounts = manager.combo_state.superkey_output_refcounts["keyboard"]
+        held.add(evdev.ecodes.KEY_F13)
+        refcounts[evdev.ecodes.KEY_F13] = 1
+
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert held == {evdev.ecodes.KEY_F13}
+        assert refcounts == {evdev.ecodes.KEY_F13: 1}
+
+        keyboard = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert keyboard.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0)]
+        assert held == set()
+        assert refcounts == {}
+
+    def test_combo_output_release_resolves_routed_gamepad_for_retry(self) -> None:
+        manager = DeviceManager()
+        bucket = "gamepad:virtual-gamepad-2"
+        held = manager.combo_state.held_output_keys.setdefault(bucket, set())
+        refcounts = manager.combo_state.superkey_output_refcounts.setdefault(bucket, {})
+        held.add(evdev.ecodes.BTN_SOUTH)
+        refcounts[evdev.ecodes.BTN_SOUTH] = 1
+
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert held == {evdev.ecodes.BTN_SOUTH}
+        assert refcounts == {evdev.ecodes.BTN_SOUTH: 1}
+
+        gamepad = FakeUInput()
+        manager.output_state.virtual_gamepad_uinputs["virtual-gamepad-2"] = gamepad
+        lifecycle.release_tracked_outputs(manager, deps=combo_runtime_deps())
+
+        assert gamepad.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 0)]
+        assert held == set()
+        assert refcounts == {}
+
     def test_combo_payload_handles_list_style_evdev_aliases(self) -> None:
         evdev_mod = SimpleNamespace(
             ecodes=SimpleNamespace(
@@ -178,6 +227,50 @@ class TestComboActionDispatch:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
         ]
+
+    @pytest.mark.asyncio
+    async def test_combo_stop_releases_tracked_output_when_release_action_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        keyboard = FakeUInput()
+        manager.output_state.keyboard_uinput = keyboard
+        binding = RuntimeComboBinding(
+            hardware_id="1234:5678",
+            source="kbd",
+            evdev="key_a",
+        )
+        action = MappingAction(action_type=ActionType.KEYBOARD, target="key_f13")
+
+        await actions.start_combo_action(
+            manager,
+            "combo-key",
+            action,
+            binding,
+            (binding,),
+            deps=combo_runtime_deps(),
+        )
+        runtime = manager.combo_state.active_actions["combo-key"].action_runtime
+        monkeypatch.setattr(
+            actions.action_runner,
+            "execute_action",
+            AsyncMock(side_effect=RuntimeError("release failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="release failed"):
+            await actions.stop_combo_action(
+                manager,
+                "combo-key",
+                deps=combo_runtime_deps(),
+            )
+
+        assert keyboard.writes == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+        ]
+        assert runtime is not None
+        assert runtime.running is False
 
     @pytest.mark.asyncio
     async def test_combo_repeat_replays_last_combo_action_and_releases_child(self) -> None:

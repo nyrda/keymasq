@@ -228,6 +228,7 @@ def construct_grabbed_device(
         inspector_suppression_getter=manager.device_inspector_suppressed,
         inspector_suppressed_ids_getter=(manager.device_inspector_suppressed_hardware_ids_snapshot),
         inspector_suppression_disabler=manager.disable_device_inspector_suppression,
+        input_paused_getter=getattr(manager, "runtime_input_paused", None),
         profile_activation_recorder=manager.record_profile_action,
         profile_activation_trigger_start_observer=(manager.observe_profile_trigger_start),
         profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,

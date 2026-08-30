@@ -3,6 +3,7 @@ import errno
 import logging
 import os
 from collections import deque
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -11,7 +12,8 @@ import evdev
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.model.core import DeviceType
+from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import device_manager
 from keymasq.keymasqd.device_manager import DeviceManager
@@ -27,7 +29,7 @@ from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.grab import acquisition, planning, release
 from keymasq.keymasqd.runtime.grab.state import DesiredGrabConfig, GrabDeviceDeps, GrabRequest
 from keymasq.keymasqd.runtime.macro import controls, mouse
-from tests.keymasqd.device_manager_support import FakeUInput
+from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_device
 
 
 @pytest.mark.asyncio
@@ -188,6 +190,166 @@ async def test_move_cursor_natural_stops_cursor_tracking_after_failure(
     with pytest.raises(RuntimeError, match="move failed"):
         await manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500)
     broadcast.assert_awaited_once_with(CommandType.CURSOR_POSITION_TRACKING_STOP, {})
+
+
+@pytest.mark.asyncio
+async def test_cancel_cursor_move_waits_for_active_move_to_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    move_started = asyncio.Event()
+
+    async def move_cursor_naturally(**kwargs: object) -> JsonObject:
+        should_cancel = cast(Callable[[], bool], kwargs["should_cancel"])
+        move_started.set()
+        while not should_cancel():
+            await asyncio.sleep(0)
+        return {"status": "error", "message": "Cursor move cancelled"}
+
+    monkeypatch.setattr(
+        manager_cursor.natural_mouse,
+        "move_cursor_naturally",
+        move_cursor_naturally,
+    )
+
+    move_task = asyncio.create_task(manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500))
+    await move_started.wait()
+
+    await manager.cancel_cursor_move()
+
+    assert (await move_task)["message"] == "Cursor move cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_cursor_move_cancels_a_move_waiting_on_the_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    move_started = asyncio.Event()
+    move_calls: list[int] = []
+
+    async def move_cursor_naturally(**kwargs: object) -> JsonObject:
+        move_calls.append(cast(int, kwargs["target_x"]))
+        should_cancel = cast(Callable[[], bool], kwargs["should_cancel"])
+        move_started.set()
+        while not should_cancel():
+            await asyncio.sleep(0)
+        return {"status": "error", "message": "Cursor move cancelled"}
+
+    monkeypatch.setattr(
+        manager_cursor.natural_mouse,
+        "move_cursor_naturally",
+        move_cursor_naturally,
+    )
+
+    active = asyncio.create_task(manager.move_cursor_natural(10, 20, 5000, 0, "linear", 1, 500))
+    await move_started.wait()
+    queued = asyncio.create_task(manager.move_cursor_natural(30, 40, 5000, 0, "linear", 1, 500))
+    await asyncio.sleep(0)
+
+    await manager.cancel_cursor_move()
+
+    assert (await active)["message"] == "Cursor move cancelled"
+    assert (await queued)["message"] == "Cursor move cancelled"
+    assert move_calls == [10]
+
+
+@pytest.mark.asyncio
+async def test_neutralize_runtime_clears_active_runtime_and_releases_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    keyboard = FakeUInput()
+    trigger_ends: list[str | None] = []
+    device = make_grabbed_device(
+        monkeypatch,
+        keyboard_uinput=keyboard,
+        profile_activation_trigger_end_observer=trigger_ends.append,
+    )
+    manager.grabbed_devices[device.hardware_id] = [device]
+    manager.output_state.keyboard_uinput = keyboard  # type: ignore[assignment]
+
+    device.state.held_source_keys.update({"key_a", "key_b"})
+    device.state.held_source_actions["key_b"] = MappingAction(
+        action_type=ActionType.KEYBOARD,
+        target="key_f13",
+    )
+    device.state.held_profile_trigger_events.add("key_c")
+    device.state.repeat_active_actions["key_r"] = MappingAction(
+        action_type=ActionType.REPEAT,
+    )
+    device.state.passthrough_frame_output = object()
+    device.state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_F13)
+    manager.combo_state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_F14)
+    manager.combo_state.superkey_output_refcounts["keyboard"][evdev.ecodes.KEY_F14] = 1
+
+    cancel_macros = AsyncMock(return_value={"status": "ok"})
+    clear_combos = AsyncMock()
+    cancel_cursor = AsyncMock()
+    reset_analog = AsyncMock()
+    reset_superkeys = AsyncMock()
+    monkeypatch.setattr(manager, "cancel_macro_playback", cancel_macros)
+    monkeypatch.setattr(lifecycle, "clear_combo_runtime", clear_combos)
+    monkeypatch.setattr(manager, "cancel_cursor_move", cancel_cursor)
+    monkeypatch.setattr(device, "reset_analog_controls", reset_analog)
+    monkeypatch.setattr(device, "reset_superkeys", reset_superkeys)
+    manager.pause_runtime_input()
+
+    result = await manager.neutralize_runtime()
+
+    assert result == {"status": "ok", "neutralized": True}
+    assert manager.runtime_input_paused() is True
+    assert cancel_macros.await_count == 2
+    clear_combos.assert_awaited_once()
+    cancel_cursor.assert_awaited_once()
+    reset_analog.assert_awaited_once()
+    reset_superkeys.assert_awaited_once()
+    assert trigger_ends == [
+        f"{device.hardware_id}:key_a",
+        f"{device.hardware_id}:key_b",
+        f"{device.hardware_id}:key_c",
+    ]
+    assert device.state.quarantined_source_keys == {"key_a", "key_b"}
+    assert device.state.repeat_active_actions == {}
+    assert device.state.passthrough_frame_output is None
+    assert keyboard.writes == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_neutralize_runtime_continues_cleanup_after_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = DeviceManager()
+    device = make_grabbed_device(monkeypatch)
+    manager.grabbed_devices[device.hardware_id] = [device]
+    first_error = RuntimeError("macro cancellation failed")
+    cancel_macros = AsyncMock(side_effect=[first_error, {"status": "ok"}])
+    reset_analog = AsyncMock(side_effect=RuntimeError("analog reset failed"))
+    reset_superkeys = AsyncMock()
+    release_outputs = Mock()
+    monkeypatch.setattr(manager, "cancel_macro_playback", cancel_macros)
+    monkeypatch.setattr(
+        lifecycle,
+        "clear_combo_runtime",
+        AsyncMock(side_effect=RuntimeError("combo reset failed")),
+    )
+    monkeypatch.setattr(manager, "cancel_cursor_move", AsyncMock())
+    monkeypatch.setattr(device, "reset_analog_controls", reset_analog)
+    monkeypatch.setattr(device, "reset_superkeys", reset_superkeys)
+    monkeypatch.setattr(device, "release_tracked_outputs", release_outputs)
+
+    with pytest.raises(RuntimeError, match="macro cancellation failed") as excinfo:
+        await manager.neutralize_runtime()
+
+    assert excinfo.value is first_error
+    assert cancel_macros.await_count == 2
+    reset_analog.assert_awaited_once()
+    reset_superkeys.assert_awaited_once()
+    release_outputs.assert_called_once()
+    assert manager.runtime_input_paused() is False
 
 
 @pytest.mark.asyncio

@@ -361,6 +361,25 @@ def test_detect_input_classes_reports_generic_joystick_axes_as_gamepad() -> None
     assert primary_input_class(classes) == DeviceType.GAMEPAD
 
 
+def test_detect_input_classes_reports_kernel_motion_property_separately() -> None:
+    props = [evdev.ecodes.INPUT_PROP_ACCELEROMETER]
+    caps = {
+        evdev.ecodes.EV_ABS: [
+            evdev.ecodes.ABS_X,
+            evdev.ecodes.ABS_Y,
+            evdev.ecodes.ABS_Z,
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ]
+    }
+
+    classes = detect_input_classes_from_capabilities(caps, props)
+
+    assert classes == ["motion"]
+    assert primary_input_class(classes) == DeviceType.MOTION
+
+
 def test_detect_input_classes_reports_abs_xy_joystick_as_gamepad() -> None:
     caps = {
         evdev.ecodes.EV_KEY: [

@@ -847,7 +847,7 @@ async def test_config_watcher_lifecycle_and_registration_errors(
     assert manager.config_watch_fd == 42
     assert added_readers == [(42, manager._handle_config_watch_events)]
     assert config_watcher_module.HARDWARE_DIR not in manager.config_watch_watches.values()
-    assert len(manager.config_watch_watches) == 4
+    assert len(manager.config_watch_watches) == 5
 
     manager._stop_config_watcher()
 

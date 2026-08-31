@@ -1,0 +1,257 @@
+# ruff: noqa: E402
+
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+
+gi = pytest.importorskip("gi")
+gi.require_version("Gtk", "4.0")
+
+from gi.repository import Gtk
+
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.model.core import DeviceType
+from keymasq.common.model.hardware import (
+    AnalogAxisDefinition,
+    AnalogInputDefinition,
+    EvdevDevice,
+    HardwareConfig,
+)
+from keymasq.common.model.motion import (
+    MotionControlConfig,
+    MotionGamepadConfig,
+    MotionMouseConfig,
+)
+from keymasq.gui.widgets.gamepad_output_choices import GamepadOutputChoiceSet
+from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+from keymasq.gui.widgets.managed_editor.shell import ManagedEditorShell
+from keymasq.gui.widgets.managed_editor.state import EditorSelection
+from keymasq.gui.widgets.motion_control.dialog import MotionControlDialog
+from keymasq.gui.widgets.motion_control.draft import MotionControlDraft
+from keymasq.gui.widgets.motion_control.persistence import (
+    MotionControlPersistence,
+    MotionControlStore,
+    ProfileReferences,
+)
+from keymasq.gui.widgets.motion_control.view import MotionControlEditorView
+from keymasq.session.motion_controls import MotionControlManager
+
+
+def test_motion_control_dialog_uses_managed_editor_shell() -> None:
+    dialog = MotionControlDialog(Gtk.Window())
+
+    assert isinstance(dialog.shell, ManagedEditorShell)
+    assert dialog.state.active_selection == EditorSelection.new_item()
+    assert dialog.state.is_dirty is True
+    assert dialog.shell.save_button.get_sensitive() is True
+    assert dialog.shell.revert_button.get_sensitive() is True
+    assert dialog.shell.delete_button.get_sensitive() is False
+    assert (
+        dialog.shell.documentation_button.get_tooltip_text() == "Open Motion Controls documentation"
+    )
+
+
+def test_motion_control_dialog_guards_switch_with_unsaved_changes() -> None:
+    manager = MotionControlManager()
+    manager.save_motion_control(MotionControlConfig(name="First"))
+    manager.save_motion_control(MotionControlConfig(name="Second"))
+    dialog = MotionControlDialog(Gtk.Window(), manager=manager)
+    dialog.editor.name_entry.set_text("Changed")
+
+    dialog.select_control_by_name("Second")
+
+    assert dialog.state.active_selection == EditorSelection.saved_item("First")
+    assert dialog.state.pending_transition is not None
+    assert dialog.state.pending_transition.selection == EditorSelection.saved_item("Second")
+
+
+def test_motion_control_dialog_saves_through_persistence() -> None:
+    manager = MotionControlManager()
+    dialog = MotionControlDialog(Gtk.Window(), manager=manager)
+    saved: list[str] = []
+    dialog.connect("motion-control-saved", lambda _dialog, name: saved.append(name))
+    dialog.editor.name_entry.set_text("Gyro Aim")
+    dialog.editor.description_entry.set_text("Low-deadzone aiming")
+
+    assert dialog._save_current() is True
+
+    config = manager.get_motion_control("Gyro Aim")
+    assert config is not None
+    assert config.description == "Low-deadzone aiming"
+    assert dialog.state.is_dirty is False
+    assert saved == ["Gyro Aim"]
+
+
+def test_motion_control_view_preserves_each_output_mode_while_switching() -> None:
+    modified: list[bool] = []
+    view = MotionControlEditorView(on_modified=lambda: modified.append(True))
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(
+                name="Mixed",
+                mouse=MotionMouseConfig(sensitivity_x=3.0),
+                gamepad=MotionGamepadConfig(max_rate_dps=720.0),
+            )
+        )
+    )
+    view.sensitivity_x.set_value(9.0)
+    view.yaw_output.set_selected(0)
+    view.pitch_output.set_selected(1)
+    view.roll_output.set_selected(2)
+    view.mode_dropdown.set_selected(1)
+    view.max_rate.set_value(900.0)
+
+    draft = view.draft()
+
+    assert draft.mode == "gamepad"
+    assert draft.mouse.sensitivity_x == 9.0
+    assert draft.gamepad.max_rate_dps == 900.0
+    assert draft.axis_routing.yaw == "none"
+    assert draft.axis_routing.pitch == "horizontal"
+    assert draft.axis_routing.roll == "vertical"
+    assert modified
+
+
+def test_motion_axis_routing_defaults_to_yaw_and_roll_horizontal() -> None:
+    view = MotionControlEditorView(on_modified=lambda: None)
+
+    draft = view.draft()
+
+    assert draft.axis_routing.yaw == "horizontal"
+    assert draft.axis_routing.pitch == "vertical"
+    assert draft.axis_routing.roll == "horizontal"
+
+
+def test_motion_controller_output_defaults_to_origin_device() -> None:
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: GamepadOutputChoiceSet(
+            choices=[(None, "Virtual Gamepad 1")],
+            count=1,
+            hardware_configs=[],
+        ),
+    )
+
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(name="Right Stick", mode="gamepad")
+        )
+    )
+
+    assert view.selected_output_id == SAME_DEVICE_OUTPUT_ID
+    assert view.gamepad_output.gamepad_output_dropdown.get_selected() == 0
+    assert view.output_target_buttons["right"].get_active() is True
+    assert view.draft().gamepad.output_id == SAME_DEVICE_OUTPUT_ID
+
+
+def test_motion_controller_output_routes_to_a_learned_physical_stick() -> None:
+    hardware = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Target Pad",
+        evdev_devices=[
+            EvdevDevice(
+                path="/dev/input/event1",
+                device_type=DeviceType.GAMEPAD,
+                id="gamepad",
+            )
+        ],
+        buttons=[],
+        analog_inputs=[
+            AnalogInputDefinition(
+                id="left_stick",
+                label="Left Stick",
+                type="stick",
+                axes=[AnalogAxisDefinition(role="x", evdev="abs_x")],
+            ),
+            AnalogInputDefinition(
+                id="right_stick",
+                label="Right Stick",
+                type="stick",
+                axes=[AnalogAxisDefinition(role="x", evdev="abs_rx")],
+            ),
+        ],
+    )
+    choices = GamepadOutputChoiceSet(
+        choices=[
+            (None, "Virtual Gamepad 1"),
+            ("virtual-gamepad-2", "Virtual Gamepad 2"),
+            (hardware.hardware_id, "Target Pad (1234:5678)"),
+        ],
+        count=2,
+        hardware_configs=[hardware],
+    )
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: choices,
+        output_count_loader=lambda: 2,
+    )
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(name="Right Stick", mode="gamepad")
+        )
+    )
+
+    view.gamepad_output.gamepad_output_dropdown.set_selected(3)
+    view.output_target_buttons["analog:right_stick"].set_active(True)
+    draft = view.draft()
+
+    assert draft.gamepad.output_id == "1234:5678"
+    assert draft.gamepad.target == "analog"
+    assert draft.gamepad.target_analog_id == "right_stick"
+
+
+def test_motion_selector_replaces_its_single_selection(temp_config_dir) -> None:
+    manager = MotionControlManager()
+    manager.save_motion_control(MotionControlConfig(name="Mouse"))
+    manager.save_motion_control(MotionControlConfig(name="Right Stick", mode="gamepad"))
+    dialog = KeySelectorDialog(Gtk.Window(), "Motion Sensor", source_type="motion")
+    rows = [
+        row
+        for index in range(2)
+        if (row := dialog._motion_control_listbox.get_row_at_index(index)) is not None
+    ]
+
+    dialog._motion_control_listbox.select_row(rows[0])
+    dialog._motion_control_listbox.select_row(rows[1])
+
+    assert dialog._motion_control_listbox.get_selection_mode() == Gtk.SelectionMode.SINGLE
+    assert dialog._motion_control_listbox.get_selected_rows() == [rows[1]]
+    assert dialog._selected_motion_control == rows[1]._motion_control_name
+
+
+def test_motion_control_persistence_updates_profile_references() -> None:
+    saved: list[tuple[str, str | None]] = []
+    deleted: list[str] = []
+    renamed: list[tuple[str, str]] = []
+    suppressed: list[str] = []
+    store = cast(
+        MotionControlStore,
+        SimpleNamespace(
+            save_motion_control=lambda config, replacing_name=None: saved.append(
+                (config.name, replacing_name)
+            ),
+            delete_motion_control=lambda name: deleted.append(name) or True,
+        ),
+    )
+    profiles = cast(
+        ProfileReferences,
+        SimpleNamespace(
+            rename_motion_control_references=lambda old, new: renamed.append((old, new)),
+            replace_motion_control_with_suppress=lambda name: suppressed.append(name),
+        ),
+    )
+    persistence = MotionControlPersistence(store)
+
+    persistence.save(
+        MotionControlConfig(name="New"),
+        replacing_name="Old",
+        profiles=profiles,
+    )
+    assert persistence.delete("New", profiles=profiles) is True
+
+    assert saved == [("New", "Old")]
+    assert renamed == [("Old", "New")]
+    assert deleted == ["New"]
+    assert suppressed == ["New"]

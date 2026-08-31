@@ -227,6 +227,10 @@ class GrabbedDeviceState:
     analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_mouse_area_active: set[str] = field(default_factory=set)
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
+    motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
+    motion_smoothed_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
+    motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 class ActionRuntime(Protocol):
@@ -371,6 +375,16 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     @property
     def analog_axis_calibrations(self) -> dict[tuple[str, str], dict[str, object]]: ...
 
+    @property
+    def motion_sensors(self) -> dict[str, object]: ...
+
+    @property
+    def motion_axis_bindings(
+        self,
+    ) -> dict[tuple[int, int], tuple[str, str, str, float, float, bool, float]]: ...
+
     async def reset_superkeys(self) -> None: ...
 
     async def reset_analog_controls(self) -> None: ...
+
+    def reset_motion_controls(self) -> None: ...

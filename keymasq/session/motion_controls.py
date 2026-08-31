@@ -1,0 +1,195 @@
+"""Persistence for reusable motion controls."""
+
+import logging
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO, cast
+
+import tomli_w
+
+from keymasq.common import paths
+from keymasq.common.coercion import coerce_float
+from keymasq.common.config_files import write_config_atomically
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.model.motion import (
+    MotionAxisRoutingConfig,
+    MotionControlConfig,
+    MotionGamepadConfig,
+    MotionMouseConfig,
+)
+from keymasq.session.config_loading import load_config_files_sync
+
+log = logging.getLogger("keymasq-session.motion_controls")
+
+
+@dataclass
+class _MotionControlEntry:
+    path: Path
+    config: MotionControlConfig
+
+
+class MotionControlManager:
+    def __init__(self) -> None:
+        paths.ensure_config_dirs()
+        self._motion_controls: dict[str, _MotionControlEntry] = {}
+        self._load_all()
+
+    def reload(self) -> None:
+        self._load_all(strict=True)
+
+    def _load_all(self, *, strict: bool = False) -> None:
+        loaded: dict[str, _MotionControlEntry] = {}
+        for path, config in load_config_files_sync(
+            paths.MOTION_CONTROLS_DIR,
+            config_kind="motion control",
+            strict=strict,
+            load_config=self._load,
+            logger=log,
+        ):
+            if config.name in loaded:
+                log.warning("Ignoring duplicate motion control '%s' from %s", config.name, path)
+                continue
+            loaded[config.name] = _MotionControlEntry(path, config)
+        self._motion_controls = loaded
+
+    def _load(self, path: Path) -> MotionControlConfig:
+        with open(path, "rb") as config_file:
+            data = cast(dict[str, object], tomllib.load(config_file))
+        mouse = cast(dict[str, object], data.get("mouse", {}))
+        gamepad = cast(dict[str, object], data.get("gamepad", {}))
+        axis_routing = cast(dict[str, object], data.get("axis_routing", {}))
+        return MotionControlConfig(
+            name=str(data.get("name", path.stem)),
+            description=str(data["description"]) if data.get("description") else None,
+            mode=str(data.get("mode", "mouse")),
+            axis_routing=MotionAxisRoutingConfig(
+                yaw=str(axis_routing.get("yaw", "horizontal")),
+                pitch=str(axis_routing.get("pitch", "vertical")),
+                roll=str(axis_routing.get("roll", "horizontal")),
+            ),
+            mouse=MotionMouseConfig(
+                sensitivity_x=coerce_float(mouse.get("sensitivity_x"), 8.0),
+                sensitivity_y=coerce_float(mouse.get("sensitivity_y"), 8.0),
+                deadzone_dps=coerce_float(mouse.get("deadzone_dps"), 0.5),
+                smoothing=coerce_float(mouse.get("smoothing"), 0.15),
+                response_curve=coerce_float(mouse.get("response_curve"), 1.0),
+                invert_x=bool(mouse.get("invert_x", False)),
+                invert_y=bool(mouse.get("invert_y", False)),
+            ),
+            gamepad=MotionGamepadConfig(
+                output_id=(
+                    str(gamepad["output_id"])
+                    if gamepad.get("output_id")
+                    else SAME_DEVICE_OUTPUT_ID
+                ),
+                target=str(gamepad.get("target", "right")),
+                target_analog_id=(
+                    str(gamepad["target_analog_id"]) if gamepad.get("target_analog_id") else None
+                ),
+                max_rate_dps=coerce_float(gamepad.get("max_rate_dps"), 360.0),
+                deadzone_dps=coerce_float(gamepad.get("deadzone_dps"), 1.0),
+                smoothing=coerce_float(gamepad.get("smoothing"), 0.15),
+                response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
+                invert_x=bool(gamepad.get("invert_x", False)),
+                invert_y=bool(gamepad.get("invert_y", False)),
+            ),
+        )
+
+    def get_motion_control(self, name: str) -> MotionControlConfig | None:
+        entry = self._motion_controls.get(name)
+        return entry.config if entry else None
+
+    def list_motion_controls(self) -> list[str]:
+        return sorted(self._motion_controls)
+
+    def get_all_motion_controls(self) -> dict[str, MotionControlConfig]:
+        return {name: entry.config for name, entry in self._motion_controls.items()}
+
+    def unique_motion_control_name(self, base: str = "Motion Control") -> str:
+        name = str(base or "Motion Control").strip() or "Motion Control"
+        candidate = name
+        index = 2
+        while candidate in self._motion_controls or self._path(candidate).exists():
+            candidate = f"{name} {index}"
+            index += 1
+        return candidate
+
+    def save_motion_control(
+        self,
+        config: MotionControlConfig,
+        *,
+        replacing_name: str | None = None,
+    ) -> None:
+        existing = self._motion_controls.get(config.name)
+        if existing is not None and replacing_name not in {None, config.name}:
+            raise ValueError(f"Motion control '{config.name}' already exists")
+        path = existing.path if existing else self._path(config.name)
+        if path.exists() and existing is None:
+            raise ValueError(f"Motion control storage path '{path.name}' already exists")
+        data: dict[str, object] = {
+            "name": config.name,
+            "mode": config.mode,
+            "axis_routing": {
+                "yaw": config.axis_routing.yaw,
+                "pitch": config.axis_routing.pitch,
+                "roll": config.axis_routing.roll,
+            },
+            "mouse": {
+                "sensitivity_x": config.mouse.sensitivity_x,
+                "sensitivity_y": config.mouse.sensitivity_y,
+                "deadzone_dps": config.mouse.deadzone_dps,
+                "smoothing": config.mouse.smoothing,
+                "response_curve": config.mouse.response_curve,
+                "invert_x": config.mouse.invert_x,
+                "invert_y": config.mouse.invert_y,
+            },
+            "gamepad": {
+                "target": config.gamepad.target,
+                "max_rate_dps": config.gamepad.max_rate_dps,
+                "deadzone_dps": config.gamepad.deadzone_dps,
+                "smoothing": config.gamepad.smoothing,
+                "response_curve": config.gamepad.response_curve,
+                "invert_x": config.gamepad.invert_x,
+                "invert_y": config.gamepad.invert_y,
+                **({"output_id": config.gamepad.output_id} if config.gamepad.output_id else {}),
+                **(
+                    {"target_analog_id": config.gamepad.target_analog_id}
+                    if config.gamepad.target_analog_id
+                    else {}
+                ),
+            },
+        }
+        if config.description:
+            data["description"] = config.description
+
+        def write_config(config_file: BinaryIO) -> None:
+            tomli_w.dump(data, config_file)
+
+        write_config_atomically(path, write_config)
+        if replacing_name and replacing_name != config.name:
+            old = self._motion_controls.pop(replacing_name, None)
+            if old and old.path != path and old.path.exists():
+                old.path.unlink()
+        self._motion_controls[config.name] = _MotionControlEntry(path, config)
+
+    def delete_motion_control(self, name: str) -> bool:
+        entry = self._motion_controls.pop(name, None)
+        if entry is None:
+            return False
+        if entry.path.exists():
+            entry.path.unlink()
+        return True
+
+    def snapshot_motion_controls(self) -> dict[str, _MotionControlEntry]:
+        return self._motion_controls.copy()
+
+    def restore_motion_controls(self, values: dict[str, _MotionControlEntry]) -> None:
+        self._motion_controls = values.copy()
+
+    @staticmethod
+    def _sanitize(name: str) -> str:
+        return "".join(c if c.isalnum() or c in "-_" else "_" for c in name).lower()
+
+    def _path(self, name: str) -> Path:
+        return paths.MOTION_CONTROLS_DIR / f"{self._sanitize(name)}.toml"

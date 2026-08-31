@@ -26,6 +26,7 @@ from .types import ProfileInfo, ResolvedProfiles, TomlDict
 
 if TYPE_CHECKING:
     from keymasq.session.analog_controls import AnalogControlManager
+    from keymasq.session.motion_controls import MotionControlManager
     from keymasq.session.superkeys import SuperkeyManager
 
 log = logging.getLogger("keymasq-session.profiles")
@@ -62,6 +63,7 @@ class ProfileManager:
         self,
         superkey_manager: "SuperkeyManager | None" = None,
         analog_control_manager: "AnalogControlManager | None" = None,
+        motion_control_manager: "MotionControlManager | None" = None,
         auto_create_default_if_empty: bool = False,
     ) -> None:
         paths.ensure_config_dirs()
@@ -80,9 +82,15 @@ class ProfileManager:
             if analog_control_manager is None
             else lambda name: analog_control_manager.get_analog_control(name) is not None
         )
+        motion_control_exists: Callable[[str], bool] | None = (
+            None
+            if motion_control_manager is None
+            else lambda name: motion_control_manager.get_motion_control(name) is not None
+        )
         self._codec = ProfileCodec(
             superkey_exists=superkey_exists,
             analog_control_exists=analog_control_exists,
+            motion_control_exists=motion_control_exists,
         )
         self._repository = ProfileRepository(self._codec)
         self._load_all()
@@ -428,6 +436,18 @@ class ProfileManager:
                 count,
             )
         return count
+
+    @_with_profile_file_lock
+    def replace_motion_control_with_suppress(self, motion_control_name: str) -> int:
+        return self._apply_rewrite(
+            lambda config: references.remove_motion_control(config, motion_control_name)
+        )
+
+    @_with_profile_file_lock
+    def rename_motion_control_references(self, old_name: str, new_name: str) -> int:
+        return self._apply_rewrite(
+            lambda config: references.rename_motion_control(config, old_name, new_name)
+        )
 
     @_with_profile_file_lock
     def rename_superkey_references(self, old_name: str, new_name: str) -> int:

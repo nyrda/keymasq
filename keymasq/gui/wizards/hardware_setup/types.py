@@ -12,7 +12,9 @@ class DetectedInterface(TypedDict, total=False):
     device_type: Any
     device_types: list[str]
     capabilities: list[str]
+    abs_info: dict[str, object]
     raw_capabilities: dict[int, list[object]]
+    driver: str
     grabbed_by_keymasq: bool
     source_hardware_id: str
     source_interface_id: str

@@ -16,6 +16,7 @@ class _DeviceCommandManager(Protocol):
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: JsonObject | None = None,
+        motion_sensors: JsonObject | None = None,
         force_grab_unmapped: bool = False,
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject: ...
@@ -96,6 +97,7 @@ async def handle_device_command(
             button_codes=cast(dict[str, int], data.get("button_codes", {})),
             button_values=cast(dict[str, int], data.get("button_values", {})),
             analog_inputs=cast(JsonObject, data.get("analog_inputs", {})),
+            motion_sensors=cast(JsonObject, data.get("motion_sensors", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
             evdev_interfaces=cast(JsonObjectList, data.get("evdev_interfaces", [])),
         )

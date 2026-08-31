@@ -52,9 +52,11 @@ class ProfileCodec:
         *,
         superkey_exists: Callable[[str], bool] | None = None,
         analog_control_exists: Callable[[str], bool] | None = None,
+        motion_control_exists: Callable[[str], bool] | None = None,
     ) -> None:
         self._superkey_exists = superkey_exists
         self._analog_control_exists = analog_control_exists
+        self._motion_control_exists = motion_control_exists
 
     def load(self, path: Path) -> DecodedProfile:
         with open(path, "rb") as profile_file:
@@ -238,6 +240,22 @@ class ProfileCodec:
             log.warning(
                 "Analog control action missing analog_control_names, replacing with suppress"
             )
+            return MappingAction(action_type=ActionType.SUPPRESS)
+
+        if action_type == ActionType.MOTION_CONTROL:
+            raw_name = normalized_action_data.get("motion_control_name")
+            name = str(raw_name).strip() if raw_name is not None else None
+            if name and (
+                self._motion_control_exists is None or self._motion_control_exists(name)
+            ):
+                return MappingAction(
+                    action_type=ActionType.MOTION_CONTROL,
+                    motion_control_name=name,
+                )
+            if name:
+                log.warning("Unknown motion control '%s', replacing with suppress", name)
+            else:
+                log.warning("Motion control action missing a control name, replacing with suppress")
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         return mapping_action_from_toml(

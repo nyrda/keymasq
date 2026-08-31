@@ -10,6 +10,7 @@ __all__ = [
     "SUPERKEYS_DIR",
     "SETTINGS_PATH",
     "ANALOG_CONTROLS_DIR",
+    "MOTION_CONTROLS_DIR",
     "VIRTUAL_DEVICES_PATH",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
@@ -51,6 +52,7 @@ PROFILES_DIR = CONFIG_DIR / "profiles"
 SUPERKEYS_DIR = CONFIG_DIR / "superkeys"
 SETTINGS_PATH = CONFIG_DIR / "settings.toml"
 ANALOG_CONTROLS_DIR = CONFIG_DIR / "analog_controls"
+MOTION_CONTROLS_DIR = CONFIG_DIR / "motion_controls"
 VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
 
 _build_helper_path = "/usr/bin/keymasq-record"
@@ -75,6 +77,7 @@ def ensure_config_dirs() -> None:
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     SUPERKEYS_DIR.mkdir(parents=True, exist_ok=True)
     ANALOG_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
+    MOTION_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def ensure_session_socket_dir() -> None:

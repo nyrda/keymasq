@@ -82,6 +82,8 @@ def describe_mapping_action_compact(
     elif action.action_type == ActionType.ANALOG_CONTROL:
         label = _analog_control_action_label(action)
         parts.append(f"🕹️ {label}")
+    elif action.action_type == ActionType.MOTION_CONTROL:
+        parts.append(action.motion_control_name or "?")
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
     elif action.action_type == ActionType.REPEAT:
@@ -146,6 +148,8 @@ def describe_mapping_action_verbose(
         return f"Super Key → {action.superkey_name or '?'}"
     if action.action_type == ActionType.ANALOG_CONTROL:
         return f"Analog Control -> {_analog_control_action_label(action)}"
+    if action.action_type == ActionType.MOTION_CONTROL:
+        return f"Motion Control → {action.motion_control_name or '?'}"
     if action.action_type == ActionType.KEYBOARD:
         return f"Keyboard → {_resolved_label(action.target, keyboard_label)}"
     if action.action_type == ActionType.MOUSE:

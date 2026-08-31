@@ -56,6 +56,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     GrabbedDeviceRuntime,
     InputEventLike,
 )
+from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
 
 
 def fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -315,6 +316,33 @@ async def process_event(
     if inspector_label is not None:
         _finish_diagnostics(device_runtime, inspector_label, started_ns, deps=deps)
         return
+
+    if device_runtime.motion_axis_bindings:
+        motion_axis_event = (int(event.type), int(event.code)) in (
+            device_runtime.motion_axis_bindings
+        )
+        motion_syn_event = int(event.type) == int(evdev_mod.ecodes.EV_SYN)
+        if motion_axis_event or motion_syn_event:
+            if await dispatch_motion_event(
+                device_runtime,
+                event,
+                device_runtime.mapping_getter(),
+                deps=deps.action_deps,
+            ):
+                _finish_diagnostics(
+                    device_runtime,
+                    "action_motion_control",
+                    started_ns,
+                    deps=deps,
+                )
+                return
+            if motion_syn_event:
+                label = process_syn_event(device_runtime, event, evdev_mod=evdev_mod)
+            else:
+                emit_passthrough_event(device_runtime, event, evdev_mod=evdev_mod)
+                label = "passthrough_motion"
+            _finish_diagnostics(device_runtime, label, started_ns, deps=deps)
+            return
 
     event_is_key = event_class is EventClass.KEY
     if event_is_key:

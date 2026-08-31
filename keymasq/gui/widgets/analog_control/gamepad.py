@@ -1,6 +1,6 @@
 """Gamepad-output settings panel construction."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import gi
@@ -28,12 +28,16 @@ class GamepadPanelCallbacks:
 
 
 @dataclass(slots=True)
-class GamepadOutputGroupHandle:
-    group: Adw.PreferencesGroup
+class GamepadOutputRoutingHandle:
     gamepad_output_target_row: Adw.ActionRow
     gamepad_output_dropdown: Gtk.DropDown
     gamepad_output_target_side_row: Adw.ActionRow
     gamepad_output_target_box: Gtk.Box
+
+
+@dataclass(slots=True)
+class GamepadOutputGroupHandle(GamepadOutputRoutingHandle):
+    group: Adw.PreferencesGroup
     gamepad_output_deadzone_row: Adw.SpinRow
     gamepad_output_rest_row: Adw.SpinRow
     gamepad_output_direction_row: Adw.ActionRow
@@ -51,14 +55,97 @@ class GamepadOutputGroupHandle:
     gamepad_output_warning_label: Gtk.Label
 
 
+def gamepad_output_target_key(target: str, analog_id: str | None) -> str:
+    return f"analog:{analog_id}" if target == "analog" and analog_id else target
+
+
+def populate_gamepad_output_target_buttons(
+    target_box: Gtk.Box,
+    choices: Sequence[tuple[str, str | None, str]],
+    *,
+    selected_target: str,
+    selected_analog_id: str | None,
+    on_toggled: Callable[[Gtk.ToggleButton], None],
+) -> dict[str, Gtk.ToggleButton]:
+    """Fill an output-control row with the standard linked target buttons."""
+    selected_key = gamepad_output_target_key(selected_target, selected_analog_id)
+    available = {
+        gamepad_output_target_key(target, analog_id) for target, analog_id, _label in choices
+    }
+    if selected_key not in available and choices:
+        selected_key = gamepad_output_target_key(choices[0][0], choices[0][1])
+
+    while child := target_box.get_first_child():
+        target_box.remove(child)
+
+    buttons: dict[str, Gtk.ToggleButton] = {}
+    group: Gtk.ToggleButton | None = None
+    row_box: Gtk.Box | None = None
+    for target, analog_id, label in choices:
+        if row_box is None or len(buttons) % 3 == 0:
+            new_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            new_row.add_css_class("linked")
+            new_row.set_halign(Gtk.Align.END)
+            new_row.set_valign(Gtk.Align.CENTER)
+            new_row.set_homogeneous(True)
+            target_box.append(new_row)
+            row_box = new_row
+        assert row_box is not None
+        key = gamepad_output_target_key(target, analog_id)
+        button = Gtk.ToggleButton(label=label)
+        button.add_css_class("analog-output-target-button")
+        button.set_valign(Gtk.Align.CENTER)
+        button.set_size_request(-1, 34)
+        if group is None:
+            group = button
+        else:
+            button.set_group(group)
+        button.connect("toggled", on_toggled)
+        buttons[key] = button
+        row_box.append(button)
+        if key == selected_key:
+            button.set_active(True)
+    return buttons
+
+
+def add_gamepad_output_routing(
+    group: Adw.PreferencesGroup,
+    *,
+    output_selected: Callable[[Gtk.DropDown], None],
+) -> GamepadOutputRoutingHandle:
+    """Add the shared gamepad output and output-control rows to a group."""
+
+    def selected(dropdown: Gtk.DropDown, _param: object) -> None:
+        output_selected(dropdown)
+
+    output_row = Adw.ActionRow(title="Output")
+    dropdown = Gtk.DropDown()
+    dropdown.set_valign(Gtk.Align.CENTER)
+    dropdown.connect("notify::selected", selected)
+    output_row.add_suffix(dropdown)
+    output_row.set_activatable_widget(dropdown)
+    group.add(output_row)
+
+    control_row = Adw.ActionRow(title="Output Control")
+    target_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    target_box.set_halign(Gtk.Align.END)
+    target_box.set_valign(Gtk.Align.CENTER)
+    control_row.add_suffix(target_box)
+    group.add(control_row)
+
+    return GamepadOutputRoutingHandle(
+        gamepad_output_target_row=output_row,
+        gamepad_output_dropdown=dropdown,
+        gamepad_output_target_side_row=control_row,
+        gamepad_output_target_box=target_box,
+    )
+
+
 def build_gamepad_output_group(
     callbacks: GamepadPanelCallbacks,
 ) -> GamepadOutputGroupHandle:
     def modified(*_args: object) -> None:
         callbacks.modified()
-
-    def output_selected(dropdown: Gtk.DropDown, _param: object) -> None:
-        callbacks.output_selected(dropdown)
 
     def direction_toggled(button: Gtk.ToggleButton) -> None:
         callbacks.direction_toggled(button)
@@ -71,23 +158,10 @@ def build_gamepad_output_group(
         description="Route the stick or axis to a gamepad output device.",
     )
 
-    gamepad_output_target_row = Adw.ActionRow(title="Output")
-    dropdown = Gtk.DropDown()
-    dropdown.set_valign(Gtk.Align.CENTER)
-    dropdown.connect(
-        "notify::selected",
-        output_selected,
+    routing = add_gamepad_output_routing(
+        group,
+        output_selected=callbacks.output_selected,
     )
-    gamepad_output_target_row.add_suffix(dropdown)
-    gamepad_output_target_row.set_activatable_widget(dropdown)
-    group.add(gamepad_output_target_row)
-
-    gamepad_output_target_side_row = Adw.ActionRow(title="Output Control")
-    target_buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    target_buttons.set_halign(Gtk.Align.END)
-    target_buttons.set_valign(Gtk.Align.CENTER)
-    gamepad_output_target_side_row.add_suffix(target_buttons)
-    group.add(gamepad_output_target_side_row)
 
     gamepad_output_deadzone_row = spin_row(
         "Output Deadzone",
@@ -225,10 +299,10 @@ def build_gamepad_output_group(
 
     return GamepadOutputGroupHandle(
         group=group,
-        gamepad_output_target_row=gamepad_output_target_row,
-        gamepad_output_dropdown=dropdown,
-        gamepad_output_target_side_row=gamepad_output_target_side_row,
-        gamepad_output_target_box=target_buttons,
+        gamepad_output_target_row=routing.gamepad_output_target_row,
+        gamepad_output_dropdown=routing.gamepad_output_dropdown,
+        gamepad_output_target_side_row=routing.gamepad_output_target_side_row,
+        gamepad_output_target_box=routing.gamepad_output_target_box,
         gamepad_output_deadzone_row=gamepad_output_deadzone_row,
         gamepad_output_rest_row=gamepad_output_rest_row,
         gamepad_output_direction_row=gamepad_output_direction_row,

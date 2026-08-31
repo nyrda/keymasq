@@ -1,3 +1,4 @@
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -21,6 +22,12 @@ from keymasq.common.model.hardware import (
     AnalogInputDefinition,
     ButtonDefinition,
     EvdevDevice,
+)
+from keymasq.common.model.motion import (
+    MOTION_NORMALIZATION_VERSION,
+    MotionAxisDefinition,
+    MotionSensorDefinition,
+    canonical_motion_axis,
 )
 
 InterfaceInfo = Mapping[str, Any]
@@ -255,6 +262,8 @@ def build_gamepad_analog_inputs(
     discovered: dict[str, dict[int, tuple[str, str]]] = {}
 
     for iface in interfaces:
+        if interface_has_role(iface, "motion"):
+            continue
         raw_capabilities = iface.get("raw_capabilities") or {}
         if not isinstance(raw_capabilities, dict):
             continue
@@ -296,6 +305,108 @@ def build_gamepad_analog_inputs(
             )
         )
     return analog_inputs
+
+
+MOTION_DRIVER_LABELS = {
+    "playstation": "PlayStation Motion Sensor",
+    "hid-playstation": "PlayStation Motion Sensor",
+    "nintendo": "Nintendo Motion Sensor",
+    "hid-nintendo": "Nintendo Motion Sensor",
+    "steam": "Steam Motion Sensor",
+    "hid-steam": "Steam Motion Sensor",
+}
+STANDARD_GRAVITY = 9.80665
+
+
+def build_motion_sensors(interfaces: Sequence[InterfaceInfo]) -> list[MotionSensorDefinition]:
+    """Build calibrated motion sensor definitions from kernel evdev metadata."""
+    sensors: list[MotionSensorDefinition] = []
+    for iface in interfaces:
+        if not interface_has_role(iface, "motion"):
+            continue
+        source_id = str(iface.get("id", "") or "")
+        if not source_id:
+            continue
+        raw_capabilities = iface.get("raw_capabilities") or {}
+        if not isinstance(raw_capabilities, dict):
+            continue
+        abs_values = raw_capabilities.get(evdev.ecodes.EV_ABS, [])
+        abs_entries = {
+            code: value for value in abs_values if (code := evdev_code_value(value)) is not None
+        }
+        driver = str(iface.get("driver", "") or "") or None
+        gyro_axes = _motion_axes(
+            abs_entries,
+            (evdev.ecodes.ABS_RX, evdev.ecodes.ABS_RY, evdev.ecodes.ABS_RZ),
+            driver=driver,
+            kind="gyro",
+        )
+        accelerometer_axes = _motion_axes(
+            abs_entries,
+            (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y, evdev.ecodes.ABS_Z),
+            driver=driver,
+            kind="accelerometer",
+        )
+        if not gyro_axes and not accelerometer_axes:
+            continue
+        label = MOTION_DRIVER_LABELS.get(driver or "", "Motion Sensor")
+        sensors.append(
+            MotionSensorDefinition(
+                id=f"motion_{len(sensors) + 1}",
+                label=label,
+                source=source_id,
+                driver=driver,
+                gyro_axes=gyro_axes,
+                accelerometer_axes=accelerometer_axes,
+                calibration_version=MOTION_NORMALIZATION_VERSION,
+            )
+        )
+    return sensors
+
+
+def _motion_axes(
+    entries: Mapping[int, object],
+    codes: Sequence[int],
+    *,
+    driver: str | None,
+    kind: str,
+) -> list[MotionAxisDefinition]:
+    axes: list[MotionAxisDefinition] = []
+    for code in codes:
+        entry = entries.get(code)
+        if entry is None:
+            continue
+        evdev_name = capability_name(evdev.ecodes.EV_ABS, code) or str(code)
+        canonical = canonical_motion_axis(driver, kind, evdev_name)
+        if canonical is None:
+            continue
+        role, invert = canonical
+        resolution = _abs_resolution(entry)
+        if kind == "gyro":
+            # The kernel motion ABI reports angular resolution in units/degree/second.
+            scale = math.radians(1.0 / resolution) if resolution > 0 else math.radians(1.0)
+        else:
+            # Accelerometer resolution is units/g; store canonical metres/second squared.
+            scale = STANDARD_GRAVITY / resolution if resolution > 0 else STANDARD_GRAVITY
+        axes.append(
+            MotionAxisDefinition(
+                role=role,
+                evdev=evdev_name,
+                evdev_code=code,
+                scale=scale,
+                invert=invert,
+            )
+        )
+    role_order = {"pitch": 0, "yaw": 1, "roll": 2} if kind == "gyro" else {"x": 0, "y": 1, "z": 2}
+    return sorted(axes, key=lambda axis: role_order[axis.role])
+
+
+def _abs_resolution(entry: object) -> float:
+    if not isinstance(entry, (tuple, list)) or len(entry) < 2:
+        return 0.0
+    value = entry[1]
+    resolution = getattr(value, "resolution", 0)
+    return float(resolution) if isinstance(resolution, (int, float)) else 0.0
 
 
 def build_standard_keyboard_buttons(source_id: str) -> list[ButtonDefinition]:

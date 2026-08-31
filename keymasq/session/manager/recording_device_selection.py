@@ -22,8 +22,14 @@ _PERSISTENCE_WARNING = (
 )
 
 
-def recording_device_filter_types(include_other: bool = False) -> list[str]:
+def recording_device_filter_types(
+    include_other: bool = False,
+    *,
+    include_motion: bool = False,
+) -> list[str]:
     device_types = list(CORE_RECORDING_DEVICE_FILTER_TYPES)
+    if include_motion:
+        device_types.append("motion")
     if include_other:
         device_types.extend(OTHER_RECORDING_DEVICE_FILTER_TYPES)
     return device_types
@@ -279,6 +285,9 @@ async def get_devices_for_recording(
                 "product_id": str(d.get("product_id", "") or ""),
                 "device_type": dtype,
                 "device_types": resolved_types,
+                "capabilities": [str(value) for value in json_list(d.get("capabilities"))],
+                "abs_info": json_object(d.get("abs_info")) or {},
+                "driver": coerce_str(d.get("driver"), ""),
                 "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),
                 "recording_kind": coerce_str(d.get("recording_kind"), "physical"),
                 "grabbed_by_keymasq": is_grabbed,

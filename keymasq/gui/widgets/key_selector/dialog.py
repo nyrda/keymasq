@@ -37,6 +37,7 @@ from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptu
 from .analog_tab import AnalogTabMixin
 from .gamepad_axis import GamepadAxisControlsMixin
 from .macro_tab import MacroTabMixin
+from .motion_tab import MotionTabMixin
 from .options_panel import MappingOptionsPanelMixin
 from .profile_tab import ProfileTabMixin
 from .superkey_tab import SuperkeyTabMixin
@@ -55,6 +56,7 @@ class KeySelectorDialog(
     ProfileTabMixin,
     SuperkeyTabMixin,
     AnalogTabMixin,
+    MotionTabMixin,
 ):
     __gsignals__ = {
         "key-selected": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
@@ -167,6 +169,7 @@ class KeySelectorDialog(
         self._analog_control_names: list[str] = []
         self._selected_analog_control: str | None = None
         self._selected_analog_controls: list[str] = []
+        self._selected_motion_control: str | None = None
         self._macro_replay_movement: bool = True
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0
@@ -232,6 +235,8 @@ class KeySelectorDialog(
                 self._selected_analog_control = (
                     self._selected_analog_controls[0] if self._selected_analog_controls else None
                 )
+            elif current_action.action_type == ActionType.MOTION_CONTROL:
+                self._selected_motion_control = current_action.motion_control_name
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
             elif current_action.action_type == ActionType.REPEAT:
@@ -304,7 +309,22 @@ class KeySelectorDialog(
 
         self.stack = Gtk.Stack()
         self.stack.set_vexpand(True)
-        if self._source_type == "analog":
+        if self._source_type == "motion":
+            if self._tab_allowed("motion_presets"):
+                self.stack.add_titled(
+                    self._build_motion_presets_tab(),
+                    "motion_presets",
+                    "Presets",
+                )
+            if self._tab_allowed("motion_control"):
+                self.stack.add_titled(
+                    self._build_motion_control_tab(),
+                    "motion_control",
+                    "Motion Controls",
+                )
+            if self._tab_allowed("special"):
+                self.stack.add_titled(self._build_special_tab(), "special", "Special")
+        elif self._source_type == "analog":
             if self._tab_allowed("analog_presets"):
                 self.stack.add_titled(
                     self._build_analog_presets_tab(),
@@ -477,7 +497,11 @@ class KeySelectorDialog(
         special_buttons_added = False
 
         if self._allow_clear_mapping:
-            clear_label = "Clear Mapping" if self._source_type == "analog" else "Passthrough"
+            clear_label = (
+                "Clear Mapping"
+                if self._source_type in {"analog", "motion"}
+                else "Passthrough"
+            )
             clear_btn = self._create_key_button(clear_label, "clear_mapping", large=True)
             clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
             clear_btn.set_tooltip_text(
@@ -493,7 +517,7 @@ class KeySelectorDialog(
             box.append(suppress_btn)
             special_buttons_added = True
 
-        if self._source_type == "analog":
+        if self._source_type in {"analog", "motion"}:
             return box
 
         if self._allow_repeat:
@@ -561,6 +585,9 @@ class KeySelectorDialog(
         is_analog_control = child_name == "analog_control"
         is_analog_presets = child_name == "analog_presets"
         is_analog_only = is_analog_control or is_analog_presets
+        is_motion_control = child_name == "motion_control"
+        is_motion_presets = child_name == "motion_presets"
+        is_motion_only = is_motion_control or is_motion_presets
         is_type = child_name == "type"
         is_macro = child_name == "macro"
         is_profile = child_name == "profile"
@@ -576,6 +603,7 @@ class KeySelectorDialog(
             is_special
             or is_superkey
             or is_analog_only
+            or is_motion_only
             or is_type
             or is_macro
             or is_profile
@@ -587,7 +615,13 @@ class KeySelectorDialog(
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
         self.map_btn.set_visible(
-            is_superkey or is_analog_control or is_type or is_macro or is_profile or is_mouse_move
+            is_superkey
+            or is_analog_control
+            or is_motion_control
+            or is_type
+            or is_macro
+            or is_profile
+            or is_mouse_move
         )
         self.map_btn.set_label(
             self._mouse_move_commit_label
@@ -602,6 +636,8 @@ class KeySelectorDialog(
             self.map_btn.set_sensitive(self._selected_superkey is not None)
         elif is_analog_control:
             self.map_btn.set_sensitive(bool(self._selected_analog_controls))
+        elif is_motion_control:
+            self.map_btn.set_sensitive(self._selected_motion_control is not None)
         elif is_type:
             self._maybe_load_type_macro_details()
             self._sync_type_map_button()
@@ -753,6 +789,8 @@ class KeySelectorDialog(
             self._on_superkey_map_clicked(btn)
         elif child_name == "analog_control":
             self._on_analog_control_map_clicked(btn)
+        elif child_name == "motion_control":
+            self._on_motion_control_map_clicked(btn)
         elif child_name == "type":
             self._on_type_map_clicked(btn)
         elif child_name == "macro":
@@ -769,6 +807,12 @@ class KeySelectorDialog(
         if self._source_type == "analog":
             self._set_initial_analog_tab()
             return
+        if self._source_type == "motion":
+            if self._current_action is not None and self._selected_motion_control:
+                self.stack.set_visible_child_name("motion_control")
+            else:
+                self.stack.set_visible_child_name("motion_presets")
+            return
         if not self._current_action:
             return
         compositor_tab = compositor_action_tab_name(
@@ -784,6 +828,7 @@ class KeySelectorDialog(
             ActionType.REPEAT: "special",
             ActionType.SUPERKEY: "superkey",
             ActionType.ANALOG_CONTROL: "analog_control",
+            ActionType.MOTION_CONTROL: "motion_control",
             ActionType.START_MACRO_RECORDING: "macro",
             ActionType.STOP_MACRO_RECORDING: "macro",
             ActionType.PLAY_MACRO_SLOT: "macro",

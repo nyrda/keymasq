@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from keymasq.common.model.core import DeviceType
+from keymasq.common.model.motion import MotionSensorDefinition
 
 
 @dataclass
@@ -57,6 +58,7 @@ class HardwareConfig:
     evdev_devices: list[EvdevDevice]
     buttons: list[ButtonDefinition]
     analog_inputs: list[AnalogInputDefinition] = field(default_factory=list)
+    motion_sensors: list[MotionSensorDefinition] = field(default_factory=list)
     image: str | None = None
     id: str | None = None
 

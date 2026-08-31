@@ -31,6 +31,10 @@ def get_interfaces_to_grab(
     }
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
     button_to_source.update({analog.id: analog.source for analog in analog_inputs if analog.source})
+    motion_sensors = getattr(hardware_config, "motion_sensors", []) or []
+    button_to_source.update(
+        {sensor.id: sensor.source for sensor in motion_sensors if sensor.source}
+    )
 
     sources_to_grab: set[str] = set()
     for button_id, action in resolved.mappings.items():
@@ -122,6 +126,7 @@ def build_grab_device_payload(
 ) -> JsonObject:
     """Build the complete daemon grab payload for a resolved device profile."""
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
+    motion_sensors = getattr(hardware_config, "motion_sensors", []) or []
     selected_sources = set(interfaces.keys())
     return {
         "hardware_id": hardware_id,
@@ -165,6 +170,18 @@ def build_grab_device_payload(
             }
             for analog in analog_inputs
         },
+        "motion_sensors": {
+            sensor.id: {
+                "label": sensor.label,
+                **({"source": sensor.source} if sensor.source else {}),
+                **({"driver": sensor.driver} if sensor.driver else {}),
+                "gyro_axes": [_motion_axis_payload(axis) for axis in sensor.gyro_axes],
+                "accelerometer_axes": [
+                    _motion_axis_payload(axis) for axis in sensor.accelerometer_axes
+                ],
+            }
+            for sensor in motion_sensors
+        },
         "force_grab_unmapped": bool(force_grab_unmapped) or bool(resolved.combo_event_count),
     }
 
@@ -178,9 +195,22 @@ def grab_device_payload_signature(payload: JsonObject) -> str:
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),
         "analog_inputs": payload.get("analog_inputs", {}),
+        "motion_sensors": payload.get("motion_sensors", {}),
         "force_grab_unmapped": bool(payload.get("force_grab_unmapped", False)),
     }
     return json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))
+
+
+def _motion_axis_payload(axis: object) -> JsonObject:
+    return {
+        "role": str(getattr(axis, "role", "")),
+        "evdev": str(getattr(axis, "evdev", "")),
+        "evdev_code": getattr(axis, "evdev_code", None),
+        "offset": float(getattr(axis, "offset", 0.0)),
+        "scale": float(getattr(axis, "scale", 1.0)),
+        "invert": bool(getattr(axis, "invert", False)),
+        "noise": float(getattr(axis, "noise", 0.0)),
+    }
 
 
 def _signature_evdev_interfaces(value: object) -> list[object]:

@@ -9,6 +9,7 @@ from keymasq.gui.wizards.hardware_setup.identity import (
     interface_source_fields,
     logical_hardware_identity_key,
     raw_row_key,
+    strip_input_suffix,
 )
 from keymasq.gui.wizards.hardware_setup.types import DetectedDevice, DetectedInterface
 
@@ -80,6 +81,7 @@ def detect_devices_via_session(
             {
                 "command": "list_devices_for_recording",
                 "include_other": show_raw_evdev_devices,
+                "include_motion": True,
             },
             timeout=3.0,
         )
@@ -193,6 +195,21 @@ def detect_devices_via_session(
                             "phys": phys,
                             "device_type": dtype,
                             "device_types": device_types,
+                            **(
+                                {"capabilities": list(dev.get("capabilities", []) or [])}
+                                if dev.get("capabilities")
+                                else {}
+                            ),
+                            **(
+                                {"abs_info": dict(dev.get("abs_info", {}) or {})}
+                                if dev.get("abs_info")
+                                else {}
+                            ),
+                            **(
+                                {"driver": str(dev.get("driver", "") or "")}
+                                if dev.get("driver")
+                                else {}
+                            ),
                             **source_fields,
                             **configured_fields,
                         }
@@ -224,10 +241,71 @@ def detect_devices_via_session(
                             "phys": phys,
                             "device_type": dtype,
                             "device_types": device_types,
+                            **(
+                                {"capabilities": list(dev.get("capabilities", []) or [])}
+                                if dev.get("capabilities")
+                                else {}
+                            ),
+                            **(
+                                {"abs_info": dict(dev.get("abs_info", {}) or {})}
+                                if dev.get("abs_info")
+                                else {}
+                            ),
+                            **(
+                                {"driver": str(dev.get("driver", "") or "")}
+                                if dev.get("driver")
+                                else {}
+                            ),
                             **source_fields,
                             **configured_fields,
                         },
                     )
                 )
 
+    if not show_raw_evdev_devices:
+        _attach_motion_siblings(detected_devices)
     return bool(detected_devices)
+
+
+def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None:
+    """Attach a controller's separate motion evdev node to its gamepad row."""
+    for motion_key, motion_device in list(detected_devices.items()):
+        motion_interfaces = list(motion_device.get("interfaces", []) or [])
+        if not motion_interfaces or any(
+            "gamepad" in normalize_input_classes(iface.get("device_types"))
+            for iface in motion_interfaces
+        ):
+            continue
+        if not any(
+            "motion" in normalize_input_classes(iface.get("device_types"))
+            for iface in motion_interfaces
+        ):
+            continue
+        motion_phys = {
+            strip_input_suffix(str(iface.get("phys", "") or ""))
+            for iface in motion_interfaces
+            if iface.get("phys")
+        }
+        candidates: list[DetectedDevice] = []
+        for key, candidate in detected_devices.items():
+            if key == motion_key or candidate.get("model_id") != motion_device.get("model_id"):
+                continue
+            candidate_interfaces = list(candidate.get("interfaces", []) or [])
+            if not any(
+                "gamepad" in normalize_input_classes(iface.get("device_types"))
+                for iface in candidate_interfaces
+            ):
+                continue
+            candidate_phys = {
+                strip_input_suffix(str(iface.get("phys", "") or ""))
+                for iface in candidate_interfaces
+                if iface.get("phys")
+            }
+            if motion_phys and motion_phys.intersection(candidate_phys):
+                candidates.append(candidate)
+        if len(candidates) != 1:
+            continue
+        target = candidates[0]
+        target.setdefault("interfaces", []).extend(motion_interfaces)
+        target.setdefault("paths", []).extend(list(motion_device.get("paths", []) or []))
+        detected_devices.pop(motion_key, None)

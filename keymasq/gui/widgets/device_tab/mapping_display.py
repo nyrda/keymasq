@@ -133,10 +133,12 @@ def set_action_label_text(
     text: str,
     *,
     max_chars: int,
+    pre_shorten: bool = True,
 ) -> None:
-    display_text = _display_action_summary(text, max_chars)
+    display_text = _display_action_summary(text, max_chars) if pre_shorten else text
     label.set_text(display_text)
-    label.set_tooltip_text(text if display_text != text else None)
+    needs_tooltip = display_text != text or (not pre_shorten and len(text) > max_chars)
+    label.set_tooltip_text(text if needs_tooltip else None)
 
 
 def update_button_display(
@@ -170,7 +172,11 @@ def update_button_display(
         (candidate for candidate in device.analog_inputs if candidate.id == button_id),
         None,
     )
-    if button is None and analog is None:
+    motion = next(
+        (candidate for candidate in device.motion_sensors if candidate.id == button_id),
+        None,
+    )
+    if button is None and analog is None and motion is None:
         return
 
     winner_profile_name, winner_mapping = effective_mapping
@@ -188,7 +194,12 @@ def update_button_display(
 
     if mapping:
         description = describe_mapping_for_button(mapping, button)
-        set_action_label_text(action_label, description, max_chars=action_summary_chars)
+        set_action_label_text(
+            action_label,
+            description,
+            max_chars=action_summary_chars,
+            pre_shorten=motion is None,
+        )
         if selected_profile and winner_profile_name == selected_profile.config.name:
             action_label.add_css_class("success")
             widget.add_css_class("button-card-mapped-active")
@@ -208,8 +219,18 @@ def update_button_display(
             else:
                 widget.set_tooltip_text("This binding is not currently active")
     else:
-        passthrough_label = _passthrough_label(button, analog, describe_passthrough)
-        set_action_label_text(action_label, passthrough_label, max_chars=action_summary_chars)
+        passthrough_label = _passthrough_label(
+            button,
+            analog,
+            describe_passthrough,
+            motion=motion is not None,
+        )
+        set_action_label_text(
+            action_label,
+            passthrough_label,
+            max_chars=action_summary_chars,
+            pre_shorten=motion is None,
+        )
         action_label.add_css_class("dim-label")
         widget.add_css_class("button-card-passthrough")
         if winner_profile_name and winner_mapping is not None:
@@ -225,9 +246,13 @@ def _passthrough_label(
     button: ButtonDefinition | None,
     analog: AnalogInputDefinition | None,
     describe_passthrough: Callable[[ButtonDefinition], str],
+    *,
+    motion: bool = False,
 ) -> str:
     if button is not None:
         return describe_passthrough(button)
     if analog is not None and analog.type == "axis":
         return "Axis passthrough"
+    if motion:
+        return "Motion passthrough"
     return "Analog passthrough"

@@ -1,0 +1,204 @@
+"""Motion sensor calibration and reusable motion-control models."""
+
+from dataclasses import dataclass, field
+
+from keymasq.common.model.actions import normalize_output_id
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+
+MOTION_GYRO_AXES = frozenset({"pitch", "yaw", "roll"})
+MOTION_ACCELEROMETER_AXES = frozenset({"x", "y", "z"})
+MOTION_AXES = MOTION_GYRO_AXES | MOTION_ACCELEROMETER_AXES
+MOTION_CONTROL_MODES = frozenset({"mouse", "gamepad"})
+MOTION_GAMEPAD_TARGETS = frozenset({"left", "right", "analog"})
+MOTION_AXIS_OUTPUTS = frozenset({"none", "horizontal", "vertical"})
+MOTION_NORMALIZATION_VERSION = 2
+
+_DRIVER_FAMILIES = {
+    "hid-nintendo": "nintendo",
+    "nintendo": "nintendo",
+    "hid-playstation": "playstation",
+    "playstation": "playstation",
+    "hid-steam": "steam",
+    "steam": "steam",
+}
+
+_MOTION_AXIS_LAYOUTS: dict[str, dict[str, dict[str, tuple[str, bool]]]] = {
+    "playstation": {
+        "gyro": {
+            "abs_rx": ("pitch", False),
+            "abs_ry": ("yaw", False),
+            "abs_rz": ("roll", False),
+        },
+        "accelerometer": {
+            "abs_x": ("x", False),
+            "abs_y": ("y", False),
+            "abs_z": ("z", False),
+        },
+    },
+    "nintendo": {
+        "gyro": {
+            "abs_rx": ("roll", True),
+            "abs_ry": ("pitch", True),
+            "abs_rz": ("yaw", False),
+        },
+        "accelerometer": {
+            "abs_x": ("z", True),
+            "abs_y": ("x", True),
+            "abs_z": ("y", False),
+        },
+    },
+    "steam": {
+        "gyro": {
+            "abs_rx": ("pitch", False),
+            "abs_ry": ("yaw", False),
+            "abs_rz": ("roll", False),
+        },
+        "accelerometer": {
+            "abs_x": ("x", False),
+            "abs_y": ("y", False),
+            "abs_z": ("z", False),
+        },
+    },
+}
+
+
+@dataclass
+class MotionAxisDefinition:
+    """Convert one raw evdev axis into a canonical physical axis."""
+
+    role: str
+    evdev: str
+    evdev_code: int | None = None
+    offset: float = 0.0
+    scale: float = 1.0
+    invert: bool = False
+    noise: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.role = str(self.role or "").strip().lower()
+        if self.role not in MOTION_AXES:
+            raise ValueError("motion axis role must be pitch, yaw, roll, x, y, or z")
+        self.evdev = str(self.evdev or "").strip().lower()
+        if not self.evdev:
+            raise ValueError("motion axis evdev name is required")
+        self.offset = float(self.offset)
+        self.scale = float(self.scale)
+        if self.scale <= 0.0:
+            raise ValueError("motion axis scale must be positive")
+        self.noise = max(0.0, float(self.noise))
+
+
+@dataclass
+class MotionSensorDefinition:
+    """Hardware-owned description and calibration of one motion sensor."""
+
+    id: str
+    label: str
+    source: str | None = None
+    driver: str | None = None
+    gyro_axes: list[MotionAxisDefinition] = field(default_factory=list)
+    accelerometer_axes: list[MotionAxisDefinition] = field(default_factory=list)
+    calibration_version: int = MOTION_NORMALIZATION_VERSION
+    calibrated_at: str | None = None
+    calibration_samples: int = 0
+
+    def __post_init__(self) -> None:
+        self.id = str(self.id or "").strip()
+        if not self.id:
+            raise ValueError("motion sensor id is required")
+        self.label = str(self.label or self.id).strip() or self.id
+        self.source = str(self.source).strip() if self.source else None
+        self.driver = str(self.driver).strip() if self.driver else None
+        self.calibration_version = max(1, int(self.calibration_version))
+        self.calibration_samples = max(0, int(self.calibration_samples))
+
+
+@dataclass
+class MotionAxisRoutingConfig:
+    """Assign each canonical gyro axis to a two-dimensional output channel."""
+
+    yaw: str = "horizontal"
+    pitch: str = "vertical"
+    roll: str = "horizontal"
+
+    def __post_init__(self) -> None:
+        self.yaw = _motion_axis_output(self.yaw, "horizontal")
+        self.pitch = _motion_axis_output(self.pitch, "vertical")
+        self.roll = _motion_axis_output(self.roll, "horizontal")
+
+
+@dataclass
+class MotionMouseConfig:
+    sensitivity_x: float = 8.0
+    sensitivity_y: float = 8.0
+    deadzone_dps: float = 0.5
+    smoothing: float = 0.15
+    response_curve: float = 1.0
+    invert_x: bool = False
+    invert_y: bool = False
+
+    def __post_init__(self) -> None:
+        self.sensitivity_x = max(0.0, float(self.sensitivity_x))
+        self.sensitivity_y = max(0.0, float(self.sensitivity_y))
+        self.deadzone_dps = max(0.0, float(self.deadzone_dps))
+        self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
+        self.response_curve = max(0.1, min(4.0, float(self.response_curve)))
+
+
+@dataclass
+class MotionGamepadConfig:
+    output_id: str | None = SAME_DEVICE_OUTPUT_ID
+    target: str = "right"
+    target_analog_id: str | None = None
+    max_rate_dps: float = 360.0
+    deadzone_dps: float = 1.0
+    smoothing: float = 0.15
+    response_curve: float = 1.0
+    invert_x: bool = False
+    invert_y: bool = False
+
+    def __post_init__(self) -> None:
+        self.output_id = normalize_output_id(self.output_id)
+        self.target = str(self.target or "right").strip().lower()
+        if self.target not in MOTION_GAMEPAD_TARGETS:
+            self.target = "right"
+        self.target_analog_id = normalize_output_id(self.target_analog_id)
+        if self.target != "analog":
+            self.target_analog_id = None
+        self.max_rate_dps = max(1.0, float(self.max_rate_dps))
+        self.deadzone_dps = max(0.0, float(self.deadzone_dps))
+        self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
+        self.response_curve = max(0.1, min(4.0, float(self.response_curve)))
+
+
+@dataclass
+class MotionControlConfig:
+    name: str
+    description: str | None = None
+    mode: str = "mouse"
+    axis_routing: MotionAxisRoutingConfig = field(default_factory=MotionAxisRoutingConfig)
+    mouse: MotionMouseConfig = field(default_factory=MotionMouseConfig)
+    gamepad: MotionGamepadConfig = field(default_factory=MotionGamepadConfig)
+
+    def __post_init__(self) -> None:
+        self.name = str(self.name or "").strip()
+        if not self.name:
+            raise ValueError("motion control name is required")
+        self.mode = str(self.mode or "mouse").strip().lower()
+        if self.mode not in MOTION_CONTROL_MODES:
+            raise ValueError("motion control mode must be 'mouse' or 'gamepad'")
+
+
+def _motion_axis_output(value: object, default: str) -> str:
+    output = str(value or default).strip().lower()
+    return output if output in MOTION_AXIS_OUTPUTS else default
+
+
+def canonical_motion_axis(
+    driver: str | None,
+    kind: str,
+    evdev_name: str,
+) -> tuple[str, bool] | None:
+    """Return the canonical axis role and sign correction for a kernel driver."""
+    family = _DRIVER_FAMILIES.get(str(driver or "").strip().lower(), "playstation")
+    return _MOTION_AXIS_LAYOUTS[family].get(kind, {}).get(evdev_name.strip().lower())

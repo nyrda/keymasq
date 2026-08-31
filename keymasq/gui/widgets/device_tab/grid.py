@@ -10,6 +10,7 @@ from gi.repository import Gdk, Gtk, Pango  # pyright: ignore[reportAttributeAcce
 from keymasq.common.model.actions import is_protected_button
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
+from keymasq.common.model.motion import MotionSensorDefinition
 from keymasq.gui.widgets.device_control_layout import (
     group_pointer_controls,
     label_sort_key,
@@ -37,6 +38,8 @@ class DeviceGridCallbacks:
     on_learn_analog_clicked: Callable[..., None]
     on_mapping_button_clicked: Callable[..., None]
     on_analog_mapping_clicked: Callable[..., None]
+    on_motion_mapping_clicked: Callable[..., None]
+    on_motion_action_right_clicked: Callable[..., None]
     on_name_label_right_clicked: Callable[..., None]
     on_action_label_right_clicked: Callable[..., None]
     on_analog_name_right_clicked: Callable[..., None]
@@ -281,6 +284,7 @@ class DeviceGridBuilder:
                 )
 
             self._append_analog_controls_section(content)
+            self._append_motion_controls_section(content)
             self._append_learn_tile(content)
             scrolled.set_child(content)
             return DeviceGridResult(scrolled, self.button_widgets, keyboard_layout_mode)
@@ -354,6 +358,7 @@ class DeviceGridBuilder:
                 )
 
             self._append_analog_controls_section(content)
+            self._append_motion_controls_section(content)
             self._append_learn_tile(content)
             scrolled.set_child(content)
             return DeviceGridResult(scrolled, self.button_widgets, keyboard_layout_mode)
@@ -376,6 +381,7 @@ class DeviceGridBuilder:
         add_section("Side Buttons", other_buttons, content)
 
         self._append_analog_controls_section(content)
+        self._append_motion_controls_section(content)
         self._append_learn_tile(content)
         scrolled.set_child(content)
         return DeviceGridResult(scrolled, self.button_widgets, keyboard_layout_mode)
@@ -692,3 +698,66 @@ class DeviceGridBuilder:
         btn.set_child(box)
         btn.connect("clicked", self.callbacks.on_analog_mapping_clicked, analog)
         return btn
+
+    def _append_motion_controls_section(self, parent: Gtk.Box) -> None:
+        if not self.device.motion_sensors:
+            return
+        label = Gtk.Label(label="Motion Sensors")
+        label.add_css_class("button-section-title")
+        label.set_halign(Gtk.Align.START)
+        parent.append(label)
+        grid = Gtk.Grid(column_spacing=12, row_spacing=12)
+        for index, sensor in enumerate(self.device.motion_sensors):
+            widget = self._create_motion_widget(sensor)
+            grid.attach(widget, index % 2, index // 2, 1, 1)
+            self.button_widgets[sensor.id] = widget
+        parent.append(grid)
+
+    def _create_motion_widget(self, sensor: MotionSensorDefinition) -> Gtk.Button:
+        button = Gtk.Button()
+        button.add_css_class("card")
+        button.add_css_class("button-card-passthrough")
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        content.set_margin_top(8)
+        content.set_margin_bottom(8)
+        content.set_margin_start(10)
+        content.set_margin_end(10)
+        name = Gtk.Label(label=sensor.label)
+        name.add_css_class("heading")
+        name.set_xalign(0.0)
+        content.append(name)
+        detail = Gtk.Label(
+            label=(f"{len(sensor.gyro_axes)} gyro · {len(sensor.accelerometer_axes)} accel axes")
+        )
+        detail.add_css_class("caption")
+        detail.add_css_class("dim-label")
+        detail.set_xalign(0.0)
+        content.append(detail)
+        action = Gtk.Label(label="Motion passthrough")
+        action.add_css_class("caption")
+        action.add_css_class("button-card-action-label")
+        action.set_halign(Gtk.Align.FILL)
+        action.set_xalign(0.0)
+        action.set_hexpand(True)
+        action.set_single_line_mode(True)
+        action.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        action.set_width_chars(1)
+        action.set_max_width_chars(self._mapping_action_summary_chars())
+        content.append(action)
+        action_right_click = Gtk.GestureClick()
+        action_right_click.set_button(Gdk.BUTTON_SECONDARY)
+        action_right_click.connect(
+            "pressed",
+            self.callbacks.on_motion_action_right_clicked,
+            sensor,
+        )
+        action.add_controller(action_right_click)
+        button._action_label = action
+        button._name_label = name
+        button._button_id = sensor.id
+        button._protected = False
+        button._motion_source = True
+        button.set_size_request(self._button_card_width(), -1)
+        button.set_child(content)
+        button.connect("clicked", self.callbacks.on_motion_mapping_clicked, sensor)
+        return button

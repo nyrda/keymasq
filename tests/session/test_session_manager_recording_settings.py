@@ -406,6 +406,50 @@ async def test_get_devices_for_recording_uses_daemon_grabbed_state_only() -> Non
 
 
 @pytest.mark.asyncio
+async def test_get_devices_for_recording_preserves_motion_axis_metadata() -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={
+                "devices": [
+                    {
+                        "path": "/dev/input/event28",
+                        "name": "Nintendo Co., Ltd. Pro Controller (IMU)",
+                        "vendor_id": "057e",
+                        "product_id": "2009",
+                        "device_type": "motion",
+                        "device_types": ["motion"],
+                        "driver": "nintendo",
+                        "capabilities": ["EV_ABS_0", "EV_ABS_3"],
+                        "abs_info": {
+                            "0": {
+                                "value": 0,
+                                "minimum": -32767,
+                                "maximum": 32767,
+                                "fuzz": 10,
+                                "flat": 0,
+                                "resolution": 4096,
+                            }
+                        },
+                    }
+                ]
+            },
+        )
+    )
+
+    devices = await recording_device_selection_module.get_devices_for_recording(
+        manager,
+        ["motion"],
+        include_grabbed=True,
+    )
+
+    assert devices[0]["capabilities"] == ["EV_ABS_0", "EV_ABS_3"]
+    assert devices[0]["abs_info"]["0"]["resolution"] == 4096
+    assert devices[0]["driver"] == "nintendo"
+
+
+@pytest.mark.asyncio
 async def test_get_devices_for_recording_logs_unexpected_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

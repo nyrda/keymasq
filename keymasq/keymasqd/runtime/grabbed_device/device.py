@@ -8,6 +8,7 @@ from typing import NotRequired, TypedDict, cast
 
 import evdev
 
+from keymasq.common.coercion import coerce_float
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     get_interface_id,
@@ -275,6 +276,7 @@ class GrabbedDevice:
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
+        motion_sensors: dict[str, object] | None = None,
         interface_id: str | None = None,
     ) -> None:
         self.path = path
@@ -297,6 +299,11 @@ class GrabbedDevice:
         self.analog_axis_calibrations: dict[tuple[str, str], dict[str, object]] = {}
         self.analog_input_types: dict[str, str] = {}
         self.update_analog_inputs(analog_inputs or {})
+        self.motion_sensors: dict[str, object] = {}
+        self.motion_axis_bindings: dict[
+            tuple[int, int], tuple[str, str, str, float, float, bool, float]
+        ] = {}
+        self.update_motion_sensors(motion_sensors or {})
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
         self.device_type = device_type
@@ -404,6 +411,39 @@ class GrabbedDevice:
                     self.analog_axis_calibrations[(str(analog_id), role)] = calibration
         self._refresh_analog_axis_ranges()
 
+    def update_motion_sensors(self, motion_sensors: dict[str, object]) -> None:
+        self.motion_sensors = dict(motion_sensors)
+        self.motion_axis_bindings = {}
+        for sensor_id, raw_sensor in self.motion_sensors.items():
+            if not isinstance(raw_sensor, dict):
+                continue
+            sensor = cast(dict[str, object], raw_sensor)
+            source = str(sensor.get("source", "") or "").strip().lower()
+            if source and source != self.interface_id:
+                continue
+            for kind, key in (("gyro", "gyro_axes"), ("accelerometer", "accelerometer_axes")):
+                raw_axes = sensor.get(key)
+                if not isinstance(raw_axes, list):
+                    continue
+                for raw_axis in cast(list[object], raw_axes):
+                    if not isinstance(raw_axis, dict):
+                        continue
+                    axis = cast(dict[str, object], raw_axis)
+                    role = str(axis.get("role", "") or "").strip().lower()
+                    code = _axis_code(axis)
+                    valid_roles = {"pitch", "yaw", "roll"} if kind == "gyro" else {"x", "y", "z"}
+                    if role not in valid_roles or code is None:
+                        continue
+                    self.motion_axis_bindings[(int(evdev.ecodes.EV_ABS), int(code))] = (
+                        str(sensor_id),
+                        kind,
+                        role,
+                        coerce_float(axis.get("offset"), 0.0),
+                        coerce_float(axis.get("scale"), 1.0),
+                        bool(axis.get("invert", False)),
+                        coerce_float(axis.get("noise"), 0.0),
+                    )
+
     async def reset_mapping_runtime_state(
         self,
         previous_mapping: dict[str, MappingAction] | None = None,
@@ -422,6 +462,7 @@ class GrabbedDevice:
             else set[str]()
         )
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
+        self.reset_motion_controls()
         await self.reset_superkeys()
         grab.seed_startup_held_actions(self)
 
@@ -439,6 +480,12 @@ class GrabbedDevice:
             deps=pipeline.build_action_execution_deps(),
             preserve_state_keys=preserve_state_keys,
         )
+
+    def reset_motion_controls(self) -> None:
+        self.state.motion_frame_values.clear()
+        self.state.motion_smoothed_values.clear()
+        self.state.motion_last_frame_ns.clear()
+        self.state.motion_mouse_accumulators.clear()
 
     async def _cleanup_failed_grab(self) -> None:
         await self._stop_output_feedback_proxy()

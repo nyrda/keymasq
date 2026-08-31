@@ -280,6 +280,22 @@ actions = [
 Axis Analog Controls use `input_type = "axis"`, one threshold axis
 (`axis = "x"`), and signed threshold ranges from `-1.0` to `1.0`.
 
+Map a hardware motion sensor to a saved Motion Control:
+
+```toml
+[devices."054c:0ce6".mapping.motion_1]
+action = "motion_control"
+motion_control_name = "Gyro Aim"
+```
+
+Motion Controls live under `~/.config/keymasq/motion_controls/`. They select `mouse` or
+`gamepad` output and contain profile-owned sensitivity, deadzone, smoothing, response curve,
+axis routing, and output target. The top-level `[axis_routing]` table assigns each of `yaw`,
+`pitch`, and `roll` to `none`, `horizontal`, or `vertical`. The defaults route yaw and roll
+to horizontal and pitch to vertical. Multiple gyro axes assigned to one channel are added
+together. Raw-unit calibration and driver-specific axis normalization remain in the hardware
+file.
+
 Bind a saved macro:
 
 ```toml

@@ -10,6 +10,7 @@ class ActionType(Enum):
     GAMEPAD = "gamepad"
     GAMEPAD_AXIS = "gamepad_axis"
     ANALOG_CONTROL = "analog_control"
+    MOTION_CONTROL = "motion_control"
     EXEC = "exec"
     COMPOSITOR_DISPATCH = "compositor_dispatch"
     SUPPRESS = "suppress"
@@ -39,6 +40,7 @@ class DeviceType(Enum):
     MOUSE = "mouse"
     KEYBOARD = "keyboard"
     GAMEPAD = "gamepad"
+    MOTION = "motion"
     OTHER = "other"
 
 

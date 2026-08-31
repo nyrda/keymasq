@@ -216,7 +216,13 @@ class TestHardwareSetupDialog:
 
         assert dialog._detect_devices_via_session(detected_devices) is True
 
-        assert requests == [{"command": "list_devices_for_recording", "include_other": True}]
+        assert requests == [
+            {
+                "command": "list_devices_for_recording",
+                "include_other": True,
+                "include_motion": True,
+            }
+        ]
         assert set(detected_devices) == {"raw:/dev/input/event20", "raw:/dev/input/event21"}
         assert detected_devices["raw:/dev/input/event20"]["paths"] == ["/dev/input/event20"]
         assert detected_devices["raw:/dev/input/event21"]["paths"] == ["/dev/input/event21"]

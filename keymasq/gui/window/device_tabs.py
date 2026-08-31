@@ -92,6 +92,7 @@ def _set_empty_placeholder_state(window) -> None:
 
 
 def _apply_loaded_devices(window, devices: list[HardwareConfig]) -> None:
+    chrome._update_motion_controls_menu_visibility(window, devices)
     if window.demo_mode and not devices:
         _load_demo_devices(window)
         return
@@ -213,6 +214,7 @@ def _add_device_tab(window, device: HardwareConfig, *, persist_order: bool = Tru
     icon = resolve_icon_name(*device_icon_names(device_kind=tab.device_layout_kind()))
     page = tab_layout._append_tab_page(window, tab, title=device.name, icon_name=icon)
     window._device_pages[device.hardware_id] = page
+    chrome._update_motion_controls_menu_visibility(window, window.list_device_tab_configs())
     if window._selected_profile_name:
         tab.refresh_profiles(
             preferred_profile_name=window._selected_profile_name,
@@ -244,6 +246,7 @@ def update_device_display_name(window, hardware_id: str, name: str) -> None:
 def remove_device_tab(window, hardware_id: str) -> None:
     page = window._device_pages.pop(hardware_id, None)
     tab_layout._close_tab_page(window, page)
+    chrome._update_motion_controls_menu_visibility(window, window.list_device_tab_configs())
     tab_layout._save_tab_layout(window)
     _check_empty_state(window)
 

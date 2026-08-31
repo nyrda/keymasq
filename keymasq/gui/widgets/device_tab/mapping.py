@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, Gtk  # pyright: ignore[reportAttributeAccess
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition
+from keymasq.common.model.motion import MotionSensorDefinition
 from keymasq.gui.session_client import JsonDict
 from keymasq.gui.widgets.device_control_layout import resolve_device_layout_kind
 from keymasq.gui.widgets.device_tab import mapping_display
@@ -31,6 +32,8 @@ class MappingMixin:
             on_learn_analog_clicked=self._on_learn_analog_clicked,
             on_mapping_button_clicked=self._on_mapping_button_clicked,
             on_analog_mapping_clicked=self._on_analog_mapping_clicked,
+            on_motion_mapping_clicked=self._on_motion_mapping_clicked,
+            on_motion_action_right_clicked=self._on_motion_action_right_clicked,
             on_name_label_right_clicked=self._on_name_label_right_clicked,
             on_action_label_right_clicked=self._on_action_label_right_clicked,
             on_analog_name_right_clicked=self._on_analog_name_right_clicked,
@@ -68,6 +71,49 @@ class MappingMixin:
         analog: AnalogInputDefinition,
     ) -> None:
         self._activate_analog_mapping(analog)
+
+    def _on_motion_mapping_clicked(
+        self: Any,
+        _button_widget: Gtk.Button,
+        sensor: MotionSensorDefinition,
+    ) -> None:
+        if self._selected_profile is None:
+            self._show_no_profile_dialog()
+            return
+        self._show_motion_editor(sensor)
+
+    def _on_motion_action_right_clicked(
+        self: Any,
+        gesture: Gtk.GestureClick,
+        n_press: int,
+        _x: float,
+        _y: float,
+        sensor: MotionSensorDefinition,
+    ) -> None:
+        if n_press != 1 or self._selected_profile is None:
+            return
+        layer = self._selected_layer()
+        mapping = layer.mappings.get(sensor.id) if layer else None
+        if mapping is None or mapping.action_type != ActionType.MOTION_CONTROL:
+            return
+        if not mapping.motion_control_name:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._open_motion_control_manager(mapping.motion_control_name)
+
+    def _open_motion_control_manager(self: Any, select_name: str) -> None:
+        from keymasq.gui.widgets.motion_control.dialog import MotionControlDialog
+
+        root = self.get_root()
+        dialog = MotionControlDialog(root, self.profile_manager)
+        dialog.connect("motion-control-saved", self._on_motion_control_manager_changed)
+        dialog.connect("motion-control-deleted", self._on_motion_control_manager_changed)
+        dialog.present(root)
+        dialog.select_control_by_name(select_name)
+
+    def _on_motion_control_manager_changed(self: Any, _dialog: object, _name: str) -> None:
+        self._notify_session_reload_async()
+        self._reload_ui()
 
     def _on_mapping_button_clicked(
         self: Any,
@@ -258,6 +304,44 @@ class MappingMixin:
             defer_commit(commit_selection)
 
         dialog.connect("key-selected", on_key_selected)
+        dialog.present(self.get_root())
+
+    def _show_motion_editor(self: Any, sensor: MotionSensorDefinition) -> None:
+        target_profile = self._selected_profile
+        layer = self._device_layer_for_profile(target_profile)
+        current_action = layer.mappings.get(sensor.id) if layer else None
+        dialog = self._create_key_selector_dialog(
+            self,
+            sensor.label,
+            current_action,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allow_macro_options=False,
+            allow_superkey=False,
+            allow_repeat=False,
+            source_type="motion",
+        )
+        defer_commit = self._defer_selector_commit_until_dialog_closed(dialog)
+
+        def on_selected(_dialog: object, action: MappingAction | None) -> None:
+            def commit_selection() -> None:
+                current_profile = self._resolve_mapping_target_profile(target_profile)
+                current_layer = self._device_layer_for_profile(current_profile, create=True)
+                if current_layer is None:
+                    return
+                if action is None:
+                    current_layer.mappings.pop(sensor.id, None)
+                else:
+                    current_layer.mappings[sensor.id] = action
+                if self._profile_is_selected(current_profile):
+                    self._selected_profile = current_profile
+                    self._update_button_display(sensor.id)
+                    self._update_header_caption()
+                self._save_specific_profile(current_profile)
+
+            defer_commit(commit_selection)
+
+        dialog.connect("key-selected", on_selected)
         dialog.present(self.get_root())
 
     def _profile_info_by_name(self: Any, profile_name: str) -> ProfileInfo | None:

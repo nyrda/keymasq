@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol, cast
 
 from keymasq.common.coercion import coerce_str
@@ -21,7 +23,7 @@ class InventoryDevice(Protocol):
     name: str | None
     info: InventoryDeviceInfo
 
-    def capabilities(self) -> dict[int, Sequence[object]]: ...
+    def capabilities(self, *, absinfo: bool = False) -> dict[int, Sequence[object]]: ...
 
     def close(self) -> None: ...
 
@@ -149,6 +151,8 @@ def scan_devices(
             device = deps.open_device(path)
             info = device.info
             capabilities = _capability_names(device, deps.evdev_mod)
+            abs_info = _abs_axis_info(device, deps.evdev_mod)
+            driver = _input_driver(path)
             device_types = deps.detect_device_types(device)
             device_type = deps.primary_input_class(device_types)
             stable_path = deps.resolve_stable_path(path)
@@ -178,6 +182,8 @@ def scan_devices(
                     "vendor_id": f"{info.vendor:04x}",
                     "product_id": f"{info.product:04x}",
                     "capabilities": capabilities,
+                    "abs_info": abs_info,
+                    "driver": driver,
                     "device_types": device_types,
                     "device_type": device_type.value,
                     "recording_id": recording_id,
@@ -217,6 +223,56 @@ def _capability_names(device: InventoryDevice, evdev_mod: Any) -> list[str]:
             )
             names.append(f"{evdev_mod.ecodes.EV[ev_type]}_{code_value}")
     return names
+
+
+def _abs_axis_info(device: InventoryDevice, evdev_mod: Any) -> JsonObject:
+    """Serialize ABS metadata while the privileged daemon has the device open."""
+    try:
+        entries = device.capabilities(absinfo=True).get(evdev_mod.ecodes.EV_ABS, [])
+    except TypeError:
+        # Lightweight test and integration adapters may only implement capabilities().
+        return {}
+
+    result: JsonObject = {}
+    for entry in entries:
+        if not isinstance(entry, (tuple, list)):
+            continue
+        values = cast(Sequence[object], entry)
+        if len(values) < 2:
+            continue
+        code, info = values[0], values[1]
+        if not isinstance(code, int):
+            continue
+        try:
+            abs_info = cast(Any, info)
+            result[str(code)] = {
+                "value": int(abs_info.value),
+                "minimum": int(abs_info.min),
+                "maximum": int(abs_info.max),
+                "fuzz": int(abs_info.fuzz),
+                "flat": int(abs_info.flat),
+                "resolution": int(abs_info.resolution),
+            }
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return result
+
+
+def _input_driver(event_path: str) -> str:
+    """Return the bound input driver's sysfs name from the daemon process."""
+    event_name = Path(event_path).name
+    try:
+        current = (Path("/sys/class/input") / event_name / "device").resolve()
+    except OSError:
+        return ""
+    for candidate in (current, *current.parents):
+        driver_link = candidate / "driver"
+        try:
+            if driver_link.is_symlink():
+                return os.path.basename(os.readlink(driver_link))
+        except OSError:
+            continue
+    return ""
 
 
 def runtime_status(

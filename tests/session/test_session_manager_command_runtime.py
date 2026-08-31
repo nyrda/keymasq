@@ -174,9 +174,7 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
     manager = SessionManager()
     manager.virtual_gamepad_count = 1
     manager.connected = True
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"count": 2})
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={"count": 2}))
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     save = Mock(side_effect=OSError("disk full"))
@@ -2316,9 +2314,7 @@ async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2356,9 +2352,7 @@ async def test_begin_capture_cancellation_rolls_back_when_daemon_end_fails(
     manager.client.disconnect = AsyncMock()
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2396,9 +2390,7 @@ async def test_begin_capture_cancellation_preserves_state_when_disconnect_fails(
     manager.client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2432,9 +2424,7 @@ async def test_begin_capture_defers_repeated_cancellation_until_ack(
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     await asyncio.sleep(0)
@@ -2471,9 +2461,7 @@ async def test_begin_capture_defers_cancellation_during_capture_end(
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2510,9 +2498,7 @@ async def test_begin_capture_defers_repeated_cancellation_during_rejected_rollba
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2536,18 +2522,14 @@ async def test_begin_capture_defers_cancellation_after_rejected_response(
     hardware_id = "2dc8:3106"
     rollback_started = asyncio.Event()
     release_rollback = asyncio.Event()
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="error", error="rejected")
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="error", error="rejected"))
 
     async def reevaluate_profiles(*_args, **_kwargs) -> None:
         rollback_started.set()
         await release_rollback.wait()
 
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await rollback_started.wait()
     capture_task.cancel()
     release_rollback.set()
@@ -2600,9 +2582,7 @@ async def test_begin_capture_preserves_cancellation_when_request_fails(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2637,9 +2617,7 @@ async def test_begin_capture_bounds_silent_request_settlement(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
 
@@ -3817,6 +3795,39 @@ async def test_list_devices_for_recording_coerces_include_other(
     )
     assert manager.recording_state.devices_cache_include_other is expected_include_other
     update_selected.assert_called_once_with(manager)
+
+
+@pytest.mark.asyncio
+async def test_hardware_inventory_can_request_motion_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    get_devices = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "get_devices_for_recording",
+        get_devices,
+    )
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "update_selected_recording_devices_cache",
+        Mock(),
+    )
+
+    result = await manager._handle_session_request(
+        {"command": "list_devices_for_recording", "include_motion": True},
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "devices": []}
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(include_motion=True),
+        include_grabbed=True,
+    )
 
 
 @pytest.mark.asyncio

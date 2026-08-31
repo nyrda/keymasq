@@ -23,6 +23,7 @@ from keymasq.keymasqd.runtime.grab.planning import (
     device_has_mapped_buttons,
     grabbed_device_claim_paths,
     log_grab_request,
+    motion_input_bindings,
     persist_desired_grab,
     store_grabbed_devices,
     update_existing_devices,
@@ -208,6 +209,7 @@ def construct_grabbed_device(
         button_codes=plan.resolved_button_codes,
         button_values=plan.resolved_button_values,
         analog_inputs=dict(plan.analog_inputs),
+        motion_sensors=dict(plan.motion_sensors),
         mapping_getter=mapping_getter,
         event_callback=callbacks.event_callback,
         device_type=detected_type,
@@ -284,6 +286,10 @@ async def grab_one_interface(
         ).lower()
         interface_mapped_bindings = plan.button_mapped_bindings | analog_input_bindings(
             plan.analog_inputs,
+            source=interface_id,
+        )
+        interface_mapped_bindings |= motion_input_bindings(
+            plan.motion_sensors,
             source=interface_id,
         )
         has_mapped_buttons = device_has_mapped_buttons(

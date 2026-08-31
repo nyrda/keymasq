@@ -18,7 +18,11 @@ async def handle_capture_commands(
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
         include_other = coerce_bool(request.get("include_other"), False)
-        device_types = recording_device_selection.recording_device_filter_types(include_other)
+        include_motion = coerce_bool(request.get("include_motion"), False)
+        device_types = recording_device_selection.recording_device_filter_types(
+            include_other,
+            include_motion=include_motion,
+        )
         devices = await recording_device_selection.get_devices_for_recording(
             manager,
             device_types,

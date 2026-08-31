@@ -11,6 +11,7 @@ from keymasq.common.paths import (
     ANALOG_CONTROLS_DIR,
     CONFIG_DIR,
     HARDWARE_DIR,
+    MOTION_CONTROLS_DIR,
     PROFILES_DIR,
     SETTINGS_PATH,
     SUPERKEYS_DIR,
@@ -51,6 +52,7 @@ class ConfigWatcherMixin:
         with self.profiles.profile_file_transaction():
             superkeys_snapshot = self.superkeys.snapshot_superkeys()
             analog_controls_snapshot = self.analog_controls.snapshot_analog_controls()
+            motion_controls_snapshot = self.motion_controls.snapshot_motion_controls()
             profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
             hardware_snapshot = self.hardware.snapshot_hardware()
             old_virtual_gamepad_count = self.virtual_gamepad_count
@@ -58,6 +60,7 @@ class ConfigWatcherMixin:
             try:
                 self.superkeys.reload()
                 self.analog_controls.reload()
+                self.motion_controls.reload()
                 self.profiles.reload()
                 self.hardware.reload()
                 settings = load_global_settings(strict=True)
@@ -65,6 +68,7 @@ class ConfigWatcherMixin:
             except Exception:
                 self.superkeys.restore_superkeys(superkeys_snapshot)
                 self.analog_controls.restore_analog_controls(analog_controls_snapshot)
+                self.motion_controls.restore_motion_controls(motion_controls_snapshot)
                 self.profiles.restore_profiles(profiles_snapshot)
                 self.hardware.restore_hardware(hardware_snapshot)
                 self.virtual_gamepad_count = old_virtual_gamepad_count
@@ -108,7 +112,14 @@ class ConfigWatcherMixin:
             return
 
         watched_paths = set(self.config_watch_watches.values())
-        for path in (CONFIG_DIR, PROFILES_DIR, HARDWARE_DIR, SUPERKEYS_DIR, ANALOG_CONTROLS_DIR):
+        for path in (
+            CONFIG_DIR,
+            PROFILES_DIR,
+            HARDWARE_DIR,
+            SUPERKEYS_DIR,
+            ANALOG_CONTROLS_DIR,
+            MOTION_CONTROLS_DIR,
+        ):
             if path in watched_paths:
                 continue
             try:

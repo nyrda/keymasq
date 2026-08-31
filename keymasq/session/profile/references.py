@@ -77,6 +77,38 @@ def rename_analog_control(config: ProfileConfig, old_name: str, new_name: str) -
     return Rewrite(updated if count else None, count)
 
 
+def remove_motion_control(config: ProfileConfig, name: str) -> Rewrite:
+    updated = copy.deepcopy(config)
+    count = 0
+    for layer in updated.device_layers.values():
+        for source_id, action in list(layer.mappings.items()):
+            if (
+                action.action_type != ActionType.MOTION_CONTROL
+                or action.motion_control_name != name
+            ):
+                continue
+            layer.mappings[source_id] = MappingAction(action_type=ActionType.SUPPRESS)
+            count += 1
+    return Rewrite(updated if count else None, count)
+
+
+def rename_motion_control(config: ProfileConfig, old_name: str, new_name: str) -> Rewrite:
+    if old_name == new_name:
+        return Rewrite(None)
+    updated = copy.deepcopy(config)
+    count = 0
+    for layer in updated.device_layers.values():
+        for action in layer.mappings.values():
+            if (
+                action.action_type != ActionType.MOTION_CONTROL
+                or action.motion_control_name != old_name
+            ):
+                continue
+            action.motion_control_name = new_name
+            count += 1
+    return Rewrite(updated if count else None, count)
+
+
 def remove_superkey(config: ProfileConfig, name: str) -> Rewrite:
     updated = copy.deepcopy(config)
     count = 0

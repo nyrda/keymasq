@@ -24,6 +24,7 @@ from keymasq.common.model.actions import (
     parse_rapidfire_fields,
 )
 from keymasq.common.model.analog import (
+    SAME_DEVICE_OUTPUT_ID,
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
@@ -31,6 +32,12 @@ from keymasq.common.model.analog import (
     normalize_analog_control_features,
 )
 from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.common.model.motion import (
+    MotionAxisRoutingConfig,
+    MotionControlConfig,
+    MotionGamepadConfig,
+    MotionMouseConfig,
+)
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import superkey_state
 
@@ -198,6 +205,10 @@ def parse_action(
             )
         analog_control_config = analog_control_configs[0] if analog_control_configs else None
 
+    motion_control_config = None
+    if action_type == ActionType.MOTION_CONTROL and "motion_control" in action_data:
+        motion_control_config = parse_motion_control_config(action_data["motion_control"])
+
     shared = _parse_shared_action_fields(
         action_data,
         action_type,
@@ -217,6 +228,8 @@ def parse_action(
         analog_control_names=cast(list[str], action_data.get("analog_control_names") or []),
         analog_control_config=analog_control_config,
         analog_control_configs=analog_control_configs,
+        motion_control_name=coerce_str(action_data.get("motion_control_name"), None),
+        motion_control_config=motion_control_config,
         macro_name=shared.macro_name,
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=shared.macro_replay_mouse_movement,
@@ -250,6 +263,49 @@ def parse_action(
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=coerce_int(action_data.get("tap_hold_ms"), 10),
         repeat_categories=cast(list[str] | None, action_data.get("repeat_categories")),
+    )
+
+
+def parse_motion_control_config(data: object) -> MotionControlConfig:
+    if not isinstance(data, dict):
+        raise TypeError("motion control config must be an object")
+    config = cast(JsonObject, data)
+    raw_mouse = config.get("mouse", {})
+    raw_gamepad = config.get("gamepad", {})
+    raw_axis_routing = config.get("axis_routing", {})
+    mouse = cast(JsonObject, raw_mouse) if isinstance(raw_mouse, dict) else {}
+    gamepad = cast(JsonObject, raw_gamepad) if isinstance(raw_gamepad, dict) else {}
+    axis_routing = (
+        cast(JsonObject, raw_axis_routing) if isinstance(raw_axis_routing, dict) else {}
+    )
+    return MotionControlConfig(
+        name=coerce_str(config.get("name"), "Motion Control"),
+        mode=coerce_str(config.get("mode"), "mouse"),
+        axis_routing=MotionAxisRoutingConfig(
+            yaw=coerce_str(axis_routing.get("yaw"), "horizontal"),
+            pitch=coerce_str(axis_routing.get("pitch"), "vertical"),
+            roll=coerce_str(axis_routing.get("roll"), "horizontal"),
+        ),
+        mouse=MotionMouseConfig(
+            sensitivity_x=coerce_float(mouse.get("sensitivity_x"), 8.0),
+            sensitivity_y=coerce_float(mouse.get("sensitivity_y"), 8.0),
+            deadzone_dps=coerce_float(mouse.get("deadzone_dps"), 0.5),
+            smoothing=coerce_float(mouse.get("smoothing"), 0.15),
+            response_curve=coerce_float(mouse.get("response_curve"), 1.0),
+            invert_x=bool(mouse.get("invert_x", False)),
+            invert_y=bool(mouse.get("invert_y", False)),
+        ),
+        gamepad=MotionGamepadConfig(
+            output_id=coerce_str(gamepad.get("output_id"), SAME_DEVICE_OUTPUT_ID),
+            target=coerce_str(gamepad.get("target"), "right"),
+            target_analog_id=coerce_str(gamepad.get("target_analog_id"), None),
+            max_rate_dps=coerce_float(gamepad.get("max_rate_dps"), 360.0),
+            deadzone_dps=coerce_float(gamepad.get("deadzone_dps"), 1.0),
+            smoothing=coerce_float(gamepad.get("smoothing"), 0.15),
+            response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
+            invert_x=bool(gamepad.get("invert_x", False)),
+            invert_y=bool(gamepad.get("invert_y", False)),
+        ),
     )
 
 

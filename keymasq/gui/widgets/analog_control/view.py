@@ -18,6 +18,8 @@ from keymasq.gui.widgets.analog_control.gamepad import (
     GamepadOutputGroupHandle,
     GamepadPanelCallbacks,
     build_gamepad_output_group,
+    gamepad_output_target_key,
+    populate_gamepad_output_target_buttons,
 )
 from keymasq.gui.widgets.analog_control.layout import (
     DigitalGroupHandle,
@@ -373,42 +375,14 @@ class AnalogControlEditorView(Gtk.Box):
                     gamepad_output_target_label_for_input_type(input_type, "same"),
                 )
             ]
-        selected_key = self._output_target_key(selected_target or "same", selected_analog_id)
-        available = {self._output_target_key(target, analog_id) for target, analog_id, _ in choices}
-        if selected_key not in available:
-            selected_key = self._output_target_key(choices[0][0], choices[0][1])
-
-        box = self.gamepad.gamepad_output_target_box
-        while child := box.get_first_child():
-            box.remove(child)
-        self._output_target_buttons.clear()
         self._output_target_items = [(target, analog_id) for target, analog_id, _ in choices]
-        group: Gtk.ToggleButton | None = None
-        row_box: Gtk.Box | None = None
-        for target, analog_id, label in choices:
-            if row_box is None or len(self._output_target_buttons) % 3 == 0:
-                new_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-                new_row.add_css_class("linked")
-                new_row.set_halign(Gtk.Align.END)
-                new_row.set_valign(Gtk.Align.CENTER)
-                new_row.set_homogeneous(True)
-                box.append(new_row)
-                row_box = new_row
-            assert row_box is not None
-            key = self._output_target_key(target, analog_id)
-            button = Gtk.ToggleButton(label=label)
-            button.add_css_class("analog-output-target-button")
-            button.set_valign(Gtk.Align.CENTER)
-            button.set_size_request(-1, 34)
-            if group is None:
-                group = button
-            else:
-                button.set_group(group)
-            button.connect("toggled", self._on_output_target_toggled)
-            self._output_target_buttons[key] = button
-            row_box.append(button)
-            if key == selected_key:
-                button.set_active(True)
+        self._output_target_buttons = populate_gamepad_output_target_buttons(
+            self.gamepad.gamepad_output_target_box,
+            choices,
+            selected_target=selected_target or "same",
+            selected_analog_id=selected_analog_id,
+            on_toggled=self._on_output_target_toggled,
+        )
 
     def _output_target_choices(self, input_type: str) -> list[tuple[str, str | None, str]]:
         selected = self._selected_output_id
@@ -440,7 +414,7 @@ class AnalogControlEditorView(Gtk.Box):
         ]
 
     def _output_target_key(self, target: str, analog_id: str | None) -> str:
-        return f"analog:{analog_id}" if target == "analog" and analog_id else target
+        return gamepad_output_target_key(target, analog_id)
 
     def current_output_target(self) -> str:
         for target, analog_id in self._output_target_items:

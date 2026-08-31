@@ -13,6 +13,7 @@ from keymasq.common.model.hardware import (
     EvdevDevice,
     HardwareConfig,
 )
+from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
 from keymasq.session.hardware import HardwareManager
 
 
@@ -104,6 +105,57 @@ type = "button"
     assert manager.list_hardware_ids() == ["1234:5678"]
 
 
+def test_hardware_manager_migrates_legacy_nintendo_motion_axes(temp_config_dir) -> None:
+    config_path = temp_config_dir / "hardware" / "057e_2009.toml"
+    config_path.write_text(
+        """
+[hardware]
+name = "Pro Controller"
+vendor_id = "057e"
+product_id = "2009"
+
+[hardware.evdev]
+devices = []
+
+[hardware.layout]
+buttons = []
+
+[[hardware.layout.motion_sensors]]
+id = "motion_1"
+label = "Nintendo Motion Sensor"
+driver = "hid-nintendo"
+calibration_version = 1
+gyro_axes = [
+  { role = "x", evdev = "abs_rx", invert = true },
+  { role = "y", evdev = "abs_ry" },
+  { role = "z", evdev = "abs_rz" },
+]
+accelerometer_axes = [
+  { role = "x", evdev = "abs_x" },
+  { role = "y", evdev = "abs_y" },
+  { role = "z", evdev = "abs_z" },
+]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = HardwareManager().get_hardware("057e:2009")
+
+    assert config is not None
+    sensor = config.motion_sensors[0]
+    assert sensor.calibration_version == 2
+    assert {axis.evdev: (axis.role, axis.invert) for axis in sensor.gyro_axes} == {
+        "abs_rx": ("roll", False),
+        "abs_ry": ("pitch", True),
+        "abs_rz": ("yaw", False),
+    }
+    assert {axis.evdev: (axis.role, axis.invert) for axis in sensor.accelerometer_axes} == {
+        "abs_x": ("z", True),
+        "abs_y": ("x", True),
+        "abs_z": ("y", False),
+    }
+
+
 def test_hardware_manager_skips_invalid_files(
     temp_config_dir, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -192,6 +244,35 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
                 ],
             ),
         ],
+        motion_sensors=[
+            MotionSensorDefinition(
+                id="motion_1",
+                label="PlayStation Motion Sensor",
+                source="motion",
+                driver="hid-playstation",
+                gyro_axes=[
+                    MotionAxisDefinition(
+                        role="pitch",
+                        evdev="abs_rx",
+                        evdev_code=3,
+                        offset=12.5,
+                        scale=0.001,
+                        invert=True,
+                        noise=0.002,
+                    )
+                ],
+                accelerometer_axes=[
+                    MotionAxisDefinition(
+                        role="z",
+                        evdev="abs_z",
+                        evdev_code=2,
+                        scale=0.01,
+                    )
+                ],
+                calibrated_at="2026-08-31T12:00:00+02:00",
+                calibration_samples=500,
+            )
+        ],
         image="mouse.png",
     )
 
@@ -209,6 +290,8 @@ def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> No
     assert 'evdev = "abs_x"' in text
     assert 'evdev = "abs_z"' in text
     assert 'zone = "main"' in text
+    assert 'driver = "hid-playstation"' in text
+    assert "gyro_axes" in text
 
     reloaded = HardwareManager().get_hardware("1111:2222")
     assert reloaded == config

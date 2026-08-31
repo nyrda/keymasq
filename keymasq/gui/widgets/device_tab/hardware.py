@@ -355,6 +355,9 @@ class HardwareSettingsMixin:
         removed_analog_ids = [
             analog.id for analog in self.device.analog_inputs if analog.source == source
         ]
+        removed_motion_ids = [
+            sensor.id for sensor in self.device.motion_sensors if sensor.source == source
+        ]
         if removed_button_ids:
             self.device.buttons = [
                 button for button in self.device.buttons if button.source != source
@@ -363,7 +366,11 @@ class HardwareSettingsMixin:
             self.device.analog_inputs = [
                 analog for analog in self.device.analog_inputs if analog.source != source
             ]
-        return [*removed_button_ids, *removed_analog_ids]
+        if removed_motion_ids:
+            self.device.motion_sensors = [
+                sensor for sensor in self.device.motion_sensors if sensor.source != source
+            ]
+        return [*removed_button_ids, *removed_analog_ids, *removed_motion_ids]
 
     @staticmethod
     def _same_evdev_device(left: EvdevDevice, right: EvdevDevice) -> bool:

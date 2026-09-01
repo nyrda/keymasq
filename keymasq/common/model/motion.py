@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from keymasq.common.model.actions import normalize_output_id
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.virtual_devices import virtual_gamepad_output_id
 
 MOTION_GYRO_AXES = frozenset({"pitch", "yaw", "roll"})
 MOTION_ACCELEROMETER_AXES = frozenset({"x", "y", "z"})
@@ -158,7 +159,7 @@ class MotionGamepadConfig:
     invert_y: bool = False
 
     def __post_init__(self) -> None:
-        self.output_id = normalize_output_id(self.output_id)
+        self.output_id = normalize_output_id(self.output_id) or virtual_gamepad_output_id(1)
         self.target = str(self.target or "right").strip().lower()
         if self.target not in MOTION_GAMEPAD_TARGETS:
             self.target = "right"

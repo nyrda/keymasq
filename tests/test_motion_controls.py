@@ -5,6 +5,7 @@ import evdev
 import pytest
 
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.motion import (
     MotionAxisRoutingConfig,
@@ -225,7 +226,18 @@ async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_motion_stick_defaults_to_its_origin_controller(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("output_id", "expected_output"),
+    [
+        (SAME_DEVICE_OUTPUT_ID, "origin"),
+        (None, "virtual-gamepad-1"),
+    ],
+)
+async def test_motion_stick_honors_its_selected_output(
+    monkeypatch,
+    output_id,
+    expected_output,
+) -> None:
     runtime = _Runtime()
     gamepad = _Writer()
     resolved: list[str | None] = []
@@ -243,7 +255,11 @@ async def test_motion_stick_defaults_to_its_origin_controller(monkeypatch) -> No
     config = MotionControlConfig(
         name="Right Stick",
         mode="gamepad",
-        gamepad=MotionGamepadConfig(deadzone_dps=0.0, smoothing=0.0),
+        gamepad=MotionGamepadConfig(
+            output_id=output_id,
+            deadzone_dps=0.0,
+            smoothing=0.0,
+        ),
     )
     mapping = {
         "motion_1": MappingAction(
@@ -269,5 +285,6 @@ async def test_motion_stick_defaults_to_its_origin_controller(monkeypatch) -> No
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
     assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
 
-    assert resolved == [runtime.hardware_id, runtime.hardware_id]
+    expected = runtime.hardware_id if expected_output == "origin" else expected_output
+    assert resolved == [expected, expected]
     assert any(event_type == evdev.ecodes.EV_ABS for event_type, _code, _value in gamepad.events)

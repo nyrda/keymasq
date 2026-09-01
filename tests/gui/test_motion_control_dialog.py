@@ -145,6 +145,41 @@ def test_motion_controller_output_defaults_to_origin_device() -> None:
     assert view.draft().gamepad.output_id == SAME_DEVICE_OUTPUT_ID
 
 
+def test_motion_virtual_gamepad_selection_survives_save_and_reload(temp_config_dir) -> None:
+    choices = GamepadOutputChoiceSet(
+        choices=[(None, "Virtual Gamepad 1")],
+        count=1,
+        hardware_configs=[],
+    )
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: choices,
+    )
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(name="Right Stick", mode="gamepad")
+        )
+    )
+    view.gamepad_output.gamepad_output_dropdown.set_selected(1)
+    manager = MotionControlManager()
+
+    manager.save_motion_control(view.draft().to_config())
+
+    loaded = MotionControlManager().get_motion_control("Right Stick")
+    assert loaded is not None
+    assert loaded.gamepad.output_id == "virtual-gamepad-1"
+    content = (temp_config_dir / "motion_controls" / "right_stick.toml").read_text()
+    assert 'output_id = "virtual-gamepad-1"' in content
+
+    reopened = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: choices,
+    )
+    reopened.load(MotionControlDraft.from_config(loaded))
+    assert reopened.gamepad_output.gamepad_output_dropdown.get_selected() == 1
+    assert reopened.selected_output_id == "virtual-gamepad-1"
+
+
 def test_motion_controller_output_routes_to_a_learned_physical_stick() -> None:
     hardware = HardwareConfig(
         vendor_id="1234",

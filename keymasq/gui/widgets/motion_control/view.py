@@ -10,7 +10,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
-from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
+from keymasq.common.virtual_devices import (
+    is_virtual_gamepad_output_id,
+    virtual_gamepad_output_id,
+)
 from keymasq.gui.widgets.analog_control.gamepad import (
     GamepadOutputRoutingHandle,
     add_gamepad_output_routing,
@@ -323,7 +326,16 @@ class MotionControlEditorView(Gtk.Box):
             str(getattr(config, "hardware_id", "") or ""): config
             for config in choice_set.hardware_configs
         }
-        choices = [(SAME_DEVICE_OUTPUT_ID, "Default (same device)"), *choice_set.choices]
+        choices = [
+            (SAME_DEVICE_OUTPUT_ID, "Default (same device)"),
+            *[
+                (
+                    virtual_gamepad_output_id(1) if output_id is None else output_id,
+                    label,
+                )
+                for output_id, label in choice_set.choices
+            ],
+        ]
         self._output_ids = [output_id for output_id, _label in choices]
         selected_index = next(
             (

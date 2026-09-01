@@ -34,11 +34,15 @@ from keymasq.gui.widgets.motion_control.draft import (
     MotionControlDraft,
     MotionGamepadDraft,
     MotionMouseDraft,
+    MotionTiltDraft,
 )
 from keymasq.session.hardware import HardwareManager
 
 _AXIS_OUTPUTS = ("none", "horizontal", "vertical")
-_MODES = ("mouse", "gamepad")
+_MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse")
+_TILT_MODES = frozenset({"tilt_mouse", "tilt_gamepad", "area_mouse"})
+_GAMEPAD_MODES = frozenset({"gamepad", "tilt_gamepad"})
+_TILT_REFERENCES = ("activation", "gravity")
 
 OutputChoicesLoader = Callable[[str | None], GamepadOutputChoiceSet]
 
@@ -75,6 +79,8 @@ class MotionControlEditorView(Gtk.Box):
         initial = MotionControlDraft.new()
         self._mouse_draft = initial.mouse
         self._gamepad_draft = initial.gamepad
+        self._tilt_draft = initial.tilt
+        self._gyro_axis_routing_draft = initial.axis_routing
         self._active_mode = initial.mode
         self._build_fields()
         self._connect_signals()
@@ -85,10 +91,12 @@ class MotionControlEditorView(Gtk.Box):
         identity = LabeledForm(label_width=128)
         self.name_entry = Gtk.Entry(hexpand=True)
         self.description_entry = Gtk.Entry(hexpand=True)
-        self.mode_dropdown = Gtk.DropDown.new_from_strings(["Mouse", "Controller Stick"])
+        self.mode_dropdown = Gtk.DropDown.new_from_strings(
+            ["Gyro Mouse", "Gyro Stick", "Tilt Mouse", "Tilt Stick", "Area Mouse"]
+        )
         identity.append("Name:", self.name_entry)
         identity.append("Description:", self.description_entry)
-        identity.append("Output:", self.mode_dropdown)
+        identity.append("Control type:", self.mode_dropdown)
         self.append(identity.grid)
         self.append(Gtk.Separator())
 
@@ -100,10 +108,16 @@ class MotionControlEditorView(Gtk.Box):
         self.deadzone = self._spin(0.0, 90.0, 0.1)
         self.smoothing = self._spin(0.0, 0.99, 0.01)
         self.response_curve = self._spin(0.1, 4.0, 0.1)
-        axes.append("Yaw (turn left/right):", self.yaw_output)
+        self.yaw_label = axes.append("Yaw (turn left/right):", self.yaw_output)
         axes.append("Pitch (tilt forward/back):", self.pitch_output)
         axes.append("Roll (tilt side to side):", self.roll_output)
-        axes.append("Deadzone (°/s):", self.deadzone)
+        self.reference_dropdown = Gtk.DropDown.new_from_strings(
+            ["Profile activation pose", "Absolute gravity"]
+        )
+        self.reference_label = axes.append("Neutral reference:", self.reference_dropdown)
+        self.full_scale = self._spin(0.1, 90.0, 0.5)
+        self.full_scale_label = axes.append("Full output angle (°):", self.full_scale)
+        self.deadzone_label = axes.append("Deadzone (°/s):", self.deadzone)
         axes.append("Smoothing:", self.smoothing)
         axes.append("Response curve:", self.response_curve)
         self.append(axes.grid)
@@ -123,6 +137,28 @@ class MotionControlEditorView(Gtk.Box):
         mouse_form.append("Vertical sensitivity:", self.sensitivity_y)
         self.mouse_box.append(mouse_form.grid)
         self.append(self.mouse_box)
+
+        self.tilt_mouse_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        tilt_mouse_form = LabeledForm(label_width=164)
+        self.tilt_speed_x = self._spin(0.0, 5000.0, 25.0)
+        self.tilt_speed_y = self._spin(0.0, 5000.0, 25.0)
+        tilt_mouse_form.append("Horizontal speed:", self.tilt_speed_x)
+        tilt_mouse_form.append("Vertical speed:", self.tilt_speed_y)
+        self.tilt_mouse_box.append(tilt_mouse_form.grid)
+        self.append(self.tilt_mouse_box)
+
+        self.area_mouse_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        area_mouse_form = LabeledForm(label_width=164)
+        self.area_radius_x = self._spin(0.0, 10000.0, 10.0)
+        self.area_radius_y = self._spin(0.0, 10000.0, 10.0)
+        self.drag_center = Gtk.CheckButton(
+            label="Drag the center after moving past the configured angle"
+        )
+        area_mouse_form.append("Horizontal radius:", self.area_radius_x)
+        area_mouse_form.append("Vertical radius:", self.area_radius_y)
+        self.area_mouse_box.append(area_mouse_form.grid)
+        self.area_mouse_box.append(self.drag_center)
+        self.append(self.area_mouse_box)
 
         self.gamepad_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         output_group = Adw.PreferencesGroup(
@@ -144,25 +180,26 @@ class MotionControlEditorView(Gtk.Box):
 
         gamepad_form = LabeledForm(label_width=164)
         self.max_rate = self._spin(1.0, 4000.0, 10.0)
-        gamepad_form.append("Full stick rate (°/s):", self.max_rate)
+        self.max_rate_label = gamepad_form.append("Full stick rate (°/s):", self.max_rate)
         self.gamepad_box.append(gamepad_form.grid)
         self.append(self.gamepad_box)
 
-        note = Gtk.Label(
+        self.normalization_note = Gtk.Label(
             label=(
                 "Hardware configuration owns calibration and raw-unit conversion. "
                 "This Motion Control only tunes normalized gyro input."
             )
         )
-        note.set_wrap(True)
-        note.set_xalign(0.0)
-        note.add_css_class("dim-label")
-        self.append(note)
+        self.normalization_note.set_wrap(True)
+        self.normalization_note.set_xalign(0.0)
+        self.normalization_note.add_css_class("dim-label")
+        self.append(self.normalization_note)
 
     def _connect_signals(self) -> None:
         self.name_entry.connect("changed", self._on_modified)
         self.description_entry.connect("changed", self._on_modified)
         self.mode_dropdown.connect("notify::selected", self._on_mode_changed)
+        self.reference_dropdown.connect("notify::selected", self._on_modified)
         for dropdown in (self.yaw_output, self.pitch_output, self.roll_output):
             dropdown.connect("notify::selected", self._on_modified)
         for spin in (
@@ -172,10 +209,16 @@ class MotionControlEditorView(Gtk.Box):
             self.sensitivity_x,
             self.sensitivity_y,
             self.max_rate,
+            self.full_scale,
+            self.tilt_speed_x,
+            self.tilt_speed_y,
+            self.area_radius_x,
+            self.area_radius_y,
         ):
             spin.connect("value-changed", self._on_modified)
         self.invert_x.connect("toggled", self._on_modified)
         self.invert_y.connect("toggled", self._on_modified)
+        self.drag_center.connect("toggled", self._on_modified)
 
     @staticmethod
     def _spin(minimum: float, maximum: float, step: float) -> Gtk.SpinButton:
@@ -188,11 +231,12 @@ class MotionControlEditorView(Gtk.Box):
         try:
             self._mouse_draft = draft.mouse
             self._gamepad_draft = draft.gamepad
+            self._tilt_draft = draft.tilt
+            self._gyro_axis_routing_draft = draft.axis_routing
             self._active_mode = draft.mode
             self.name_entry.set_text(draft.name)
             self.description_entry.set_text(draft.description)
             self.mode_dropdown.set_selected(_MODES.index(draft.mode))
-            self._load_axis_routing(draft.axis_routing)
             self._load_active_settings()
             self._update_mode_visibility()
         finally:
@@ -204,9 +248,10 @@ class MotionControlEditorView(Gtk.Box):
             name=self.name_entry.get_text(),
             description=self.description_entry.get_text(),
             mode=self._active_mode,
-            axis_routing=self._axis_routing_draft(),
+            axis_routing=self._gyro_axis_routing_draft,
             mouse=self._mouse_draft,
             gamepad=self._gamepad_draft,
+            tilt=self._tilt_draft,
         )
 
     def focus_name(self) -> None:
@@ -216,7 +261,7 @@ class MotionControlEditorView(Gtk.Box):
         if self._loading:
             return
         self._store_active_settings()
-        self._active_mode = _MODES[min(1, int(self.mode_dropdown.get_selected()))]
+        self._active_mode = _MODES[min(len(_MODES) - 1, int(self.mode_dropdown.get_selected()))]
         self._loading = True
         try:
             self._load_active_settings()
@@ -230,8 +275,28 @@ class MotionControlEditorView(Gtk.Box):
             self._notify_modified()
 
     def _load_active_settings(self) -> None:
-        settings = self._mouse_draft if self._active_mode == "mouse" else self._gamepad_draft
-        self.deadzone.set_value(settings.deadzone_dps)
+        if self._active_mode in _TILT_MODES:
+            settings = self._tilt_draft
+            self._load_axis_routing(
+                MotionAxisRoutingDraft(
+                    yaw="none",
+                    pitch=self._tilt_draft.pitch,
+                    roll=self._tilt_draft.roll,
+                )
+            )
+            self.reference_dropdown.set_selected(_TILT_REFERENCES.index(self._tilt_draft.reference))
+            self.full_scale.set_value(self._tilt_draft.full_scale_deg)
+            self.tilt_speed_x.set_value(self._tilt_draft.speed_x)
+            self.tilt_speed_y.set_value(self._tilt_draft.speed_y)
+            self.area_radius_x.set_value(self._tilt_draft.area_radius_x)
+            self.area_radius_y.set_value(self._tilt_draft.area_radius_y)
+            self.drag_center.set_active(self._tilt_draft.drag_center)
+            deadzone = self._tilt_draft.deadzone_deg
+        else:
+            settings = self._mouse_draft if self._active_mode == "mouse" else self._gamepad_draft
+            self._load_axis_routing(self._gyro_axis_routing_draft)
+            deadzone = settings.deadzone_dps
+        self.deadzone.set_value(deadzone)
         self.smoothing.set_value(settings.smoothing)
         self.response_curve.set_value(settings.response_curve)
         self.invert_x.set_active(settings.invert_x)
@@ -239,7 +304,7 @@ class MotionControlEditorView(Gtk.Box):
         if self._active_mode == "mouse":
             self.sensitivity_x.set_value(self._mouse_draft.sensitivity_x)
             self.sensitivity_y.set_value(self._mouse_draft.sensitivity_y)
-        else:
+        elif self._active_mode in _GAMEPAD_MODES:
             self._selected_output_id = self._gamepad_draft.output_id
             self._refresh_output_choices()
             self._set_output_target_options(
@@ -250,6 +315,33 @@ class MotionControlEditorView(Gtk.Box):
             self._update_output_warning()
 
     def _store_active_settings(self) -> None:
+        if self._active_mode in _TILT_MODES:
+            reference_index = int(self.reference_dropdown.get_selected())
+            reference = (
+                _TILT_REFERENCES[reference_index]
+                if 0 <= reference_index < len(_TILT_REFERENCES)
+                else "activation"
+            )
+            self._tilt_draft = MotionTiltDraft(
+                reference=reference,
+                pitch=self._selected_axis_output(self.pitch_output),
+                roll=self._selected_axis_output(self.roll_output),
+                deadzone_deg=self.deadzone.get_value(),
+                full_scale_deg=self.full_scale.get_value(),
+                smoothing=self.smoothing.get_value(),
+                response_curve=self.response_curve.get_value(),
+                invert_x=self.invert_x.get_active(),
+                invert_y=self.invert_y.get_active(),
+                speed_x=self.tilt_speed_x.get_value(),
+                speed_y=self.tilt_speed_y.get_value(),
+                area_radius_x=self.area_radius_x.get_value(),
+                area_radius_y=self.area_radius_y.get_value(),
+                drag_center=self.drag_center.get_active(),
+            )
+            if self._active_mode == "tilt_gamepad":
+                self._store_gamepad_output()
+            return
+        self._gyro_axis_routing_draft = self._axis_routing_draft()
         if self._active_mode == "mouse":
             self._mouse_draft = MotionMouseDraft(
                 sensitivity_x=self.sensitivity_x.get_value(),
@@ -261,16 +353,41 @@ class MotionControlEditorView(Gtk.Box):
                 invert_y=self.invert_y.get_active(),
             )
             return
-        self._gamepad_draft = MotionGamepadDraft(
-            output_id=self._selected_output_id,
-            target=self.current_output_target(),
-            target_analog_id=self.current_output_target_analog_id(),
+        self._store_gamepad_output(
             max_rate_dps=self.max_rate.get_value(),
             deadzone_dps=self.deadzone.get_value(),
             smoothing=self.smoothing.get_value(),
             response_curve=self.response_curve.get_value(),
             invert_x=self.invert_x.get_active(),
             invert_y=self.invert_y.get_active(),
+        )
+
+    def _store_gamepad_output(
+        self,
+        *,
+        max_rate_dps: float | None = None,
+        deadzone_dps: float | None = None,
+        smoothing: float | None = None,
+        response_curve: float | None = None,
+        invert_x: bool | None = None,
+        invert_y: bool | None = None,
+    ) -> None:
+        self._gamepad_draft = MotionGamepadDraft(
+            output_id=self._selected_output_id,
+            target=self.current_output_target(),
+            target_analog_id=self.current_output_target_analog_id(),
+            max_rate_dps=(
+                self._gamepad_draft.max_rate_dps if max_rate_dps is None else max_rate_dps
+            ),
+            deadzone_dps=(
+                self._gamepad_draft.deadzone_dps if deadzone_dps is None else deadzone_dps
+            ),
+            smoothing=self._gamepad_draft.smoothing if smoothing is None else smoothing,
+            response_curve=(
+                self._gamepad_draft.response_curve if response_curve is None else response_curve
+            ),
+            invert_x=self._gamepad_draft.invert_x if invert_x is None else invert_x,
+            invert_y=self._gamepad_draft.invert_y if invert_y is None else invert_y,
         )
 
     def _load_axis_routing(self, routing: MotionAxisRoutingDraft) -> None:
@@ -296,7 +413,8 @@ class MotionControlEditorView(Gtk.Box):
         return "none"
 
     def _update_mode_visibility(self) -> None:
-        is_gamepad = self._active_mode == "gamepad"
+        is_tilt = self._active_mode in _TILT_MODES
+        is_gamepad = self._active_mode in _GAMEPAD_MODES
         labels = (
             ["Unused", "Stick X", "Stick Y"]
             if is_gamepad
@@ -306,8 +424,30 @@ class MotionControlEditorView(Gtk.Box):
             selected = dropdown.get_selected()
             dropdown.set_model(Gtk.StringList.new(labels))
             dropdown.set_selected(selected)
-        self.mouse_box.set_visible(not is_gamepad)
+        self.yaw_label.set_visible(not is_tilt)
+        self.yaw_output.set_visible(not is_tilt)
+        self.reference_label.set_visible(is_tilt)
+        self.reference_dropdown.set_visible(is_tilt)
+        self.full_scale_label.set_visible(is_tilt)
+        self.full_scale.set_visible(is_tilt)
+        self.deadzone_label.set_label("Deadzone (°):" if is_tilt else "Deadzone (°/s):")
+        self.mouse_box.set_visible(self._active_mode == "mouse")
+        self.tilt_mouse_box.set_visible(self._active_mode == "tilt_mouse")
+        self.area_mouse_box.set_visible(self._active_mode == "area_mouse")
         self.gamepad_box.set_visible(is_gamepad)
+        self.max_rate_label.set_visible(self._active_mode == "gamepad")
+        self.max_rate.set_visible(self._active_mode == "gamepad")
+        self.normalization_note.set_label(
+            (
+                "Hardware configuration owns calibration and raw-unit conversion. "
+                "This Motion Control tunes normalized accelerometer orientation."
+            )
+            if is_tilt
+            else (
+                "Hardware configuration owns calibration and raw-unit conversion. "
+                "This Motion Control only tunes normalized gyro input."
+            )
+        )
         self._update_output_warning()
 
     @property
@@ -407,18 +547,14 @@ class MotionControlEditorView(Gtk.Box):
 
     def current_output_target(self) -> str:
         for target, analog_id in self._output_target_items:
-            button = self._output_target_buttons.get(
-                gamepad_output_target_key(target, analog_id)
-            )
+            button = self._output_target_buttons.get(gamepad_output_target_key(target, analog_id))
             if button is not None and button.get_active():
                 return target
         return "right"
 
     def current_output_target_analog_id(self) -> str | None:
         for target, analog_id in self._output_target_items:
-            button = self._output_target_buttons.get(
-                gamepad_output_target_key(target, analog_id)
-            )
+            button = self._output_target_buttons.get(gamepad_output_target_key(target, analog_id))
             if button is not None and button.get_active() and target == "analog":
                 return analog_id
         return None
@@ -428,7 +564,7 @@ class MotionControlEditorView(Gtk.Box):
             self._on_modified()
 
     def _update_output_warning(self) -> None:
-        if self._active_mode != "gamepad":
+        if self._active_mode not in _GAMEPAD_MODES:
             self.gamepad_output_warning_label.set_label("")
             self.gamepad_output_warning_row.set_visible(False)
             return

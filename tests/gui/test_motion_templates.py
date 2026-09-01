@@ -29,7 +29,7 @@ from keymasq.gui.wizards.hardware_setup.templates import (
                 "abs_ry": ("pitch", True),
                 "abs_rz": ("yaw", False),
             },
-            {"abs_x": ("z", True), "abs_y": ("x", True), "abs_z": ("y", False)},
+            {"abs_x": ("y", False), "abs_y": ("x", True), "abs_z": ("z", False)},
         ),
         (
             "hid-steam",

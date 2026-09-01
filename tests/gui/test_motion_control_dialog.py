@@ -22,6 +22,7 @@ from keymasq.common.model.motion import (
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
+    MotionTiltConfig,
 )
 from keymasq.gui.widgets.gamepad_output_choices import GamepadOutputChoiceSet
 from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
@@ -123,6 +124,57 @@ def test_motion_axis_routing_defaults_to_yaw_and_roll_horizontal() -> None:
     assert draft.axis_routing.roll == "horizontal"
 
 
+def test_motion_view_exposes_separate_tilt_and_area_modes() -> None:
+    choices = GamepadOutputChoiceSet(
+        choices=[(None, "Virtual Gamepad 1")],
+        count=1,
+        hardware_configs=[],
+    )
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: choices,
+    )
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(
+                name="Tilt Mouse",
+                mode="tilt_mouse",
+                tilt=MotionTiltConfig(
+                    reference="gravity",
+                    speed_x=700.0,
+                    speed_y=600.0,
+                ),
+            )
+        )
+    )
+
+    assert view.yaw_output.get_visible() is False
+    assert view.reference_dropdown.get_visible() is True
+    assert view.tilt_mouse_box.get_visible() is True
+    assert view.area_mouse_box.get_visible() is False
+    assert view.reference_dropdown.get_selected() == 1
+
+    view.tilt_speed_x.set_value(800.0)
+    view.mode_dropdown.set_selected(3)
+    view.gamepad_output.gamepad_output_dropdown.set_selected(1)
+    tilt_stick = view.draft()
+
+    assert tilt_stick.mode == "tilt_gamepad"
+    assert tilt_stick.tilt.speed_x == 800.0
+    assert tilt_stick.gamepad.output_id == "virtual-gamepad-1"
+    assert view.gamepad_box.get_visible() is True
+    assert view.max_rate.get_visible() is False
+
+    view.mode_dropdown.set_selected(4)
+    view.area_radius_x.set_value(640.0)
+    area_mouse = view.draft()
+
+    assert area_mouse.mode == "area_mouse"
+    assert area_mouse.tilt.area_radius_x == 640.0
+    assert view.area_mouse_box.get_visible() is True
+    assert view.gamepad_box.get_visible() is False
+
+
 def test_motion_controller_output_defaults_to_origin_device() -> None:
     view = MotionControlEditorView(
         on_modified=lambda: None,
@@ -134,9 +186,7 @@ def test_motion_controller_output_defaults_to_origin_device() -> None:
     )
 
     view.load(
-        MotionControlDraft.from_config(
-            MotionControlConfig(name="Right Stick", mode="gamepad")
-        )
+        MotionControlDraft.from_config(MotionControlConfig(name="Right Stick", mode="gamepad"))
     )
 
     assert view.selected_output_id == SAME_DEVICE_OUTPUT_ID
@@ -156,9 +206,7 @@ def test_motion_virtual_gamepad_selection_survives_save_and_reload(temp_config_d
         output_choices_loader=lambda _selected: choices,
     )
     view.load(
-        MotionControlDraft.from_config(
-            MotionControlConfig(name="Right Stick", mode="gamepad")
-        )
+        MotionControlDraft.from_config(MotionControlConfig(name="Right Stick", mode="gamepad"))
     )
     view.gamepad_output.gamepad_output_dropdown.set_selected(1)
     manager = MotionControlManager()
@@ -223,9 +271,7 @@ def test_motion_controller_output_routes_to_a_learned_physical_stick() -> None:
         output_count_loader=lambda: 2,
     )
     view.load(
-        MotionControlDraft.from_config(
-            MotionControlConfig(name="Right Stick", mode="gamepad")
-        )
+        MotionControlDraft.from_config(MotionControlConfig(name="Right Stick", mode="gamepad"))
     )
 
     view.gamepad_output.gamepad_output_dropdown.set_selected(3)

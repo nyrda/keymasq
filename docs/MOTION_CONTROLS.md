@@ -33,14 +33,17 @@ from the kernel axis resolution. Advanced manual normalization remains available
 drivers and accelerometer correction. A stationary pose cannot automatically determine
 accelerometer bias because its readings include gravity.
 
-Profile-specific sensitivity, deadzone, smoothing, response curve, axis routing, and output
-target live in the Motion Control instead. Each canonical gyro axis can be unused or routed
-to the horizontal or vertical output channel. Several gyro axes may feed the same channel.
+Profile-specific sensitivity, deadzone, smoothing, response curve, axis routing, neutral
+reference, and output target live in the Motion Control instead. Each canonical gyro axis
+can be unused or routed to the horizontal or vertical output channel. Several gyro axes may
+feed the same channel. Accelerometer controls derive controller-relative pitch and roll from
+the normalized `x`, `y`, and `z` gravity vector. An accelerometer cannot determine yaw.
 
 The PlayStation, Nintendo, and Steam templates each define their own raw-axis translation.
 This is necessary because RX, RY, and RZ do not represent the same physical controller
-rotation in all three kernel drivers. Existing version 1 hardware configurations are
-translated when loaded, while preserving their calibration offsets and user inversion.
+rotation in all three kernel drivers. Older hardware normalization versions are translated
+when loaded, while preserving their calibration offsets, scales, noise floors, and user
+inversion.
 
 Motion is processed once per evdev `SYN_REPORT` frame. `SYN_DROPPED` clears accumulated
 sensor and output state. Motion interfaces use the normal controller grab, release, hotplug,
@@ -50,13 +53,18 @@ and profile-switch lifecycle.
 
 Open **Motion Controls** from the application menu, or click a Motion Sensor card in a
 controller profile. The menu entry appears after Keymasq has a configured controller with
-an attached motion sensor. The first-use presets create either:
+an attached motion sensor. The first-use presets create one of five separate control types:
 
-- **Mouse**, which integrates angular velocity over elapsed frame time and emits
+- **Gyro Mouse**, which integrates angular velocity over elapsed frame time and emits
   fractional-accumulated relative mouse motion;
-- **Right Stick**, which maps angular rate to the originating controller's right stick and
+- **Gyro Stick**, which maps angular rate to the originating controller's right stick and
   uses the normal tracked gamepad output path. Its output selector can route that one stick
-  output to a virtual gamepad or another configured physical controller instead.
+  output to a virtual gamepad or another configured physical controller instead;
+- **Tilt Mouse**, which maps held controller tilt to continuous cursor velocity;
+- **Tilt Stick**, which maps held controller tilt to a persistent stick deflection and uses
+  the same single-output routing as Gyro Stick;
+- **Area Mouse**, which maps tilt to a bounded cursor offset. Motion back toward the neutral
+  pose emits the inverse cursor movement.
 
 Multiple motion sensors and multiple named controls are supported, but each sensor mapping
 selects one Motion Control and each Motion Control selects one output behavior. There is no
@@ -77,10 +85,21 @@ The default mouse directions are:
 - tilt the controller like a steering wheel to move left or right.
 
 The horizontal and vertical inversion switches reverse these normalized directions. A gyro
-measures angular velocity, so the cursor moves while the controller rotates and stops when
-the controller is held at a fixed angle. Continuous movement from a held tilt would require
-an accelerometer and orientation-fusion mode, which is outside version 1.
+measures angular velocity, so Gyro Mouse stops when the controller stops rotating. Tilt Mouse
+continues moving while the controller remains tilted. Tilt Stick continues holding its stick
+output for the same reason.
 
-Accelerometer axes are normalized, persisted, and exposed to inspection, but version 1 does
-not map them to outputs. Motion-to-digital gestures, trained movements, tilt/shake actions,
-sensor fusion, and orientation tracking are intentionally deferred.
+Tilt controls use the profile activation pose as their neutral pose by default. The daemon
+captures it from the first complete accelerometer frame after the profile and device become
+active. Choosing **Absolute gravity** instead uses a level controller as the neutral pose.
+The captured pose is runtime state. Profile changes, device resets, and `SYN_DROPPED` clear
+it. Keymasq never writes it into the hardware configuration.
+
+Area Mouse maps its configured full-output angle to a horizontal and vertical pixel radius.
+It emits relative deltas from the previous point in that area, matching the existing analog
+Mouse Area behavior. With **Drag center** enabled, moving past the configured angle shifts
+the neutral point. Movement back toward the center then registers immediately.
+
+Accelerometer tilt is gravity based and low-pass filtered. Linear acceleration can briefly
+disturb it while the controller moves quickly. Motion-to-digital gestures, trained movements,
+tilt or shake actions, and full gyroscope and accelerometer sensor fusion remain deferred.

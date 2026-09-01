@@ -26,16 +26,18 @@ class MotionTabMixin:
         intro.set_wrap(True)
         intro.add_css_class("dim-label")
         box.append(intro)
-        mouse = Gtk.Button(label="Mouse")
-        mouse.add_css_class("card")
-        mouse.set_tooltip_text("Aim the pointer from angular velocity")
-        mouse.connect("clicked", self._on_motion_preset_clicked, "mouse")
-        box.append(mouse)
-        gamepad = Gtk.Button(label="Right Stick")
-        gamepad.add_css_class("card")
-        gamepad.set_tooltip_text("Drive the virtual controller's right stick")
-        gamepad.connect("clicked", self._on_motion_preset_clicked, "gamepad")
-        box.append(gamepad)
+        for mode, label, tooltip in (
+            ("mouse", "Mouse", "Move the pointer while the controller rotates"),
+            ("gamepad", "Right Stick", "Drive the right stick while the controller rotates"),
+            ("tilt_mouse", "Tilt Mouse", "Keep the pointer moving while the controller is tilted"),
+            ("tilt_gamepad", "Tilt Right Stick", "Hold stick output by tilting the controller"),
+            ("area_mouse", "Area Mouse", "Move within an area selected by controller tilt"),
+        ):
+            preset = Gtk.Button(label=label)
+            preset.add_css_class("card")
+            preset.set_tooltip_text(tooltip)
+            preset.connect("clicked", self._on_motion_preset_clicked, mode)
+            box.append(preset)
         manage = Gtk.Button(label="Open Motion Controls…")
         manage.add_css_class("flat")
         manage.connect("clicked", self._on_open_motion_manager_clicked)
@@ -98,7 +100,15 @@ class MotionTabMixin:
             label.set_xalign(0.0)
             label.set_hexpand(True)
             content.append(label)
-            detail = Gtk.Label(label="Gyro mouse" if config.mode == "mouse" else "Controller stick")
+            detail = Gtk.Label(
+                label={
+                    "mouse": "Gyro mouse",
+                    "gamepad": "Gyro stick",
+                    "tilt_mouse": "Tilt mouse",
+                    "tilt_gamepad": "Tilt stick",
+                    "area_mouse": "Area mouse",
+                }[config.mode]
+            )
             detail.add_css_class("dim-label")
             content.append(detail)
             row.set_child(content)
@@ -128,7 +138,13 @@ class MotionTabMixin:
 
     def _on_motion_preset_clicked(self: Any, _button: Gtk.Button, mode: str) -> None:
         manager = MotionControlManager()
-        base = "Mouse" if mode == "mouse" else "Right Stick"
+        base = {
+            "mouse": "Mouse",
+            "gamepad": "Right Stick",
+            "tilt_mouse": "Tilt Mouse",
+            "tilt_gamepad": "Tilt Right Stick",
+            "area_mouse": "Area Mouse",
+        }[mode]
         name = manager.unique_motion_control_name(base)
         config = MotionControlConfig(
             name=name,

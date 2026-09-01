@@ -9,10 +9,11 @@ from keymasq.common.virtual_devices import virtual_gamepad_output_id
 MOTION_GYRO_AXES = frozenset({"pitch", "yaw", "roll"})
 MOTION_ACCELEROMETER_AXES = frozenset({"x", "y", "z"})
 MOTION_AXES = MOTION_GYRO_AXES | MOTION_ACCELEROMETER_AXES
-MOTION_CONTROL_MODES = frozenset({"mouse", "gamepad"})
+MOTION_CONTROL_MODES = frozenset({"mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse"})
 MOTION_GAMEPAD_TARGETS = frozenset({"left", "right", "analog"})
 MOTION_AXIS_OUTPUTS = frozenset({"none", "horizontal", "vertical"})
-MOTION_NORMALIZATION_VERSION = 2
+MOTION_TILT_REFERENCES = frozenset({"activation", "gravity"})
+MOTION_NORMALIZATION_VERSION = 3
 
 _DRIVER_FAMILIES = {
     "hid-nintendo": "nintendo",
@@ -43,9 +44,9 @@ _MOTION_AXIS_LAYOUTS: dict[str, dict[str, dict[str, tuple[str, bool]]]] = {
             "abs_rz": ("yaw", False),
         },
         "accelerometer": {
-            "abs_x": ("z", True),
+            "abs_x": ("y", False),
             "abs_y": ("x", True),
-            "abs_z": ("y", False),
+            "abs_z": ("z", False),
         },
     },
     "steam": {
@@ -60,6 +61,12 @@ _MOTION_AXIS_LAYOUTS: dict[str, dict[str, dict[str, tuple[str, bool]]]] = {
             "abs_z": ("z", False),
         },
     },
+}
+
+_LEGACY_NINTENDO_ACCELEROMETER_LAYOUT_V2 = {
+    "abs_x": ("z", True),
+    "abs_y": ("x", True),
+    "abs_z": ("y", False),
 }
 
 
@@ -173,6 +180,44 @@ class MotionGamepadConfig:
 
 
 @dataclass
+class MotionTiltConfig:
+    """Profile-owned tuning for accelerometer-derived controller tilt."""
+
+    reference: str = "activation"
+    pitch: str = "vertical"
+    roll: str = "horizontal"
+    deadzone_deg: float = 2.0
+    full_scale_deg: float = 30.0
+    smoothing: float = 0.8
+    response_curve: float = 1.0
+    invert_x: bool = False
+    invert_y: bool = False
+    speed_x: float = 900.0
+    speed_y: float = 900.0
+    area_radius_x: float = 400.0
+    area_radius_y: float = 400.0
+    drag_center: bool = True
+
+    def __post_init__(self) -> None:
+        self.reference = str(self.reference or "activation").strip().lower()
+        if self.reference not in MOTION_TILT_REFERENCES:
+            self.reference = "activation"
+        self.pitch = _motion_axis_output(self.pitch, "vertical")
+        self.roll = _motion_axis_output(self.roll, "horizontal")
+        self.deadzone_deg = max(0.0, min(89.0, float(self.deadzone_deg)))
+        self.full_scale_deg = max(
+            self.deadzone_deg + 0.1,
+            min(90.0, float(self.full_scale_deg)),
+        )
+        self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
+        self.response_curve = max(0.1, min(4.0, float(self.response_curve)))
+        self.speed_x = max(0.0, float(self.speed_x))
+        self.speed_y = max(0.0, float(self.speed_y))
+        self.area_radius_x = max(0.0, float(self.area_radius_x))
+        self.area_radius_y = max(0.0, float(self.area_radius_y))
+
+
+@dataclass
 class MotionControlConfig:
     name: str
     description: str | None = None
@@ -180,6 +225,7 @@ class MotionControlConfig:
     axis_routing: MotionAxisRoutingConfig = field(default_factory=MotionAxisRoutingConfig)
     mouse: MotionMouseConfig = field(default_factory=MotionMouseConfig)
     gamepad: MotionGamepadConfig = field(default_factory=MotionGamepadConfig)
+    tilt: MotionTiltConfig = field(default_factory=MotionTiltConfig)
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "").strip()
@@ -187,7 +233,10 @@ class MotionControlConfig:
             raise ValueError("motion control name is required")
         self.mode = str(self.mode or "mouse").strip().lower()
         if self.mode not in MOTION_CONTROL_MODES:
-            raise ValueError("motion control mode must be 'mouse' or 'gamepad'")
+            raise ValueError(
+                "motion control mode must be mouse, gamepad, tilt_mouse, "
+                "tilt_gamepad, or area_mouse"
+            )
 
 
 def _motion_axis_output(value: object, default: str) -> str:
@@ -199,7 +248,17 @@ def canonical_motion_axis(
     driver: str | None,
     kind: str,
     evdev_name: str,
+    *,
+    normalization_version: int | None = None,
 ) -> tuple[str, bool] | None:
     """Return the canonical axis role and sign correction for a kernel driver."""
     family = _DRIVER_FAMILIES.get(str(driver or "").strip().lower(), "playstation")
-    return _MOTION_AXIS_LAYOUTS[family].get(kind, {}).get(evdev_name.strip().lower())
+    normalized_evdev = evdev_name.strip().lower()
+    if (
+        family == "nintendo"
+        and kind == "accelerometer"
+        and normalization_version is not None
+        and normalization_version <= 2
+    ):
+        return _LEGACY_NINTENDO_ACCELEROMETER_LAYOUT_V2.get(normalized_evdev)
+    return _MOTION_AXIS_LAYOUTS[family].get(kind, {}).get(normalized_evdev)

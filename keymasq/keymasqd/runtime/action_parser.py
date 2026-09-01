@@ -37,6 +37,7 @@ from keymasq.common.model.motion import (
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
+    MotionTiltConfig,
 )
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import superkey_state
@@ -272,12 +273,12 @@ def parse_motion_control_config(data: object) -> MotionControlConfig:
     config = cast(JsonObject, data)
     raw_mouse = config.get("mouse", {})
     raw_gamepad = config.get("gamepad", {})
+    raw_tilt = config.get("tilt", {})
     raw_axis_routing = config.get("axis_routing", {})
     mouse = cast(JsonObject, raw_mouse) if isinstance(raw_mouse, dict) else {}
     gamepad = cast(JsonObject, raw_gamepad) if isinstance(raw_gamepad, dict) else {}
-    axis_routing = (
-        cast(JsonObject, raw_axis_routing) if isinstance(raw_axis_routing, dict) else {}
-    )
+    tilt = cast(JsonObject, raw_tilt) if isinstance(raw_tilt, dict) else {}
+    axis_routing = cast(JsonObject, raw_axis_routing) if isinstance(raw_axis_routing, dict) else {}
     return MotionControlConfig(
         name=coerce_str(config.get("name"), "Motion Control"),
         mode=coerce_str(config.get("mode"), "mouse"),
@@ -305,6 +306,22 @@ def parse_motion_control_config(data: object) -> MotionControlConfig:
             response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
             invert_x=bool(gamepad.get("invert_x", False)),
             invert_y=bool(gamepad.get("invert_y", False)),
+        ),
+        tilt=MotionTiltConfig(
+            reference=coerce_str(tilt.get("reference"), "activation"),
+            pitch=coerce_str(tilt.get("pitch"), "vertical"),
+            roll=coerce_str(tilt.get("roll"), "horizontal"),
+            deadzone_deg=coerce_float(tilt.get("deadzone_deg"), 2.0),
+            full_scale_deg=coerce_float(tilt.get("full_scale_deg"), 30.0),
+            smoothing=coerce_float(tilt.get("smoothing"), 0.8),
+            response_curve=coerce_float(tilt.get("response_curve"), 1.0),
+            invert_x=bool(tilt.get("invert_x", False)),
+            invert_y=bool(tilt.get("invert_y", False)),
+            speed_x=coerce_float(tilt.get("speed_x"), 900.0),
+            speed_y=coerce_float(tilt.get("speed_y"), 900.0),
+            area_radius_x=coerce_float(tilt.get("area_radius_x"), 400.0),
+            area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
+            drag_center=bool(tilt.get("drag_center", True)),
         ),
     )
 

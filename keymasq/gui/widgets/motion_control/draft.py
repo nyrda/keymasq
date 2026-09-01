@@ -7,6 +7,7 @@ from keymasq.common.model.motion import (
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
+    MotionTiltConfig,
 )
 
 
@@ -99,6 +100,61 @@ class MotionGamepadDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class MotionTiltDraft:
+    reference: str
+    pitch: str
+    roll: str
+    deadzone_deg: float
+    full_scale_deg: float
+    smoothing: float
+    response_curve: float
+    invert_x: bool
+    invert_y: bool
+    speed_x: float
+    speed_y: float
+    area_radius_x: float
+    area_radius_y: float
+    drag_center: bool
+
+    @classmethod
+    def from_config(cls, config: MotionTiltConfig) -> "MotionTiltDraft":
+        return cls(
+            reference=config.reference,
+            pitch=config.pitch,
+            roll=config.roll,
+            deadzone_deg=config.deadzone_deg,
+            full_scale_deg=config.full_scale_deg,
+            smoothing=config.smoothing,
+            response_curve=config.response_curve,
+            invert_x=config.invert_x,
+            invert_y=config.invert_y,
+            speed_x=config.speed_x,
+            speed_y=config.speed_y,
+            area_radius_x=config.area_radius_x,
+            area_radius_y=config.area_radius_y,
+            drag_center=config.drag_center,
+        )
+
+    def to_config(self) -> MotionTiltConfig:
+        return MotionTiltConfig(
+            reference=self.reference,
+            pitch=self.pitch,
+            roll=self.roll,
+            deadzone_deg=self.deadzone_deg,
+            full_scale_deg=self.full_scale_deg,
+            smoothing=self.smoothing,
+            response_curve=self.response_curve,
+            invert_x=self.invert_x,
+            invert_y=self.invert_y,
+            speed_x=self.speed_x,
+            speed_y=self.speed_y,
+            area_radius_x=self.area_radius_x,
+            area_radius_y=self.area_radius_y,
+            drag_center=self.drag_center,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MotionControlDraft:
     name: str
     description: str
@@ -106,6 +162,7 @@ class MotionControlDraft:
     axis_routing: MotionAxisRoutingDraft
     mouse: MotionMouseDraft
     gamepad: MotionGamepadDraft
+    tilt: MotionTiltDraft
 
     @classmethod
     def from_config(cls, config: MotionControlConfig) -> "MotionControlDraft":
@@ -116,6 +173,7 @@ class MotionControlDraft:
             axis_routing=MotionAxisRoutingDraft.from_config(config.axis_routing),
             mouse=MotionMouseDraft.from_config(config.mouse),
             gamepad=MotionGamepadDraft.from_config(config.gamepad),
+            tilt=MotionTiltDraft.from_config(config.tilt),
         )
 
     @classmethod
@@ -133,6 +191,7 @@ class MotionControlDraft:
             axis_routing=self.axis_routing.to_config(),
             mouse=self.mouse.to_config(),
             gamepad=self.gamepad.to_config(),
+            tilt=self.tilt.to_config(),
         )
 
     def is_pristine_new_draft(self) -> bool:

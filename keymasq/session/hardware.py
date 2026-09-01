@@ -171,10 +171,32 @@ class HardwareManager:
             calibration_version = int(sensor.get("calibration_version", 1))
             gyro_axes = self._load_motion_axes(sensor.get("gyro_axes", []))
             accelerometer_axes = self._load_motion_axes(sensor.get("accelerometer_axes", []))
-            if calibration_version < MOTION_NORMALIZATION_VERSION:
-                gyro_axes = self._canonicalize_motion_axes(gyro_axes, driver, "gyro")
+            if calibration_version < 2:
+                gyro_axes = self._canonicalize_motion_axes(
+                    gyro_axes,
+                    driver,
+                    "gyro",
+                    normalization_version=2,
+                )
                 accelerometer_axes = self._canonicalize_motion_axes(
-                    accelerometer_axes, driver, "accelerometer"
+                    accelerometer_axes,
+                    driver,
+                    "accelerometer",
+                    normalization_version=2,
+                )
+                calibration_version = 2
+            if calibration_version < MOTION_NORMALIZATION_VERSION:
+                gyro_axes = self._migrate_motion_axes(
+                    gyro_axes,
+                    driver,
+                    "gyro",
+                    source_version=calibration_version,
+                )
+                accelerometer_axes = self._migrate_motion_axes(
+                    accelerometer_axes,
+                    driver,
+                    "accelerometer",
+                    source_version=calibration_version,
                 )
                 calibration_version = MOTION_NORMALIZATION_VERSION
             motion_sensors.append(
@@ -233,10 +255,17 @@ class HardwareManager:
         axes: list[MotionAxisDefinition],
         driver: str | None,
         kind: str,
+        *,
+        normalization_version: int,
     ) -> list[MotionAxisDefinition]:
         canonical_axes: list[MotionAxisDefinition] = []
         for axis in axes:
-            canonical = canonical_motion_axis(driver, kind, axis.evdev)
+            canonical = canonical_motion_axis(
+                driver,
+                kind,
+                axis.evdev,
+                normalization_version=normalization_version,
+            )
             if canonical is None:
                 canonical_axes.append(axis)
                 continue
@@ -253,6 +282,40 @@ class HardwareManager:
                 )
             )
         return canonical_axes
+
+    @staticmethod
+    def _migrate_motion_axes(
+        axes: list[MotionAxisDefinition],
+        driver: str | None,
+        kind: str,
+        *,
+        source_version: int,
+    ) -> list[MotionAxisDefinition]:
+        migrated_axes: list[MotionAxisDefinition] = []
+        for axis in axes:
+            previous = canonical_motion_axis(
+                driver,
+                kind,
+                axis.evdev,
+                normalization_version=source_version,
+            )
+            current = canonical_motion_axis(driver, kind, axis.evdev)
+            if previous is None or current is None or axis.role != previous[0]:
+                migrated_axes.append(axis)
+                continue
+            user_inverted = axis.invert != previous[1]
+            migrated_axes.append(
+                MotionAxisDefinition(
+                    role=current[0],
+                    evdev=axis.evdev,
+                    evdev_code=axis.evdev_code,
+                    offset=axis.offset,
+                    scale=axis.scale,
+                    invert=current[1] != user_inverted,
+                    noise=axis.noise,
+                )
+            )
+        return migrated_axes
 
     def _add_loaded_hardware(
         self,

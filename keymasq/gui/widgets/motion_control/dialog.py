@@ -45,7 +45,13 @@ def motion_controls_docs_url() -> str:
 def motion_control_search_text(config: MotionControlConfig | None, name: str) -> str:
     if config is None:
         return name
-    mode = "gyro mouse" if config.mode == "mouse" else "gyro controller gamepad stick"
+    mode = {
+        "mouse": "gyro mouse",
+        "gamepad": "gyro controller gamepad stick",
+        "tilt_mouse": "accelerometer tilt continuous mouse",
+        "tilt_gamepad": "accelerometer tilt controller gamepad stick",
+        "area_mouse": "accelerometer tilt area mouse pointer",
+    }[config.mode]
     return " ".join((config.name, config.description or "", mode))
 
 

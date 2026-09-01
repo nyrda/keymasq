@@ -17,6 +17,7 @@ from keymasq.common.model.motion import (
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
+    MotionTiltConfig,
 )
 from keymasq.session.config_loading import load_config_files_sync
 
@@ -58,6 +59,7 @@ class MotionControlManager:
             data = cast(dict[str, object], tomllib.load(config_file))
         mouse = cast(dict[str, object], data.get("mouse", {}))
         gamepad = cast(dict[str, object], data.get("gamepad", {}))
+        tilt = cast(dict[str, object], data.get("tilt", {}))
         axis_routing = cast(dict[str, object], data.get("axis_routing", {}))
         return MotionControlConfig(
             name=str(data.get("name", path.stem)),
@@ -79,9 +81,7 @@ class MotionControlManager:
             ),
             gamepad=MotionGamepadConfig(
                 output_id=(
-                    str(gamepad["output_id"])
-                    if gamepad.get("output_id")
-                    else SAME_DEVICE_OUTPUT_ID
+                    str(gamepad["output_id"]) if gamepad.get("output_id") else SAME_DEVICE_OUTPUT_ID
                 ),
                 target=str(gamepad.get("target", "right")),
                 target_analog_id=(
@@ -93,6 +93,22 @@ class MotionControlManager:
                 response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
                 invert_x=bool(gamepad.get("invert_x", False)),
                 invert_y=bool(gamepad.get("invert_y", False)),
+            ),
+            tilt=MotionTiltConfig(
+                reference=str(tilt.get("reference", "activation")),
+                pitch=str(tilt.get("pitch", "vertical")),
+                roll=str(tilt.get("roll", "horizontal")),
+                deadzone_deg=coerce_float(tilt.get("deadzone_deg"), 2.0),
+                full_scale_deg=coerce_float(tilt.get("full_scale_deg"), 30.0),
+                smoothing=coerce_float(tilt.get("smoothing"), 0.8),
+                response_curve=coerce_float(tilt.get("response_curve"), 1.0),
+                invert_x=bool(tilt.get("invert_x", False)),
+                invert_y=bool(tilt.get("invert_y", False)),
+                speed_x=coerce_float(tilt.get("speed_x"), 900.0),
+                speed_y=coerce_float(tilt.get("speed_y"), 900.0),
+                area_radius_x=coerce_float(tilt.get("area_radius_x"), 400.0),
+                area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
+                drag_center=bool(tilt.get("drag_center", True)),
             ),
         )
 
@@ -158,6 +174,22 @@ class MotionControlManager:
                     if config.gamepad.target_analog_id
                     else {}
                 ),
+            },
+            "tilt": {
+                "reference": config.tilt.reference,
+                "pitch": config.tilt.pitch,
+                "roll": config.tilt.roll,
+                "deadzone_deg": config.tilt.deadzone_deg,
+                "full_scale_deg": config.tilt.full_scale_deg,
+                "smoothing": config.tilt.smoothing,
+                "response_curve": config.tilt.response_curve,
+                "invert_x": config.tilt.invert_x,
+                "invert_y": config.tilt.invert_y,
+                "speed_x": config.tilt.speed_x,
+                "speed_y": config.tilt.speed_y,
+                "area_radius_x": config.tilt.area_radius_x,
+                "area_radius_y": config.tilt.area_radius_y,
+                "drag_center": config.tilt.drag_center,
             },
         }
         if config.description:

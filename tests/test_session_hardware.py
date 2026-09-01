@@ -143,17 +143,50 @@ accelerometer_axes = [
 
     assert config is not None
     sensor = config.motion_sensors[0]
-    assert sensor.calibration_version == 2
+    assert sensor.calibration_version == 3
     assert {axis.evdev: (axis.role, axis.invert) for axis in sensor.gyro_axes} == {
         "abs_rx": ("roll", False),
         "abs_ry": ("pitch", True),
         "abs_rz": ("yaw", False),
     }
     assert {axis.evdev: (axis.role, axis.invert) for axis in sensor.accelerometer_axes} == {
-        "abs_x": ("z", True),
+        "abs_x": ("y", False),
         "abs_y": ("x", True),
-        "abs_z": ("y", False),
+        "abs_z": ("z", False),
     }
+
+
+def test_nintendo_v2_accelerometer_migration_preserves_calibration() -> None:
+    axes = [
+        MotionAxisDefinition(
+            role="z",
+            evdev="abs_x",
+            evdev_code=0,
+            offset=12.0,
+            scale=0.25,
+            invert=True,
+            noise=0.5,
+        ),
+        MotionAxisDefinition(role="x", evdev="abs_y", invert=False),
+        MotionAxisDefinition(role="y", evdev="abs_z", invert=False),
+    ]
+
+    migrated = HardwareManager._migrate_motion_axes(
+        axes,
+        "nintendo",
+        "accelerometer",
+        source_version=2,
+    )
+
+    assert [(axis.evdev, axis.role, axis.invert) for axis in migrated] == [
+        ("abs_x", "y", False),
+        ("abs_y", "x", False),
+        ("abs_z", "z", False),
+    ]
+    assert migrated[0].evdev_code == 0
+    assert migrated[0].offset == 12.0
+    assert migrated[0].scale == 0.25
+    assert migrated[0].noise == 0.5
 
 
 def test_hardware_manager_skips_invalid_files(

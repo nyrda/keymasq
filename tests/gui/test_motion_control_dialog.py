@@ -10,7 +10,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk
 
-from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import (
     AnalogAxisDefinition,
@@ -19,6 +19,7 @@ from keymasq.common.model.hardware import (
     HardwareConfig,
 )
 from keymasq.common.model.motion import (
+    MotionAnalogConfig,
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
@@ -283,7 +284,7 @@ def test_motion_controller_output_routes_to_a_learned_physical_stick() -> None:
     assert draft.gamepad.target_analog_id == "right_stick"
 
 
-def test_motion_selector_replaces_its_single_selection(temp_config_dir) -> None:
+def test_motion_selector_allows_multiple_controls(temp_config_dir) -> None:
     manager = MotionControlManager()
     manager.save_motion_control(MotionControlConfig(name="Mouse"))
     manager.save_motion_control(MotionControlConfig(name="Right Stick", mode="gamepad"))
@@ -297,9 +298,79 @@ def test_motion_selector_replaces_its_single_selection(temp_config_dir) -> None:
     dialog._motion_control_listbox.select_row(rows[0])
     dialog._motion_control_listbox.select_row(rows[1])
 
-    assert dialog._motion_control_listbox.get_selection_mode() == Gtk.SelectionMode.SINGLE
-    assert dialog._motion_control_listbox.get_selected_rows() == [rows[1]]
-    assert dialog._selected_motion_control == rows[1]._motion_control_name
+    assert dialog._motion_control_listbox.get_selection_mode() == Gtk.SelectionMode.MULTIPLE
+    assert dialog._motion_control_listbox.get_selected_rows() == rows
+    assert dialog._selected_motion_controls == [
+        rows[0]._motion_control_name,
+        rows[1]._motion_control_name,
+    ]
+
+
+def test_motion_to_analog_view_selects_one_matching_analog_control() -> None:
+    edited: list[str] = []
+    controls = {
+        "Axis Actions": AnalogControlConfig(name="Axis Actions", input_type="axis"),
+        "Stick Actions": AnalogControlConfig(name="Stick Actions", input_type="stick"),
+    }
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        analog_controls_loader=lambda: controls,
+        edit_analog_control=edited.append,
+    )
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(
+                name="Tilt Directions",
+                mode="analog",
+                analog=MotionAnalogConfig(
+                    analog_control_name="Stick Actions",
+                    source="tilt",
+                    x_axis="roll",
+                    y_axis="pitch",
+                    full_scale_deg=40.0,
+                ),
+            )
+        )
+    )
+
+    assert view.mode_dropdown.get_selected() == 5
+    assert view.motion_analog_box.get_visible() is True
+    assert view.analog_control_listbox.get_selection_mode() == Gtk.SelectionMode.SINGLE
+    assert view.analog_control_scrolled.get_min_content_height() == 176
+    assert view.analog_control_scrolled.get_max_content_height() == 220
+    selected_row = view.analog_control_listbox.get_selected_row()
+    assert selected_row is not None
+    assert selected_row._analog_control_name == "Stick Actions"
+    assert view.analog_y_axis.get_visible() is True
+    assert view.analog_full_scale_angle.get_value() == 40.0
+
+    view.analog_control_search_entry.set_text("axis")
+    assert view.analog_control_listbox.get_row_at_index(0).get_child_visible() is True
+    assert view.analog_control_listbox.get_row_at_index(1).get_child_visible() is False
+    view.analog_control_search_entry.set_text("")
+
+    axis_row = view.analog_control_listbox.get_row_at_index(0)
+    assert axis_row is not None
+    assert axis_row._analog_control_name == "Axis Actions"
+    view.analog_control_listbox.select_row(axis_row)
+    view.analog_source_dropdown.set_selected(0)
+    draft = view.draft()
+
+    assert view.analog_y_axis.get_visible() is False
+    assert view.analog_full_scale_rate.get_visible() is True
+    assert draft.analog.analog_control_name == "Axis Actions"
+    assert draft.analog.source == "gyro"
+
+    gesture = SimpleNamespace(set_state=lambda _state: None)
+    view._on_analog_control_row_right_pressed(
+        cast(Gtk.GestureClick, gesture),
+        1,
+        0.0,
+        0.0,
+        "Axis Actions",
+    )
+
+    assert edited == ["Axis Actions"]
 
 
 def test_motion_control_persistence_updates_profile_references() -> None:

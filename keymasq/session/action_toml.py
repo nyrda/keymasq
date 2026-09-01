@@ -279,9 +279,12 @@ def mapping_action_to_toml(
     if (
         include_profile_refs
         and action.action_type == ActionType.MOTION_CONTROL
-        and action.motion_control_name
+        and action.motion_control_names
     ):
-        action_data["motion_control_name"] = action.motion_control_name
+        if len(action.motion_control_names) == 1:
+            action_data["motion_control_name"] = action.motion_control_names[0]
+        else:
+            action_data["motion_control_names"] = action.motion_control_names
     if action.action_type == ActionType.MACRO:
         action_data["target"] = action.macro_name or ""
         action_data["macro_name"] = action.macro_name or ""

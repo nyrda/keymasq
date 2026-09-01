@@ -3,16 +3,20 @@
 from dataclasses import dataclass, field
 
 from keymasq.common.model.actions import normalize_output_id
-from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
 from keymasq.common.virtual_devices import virtual_gamepad_output_id
 
 MOTION_GYRO_AXES = frozenset({"pitch", "yaw", "roll"})
 MOTION_ACCELEROMETER_AXES = frozenset({"x", "y", "z"})
 MOTION_AXES = MOTION_GYRO_AXES | MOTION_ACCELEROMETER_AXES
-MOTION_CONTROL_MODES = frozenset({"mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse"})
+MOTION_CONTROL_MODES = frozenset(
+    {"mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse", "analog"}
+)
 MOTION_GAMEPAD_TARGETS = frozenset({"left", "right", "analog"})
 MOTION_AXIS_OUTPUTS = frozenset({"none", "horizontal", "vertical"})
 MOTION_TILT_REFERENCES = frozenset({"activation", "gravity"})
+MOTION_ANALOG_SOURCES = frozenset({"gyro", "tilt"})
+MOTION_ANALOG_AXES = frozenset({"none", "yaw", "pitch", "roll"})
 MOTION_NORMALIZATION_VERSION = 3
 
 _DRIVER_FAMILIES = {
@@ -218,6 +222,44 @@ class MotionTiltConfig:
 
 
 @dataclass
+class MotionAnalogConfig:
+    """Turn one or two normalized motion signals into an Analog Control input."""
+
+    analog_control_name: str | None = None
+    analog_control_config: AnalogControlConfig | None = None
+    source: str = "tilt"
+    x_axis: str = "roll"
+    y_axis: str = "pitch"
+    reference: str = "activation"
+    full_scale_dps: float = 360.0
+    full_scale_deg: float = 30.0
+    smoothing: float = 0.15
+    invert_x: bool = False
+    invert_y: bool = False
+
+    def __post_init__(self) -> None:
+        self.analog_control_name = (
+            str(self.analog_control_name).strip() if self.analog_control_name else None
+        ) or None
+        self.source = str(self.source or "tilt").strip().lower()
+        if self.source not in MOTION_ANALOG_SOURCES:
+            self.source = "tilt"
+        self.x_axis = _motion_analog_axis(self.x_axis, "roll")
+        self.y_axis = _motion_analog_axis(self.y_axis, "pitch")
+        if self.source == "tilt":
+            if self.x_axis == "yaw":
+                self.x_axis = "roll"
+            if self.y_axis == "yaw":
+                self.y_axis = "pitch"
+        self.reference = str(self.reference or "activation").strip().lower()
+        if self.reference not in MOTION_TILT_REFERENCES:
+            self.reference = "activation"
+        self.full_scale_dps = max(1.0, float(self.full_scale_dps))
+        self.full_scale_deg = max(0.1, min(90.0, float(self.full_scale_deg)))
+        self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
+
+
+@dataclass
 class MotionControlConfig:
     name: str
     description: str | None = None
@@ -226,6 +268,7 @@ class MotionControlConfig:
     mouse: MotionMouseConfig = field(default_factory=MotionMouseConfig)
     gamepad: MotionGamepadConfig = field(default_factory=MotionGamepadConfig)
     tilt: MotionTiltConfig = field(default_factory=MotionTiltConfig)
+    analog: MotionAnalogConfig = field(default_factory=MotionAnalogConfig)
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "").strip()
@@ -235,13 +278,18 @@ class MotionControlConfig:
         if self.mode not in MOTION_CONTROL_MODES:
             raise ValueError(
                 "motion control mode must be mouse, gamepad, tilt_mouse, "
-                "tilt_gamepad, or area_mouse"
+                "tilt_gamepad, area_mouse, or analog"
             )
 
 
 def _motion_axis_output(value: object, default: str) -> str:
     output = str(value or default).strip().lower()
     return output if output in MOTION_AXIS_OUTPUTS else default
+
+
+def _motion_analog_axis(value: object, default: str) -> str:
+    axis = str(value or default).strip().lower()
+    return axis if axis in MOTION_ANALOG_AXES else default
 
 
 def canonical_motion_axis(

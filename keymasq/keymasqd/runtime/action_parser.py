@@ -33,6 +33,7 @@ from keymasq.common.model.analog import (
 )
 from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.common.model.motion import (
+    MotionAnalogConfig,
     MotionAxisRoutingConfig,
     MotionControlConfig,
     MotionGamepadConfig,
@@ -207,8 +208,20 @@ def parse_action(
         analog_control_config = analog_control_configs[0] if analog_control_configs else None
 
     motion_control_config = None
+    motion_control_configs: list[MotionControlConfig] = []
     if action_type == ActionType.MOTION_CONTROL and "motion_control" in action_data:
-        motion_control_config = parse_motion_control_config(action_data["motion_control"])
+        motion_control_config = parse_motion_control_config(
+            manager,
+            action_data["motion_control"],
+        )
+        motion_control_configs = [motion_control_config]
+    elif action_type == ActionType.MOTION_CONTROL and isinstance(
+        action_data.get("motion_controls"),
+        list,
+    ):
+        for raw_config in cast(list[object], action_data["motion_controls"]):
+            motion_control_configs.append(parse_motion_control_config(manager, raw_config))
+        motion_control_config = motion_control_configs[0] if motion_control_configs else None
 
     shared = _parse_shared_action_fields(
         action_data,
@@ -230,7 +243,9 @@ def parse_action(
         analog_control_config=analog_control_config,
         analog_control_configs=analog_control_configs,
         motion_control_name=coerce_str(action_data.get("motion_control_name"), None),
+        motion_control_names=cast(list[str], action_data.get("motion_control_names") or []),
         motion_control_config=motion_control_config,
+        motion_control_configs=motion_control_configs,
         macro_name=shared.macro_name,
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=shared.macro_replay_mouse_movement,
@@ -267,18 +282,29 @@ def parse_action(
     )
 
 
-def parse_motion_control_config(data: object) -> MotionControlConfig:
+def parse_motion_control_config(manager: object, data: object) -> MotionControlConfig:
     if not isinstance(data, dict):
         raise TypeError("motion control config must be an object")
     config = cast(JsonObject, data)
     raw_mouse = config.get("mouse", {})
     raw_gamepad = config.get("gamepad", {})
     raw_tilt = config.get("tilt", {})
+    raw_analog = config.get("analog", {})
     raw_axis_routing = config.get("axis_routing", {})
     mouse = cast(JsonObject, raw_mouse) if isinstance(raw_mouse, dict) else {}
     gamepad = cast(JsonObject, raw_gamepad) if isinstance(raw_gamepad, dict) else {}
     tilt = cast(JsonObject, raw_tilt) if isinstance(raw_tilt, dict) else {}
+    analog = cast(JsonObject, raw_analog) if isinstance(raw_analog, dict) else {}
     axis_routing = cast(JsonObject, raw_axis_routing) if isinstance(raw_axis_routing, dict) else {}
+    analog_control_config = (
+        parse_analog_control_config(
+            manager,
+            analog["analog_control"],
+            json_object=getattr(manager, "_json_object", None),
+        )
+        if "analog_control" in analog
+        else None
+    )
     return MotionControlConfig(
         name=coerce_str(config.get("name"), "Motion Control"),
         mode=coerce_str(config.get("mode"), "mouse"),
@@ -322,6 +348,19 @@ def parse_motion_control_config(data: object) -> MotionControlConfig:
             area_radius_x=coerce_float(tilt.get("area_radius_x"), 400.0),
             area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
             drag_center=bool(tilt.get("drag_center", True)),
+        ),
+        analog=MotionAnalogConfig(
+            analog_control_name=coerce_str(analog.get("analog_control_name"), None),
+            analog_control_config=analog_control_config,
+            source=coerce_str(analog.get("source"), "tilt"),
+            x_axis=coerce_str(analog.get("x_axis"), "roll"),
+            y_axis=coerce_str(analog.get("y_axis"), "pitch"),
+            reference=coerce_str(analog.get("reference"), "activation"),
+            full_scale_dps=coerce_float(analog.get("full_scale_dps"), 360.0),
+            full_scale_deg=coerce_float(analog.get("full_scale_deg"), 30.0),
+            smoothing=coerce_float(analog.get("smoothing"), 0.15),
+            invert_x=bool(analog.get("invert_x", False)),
+            invert_y=bool(analog.get("invert_y", False)),
         ),
     )
 

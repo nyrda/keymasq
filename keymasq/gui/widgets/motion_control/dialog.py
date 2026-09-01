@@ -51,6 +51,7 @@ def motion_control_search_text(config: MotionControlConfig | None, name: str) ->
         "tilt_mouse": "accelerometer tilt continuous mouse",
         "tilt_gamepad": "accelerometer tilt controller gamepad stick",
         "area_mouse": "accelerometer tilt area mouse pointer",
+        "analog": "motion analog control gyro accelerometer tilt axis stick",
     }[config.mode]
     return " ".join((config.name, config.description or "", mode))
 
@@ -102,7 +103,10 @@ class MotionControlDialog(Adw.Dialog):
                 close_editor=self._request_close,
             ),
         )
-        self.editor = MotionControlEditorView(on_modified=self._mark_dirty)
+        self.editor = MotionControlEditorView(
+            on_modified=self._mark_dirty,
+            edit_analog_control=self._edit_analog_control,
+        )
         self.shell.append_editor_widget(self.editor)
         self.set_child(self.shell.root)
 
@@ -330,6 +334,19 @@ class MotionControlDialog(Adw.Dialog):
             Gtk.UriLauncher.new(url).launch(None, None, None)
         except Exception:
             log.exception("Could not open Motion Controls documentation %s", url)
+
+    def _edit_analog_control(self, name: str) -> None:
+        from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
+
+        root = self.get_root()
+        dialog = AnalogControlDialog(root, self.profile_manager)
+        dialog.connect("analog-control-saved", self._on_analog_controls_changed)
+        dialog.connect("analog-control-deleted", self._on_analog_controls_changed)
+        dialog.present(root)
+        dialog.select_control_by_name(name)
+
+    def _on_analog_controls_changed(self, _dialog: object, name: str) -> None:
+        self.editor.refresh_analog_controls(name)
 
     def select_control_by_name(self, name: str) -> None:
         selection = EditorSelection.saved_item(name)

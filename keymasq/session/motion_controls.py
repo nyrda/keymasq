@@ -1,5 +1,6 @@
 """Persistence for reusable motion controls."""
 
+import copy
 import logging
 import tomllib
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from keymasq.common.coercion import coerce_float
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
 from keymasq.common.model.motion import (
+    MotionAnalogConfig,
     MotionAxisRoutingConfig,
     MotionControlConfig,
     MotionGamepadConfig,
@@ -60,6 +62,7 @@ class MotionControlManager:
         mouse = cast(dict[str, object], data.get("mouse", {}))
         gamepad = cast(dict[str, object], data.get("gamepad", {}))
         tilt = cast(dict[str, object], data.get("tilt", {}))
+        analog = cast(dict[str, object], data.get("analog", {}))
         axis_routing = cast(dict[str, object], data.get("axis_routing", {}))
         return MotionControlConfig(
             name=str(data.get("name", path.stem)),
@@ -110,6 +113,22 @@ class MotionControlManager:
                 area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
                 drag_center=bool(tilt.get("drag_center", True)),
             ),
+            analog=MotionAnalogConfig(
+                analog_control_name=(
+                    str(analog["analog_control_name"])
+                    if analog.get("analog_control_name")
+                    else None
+                ),
+                source=str(analog.get("source", "tilt")),
+                x_axis=str(analog.get("x_axis", "roll")),
+                y_axis=str(analog.get("y_axis", "pitch")),
+                reference=str(analog.get("reference", "activation")),
+                full_scale_dps=coerce_float(analog.get("full_scale_dps"), 360.0),
+                full_scale_deg=coerce_float(analog.get("full_scale_deg"), 30.0),
+                smoothing=coerce_float(analog.get("smoothing"), 0.15),
+                invert_x=bool(analog.get("invert_x", False)),
+                invert_y=bool(analog.get("invert_y", False)),
+            ),
         )
 
     def get_motion_control(self, name: str) -> MotionControlConfig | None:
@@ -121,6 +140,31 @@ class MotionControlManager:
 
     def get_all_motion_controls(self) -> dict[str, MotionControlConfig]:
         return {name: entry.config for name, entry in self._motion_controls.items()}
+
+    def rename_analog_control_references(self, old_name: str, new_name: str) -> int:
+        if old_name == new_name:
+            return 0
+        changed = 0
+        for name, entry in list(self._motion_controls.items()):
+            if entry.config.analog.analog_control_name != old_name:
+                continue
+            config = copy.deepcopy(entry.config)
+            config.analog.analog_control_name = new_name
+            self.save_motion_control(config, replacing_name=name)
+            changed += 1
+        return changed
+
+    def clear_analog_control_references(self, analog_control_name: str) -> int:
+        changed = 0
+        for name, entry in list(self._motion_controls.items()):
+            if entry.config.analog.analog_control_name != analog_control_name:
+                continue
+            config = copy.deepcopy(entry.config)
+            config.analog.analog_control_name = None
+            config.analog.analog_control_config = None
+            self.save_motion_control(config, replacing_name=name)
+            changed += 1
+        return changed
 
     def unique_motion_control_name(self, base: str = "Motion Control") -> str:
         name = str(base or "Motion Control").strip() or "Motion Control"
@@ -190,6 +234,22 @@ class MotionControlManager:
                 "area_radius_x": config.tilt.area_radius_x,
                 "area_radius_y": config.tilt.area_radius_y,
                 "drag_center": config.tilt.drag_center,
+            },
+            "analog": {
+                "source": config.analog.source,
+                "x_axis": config.analog.x_axis,
+                "y_axis": config.analog.y_axis,
+                "reference": config.analog.reference,
+                "full_scale_dps": config.analog.full_scale_dps,
+                "full_scale_deg": config.analog.full_scale_deg,
+                "smoothing": config.analog.smoothing,
+                "invert_x": config.analog.invert_x,
+                "invert_y": config.analog.invert_y,
+                **(
+                    {"analog_control_name": config.analog.analog_control_name}
+                    if config.analog.analog_control_name
+                    else {}
+                ),
             },
         }
         if config.description:

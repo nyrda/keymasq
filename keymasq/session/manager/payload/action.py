@@ -108,7 +108,9 @@ def _add_inspector_base_fields(
         data["analog_control_names"] = list(action.analog_control_names)
     elif action.analog_control_name:
         data["analog_control_name"] = action.analog_control_name
-    if action.motion_control_name:
+    if action.motion_control_names:
+        data["motion_control_names"] = list(action.motion_control_names)
+    elif action.motion_control_name:
         data["motion_control_name"] = action.motion_control_name
 
 
@@ -406,9 +408,24 @@ def _serialize(
         from . import motion
 
         runtime_manager = _require_manager(manager)
-        config = motion.resolve(runtime_manager, action)
-        if config is not None:
-            data["motion_control"] = motion.serialize(config)
+        configs = motion.resolve(runtime_manager, action)
+        if len(configs) == 1:
+            data["motion_control"] = motion.serialize(
+                runtime_manager,
+                configs[0],
+                hardware_id,
+                signature=purpose == _Purpose.SIGNATURE,
+            )
+        elif configs:
+            data["motion_controls"] = [
+                motion.serialize(
+                    runtime_manager,
+                    config,
+                    hardware_id,
+                    signature=purpose == _Purpose.SIGNATURE,
+                )
+                for config in configs
+            ]
         return data
 
     if action.action_type == ActionType.SUPPRESS:

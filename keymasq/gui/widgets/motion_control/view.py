@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
 from keymasq.common.virtual_devices import (
     is_virtual_gamepad_output_id,
     virtual_gamepad_output_id,
@@ -20,6 +20,7 @@ from keymasq.gui.widgets.analog_control.gamepad import (
     gamepad_output_target_key,
     populate_gamepad_output_target_buttons,
 )
+from keymasq.gui.widgets.fuzzy_search import install_listbox_fuzzy_filter
 from keymasq.gui.widgets.gamepad_output_choices import (
     GamepadOutputChoiceSet,
     gamepad_output_choice_matches,
@@ -30,21 +31,28 @@ from keymasq.gui.widgets.gamepad_output_choices import (
 )
 from keymasq.gui.widgets.managed_editor.shell import LabeledForm
 from keymasq.gui.widgets.motion_control.draft import (
+    MotionAnalogDraft,
     MotionAxisRoutingDraft,
     MotionControlDraft,
     MotionGamepadDraft,
     MotionMouseDraft,
     MotionTiltDraft,
 )
+from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.hardware import HardwareManager
 
 _AXIS_OUTPUTS = ("none", "horizontal", "vertical")
-_MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse")
+_MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse", "analog")
 _TILT_MODES = frozenset({"tilt_mouse", "tilt_gamepad", "area_mouse"})
 _GAMEPAD_MODES = frozenset({"gamepad", "tilt_gamepad"})
 _TILT_REFERENCES = ("activation", "gravity")
+_MOTION_ANALOG_SOURCES = ("gyro", "tilt")
+_GYRO_SIGNAL_AXES = ("none", "yaw", "pitch", "roll")
+_TILT_SIGNAL_AXES = ("none", "pitch", "roll")
 
 OutputChoicesLoader = Callable[[str | None], GamepadOutputChoiceSet]
+AnalogControlsLoader = Callable[[], dict[str, AnalogControlConfig]]
+EditAnalogControl = Callable[[str], None]
 
 
 def _default_output_choices(selected_id: str | None) -> GamepadOutputChoiceSet:
@@ -53,6 +61,10 @@ def _default_output_choices(selected_id: str | None) -> GamepadOutputChoiceSet:
         count_loader=virtual_gamepad_count,
         hardware_manager_factory=HardwareManager,
     )
+
+
+def _default_analog_controls() -> dict[str, AnalogControlConfig]:
+    return AnalogControlManager().get_all_analog_controls()
 
 
 class MotionControlEditorView(Gtk.Box):
@@ -64,11 +76,15 @@ class MotionControlEditorView(Gtk.Box):
         on_modified: Callable[[], None],
         output_choices_loader: OutputChoicesLoader = _default_output_choices,
         output_count_loader: Callable[[], int] = virtual_gamepad_count,
+        analog_controls_loader: AnalogControlsLoader = _default_analog_controls,
+        edit_analog_control: EditAnalogControl | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._notify_modified = on_modified
         self._output_choices_loader = output_choices_loader
         self._output_count_loader = output_count_loader
+        self._analog_controls_loader = analog_controls_loader
+        self._edit_analog_control = edit_analog_control
         self._loading = True
         self._selected_output_id: str | None = None
         self._output_ids: list[str | None] = []
@@ -80,6 +96,7 @@ class MotionControlEditorView(Gtk.Box):
         self._mouse_draft = initial.mouse
         self._gamepad_draft = initial.gamepad
         self._tilt_draft = initial.tilt
+        self._motion_analog_draft = initial.analog
         self._gyro_axis_routing_draft = initial.axis_routing
         self._active_mode = initial.mode
         self._build_fields()
@@ -92,7 +109,14 @@ class MotionControlEditorView(Gtk.Box):
         self.name_entry = Gtk.Entry(hexpand=True)
         self.description_entry = Gtk.Entry(hexpand=True)
         self.mode_dropdown = Gtk.DropDown.new_from_strings(
-            ["Gyro Mouse", "Gyro Stick", "Tilt Mouse", "Tilt Stick", "Area Mouse"]
+            [
+                "Gyro Mouse",
+                "Gyro Stick",
+                "Tilt Mouse",
+                "Tilt Stick",
+                "Area Mouse",
+                "Motion to Analog",
+            ]
         )
         identity.append("Name:", self.name_entry)
         identity.append("Description:", self.description_entry)
@@ -120,14 +144,82 @@ class MotionControlEditorView(Gtk.Box):
         self.deadzone_label = axes.append("Deadzone (°/s):", self.deadzone)
         axes.append("Smoothing:", self.smoothing)
         axes.append("Response curve:", self.response_curve)
-        self.append(axes.grid)
+        self.axes_grid = axes.grid
+        self.append(self.axes_grid)
 
         invert_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.invert_x = Gtk.CheckButton(label="Invert horizontal")
         self.invert_y = Gtk.CheckButton(label="Invert vertical")
         invert_box.append(self.invert_x)
         invert_box.append(self.invert_y)
-        self.append(invert_box)
+        self.invert_box = invert_box
+        self.append(self.invert_box)
+
+        self.motion_analog_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        analog_form = LabeledForm(label_width=184)
+        self.analog_source_dropdown = Gtk.DropDown.new_from_strings(
+            ["Gyroscope rate", "Controller tilt"]
+        )
+        self.analog_x_axis = Gtk.DropDown.new_from_strings([])
+        self.analog_y_axis = Gtk.DropDown.new_from_strings([])
+        self.analog_reference = Gtk.DropDown.new_from_strings(
+            ["Profile activation pose", "Absolute gravity"]
+        )
+        self.analog_full_scale_rate = self._spin(1.0, 4000.0, 10.0)
+        self.analog_full_scale_angle = self._spin(0.1, 90.0, 0.5)
+        self.analog_smoothing = self._spin(0.0, 0.99, 0.01)
+        analog_control_picker = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        analog_control_hint = Gtk.Label(label="Select one · right-click to edit")
+        analog_control_hint.add_css_class("dim-label")
+        analog_control_hint.add_css_class("caption")
+        analog_control_hint.set_halign(Gtk.Align.START)
+        analog_control_picker.append(analog_control_hint)
+        self.analog_control_search_entry = Gtk.SearchEntry()
+        self.analog_control_search_entry.set_placeholder_text("Search Analog Controls")
+        self.analog_control_search_entry.set_tooltip_text(
+            "Filter Analog Controls by name, description, input type, or behavior"
+        )
+        analog_control_picker.append(self.analog_control_search_entry)
+        self.analog_control_scrolled = Gtk.ScrolledWindow()
+        self.analog_control_scrolled.set_policy(
+            Gtk.PolicyType.NEVER,
+            Gtk.PolicyType.AUTOMATIC,
+        )
+        self.analog_control_scrolled.set_min_content_height(176)
+        self.analog_control_scrolled.set_max_content_height(220)
+        self.analog_control_scrolled.set_propagate_natural_height(True)
+        self.analog_control_listbox = Gtk.ListBox()
+        self.analog_control_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.analog_control_listbox.set_valign(Gtk.Align.START)
+        self.analog_control_listbox.add_css_class("boxed-list")
+        install_listbox_fuzzy_filter(
+            self.analog_control_listbox,
+            self.analog_control_search_entry,
+        )
+        self.analog_control_scrolled.set_child(self.analog_control_listbox)
+        analog_control_picker.append(self.analog_control_scrolled)
+        analog_form.append("Analog Control:", analog_control_picker)
+        analog_form.append("Motion source:", self.analog_source_dropdown)
+        analog_form.append("Analog X:", self.analog_x_axis)
+        self.analog_y_label = analog_form.append("Analog Y:", self.analog_y_axis)
+        self.analog_reference_label = analog_form.append(
+            "Neutral reference:", self.analog_reference
+        )
+        self.analog_rate_label = analog_form.append(
+            "Full output rate (°/s):", self.analog_full_scale_rate
+        )
+        self.analog_angle_label = analog_form.append(
+            "Full output angle (°):", self.analog_full_scale_angle
+        )
+        analog_form.append("Smoothing:", self.analog_smoothing)
+        self.motion_analog_box.append(analog_form.grid)
+        analog_invert_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.analog_invert_x = Gtk.CheckButton(label="Invert X")
+        self.analog_invert_y = Gtk.CheckButton(label="Invert Y")
+        analog_invert_box.append(self.analog_invert_x)
+        analog_invert_box.append(self.analog_invert_y)
+        self.motion_analog_box.append(analog_invert_box)
+        self.append(self.motion_analog_box)
 
         self.mouse_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         mouse_form = LabeledForm(label_width=164)
@@ -219,6 +311,16 @@ class MotionControlEditorView(Gtk.Box):
         self.invert_x.connect("toggled", self._on_modified)
         self.invert_y.connect("toggled", self._on_modified)
         self.drag_center.connect("toggled", self._on_modified)
+        self.analog_control_listbox.connect("row-selected", self._on_analog_control_selected)
+        self.analog_source_dropdown.connect("notify::selected", self._on_analog_source_changed)
+        self.analog_x_axis.connect("notify::selected", self._on_modified)
+        self.analog_y_axis.connect("notify::selected", self._on_modified)
+        self.analog_reference.connect("notify::selected", self._on_modified)
+        self.analog_full_scale_rate.connect("value-changed", self._on_modified)
+        self.analog_full_scale_angle.connect("value-changed", self._on_modified)
+        self.analog_smoothing.connect("value-changed", self._on_modified)
+        self.analog_invert_x.connect("toggled", self._on_modified)
+        self.analog_invert_y.connect("toggled", self._on_modified)
 
     @staticmethod
     def _spin(minimum: float, maximum: float, step: float) -> Gtk.SpinButton:
@@ -232,6 +334,7 @@ class MotionControlEditorView(Gtk.Box):
             self._mouse_draft = draft.mouse
             self._gamepad_draft = draft.gamepad
             self._tilt_draft = draft.tilt
+            self._motion_analog_draft = draft.analog
             self._gyro_axis_routing_draft = draft.axis_routing
             self._active_mode = draft.mode
             self.name_entry.set_text(draft.name)
@@ -252,6 +355,7 @@ class MotionControlEditorView(Gtk.Box):
             mouse=self._mouse_draft,
             gamepad=self._gamepad_draft,
             tilt=self._tilt_draft,
+            analog=self._motion_analog_draft,
         )
 
     def focus_name(self) -> None:
@@ -275,6 +379,9 @@ class MotionControlEditorView(Gtk.Box):
             self._notify_modified()
 
     def _load_active_settings(self) -> None:
+        if self._active_mode == "analog":
+            self._load_motion_analog_settings()
+            return
         if self._active_mode in _TILT_MODES:
             settings = self._tilt_draft
             self._load_axis_routing(
@@ -315,6 +422,9 @@ class MotionControlEditorView(Gtk.Box):
             self._update_output_warning()
 
     def _store_active_settings(self) -> None:
+        if self._active_mode == "analog":
+            self._store_motion_analog_settings()
+            return
         if self._active_mode in _TILT_MODES:
             reference_index = int(self.reference_dropdown.get_selected())
             reference = (
@@ -415,6 +525,7 @@ class MotionControlEditorView(Gtk.Box):
     def _update_mode_visibility(self) -> None:
         is_tilt = self._active_mode in _TILT_MODES
         is_gamepad = self._active_mode in _GAMEPAD_MODES
+        is_analog = self._active_mode == "analog"
         labels = (
             ["Unused", "Stick X", "Stick Y"]
             if is_gamepad
@@ -435,10 +546,18 @@ class MotionControlEditorView(Gtk.Box):
         self.tilt_mouse_box.set_visible(self._active_mode == "tilt_mouse")
         self.area_mouse_box.set_visible(self._active_mode == "area_mouse")
         self.gamepad_box.set_visible(is_gamepad)
+        self.axes_grid.set_visible(not is_analog)
+        self.invert_box.set_visible(not is_analog)
+        self.motion_analog_box.set_visible(is_analog)
         self.max_rate_label.set_visible(self._active_mode == "gamepad")
         self.max_rate.set_visible(self._active_mode == "gamepad")
         self.normalization_note.set_label(
             (
+                "Hardware configuration normalizes motion signals. The attached Analog "
+                "Control owns deadzones, response curves, actions, and outputs."
+            )
+            if is_analog
+            else (
                 "Hardware configuration owns calibration and raw-unit conversion. "
                 "This Motion Control tunes normalized accelerometer orientation."
             )
@@ -449,6 +568,194 @@ class MotionControlEditorView(Gtk.Box):
             )
         )
         self._update_output_warning()
+
+    def _load_motion_analog_settings(self) -> None:
+        draft = self._motion_analog_draft
+        self._load_analog_control_choices(draft.analog_control_name)
+        self.analog_source_dropdown.set_selected(_MOTION_ANALOG_SOURCES.index(draft.source))
+        self._set_analog_signal_choices(draft.x_axis, draft.y_axis)
+        self.analog_reference.set_selected(_TILT_REFERENCES.index(draft.reference))
+        self.analog_full_scale_rate.set_value(draft.full_scale_dps)
+        self.analog_full_scale_angle.set_value(draft.full_scale_deg)
+        self.analog_smoothing.set_value(draft.smoothing)
+        self.analog_invert_x.set_active(draft.invert_x)
+        self.analog_invert_y.set_active(draft.invert_y)
+        self._update_motion_analog_visibility()
+
+    def _store_motion_analog_settings(self) -> None:
+        source = _MOTION_ANALOG_SOURCES[
+            min(len(_MOTION_ANALOG_SOURCES) - 1, int(self.analog_source_dropdown.get_selected()))
+        ]
+        axes = _GYRO_SIGNAL_AXES if source == "gyro" else _TILT_SIGNAL_AXES
+        self._motion_analog_draft = MotionAnalogDraft(
+            analog_control_name=self._selected_analog_control_name(),
+            source=source,
+            x_axis=self._selected_signal_axis(self.analog_x_axis, axes),
+            y_axis=self._selected_signal_axis(self.analog_y_axis, axes),
+            reference=_TILT_REFERENCES[
+                min(len(_TILT_REFERENCES) - 1, int(self.analog_reference.get_selected()))
+            ],
+            full_scale_dps=self.analog_full_scale_rate.get_value(),
+            full_scale_deg=self.analog_full_scale_angle.get_value(),
+            smoothing=self.analog_smoothing.get_value(),
+            invert_x=self.analog_invert_x.get_active(),
+            invert_y=self.analog_invert_y.get_active(),
+        )
+
+    def _load_analog_control_choices(self, selected_name: str | None) -> None:
+        self._available_analog_controls = self._analog_controls_loader()
+        while child := self.analog_control_listbox.get_first_child():
+            self.analog_control_listbox.remove(child)
+
+        if not self._available_analog_controls:
+            row = Gtk.ListBoxRow()
+            row.set_selectable(False)
+            row._search_text = "No analog controls saved yet"
+            label = Gtk.Label(label="No analog controls saved yet")
+            label.add_css_class("dim-label")
+            label.set_margin_top(12)
+            label.set_margin_bottom(12)
+            row.set_child(label)
+            self.analog_control_listbox.append(row)
+            return
+
+        selected_row: Gtk.ListBoxRow | None = None
+        for name in sorted(self._available_analog_controls):
+            config = self._available_analog_controls[name]
+            row = Gtk.ListBoxRow()
+            row._analog_control_name = name
+            row._search_text = " ".join(
+                (
+                    name,
+                    config.description or "",
+                    self._describe_analog_control(config),
+                )
+            )
+            row.set_size_request(-1, 42)
+
+            right_click = Gtk.GestureClick()
+            right_click.set_button(3)
+            right_click.connect(
+                "pressed",
+                self._on_analog_control_row_right_pressed,
+                name,
+            )
+            row.add_controller(right_click)
+
+            content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            content.set_margin_top(8)
+            content.set_margin_bottom(8)
+            content.set_margin_start(12)
+            content.set_margin_end(12)
+            name_label = Gtk.Label(label=name)
+            name_label.set_halign(Gtk.Align.START)
+            name_label.set_hexpand(True)
+            content.append(name_label)
+            detail_label = Gtk.Label(label=self._describe_analog_control(config))
+            detail_label.add_css_class("dim-label")
+            detail_label.add_css_class("caption")
+            content.append(detail_label)
+            row.set_child(content)
+            self.analog_control_listbox.append(row)
+            if name == selected_name:
+                selected_row = row
+
+        if selected_row is not None:
+            self.analog_control_listbox.select_row(selected_row)
+
+    def _selected_analog_control_name(self) -> str | None:
+        row = self.analog_control_listbox.get_selected_row()
+        name = getattr(row, "_analog_control_name", None)
+        return name if isinstance(name, str) else None
+
+    @staticmethod
+    def _describe_analog_control(config: AnalogControlConfig) -> str:
+        parts = ["Axis" if config.input_type == "axis" else "Stick"]
+        if config.mouse_motion.enabled:
+            parts.append("Mouse")
+        if config.gamepad_output.enabled:
+            parts.append("Gamepad output")
+        if config.thresholds:
+            count = len(config.thresholds)
+            parts.append(f"{count} range{'s' if count != 1 else ''}")
+        return " · ".join(parts)
+
+    def _on_analog_control_selected(
+        self,
+        _listbox: Gtk.ListBox,
+        _row: Gtk.ListBoxRow | None,
+    ) -> None:
+        if self._loading:
+            return
+        self._update_motion_analog_visibility()
+        self._notify_modified()
+
+    def _on_analog_control_row_right_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        name: str,
+    ) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        if self._edit_analog_control is not None:
+            self._edit_analog_control(name)
+
+    def refresh_analog_controls(self, fallback_name: str | None = None) -> None:
+        if self._active_mode != "analog":
+            return
+        selected_name = self._selected_analog_control_name()
+        self._loading = True
+        try:
+            self._load_analog_control_choices(selected_name)
+            if self._selected_analog_control_name() is None and fallback_name != selected_name:
+                self._load_analog_control_choices(fallback_name)
+            self._update_motion_analog_visibility()
+        finally:
+            self._loading = False
+
+    def _on_analog_source_changed(self, _dropdown: Gtk.DropDown, _param: object) -> None:
+        if self._loading:
+            return
+        self._set_analog_signal_choices("roll", "pitch")
+        self._update_motion_analog_visibility()
+        self._notify_modified()
+
+    def _set_analog_signal_choices(self, x_axis: str, y_axis: str) -> None:
+        source_index = int(self.analog_source_dropdown.get_selected())
+        source = _MOTION_ANALOG_SOURCES[min(len(_MOTION_ANALOG_SOURCES) - 1, source_index)]
+        axes = _GYRO_SIGNAL_AXES if source == "gyro" else _TILT_SIGNAL_AXES
+        labels = [axis.title() if axis != "none" else "Unused" for axis in axes]
+        for dropdown, selected, fallback in (
+            (self.analog_x_axis, x_axis, "roll"),
+            (self.analog_y_axis, y_axis, "pitch"),
+        ):
+            dropdown.set_model(Gtk.StringList.new(labels))
+            dropdown.set_selected(axes.index(selected if selected in axes else fallback))
+
+    @staticmethod
+    def _selected_signal_axis(dropdown: Gtk.DropDown, axes: tuple[str, ...]) -> str:
+        selected = int(dropdown.get_selected())
+        return axes[selected] if 0 <= selected < len(axes) else "none"
+
+    def _update_motion_analog_visibility(self) -> None:
+        source = _MOTION_ANALOG_SOURCES[
+            min(len(_MOTION_ANALOG_SOURCES) - 1, int(self.analog_source_dropdown.get_selected()))
+        ]
+        is_tilt = source == "tilt"
+        self.analog_reference_label.set_visible(is_tilt)
+        self.analog_reference.set_visible(is_tilt)
+        self.analog_rate_label.set_visible(not is_tilt)
+        self.analog_full_scale_rate.set_visible(not is_tilt)
+        self.analog_angle_label.set_visible(is_tilt)
+        self.analog_full_scale_angle.set_visible(is_tilt)
+        name = self._selected_analog_control_name()
+        config = self._available_analog_controls.get(name or "")
+        is_stick = config is None or config.input_type == "stick"
+        self.analog_y_label.set_visible(is_stick)
+        self.analog_y_axis.set_visible(is_stick)
+        self.analog_invert_y.set_visible(is_stick)
 
     @property
     def output_target_buttons(self) -> dict[str, Gtk.ToggleButton]:

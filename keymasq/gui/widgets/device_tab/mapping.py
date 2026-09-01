@@ -96,10 +96,16 @@ class MappingMixin:
         mapping = layer.mappings.get(sensor.id) if layer else None
         if mapping is None or mapping.action_type != ActionType.MOTION_CONTROL:
             return
-        if not mapping.motion_control_name:
+        names = mapping.motion_control_names or (
+            [mapping.motion_control_name] if mapping.motion_control_name else []
+        )
+        if not names:
             return
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        self._open_motion_control_manager(mapping.motion_control_name)
+        if len(names) == 1:
+            self._open_motion_control_manager(names[0])
+        else:
+            self._show_motion_editor(sensor)
 
     def _open_motion_control_manager(self: Any, select_name: str) -> None:
         from keymasq.gui.widgets.motion_control.dialog import MotionControlDialog

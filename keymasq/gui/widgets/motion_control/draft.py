@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from keymasq.common.model.motion import (
+    MotionAnalogConfig,
     MotionAxisRoutingConfig,
     MotionControlConfig,
     MotionGamepadConfig,
@@ -155,6 +156,49 @@ class MotionTiltDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class MotionAnalogDraft:
+    analog_control_name: str | None
+    source: str
+    x_axis: str
+    y_axis: str
+    reference: str
+    full_scale_dps: float
+    full_scale_deg: float
+    smoothing: float
+    invert_x: bool
+    invert_y: bool
+
+    @classmethod
+    def from_config(cls, config: MotionAnalogConfig) -> "MotionAnalogDraft":
+        return cls(
+            analog_control_name=config.analog_control_name,
+            source=config.source,
+            x_axis=config.x_axis,
+            y_axis=config.y_axis,
+            reference=config.reference,
+            full_scale_dps=config.full_scale_dps,
+            full_scale_deg=config.full_scale_deg,
+            smoothing=config.smoothing,
+            invert_x=config.invert_x,
+            invert_y=config.invert_y,
+        )
+
+    def to_config(self) -> MotionAnalogConfig:
+        return MotionAnalogConfig(
+            analog_control_name=self.analog_control_name,
+            source=self.source,
+            x_axis=self.x_axis,
+            y_axis=self.y_axis,
+            reference=self.reference,
+            full_scale_dps=self.full_scale_dps,
+            full_scale_deg=self.full_scale_deg,
+            smoothing=self.smoothing,
+            invert_x=self.invert_x,
+            invert_y=self.invert_y,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MotionControlDraft:
     name: str
     description: str
@@ -163,6 +207,7 @@ class MotionControlDraft:
     mouse: MotionMouseDraft
     gamepad: MotionGamepadDraft
     tilt: MotionTiltDraft
+    analog: MotionAnalogDraft
 
     @classmethod
     def from_config(cls, config: MotionControlConfig) -> "MotionControlDraft":
@@ -174,6 +219,7 @@ class MotionControlDraft:
             mouse=MotionMouseDraft.from_config(config.mouse),
             gamepad=MotionGamepadDraft.from_config(config.gamepad),
             tilt=MotionTiltDraft.from_config(config.tilt),
+            analog=MotionAnalogDraft.from_config(config.analog),
         )
 
     @classmethod
@@ -184,6 +230,8 @@ class MotionControlDraft:
         name = self.name.strip()
         if not name:
             raise ValueError("motion control name is required")
+        if self.mode == "analog" and not self.analog.analog_control_name:
+            raise ValueError("Motion to Analog requires an Analog Control")
         return MotionControlConfig(
             name=name,
             description=self.description.strip() or None,
@@ -192,6 +240,7 @@ class MotionControlDraft:
             mouse=self.mouse.to_config(),
             gamepad=self.gamepad.to_config(),
             tilt=self.tilt.to_config(),
+            analog=self.analog.to_config(),
         )
 
     def is_pristine_new_draft(self) -> bool:

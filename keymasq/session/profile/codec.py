@@ -98,9 +98,7 @@ class ProfileCodec:
                 if parsed_created_at.utcoffset() is None:
                     created_at = parsed_created_at
                 else:
-                    created_at_repair_reason = (
-                        f"timezone-aware created_at '{created_at_raw}'"
-                    )
+                    created_at_repair_reason = f"timezone-aware created_at '{created_at_raw}'"
         elif created_at_raw is None:
             created_at_repair_reason = "missing created_at"
         else:
@@ -243,19 +241,36 @@ class ProfileCodec:
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         if action_type == ActionType.MOTION_CONTROL:
-            raw_name = normalized_action_data.get("motion_control_name")
-            name = str(raw_name).strip() if raw_name is not None else None
-            if name and (
-                self._motion_control_exists is None or self._motion_control_exists(name)
-            ):
+            raw_names = normalized_action_data.get("motion_control_names")
+            if isinstance(raw_names, list):
+                raw_motion_control_names = cast(list[object], raw_names)
+            else:
+                raw_motion_name: object = normalized_action_data.get("motion_control_name")
+                raw_motion_control_names = [raw_motion_name] if raw_motion_name is not None else []
+            motion_control_names = [
+                name for raw_name in raw_motion_control_names if (name := str(raw_name).strip())
+            ]
+            if motion_control_names:
+                if self._motion_control_exists is not None:
+                    missing = next(
+                        (
+                            name
+                            for name in motion_control_names
+                            if not self._motion_control_exists(name)
+                        ),
+                        None,
+                    )
+                    if missing is not None:
+                        log.warning(
+                            "Unknown motion control '%s', replacing with suppress",
+                            missing,
+                        )
+                        return MappingAction(action_type=ActionType.SUPPRESS)
                 return MappingAction(
                     action_type=ActionType.MOTION_CONTROL,
-                    motion_control_name=name,
+                    motion_control_names=motion_control_names,
                 )
-            if name:
-                log.warning("Unknown motion control '%s', replacing with suppress", name)
-            else:
-                log.warning("Motion control action missing a control name, replacing with suppress")
+            log.warning("Motion control action missing control names, replacing with suppress")
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         return mapping_action_from_toml(

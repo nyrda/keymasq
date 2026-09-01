@@ -54,13 +54,13 @@ class MotionTabMixin:
         toolbar.add_css_class("flat")
         toolbar.connect("clicked", self._on_open_motion_manager_clicked)
         toolbar_row.append(toolbar)
-        hint = Gtk.Label(label="Select one · right-click to edit")
+        hint = Gtk.Label(label="Select one or multiple · right-click to edit")
         hint.add_css_class("dim-label")
         hint.add_css_class("caption")
         toolbar_row.append(hint)
         outer.append(toolbar_row)
         self._motion_control_listbox = Gtk.ListBox()
-        self._motion_control_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._motion_control_listbox.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
         self._motion_control_listbox.connect("row-selected", self._on_motion_row_selected)
         self._motion_control_listbox.add_css_class("boxed-list")
         scrolled = Gtk.ScrolledWindow()
@@ -78,11 +78,16 @@ class MotionTabMixin:
         controls = manager.get_all_motion_controls()
         while child := self._motion_control_listbox.get_first_child():
             self._motion_control_listbox.remove(child)
-        selected = self._selected_motion_control
+        selected = set(self._selected_motion_controls)
         for name in manager.list_motion_controls():
             config = controls[name]
             row = Gtk.ListBoxRow()
             row._motion_control_name = name
+            click = Gtk.GestureClick()
+            click.set_button(1)
+            click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            click.connect("pressed", self._on_motion_control_row_pressed, row)
+            row.add_controller(click)
             right_click = Gtk.GestureClick()
             right_click.set_button(3)
             right_click.connect(
@@ -107,32 +112,52 @@ class MotionTabMixin:
                     "tilt_mouse": "Tilt mouse",
                     "tilt_gamepad": "Tilt stick",
                     "area_mouse": "Area mouse",
+                    "analog": "Motion to analog",
                 }[config.mode]
             )
             detail.add_css_class("dim-label")
             content.append(detail)
             row.set_child(content)
             self._motion_control_listbox.append(row)
-            if name == selected:
+            if name in selected:
                 self._motion_control_listbox.select_row(row)
-        self._sync_selected_motion_control()
+        self._sync_selected_motion_controls()
 
     def _on_motion_row_selected(self: Any, _listbox: Gtk.ListBox, _row: object) -> None:
-        self._sync_selected_motion_control()
+        self._sync_selected_motion_controls()
         if self.stack.get_visible_child_name() == "motion_control":
-            self.map_btn.set_sensitive(self._selected_motion_control is not None)
+            self.map_btn.set_sensitive(bool(self._selected_motion_controls))
 
-    def _sync_selected_motion_control(self: Any) -> None:
-        row = self._motion_control_listbox.get_selected_row()
-        name = getattr(row, "_motion_control_name", None) if row is not None else None
-        self._selected_motion_control = name if isinstance(name, str) else None
+    def _sync_selected_motion_controls(self: Any) -> None:
+        selected: list[str] = []
+        for row in self._motion_control_listbox.get_selected_rows():
+            name = getattr(row, "_motion_control_name", None)
+            if isinstance(name, str):
+                selected.append(name)
+        self._selected_motion_controls = selected
+        self._selected_motion_control = selected[0] if selected else None
+
+    def _on_motion_control_row_pressed(
+        self: Any,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+        row: Gtk.ListBoxRow,
+    ) -> None:
+        if row.is_selected():
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._motion_control_listbox.unselect_row(row)
+            self._sync_selected_motion_controls()
+            if self.stack.get_visible_child_name() == "motion_control":
+                self.map_btn.set_sensitive(bool(self._selected_motion_controls))
 
     def _on_motion_control_map_clicked(self: Any, _button: Gtk.Button) -> None:
-        if self._selected_motion_control:
+        if self._selected_motion_controls:
             self._emit_selected_action(
                 MappingAction(
                     action_type=ActionType.MOTION_CONTROL,
-                    motion_control_name=self._selected_motion_control,
+                    motion_control_names=list(self._selected_motion_controls),
                 )
             )
 

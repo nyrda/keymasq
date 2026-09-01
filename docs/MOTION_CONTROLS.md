@@ -53,7 +53,7 @@ and profile-switch lifecycle.
 
 Open **Motion Controls** from the application menu, or click a Motion Sensor card in a
 controller profile. The menu entry appears after Keymasq has a configured controller with
-an attached motion sensor. The first-use presets create one of five separate control types:
+an attached motion sensor. The first-use presets create the common control types:
 
 - **Gyro Mouse**, which integrates angular velocity over elapsed frame time and emits
   fractional-accumulated relative mouse motion;
@@ -66,8 +66,19 @@ an attached motion sensor. The first-use presets create one of five separate con
 - **Area Mouse**, which maps tilt to a bounded cursor offset. Motion back toward the neutral
   pose emits the inverse cursor movement.
 
-Multiple motion sensors and multiple named controls are supported, but each sensor mapping
-selects one Motion Control and each Motion Control selects one output behavior. There is no
+The Motion Control editor also provides **Motion to Analog** for advanced mappings. It
+converts either gyroscope rate or controller tilt into one normalized axis or stick, then
+passes that input to one saved Analog Control. The attached Analog Control owns its
+deadzones, response curves, digital ranges, mouse behavior, and gamepad output routing.
+Gyroscope inputs can select yaw, pitch, or roll for each analog channel. Controller tilt can
+select pitch or roll because an accelerometer cannot measure absolute yaw.
+
+A profile mapping can attach one or more Motion Controls to a sensor. Every attached control
+receives the same normalized sensor frames but keeps separate smoothing, neutral pose,
+threshold, and output state. This permits combinations such as Gyro Mouse with tilt-based
+digital actions. Profile layering replaces the complete mapping, including its attached
+control list. Each Motion-to-Analog control supplies exactly one Analog Control input; users
+add more named controls to the sensor mapping when they need more outputs. There is no
 process-wide or global gyro source.
 
 The default axis routing is:
@@ -94,6 +105,11 @@ captures it from the first complete accelerometer frame after the profile and de
 active. Choosing **Absolute gravity** instead uses a level controller as the neutral pose.
 The captured pose is runtime state. Profile changes, device resets, and `SYN_DROPPED` clear
 it. Keymasq never writes it into the hardware configuration.
+
+Motion-to-Analog uses the same activation reference for controller tilt. Its full-output
+rate or angle converts the physical motion signal into the normalized `-1.0` to `1.0` range
+expected by Analog Controls. An attached axis control consumes X only. A stick control
+consumes X and Y together, so its radial deadzone and diagonal processing remain intact.
 
 Area Mouse maps its configured full-output angle to a horizontal and vertical pixel radius.
 It emits relative deltas from the previous point in that area, matching the existing analog

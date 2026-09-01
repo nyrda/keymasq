@@ -170,6 +170,7 @@ class KeySelectorDialog(
         self._selected_analog_control: str | None = None
         self._selected_analog_controls: list[str] = []
         self._selected_motion_control: str | None = None
+        self._selected_motion_controls: list[str] = []
         self._macro_replay_movement: bool = True
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0
@@ -236,7 +237,12 @@ class KeySelectorDialog(
                     self._selected_analog_controls[0] if self._selected_analog_controls else None
                 )
             elif current_action.action_type == ActionType.MOTION_CONTROL:
-                self._selected_motion_control = current_action.motion_control_name
+                self._selected_motion_controls = list(current_action.motion_control_names)
+                if not self._selected_motion_controls and current_action.motion_control_name:
+                    self._selected_motion_controls = [current_action.motion_control_name]
+                self._selected_motion_control = (
+                    self._selected_motion_controls[0] if self._selected_motion_controls else None
+                )
             elif current_action.action_type == ActionType.EXEC:
                 self._exec_cmd = current_action.cmd or ""
             elif current_action.action_type == ActionType.REPEAT:
@@ -498,9 +504,7 @@ class KeySelectorDialog(
 
         if self._allow_clear_mapping:
             clear_label = (
-                "Clear Mapping"
-                if self._source_type in {"analog", "motion"}
-                else "Passthrough"
+                "Clear Mapping" if self._source_type in {"analog", "motion"} else "Passthrough"
             )
             clear_btn = self._create_key_button(clear_label, "clear_mapping", large=True)
             clear_btn.connect("clicked", self._on_special_clicked, "clear_mapping")
@@ -637,7 +641,7 @@ class KeySelectorDialog(
         elif is_analog_control:
             self.map_btn.set_sensitive(bool(self._selected_analog_controls))
         elif is_motion_control:
-            self.map_btn.set_sensitive(self._selected_motion_control is not None)
+            self.map_btn.set_sensitive(bool(self._selected_motion_controls))
         elif is_type:
             self._maybe_load_type_macro_details()
             self._sync_type_map_button()

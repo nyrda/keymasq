@@ -13,6 +13,7 @@ from keymasq.common.model.motion import MotionAxisRoutingConfig, MotionControlCo
 from keymasq.keymasqd.output_helpers import emit_mouse_move
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.gamepad import emit_gamepad_output
+from keymasq.keymasqd.runtime.analog_controls import process_normalized_analog_values
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -62,13 +63,16 @@ async def dispatch_motion_event(
         consumed = True
         if action is None or action.action_type != ActionType.MOTION_CONTROL:
             continue
-        config = action.motion_control_config
-        if config is not None:
-            _emit_motion_control(
+        configs = _action_motion_control_configs(action)
+        for index, config in enumerate(configs):
+            await _emit_motion_control(
                 device_runtime,
                 sensor_id,
+                _motion_control_state_key(sensor_id, index, len(configs)),
                 config,
                 now_ns,
+                event,
+                source_profile_name=action.source_profile_name,
                 deps=deps,
             )
     return consumed
@@ -78,16 +82,32 @@ def _motion_action_consumes(action: MappingAction | None) -> bool:
     return action is not None and action.action_type != ActionType.PASSTHROUGH
 
 
-def _emit_motion_control(
+def _action_motion_control_configs(action: MappingAction) -> list[MotionControlConfig]:
+    if action.action_type != ActionType.MOTION_CONTROL:
+        return []
+    if action.motion_control_configs:
+        return list(action.motion_control_configs)
+    if action.motion_control_config is not None:
+        return [action.motion_control_config]
+    return []
+
+
+def _motion_control_state_key(sensor_id: str, index: int, total: int) -> str:
+    return f"motion:{sensor_id}" if total == 1 else f"motion:{sensor_id}:control:{index}"
+
+
+async def _emit_motion_control(
     device_runtime: GrabbedDeviceRuntime,
     sensor_id: str,
+    state_key: str,
     config: MotionControlConfig,
     now_ns: int,
+    event: InputEventLike,
     *,
+    source_profile_name: str | None,
     deps: ActionExecutionDeps,
 ) -> None:
     frame = device_runtime.state.motion_frame_values.get(sensor_id, {})
-    state_key = f"motion:{sensor_id}"
     last_ns = device_runtime.state.motion_last_frame_ns.get(state_key, now_ns)
     device_runtime.state.motion_last_frame_ns[state_key] = now_ns
     dt = min(0.1, max(0.0, (now_ns - last_ns) / 1_000_000_000.0))
@@ -105,6 +125,19 @@ def _emit_motion_control(
             raw_x,
             raw_y,
             dt,
+            deps=deps,
+        )
+        return
+
+    if config.mode == "analog":
+        await _emit_motion_analog(
+            device_runtime,
+            sensor_id,
+            state_key,
+            config,
+            frame,
+            event,
+            source_profile_name=source_profile_name,
             deps=deps,
         )
         return
@@ -172,6 +205,81 @@ def _emit_motion_control(
             y,
             deps=deps,
         )
+
+
+async def _emit_motion_analog(
+    device_runtime: GrabbedDeviceRuntime,
+    sensor_id: str,
+    state_key: str,
+    config: MotionControlConfig,
+    frame: dict[str, dict[str, float]],
+    event: InputEventLike,
+    *,
+    source_profile_name: str | None,
+    deps: ActionExecutionDeps,
+) -> None:
+    analog_control = config.analog.analog_control_config
+    if analog_control is None:
+        return
+
+    if config.analog.source == "gyro":
+        gyro = frame.get("gyro", {})
+        if not gyro:
+            return
+        signals = {
+            axis: -math.degrees(float(gyro.get(axis, 0.0))) for axis in ("yaw", "pitch", "roll")
+        }
+        maximum = config.analog.full_scale_dps
+    else:
+        angles = _accelerometer_angles(frame.get("accelerometer", {}))
+        if angles is None:
+            return
+        pitch, roll = angles
+        signals = {"yaw": 0.0, "pitch": -pitch, "roll": -roll}
+        center = device_runtime.state.motion_tilt_centers.get(state_key)
+        absolute = (
+            _selected_motion_signal(signals, config.analog.x_axis),
+            _selected_motion_signal(signals, config.analog.y_axis),
+        )
+        if center is None:
+            center = absolute if config.analog.reference == "activation" else (0.0, 0.0)
+            device_runtime.state.motion_tilt_centers[state_key] = center
+        signals = {
+            config.analog.x_axis: absolute[0] - center[0],
+            config.analog.y_axis: absolute[1] - center[1],
+        }
+        maximum = config.analog.full_scale_deg
+
+    raw_x = _selected_motion_signal(signals, config.analog.x_axis)
+    raw_y = _selected_motion_signal(signals, config.analog.y_axis)
+    x, y = _filtered_axes(
+        device_runtime,
+        state_key,
+        raw_x,
+        raw_y,
+        config.analog.smoothing,
+    )
+    x = max(-1.0, min(1.0, x / maximum))
+    y = max(-1.0, min(1.0, y / maximum))
+    if config.analog.invert_x:
+        x = -x
+    if config.analog.invert_y:
+        y = -y
+    await process_normalized_analog_values(
+        device_runtime,
+        state_key,
+        sensor_id,
+        analog_control,
+        event,
+        x,
+        y,
+        source_profile_name=source_profile_name,
+        deps=deps,
+    )
+
+
+def _selected_motion_signal(signals: dict[str, float], axis: str) -> float:
+    return 0.0 if axis == "none" else float(signals.get(axis, 0.0))
 
 
 def _emit_gyro_control(

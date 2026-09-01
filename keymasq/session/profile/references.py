@@ -82,12 +82,21 @@ def remove_motion_control(config: ProfileConfig, name: str) -> Rewrite:
     count = 0
     for layer in updated.device_layers.values():
         for source_id, action in list(layer.mappings.items()):
-            if (
-                action.action_type != ActionType.MOTION_CONTROL
-                or action.motion_control_name != name
-            ):
+            if action.action_type != ActionType.MOTION_CONTROL:
                 continue
-            layer.mappings[source_id] = MappingAction(action_type=ActionType.SUPPRESS)
+            if name not in action.motion_control_names:
+                continue
+            remaining_names = [
+                control_name for control_name in action.motion_control_names if control_name != name
+            ]
+            layer.mappings[source_id] = (
+                MappingAction(
+                    action_type=ActionType.MOTION_CONTROL,
+                    motion_control_names=remaining_names,
+                )
+                if remaining_names
+                else MappingAction(action_type=ActionType.SUPPRESS)
+            )
             count += 1
     return Rewrite(updated if count else None, count)
 
@@ -99,12 +108,14 @@ def rename_motion_control(config: ProfileConfig, old_name: str, new_name: str) -
     count = 0
     for layer in updated.device_layers.values():
         for action in layer.mappings.values():
-            if (
-                action.action_type != ActionType.MOTION_CONTROL
-                or action.motion_control_name != old_name
-            ):
+            if action.action_type != ActionType.MOTION_CONTROL:
                 continue
-            action.motion_control_name = new_name
+            if old_name not in action.motion_control_names:
+                continue
+            action.motion_control_names = [
+                new_name if name == old_name else name for name in action.motion_control_names
+            ]
+            action.motion_control_name = action.motion_control_names[0]
             count += 1
     return Rewrite(updated if count else None, count)
 

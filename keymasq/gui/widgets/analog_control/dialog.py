@@ -49,6 +49,7 @@ from keymasq.gui.widgets.position_capture import (
 )
 from keymasq.gui.widgets.spin_inputs import SPLIT_DESYNC_KEYS
 from keymasq.session.analog_controls import AnalogControlManager
+from keymasq.session.motion_controls import MotionControlManager
 from keymasq.session.profile.manager import ProfileManager
 
 log = logging.getLogger(__name__)
@@ -91,7 +92,10 @@ class AnalogControlDialog(Adw.Dialog):
         self._parent = parent
         self.profile_manager = profile_manager
         self.manager = manager or AnalogControlManager()
-        self._persistence = persistence or AnalogControlPersistence(self.manager)
+        self._persistence = persistence or AnalogControlPersistence(
+            self.manager,
+            MotionControlManager(),
+        )
         self.state = EditorState()
         self._current_config: AnalogControlConfig | None = None
         self._current_name: str | None = None

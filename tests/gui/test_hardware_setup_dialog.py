@@ -1382,6 +1382,83 @@ class TestHardwareSetupDialog:
         assert dialog._detect_devices_via_session(detected_devices) is False
         assert detected_devices == {}
 
+    def test_detect_devices_via_session_numbers_gamepads_before_motion_siblings(
+        self, monkeypatch
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.wizards.hardware_setup import discovery as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+        monkeypatch.setattr(
+            hardware_setup_mod,
+            "session_request",
+            lambda _payload, timeout=3.0: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event22",
+                        "stable_path": "/dev/input/by-id/00-controller-one-motion",
+                        "name": "Controller Motion Sensors",
+                        "phys": "usb-0000:00:14.0-1/input1",
+                        "vendor_id": "054c",
+                        "product_id": "0ce6",
+                        "device_type": "motion",
+                        "device_types": ["motion"],
+                    },
+                    {
+                        "path": "/dev/input/event23",
+                        "stable_path": "/dev/input/by-id/01-controller-two-motion",
+                        "name": "Controller Motion Sensors",
+                        "phys": "usb-0000:00:14.0-2/input1",
+                        "vendor_id": "054c",
+                        "product_id": "0ce6",
+                        "device_type": "motion",
+                        "device_types": ["motion"],
+                    },
+                    {
+                        "path": "/dev/input/event20",
+                        "stable_path": "/dev/input/by-id/10-controller-one-gamepad",
+                        "name": "Controller",
+                        "phys": "usb-0000:00:14.0-1/input0",
+                        "vendor_id": "054c",
+                        "product_id": "0ce6",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": "/dev/input/by-id/11-controller-two-gamepad",
+                        "name": "Controller",
+                        "phys": "usb-0000:00:14.0-2/input0",
+                        "vendor_id": "054c",
+                        "product_id": "0ce6",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    },
+                ],
+            },
+        )
+
+        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        detected_devices: dict[str, dict] = {}
+
+        assert dialog._detect_devices_via_session(detected_devices) is True
+
+        assert set(detected_devices) == {"054c:0ce6", "054c:0ce6@2"}
+        assert detected_devices["054c:0ce6"]["name"] == "Controller"
+        assert detected_devices["054c:0ce6"]["paths"] == [
+            "/dev/input/event20",
+            "/dev/input/event22",
+        ]
+        assert detected_devices["054c:0ce6@2"]["name"] == "Controller"
+        assert detected_devices["054c:0ce6@2"]["paths"] == [
+            "/dev/input/event21",
+            "/dev/input/event23",
+        ]
+
     def test_detect_devices_via_session_keeps_duplicate_gamepad_slots(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

@@ -70,6 +70,26 @@ def allocate_hardware_id(model_id: str, used_hardware_ids: set[str]) -> str:
         index += 1
 
 
+def _session_device_sort_key(
+    dev: dict[str, Any],
+    *,
+    motion_siblings_last: bool,
+) -> tuple[str, str, bool, str]:
+    dtype_raw = str(dev.get("device_type", "other") or "other")
+    device_types = normalize_input_classes(dev.get("device_types"), dtype_raw)
+    motion_only = (
+        motion_siblings_last
+        and "motion" in device_types
+        and "gamepad" not in device_types
+    )
+    return (
+        str(dev.get("vendor_id", "") or "").lower(),
+        str(dev.get("product_id", "") or "").lower(),
+        motion_only,
+        str(dev.get("stable_path", "") or dev.get("path", "") or ""),
+    )
+
+
 def detect_devices_via_session(
     detected_devices: dict[str, DetectedDevice],
     *,
@@ -100,10 +120,9 @@ def detect_devices_via_session(
         cast(dict[str, Any], dev) for dev in raw_devices if isinstance(dev, dict)
     ]
     session_devices.sort(
-        key=lambda dev: (
-            str(dev.get("vendor_id", "") or "").lower(),
-            str(dev.get("product_id", "") or "").lower(),
-            str(dev.get("stable_path", "") or dev.get("path", "") or ""),
+        key=lambda dev: _session_device_sort_key(
+            dev,
+            motion_siblings_last=not show_raw_evdev_devices,
         )
     )
 

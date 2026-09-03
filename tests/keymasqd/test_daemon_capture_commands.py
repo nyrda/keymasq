@@ -597,6 +597,38 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
     )
 
 
+@pytest.mark.asyncio
+async def test_capture_begin_forwards_motion_axis_codes(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {
+            "hardware_id": "2dc8:3106",
+            "evdev_paths": ["/dev/input/event21"],
+            "mode": "motion",
+            "motion_axis_codes": [
+                evdev.ecodes.ABS_RX,
+                evdev.ecodes.ABS_RY,
+                evdev.ecodes.ABS_RZ,
+            ],
+        },
+    )
+
+    assert result == {"token": "cap-token"}
+    capture_manager.begin.assert_called_once_with(
+        hardware_id="2dc8:3106",
+        evdev_paths=["/dev/input/event21"],
+        evdev_interfaces=None,
+        mode="motion",
+        motion_axis_codes=[
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ],
+    )
+
+
 def test_capture_event_code_name_handles_list_style_evdev_aliases(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

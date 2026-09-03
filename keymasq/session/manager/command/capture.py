@@ -1,7 +1,7 @@
 import asyncio
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.coercion import coerce_bool, coerce_float, coerce_str
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerce_str
 
 from .. import recording_capture, recording_device_selection
 from ..common import JsonObject, json_list
@@ -44,6 +44,11 @@ async def handle_capture_commands(
             if coerce_str(path, "")
         ]
         source = coerce_str(request.get("source"), "")
+        motion_axis_codes = [
+            coerce_int(code, -1)
+            for code in json_list(request.get("motion_axis_codes"))
+            if coerce_int(code, -1) >= 0
+        ]
         evdev_interfaces_raw = request.get("evdev_interfaces")
         evdev_interfaces = (
             [
@@ -62,6 +67,7 @@ async def handle_capture_commands(
             evdev_interfaces=evdev_interfaces,
             mode=mode,
             source=source or None,
+            motion_axis_codes=motion_axis_codes,
             owner_writer=writer if bool(request.get("end_on_disconnect", False)) else None,
         )
 

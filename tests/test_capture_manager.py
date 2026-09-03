@@ -7,6 +7,7 @@ import evdev
 import pytest
 
 from keymasq.common.devices import detect_input_classes, primary_input_class
+from keymasq.keymasqd import capture_manager as capture_manager_module
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
 
@@ -19,7 +20,13 @@ class _FakeInfo:
 
 class _FakeDevice:
     def __init__(
-        self, path: str, vendor: int, product: int, events: list[evdev.InputEvent]
+        self,
+        path: str,
+        vendor: int,
+        product: int,
+        events: list[evdev.InputEvent],
+        *,
+        motion: bool = False,
     ) -> None:
         self.path = path
         self.name = "Fake Device"
@@ -29,6 +36,7 @@ class _FakeDevice:
         self.closed = False
         self.close_count = 0
         self.read_one_count = 0
+        self.motion = motion
         self.fd = hash(path) & 0xFFFF
         self._absinfo = {
             evdev.ecodes.ABS_X: evdev.AbsInfo(0, -32768, 32767, 0, 0, 0),
@@ -47,6 +55,9 @@ class _FakeDevice:
 
     def capabilities(self):
         return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A, evdev.ecodes.KEY_LEFTCTRL]}
+
+    def input_props(self):
+        return [evdev.ecodes.INPUT_PROP_ACCELEROMETER] if self.motion else []
 
     def read(self):
         while self._events:
@@ -221,6 +232,78 @@ def test_capture_manager_analog_mode_reads_abs_events(monkeypatch) -> None:
         if token is not None:
             manager.end(token)
     assert fake.grabbed is False
+    assert fake.closed is True
+
+
+def test_capture_manager_motion_mode_returns_complete_frame_batches(monkeypatch) -> None:
+    events = [
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 10),
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 20),
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+    ]
+    fake = _FakeDevice(
+        "/dev/input/event-motion",
+        0x1234,
+        0x5678,
+        events,
+        motion=True,
+    )
+    fake._absinfo = {
+        evdev.ecodes.ABS_RX: evdev.AbsInfo(1, -32768, 32767, 1, 0, 16),
+        evdev.ecodes.ABS_RY: evdev.AbsInfo(2, -32768, 32767, 1, 0, 16),
+        evdev.ecodes.ABS_RZ: evdev.AbsInfo(3, -32768, 32767, 1, 0, 16),
+    }
+    monkeypatch.setattr(evdev, "InputDevice", lambda _path: fake)
+    manager = CaptureManager()
+    monkeypatch.setattr(manager, "_start_motion_reader", lambda _session: None)
+
+    begin = manager.begin(
+        "1234:5678",
+        [fake.path],
+        mode="motion",
+        motion_axis_codes=[
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ],
+    )
+    token = str(begin["token"])
+    session = manager._sessions[token]
+    original_read = fake.read
+
+    def read_and_stop():
+        yield from original_read()
+        assert session.stop_event is not None
+        session.stop_event.set()
+
+    fake.read = read_and_stop  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        capture_manager_module.select,
+        "select",
+        lambda _read, _write, _error, _timeout: ([fake.fd], [], []),
+    )
+
+    manager._motion_reader_loop(session)
+    result = manager.read(token)
+
+    assert fake.grabbed is False
+    assert result["dropped_frames"] == 0
+    assert result["discontinuities"] == 0
+    assert [frame["values"] for frame in result["frames"]] == [
+        {
+            str(evdev.ecodes.ABS_RX): 10,
+            str(evdev.ecodes.ABS_RY): 2,
+            str(evdev.ecodes.ABS_RZ): 3,
+        },
+        {
+            str(evdev.ecodes.ABS_RX): 10,
+            str(evdev.ecodes.ABS_RY): 20,
+            str(evdev.ecodes.ABS_RZ): 3,
+        },
+    ]
+
+    manager.end(token)
     assert fake.closed is True
 
 

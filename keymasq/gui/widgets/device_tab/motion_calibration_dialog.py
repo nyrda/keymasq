@@ -1,6 +1,8 @@
 """Guided motion-sensor calibration dialog."""
 
+import logging
 from datetime import datetime
+from enum import Enum
 from typing import Any, cast
 
 import gi
@@ -10,15 +12,33 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.coercion import coerce_int
 from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
 from keymasq.gui.session_client import JsonDict, session_request_async
 from keymasq.session.hardware import HardwareManager
 
-from .motion_calibration import infer_stationary_gyro_calibration
+from .motion_calibration import (
+    GYRO_CALIBRATION_WARMUP_SECONDS,
+    GyroCalibrationFrame,
+    infer_stationary_gyro_calibration,
+)
 
 CALIBRATION_DURATION_SECONDS = 3.0
+CALIBRATION_TOTAL_SECONDS = CALIBRATION_DURATION_SECONDS + GYRO_CALIBRATION_WARMUP_SECONDS
+CALIBRATION_POLL_INTERVAL_MS = 50
+MAX_END_CAPTURE_ATTEMPTS = 3
+
+log = logging.getLogger("keymasq.gui.widgets.device_tab.motion_calibration_dialog")
+
+
+class _CaptureState(Enum):
+    IDLE = "idle"
+    STARTING = "starting"
+    SAMPLING = "sampling"
+    ENDING = "ending"
+    CLEANUP_FAILED = "cleanup_failed"
 
 AxisEditor = tuple[
     MotionAxisDefinition,
@@ -46,12 +66,18 @@ class MotionCalibrationDialog(Adw.Dialog):
         self._hardware_config = hardware_config
         self._sensor = sensor
         self._hardware_manager = hardware_manager
-        self._capturing = False
+        self._capture_state = _CaptureState.IDLE
         self._capture_active = False
         self._poll_inflight = False
         self._poll_id = 0
+        self._cleanup_retry_id = 0
         self._deadline_us = 0
-        self._samples: dict[str, list[float]] = {}
+        self._capture_generation = 0
+        self._end_capture_attempts = 0
+        self._finish_after_read = False
+        self._pending_capture_error: str | None = None
+        self._closed = False
+        self._frames: list[GyroCalibrationFrame] = []
         self._axis_by_code = {
             code: axis
             for axis in sensor.gyro_axes
@@ -87,7 +113,7 @@ class MotionCalibrationDialog(Adw.Dialog):
         instructions = Gtk.Label(
             label=(
                 "Place the controller on a stable surface and do not touch it. "
-                "Keymasq will measure stationary gyro bias for three seconds."
+                "Keymasq will let the gyro settle briefly, then measure it for three seconds."
             )
         )
         instructions.set_wrap(True)
@@ -102,7 +128,7 @@ class MotionCalibrationDialog(Adw.Dialog):
 
         self._progress = Gtk.ProgressBar()
         self._progress.set_show_text(True)
-        self._progress.set_text("3 seconds")
+        self._progress.set_text(f"{CALIBRATION_TOTAL_SECONDS:.1f} seconds")
         self._progress.set_visible(False)
         content.append(self._progress)
 
@@ -111,9 +137,9 @@ class MotionCalibrationDialog(Adw.Dialog):
         self._start_button.add_css_class("suggested-action")
         self._start_button.connect("clicked", self._on_start_clicked)
         actions.append(self._start_button)
-        reset = Gtk.Button(label="Reset gyro bias")
-        reset.connect("clicked", self._on_reset_clicked)
-        actions.append(reset)
+        self._reset_button = Gtk.Button(label="Reset gyro bias")
+        self._reset_button.connect("clicked", self._on_reset_clicked)
+        actions.append(self._reset_button)
         content.append(actions)
 
         advanced = Gtk.Expander(label="Advanced manual normalization")
@@ -161,10 +187,10 @@ class MotionCalibrationDialog(Adw.Dialog):
                 row, editor = self._axis_editor(axis)
                 box.append(row)
                 self._editors.append(editor)
-        apply_button = Gtk.Button(label="Apply manual values")
-        apply_button.set_halign(Gtk.Align.START)
-        apply_button.connect("clicked", self._on_apply_manual_clicked)
-        box.append(apply_button)
+        self._manual_apply_button = Gtk.Button(label="Apply manual values")
+        self._manual_apply_button.set_halign(Gtk.Align.START)
+        self._manual_apply_button.connect("clicked", self._on_apply_manual_clicked)
+        box.append(self._manual_apply_button)
         return box
 
     @staticmethod
@@ -194,7 +220,14 @@ class MotionCalibrationDialog(Adw.Dialog):
         return row, (axis, offset, scale, noise, invert)
 
     def _on_start_clicked(self, _button: Gtk.Button) -> None:
-        if self._capturing:
+        if self._capture_state is _CaptureState.CLEANUP_FAILED:
+            self._end_capture_attempts = 0
+            self._start_button.set_sensitive(False)
+            self._progress.set_visible(True)
+            self._progress.set_text("Retrying cleanup…")
+            self._request_capture_end()
+            return
+        if self._capture_state is not _CaptureState.IDLE:
             return
         if not self._capture_is_unlocked():
             present_unlock = getattr(self._parent, "present_unlock_dialog", None)
@@ -215,11 +248,28 @@ class MotionCalibrationDialog(Adw.Dialog):
         )
 
     def _begin_capture(self) -> None:
-        if self._capturing:
+        if self._capture_state is not _CaptureState.IDLE or self._closed:
             return
-        self._capturing = True
-        self._samples = {axis.role: [] for axis in self._sensor.gyro_axes}
+        if not self._sensor.source:
+            self._capture_failed(
+                "This motion sensor has no event-device source. Reattach it in hardware settings."
+            )
+            return
+        axis_codes = sorted(self._axis_by_code)
+        if len(axis_codes) != len(self._sensor.gyro_axes):
+            self._capture_failed(
+                "One or more gyro axes have no evdev code. Check the hardware configuration."
+            )
+            return
+        self._capture_state = _CaptureState.STARTING
+        self._capture_generation += 1
+        generation = self._capture_generation
+        self._frames = []
+        self._pending_capture_error = None
+        self._finish_after_read = False
+        self._end_capture_attempts = 0
         self._start_button.set_sensitive(False)
+        self._set_editing_sensitive(False)
         self._progress.set_fraction(0.0)
         self._progress.set_visible(True)
         self._set_status("Preparing capture…")
@@ -227,40 +277,49 @@ class MotionCalibrationDialog(Adw.Dialog):
             {
                 "command": "begin_capture",
                 "hardware_id": self._hardware_config.hardware_id,
-                "mode": "analog",
+                "mode": "motion",
                 "source": self._sensor.source,
+                "motion_axis_codes": axis_codes,
                 "end_on_disconnect": True,
             },
-            self._on_capture_begun,
+            lambda result: self._on_capture_begun(result, generation),
         )
 
-    def _on_capture_begun(self, result: JsonDict | None) -> bool:
-        if not self._capturing:
+    def _on_capture_begun(self, result: JsonDict | None, generation: int) -> bool:
+        if generation != self._capture_generation:
+            return False
+        if self._closed or self._capture_state is not _CaptureState.STARTING:
             if result and result.get("status") == "ok":
-                self._end_abandoned_capture()
+                self._capture_active = True
+                self._pending_capture_error = "Calibration was closed."
+                self._request_capture_end()
             return False
         if not result or result.get("status") != "ok":
             self._capture_failed((result or {}).get("message", "Could not start capture."))
             return False
         self._capture_active = True
+        self._capture_state = _CaptureState.SAMPLING
         self._deadline_us = GLib.get_monotonic_time() + int(
-            CALIBRATION_DURATION_SECONDS * 1_000_000
+            CALIBRATION_TOTAL_SECONDS * 1_000_000
         )
-        self._set_status("Keep the controller still…")
-        self._poll_id = int(GLib.timeout_add(8, self._poll_capture))
+        self._set_status("Keep the controller still while the gyro settles and is measured…")
+        self._poll_id = int(GLib.timeout_add(CALIBRATION_POLL_INTERVAL_MS, self._poll_capture))
         return False
 
     def _poll_capture(self) -> bool:
-        if not self._capturing:
+        if self._capture_state is not _CaptureState.SAMPLING:
             self._poll_id = 0
             return False
         remaining_us = self._deadline_us - GLib.get_monotonic_time()
         if remaining_us <= 0:
+            if self._poll_inflight:
+                self._finish_after_read = True
+                return True
             self._poll_id = 0
             self._finish_capture()
             return False
-        elapsed = CALIBRATION_DURATION_SECONDS - remaining_us / 1_000_000.0
-        self._progress.set_fraction(elapsed / CALIBRATION_DURATION_SECONDS)
+        elapsed = CALIBRATION_TOTAL_SECONDS - remaining_us / 1_000_000.0
+        self._progress.set_fraction(elapsed / CALIBRATION_TOTAL_SECONDS)
         self._progress.set_text(f"{max(0.0, remaining_us / 1_000_000.0):.1f} seconds")
         if self._poll_inflight:
             return True
@@ -276,33 +335,64 @@ class MotionCalibrationDialog(Adw.Dialog):
 
     def _on_capture_read(self, result: JsonDict | None) -> bool:
         self._poll_inflight = False
-        if not self._capturing:
+        if self._capture_state is not _CaptureState.SAMPLING:
             return False
         if not result or result.get("status") != "ok":
             self._finish_capture(error=(result or {}).get("message", "Capture failed."))
             return False
-        captured = result.get("captured")
-        if isinstance(captured, dict):
-            self._record_sample(cast(JsonDict, captured))
+        reader_error = str(result.get("reader_error", "") or "")
+        if reader_error:
+            self._finish_capture(error=reader_error)
+            return False
+        if coerce_int(result.get("dropped_frames"), 0) > 0:
+            self._finish_capture(
+                error="Motion frames were dropped during calibration. Try again."
+            )
+            return False
+        if coerce_int(result.get("discontinuities"), 0) > 0:
+            self._finish_capture(
+                error="The motion event stream was interrupted during calibration. Try again."
+            )
+            return False
+        frames = result.get("frames")
+        if isinstance(frames, list):
+            for frame in cast(list[object], frames):
+                if isinstance(frame, dict):
+                    self._record_frame(cast(JsonDict, frame))
+        if self._finish_after_read or GLib.get_monotonic_time() >= self._deadline_us:
+            self._finish_after_read = False
+            self._finish_capture()
         return False
 
-    def _record_sample(self, captured: JsonDict) -> None:
-        source = str(captured.get("source", "") or "")
-        if self._sensor.source and source and source != self._sensor.source:
+    def _record_frame(self, captured: JsonDict) -> None:
+        source = str(captured.get("source", "") or "").strip()
+        if self._sensor.source and source != self._sensor.source:
             return
         try:
-            code = int(cast(Any, captured.get("code")))
-            value = float(cast(Any, captured.get("value")))
+            timestamp_ns = int(cast(Any, captured.get("timestamp_ns")))
         except (TypeError, ValueError):
             return
-        axis = self._axis_by_code.get(code)
-        if axis is not None:
-            self._samples.setdefault(axis.role, []).append(value)
+        raw_values = captured.get("values")
+        if timestamp_ns <= 0 or not isinstance(raw_values, dict):
+            return
+        values: dict[str, float] = {}
+        for code, axis in self._axis_by_code.items():
+            raw_value = raw_values.get(str(code))
+            if raw_value is None:
+                raw_value = raw_values.get(code)
+            try:
+                values[axis.role] = float(cast(Any, raw_value))
+            except (TypeError, ValueError):
+                return
+        if self._frames and timestamp_ns <= self._frames[-1].timestamp_ns:
+            return
+        self._frames.append(GyroCalibrationFrame(timestamp_ns=timestamp_ns, values=values))
 
     def _finish_capture(self, *, error: object | None = None) -> None:
-        if not self._capturing:
+        if self._capture_state is not _CaptureState.SAMPLING:
             return
-        self._capturing = False
+        self._capture_state = _CaptureState.ENDING
+        self._pending_capture_error = str(error) if error else None
         if self._poll_id:
             GLib.source_remove(self._poll_id)
             self._poll_id = 0
@@ -314,26 +404,83 @@ class MotionCalibrationDialog(Adw.Dialog):
             else:
                 self._apply_capture()
             return
-        self._capture_active = False
+        self._request_capture_end()
+
+    def _request_capture_end(self) -> None:
+        if not self._capture_active:
+            self._complete_capture_end()
+            return
+        self._capture_state = _CaptureState.ENDING
+        self._end_capture_attempts += 1
+        generation = self._capture_generation
         session_request_async(
             {
                 "command": "end_capture",
                 "hardware_id": self._hardware_config.hardware_id,
             },
-            lambda _result: self._on_capture_ended(error),
+            lambda result: self._on_capture_ended(result, generation),
         )
 
-    def _on_capture_ended(self, error: object | None) -> bool:
-        if error:
-            self._capture_failed(str(error))
-        else:
-            self._apply_capture()
+    def _on_capture_ended(self, result: JsonDict | None, generation: int) -> bool:
+        if generation != self._capture_generation or not self._capture_active:
+            return False
+        if result and result.get("status") == "ok":
+            self._capture_active = False
+            self._complete_capture_end()
+            return False
+
+        message = str((result or {}).get("message", "Session did not confirm capture cleanup."))
+        if self._end_capture_attempts < MAX_END_CAPTURE_ATTEMPTS:
+            self._set_status(f"Could not release capture: {message} Retrying…", error=True)
+            delay_ms = 250 * self._end_capture_attempts
+            self._cleanup_retry_id = int(
+                GLib.timeout_add(delay_ms, self._retry_capture_end, generation)
+            )
+            return False
+
+        self._capture_state = _CaptureState.CLEANUP_FAILED
+        self._progress.set_visible(False)
+        self._start_button.set_label("Retry cleanup")
+        self._start_button.set_sensitive(not self._closed)
+        self._set_status(
+            f"Calibration was not saved because capture cleanup failed: {message} "
+            "Profiles may remain paused. Retry cleanup before calibrating again.",
+            error=True,
+        )
+        if self._closed:
+            log.error(
+                "Motion calibration capture cleanup failed after dialog closed hardware_id=%s: %s",
+                self._hardware_config.hardware_id,
+                message,
+            )
         return False
+
+    def _retry_capture_end(self, generation: int) -> bool:
+        self._cleanup_retry_id = 0
+        if (
+            generation != self._capture_generation
+            or not self._capture_active
+            or self._capture_state is not _CaptureState.ENDING
+        ):
+            return False
+        self._request_capture_end()
+        return False
+
+    def _complete_capture_end(self) -> None:
+        self._capture_state = _CaptureState.IDLE
+        self._end_capture_attempts = 0
+        self._start_button.set_label("Calibrate gyro")
+        if self._closed:
+            return
+        if self._pending_capture_error:
+            self._capture_failed(self._pending_capture_error)
+            return
+        self._apply_capture()
 
     def _apply_capture(self) -> None:
         self._poll_inflight = False
         try:
-            result = infer_stationary_gyro_calibration(self._sensor.gyro_axes, self._samples)
+            result = infer_stationary_gyro_calibration(self._sensor.gyro_axes, self._frames)
         except ValueError as exc:
             self._capture_failed(str(exc))
             return
@@ -348,20 +495,32 @@ class MotionCalibrationDialog(Adw.Dialog):
         self._refresh_editors()
         self._progress.set_visible(False)
         self._start_button.set_sensitive(True)
+        self._set_editing_sensitive(True)
         self._set_status(
-            f"Calibrated from {result.sample_count} samples. "
+            f"Calibrated from {result.sample_count} complete frames over "
+            f"{result.sample_duration_seconds:.2f} seconds. "
             f"Measured noise was at most {result.maximum_noise_dps:.3f}°/s."
         )
 
     def _capture_failed(self, message: object) -> None:
-        self._capturing = False
+        self._capture_state = _CaptureState.IDLE
         self._capture_active = False
         self._poll_inflight = False
+        self._finish_after_read = False
+        self._pending_capture_error = None
         self._progress.set_visible(False)
+        self._start_button.set_label("Calibrate gyro")
         self._start_button.set_sensitive(True)
+        self._set_editing_sensitive(True)
         self._set_status(str(message), error=True)
 
+    def _set_editing_sensitive(self, sensitive: bool) -> None:
+        self._reset_button.set_sensitive(sensitive)
+        self._manual_apply_button.set_sensitive(sensitive)
+
     def _on_reset_clicked(self, _button: Gtk.Button) -> None:
+        if self._capture_state is not _CaptureState.IDLE:
+            return
         for axis in self._sensor.gyro_axes:
             axis.offset = 0.0
             axis.noise = 0.0
@@ -372,6 +531,8 @@ class MotionCalibrationDialog(Adw.Dialog):
         self._set_status("Reset gyro bias. Kernel scale values were kept.")
 
     def _on_apply_manual_clicked(self, _button: Gtk.Button) -> None:
+        if self._capture_state is not _CaptureState.IDLE:
+            return
         for axis, offset, scale, noise, invert in self._editors:
             axis.offset = offset.get_value()
             axis.scale = scale.get_value()
@@ -402,25 +563,12 @@ class MotionCalibrationDialog(Adw.Dialog):
         self.close()
 
     def _on_closed(self, _dialog: Adw.Dialog) -> None:
+        self._closed = True
         if self._poll_id:
             GLib.source_remove(self._poll_id)
             self._poll_id = 0
-        if self._capture_active:
-            session_request_async(
-                {
-                    "command": "end_capture",
-                    "hardware_id": self._hardware_config.hardware_id,
-                },
-                lambda _result: False,
-            )
-        self._capturing = False
-        self._capture_active = False
-
-    def _end_abandoned_capture(self) -> None:
-        session_request_async(
-            {
-                "command": "end_capture",
-                "hardware_id": self._hardware_config.hardware_id,
-            },
-            lambda _result: False,
-        )
+        if self._capture_state is _CaptureState.SAMPLING:
+            self._finish_capture(error="Calibration was closed.")
+        elif self._capture_state is _CaptureState.CLEANUP_FAILED:
+            self._end_capture_attempts = 0
+            self._request_capture_end()

@@ -29,9 +29,17 @@ that event device removes its motion sensor and its hardware-owned normalization
 Bias, scale, inversion, and noise-floor values live in the hardware configuration. To remove
 gyro drift, open the controller tab, choose **Hardware settings**, then choose
 **Calibrate gyro…** under Motion Normalization. Put the controller on a stable surface and
-leave it untouched while Keymasq observes three seconds of stationary input through the
-daemon capture path. Calibration does not grab the motion interface. A run with too few
-samples or visible controller movement is rejected.
+leave it untouched while Keymasq lets the sensor settle briefly and then observes three
+seconds of stationary input through the daemon capture path. Calibration does not grab the
+motion interface. The daemon drains the event stream continuously and gives the calibration
+dialog complete `SYN_REPORT` frames, including unchanged gyro axes. A run is rejected when
+it has too few complete frames, covers too little time, loses event-stream data, or contains
+sustained controller movement. A small number of isolated sensor outliers does not invalidate
+the run.
+
+Keymasq saves the new bias only after the session confirms that capture ended and normal
+profile handling resumed. If cleanup fails, the dialog keeps the calibration unsaved and
+retries. It offers a **Retry cleanup** action if automatic retries cannot release the capture.
 
 The guided calibration changes gyro bias and noise floor only. It keeps the scale derived
 from the kernel axis resolution. Advanced manual normalization remains available for unusual

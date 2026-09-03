@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock, call
 
+import evdev
 import pytest
 
 import keymasq.session.manager.command.macro as macro_commands_module
@@ -2793,6 +2794,44 @@ async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_capture_read_forwards_motion_frame_batch() -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.capture_state.tokens[hardware_id] = "token-1"
+    frames = [
+        {
+            "timestamp_ns": 123,
+            "source": "imu",
+            "values": {
+                str(evdev.ecodes.ABS_RX): 10,
+                str(evdev.ecodes.ABS_RY): 20,
+                str(evdev.ecodes.ABS_RZ): 30,
+            },
+        }
+    ]
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={
+                "frames": frames,
+                "dropped_frames": 0,
+                "discontinuities": 0,
+            },
+        )
+    )
+
+    result = await recording_capture_module.capture_read(manager, hardware_id)
+
+    assert result == {
+        "status": "ok",
+        "captured": None,
+        "frames": frames,
+        "dropped_frames": 0,
+        "discontinuities": 0,
+    }
+
+
+@pytest.mark.asyncio
 async def test_capture_end_logs_unexpected_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -2931,8 +2970,13 @@ async def test_begin_capture_source_selects_only_motion_interface(
         {
             "command": "begin_capture",
             "hardware_id": hardware_id,
-            "mode": "analog",
+            "mode": "motion",
             "source": "imu",
+            "motion_axis_codes": [
+                evdev.ecodes.ABS_RX,
+                evdev.ecodes.ABS_RY,
+                evdev.ecodes.ABS_RZ,
+            ],
         },
         peer,
         writer,
@@ -2943,7 +2987,12 @@ async def test_begin_capture_source_selects_only_motion_interface(
     assert sent.command == CommandType.CAPTURE_BEGIN
     assert sent.data == {
         "hardware_id": hardware_id,
-        "mode": "analog",
+        "mode": "motion",
+        "motion_axis_codes": [
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ],
         "evdev_paths": ["/dev/input/event21"],
         "evdev_interfaces": [
             {

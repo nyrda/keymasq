@@ -31,6 +31,9 @@ from keymasq.keymasqd.runtime.adapters import DeviceInfo
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
 
+_MOTION_FRAME_QUEUE_SIZE = 1024
+_MOTION_READ_BATCH_SIZE = 256
+
 
 class _CaptureInputDevice(Protocol):
     path: str
@@ -81,6 +84,12 @@ class CaptureSession:
     path_hardware_ids: dict[str, str] = field(default_factory=dict)
     path_sources: dict[str, str] = field(default_factory=dict)
     exclusive_devices: list[_CaptureInputDevice] = field(default_factory=list)
+    motion_axis_codes: tuple[int, ...] = ()
+    motion_frame_queue: queue.Queue[JsonObject] | None = None
+    motion_dropped_frames: int = 0
+    motion_discontinuities: int = 0
+    motion_reader_error: str = ""
+    motion_stats_lock: threading.Lock = field(default_factory=threading.Lock)
     mode: str = "button"
 
 
@@ -100,8 +109,14 @@ class CaptureManager:
         evdev_paths: list[str] | None = None,
         evdev_interfaces: list[JsonObject] | None = None,
         mode: str = "button",
+        motion_axis_codes: list[int] | None = None,
     ) -> JsonObject:
         mode = _capture_mode(mode)
+        normalized_motion_axis_codes = tuple(
+            dict.fromkeys(int(code) for code in (motion_axis_codes or []))
+        )
+        if mode == "motion" and not normalized_motion_axis_codes:
+            raise ValueError("motion capture requires at least one gyro axis code")
         path_sources: dict[str, str] = {}
         if evdev_interfaces:
             matched, path_sources = self._find_devices_by_interfaces(
@@ -121,7 +136,12 @@ class CaptureManager:
         permission_error_seen = False
         for device in matched:
             try:
-                if not _is_motion_device(device):
+                is_motion_device = _is_motion_device(device)
+                if mode == "motion" and not is_motion_device:
+                    warnings.append(f"{device.path}: not a motion interface")
+                    _close_device(device)
+                    continue
+                if not is_motion_device:
                     device.grab()
                     exclusive_devices.append(device)
                 readable.append(device)
@@ -136,7 +156,11 @@ class CaptureManager:
                 _close_device(device)
 
         if not readable:
-            message = "No readable/grabbable interfaces found"
+            message = (
+                "No readable interfaces found"
+                if mode == "motion"
+                else "No readable/grabbable interfaces found"
+            )
             if warnings:
                 message = f"{message}: {', '.join(warnings)}"
             if permission_error_seen:
@@ -144,15 +168,23 @@ class CaptureManager:
             raise RuntimeError(message)
 
         token = str(uuid.uuid4())
-        self._sessions[token] = CaptureSession(
+        session = CaptureSession(
             token=token,
             hardware_id=hardware_id,
             devices=readable,
             started_at=time.time(),
             path_sources=path_sources,
             exclusive_devices=exclusive_devices,
+            motion_axis_codes=normalized_motion_axis_codes,
+            motion_frame_queue=(
+                queue.Queue(maxsize=_MOTION_FRAME_QUEUE_SIZE) if mode == "motion" else None
+            ),
+            stop_event=threading.Event() if mode == "motion" else None,
             mode=mode,
         )
+        self._sessions[token] = session
+        if mode == "motion":
+            self._start_motion_reader(session)
 
         return {
             "token": token,
@@ -164,6 +196,8 @@ class CaptureManager:
         session = self._sessions.get(token)
         if session is None:
             raise ValueError("Invalid capture token")
+        if session.mode == "motion":
+            return self._read_motion_frames(session)
 
         for device in session.devices:
             event = _read_one_device_event(device)
@@ -176,6 +210,30 @@ class CaptureManager:
                 return {"captured": parsed}
 
         return {"captured": None}
+
+    def _read_motion_frames(self, session: CaptureSession) -> JsonObject:
+        frames: list[JsonObject] = []
+        frame_queue = session.motion_frame_queue
+        if frame_queue is not None:
+            while len(frames) < _MOTION_READ_BATCH_SIZE:
+                try:
+                    frames.append(frame_queue.get_nowait())
+                except queue.Empty:
+                    break
+
+        with session.motion_stats_lock:
+            dropped_frames = session.motion_dropped_frames
+            discontinuities = session.motion_discontinuities
+            reader_error = session.motion_reader_error
+            session.motion_dropped_frames = 0
+            session.motion_discontinuities = 0
+
+        return {
+            "frames": frames,
+            "dropped_frames": dropped_frames,
+            "discontinuities": discontinuities,
+            **({"reader_error": reader_error} if reader_error else {}),
+        }
 
     def begin_combo(
         self,
@@ -365,6 +423,136 @@ class CaptureManager:
         )
         session.reader_thread = reader
         reader.start()
+
+    def _start_motion_reader(self, session: CaptureSession) -> None:
+        if session.stop_event is None or session.motion_frame_queue is None:
+            return
+
+        reader = threading.Thread(
+            target=self._motion_reader_loop,
+            args=(session,),
+            daemon=True,
+            name=f"motion-capture-{session.token[:8]}",
+        )
+        session.reader_thread = reader
+        reader.start()
+
+    def _motion_reader_loop(self, session: CaptureSession) -> None:
+        if session.stop_event is None or session.motion_frame_queue is None:
+            return
+
+        fd_map = {device.fd: device for device in session.devices}
+        values_by_device = {
+            id(device): _motion_axis_values(device, session.motion_axis_codes)
+            for device in session.devices
+        }
+        resyncing: set[int] = set()
+        while not session.stop_event.is_set():
+            try:
+                ready, _, _ = select.select(list(fd_map), [], [], 0.1)
+            except (OSError, ValueError) as exc:
+                self._set_motion_reader_error(session, f"Motion capture select failed: {exc}")
+                return
+
+            for fd in ready:
+                device = fd_map.get(fd)
+                if device is None:
+                    continue
+                device_id = id(device)
+                try:
+                    for event in device.read():
+                        event_type = int(event.type)
+                        event_code = int(event.code)
+                        if (
+                            event_type == evdev.ecodes.EV_SYN
+                            and event_code == evdev.ecodes.SYN_DROPPED
+                        ):
+                            resyncing.add(device_id)
+                            with session.motion_stats_lock:
+                                session.motion_discontinuities += 1
+                            continue
+                        if device_id in resyncing:
+                            if (
+                                event_type == evdev.ecodes.EV_SYN
+                                and event_code == evdev.ecodes.SYN_REPORT
+                            ):
+                                values_by_device[device_id] = _motion_axis_values(
+                                    device,
+                                    session.motion_axis_codes,
+                                )
+                                resyncing.discard(device_id)
+                            continue
+                        if (
+                            event_type == evdev.ecodes.EV_ABS
+                            and event_code in session.motion_axis_codes
+                        ):
+                            values_by_device[device_id][event_code] = int(event.value)
+                            continue
+                        if not (
+                            event_type == evdev.ecodes.EV_SYN
+                            and event_code == evdev.ecodes.SYN_REPORT
+                        ):
+                            continue
+                        values = values_by_device[device_id]
+                        if not all(code in values for code in session.motion_axis_codes):
+                            continue
+                        self._queue_motion_frame(
+                            session,
+                            {
+                                "timestamp_ns": _event_timestamp_ns(event),
+                                "source": self._source_for_device(device, session.path_sources),
+                                "values": {
+                                    str(code): values[code] for code in session.motion_axis_codes
+                                },
+                            },
+                        )
+                except BlockingIOError:
+                    continue
+                except OSError as exc:
+                    self._set_motion_reader_error(
+                        session,
+                        f"Motion capture read failed for {device.path}: {exc}",
+                    )
+                    return
+                except Exception:
+                    log.exception(
+                        "Motion capture unexpected read failure token=%s path=%s",
+                        session.token,
+                        device.path,
+                    )
+                    self._set_motion_reader_error(
+                        session,
+                        f"Motion capture read failed for {device.path}",
+                    )
+                    return
+
+    @staticmethod
+    def _queue_motion_frame(session: CaptureSession, frame: JsonObject) -> None:
+        frame_queue = session.motion_frame_queue
+        if frame_queue is None:
+            return
+        try:
+            frame_queue.put_nowait(frame)
+            return
+        except queue.Full:
+            pass
+        try:
+            frame_queue.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            with session.motion_stats_lock:
+                session.motion_dropped_frames += 1
+        try:
+            frame_queue.put_nowait(frame)
+        except queue.Full:
+            with session.motion_stats_lock:
+                session.motion_dropped_frames += 1
+
+    @staticmethod
+    def _set_motion_reader_error(session: CaptureSession, message: str) -> None:
+        with session.motion_stats_lock:
+            session.motion_reader_error = message
 
     def _combo_reader_loop(self, session: CaptureSession) -> None:
         if session.stop_event is None or session.event_queue is None:
@@ -740,7 +928,7 @@ def _hardware_id_for_device(
 
 def _capture_mode(mode: str) -> str:
     normalized = str(mode or "button").strip().lower()
-    if normalized not in {"button", "analog"}:
+    if normalized not in {"button", "analog", "motion"}:
         raise ValueError(f"unsupported capture mode: {mode}")
     return normalized
 
@@ -771,6 +959,34 @@ def _read_one_device_event(device: _CaptureInputDevice) -> evdev.InputEvent | No
     except Exception:
         log.exception("Unexpected failure reading capture device %s", device.path)
         return None
+
+
+def _motion_axis_values(
+    device: _CaptureInputDevice,
+    axis_codes: Sequence[int],
+) -> dict[int, int]:
+    values: dict[int, int] = {}
+    for code in axis_codes:
+        try:
+            info = device.absinfo(int(code))
+        except (KeyError, OSError):
+            continue
+        except Exception:
+            log.exception(
+                "Unexpected failure reading initial motion axis from %s code=%s",
+                device.path,
+                code,
+            )
+            continue
+        value = getattr(info, "value", None)
+        if isinstance(value, int):
+            values[int(code)] = value
+    return values
+
+
+def _event_timestamp_ns(event: evdev.InputEvent) -> int:
+    timestamp_ns = int(event.sec) * 1_000_000_000 + int(event.usec) * 1_000
+    return timestamp_ns if timestamp_ns > 0 else time.monotonic_ns()
 
 
 def _ungrab_device(device: _CaptureInputDevice) -> None:

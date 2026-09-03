@@ -21,6 +21,7 @@ from keymasq.gui.wizards.hardware_setup.state import (
     TemplateSelection,
     WizardNavigation,
 )
+from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
 from keymasq.session.hardware import HardwareManager
 
 
@@ -305,12 +306,17 @@ class HardwareSetupDialog(
         }[action]()
 
     def _emit_selected_evdev_devices(self) -> None:
-        evdev_devices = self._build_evdev_devices(
-            list(self._discovery_state.discovered_interfaces.values())
-        )
+        interfaces = list(self._discovery_state.discovered_interfaces.values())
+        evdev_devices = self._build_evdev_devices(interfaces)
         if not evdev_devices:
             return
-        self.emit("evdev-devices-selected", evdev_devices)
+        self.emit(
+            "evdev-devices-selected",
+            EvdevDeviceSelection(
+                evdev_devices,
+                self._build_motion_sensors(interfaces),
+            ),
+        )
         self.close()
 
     def _on_back(self, _button: Gtk.Button) -> None:

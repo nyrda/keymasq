@@ -19,8 +19,9 @@ from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
     EvdevDevicesAddResult,
     HardwareSettingsDialog,
-    append_unique_evdev_devices,
+    append_evdev_device_selection,
 )
+from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class HardwareSettingsMixin:
 
     def _add_hardware_evdev_devices(
         self: Any,
-        evdev_devices: list[EvdevDevice],
+        evdev_devices: list[EvdevDevice] | EvdevDeviceSelection,
     ) -> EvdevDevicesAddResult:
         if self.hardware_manager is None:
             log.warning(
@@ -89,19 +90,27 @@ class HardwareSettingsMixin:
         if conflict:
             return 0, f"Product ID detection is already used by {conflict}.", True
 
-        added = append_unique_evdev_devices(self.device, evdev_devices)
-        if added <= 0:
+        added, motion_added = append_evdev_device_selection(self.device, evdev_devices)
+        if added <= 0 and motion_added <= 0:
             return 0, "That event device is already attached.", False
 
         self.hardware_manager.save_hardware(self.device)
         self._request_session_async({"command": "reload"}, self._ignore_session_response)
         self._sync_always_grab_device_list()
         self._update_header_caption()
-        return (
-            added,
-            f"Added {self._count_label(added, 'event device')} to this hardware ID.",
-            False,
-        )
+        if added and motion_added:
+            message = (
+                f"Added {self._count_label(added, 'event device')} and "
+                f"{self._count_label(motion_added, 'motion sensor')} to this hardware ID."
+            )
+        elif motion_added:
+            message = (
+                f"Added {self._count_label(motion_added, 'motion sensor')} to the attached "
+                "event device."
+            )
+        else:
+            message = f"Added {self._count_label(added, 'event device')} to this hardware ID."
+        return added, message, False
 
     def _product_detection_conflict_for_evdev_devices(
         self: Any,

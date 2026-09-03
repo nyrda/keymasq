@@ -1846,6 +1846,146 @@ class TestDeviceTabWidget:
         assert device.evdev_devices[-1].device_type == DeviceType.KEYBOARD
         assert "2 evdev" in tab._header_caption_label.get_text()
 
+    def test_device_tab_hardware_settings_adds_motion_sensor_to_existing_controller(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.model.core import DeviceType
+        from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+        from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        device = HardwareConfig(
+            vendor_id="054c",
+            product_id="0ce6",
+            name="DualSense",
+            evdev_devices=[
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-DualSense-event-joystick",
+                    device_type=DeviceType.GAMEPAD,
+                    id="gamepad",
+                )
+            ],
+            buttons=[ButtonDefinition(id="btn_south", label="Cross", evdev="btn_south")],
+        )
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+        selection = EvdevDeviceSelection(
+            [
+                EvdevDevice(
+                    path="/dev/input/by-id/usb-DualSense-event-if03",
+                    device_type=DeviceType.MOTION,
+                    id="motion",
+                )
+            ],
+            [
+                MotionSensorDefinition(
+                    id="motion_1",
+                    label="PlayStation Motion Sensor",
+                    source="motion",
+                    driver="hid-playstation",
+                    gyro_axes=[
+                        MotionAxisDefinition(role="pitch", evdev="abs_rx", evdev_code=3)
+                    ],
+                )
+            ],
+        )
+
+        added, message, error = tab._add_hardware_evdev_devices(selection)
+
+        assert added == 1
+        assert message == "Added 1 event device and 1 motion sensor to this hardware ID."
+        assert error is False
+        assert [evdev.id for evdev in device.evdev_devices] == ["gamepad", "motion"]
+        assert len(device.motion_sensors) == 1
+        assert device.motion_sensors[0].source == "motion"
+        assert device.motion_sensors[0] is not selection.motion_sensors[0]
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+
+    def test_device_tab_hardware_settings_restores_motion_layout_for_attached_evdev(
+        self, monkeypatch, temp_config_dir
+    ):
+        from keymasq.common.model.core import DeviceType
+        from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+        from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
+        from keymasq.gui.widgets.device_tab import tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
+
+        class _HardwareManager:
+            def __init__(self) -> None:
+                self.saved: list[HardwareConfig] = []
+
+            def save_hardware(self, device: HardwareConfig) -> None:
+                self.saved.append(device)
+
+        motion_evdev = EvdevDevice(
+            path="/dev/input/by-id/usb-DualSense-event-if03",
+            device_type=DeviceType.MOTION,
+            id="imu",
+        )
+        device = HardwareConfig("054c", "0ce6", "DualSense", [motion_evdev], [])
+        hardware_manager = _HardwareManager()
+        tab = DeviceTab(
+            device=device,
+            profile_manager=None,
+            hardware_manager=hardware_manager,
+            demo_mode=False,
+        )
+        reload_requests: list[dict] = []
+        monkeypatch.setattr(
+            device_tab_module,
+            "session_request_async",
+            lambda payload, callback: reload_requests.append(payload),
+        )
+        selection = EvdevDeviceSelection(
+            [
+                EvdevDevice(
+                    path=motion_evdev.path,
+                    device_type=DeviceType.MOTION,
+                    id="motion",
+                )
+            ],
+            [
+                MotionSensorDefinition(
+                    id="motion_1",
+                    label="PlayStation Motion Sensor",
+                    source="motion",
+                    gyro_axes=[MotionAxisDefinition(role="yaw", evdev="abs_ry")],
+                )
+            ],
+        )
+
+        added, message, error = tab._add_hardware_evdev_devices(selection)
+
+        assert added == 0
+        assert message == "Added 1 motion sensor to the attached event device."
+        assert error is False
+        assert len(device.evdev_devices) == 1
+        assert device.motion_sensors[0].source == "imu"
+        assert hardware_manager.saved == [device]
+        assert reload_requests == [{"command": "reload"}]
+
     def test_device_tab_hardware_settings_switches_evdev_detection_to_product_id(
         self, monkeypatch, temp_config_dir
     ):
@@ -2589,6 +2729,7 @@ class TestDeviceTabWidget:
             HardwareConfig,
         )
         from keymasq.common.model.core import DeviceType
+        from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
         from keymasq.gui.widgets.device_tab import tab as device_tab_module
         from keymasq.gui.widgets.device_tab.tab import DeviceTab
 
@@ -2650,6 +2791,14 @@ class TestDeviceTabWidget:
                     axes=[AnalogAxisDefinition(role="x", evdev="abs_x")],
                 )
             ],
+            motion_sensors=[
+                MotionSensorDefinition(
+                    id="motion_1",
+                    label="Motion Sensor",
+                    source="kbd",
+                    gyro_axes=[MotionAxisDefinition(role="yaw", evdev="abs_ry")],
+                )
+            ],
         )
         hardware_manager = _HardwareManager()
         profile_manager = _ProfileManager()
@@ -2677,9 +2826,11 @@ class TestDeviceTabWidget:
         assert [evdev.id for evdev in device.evdev_devices] == ["mouse"]
         assert [button.id for button in device.buttons] == ["btn_left"]
         assert device.analog_inputs == []
+        assert device.motion_sensors == []
         assert profile_manager.removed == [
             ("1234:5678", "key_a"),
             ("1234:5678", "left_stick"),
+            ("1234:5678", "motion_1"),
         ]
         assert hardware_manager.saved == [device]
         assert reload_requests == [{"command": "reload"}]

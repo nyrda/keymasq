@@ -22,6 +22,10 @@ accelerometers use `x`, `y`, and `z`. Kernel axis resolution supplies the unit c
 - accelerometer values become metres per second squared;
 - frame time is monotonic nanoseconds in the daemon.
 
+You can attach a motion interface to an existing controller from **Hardware settings**.
+Choose **Add Event Device** and select the controller's motion evdev interface. Removing
+that event device removes its motion sensor and its hardware-owned normalization data.
+
 Bias, scale, inversion, and noise-floor values live in the hardware configuration. To remove
 gyro drift, open the controller tab, choose **Hardware settings**, then choose
 **Calibrate gyro…** under Motion Normalization. Put the controller on a stable surface and

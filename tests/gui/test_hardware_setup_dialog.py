@@ -390,6 +390,71 @@ class TestHardwareSetupDialog:
         assert selected[0].device_type == DeviceType.KEYBOARD
         assert closed == [True]
 
+    def test_select_evdev_only_keeps_discovered_motion_layout(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        import evdev
+        from gi.repository import Gtk
+
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
+
+        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
+
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            SimpleNamespace(),
+            raw_evdev_only=True,
+            select_evdev_only=True,
+        )
+        dialog._discovery_state.selected_device = {
+            "vendor_id": "054c",
+            "product_id": "0ce6",
+            "name": "DualSense Motion Sensors",
+        }
+        dialog._discovery_state.discovered_interfaces = {
+            "motion": {
+                "id": "motion",
+                "stable_path": "/dev/input/by-id/usb-DualSense-event-if03",
+                "path": "/dev/input/event20",
+                "name": "DualSense Motion Sensors",
+                "device_type": DeviceType.MOTION,
+                "device_types": ["motion"],
+                "driver": "hid-playstation",
+                "raw_capabilities": {
+                    evdev.ecodes.EV_ABS: [
+                        (
+                            code,
+                            evdev.AbsInfo(0, -32768, 32768, 0, 0, 16),
+                        )
+                        for code in (
+                            evdev.ecodes.ABS_RX,
+                            evdev.ecodes.ABS_RY,
+                            evdev.ecodes.ABS_RZ,
+                        )
+                    ]
+                },
+            }
+        }
+        selected: list[EvdevDeviceSelection] = []
+        dialog.connect(
+            "evdev-devices-selected",
+            lambda _dialog, devices: selected.append(devices),
+        )
+        dialog.close = lambda: None  # type: ignore[method-assign]
+
+        dialog._on_next(Gtk.Button())
+
+        assert len(selected) == 1
+        assert isinstance(selected[0], EvdevDeviceSelection)
+        assert selected[0][0].device_type == DeviceType.MOTION
+        assert selected[0].motion_sensors[0].source == "motion"
+        assert [axis.role for axis in selected[0].motion_sensors[0].gyro_axes] == [
+            "pitch",
+            "yaw",
+            "roll",
+        ]
+
     def test_raw_evdev_mode_keeps_configured_event_nodes_visible(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

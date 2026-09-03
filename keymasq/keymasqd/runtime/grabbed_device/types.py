@@ -10,6 +10,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Final, Protocol, TypeVar
 
 import evdev
@@ -51,6 +52,11 @@ type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 type RuntimeDisconnectCallback = Callable[[str, str], Awaitable[None]]
 type OutputTracker = Callable[[str, int, int], bool]
 _T = TypeVar("_T")
+
+
+class InputAccessMode(Enum):
+    EXCLUSIVE = "exclusive"
+    OBSERVE = "observe"
 
 
 class InputEventLike(Protocol):
@@ -285,6 +291,9 @@ class ActionRuntime(Protocol):
 
 
 class GrabbedDeviceRuntime(ActionRuntime, Protocol):
+    @property
+    def access_mode(self) -> InputAccessMode: ...
+
     @property
     def stable_path(self) -> str: ...
 

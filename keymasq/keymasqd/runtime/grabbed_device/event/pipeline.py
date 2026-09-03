@@ -54,6 +54,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     EventProcessingDeps,
     FireAndObserve,
     GrabbedDeviceRuntime,
+    InputAccessMode,
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
@@ -317,18 +318,48 @@ async def process_event(
         _finish_diagnostics(device_runtime, inspector_label, started_ns, deps=deps)
         return
 
+    if device_runtime.access_mode is InputAccessMode.OBSERVE:
+        motion_event = (int(event.type), int(event.code)) in (
+            device_runtime.motion_axis_bindings
+        ) or int(event.type) == int(evdev_mod.ecodes.EV_SYN)
+        consumed = False
+        if motion_event:
+            consumed = await dispatch_motion_event(
+                device_runtime,
+                event,
+                device_runtime.mapping_getter(),
+                deps=deps.action_deps,
+            )
+        _finish_diagnostics(
+            device_runtime,
+            "action_motion_control" if consumed else "observed_motion",
+            started_ns,
+            deps=deps,
+        )
+        return
+
     if device_runtime.motion_axis_bindings:
         motion_axis_event = (int(event.type), int(event.code)) in (
             device_runtime.motion_axis_bindings
         )
         motion_syn_event = int(event.type) == int(evdev_mod.ecodes.EV_SYN)
         if motion_axis_event or motion_syn_event:
-            if await dispatch_motion_event(
+            motion_consumed = await dispatch_motion_event(
                 device_runtime,
                 event,
                 device_runtime.mapping_getter(),
                 deps=deps.action_deps,
-            ):
+            )
+            if motion_syn_event:
+                syn_label = process_syn_event(device_runtime, event, evdev_mod=evdev_mod)
+                _finish_diagnostics(
+                    device_runtime,
+                    "action_motion_control" if motion_consumed else syn_label,
+                    started_ns,
+                    deps=deps,
+                )
+                return
+            if motion_consumed:
                 _finish_diagnostics(
                     device_runtime,
                     "action_motion_control",
@@ -336,12 +367,8 @@ async def process_event(
                     deps=deps,
                 )
                 return
-            if motion_syn_event:
-                label = process_syn_event(device_runtime, event, evdev_mod=evdev_mod)
-            else:
-                emit_passthrough_event(device_runtime, event, evdev_mod=evdev_mod)
-                label = "passthrough_motion"
-            _finish_diagnostics(device_runtime, label, started_ns, deps=deps)
+            emit_passthrough_event(device_runtime, event, evdev_mod=evdev_mod)
+            _finish_diagnostics(device_runtime, "passthrough_motion", started_ns, deps=deps)
             return
 
     event_is_key = event_class is EventClass.KEY

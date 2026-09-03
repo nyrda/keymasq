@@ -40,6 +40,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     DeviceInspectorSuppressionGetter,
     EmergencyResetter,
     GrabbedDeviceState,
+    InputAccessMode,
     MacroPlayer,
     ManagedInputDevice,
     MappingGetter,
@@ -278,6 +279,7 @@ class GrabbedDevice:
         analog_inputs: dict[str, object] | None = None,
         motion_sensors: dict[str, object] | None = None,
         interface_id: str | None = None,
+        access_mode: InputAccessMode | None = None,
     ) -> None:
         self.path = path
         self.resolved_event_path = os.path.realpath(path)
@@ -308,6 +310,16 @@ class GrabbedDevice:
         self.event_callback = event_callback
         self.device_type = device_type
         self.device_types = device_types or [device_type.value]
+        is_motion_device = (
+            device_type is DeviceType.MOTION or DeviceType.MOTION.value in self.device_types
+        )
+        if access_mode is InputAccessMode.OBSERVE and not is_motion_device:
+            raise ValueError("observe access is supported only for motion devices")
+        self.access_mode = (
+            InputAccessMode.OBSERVE
+            if is_motion_device
+            else access_mode or InputAccessMode.EXCLUSIVE
+        )
         self.verbosity = verbosity
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
@@ -519,6 +531,18 @@ class GrabbedDevice:
         self.source_hidden_kernel_names = []
         self.device = _device_input(self.path)
 
+        if self.access_mode is InputAccessMode.OBSERVE:
+            self.running = True
+            self.task = asyncio.create_task(
+                pipeline.event_loop(
+                    self,
+                    asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                    log=log,
+                )
+            )
+            log.info("Observing %s for %s", self.path, self.hardware_id)
+            return
+
         try:
             self._refresh_analog_axis_ranges()
             caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
@@ -673,12 +697,13 @@ class GrabbedDevice:
         await self._stop_output_feedback_proxy()
 
         if self.device:
-            try:
-                self.device.ungrab()
-            except OSError as exc:
-                log.warning("Failed to ungrab %s: %s", self.path, exc)
-            except Exception:
-                log.exception("Unexpected failure ungrabbing %s", self.path)
+            if self.access_mode is InputAccessMode.EXCLUSIVE:
+                try:
+                    self.device.ungrab()
+                except OSError as exc:
+                    log.warning("Failed to ungrab %s: %s", self.path, exc)
+                except Exception:
+                    log.exception("Unexpected failure ungrabbing %s", self.path)
             try:
                 self.device.close()
             except OSError as exc:

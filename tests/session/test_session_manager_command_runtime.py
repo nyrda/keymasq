@@ -2897,6 +2897,67 @@ async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted(
 
 
 @pytest.mark.asyncio
+async def test_begin_capture_source_selects_only_motion_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        evdev_devices=[
+            SimpleNamespace(
+                id="gamepad",
+                path="/dev/input/event20",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="usb-pad/input0",
+                capabilities=["btn_south"],
+            ),
+            SimpleNamespace(
+                id="imu",
+                path="/dev/input/event21",
+                device_type=SimpleNamespace(value="motion"),
+                phys="usb-pad/input1",
+                capabilities=["abs_rx", "abs_ry", "abs_rz"],
+            ),
+        ]
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"token": "capture-token", "warnings": []})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    grant_recording_refresh_owner(manager, peer, writer, monkeypatch)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "begin_capture",
+            "hardware_id": hardware_id,
+            "mode": "analog",
+            "source": "imu",
+        },
+        peer,
+        writer,
+    )
+
+    assert result["status"] == "ok"
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.CAPTURE_BEGIN
+    assert sent.data == {
+        "hardware_id": hardware_id,
+        "mode": "analog",
+        "evdev_paths": ["/dev/input/event21"],
+        "evdev_interfaces": [
+            {
+                "id": "imu",
+                "path": "/dev/input/event21",
+                "type": "motion",
+                "phys": "usb-pad/input1",
+                "capabilities": ["abs_rx", "abs_ry", "abs_rz"],
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_begin_capture_with_explicit_path_does_not_use_saved_interface(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

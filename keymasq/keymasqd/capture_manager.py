@@ -80,6 +80,7 @@ class CaptureSession:
     notify_event: asyncio.Event | None = None
     path_hardware_ids: dict[str, str] = field(default_factory=dict)
     path_sources: dict[str, str] = field(default_factory=dict)
+    exclusive_devices: list[_CaptureInputDevice] = field(default_factory=list)
     mode: str = "button"
 
 
@@ -114,13 +115,16 @@ class CaptureManager:
         if not matched:
             raise ValueError(input_device_permission_message(f"No devices found for {hardware_id}"))
 
-        grabbed: list[_CaptureInputDevice] = []
+        readable: list[_CaptureInputDevice] = []
+        exclusive_devices: list[_CaptureInputDevice] = []
         warnings: list[str] = []
         permission_error_seen = False
         for device in matched:
             try:
-                device.grab()
-                grabbed.append(device)
+                if not _is_motion_device(device):
+                    device.grab()
+                    exclusive_devices.append(device)
+                readable.append(device)
             except OSError as e:
                 if e.errno == errno.EBUSY:
                     warnings.append(f"{device.path}: busy")
@@ -131,7 +135,7 @@ class CaptureManager:
                     warnings.append(f"{device.path}: {e}")
                 _close_device(device)
 
-        if not grabbed:
+        if not readable:
             message = "No readable/grabbable interfaces found"
             if warnings:
                 message = f"{message}: {', '.join(warnings)}"
@@ -143,9 +147,10 @@ class CaptureManager:
         self._sessions[token] = CaptureSession(
             token=token,
             hardware_id=hardware_id,
-            devices=grabbed,
+            devices=readable,
             started_at=time.time(),
             path_sources=path_sources,
+            exclusive_devices=exclusive_devices,
             mode=mode,
         )
 
@@ -316,8 +321,9 @@ class CaptureManager:
         if session.reader_thread is not None and session.reader_thread.is_alive():
             session.reader_thread.join(timeout=0.2)
 
+        exclusive_device_ids = {id(device) for device in session.exclusive_devices}
         for device in session.devices:
-            if session.hardware_id != "__combo__":
+            if id(device) in exclusive_device_ids:
                 _ungrab_device(device)
             _close_device(device, context="capture device during capture end")
 
@@ -737,6 +743,21 @@ def _capture_mode(mode: str) -> str:
     if normalized not in {"button", "analog"}:
         raise ValueError(f"unsupported capture mode: {mode}")
     return normalized
+
+
+def _is_motion_device(device: _CaptureInputDevice) -> bool:
+    try:
+        return evdev.ecodes.INPUT_PROP_ACCELEROMETER in {
+            int(value) for value in device.input_props()
+        }
+    except AttributeError:
+        return False
+    except OSError as exc:
+        log.debug("Failed to read capture input properties for %s: %s", device.path, exc)
+        return False
+    except Exception:
+        log.exception("Unexpected failure reading capture input properties for %s", device.path)
+        return False
 
 
 def _read_one_device_event(device: _CaptureInputDevice) -> evdev.InputEvent | None:

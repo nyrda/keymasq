@@ -43,6 +43,7 @@ async def handle_capture_commands(
             for path in json_list(request.get("evdev_paths"))
             if coerce_str(path, "")
         ]
+        source = coerce_str(request.get("source"), "")
         evdev_interfaces_raw = request.get("evdev_interfaces")
         evdev_interfaces = (
             [
@@ -60,6 +61,7 @@ async def handle_capture_commands(
             evdev_paths,
             evdev_interfaces=evdev_interfaces,
             mode=mode,
+            source=source or None,
             owner_writer=writer if bool(request.get("end_on_disconnect", False)) else None,
         )
 

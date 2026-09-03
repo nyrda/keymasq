@@ -228,6 +228,7 @@ class MotionCalibrationDialog(Adw.Dialog):
                 "command": "begin_capture",
                 "hardware_id": self._hardware_config.hardware_id,
                 "mode": "analog",
+                "source": self._sensor.source,
                 "end_on_disconnect": True,
             },
             self._on_capture_begun,

@@ -28,6 +28,7 @@ from keymasq.keymasqd.runtime import (
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.grab import acquisition, planning, release
 from keymasq.keymasqd.runtime.grab.state import DesiredGrabConfig, GrabDeviceDeps, GrabRequest
+from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 from keymasq.keymasqd.runtime.macro import controls, mouse
 from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_device
 
@@ -2089,6 +2090,85 @@ class TestDeviceManager:
         assert result["grabbed_count"] == 1
         assert result["skipped_count"] == 0
         assert manager.grabbed_devices["1234:5678"][0].path == path
+
+    @pytest.mark.asyncio
+    async def test_grab_device_constructs_motion_interface_in_observe_mode(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager()
+        path = "/dev/input/event-motion"
+
+        class _InputDevice:
+            name = "Motion Sensor"
+            phys = "usb-pad/input1"
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_ABS: [evdev.ecodes.ABS_RX]}
+
+            def input_props(self) -> list[int]:
+                return [evdev.ecodes.INPUT_PROP_ACCELEROMETER]
+
+            def close(self) -> None:
+                return
+
+        class _GrabbedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+                self.hardware_id = kwargs["hardware_id"]
+                self.stable_path = self.path
+                self.resolved_event_path = self.path
+                self.interface_id = kwargs.get("interface_id", "")
+                self.access_mode = kwargs["access_mode"]
+
+            async def grab(self) -> None:
+                return
+
+            async def release(self) -> None:
+                return
+
+            def update_button_map(self, *args, **kwargs) -> None:
+                return
+
+            def update_analog_inputs(self, _inputs) -> None:
+                return
+
+            def update_motion_sensors(self, _sensors) -> None:
+                return
+
+        monkeypatch.setattr(device_manager, "resolve_stable_path", lambda value: value)
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _GrabbedDevice)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(
+            source_hiding,
+            "disable_hardware_hotplug_hiding",
+            AsyncMock(),
+        )
+        manager._device_input = lambda _path: _InputDevice()  # type: ignore[method-assign]
+        manager._detect_device_types = lambda _device: ["motion"]  # type: ignore[method-assign]
+
+        result = await manager.grab_device(
+            hardware_id="1234:5678",
+            evdev_paths=[path],
+            evdev_interfaces=[{"id": "imu", "path": path, "type": "motion"}],
+            button_map={},
+            motion_sensors={
+                "imu": {
+                    "source": "imu",
+                    "gyro_axes": [
+                        {
+                            "role": "yaw",
+                            "evdev": "abs_rx",
+                            "evdev_code": evdev.ecodes.ABS_RX,
+                        }
+                    ],
+                }
+            },
+        )
+
+        assert result["grabbed_count"] == 1
+        assert manager.grabbed_devices["1234:5678"][0].access_mode is InputAccessMode.OBSERVE
 
     @pytest.mark.asyncio
     @requires_uinput

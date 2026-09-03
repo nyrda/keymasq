@@ -144,6 +144,7 @@ async def capture_begin_for_paths(
     *,
     evdev_interfaces: list[JsonObject] | None = None,
     mode: str = "button",
+    source: str | None = None,
     owner_writer: asyncio.StreamWriter | None = None,
 ) -> JsonObject:
     if hardware_id in manager.capture_state.tokens or hardware_id in manager.capture_state.locks:
@@ -153,12 +154,29 @@ async def capture_begin_for_paths(
             "message": f"capture already active for {hardware_id}",
         }
 
+    normalized_source = coerce_str(source, "")
     explicit_evdev_paths = bool(evdev_paths)
-    if not explicit_evdev_paths:
+    if normalized_source:
+        evdev_interfaces = [
+            interface
+            for interface in _hardware_evdev_interfaces(manager, hardware_id)
+            if coerce_str(interface.get("id"), "") == normalized_source
+        ]
+        if not evdev_interfaces:
+            return {
+                "status": "error",
+                "message": f"Hardware config for {hardware_id} has no source {normalized_source}",
+            }
+        evdev_paths = [
+            path
+            for interface in evdev_interfaces
+            if (path := coerce_str(interface.get("path"), ""))
+        ]
+    elif not explicit_evdev_paths:
         evdev_paths = _hardware_evdev_paths(manager, hardware_id)
-    if evdev_interfaces is None and explicit_evdev_paths:
+    if not normalized_source and evdev_interfaces is None and explicit_evdev_paths:
         evdev_interfaces = _evdev_interfaces_for_paths(manager, hardware_id, evdev_paths)
-    elif evdev_interfaces is None:
+    elif not normalized_source and evdev_interfaces is None:
         evdev_interfaces = _hardware_evdev_interfaces(manager, hardware_id)
     if not evdev_paths and _requires_explicit_evdev_paths(hardware_id):
         return {

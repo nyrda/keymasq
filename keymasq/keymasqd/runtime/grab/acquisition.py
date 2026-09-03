@@ -9,6 +9,7 @@ from typing import Any, cast
 import evdev
 
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
@@ -48,6 +49,7 @@ from keymasq.keymasqd.runtime.grab.state import (
     ManagedGrabbedDevice,
 )
 from keymasq.keymasqd.runtime.grab.support import combo_runtime_deps
+from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -241,6 +243,11 @@ def construct_grabbed_device(
         runtime_disconnect_callback=callbacks.runtime_disconnect_callback,
         repeat_state=manager.repeat_state,
         interface_id=interface_id,
+        access_mode=(
+            InputAccessMode.OBSERVE
+            if detected_type is DeviceType.MOTION
+            else InputAccessMode.EXCLUSIVE
+        ),
     )
 
 

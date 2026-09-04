@@ -19,7 +19,6 @@ from keymasq.keymasqd.runtime.grab.state import (
 )
 from keymasq.keymasqd.runtime.grab.support import (
     combo_runtime_deps,
-    stop_device_event_loop,
     stop_device_event_loops,
 )
 
@@ -280,7 +279,7 @@ async def release_interface_unlocked(
     if removed is None:
         return
 
-    await stop_device_event_loop(removed)
+    await removed.stop_event_loop()
     await lifecycle.clear_combo_runtime_for_binding_scope(
         manager,
         hardware_id,

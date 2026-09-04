@@ -122,22 +122,6 @@ def _serialize_control(
     }
 
 
-def serialize_threshold(
-    manager: "SessionManager",
-    threshold: AnalogActionThreshold,
-    hardware_id: str,
-) -> JsonObject:
-    return _serialize_threshold(manager, threshold, hardware_id, signature=False)
-
-
-def serialize_threshold_signature(
-    manager: "SessionManager",
-    threshold: AnalogActionThreshold,
-    hardware_id: str,
-) -> JsonObject:
-    return _serialize_threshold(manager, threshold, hardware_id, signature=True)
-
-
 def _serialize_threshold(
     manager: "SessionManager",
     threshold: AnalogActionThreshold,

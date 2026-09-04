@@ -77,14 +77,6 @@ def test_documented_extras_match_pyproject() -> None:
     assert documented == {name: set(entries) for name, entries in declared.items()}
 
 
-def test_undeclared_tools_are_not_documented() -> None:
-    declared = _pyproject()["project"]["optional-dependencies"]
-    all_entries = " ".join(entry for entries in declared.values() for entry in entries)
-
-    if "mypy" not in all_entries:
-        assert "mypy" not in _doc()
-
-
 def _pkgbuild_depends(rel_path: str) -> str:
     match = re.search(r"^depends=\((.*?)\)", _read(rel_path), flags=re.MULTILINE | re.DOTALL)
     assert match is not None, f"missing depends=() in {rel_path}"

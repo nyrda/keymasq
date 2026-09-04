@@ -1,138 +1,118 @@
 # Motion controls
 
-Keymasq treats a controller motion sensor as a separate evdev interface attached to the
-same hardware configuration as the controller. A profile maps that sensor to a reusable
-Motion Control. Enabling, disabling, toggling, and layering the profile therefore activates
-motion in exactly the same way as every other Keymasq mapping.
+Motion Controls turn a controller's gyroscope or tilt into mouse movement, stick output, or
+an Analog Control input. They are saved separately from profiles, so the same control can be
+used in several profiles. A Motion Control is active whenever a profile maps it to a motion
+sensor.
 
-Version 1 supports kernel evdev motion interfaces from `hid-playstation`, `hid-nintendo`,
-and `hid-steam`. Detection is capability based: the event device must expose
-`INPUT_PROP_ACCELEROMETER`. This keeps motion axes separate from ordinary controller sticks.
-Other evdev drivers using the same kernel ABI work through the generic path. Hidraw and SDL
-input backends are not used.
+## Set up a motion sensor
 
-## Hardware normalization
+Keymasq supports motion sensors exposed by Linux, including those in PlayStation, Nintendo,
+and Steam controllers. Other controllers may also work when their Linux driver provides a
+compatible motion event device.
 
-The hardware setup wizard attaches a sibling motion interface when it finds one belonging
-to the selected controller. It translates the driver-specific axis order and signs into
-canonical controller-relative axes. Gyroscopes use `pitch`, `yaw`, and `roll` roles;
-accelerometers use `x`, `y`, and `z`. Kernel axis resolution supplies the unit conversion:
+The hardware setup wizard normally finds and attaches the motion sensor. If it does not appear
+on the controller tab, open **Hardware settings**, choose **Add Event Device**, and select the
+controller's motion interface. Removing that event device also removes its saved calibration.
 
-- gyroscope values become radians per second;
-- accelerometer values become metres per second squared;
-- frame time is monotonic nanoseconds in the daemon.
+## Calibrate the gyroscope
 
-You can attach a motion interface to an existing controller from **Hardware settings**.
-Choose **Add Event Device** and select the controller's motion evdev interface. Removing
-that event device removes its motion sensor and its hardware-owned normalization data.
+Calibration removes the slow cursor or stick movement caused by gyro drift.
 
-Bias, scale, inversion, and noise-floor values live in the hardware configuration. To remove
-gyro drift, open the controller tab, choose **Hardware settings**, then choose
-**Calibrate gyro…** under Motion Normalization. Put the controller on a stable surface and
-leave it untouched while Keymasq lets the sensor settle briefly and then observes three
-seconds of stationary input through the daemon capture path. Calibration does not grab the
-motion interface. The daemon drains the event stream continuously and gives the calibration
-dialog complete `SYN_REPORT` frames, including unchanged gyro axes. A run is rejected when
-it has too few complete frames, covers too little time, loses event-stream data, or contains
-sustained controller movement. A small number of isolated sensor outliers does not invalidate
-the run.
+1. Open the controller tab and choose **Hardware settings**.
+2. Under Motion Normalization, choose **Calibrate gyro…**.
+3. Put the controller on a stable surface and leave it untouched. Keymasq lets the sensor
+   settle, then measures it for three seconds.
 
-Keymasq saves the new bias only after the session confirms that capture ended and normal
-profile handling resumed. If cleanup fails, the dialog keeps the calibration unsaved and
-retries. It offers a **Retry cleanup** action if automatic retries cannot release the capture.
+Keymasq rejects a run if the controller moves, the measurement is too short, or sensor data is
+lost. A few isolated noisy readings are fine.
 
-The guided calibration changes gyro bias and noise floor only. It keeps the scale derived
-from the kernel axis resolution. Advanced manual normalization remains available for unusual
-drivers and accelerometer correction. A stationary pose cannot automatically determine
-accelerometer bias because its readings include gravity.
+After measurement, Keymasq restores normal profile handling before saving the result. The
+Close button is disabled during this brief finishing step. If cleanup fails, use **Retry
+cleanup**. You may close the dialog at that point; Keymasq will keep trying in the background
+and save a completed calibration once cleanup succeeds. Closing while measurement is still in
+progress cancels that run.
 
-Profile-specific sensitivity, deadzone, smoothing, response curve, axis routing, neutral
-reference, and output target live in the Motion Control instead. Each canonical gyro axis
-can be unused or routed to the horizontal or vertical output channel. Several gyro axes may
-feed the same channel. Accelerometer controls derive controller-relative pitch and roll from
-the normalized `x`, `y`, and `z` gravity vector. An accelerometer cannot determine yaw.
+Guided calibration corrects gyro drift and measures sensor noise. It does not change axis
+direction or profile sensitivity. Use advanced manual normalization only if automatic
+calibration does not work with your controller driver or you need accelerometer correction.
+Keymasq cannot calibrate accelerometer bias from a stationary pose because the sensor also
+measures gravity.
 
-The PlayStation, Nintendo, and Steam templates each define their own raw-axis translation.
-This is necessary because RX, RY, and RZ do not represent the same physical controller
-rotation in all three kernel drivers. Older hardware normalization versions are translated
-when loaded, while preserving their calibration offsets, scales, noise floors, and user
-inversion.
-
-Motion is processed once per evdev `SYN_REPORT` frame. `SYN_DROPPED` clears accumulated
-sensor and output state. Keymasq opens motion interfaces as shared observers instead of
-grabbing them or replacing them with passthrough devices. Games and other clients can keep
-reading the physical motion stream while a Keymasq motion mapping is active. A motion
-mapping controls only the outputs generated by Keymasq; it cannot hide the physical sensor
-events from other clients. Motion interfaces otherwise follow the normal controller release,
-hotplug, and profile-switch lifecycle.
-
-## Outputs
+## Choose an output
 
 Open **Motion Controls** from the application menu, or click a Motion Sensor card in a
-controller profile. The menu entry appears after Keymasq has a configured controller with
-an attached motion sensor. The first-use presets create the common control types:
+controller profile. The menu entry appears once a configured controller has an attached motion
+sensor.
 
-- **Gyro Mouse**, which integrates angular velocity over elapsed frame time and emits
-  fractional-accumulated relative mouse motion;
-- **Gyro Stick**, which maps angular rate to the originating controller's right stick and
-  uses the normal tracked gamepad output path. Its output selector can route that one stick
-  output to a virtual gamepad or another configured physical controller instead;
-- **Tilt Mouse**, which maps held controller tilt to continuous cursor velocity;
-- **Tilt Stick**, which maps held controller tilt to a persistent stick deflection and uses
-  the same single-output routing as Gyro Stick;
-- **Area Mouse**, which maps tilt to a bounded cursor offset. Motion back toward the neutral
-  pose emits the inverse cursor movement.
+The presets cover the common uses:
 
-The Motion Control editor also provides **Motion to Analog** for advanced mappings. It
-converts either gyroscope rate or controller tilt into one normalized axis or stick, then
-passes that input to one saved Analog Control. The attached Analog Control owns its
-deadzones, response curves, digital ranges, mouse behavior, and gamepad output routing.
-Gyroscope inputs can select yaw, pitch, or roll for each analog channel. Controller tilt can
-select pitch or roll because an accelerometer cannot measure absolute yaw.
+- **Gyro Mouse** moves the pointer while you rotate the controller. Movement stops when the
+  controller stops rotating.
+- **Gyro Stick** turns controller rotation into right-stick output. It can target a virtual
+  gamepad or another configured controller.
+- **Tilt Mouse** moves the pointer continuously while the controller remains tilted.
+- **Tilt Stick** holds a stick away from center while the controller remains tilted.
+- **Area Mouse** maps tilt to a bounded area around the pointer's starting position. Returning
+  to the neutral pose moves the pointer back toward that position.
 
-A profile mapping can attach one or more Motion Controls to a sensor. Every attached control
-receives the same normalized sensor frames but keeps separate smoothing, neutral pose,
-threshold, and output state. This permits combinations such as Gyro Mouse with tilt-based
-digital actions. Profile layering replaces the complete mapping, including its attached
-control list. Each Motion-to-Analog control supplies exactly one Analog Control input; users
-add more named controls to the sensor mapping when they need more outputs. There is no
-process-wide or global gyro source.
+For more specialized mappings, **Motion to Analog** sends gyro movement or tilt into a saved
+[Analog Control](ANALOG_CONTROLS.md). The Analog Control supplies its own deadzones, response
+curve, digital actions, mouse behavior, and gamepad target.
 
-The default axis routing is:
+## Tune gyroscope controls
+
+Each gyro axis can drive the horizontal channel, the vertical channel, or neither. The default
+routing is:
 
 - yaw to horizontal;
 - pitch to vertical;
 - roll to horizontal.
 
-Yaw and roll are added together before mouse or stick tuning. This lets horizontal movement
-respond both when the controller is turned flat and when it is tilted like a steering wheel.
-The default mouse directions are:
+Yaw and roll add together by default. This makes horizontal movement respond both when you
+rotate a level controller and when you tilt it like a steering wheel.
 
-- turn the controller left or right to move the cursor left or right;
-- tilt the top edge toward yourself to move up, or away from yourself to move down;
-- tilt the controller like a steering wheel to move left or right.
+With the default directions:
 
-The horizontal and vertical inversion switches reverse these normalized directions. A gyro
-measures angular velocity, so Gyro Mouse stops when the controller stops rotating. Tilt Mouse
-continues moving while the controller remains tilted. Tilt Stick continues holding its stick
-output for the same reason.
+- turning left or right moves left or right;
+- tilting the top edge toward you moves up;
+- tilting the controller like a steering wheel moves left or right.
 
-Tilt controls use the profile activation pose as their neutral pose by default. The daemon
-captures it from the first complete accelerometer frame after the profile and device become
-active. Choosing **Absolute gravity** instead uses a level controller as the neutral pose.
-The captured pose is runtime state. Profile changes, device resets, and `SYN_DROPPED` clear
-it. Keymasq never writes it into the hardware configuration.
+Use the horizontal and vertical inversion switches if either direction feels wrong. Sensitivity
+sets the overall output strength. Deadzone ignores small movement near rest. Smoothing reduces
+jitter but adds some response delay. Response curve adjusts the balance between fine and fast
+movement.
 
-Motion-to-Analog uses the same activation reference for controller tilt. Its full-output
-rate or angle converts the physical motion signal into the normalized `-1.0` to `1.0` range
-expected by Analog Controls. An attached axis control consumes X only. A stick control
-consumes X and Y together, so its radial deadzone and diagonal processing remain intact.
+Gyro controls respond to rotation, not the angle at which you hold the controller. Use a tilt
+control when you want the output to continue while the controller stays at an angle.
 
-Area Mouse maps its configured full-output angle to a horizontal and vertical pixel radius.
-It emits relative deltas from the previous point in that area, matching the existing analog
-Mouse Area behavior. With **Drag center** enabled, moving past the configured angle shifts
-the neutral point. Movement back toward the center then registers immediately.
+## Tune tilt controls
 
-Accelerometer tilt is gravity based and low-pass filtered. Linear acceleration can briefly
-disturb it while the controller moves quickly. Motion-to-digital gestures, trained movements,
-tilt or shake actions, and full gyroscope and accelerometer sensor fusion remain deferred.
+Tilt controls use the controller's pose when the profile becomes active as their neutral pose.
+Choose **Absolute gravity** if you want a level controller to be neutral instead. Keymasq takes
+a new activation pose after a profile change, device reconnect, or device reset.
+
+An accelerometer can measure pitch and roll from gravity, but it cannot determine yaw. Fast
+controller movement adds acceleration of its own, so the reported tilt may wobble briefly while
+the controller is moving.
+
+For **Area Mouse**, the full-output angle sets the horizontal and vertical range. Enable **Drag
+center** if you want the neutral point to follow when you tilt beyond that range.
+
+For **Motion to Analog**, the full-output rate or angle determines how much movement produces
+the Analog Control's maximum input. Axis controls use one selected gyro or tilt axis. Stick
+controls use two.
+
+## Use motion controls in profiles
+
+A profile can attach one or more Motion Controls to the same sensor. Each control keeps its own
+tuning and neutral pose, which makes combinations such as Gyro Mouse plus tilt-triggered digital
+actions possible.
+
+When a higher-priority profile maps the same motion sensor, it replaces the entire Motion
+Control list from the lower-priority profile. Include every control you want in the
+higher-priority mapping.
+
+Games and other apps can still read the controller's motion sensor while a Motion Control is
+active. Keymasq adds the configured mouse, gamepad, or digital-action output. It does not hide
+sensor input from other apps.

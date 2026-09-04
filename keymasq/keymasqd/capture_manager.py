@@ -986,7 +986,8 @@ def _motion_axis_values(
 
 def _event_timestamp_ns(event: evdev.InputEvent) -> int:
     timestamp_ns = int(event.sec) * 1_000_000_000 + int(event.usec) * 1_000
-    return timestamp_ns if timestamp_ns > 0 else time.monotonic_ns()
+    # Capture descriptors use evdev's default CLOCK_REALTIME timestamps.
+    return timestamp_ns if timestamp_ns > 0 else time.time_ns()
 
 
 def _ungrab_device(device: _CaptureInputDevice) -> None:

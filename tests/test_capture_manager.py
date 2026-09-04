@@ -307,6 +307,15 @@ def test_capture_manager_motion_mode_returns_complete_frame_batches(monkeypatch)
     assert fake.closed is True
 
 
+def test_motion_event_timestamp_fallback_uses_realtime_clock(monkeypatch) -> None:
+    fallback_ns = 1_725_400_123_456_789_000
+    monkeypatch.setattr(capture_manager_module.time, "time_ns", lambda: fallback_ns)
+
+    event = evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0)
+
+    assert capture_manager_module._event_timestamp_ns(event) == fallback_ns
+
+
 def test_capture_manager_begin_numbered_hardware_id_falls_back_to_model_id(monkeypatch) -> None:
     keyboard_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
     fake = _FakeDevice("/dev/input/event1", 0x045E, 0x02A1, [keyboard_event])

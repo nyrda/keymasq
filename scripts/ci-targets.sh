@@ -2,49 +2,10 @@
 
 KEYMASQ_KEYMASQD_TEST_TARGETS=(
   tests/keymasqd
-  tests/test_capture_manager.py
-  tests/test_grabbed_device.py
-  tests/test_macro_file.py
-  tests/test_macro_store.py
-  tests/test_macro_store_internal.py
-  tests/test_output_helpers.py
-  tests/test_profile_handoff.py
-  tests/test_record_cli.py
-  tests/test_recording_extended.py
-  tests/test_socket_server.py
-  tests/test_superkey_state.py
-  tests/test_superkeys.py
 )
 
 KEYMASQ_SESSION_TEST_TARGETS=(
   tests/session
-  tests/test_action_handler.py
-  tests/test_analog_controls.py
-  tests/test_base_listener.py
-  tests/test_compositor.py
-  tests/test_config_loading.py
-  tests/test_conflicts.py
-  tests/test_gnome_listener.py
-  tests/test_gnome_shell.py
-  tests/test_hyprland_listener.py
-  tests/test_kde_listener.py
-  tests/test_keymasqd_client.py
-  tests/test_listener_socket_helpers.py
-  tests/test_niri_listener.py
-  tests/test_session_clients.py
-  tests/test_session_config_files.py
-  tests/test_session_hardware.py
-  tests/test_session_manager_compositor.py
-  tests/test_session_manager_core.py
-  tests/test_session_manager_events.py
-  tests/test_session_manager_recording.py
-  tests/test_session_support.py
-  tests/test_slurp.py
-  tests/test_toml.py
-  tests/test_wayland_protocol_trackers.py
-  tests/test_wayland_toplevel_listener.py
-  tests/test_wayland_wlr_listener.py
-  tests/test_x11_listener.py
 )
 
 KEYMASQ_GUI_TEST_TARGETS=(

@@ -6,7 +6,7 @@ import pytest
 
 from tests.script_loader import load_script
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts/release-version.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts/release-version.py"
 SCRIPT_MODULE = "release_version_test"
 SCRIPT_CLEANUP_MODULES = ("build_metadata_rewrite",)
 

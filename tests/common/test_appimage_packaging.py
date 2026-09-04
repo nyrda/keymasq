@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
 APPIMAGE_ASSETS = ROOT / "packaging/appimage/assets"

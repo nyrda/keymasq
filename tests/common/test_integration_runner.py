@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION_SCRIPT = REPOSITORY_ROOT / "scripts" / "integration.sh"
 DAEMON_INTEGRATION_ROOT = REPOSITORY_ROOT / "nix" / "daemon-session-integration-test"
 

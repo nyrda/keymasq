@@ -81,6 +81,10 @@ You can also run a category explicitly:
 subset from the dev shell when `auto` finds relevant code changes. Use `full`
 for multi-area changes, shared code, or before handing off a broad refactor.
 
+Test modules live under `tests/common/`, `tests/keymasqd/`, `tests/session/`,
+or `tests/gui/`. Pytest assigns each test its directory's category. Keep shared
+test helpers in `tests/`; changes to those helpers select the full check suite.
+
 If the host does not have usable `uinput` access, or if you want the selected
 pytest category to run in the VM backend instead of the host backend, add
 `--vm`:

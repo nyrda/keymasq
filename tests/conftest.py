@@ -306,89 +306,13 @@ def event_loop():
 
 
 _CATEGORY_SUBTREES = {"common", "keymasqd", "session", "gui"}
-_KEYMASQD_ROOT_TEST_FILES = (
-    "test_capture_manager.py",
-    "test_grabbed_device.py",
-    "test_macro_file.py",
-    "test_macro_store.py",
-    "test_macro_store_internal.py",
-    "test_output_helpers.py",
-    "test_profile_handoff.py",
-    "test_record_cli.py",
-    "test_recording_extended.py",
-    "test_socket_server.py",
-    "test_superkey_state.py",
-    "test_superkeys.py",
-)
-_SESSION_ROOT_TEST_FILES = (
-    "test_action_handler.py",
-    "test_analog_controls.py",
-    "test_base_listener.py",
-    "test_compositor.py",
-    "test_config_loading.py",
-    "test_conflicts.py",
-    "test_gnome_listener.py",
-    "test_gnome_shell.py",
-    "test_hyprland_listener.py",
-    "test_kde_listener.py",
-    "test_keymasqd_client.py",
-    "test_listener_socket_helpers.py",
-    "test_niri_listener.py",
-    "test_session_clients.py",
-    "test_session_config_files.py",
-    "test_session_hardware.py",
-    "test_session_manager_compositor.py",
-    "test_session_manager_core.py",
-    "test_session_manager_events.py",
-    "test_session_manager_recording.py",
-    "test_session_support.py",
-    "test_slurp.py",
-    "test_toml.py",
-    "test_wayland_protocol_trackers.py",
-    "test_wayland_toplevel_listener.py",
-    "test_wayland_wlr_listener.py",
-    "test_x11_listener.py",
-)
-_COMMON_ROOT_TEST_FILES = (
-    "test_appimage_icon_gallery.py",
-    "test_appimage_packaging.py",
-    "test_appimage_symbolic_encoder.py",
-    "test_cli_commands_helpers.py",
-    "test_dependency_metadata.py",
-    "test_devices.py",
-    "test_entrypoints_and_cli.py",
-    "test_ipc.py",
-    "test_integration_runner.py",
-    "test_paths.py",
-    "test_recording_guard.py",
-    "test_release_version.py",
-    "test_rewrite_build_metadata.py",
-    "test_security.py",
-    "test_udev_rules.py",
-)
-_CATEGORY_BY_FILE = {
-    **{name: "keymasqd" for name in _KEYMASQD_ROOT_TEST_FILES},
-    **{name: "session" for name in _SESSION_ROOT_TEST_FILES},
-    **{name: "common" for name in _COMMON_ROOT_TEST_FILES},
-}
 
 
-def _category_for_test_path(item_path: Path) -> str | None:
-    parts = item_path.parts
-    for tests_index in range(len(parts) - 2, -1, -1):
-        if parts[tests_index] != "tests":
-            continue
-        subtree = parts[tests_index + 1]
-        if subtree in _CATEGORY_SUBTREES:
-            return subtree
-        return _CATEGORY_BY_FILE.get(item_path.name)
-    return None
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    del config
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    tests_dir = Path(__file__).resolve().parent
     for item in items:
-        item_path = Path(str(item.fspath))
-        category = _category_for_test_path(item_path)
-        if category is not None:
-            item.add_marker(getattr(pytest.mark, category))
+        relative_path = item.path.relative_to(tests_dir)
+        category = relative_path.parts[0]
+        if category not in _CATEGORY_SUBTREES:
+            raise pytest.UsageError(f"Test must live in a category directory: {relative_path}")
+        item.add_marker(getattr(pytest.mark, category))

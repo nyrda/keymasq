@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_hardware_hotplug_udev_rule_only_hides_joystick_event_nodes() -> None:
-    rule_path = Path(__file__).parents[1] / "udev" / "99-keymasq-hide-grabbed.rules"
+    rule_path = Path(__file__).parents[2] / "udev" / "99-keymasq-hide-grabbed.rules"
     lines = rule_path.read_text(encoding="utf-8").splitlines()
 
     event_hardware_lines = [

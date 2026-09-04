@@ -1,9 +1,12 @@
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import Mock
 
 import evdev
+import pytest
 
 from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.event.classification import (
     EventClass,
     classify_event,
@@ -15,14 +18,13 @@ from keymasq.keymasqd.runtime.grabbed_device.event.combo import (
     route_combo_callback_result,
 )
 from keymasq.keymasqd.runtime.grabbed_device.event.passthrough import (
-    SynFrameAction,
-    SynFrameDecision,
-    classify_syn_frame,
+    process_syn_event,
 )
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     GrabbedDeviceState,
     InputEventLike,
 )
+from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_device
 
 
 def _event(event_type: int, event_code: int = 0) -> InputEventLike:
@@ -177,28 +179,22 @@ def test_combo_passthrough_held_transition_clears_only_on_release() -> None:
     assert state.combo_passthrough_held == set()
 
 
-def test_syn_frame_classifier_is_independent_of_output_objects() -> None:
-    assert classify_syn_frame(
-        0,
-        syn_report_code=0,
-        syn_mt_report_code=2,
-        passthrough_frame_open=True,
-    ) == SynFrameDecision(SynFrameAction.FLUSH_REPORT, "passthrough_syn")
-    assert classify_syn_frame(
-        0,
-        syn_report_code=0,
-        syn_mt_report_code=2,
-        passthrough_frame_open=False,
-    ) == SynFrameDecision(SynFrameAction.FLUSH_REPORT, "syn")
-    assert classify_syn_frame(
-        2,
-        syn_report_code=0,
-        syn_mt_report_code=2,
-        passthrough_frame_open=False,
-    ) == SynFrameDecision(SynFrameAction.FORWARD_MT_REPORT, "syn")
-    assert classify_syn_frame(
-        3,
-        syn_report_code=0,
-        syn_mt_report_code=2,
-        passthrough_frame_open=True,
-    ) == SynFrameDecision(SynFrameAction.CLOSE_FRAME, "syn")
+@pytest.mark.parametrize("event_code", [evdev.ecodes.SYN_CONFIG, evdev.ecodes.SYN_DROPPED])
+def test_other_syn_events_close_frame_without_flushing(
+    monkeypatch: pytest.MonkeyPatch, event_code: int
+) -> None:
+    passthrough = FakeUInput()
+    syn = Mock()
+    monkeypatch.setattr(passthrough, "syn", syn)
+    device = make_grabbed_device(monkeypatch, passthrough_uinput=passthrough)
+    outputs.mark_passthrough_frame_open(device, passthrough)
+
+    assert process_syn_event(
+        device, _event(evdev.ecodes.EV_SYN, event_code), evdev_mod=evdev
+    ) == "syn"
+    assert not outputs.passthrough_frame_open(device, passthrough)
+    assert process_syn_event(
+        device, _event(evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT), evdev_mod=evdev
+    ) == "syn"
+    assert passthrough.writes == []
+    syn.assert_not_called()

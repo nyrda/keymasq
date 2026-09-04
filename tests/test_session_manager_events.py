@@ -12,6 +12,7 @@ from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.model.actions import ProfileDeactivationPolicy
 from keymasq.common.model.profiles import ProfileConfig
 from keymasq.session.listeners.hyprland import HyprlandListener
+from keymasq.session.manager.common import device_name_for_hardware
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator, runtime_state, runtime_status
 from keymasq.session.manager.state import ExecBinding, RuntimeProfileActivation
@@ -1240,7 +1241,7 @@ async def test_device_topology_events_schedule_known_hardware_refresh(
         "recording_devices_refresh",
         "recording_devices_refresh",
     ]
-    assert session_events_module.device_name_for_hardware(manager, "missing:id") == "missing:id"
+    assert device_name_for_hardware(manager, "missing:id") == "missing:id"
     assert session_events_module._hardware_or_model_known(manager, "abcd:ef01") is True
     assert session_events_module.event_log_view({"events": [1, 2]}) == {
         "events": "<2 events>",

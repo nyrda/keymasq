@@ -472,7 +472,7 @@ class TestGrabbedDeviceHelpers:
         assert diagnostics == ["inspector_suppressed", "inspector_suppressed"]
         cast(AsyncMock, device.event_callback).assert_not_awaited()
 
-    def test_find_action_for_event_prefers_evdev_code_over_alias_name(
+    def test_find_action_for_code_prefers_evdev_code_over_alias_name(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -482,15 +482,17 @@ class TestGrabbedDeviceHelpers:
             button_codes={"south": evdev.ecodes.BTN_SOUTH},
         )
         mapping = {"south": MappingAction(action_type=ActionType.KEYBOARD, target="key_a")}
-        event = evdev.InputEvent(
-            0,
-            0,
-            evdev.ecodes.EV_KEY,
-            evdev.ecodes.BTN_SOUTH,
-            1,
+        assert (
+            classification.find_action_for_code(
+                device,
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.BTN_SOUTH,
+                1,
+                "btn_a",
+                mapping,
+            )
+            == mapping["south"]
         )
-
-        assert classification.find_action_for_event(device, event, mapping) == mapping["south"]
 
     @pytest.mark.asyncio
     async def test_passthrough_preserves_source_syn_report_frame(
@@ -831,9 +833,14 @@ class TestGrabbedDeviceHelpers:
             -1,
         )
 
-        assert classification.find_action_for_event(device, event, mapping) is None
+        assert (
+            classification.find_action_for_code(
+                device, event.type, event.code, event.value, "rel_wheel", mapping
+            )
+            is None
+        )
 
-    def test_find_grabbed_action_for_event_distinguishes_wheel_direction(self, monkeypatch) -> None:
+    def test_find_grabbed_action_for_code_distinguishes_wheel_direction(self, monkeypatch) -> None:
         device = make_grabbed_device(
             monkeypatch,
             button_map={
@@ -865,14 +872,22 @@ class TestGrabbedDeviceHelpers:
         )
 
         assert (
-            classification.find_action_for_event(
+            classification.find_action_for_code(
                 device,
-                down_event,
+                down_event.type,
+                down_event.code,
+                down_event.value,
+                "rel_wheel",
                 mapping,
             )
             == mapping["wheel_down"]
         )
-        assert classification.find_action_for_event(device, up_event, mapping) is None
+        assert (
+            classification.find_action_for_code(
+                device, up_event.type, up_event.code, up_event.value, "rel_wheel", mapping
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_process_grabbed_wheel_event_executes_mapped_action_as_pulse(

@@ -93,10 +93,3 @@ def clear_hardware_runtime_state(
 def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_mapping_signatures.clear()
     manager.profile_state.last_sent_combo_signature = ""
-
-
-def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:
-    hardware = manager.hardware.get_hardware(hardware_id)
-    if hardware is None:
-        return hardware_id
-    return str(getattr(hardware, "name", "") or hardware_id)

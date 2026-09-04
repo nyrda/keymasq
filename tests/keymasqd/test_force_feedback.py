@@ -853,9 +853,12 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
     monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "pad")
     monkeypatch.setattr(grabbed_device.source_hiding, "node_kernel_names", lambda _path: [])
     monkeypatch.setattr(grabbed_device.source_hiding, "hide_source", AsyncMock(return_value=[]))
+    shutdown_started = asyncio.Event()
+    feedback_finished = asyncio.Event()
 
     class _LifecycleInputDevice:
         ff_effects_count = 4
+        close_calls = 0
         path = "/dev/input/event-pad"
         name = "Pad"
         info = SimpleNamespace(vendor=0x1234, product=0x5678, version=1, bustype=3)
@@ -880,7 +883,7 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
             return
 
         def close(self) -> None:
-            return
+            self.close_calls += 1
 
     class _LifecycleUInput:
         def __init__(self, **kwargs) -> None:
@@ -904,7 +907,9 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
         def start(self) -> None:
             self.started = True
 
-        def stop(self) -> None:
+        async def stop_and_wait(self) -> None:
+            shutdown_started.set()
+            await feedback_finished.wait()
             self.stopped = True
 
     created_uinputs: list[_LifecycleUInput] = []
@@ -947,9 +952,18 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
     assert _Proxy.instances[0].physical_device is physical
     assert _Proxy.instances[0].started is True
 
-    await device.release()
+    release_task = original_create_task(device.release())
+    try:
+        await asyncio.wait_for(shutdown_started.wait(), timeout=1.0)
+        assert not release_task.done()
+        assert physical.close_calls == 0
+        assert created_uinputs[0].close_calls == 0
+    finally:
+        feedback_finished.set()
+        await release_task
 
     assert _Proxy.instances[0].stopped is True
+    assert physical.close_calls == 1
     assert created_uinputs[0].close_calls == 1
 
 

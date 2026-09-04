@@ -3,31 +3,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 
-class FakeStreamReader:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = list(chunks)
-
-    async def read(self, size: int) -> bytes:
-        if not self._chunks:
-            return b""
-        chunk = self._chunks.pop(0)
-        if size < 0 or len(chunk) <= size:
-            return chunk
-        self._chunks.insert(0, chunk[size:])
-        return chunk[:size]
-
-    async def readline(self) -> bytes:
-        if not self._chunks:
-            return b""
-        chunk = self._chunks.pop(0)
-        newline_index = chunk.find(b"\n")
-        if newline_index < 0:
-            return chunk
-        split_at = newline_index + 1
-        tail = chunk[split_at:]
-        if tail:
-            self._chunks.insert(0, tail)
-        return chunk[:split_at]
+def make_stream_reader(chunks: list[bytes]) -> asyncio.StreamReader:
+    reader = asyncio.StreamReader()
+    for chunk in chunks:
+        reader.feed_data(chunk)
+    reader.feed_eof()
+    return reader
 
 
 class BlockingStreamReader:

@@ -494,18 +494,31 @@ async def test_recording_unlock_status_uses_cached_daemon_status_for_unreadable_
 
 @pytest.mark.asyncio
 async def test_get_active_profiles_does_not_include_window_state() -> None:
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.model.hardware import HardwareConfig
+    from keymasq.session.profile.types import ResolvedDeviceProfile
+
     manager = SessionManager()
     manager.profile_state.active_profile_names = ["Gaming"]
     manager.profile_state.resolved_devices = {
-        "1234:5678": SimpleNamespace(
+        "1234:5678": ResolvedDeviceProfile(
+            hardware_id="1234:5678",
             active_profile_names=["Gaming"],
-            mapping_count=2,
-            always_grab_all=False,
+            mappings={
+                "key_a": MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
+                "key_c": MappingAction(action_type=ActionType.SUPPRESS),
+            },
         )
     }
-    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
-        name="Gaming Keyboard"
+    hardware = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Gaming Keyboard",
+        evdev_devices=[],
+        buttons=[],
     )
+    manager.hardware.get_hardware = lambda _hardware_id: hardware
     manager.compositor_state.current_window = {
         "class": "steam",
         "title": "Counter-Strike 2",
@@ -524,6 +537,10 @@ async def test_get_active_profiles_does_not_include_window_state() -> None:
     assert "devices" in result
     devices = cast(dict[str, dict[str, object]], result["devices"])
     assert devices["1234:5678"]["device_name"] == "Gaming Keyboard"
+    assert devices["1234:5678"]["mapping_count"] == 2
+    assert devices["1234:5678"]["mapping_applied"] is False
+    assert devices["1234:5678"]["device_inspector_active"] is False
+    assert devices["1234:5678"]["device_inspector_suppressed"] is False
     assert "window" not in result
 
 

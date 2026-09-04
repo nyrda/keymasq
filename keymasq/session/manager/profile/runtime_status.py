@@ -24,40 +24,18 @@ DEVICE_RUNTIME_STATUS_TIMEOUT_S = 1.0
 def build_active_profiles_payload(manager: "SessionManager") -> JsonObject:
     """Present the currently resolved profile and per-device runtime state."""
     devices: dict[str, JsonObject] = {}
+    inspector_state = manager.device_inspector_state
     for hardware_id, resolved in sorted(manager.profile_state.resolved_devices.items()):
         hardware = manager.hardware.get_hardware(hardware_id)
-        inspector_state = getattr(manager, "device_inspector_state", None)
-        active_hardware_ids = (
-            getattr(inspector_state, "active_hardware_ids", set[str]())
-            if inspector_state is not None
-            else set[str]()
+        inspector_active = hardware_id in inspector_state.active_hardware_ids
+        inspector_suppressed = hardware_id in inspector_state.suppressed_hardware_ids
+        mapping_count = resolved.mapping_count
+        expected_mapping_signature = mapping.signature(manager, resolved, hardware_id)
+        mapping_applied = (
+            mapping_count <= 0
+            or manager.profile_state.last_sent_mapping_signatures.get(hardware_id)
+            == expected_mapping_signature
         )
-        suppressed_hardware_ids = (
-            getattr(inspector_state, "suppressed_hardware_ids", set[str]())
-            if inspector_state is not None
-            else set[str]()
-        )
-        inspector_active = bool(inspector_state is not None and hardware_id in active_hardware_ids)
-        inspector_suppressed = bool(
-            inspector_state is not None and hardware_id in suppressed_hardware_ids
-        )
-        mapping_count = int(getattr(resolved, "mapping_count", 0))
-        if hasattr(resolved, "mappings"):
-            expected_mapping_signature = mapping.signature(
-                manager,
-                resolved,
-                hardware_id,
-            )
-            mapping_applied = (
-                mapping_count <= 0
-                or manager.profile_state.last_sent_mapping_signatures.get(hardware_id)
-                == expected_mapping_signature
-            )
-        else:
-            mapping_applied = (
-                mapping_count <= 0
-                or hardware_id in manager.profile_state.last_sent_mapping_signatures
-            )
         devices[hardware_id] = {
             "device_name": hardware.name if hardware else hardware_id,
             "profiles": list(resolved.active_profile_names),
@@ -132,7 +110,7 @@ def build_device_status_payload(
     manager: "SessionManager",
     hardware_id: str,
     hardware: HardwareConfig | None,
-    resolved: object,
+    resolved: ResolvedDeviceProfile,
     *,
     inspector_active: bool,
 ) -> JsonObject:
@@ -207,7 +185,7 @@ def build_device_status_payload(
 
 def _requested_interfaces_for_device(
     hardware: HardwareConfig | None,
-    resolved: object,
+    resolved: ResolvedDeviceProfile,
     *,
     inspector_active: bool,
 ) -> dict[str, str]:
@@ -215,9 +193,7 @@ def _requested_interfaces_for_device(
         return {}
     if inspector_active:
         return all_configured_interfaces(hardware)
-    if not hasattr(resolved, "mappings"):
-        return {}
-    return get_interfaces_to_grab(hardware, cast(ResolvedDeviceProfile, resolved))
+    return get_interfaces_to_grab(hardware, resolved)
 
 
 def _unknown_configured_interface_payloads(

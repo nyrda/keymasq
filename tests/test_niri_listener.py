@@ -13,8 +13,7 @@ from keymasq.session.listeners.niri import (
     parse_niri_reply,
 )
 from tests.async_fakes import FakeProcess as _FakeProcess
-from tests.async_fakes import FakeStreamReader as _FakeReader
-from tests.async_fakes import FakeStreamWriter
+from tests.async_fakes import FakeStreamWriter, make_stream_reader
 
 LISTENER_LAB_APP_ID = "tools.keymasq.ListenerLab"
 
@@ -124,8 +123,8 @@ def test_probe_available_checks_socket_connectivity(monkeypatch, tmp_path) -> No
 async def test_send_cmd_request_retries_after_eof(monkeypatch) -> None:
     listener = NiriListener(_noop_callback)
     pairs = [
-        (_FakeReader([b""]), _FakeWriter()),
-        (_FakeReader([b'{"Ok":"Handled"}\n']), _FakeWriter()),
+        (make_stream_reader([b""]), _FakeWriter()),
+        (make_stream_reader([b'{"Ok":"Handled"}\n']), _FakeWriter()),
     ]
 
     async def fake_ensure() -> bool:
@@ -150,7 +149,7 @@ async def test_send_cmd_request_logs_malformed_replies(
 ) -> None:
     listener = NiriListener(_noop_callback)
     pairs = [
-        (_FakeReader([b"{not-json\n"]), _FakeWriter()),
+        (make_stream_reader([b"{not-json\n"]), _FakeWriter()),
     ]
 
     async def fake_ensure() -> bool:
@@ -179,8 +178,8 @@ async def test_send_cmd_request_does_not_retry_sent_action_after_eof(
     first_writer = _FakeWriter()
     second_writer = _FakeWriter()
     pairs = [
-        (_FakeReader([b""]), first_writer),
-        (_FakeReader([b'{"Ok":"Handled"}\n']), second_writer),
+        (make_stream_reader([b""]), first_writer),
+        (make_stream_reader([b'{"Ok":"Handled"}\n']), second_writer),
     ]
 
     async def fake_ensure() -> bool:
@@ -210,7 +209,7 @@ async def test_send_cmd_request_resets_dropped_command_socket_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     listener = NiriListener(_noop_callback)
-    listener._cmd_reader = _FakeReader([b'{"Ok":"Handled"}\n'])  # type: ignore[assignment]
+    listener._cmd_reader = make_stream_reader([b'{"Ok":"Handled"}\n'])
     listener._cmd_writer = _FakeWriter(  # type: ignore[assignment]
         write_error=RuntimeError("write bug"),
     )
@@ -237,7 +236,7 @@ async def test_send_cmd_request_resets_closed_command_socket(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     listener = NiriListener(_noop_callback)
-    listener._cmd_reader = _FakeReader([b""])  # type: ignore[assignment]
+    listener._cmd_reader = make_stream_reader([b""])
     listener._cmd_writer = _FakeWriter()  # type: ignore[assignment]
 
     async def fake_ensure() -> bool:
@@ -262,7 +261,7 @@ async def test_send_cmd_request_logs_unexpected_close_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     listener = NiriListener(_noop_callback)
-    listener._cmd_reader = _FakeReader([b"{not-json\n"])  # type: ignore[assignment]
+    listener._cmd_reader = make_stream_reader([b"{not-json\n"])
     listener._cmd_writer = _FakeWriter(  # type: ignore[assignment]
         wait_closed_error=RuntimeError("close bug"),
     )
@@ -282,14 +281,27 @@ async def test_send_cmd_request_logs_unexpected_close_errors(
 
 
 @pytest.mark.asyncio
-async def test_send_event_stream_request_writes_event_stream_request() -> None:
+async def test_send_event_stream_request_waits_for_fragmented_acknowledgment() -> None:
     listener = NiriListener(_noop_callback)
-    listener.reader = _FakeReader([b'{"Ok":"Handled"}\n'])  # type: ignore[assignment]
-    listener.writer = _FakeWriter()  # type: ignore[assignment]
+    reader = asyncio.StreamReader()
+    reader.feed_data(b'{"Ok":')
+    writer = _FakeWriter()
+    listener.reader = reader
+    listener.writer = writer  # type: ignore[assignment]
 
-    await listener._send_event_stream_request()
+    request_task = asyncio.create_task(listener._send_event_stream_request())
+    try:
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert writer.payloads == ['"EventStream"\n']
+        assert not request_task.done()
 
-    assert listener.writer.payloads == ['"EventStream"\n']  # type: ignore[union-attr]
+        reader.feed_data(b'"Handled"}\n')
+        reader.feed_eof()
+        await asyncio.wait_for(request_task, timeout=0.5)
+    finally:
+        request_task.cancel()
+        await asyncio.gather(request_task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

@@ -24,14 +24,12 @@ from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator
 from keymasq.session.profile.types import ProfileInfo
 from tests.async_fakes import (
-    FakeStreamReader as _FakeSessionReader,
-)
-from tests.async_fakes import (
     FakeStreamWriter as _FakeSessionWriter,
 )
 from tests.async_fakes import (
     HangingStreamWriter as _HangingSessionWriter,
 )
+from tests.async_fakes import make_stream_reader
 
 
 class _FakeKeymasqdClient:
@@ -585,7 +583,7 @@ async def test_session_client_drops_connection_when_buffer_exceeds_limit(
 ) -> None:
     manager = SessionManager()
     manager.running = True
-    reader = _FakeSessionReader([b"x" * (manager.MAX_SESSION_CLIENT_BUFFER_BYTES + 1)])
+    reader = make_stream_reader([b"x" * (manager.MAX_SESSION_CLIENT_BUFFER_BYTES + 1)])
     writer = _FakeSessionWriter()
     manager._handle_session_request = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
 
@@ -609,7 +607,7 @@ async def test_session_client_cleanup_times_out_hanging_wait_closed(
     manager = SessionManager()
     manager.running = True
     manager.SESSION_CLIENT_CLOSE_TIMEOUT_S = 0.01
-    reader = _FakeSessionReader([])
+    reader = make_stream_reader([])
     writer = _HangingSessionWriter()
 
     monkeypatch.setattr(
@@ -635,7 +633,7 @@ async def test_session_client_request_error_keeps_connection_alive(
 ) -> None:
     manager = SessionManager()
     manager.running = True
-    reader = _FakeSessionReader(
+    reader = make_stream_reader(
         [
             json.dumps({"command": "bad"}).encode() + b"\n",
             json.dumps({"command": "ping"}).encode() + b"\n",
@@ -676,7 +674,7 @@ async def test_session_client_rejects_missing_or_denied_peer(
         lambda _sock: None,
     )
     await manager._handle_session_client(  # type: ignore[arg-type]
-        _FakeSessionReader([]),
+        make_stream_reader([]),
         missing_peer_writer,
     )
 
@@ -688,7 +686,7 @@ async def test_session_client_rejects_missing_or_denied_peer(
         lambda _sock: PeerCredentials(pid=321, uid=2000, gid=2000),
     )
     await manager._handle_session_client(  # type: ignore[arg-type]
-        _FakeSessionReader([]),
+        make_stream_reader([]),
         denied_writer,
     )
 
@@ -703,7 +701,7 @@ async def test_session_client_handles_invalid_json_and_unexpected_request_errors
 ) -> None:
     manager = SessionManager()
     manager.running = True
-    reader = _FakeSessionReader(
+    reader = make_stream_reader(
         [
             b"{not-json}\n",
             json.dumps({"command": "boom"}).encode() + b"\n",

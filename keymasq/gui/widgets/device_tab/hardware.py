@@ -97,7 +97,11 @@ class HardwareSettingsMixin:
         self.hardware_manager.save_hardware(self.device)
         self._request_session_async({"command": "reload"}, self._ignore_session_response)
         self._sync_always_grab_device_list()
-        self._update_header_caption()
+        if motion_added and self.profile_manager is not None:
+            self._reload_ui()
+        else:
+            self._update_header_caption()
+        self._refresh_motion_controls_menu_visibility()
         if added and motion_added:
             message = (
                 f"Added {self._count_label(added, 'event device')} and "
@@ -351,7 +355,14 @@ class HardwareSettingsMixin:
             self._reload_ui()
         else:
             self._update_header_caption()
+        self._refresh_motion_controls_menu_visibility()
         return True
+
+    def _refresh_motion_controls_menu_visibility(self: Any) -> None:
+        root = self.main_window or self.get_root()
+        refresh = getattr(root, "refresh_motion_controls_menu_visibility", None)
+        if callable(refresh):
+            refresh()
 
     def _remove_controls_for_evdev_device(self: Any, evdev_device: EvdevDevice) -> list[str]:
         source = str(evdev_device.id or "").strip()

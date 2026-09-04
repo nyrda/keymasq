@@ -156,6 +156,12 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
     def list_device_tab_configs(self) -> list[HardwareConfig]:
         return tab_layout.list_device_tab_configs(self)
 
+    def refresh_motion_controls_menu_visibility(self) -> None:
+        chrome._update_motion_controls_menu_visibility(
+            self,
+            self.list_device_tab_configs(),
+        )
+
     def register_event_handler(self, event_type: str, callback: Callable[[dict], None]) -> None:
         connection.register_event_handler(self, event_type, callback)
 

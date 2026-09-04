@@ -145,6 +145,7 @@ def build_device_status_payload(
         hardware,
         resolved,
         inspector_active=inspector_active,
+        manager=manager,
     )
     grab_status = dict(manager.profile_state.grab_status.get(hardware_id, {}))
 
@@ -210,6 +211,7 @@ def _requested_interfaces_for_device(
     resolved: object,
     *,
     inspector_active: bool,
+    manager: "SessionManager",
 ) -> dict[str, str]:
     if hardware is None:
         return {}
@@ -217,7 +219,7 @@ def _requested_interfaces_for_device(
         return all_configured_interfaces(hardware)
     if not hasattr(resolved, "mappings"):
         return {}
-    return get_interfaces_to_grab(hardware, cast(ResolvedDeviceProfile, resolved))
+    return get_interfaces_to_grab(hardware, cast(ResolvedDeviceProfile, resolved), manager=manager)
 
 
 def _unknown_configured_interface_payloads(

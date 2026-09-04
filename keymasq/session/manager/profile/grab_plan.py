@@ -1,14 +1,16 @@
-"""Pure grab planning and daemon payload construction for resolved profiles."""
+"""Grab planning and daemon payload construction for resolved profiles."""
 
 import json
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.model.core import ActionType
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, analog_control_primary_mode
+from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from ..common import JsonObject, json_list
+from ..payload import motion
 
 if TYPE_CHECKING:
     from ..core import SessionManager
@@ -19,6 +21,8 @@ log = logging.getLogger("keymasq-session")
 def get_interfaces_to_grab(
     hardware_config: HardwareConfig,
     resolved: ResolvedDeviceProfile,
+    *,
+    manager: "SessionManager",
 ) -> dict[str, str]:
     """Select the configured interfaces needed by mappings and combo sources."""
     interface_to_path = all_configured_interfaces(hardware_config)
@@ -43,6 +47,13 @@ def get_interfaces_to_grab(
             if source:
                 sources_to_grab.add(source)
 
+    if _motion_requires_gamepad_output(manager, hardware_config, resolved):
+        sources_to_grab.update(
+            device.id
+            for device in hardware_config.evdev_devices
+            if device.id and device.device_type == DeviceType.GAMEPAD
+        )
+
     if resolved.combo_event_count:
         if resolved.combo_sources:
             sources_to_grab.update(resolved.combo_sources)
@@ -66,6 +77,34 @@ def get_interfaces_to_grab(
         for source in sources_to_grab
         if source in interface_to_path
     }
+
+
+def _motion_requires_gamepad_output(
+    manager: "SessionManager",
+    hardware: HardwareConfig,
+    resolved: ResolvedDeviceProfile,
+) -> bool:
+    for sensor in getattr(hardware, "motion_sensors", ()):
+        action = resolved.mappings.get(sensor.id)
+        if action is None or action.action_type != ActionType.MOTION_CONTROL:
+            continue
+        for config in motion.resolve(manager, action):
+            if config.mode in {"gamepad", "tilt_gamepad"}:
+                output_id = config.gamepad.output_id
+            elif config.mode == "analog":
+                analog = config.analog.analog_control_config
+                if analog is None and config.analog.analog_control_name:
+                    analog = manager.analog_controls.get_analog_control(
+                        config.analog.analog_control_name
+                    )
+                if analog is None or analog_control_primary_mode(analog) != "gamepad":
+                    continue
+                output_id = analog.gamepad_output.output_id
+            else:
+                continue
+            if output_id in {SAME_DEVICE_OUTPUT_ID, hardware.hardware_id}:
+                return True
+    return False
 
 
 def all_configured_interfaces(hardware_config: HardwareConfig) -> dict[str, str]:
@@ -182,7 +221,11 @@ def build_grab_device_payload(
             }
             for sensor in motion_sensors
         },
-        "force_grab_unmapped": bool(force_grab_unmapped) or bool(resolved.combo_event_count),
+        "force_grab_unmapped": (
+            bool(force_grab_unmapped)
+            or bool(resolved.combo_event_count)
+            or _motion_requires_gamepad_output(manager, hardware_config, resolved)
+        ),
     }
 
 

@@ -235,6 +235,7 @@ class GrabbedDeviceState:
     analog_mouse_area_active: set[str] = field(default_factory=set)
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
     motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
+    motion_resyncing: bool = False
     motion_smoothed_values: dict[str, dict[str, float]] = field(default_factory=dict)
     motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
     motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)

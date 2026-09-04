@@ -28,29 +28,31 @@ async def dispatch_motion_event(
     *,
     deps: ActionExecutionDeps,
 ) -> bool:
+    if device_runtime.state.motion_resyncing:
+        if (
+            int(event.type) == int(deps.evdev_mod.ecodes.EV_SYN)
+            and int(event.code) == 0  # SYN_REPORT ends the incomplete frame.
+        ):
+            device_runtime.state.motion_resyncing = not _resync_motion_values(device_runtime)
+        return bool(device_runtime.motion_axis_bindings)
+
     binding = device_runtime.motion_axis_bindings.get((int(event.type), int(event.code)))
     if binding is not None:
-        sensor_id, kind, role, offset, scale, invert, noise = binding
-        value = (float(event.value) - offset) * scale
-        if invert:
-            value = -value
-        if abs(value) < noise:
-            value = 0.0
-        sensor_frame = device_runtime.state.motion_frame_values.setdefault(sensor_id, {})
-        sensor_frame.setdefault(kind, {})[role] = value
-        return _motion_action_consumes(mapping.get(sensor_id))
+        _record_motion_value(device_runtime, binding, float(event.value))
+        return _motion_action_consumes(mapping.get(binding[0]))
 
     if int(event.type) != int(deps.evdev_mod.ecodes.EV_SYN):
         return False
     if int(event.code) == int(deps.evdev_mod.ecodes.SYN_DROPPED):
         device_runtime.reset_motion_controls()
+        device_runtime.state.motion_resyncing = True
         await device_runtime.reset_analog_controls(state_key_prefix="motion:")
         return bool(device_runtime.motion_axis_bindings)
     if int(event.code) != 0:  # SYN_REPORT
         return False
 
     consumed = False
-    now_ns = time.monotonic_ns()
+    now_ns = _motion_timestamp_ns(event)
     for sensor_id in list(device_runtime.state.motion_frame_values):
         action = mapping.get(sensor_id)
         if not _motion_action_consumes(action):
@@ -71,6 +73,48 @@ async def dispatch_motion_event(
                 deps=deps,
             )
     return consumed
+
+
+def _motion_timestamp_ns(event: InputEventLike) -> int:
+    sec = getattr(event, "sec", None)
+    usec = getattr(event, "usec", None)
+    if isinstance(sec, int) and isinstance(usec, int):
+        timestamp = sec * 1_000_000_000 + usec * 1_000
+        if timestamp > 0:
+            return timestamp
+    # Synthetic events have no evdev timestamp.
+    return time.monotonic_ns()
+
+
+def _record_motion_value(
+    device_runtime: GrabbedDeviceRuntime,
+    binding: tuple[str, str, str, float, float, bool, float],
+    raw_value: float,
+) -> None:
+    sensor_id, kind, role, offset, scale, invert, noise = binding
+    value = (raw_value - offset) * scale
+    if invert:
+        value = -value
+    if abs(value) < noise:
+        value = 0.0
+    sensor_frame = device_runtime.state.motion_frame_values.setdefault(sensor_id, {})
+    sensor_frame.setdefault(kind, {})[role] = value
+
+
+def _resync_motion_values(device_runtime: GrabbedDeviceRuntime) -> bool:
+    device = device_runtime.device
+    if device is None:
+        return False
+    device_runtime.state.motion_frame_values.clear()
+    for (_event_type, code), binding in device_runtime.motion_axis_bindings.items():
+        try:
+            value = getattr(device.absinfo(code), "value", None)
+        except (OSError, KeyError):
+            return False
+        if not isinstance(value, int):
+            return False
+        _record_motion_value(device_runtime, binding, float(value))
+    return True
 
 
 def _motion_action_consumes(action: MappingAction | None) -> bool:

@@ -497,6 +497,7 @@ class GrabbedDevice:
         )
 
     def reset_motion_controls(self) -> None:
+        self.state.motion_resyncing = False
         self.state.motion_frame_values.clear()
         self.state.motion_smoothed_values.clear()
         self.state.motion_last_frame_ns.clear()

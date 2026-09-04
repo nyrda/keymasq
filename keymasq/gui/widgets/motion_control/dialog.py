@@ -292,6 +292,11 @@ class MotionControlDialog(Adw.Dialog):
     def _save_current(self) -> bool:
         try:
             config = self.editor.draft().to_config()
+            if (
+                self._current_name is None
+                and self.manager.get_motion_control(config.name) is not None
+            ):
+                raise ValueError(f"Motion control '{config.name}' already exists")
             self._persistence.save(
                 config,
                 replacing_name=self._current_name,

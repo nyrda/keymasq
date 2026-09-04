@@ -85,6 +85,34 @@ def test_motion_control_dialog_saves_through_persistence() -> None:
     assert saved == ["Gyro Aim"]
 
 
+def test_new_motion_control_cannot_overwrite_existing_name(temp_config_dir, monkeypatch) -> None:
+    manager = MotionControlManager()
+    manager.save_motion_control(
+        MotionControlConfig(name="Aim", mouse=MotionMouseConfig(sensitivity_x=42.0))
+    )
+    path = temp_config_dir / "motion_controls" / "aim.toml"
+    original = path.read_bytes()
+    dialog = MotionControlDialog(Gtk.Window(), manager=manager)
+    errors: list[str] = []
+    saved: list[str] = []
+    monkeypatch.setattr(dialog, "_show_save_error", errors.append)
+    dialog.connect("motion-control-saved", lambda _dialog, name: saved.append(name))
+    dialog._begin_new_control()
+    dialog.editor.name_entry.set_text("Aim")
+
+    assert dialog._save_current() is False
+    assert errors and "already exists" in errors[0]
+    assert path.read_bytes() == original
+    assert saved == []
+
+    dialog._activate_selection(EditorSelection.saved_item("Aim"))
+    dialog.editor.sensitivity_x.set_value(21.0)
+    assert dialog._save_current() is True
+    reloaded = MotionControlManager().get_motion_control("Aim")
+    assert reloaded is not None and reloaded.mouse.sensitivity_x == 21.0
+    assert saved == ["Aim"]
+
+
 def test_motion_control_view_preserves_each_output_mode_while_switching() -> None:
     modified: list[bool] = []
     view = MotionControlEditorView(on_modified=lambda: modified.append(True))
@@ -304,6 +332,34 @@ def test_motion_selector_allows_multiple_controls(temp_config_dir) -> None:
         rows[0]._motion_control_name,
         rows[1]._motion_control_name,
     ]
+
+
+@pytest.mark.parametrize("delete_first", [False, True])
+def test_motion_selector_refresh_preserves_surviving_selections(delete_first, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "keymasq.gui.widgets.key_selector.motion_tab.notify_session_reload_async",
+        lambda: None,
+    )
+    manager = MotionControlManager()
+    for name in ("First", "Second"):
+        manager.save_motion_control(MotionControlConfig(name=name))
+    dialog = KeySelectorDialog(Gtk.Window(), "Motion Sensor", source_type="motion")
+    dialog.stack.set_visible_child_name("motion_control")
+    dialog._motion_control_listbox.select_all()
+    selected = []
+    dialog.connect("key-selected", lambda _dialog, action: selected.append(action))
+    if delete_first:
+        manager.delete_motion_control("First")
+    else:
+        manager.save_motion_control(MotionControlConfig(name="First", description="Edited"))
+
+    dialog._on_motion_manager_changed(None, "First")
+
+    expected = ["Second"] if delete_first else ["First", "Second"]
+    assert dialog._selected_motion_controls == expected
+    assert dialog.map_btn.get_sensitive()
+    dialog._on_motion_control_map_clicked(dialog.map_btn)
+    assert selected[-1].motion_control_names == expected
 
 
 def test_motion_to_analog_view_selects_one_matching_analog_control() -> None:

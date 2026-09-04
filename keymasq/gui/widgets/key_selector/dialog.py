@@ -171,6 +171,7 @@ class KeySelectorDialog(
         self._selected_analog_controls: list[str] = []
         self._selected_motion_control: str | None = None
         self._selected_motion_controls: list[str] = []
+        self._refreshing_motion_controls = False
         self._macro_replay_movement: bool = True
         self._macro_replay_clicks: bool = True
         self._macro_speed: float = 1.0

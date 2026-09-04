@@ -61,7 +61,10 @@ class MotionTabMixin:
         outer.append(toolbar_row)
         self._motion_control_listbox = Gtk.ListBox()
         self._motion_control_listbox.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
-        self._motion_control_listbox.connect("row-selected", self._on_motion_row_selected)
+        self._motion_control_listbox.connect(
+            "selected-rows-changed",
+            self._on_motion_selection_changed,
+        )
         self._motion_control_listbox.add_css_class("boxed-list")
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_child(self._motion_control_listbox)
@@ -74,11 +77,21 @@ class MotionTabMixin:
         return outer
 
     def _load_motion_control_list(self: Any) -> None:
+        self._refreshing_motion_controls = True
+        try:
+            self._populate_motion_control_list()
+        finally:
+            self._refreshing_motion_controls = False
+        self._sync_selected_motion_controls()
+        if self.stack.get_visible_child_name() == "motion_control":
+            self.map_btn.set_sensitive(bool(self._selected_motion_controls))
+
+    def _populate_motion_control_list(self: Any) -> None:
         manager = MotionControlManager()
         controls = manager.get_all_motion_controls()
+        selected = set(self._selected_motion_controls)
         while child := self._motion_control_listbox.get_first_child():
             self._motion_control_listbox.remove(child)
-        selected = set(self._selected_motion_controls)
         for name in manager.list_motion_controls():
             config = controls[name]
             row = Gtk.ListBoxRow()
@@ -121,9 +134,10 @@ class MotionTabMixin:
             self._motion_control_listbox.append(row)
             if name in selected:
                 self._motion_control_listbox.select_row(row)
-        self._sync_selected_motion_controls()
 
-    def _on_motion_row_selected(self: Any, _listbox: Gtk.ListBox, _row: object) -> None:
+    def _on_motion_selection_changed(self: Any, _listbox: Gtk.ListBox) -> None:
+        if self._refreshing_motion_controls:
+            return
         self._sync_selected_motion_controls()
         if self.stack.get_visible_child_name() == "motion_control":
             self.map_btn.set_sensitive(bool(self._selected_motion_controls))

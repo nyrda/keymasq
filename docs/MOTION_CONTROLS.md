@@ -56,6 +56,11 @@ The presets cover the common uses:
 - **Area Mouse** maps tilt to a bounded area around the pointer's starting position. Returning
   to the neutral pose moves the pointer back toward that position.
 
+The Right Stick presets output to the same controller. Keymasq grabs its gamepad interface
+to provide that output, even when the motion mapping is the profile's only mapping. Its
+buttons and sticks continue through the passthrough gamepad. Mouse-only motion mappings do
+not require this additional grab.
+
 For more specialized mappings, **Motion to Analog** sends gyro movement or tilt into a saved
 [Analog Control](ANALOG_CONTROLS.md). The Analog Control supplies its own deadzones, response
 curve, digital actions, mouse behavior, and gamepad target.

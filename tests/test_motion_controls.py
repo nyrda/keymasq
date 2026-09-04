@@ -1,3 +1,4 @@
+import logging
 import math
 from types import SimpleNamespace
 
@@ -11,24 +12,31 @@ from keymasq.common.model.analog import (
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
 )
-from keymasq.common.model.core import ActionType
+from keymasq.common.model.core import ActionType, DeviceType
+from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.common.model.motion import (
     MotionAnalogConfig,
     MotionAxisRoutingConfig,
     MotionControlConfig,
     MotionGamepadConfig,
     MotionMouseConfig,
+    MotionSensorDefinition,
     MotionTiltConfig,
 )
 from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
 from keymasq.keymasqd import device_inventory
 from keymasq.keymasqd.runtime.action_parser import parse_action
+from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import build_action_execution_deps
 from keymasq.keymasqd.runtime.grabbed_device.types import GrabbedDeviceState
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
+from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputRouter
+from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.payload.action import mapping_action_payload
+from keymasq.session.manager.profile import grab_plan
 from keymasq.session.motion_controls import MotionControlManager
 from keymasq.session.profile.codec import ProfileCodec
+from keymasq.session.profile.types import ResolvedDeviceProfile
 
 
 class _Writer:
@@ -107,6 +115,13 @@ class _Runtime:
         self.analog_inputs = {}
         self.analog_axis_output_codes = {}
         self.analog_reset_prefixes: list[str | None] = []
+        self.device = None
+        self.event_time_us = 1_000_000
+
+    def next_syn(self) -> evdev.InputEvent:
+        sec, usec = divmod(self.event_time_us, 1_000_000)
+        self.event_time_us += 10_000
+        return evdev.InputEvent(sec, usec, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0)
 
     async def reset_analog_controls(
         self,
@@ -143,10 +158,261 @@ async def _send_accelerometer_frame(runtime, mapping, deps, x, y, z) -> None:
         )
     assert await dispatch_motion_event(
         runtime,
-        SimpleNamespace(type=evdev.ecodes.EV_SYN, code=evdev.ecodes.SYN_REPORT, value=0),
+        runtime.next_syn(),
         mapping,
         deps=deps,
     )
+
+
+async def _send_motion_frame(runtime, mapping, timestamp_us, values) -> None:
+    sec, usec = divmod(timestamp_us, 1_000_000)
+    deps = build_action_execution_deps()
+    for code, value in values.items():
+        await dispatch_motion_event(
+            runtime,
+            evdev.InputEvent(sec, usec, evdev.ecodes.EV_ABS, code, value),
+            mapping,
+            deps=deps,
+        )
+    await dispatch_motion_event(
+        runtime,
+        evdev.InputEvent(sec, usec, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+        mapping,
+        deps=deps,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["mouse", "tilt_mouse"])
+async def test_motion_mouse_uses_event_time_independent_of_processing_schedule(monkeypatch, mode):
+    config = MotionControlConfig(
+        name="Aim",
+        mode=mode,
+        mouse=MotionMouseConfig(deadzone_dps=0.0, smoothing=0.0),
+        tilt=MotionTiltConfig(
+            reference="gravity",
+            smoothing=0.0,
+            deadzone_deg=0.0,
+            speed_x=800.0,
+        ),
+    )
+    mapping = {
+        "motion_1": MappingAction(
+            action_type=ActionType.MOTION_CONTROL,
+            motion_control_config=config,
+        )
+    }
+    outputs = []
+    for processing_times in (
+        [1_000_000_000, 1_010_000_000, 1_020_000_000],
+        [9_000_000_000, 9_000_010_000, 9_000_020_000],
+    ):
+        runtime = _Runtime()
+        clock = iter(processing_times)
+        monkeypatch.setattr(
+            "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
+            clock.__next__,
+        )
+        values = (
+            {evdev.ecodes.ABS_RZ: 100}
+            if mode == "mouse"
+            else {evdev.ecodes.ABS_X: -1000, evdev.ecodes.ABS_Y: 0, evdev.ecodes.ABS_Z: 0}
+        )
+        for timestamp in (1_000_000, 1_010_000, 1_020_000):
+            await _send_motion_frame(runtime, mapping, timestamp, values)
+        outputs.append(runtime.mouse_uinput.events)
+    assert outputs[0] == outputs[1]
+    assert sum(
+        value
+        for kind, code, value in outputs[0]
+        if kind == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_X
+    ) == (-16 if mode == "mouse" else 16)
+
+
+@pytest.mark.asyncio
+async def test_motion_timestamp_discontinuities_do_not_create_mouse_jumps(monkeypatch):
+    monkeypatch.setattr("keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns", lambda: 0)
+    runtime = _Runtime()
+    config = MotionControlConfig(name="Aim", mouse=MotionMouseConfig(deadzone_dps=0, smoothing=0))
+    mapping = {
+        "motion_1": MappingAction(
+            action_type=ActionType.MOTION_CONTROL,
+            motion_control_config=config,
+        )
+    }
+    for timestamp in (1_000_000, 1_000_000, 990_000):
+        await _send_motion_frame(runtime, mapping, timestamp, {evdev.ecodes.ABS_RZ: 100})
+    assert runtime.mouse_uinput.events == []
+    await _send_motion_frame(runtime, mapping, 1_000_000, {evdev.ecodes.ABS_RZ: 100})
+    assert runtime.mouse_uinput.events == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -8),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 0),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["gamepad", "tilt_gamepad"])
+async def test_dropped_motion_frame_releases_output_and_resyncs_unchanged_axes(mode):
+    runtime = _Runtime()
+    writer = _Writer()
+    runtime.resolve_gamepad_output = lambda *_: SimpleNamespace(  # type: ignore[method-assign]
+        uinput=writer,
+        bucket="gamepad:test",
+        is_virtual=True,
+    )
+    deps = build_action_execution_deps()
+    runtime.reset_analog_controls = lambda **kwargs: reset_analog_controls(  # type: ignore[method-assign]
+        runtime,
+        deps=deps,
+        **kwargs,
+    )
+    config = MotionControlConfig(
+        name="Tilt",
+        mode=mode,
+        gamepad=MotionGamepadConfig(smoothing=0, deadzone_dps=0),
+        tilt=MotionTiltConfig(reference="gravity", deadzone_deg=0, smoothing=0),
+    )
+    mapping = {
+        "motion_1": MappingAction(
+            action_type=ActionType.MOTION_CONTROL,
+            motion_control_config=config,
+        )
+    }
+    runtime.state.analog_axis_values["other"] = {"x": 0.25}
+    await _send_motion_frame(
+        runtime,
+        mapping,
+        1_000_000,
+        {
+            evdev.ecodes.ABS_X: 500,
+            evdev.ecodes.ABS_Y: 0,
+            evdev.ecodes.ABS_Z: 866,
+            evdev.ecodes.ABS_RZ: 90,
+        },
+    )
+    assert writer.events[0][2] < 0
+    writer.events.clear()
+    await dispatch_motion_event(
+        runtime,
+        evdev.InputEvent(
+            1,
+            10000,
+            evdev.ecodes.EV_SYN,
+            evdev.ecodes.SYN_DROPPED,
+            0,
+        ),
+        mapping,
+        deps=deps,
+    )
+    assert writer.events == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0),
+    ]
+    writer.events.clear()
+    values = {
+        evdev.ecodes.ABS_X: -500,
+        evdev.ecodes.ABS_Y: 0,
+        evdev.ecodes.ABS_Z: 866,
+        evdev.ecodes.ABS_RZ: -90,
+    }
+    runtime.device = SimpleNamespace(
+        absinfo=lambda code: SimpleNamespace(value=values.get(code, 0))
+    )
+    await _send_motion_frame(
+        runtime,
+        mapping,
+        1_020_000,
+        {
+            evdev.ecodes.ABS_X: 900,
+            evdev.ecodes.ABS_RZ: 180,
+        },
+    )
+    assert writer.events == []
+    # Only Y changes after resync; X and Z must come from the kernel snapshot.
+    await _send_motion_frame(runtime, mapping, 1_030_000, {evdev.ecodes.ABS_Y: 1})
+    assert writer.events[0][2] > 0
+    assert runtime.state.analog_axis_values["other"] == {"x": 0.25}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["gamepad", "tilt_gamepad", "analog", "mouse"])
+@pytest.mark.parametrize("output_id", [SAME_DEVICE_OUTPUT_ID, "virtual-gamepad-1"])
+async def test_motion_only_profile_plans_and_routes_its_gamepad_output(mode, output_id):
+    manager = SessionManager()
+    config = MotionControlConfig(
+        name="Motion",
+        mode=mode,
+        gamepad=MotionGamepadConfig(output_id=output_id),
+        tilt=MotionTiltConfig(reference="gravity", smoothing=0, deadzone_deg=0),
+    )
+    if mode == "analog":
+        manager.analog_controls.save_analog_control(
+            AnalogControlConfig(
+                name="Stick",
+                input_type="stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True, output_id=output_id, target="right"
+                ),
+            )
+        )
+        config.analog = MotionAnalogConfig(
+            analog_control_name="Stick",
+            reference="gravity",
+            smoothing=0,
+        )
+    manager.motion_controls.save_motion_control(config)
+    hardware = HardwareConfig(
+        "054c",
+        "0ce6",
+        "Controller",
+        [
+            EvdevDevice("/dev/input/event1", DeviceType.GAMEPAD, id="gamepad"),
+            EvdevDevice("/dev/input/event2", DeviceType.MOTION, id="motion"),
+        ],
+        [],
+        motion_sensors=[MotionSensorDefinition("motion_1", "Sensor", source="motion")],
+    )
+    action = MappingAction(action_type=ActionType.MOTION_CONTROL, motion_control_name="Motion")
+    resolved = ResolvedDeviceProfile(hardware.hardware_id, mappings={"motion_1": action})
+    interfaces = grab_plan.get_interfaces_to_grab(hardware, resolved, manager=manager)
+    needs_gamepad = mode != "mouse" and output_id == SAME_DEVICE_OUTPUT_ID
+    assert set(interfaces) == ({"motion", "gamepad"} if needs_gamepad else {"motion"})
+    payload = grab_plan.build_grab_device_payload(
+        manager,
+        hardware.hardware_id,
+        hardware,
+        resolved,
+        interfaces,
+    )
+    assert payload["force_grab_unmapped"] is needs_gamepad
+    writer = _Writer()
+    devices = [SimpleNamespace(device_type=DeviceType.MOTION, device_types=["motion"], uinput=None)]
+    if "gamepad" in interfaces:
+        devices.append(SimpleNamespace(device_type=DeviceType.GAMEPAD, uinput=writer))
+    router = GamepadOutputRouter(logging.getLogger("test"))
+    runtime = _Runtime()
+    runtime.resolve_gamepad_output = lambda output, context: router.resolve(  # type: ignore[method-assign]
+        SimpleNamespace(virtual_gamepad_uinputs={"virtual-gamepad-1": writer}),
+        {hardware.hardware_id: devices},
+        output,
+        context=context,
+    )
+    parsed = parse_action(manager, mapping_action_payload(manager, action, hardware.hardware_id))
+    await _send_motion_frame(
+        runtime,
+        {"motion_1": parsed},
+        1_000_000,
+        {
+            evdev.ecodes.ABS_RZ: 90,
+            evdev.ecodes.ABS_X: -500,
+            evdev.ecodes.ABS_Y: 0,
+            evdev.ecodes.ABS_Z: 866,
+        },
+    )
+    if mode != "mouse":
+        assert any(value != 0 for _kind, _code, value in writer.events)
+    else:
+        assert writer.events == []
 
 
 @pytest.mark.asyncio
@@ -395,7 +661,7 @@ def test_privileged_inventory_serializes_motion_axis_resolution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch(monkeypatch) -> None:
+async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch() -> None:
     runtime = _Runtime()
     config = MotionControlConfig(
         name="Gyro Aim",
@@ -411,11 +677,6 @@ async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch(monkeypatch
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
     yaw = SimpleNamespace(
         type=evdev.ecodes.EV_ABS,
@@ -432,16 +693,15 @@ async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch(monkeypatch
         code=evdev.ecodes.ABS_RY,
         value=90,
     )
-    syn = SimpleNamespace(type=evdev.ecodes.EV_SYN, code=evdev.ecodes.SYN_REPORT, value=0)
 
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
     assert await dispatch_motion_event(runtime, roll, mapping, deps=deps)
     assert await dispatch_motion_event(runtime, pitch, mapping, deps=deps)
-    assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
+    assert await dispatch_motion_event(runtime, runtime.next_syn(), mapping, deps=deps)
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
     assert await dispatch_motion_event(runtime, roll, mapping, deps=deps)
     assert await dispatch_motion_event(runtime, pitch, mapping, deps=deps)
-    assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
+    assert await dispatch_motion_event(runtime, runtime.next_syn(), mapping, deps=deps)
 
     assert (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -9) in runtime.mouse_uinput.events
     assert (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 9) in runtime.mouse_uinput.events
@@ -456,7 +716,6 @@ async def test_motion_mouse_combines_yaw_and_roll_with_natural_pitch(monkeypatch
     ],
 )
 async def test_motion_stick_honors_its_selected_output(
-    monkeypatch,
     output_id,
     expected_output,
 ) -> None:
@@ -489,23 +748,17 @@ async def test_motion_stick_honors_its_selected_output(
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
     yaw = SimpleNamespace(
         type=evdev.ecodes.EV_ABS,
         code=evdev.ecodes.ABS_RZ,
         value=90,
     )
-    syn = SimpleNamespace(type=evdev.ecodes.EV_SYN, code=evdev.ecodes.SYN_REPORT, value=0)
 
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
-    assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
+    assert await dispatch_motion_event(runtime, runtime.next_syn(), mapping, deps=deps)
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
-    assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
+    assert await dispatch_motion_event(runtime, runtime.next_syn(), mapping, deps=deps)
 
     expected = runtime.hardware_id if expected_output == "origin" else expected_output
     assert resolved == [expected, expected]
@@ -513,7 +766,7 @@ async def test_motion_stick_honors_its_selected_output(
 
 
 @pytest.mark.asyncio
-async def test_tilt_mouse_keeps_moving_while_tilt_is_held(monkeypatch) -> None:
+async def test_tilt_mouse_keeps_moving_while_tilt_is_held() -> None:
     runtime = _Runtime()
     config = MotionControlConfig(
         name="Tilt Mouse",
@@ -532,11 +785,6 @@ async def test_tilt_mouse_keeps_moving_while_tilt_is_held(monkeypatch) -> None:
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000, 1_020_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
 
     await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
@@ -552,7 +800,7 @@ async def test_tilt_mouse_keeps_moving_while_tilt_is_held(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tilt_stick_uses_the_selected_gamepad_output(monkeypatch) -> None:
+async def test_tilt_stick_uses_the_selected_gamepad_output() -> None:
     runtime = _Runtime()
     gamepad = _Writer()
     resolved: list[str | None] = []
@@ -579,11 +827,6 @@ async def test_tilt_stick_uses_the_selected_gamepad_output(monkeypatch) -> None:
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
 
     await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
@@ -594,7 +837,7 @@ async def test_tilt_stick_uses_the_selected_gamepad_output(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tilt_stick_pitch_outputs_both_axis_directions(monkeypatch) -> None:
+async def test_tilt_stick_pitch_outputs_both_axis_directions() -> None:
     runtime = _Runtime()
     gamepad = _Writer()
 
@@ -619,11 +862,6 @@ async def test_tilt_stick_pitch_outputs_both_axis_directions(monkeypatch) -> Non
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000, 1_020_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
 
     await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
@@ -641,7 +879,7 @@ async def test_tilt_stick_pitch_outputs_both_axis_directions(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
-async def test_area_mouse_maps_tilt_to_an_area_and_drags_its_center(monkeypatch) -> None:
+async def test_area_mouse_maps_tilt_to_an_area_and_drags_its_center() -> None:
     runtime = _Runtime()
     config = MotionControlConfig(
         name="Area Mouse",
@@ -661,11 +899,6 @@ async def test_area_mouse_maps_tilt_to_an_area_and_drags_its_center(monkeypatch)
             motion_control_config=config,
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000, 1_020_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
 
     await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
@@ -682,7 +915,7 @@ async def test_area_mouse_maps_tilt_to_an_area_and_drags_its_center(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control(monkeypatch) -> None:
+async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control() -> None:
     runtime = _Runtime()
     gamepad = _Writer()
 
@@ -734,11 +967,6 @@ async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control(monkey
             motion_control_configs=[tilt_mouse, motion_to_analog],
         )
     }
-    timestamps = iter([1_000_000_000, 1_010_000_000])
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: next(timestamps),
-    )
     deps = build_action_execution_deps()
 
     await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
@@ -756,7 +984,7 @@ async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control(monkey
 
 
 @pytest.mark.asyncio
-async def test_motion_to_analog_uses_signed_axis_thresholds(monkeypatch) -> None:
+async def test_motion_to_analog_uses_signed_axis_thresholds() -> None:
     runtime = _Runtime()
     analog_control = AnalogControlConfig(
         name="Yaw Actions",
@@ -789,10 +1017,6 @@ async def test_motion_to_analog_uses_signed_axis_thresholds(monkeypatch) -> None
             motion_control_config=config,
         )
     }
-    monkeypatch.setattr(
-        "keymasq.keymasqd.runtime.motion_controls.time.monotonic_ns",
-        lambda: 1_000_000_000,
-    )
     deps = build_action_execution_deps()
 
     yaw = SimpleNamespace(
@@ -800,9 +1024,8 @@ async def test_motion_to_analog_uses_signed_axis_thresholds(monkeypatch) -> None
         code=evdev.ecodes.ABS_RZ,
         value=-180,
     )
-    syn = SimpleNamespace(type=evdev.ecodes.EV_SYN, code=evdev.ecodes.SYN_REPORT, value=0)
     assert await dispatch_motion_event(runtime, yaw, mapping, deps=deps)
-    assert await dispatch_motion_event(runtime, syn, mapping, deps=deps)
+    assert await dispatch_motion_event(runtime, runtime.next_syn(), mapping, deps=deps)
 
     state_key = "motion:motion_1"
     assert runtime.state.analog_axis_values[state_key]["x_signed"] == 1.0

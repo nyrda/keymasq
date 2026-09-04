@@ -128,6 +128,7 @@ class Ecodes(Protocol):
     EV_KEY: Final[int]
     EV_REL: Final[int]
     EV_SYN: Final[int]
+    SYN_DROPPED: Final[int]
     EV_ABS: Final[int]
     REL_X: Final[int]
     REL_Y: Final[int]
@@ -396,6 +397,11 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
 
     async def reset_superkeys(self) -> None: ...
 
-    async def reset_analog_controls(self) -> None: ...
+    async def reset_analog_controls(
+        self,
+        preserve_state_keys: set[str] | None = None,
+        *,
+        state_key_prefix: str | None = None,
+    ) -> None: ...
 
     def reset_motion_controls(self) -> None: ...

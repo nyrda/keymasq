@@ -279,6 +279,8 @@ async def test_neutralize_runtime_clears_active_runtime_and_releases_outputs(
     device.state.repeat_active_actions["key_r"] = MappingAction(
         action_type=ActionType.REPEAT,
     )
+    device.state.motion_frame_values["imu"] = {"gyro": {"yaw": 1.0}}
+    device.state.motion_last_frame_ns["motion:imu"] = 123
     device.state.passthrough_frame_output = object()
     device.state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_F13)
     manager.combo_state.held_output_keys["keyboard"].add(evdev.ecodes.KEY_F14)
@@ -312,6 +314,8 @@ async def test_neutralize_runtime_clears_active_runtime_and_releases_outputs(
     ]
     assert device.state.quarantined_source_keys == {"key_a", "key_b"}
     assert device.state.repeat_active_actions == {}
+    assert device.state.motion_frame_values == {}
+    assert device.state.motion_last_frame_ns == {}
     assert device.state.passthrough_frame_output is None
     assert keyboard.writes == [
         (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 0),

@@ -393,6 +393,10 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     held_sources.update(device.state.combo_passthrough_held)
                     device.state.quarantined_source_keys.update(held_sources)
 
+                    attempt_sync(
+                        f"resetting motion controls for {device.path}",
+                        device.reset_motion_controls,
+                    )
                     await attempt(
                         f"resetting analog controls for {device.path}",
                         device.reset_analog_controls,

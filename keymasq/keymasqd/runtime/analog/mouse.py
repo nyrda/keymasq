@@ -38,11 +38,13 @@ async def cancel_mouse_tasks(
     device_runtime: GrabbedDeviceRuntime,
     *,
     preserve_state_keys: set[str],
+    state_key_prefix: str | None = None,
 ) -> None:
     tasks = [
         task
         for state_key, task in list(device_runtime.state.analog_mouse_tasks.items())
         if state_key not in preserve_state_keys
+        and (state_key_prefix is None or state_key.startswith(state_key_prefix))
     ]
     for task in tasks:
         if not task.done():

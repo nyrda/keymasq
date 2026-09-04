@@ -26,21 +26,29 @@ async def reset_analog_controls(
     *,
     deps: ActionExecutionDeps,
     preserve_state_keys: set[str] | None = None,
+    state_key_prefix: str | None = None,
 ) -> None:
-    preserved = set(preserve_state_keys or ())
-    mapping = device_runtime.mapping_getter()
-    state_configs: dict[str, tuple[str, AnalogControlConfig]] = {}
-    for source_id, action in mapping.items():
-        configs = action_analog_control_configs(action)
-        for index, config in enumerate(configs):
-            state_configs[control_state_key(source_id, index, len(configs))] = (
-                source_id,
-                config,
-            )
+    """Release all analog state, or only tracked state matching a prefix."""
 
-    reset_recorded_gamepad_outputs(device_runtime, deps=deps, preserved=preserved)
+    preserved = set(preserve_state_keys or ())
+    state_configs: dict[str, tuple[str, AnalogControlConfig]] = {}
+    if state_key_prefix is None:
+        for source_id, action in device_runtime.mapping_getter().items():
+            configs = action_analog_control_configs(action)
+            for index, config in enumerate(configs):
+                state_configs[control_state_key(source_id, index, len(configs))] = (
+                    source_id,
+                    config,
+                )
+
+    reset_recorded_gamepad_outputs(
+        device_runtime,
+        deps=deps,
+        preserved=preserved,
+        state_key_prefix=state_key_prefix,
+    )
     for state_key, active in list(device_runtime.state.analog_active_thresholds.items()):
-        if state_key in preserved:
+        if not _should_reset_state_key(state_key, preserved, state_key_prefix):
             continue
         state_config = state_configs.get(state_key)
         config = state_config[1] if state_config is not None else None
@@ -64,7 +72,7 @@ async def reset_analog_controls(
             )
 
     for state_key, (source_id, config) in state_configs.items():
-        if state_key in preserved:
+        if not _should_reset_state_key(state_key, preserved, state_key_prefix):
             continue
         if analog_control_primary_mode(config) == "gamepad":
             reset_gamepad_output(
@@ -75,24 +83,69 @@ async def reset_analog_controls(
                 deps=deps,
             )
 
-    await cancel_mouse_tasks(device_runtime, preserve_state_keys=preserved)
+    await cancel_mouse_tasks(
+        device_runtime,
+        preserve_state_keys=preserved,
+        state_key_prefix=state_key_prefix,
+    )
 
-    _discard_unpreserved_keys(device_runtime.state.analog_axis_values, preserved)
-    _discard_unpreserved_keys(device_runtime.state.analog_active_thresholds, preserved)
+    _discard_reset_state_keys(
+        device_runtime.state.analog_axis_values,
+        preserved,
+        state_key_prefix,
+    )
+    _discard_reset_state_keys(
+        device_runtime.state.analog_active_thresholds,
+        preserved,
+        state_key_prefix,
+    )
     for key in list(device_runtime.state.analog_active_threshold_actions):
-        if threshold_source_key(key) not in preserved:
+        if _should_reset_state_key(
+            threshold_source_key(key),
+            preserved,
+            state_key_prefix,
+        ):
             device_runtime.state.analog_active_threshold_actions.pop(key, None)
-    _discard_unpreserved_keys(device_runtime.state.analog_mouse_tasks, preserved)
-    _discard_unpreserved_keys(device_runtime.state.analog_mouse_accumulators, preserved)
-    _discard_unpreserved_keys(device_runtime.state.analog_mouse_area_offsets, preserved)
-    device_runtime.state.analog_mouse_area_active.intersection_update(preserved)
-    _discard_unpreserved_keys(device_runtime.state.analog_gamepad_outputs, preserved)
+    _discard_reset_state_keys(
+        device_runtime.state.analog_mouse_tasks,
+        preserved,
+        state_key_prefix,
+    )
+    _discard_reset_state_keys(
+        device_runtime.state.analog_mouse_accumulators,
+        preserved,
+        state_key_prefix,
+    )
+    _discard_reset_state_keys(
+        device_runtime.state.analog_mouse_area_offsets,
+        preserved,
+        state_key_prefix,
+    )
+    for state_key in list(device_runtime.state.analog_mouse_area_active):
+        if _should_reset_state_key(state_key, preserved, state_key_prefix):
+            device_runtime.state.analog_mouse_area_active.discard(state_key)
+    _discard_reset_state_keys(
+        device_runtime.state.analog_gamepad_outputs,
+        preserved,
+        state_key_prefix,
+    )
 
 
-def _discard_unpreserved_keys[StateValue](
+def _should_reset_state_key(
+    state_key: str,
+    preserved: set[str],
+    state_key_prefix: str | None,
+) -> bool:
+    return state_key not in preserved and (
+        state_key_prefix is None or state_key.startswith(state_key_prefix)
+    )
+
+
+def _discard_reset_state_keys[StateValue](
     mapping: dict[str, StateValue],
     preserved: set[str],
+    state_key_prefix: str | None,
 ) -> None:
     for state_key in list(mapping):
-        if state_key not in preserved:
+        if _should_reset_state_key(state_key, preserved, state_key_prefix):
             mapping.pop(state_key, None)

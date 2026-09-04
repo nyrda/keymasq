@@ -73,10 +73,13 @@ def reset_recorded_gamepad_outputs(
     *,
     deps: ActionExecutionDeps,
     preserved: set[str] | None = None,
+    state_key_prefix: str | None = None,
 ) -> None:
     preserved = preserved or set()
     for source_id, output in list(device_runtime.state.analog_gamepad_outputs.items()):
-        if source_id in preserved:
+        if source_id in preserved or (
+            state_key_prefix is not None and not source_id.startswith(state_key_prefix)
+        ):
             continue
         _write_recorded_gamepad_reset(device_runtime, source_id, output, deps=deps)
 

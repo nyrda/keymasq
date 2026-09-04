@@ -486,11 +486,14 @@ class GrabbedDevice:
     async def reset_analog_controls(
         self,
         preserve_state_keys: set[str] | None = None,
+        *,
+        state_key_prefix: str | None = None,
     ) -> None:
         await reset_analog_controls(
             self,
             deps=pipeline.build_action_execution_deps(),
             preserve_state_keys=preserve_state_keys,
+            state_key_prefix=state_key_prefix,
         )
 
     def reset_motion_controls(self) -> None:

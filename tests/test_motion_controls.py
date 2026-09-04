@@ -106,9 +106,24 @@ class _Runtime:
         self.hardware_id = "054c:0ce6"
         self.analog_inputs = {}
         self.analog_axis_output_codes = {}
+        self.analog_reset_prefixes: list[str | None] = []
 
-    async def reset_analog_controls(self) -> None:
-        return
+    async def reset_analog_controls(
+        self,
+        preserve_state_keys: set[str] | None = None,
+        *,
+        state_key_prefix: str | None = None,
+    ) -> None:
+        del preserve_state_keys
+        self.analog_reset_prefixes.append(state_key_prefix)
+
+    def reset_motion_controls(self) -> None:
+        self.state.motion_frame_values.clear()
+        self.state.motion_smoothed_values.clear()
+        self.state.motion_last_frame_ns.clear()
+        self.state.motion_mouse_accumulators.clear()
+        self.state.motion_tilt_centers.clear()
+        self.state.motion_mouse_area_offsets.clear()
 
     def resolve_gamepad_output(self, output_id, context):
         return None
@@ -132,6 +147,32 @@ async def _send_accelerometer_frame(runtime, mapping, deps, x, y, z) -> None:
         mapping,
         deps=deps,
     )
+
+
+@pytest.mark.asyncio
+async def test_syn_dropped_clears_motion_state_with_scoped_analog_reset() -> None:
+    runtime = _Runtime()
+    runtime.state.motion_frame_values["motion_1"] = {"gyro": {"yaw": 1.0}}
+    runtime.state.motion_smoothed_values["motion:motion_1"] = {"x": 1.0, "y": 0.0}
+    runtime.state.motion_last_frame_ns["motion:motion_1"] = 123
+    runtime.state.motion_mouse_accumulators["motion:motion_1"] = (0.5, 0.0)
+    runtime.state.motion_tilt_centers["motion:motion_1"] = (1.0, 2.0)
+    runtime.state.motion_mouse_area_offsets["motion:motion_1"] = (3.0, 4.0)
+    dropped = SimpleNamespace(
+        type=evdev.ecodes.EV_SYN,
+        code=evdev.ecodes.SYN_DROPPED,
+        value=0,
+    )
+
+    assert await dispatch_motion_event(runtime, dropped, {}, deps=build_action_execution_deps())
+
+    assert runtime.state.motion_frame_values == {}
+    assert runtime.state.motion_smoothed_values == {}
+    assert runtime.state.motion_last_frame_ns == {}
+    assert runtime.state.motion_mouse_accumulators == {}
+    assert runtime.state.motion_tilt_centers == {}
+    assert runtime.state.motion_mouse_area_offsets == {}
+    assert runtime.analog_reset_prefixes == ["motion:"]
 
 
 def test_motion_control_manager_round_trip(temp_config_dir) -> None:

@@ -42,14 +42,9 @@ async def dispatch_motion_event(
 
     if int(event.type) != int(deps.evdev_mod.ecodes.EV_SYN):
         return False
-    if int(event.code) == 3:  # SYN_DROPPED
-        device_runtime.state.motion_frame_values.clear()
-        device_runtime.state.motion_smoothed_values.clear()
-        device_runtime.state.motion_last_frame_ns.clear()
-        device_runtime.state.motion_mouse_accumulators.clear()
-        device_runtime.state.motion_tilt_centers.clear()
-        device_runtime.state.motion_mouse_area_offsets.clear()
-        await device_runtime.reset_analog_controls()
+    if int(event.code) == int(deps.evdev_mod.ecodes.SYN_DROPPED):
+        device_runtime.reset_motion_controls()
+        await device_runtime.reset_analog_controls(state_key_prefix="motion:")
         return bool(device_runtime.motion_axis_bindings)
     if int(event.code) != 0:  # SYN_REPORT
         return False

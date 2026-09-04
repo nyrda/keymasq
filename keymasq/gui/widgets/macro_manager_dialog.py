@@ -83,19 +83,13 @@ class MacroManagerDialog(
         on_start: Callable[[], None] | None = None,
         on_done: Callable[[], None] | None = None,
     ) -> None:
-        if on_start is None and on_done is None:
-            session_request_async(payload, callback)
-        elif on_start is None:
-            session_request_async(payload, callback, on_done=on_done)
-        elif on_done is None:
-            session_request_async(payload, callback, on_start=on_start)
-        else:
-            session_request_async(
-                payload,
-                callback,
-                on_start=on_start,
-                on_done=on_done,
-            )
+        session_request_async(
+            payload,
+            callback,
+            timeout=timeout,
+            on_start=on_start,
+            on_done=on_done,
+        )
 
     def _run_gui_task[T](
         self,
@@ -105,19 +99,7 @@ class MacroManagerDialog(
         on_start: Callable[[], None] | None = None,
         on_done: Callable[[], None] | None = None,
     ) -> None:
-        if on_start is None and on_done is None:
-            run_gui_task(worker, callback)
-        elif on_start is None:
-            run_gui_task(worker, callback, on_done=on_done)
-        elif on_done is None:
-            run_gui_task(worker, callback, on_start=on_start)
-        else:
-            run_gui_task(
-                worker,
-                callback,
-                on_start=on_start,
-                on_done=on_done,
-            )
+        run_gui_task(worker, callback, on_start=on_start, on_done=on_done)
 
     def _new_type_macro_dialog(
         self,
@@ -172,16 +154,10 @@ class TypeMacroDialog(Adw.Dialog, TypeMacroDialogMixin):
         on_start: Callable[[], None] | None = None,
         on_done: Callable[[], None] | None = None,
     ) -> None:
-        if on_start is None and on_done is None:
-            session_request_async(payload, callback)
-        elif on_start is None:
-            session_request_async(payload, callback, on_done=on_done)
-        elif on_done is None:
-            session_request_async(payload, callback, on_start=on_start)
-        else:
-            session_request_async(
-                payload,
-                callback,
-                on_start=on_start,
-                on_done=on_done,
-            )
+        session_request_async(
+            payload,
+            callback,
+            timeout=timeout,
+            on_start=on_start,
+            on_done=on_done,
+        )

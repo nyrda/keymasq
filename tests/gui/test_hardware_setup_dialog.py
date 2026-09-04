@@ -4,7 +4,17 @@ from typing import Any
 
 import pytest
 
+from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+from keymasq.session.hardware import HardwareManager
+
 gi = pytest.importorskip("gi")
+
+
+def _configured_hardware_manager(*configs: HardwareConfig) -> HardwareManager:
+    manager = HardwareManager()
+    for config in configs:
+        manager.save_hardware(config)
+    return manager
 
 
 class TestHardwareSetupDialog:
@@ -17,7 +27,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
 
         assert isinstance(dialog, Adw.Dialog)
         assert not isinstance(dialog, Gtk.Window)
@@ -31,7 +41,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         closed: list[bool] = []
         dialog.close = lambda: closed.append(True)  # type: ignore[method-assign]
 
@@ -210,7 +220,7 @@ class TestHardwareSetupDialog:
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
         monkeypatch.setattr(hardware_setup_mod, "session_request", fake_session_request)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.show_raw = True
         detected_devices: dict[str, dict] = {}
 
@@ -230,7 +240,7 @@ class TestHardwareSetupDialog:
 
         original_detect = HardwareSetupDialog._detect_devices
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", original_detect)
 
         scheduled: list[tuple[object, object, object]] = []
@@ -261,7 +271,7 @@ class TestHardwareSetupDialog:
         original_detect = HardwareSetupDialog._detect_devices
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", original_detect)
         dialog._discovery_state.detected_devices = {
             "1234:5678": {
@@ -337,8 +347,8 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
-            def save_hardware(self, _config) -> None:
+        class _HardwareManager(HardwareManager):
+            def save_hardware(self, config) -> None:
                 raise AssertionError("select mode must not save hardware")
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
@@ -431,7 +441,7 @@ class TestHardwareSetupDialog:
             evdev_devices=[EvdevDevice(path="/dev/input/event20", device_type=DeviceType.OTHER)],
             buttons=[],
         )
-        hardware_manager = SimpleNamespace(list_hardware=lambda: [configured])
+        hardware_manager = _configured_hardware_manager(configured)
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         dialog._discovery_state.show_raw = True
         detected_devices: dict[str, dict] = {}
@@ -491,7 +501,11 @@ class TestHardwareSetupDialog:
             },
         )
 
-        hardware_manager = SimpleNamespace(list_hardware_ids=lambda: ["045e:02a1"])
+        hardware_manager = _configured_hardware_manager(
+            HardwareConfig(
+                vendor_id="045e", product_id="02a1", name="Xbox", evdev_devices=[], buttons=[]
+            )
+        )
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         dialog._discovery_state.show_raw = True
         detected_devices: dict[str, dict] = {}
@@ -516,8 +530,9 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
+        class _HardwareManager(HardwareManager):
             def __init__(self) -> None:
+                super().__init__()
                 self.saved = []
 
             def save_hardware(self, config) -> None:
@@ -579,7 +594,7 @@ class TestHardwareSetupDialog:
             lambda self, _path: ([], {}),
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.show_raw = True
         dialog._discovery_state.selected_device = {
             "vendor_id": "1234",
@@ -664,9 +679,7 @@ class TestHardwareSetupDialog:
             lambda _device: pytest.fail("by-id identities must not probe phys"),
         )
 
-        keys = inventory.configured_identity_hardware_ids(
-            SimpleNamespace(list_hardware=lambda: [configured])
-        )
+        keys = inventory.configured_identity_hardware_ids(_configured_hardware_manager(configured))
 
         assert keys["by-id:usb-Test_Mouse"] == "1234:5678"
 
@@ -678,7 +691,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
 
         dialog._discovery_state.show_raw = False
         assert dialog._should_show_interface_expander([{}]) is True
@@ -697,7 +710,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.show_raw = True
         dialog._discovery_state.detected_devices = {
             "045e:02a1#/dev/input/event20": {
@@ -782,7 +795,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.detected_devices = {
             "1234:1002": {
                 "vendor_id": "1234",
@@ -833,7 +846,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.detected_devices = {
             "1234:1002": {
                 "vendor_id": "1234",
@@ -889,7 +902,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.selected_device = {
             "interfaces": [
                 {
@@ -917,7 +930,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.selected_device = {
             "interfaces": [
                 {
@@ -947,7 +960,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         dialog._discovery_state.selected_device = {
             "interfaces": [
                 {
@@ -979,7 +992,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
 
         assert (
             dialog._selected_config_id(
@@ -1012,7 +1025,11 @@ class TestHardwareSetupDialog:
 
         dialog = HardwareSetupDialog(
             Gtk.Window(),
-            SimpleNamespace(list_hardware_ids=lambda: ["045e:02a1"]),
+            _configured_hardware_manager(
+                HardwareConfig(
+                    vendor_id="045e", product_id="02a1", name="Xbox", evdev_devices=[], buttons=[]
+                )
+            ),
         )
         dialog._discovery_state.show_raw = True
 
@@ -1038,7 +1055,19 @@ class TestHardwareSetupDialog:
 
         dialog = HardwareSetupDialog(
             Gtk.Window(),
-            SimpleNamespace(list_hardware_ids=lambda: ["045e:02a1", "045e:02a1@3", "045e:02a1@5"]),
+            _configured_hardware_manager(
+                *[
+                    HardwareConfig(
+                        vendor_id="045e",
+                        product_id="02a1",
+                        name="Xbox",
+                        evdev_devices=[],
+                        buttons=[],
+                        id=hardware_id,
+                    )
+                    for hardware_id in ["045e:02a1", "045e:02a1@3", "045e:02a1@5"]
+                ]
+            ),
         )
 
         assert (
@@ -1136,8 +1165,20 @@ class TestHardwareSetupDialog:
             },
         )
 
-        hardware_manager = SimpleNamespace(
-            get_hardware=lambda hardware_id: object() if hardware_id == "9999:0001" else None
+        hardware_manager = _configured_hardware_manager(
+            HardwareConfig(
+                vendor_id="9999",
+                product_id="0001",
+                name="Configured Keyboard",
+                evdev_devices=[
+                    EvdevDevice(
+                        path="/dev/input/event11",
+                        device_type=DeviceType.KEYBOARD,
+                        phys="usb-0000:00:14.0-2/input0",
+                    )
+                ],
+                buttons=[],
+            )
         )
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         detected_devices: dict[str, dict] = {}
@@ -1233,7 +1274,7 @@ class TestHardwareSetupDialog:
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
@@ -1304,7 +1345,7 @@ class TestHardwareSetupDialog:
             evdev_devices=[EvdevDevice(path="/dev/input/event21", device_type=DeviceType.KEYBOARD)],
             buttons=[],
         )
-        hardware_manager = SimpleNamespace(list_hardware=lambda: [configured])
+        hardware_manager = _configured_hardware_manager(configured)
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         detected_devices: dict[str, dict] = {}
 
@@ -1351,7 +1392,7 @@ class TestHardwareSetupDialog:
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
@@ -1405,7 +1446,7 @@ class TestHardwareSetupDialog:
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
@@ -1464,10 +1505,7 @@ class TestHardwareSetupDialog:
             evdev_devices=[EvdevDevice(path=first_slot_path, device_type=DeviceType.GAMEPAD)],
             buttons=[],
         )
-        hardware_manager = SimpleNamespace(
-            list_hardware_ids=lambda: ["045e:02a1"],
-            list_hardware=lambda: [configured],
-        )
+        hardware_manager = _configured_hardware_manager(configured)
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         detected_devices: dict[str, dict] = {}
 
@@ -1526,10 +1564,7 @@ class TestHardwareSetupDialog:
             evdev_devices=[EvdevDevice(path=configured_path, device_type=DeviceType.MOUSE)],
             buttons=[],
         )
-        hardware_manager = SimpleNamespace(
-            list_hardware_ids=lambda: ["1234:5678"],
-            list_hardware=lambda: [configured],
-        )
+        hardware_manager = _configured_hardware_manager(configured)
         dialog = HardwareSetupDialog(Gtk.Window(), hardware_manager)
         detected_devices: dict[str, dict] = {}
 
@@ -1572,7 +1607,7 @@ class TestHardwareSetupDialog:
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
@@ -1636,7 +1671,7 @@ class TestHardwareSetupDialog:
                 ],
             },
         )
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True
@@ -1662,8 +1697,9 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
+        class _HardwareManager(HardwareManager):
             def __init__(self) -> None:
+                super().__init__()
                 self.saved = []
 
             def save_hardware(self, config) -> None:
@@ -1727,8 +1763,9 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
+        class _HardwareManager(HardwareManager):
             def __init__(self) -> None:
+                super().__init__()
                 self.saved = []
 
             def save_hardware(self, config) -> None:
@@ -1785,8 +1822,9 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
+        class _HardwareManager(HardwareManager):
             def __init__(self) -> None:
+                super().__init__()
                 self.saved = []
 
             def save_hardware(self, config) -> None:
@@ -1871,8 +1909,9 @@ class TestHardwareSetupDialog:
         from keymasq.common.model.core import DeviceType
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-        class _HardwareManager:
+        class _HardwareManager(HardwareManager):
             def __init__(self) -> None:
+                super().__init__()
                 self.saved = []
 
             def save_hardware(self, config) -> None:
@@ -1929,7 +1968,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         buttons = dialog._build_standard_mouse_buttons(
             "mouse",
             include_horizontal=True,
@@ -1958,7 +1997,7 @@ class TestHardwareSetupDialog:
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace())
+        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
         buttons = dialog._build_standard_keyboard_buttons("kbd")
 
         assert "key_102nd" not in [button.id for button in buttons]
@@ -2086,8 +2125,9 @@ def test_hardware_setup_saves_standard_keyboard_template(monkeypatch):
     from keymasq.common.model.core import DeviceType
     from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-    class _HardwareManager:
+    class _HardwareManager(HardwareManager):
         def __init__(self) -> None:
+            super().__init__()
             self.saved = []
 
         def save_hardware(self, config) -> None:
@@ -2139,8 +2179,9 @@ def test_hardware_setup_saves_mouse_keyboard_template_with_horizontal_wheel(monk
     from keymasq.common.model.core import DeviceType
     from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
-    class _HardwareManager:
+    class _HardwareManager(HardwareManager):
         def __init__(self) -> None:
+            super().__init__()
             self.saved = []
 
         def save_hardware(self, config) -> None:

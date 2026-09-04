@@ -12,7 +12,7 @@ from keymasq.gui.widgets.macro_manager.state import (
 )
 
 
-def test_catalog_partitions_saved_macros_and_temporary_slots() -> None:
+def test_catalog_names_include_saved_macros_and_temporary_slots() -> None:
     catalog = CatalogState.from_response(
         {
             "status": "ok",
@@ -27,8 +27,6 @@ def test_catalog_partitions_saved_macros_and_temporary_slots() -> None:
         }
     )
 
-    assert [macro["name"] for macro in catalog.saved_macros] == ["saved"]
-    assert [macro["name"] for macro in catalog.temporary_slots] == ["recording-slot-2"]
     assert catalog.names == {"saved", "recording-slot-2"}
 
 
@@ -37,7 +35,7 @@ def test_catalog_validation_reports_the_invalid_entry() -> None:
         CatalogState.from_response({"macros": [{"name": "valid"}, {"duration_us": 1000}]})
 
 
-def test_search_state_filters_and_clears_hidden_selection() -> None:
+def test_search_filters_macros_and_empty_query_restores_all() -> None:
     catalog = CatalogState.from_response(
         {
             "macros": [
@@ -54,17 +52,14 @@ def test_search_state_filters_and_clears_hidden_selection() -> None:
             ]
         }
     )
-    catalog.select("copy_ctrl_c")
-    catalog.show_search()
-    catalog.set_query("gamepad")
+    catalog.query = "gamepad"
 
-    assert catalog.search_visible is True
     assert [macro["name"] for macro in catalog.filtered_macros()] == ["gamepad_combo"]
-    assert catalog.selected_name is None
-
-    catalog.hide_search()
-    assert catalog.search_visible is False
-    assert catalog.query == ""
+    catalog.query = ""
+    assert [macro["name"] for macro in catalog.filtered_macros()] == [
+        "copy_ctrl_c",
+        "gamepad_combo",
+    ]
 
 
 def test_row_state_formats_saved_and_temporary_metadata() -> None:

@@ -82,7 +82,7 @@ def test_timeline_gap_editor_can_move_next_and_later_actions(monkeypatch) -> Non
     dialog._duration_us = 1_100_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
     gap = timeline._track_gaps["keyboard"][0]
 
     timeline._select_gap(gap, timeline._time_to_x(200_000), timeline._kb_y + 12)
@@ -109,7 +109,7 @@ def test_gap_edit_preserves_explicit_trailing_duration(monkeypatch) -> None:
     dialog._events = [first, second]
     dialog._duration_us = 1_000_000
     dialog._update_stats()
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
     gap = dialog._timeline._track_gaps["keyboard"][0]
 
     dialog._edit_timeline_gap(gap, 100_000, move_scope="next")
@@ -124,7 +124,7 @@ def test_timeline_gap_edit_moves_explicit_trailing_duration(monkeypatch) -> None
     dialog._events = [first, second]
     dialog._duration_us = 1_000_000
     dialog._update_stats()
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
     gap = dialog._timeline._track_gaps["keyboard"][0]
 
     dialog._edit_timeline_gap(gap, 100_000, move_scope="timeline")
@@ -141,7 +141,7 @@ def test_timeline_gap_edit_does_not_add_silence_past_unchanged_hold(
     dialog._events = [long_hold, nested_tap]
     dialog._duration_us = long_hold.release_t_us
     dialog._update_stats()
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
     gap = dialog._timeline._gap_segments[0]
 
     dialog._edit_timeline_gap(
@@ -165,7 +165,7 @@ def test_gap_editor_accepts_gaps_longer_than_one_hour(monkeypatch) -> None:
     dialog._events = [first, second]
     dialog._duration_us = second.release_t_us
     dialog._update_stats()
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
     timeline = dialog._timeline
     gap = timeline._track_gaps["keyboard"][0]
 
@@ -189,7 +189,7 @@ def test_hover_uses_next_track_action_instead_of_rendered_sublane(
     dialog._duration_us = 1_000_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
 
     timeline._recompute_lanes()
     lane_h = timeline._kb_track_h / timeline._kb_num_lanes
@@ -228,7 +228,7 @@ def test_wait_controls_have_local_gaps_in_the_control_row(monkeypatch) -> None:
     dialog._duration_us = 350_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
 
     timeline._on_pointer_motion(
         None,
@@ -277,7 +277,7 @@ def test_ruler_gaps_ignore_raw_movement_and_passthrough_events(monkeypatch) -> N
     dialog._duration_us = 600_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
 
     timeline._on_pointer_motion(None, timeline._time_to_x(300_000), 10.0)
 
@@ -296,7 +296,7 @@ def test_unlocked_move_mode_shows_gaps_and_cancel_clears_the_display(monkeypatch
     dialog._duration_us = 400_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
 
     x = timeline._time_to_x(200_000)
     y = timeline._kb_y + 12
@@ -317,7 +317,7 @@ def test_unlocked_move_mode_shows_gaps_and_cancel_clears_the_display(monkeypatch
     timeline._on_pointer_motion(None, x, y)
     assert timeline._hover_gap is None
 
-    dialog._lock_btn.set_active(True)
+    dialog._move_btn.set_active(False)
     assert timeline._gap_segments == []
     assert timeline._selected_gap is None
 
@@ -360,7 +360,7 @@ def test_timeline_overlap_is_selectable_from_ruler(monkeypatch) -> None:
     dialog._duration_us = 300_000
     dialog._update_stats()
     timeline = dialog._timeline
-    dialog._lock_btn.set_active(False)
+    dialog._move_btn.set_active(True)
 
     overlap = timeline._gap_at_position(timeline._time_to_x(200_000), 10.0)
 

@@ -1051,6 +1051,20 @@ def _seed_macros(state_dir: Path, *, owner: str | None) -> None:
                 _macro_mouse_event(660000, "BTN_LEFT", 0),
             ],
         },
+        {
+            "name": "selection_demo",
+            "created_at": CREATED_AT,
+            "events": [
+                _macro_key_event(400000, "KEY_LEFTCTRL", 1),
+                _macro_key_event(450000, "KEY_C", 1),
+                _macro_key_event(600000, "KEY_C", 0),
+                _macro_key_event(750000, "KEY_LEFTCTRL", 0),
+                _macro_mouse_event(900000, "BTN_LEFT", 1),
+                _macro_mouse_event(1150000, "BTN_LEFT", 0),
+                _macro_key_event(3500000, "KEY_ENTER", 1),
+                _macro_key_event(3650000, "KEY_ENTER", 0),
+            ],
+        },
     ]
     for macro in macros:
         events = list(macro["events"])

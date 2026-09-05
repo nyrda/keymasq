@@ -271,6 +271,7 @@ class TimelineControllerMixin:
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _on_apply_scale_clicked(self, _btn) -> None:
         if not self._timing_scale_spin:
@@ -427,7 +428,7 @@ class TimelineControllerMixin:
 
     def _ripple_delete_range(self, t0_us: int, t1_us: int) -> None:
         t0_us = max(0, int(t0_us))
-        t1_us = int(t1_us)
+        t1_us = min(self._duration_us, int(t1_us))
         if t1_us <= t0_us:
             return
         (
@@ -445,8 +446,12 @@ class TimelineControllerMixin:
             t0_us,
             t1_us,
         )
-        self._clear_selection_if_removed()
-        self._refresh_after_timing_edit()
+        self._duration_us -= t1_us - t0_us
+        self._timeline.set_selection([])
+        cursor = self._timeline._insertion_us
+        self._timeline._insertion_us = cursor - min(max(cursor - t0_us, 0), t1_us - t0_us)
+        self._refresh_after_timing_edit(recompute_duration=False)
+        self._update_selection_summary()
 
     def _shift_timeline_for_gap(
         self,

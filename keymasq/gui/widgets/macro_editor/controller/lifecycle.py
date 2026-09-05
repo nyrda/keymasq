@@ -44,6 +44,8 @@ class LifecycleControllerMixin:
     def _sync_close_guard(self) -> None:
         if not hasattr(self, "_name_entry"):
             return
+        if hasattr(self, "_edit_history"):
+            self._record_edit_history()
         self.set_can_close(not self._save_in_flight and not self._has_pending_changes())
 
     def _on_close_clicked(self, _button: Gtk.Button) -> None:
@@ -58,6 +60,8 @@ class LifecycleControllerMixin:
 
     def _force_close_without_warning(self) -> None:
         self._dialog_closed = True
+        if getattr(self, "_paste_cancellable", None) is not None:
+            self._paste_cancellable.cancel()
         self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self.set_can_close(True)

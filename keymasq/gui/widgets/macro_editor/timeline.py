@@ -10,7 +10,7 @@ from typing import Any
 import evdev
 from gi.repository import Gdk, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.gui.widgets.macro_editor import timeline_render
+from keymasq.gui.widgets.macro_editor import selection, timeline_render
 from keymasq.gui.widgets.macro_editor.gaps import (
     GapItem,
     TimelineGap,
@@ -27,21 +27,21 @@ from keymasq.gui.widgets.macro_editor.model import (
     _format_time_us,
     _get_event_name,
     _get_key_name,
-    _passthrough_track,
 )
+from keymasq.gui.widgets.macro_editor.timeline_selection import TimelineSelectionMixin
 
 # ---------------------------------------------------------------------------
 # Timeline DrawingArea
 # ---------------------------------------------------------------------------
 
 
-class TimelineWidget(Gtk.DrawingArea):
+class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
     """
     Custom Gtk.DrawingArea that renders the macro timeline with four tracks:
       K  — keyboard key press/release rectangles
       M  — mouse click press/release rectangles
       G  — gamepad button press/release rectangles
-      ≈  — mouse movement waveform (read-only, from EV_REL events)
+      ≈  — recorded mouse movement waveform and control actions
 
     The left 28px column is used for track labels and scrolls with the content.
     Horizontal scrolling is driven by the editor's custom offset model; the
@@ -63,6 +63,7 @@ class TimelineWidget(Gtk.DrawingArea):
         self._pps = 200.0  # pixels per second (zoom level)
         self._scroll_offset = 0.0  # horizontal scroll offset in px
         self._selected: object | None = None
+        self._init_selection()
         self._hover_x: float | None = None
         self._hover_y: float | None = None
         self._context_menu_x: float | None = None
@@ -98,7 +99,7 @@ class TimelineWidget(Gtk.DrawingArea):
         self._drag_event: EditableEvent | None = None
         self._drag_move: EditableMove | None = None
         self._drag_control: EditableControl | None = None
-        self._drag_selected_obj: object | None = None
+        self._drag_selected_obj: selection.Item | None = None
         self._drag_selected_gap: TimelineGap | None = None
         self._drag_orig_press: int = 0
         self._drag_orig_release: int = 0
@@ -115,8 +116,7 @@ class TimelineWidget(Gtk.DrawingArea):
         self._autoscroll_tick_id: int = 0
         self._autoscroll_last_time: int | None = None
 
-        # Erase-mode drag state. Left-drag bands are clamped to the track the
-        # drag started in; a right-drag ripple band uses the sentinel "all".
+        # Erase-mode left drags remove a time span across all tracks.
         # The anchor is kept in time-space so edge auto-scroll can shift the
         # visible slice without the band's fixed end drifting with it.
         self._erase_track: str | None = None
@@ -124,8 +124,6 @@ class TimelineWidget(Gtk.DrawingArea):
         self._erase_x0: float | None = None
         self._erase_x1: float | None = None
         self._erase_pending: list[object] = []
-        self._right_press_x: float = 0.0
-        self._right_press_y: float = 0.0
 
         self.set_draw_func(self._draw, None)
         self.set_vexpand(False)
@@ -137,6 +135,7 @@ class TimelineWidget(Gtk.DrawingArea):
         # and GestureDrag.drag-begin firing on the same button-press, which
         # caused the "must click first, then drag" two-step requirement.
         drag = Gtk.GestureDrag.new()
+        drag.set_button(1)
         drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag_update)
         drag.connect("drag-end", self._on_drag_end)
@@ -152,15 +151,6 @@ class TimelineWidget(Gtk.DrawingArea):
         right_click.set_button(3)
         right_click.connect("pressed", self._on_right_click)
         self.add_controller(right_click)
-
-        # Right-drag ripple delete (erase mode only): sweeps all lanes at once
-        # and collapses the deleted time span.
-        right_drag = Gtk.GestureDrag.new()
-        right_drag.set_button(3)
-        right_drag.connect("drag-begin", self._on_right_drag_begin)
-        right_drag.connect("drag-update", self._on_right_drag_update)
-        right_drag.connect("drag-end", self._on_right_drag_end)
-        self.add_controller(right_drag)
 
         # Ctrl+scroll for zoom
         scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
@@ -233,8 +223,7 @@ class TimelineWidget(Gtk.DrawingArea):
     ) -> None:
         self._track_gaps = track_gaps
         self._track_next_starts = {
-            track: [gap.next_start_us for gap in gaps]
-            for track, gaps in track_gaps.items()
+            track: [gap.next_start_us for gap in gaps] for track, gaps in track_gaps.items()
         }
         self._track_positive_gaps = {
             track: sorted(
@@ -337,7 +326,7 @@ class TimelineWidget(Gtk.DrawingArea):
 
     def _x_to_time_us(self, x: float) -> int:
         """Convert a drawing-area x coordinate to microseconds."""
-        return int(
+        return round(
             (x - self.LABEL_WIDTH - self.TIMELINE_PAD + self._scroll_offset) / self._pps * 1e6
         )
 
@@ -355,6 +344,7 @@ class TimelineWidget(Gtk.DrawingArea):
             _pps=self._pps,
             _scroll_offset=self._scroll_offset,
             _selected=self._selected,
+            _selected_ids=frozenset(id(item) for item in self.selected_items()),
             _hover_x=self._hover_x,
             _hover_y=self._hover_y,
             _context_menu_x=self._context_menu_x,
@@ -392,6 +382,7 @@ class TimelineWidget(Gtk.DrawingArea):
     def _draw(self, area, cr, width, height, user_data) -> None:
         self._recompute_lanes()
         timeline_render.draw(cr, self._build_render_state(), width, height)
+        self._draw_selection_overlay(cr, width, height)
 
     def _get_passthrough_marker_layouts(
         self,
@@ -612,6 +603,7 @@ class TimelineWidget(Gtk.DrawingArea):
         return f"{labels[0]} + {len(labels) - 1} more"
 
     def _select_gap(self, gap: TimelineGap, x: float, y: float) -> None:
+        self.set_selection([])
         self._selected = None
         self._selected_gap = gap
         self._hover_gap = gap
@@ -755,42 +747,6 @@ class TimelineWidget(Gtk.DrawingArea):
     # Gesture handlers
     # ------------------------------------------------------------------
 
-    def _collect_erase_hits(self, track: str, x0: float, x1: float) -> list[object]:
-        """Collect items in `track` whose drawn shape intersects pixel range [x0, x1].
-
-        Press/release pairs that fully span the band are skipped: a held key
-        enclosing the selection should survive deleting what happens under it.
-        """
-        hits: list[object] = []
-        if track in ("keyboard", "mouse", "gamepad"):
-            for ev in self._editor._events:
-                if ev.device_type != track:
-                    continue
-                ex1 = self._time_to_x(ev.press_t_us)
-                ex2 = max(self._time_to_x(ev.release_t_us), ex1 + self.MIN_EVENT_WIDTH)
-                if ex1 <= x1 and ex2 >= x0 and not (ex1 < x0 and ex2 > x1):
-                    hits.append(ev)
-        elif track == "movement":
-            for move in self._editor._synthetic_moves:
-                mx = self._time_to_x(move.t_us)
-                if x0 - 9.0 <= mx <= x1 + 9.0:
-                    hits.append(move)
-            for control in self._editor._control_events:
-                cx = self._time_to_x(control.t_us)
-                if x0 - 7.0 <= cx <= x1 + 7.0:
-                    hits.append(control)
-            for ev in self._editor._rel_events:
-                rx = self._time_to_x(int(ev.get("t_us", 0)))
-                if x0 - 1.0 <= rx <= x1 + 1.0:
-                    hits.append(ev)
-        for ev in self._editor._passthrough_events:
-            if _passthrough_track(ev) != track:
-                continue
-            px = self._time_to_x(int(ev.get("t_us", 0)))
-            if x0 - 4.0 <= px <= x1 + 4.0:
-                hits.append(ev)
-        return hits
-
     def _collect_ripple_hits(self, t0_us: int, t1_us: int) -> list[object]:
         """Collect items in [t0_us, t1_us] across all tracks (ripple preview).
 
@@ -842,6 +798,8 @@ class TimelineWidget(Gtk.DrawingArea):
         self._select_gap(gap, x, y)
 
     def _on_drag_begin(self, gesture, start_x, start_y) -> None:
+        if self._begin_selection_drag(gesture, start_x, start_y):
+            return
         # Always hit-test on press; actual movement only starts after threshold.
         hit = self._hit_test(start_x, start_y)
         self._drag_selected_obj = hit
@@ -853,10 +811,12 @@ class TimelineWidget(Gtk.DrawingArea):
         self._stop_autoscroll()
         self._reset_erase_drag()
         if self._editor._erase_mode:
-            # In erase mode a drag sweeps a delete band instead of moving events;
-            # clicks below the drag threshold still select as usual.
-            self._erase_track = self._get_track_at_y(start_y)
-            self._erase_anchor_t_us = self._x_to_time_us(start_x)
+            self.grab_focus()
+            # Clicks still select; a drag removes time across all tracks.
+            self._erase_track = "all" if start_x >= self.LABEL_WIDTH else None
+            self._erase_anchor_t_us = min(
+                self._editor._duration_us, max(0, self._x_to_time_us(start_x))
+            )
             self._drag_event = None
             self._drag_move = None
             self._drag_control = None
@@ -882,10 +842,15 @@ class TimelineWidget(Gtk.DrawingArea):
         self._in_drag = False
 
     def _on_drag_update(self, gesture, offset_x, offset_y) -> None:
+        if self._update_selection_drag(offset_x, offset_y):
+            return
         if self._erase_track is not None:
             if not self._in_drag:
                 if abs(offset_x) < 4:
                     return
+                self._editor._record_edit_history()
+                self.set_selection([])
+                self.clear_gap_selection()
                 self._in_drag = True
             self._drag_last_offset_x = float(offset_x)
             self._apply_erase_band()
@@ -913,6 +878,9 @@ class TimelineWidget(Gtk.DrawingArea):
         """Move the dragged item to match the pointer, folding in any scroll
         movement since drag-begin (edge auto-scroll shifts time under the
         stationary pointer)."""
+        if self._bulk_drag_kind:
+            self._apply_selection_drag()
+            return
         scroll_delta_px = self._scroll_offset - self._drag_scroll_origin
         delta_us = int((self._drag_last_offset_x + scroll_delta_px) / self._pps * 1e6)
         if self._drag_event is not None:
@@ -942,20 +910,14 @@ class TimelineWidget(Gtk.DrawingArea):
         the visible slice."""
         if self._erase_track is None:
             return
-        anchor_x = self._time_to_x(self._erase_anchor_t_us)
-        pointer_x = self._drag_start_x + self._drag_last_offset_x
-        self._erase_x0 = min(anchor_x, pointer_x)
-        self._erase_x1 = max(anchor_x, pointer_x)
-        if self._erase_track == "all":
-            t0_us = max(0, self._x_to_time_us(self._erase_x0))
-            t1_us = max(t0_us, self._x_to_time_us(self._erase_x1))
-            self._erase_pending = self._collect_ripple_hits(t0_us, t1_us)
-        else:
-            self._erase_pending = self._collect_erase_hits(
-                self._erase_track,
-                self._erase_x0,
-                self._erase_x1,
-            )
+        pointer_us = min(
+            self._editor._duration_us,
+            max(0, self._x_to_time_us(self._drag_start_x + self._drag_last_offset_x)),
+        )
+        t0_us, t1_us = sorted((self._erase_anchor_t_us, pointer_us))
+        self._erase_x0 = self._time_to_x(t0_us)
+        self._erase_x1 = self._time_to_x(t1_us)
+        self._erase_pending = self._collect_ripple_hits(t0_us, t1_us) if t1_us > t0_us else []
         self.queue_draw()
 
     def _edge_autoscroll_velocity(self, pointer_x: float) -> float:
@@ -1014,14 +976,16 @@ class TimelineWidget(Gtk.DrawingArea):
         return GLib.SOURCE_CONTINUE
 
     def _on_drag_end(self, gesture, offset_x, offset_y) -> None:
+        if self._end_selection_drag():
+            return
         self._stop_autoscroll()
         if self._erase_track is not None and self._in_drag:
-            pending = self._erase_pending
+            x0, x1 = self._erase_x0, self._erase_x1
             self._reset_erase_drag()
             self._drag_selected_obj = None
             self._in_drag = False
-            if pending:
-                self._editor._delete_events_bulk(pending)
+            if x0 is not None and x1 is not None:
+                self._editor._ripple_delete_range(self._x_to_time_us(x0), self._x_to_time_us(x1))
             self.queue_draw()
             return
         self._reset_erase_drag()
@@ -1050,8 +1014,7 @@ class TimelineWidget(Gtk.DrawingArea):
                 and selected_gap is None
                 and selected_obj is not self._selected
             ):
-                self._selected = selected_obj
-                self._editor._on_selection_changed(selected_obj)
+                self.set_selection([selected_obj] if selected_obj is not None else [])
         self._drag_event = None
         self._drag_move = None
         self._drag_control = None
@@ -1061,56 +1024,12 @@ class TimelineWidget(Gtk.DrawingArea):
         self._in_drag = False
         self.queue_draw()
 
-    def _on_right_drag_begin(self, gesture, start_x, start_y) -> None:
-        if not self._editor._erase_mode:
-            return
-        self._reset_erase_drag()
-        self._stop_autoscroll()
-        self._erase_track = "all"
-        self._erase_anchor_t_us = self._x_to_time_us(start_x)
-        self._drag_start_x = float(start_x)
-        self._drag_last_offset_x = 0.0
-        self._right_press_x = start_x
-        self._right_press_y = start_y
-        self._in_drag = False
-
-    def _on_right_drag_update(self, gesture, offset_x, offset_y) -> None:
-        if self._erase_track != "all":
-            return
-        if not self._in_drag:
-            if abs(offset_x) < 4:
-                return
-            self._in_drag = True
-        self._drag_last_offset_x = float(offset_x)
-        self._apply_erase_band()
-        self._update_autoscroll(self._drag_start_x + float(offset_x))
-
-    def _on_right_drag_end(self, gesture, offset_x, offset_y) -> None:
-        self._stop_autoscroll()
-        if not self._editor._erase_mode or self._erase_track != "all":
-            return
-        x0 = self._erase_x0
-        x1 = self._erase_x1
-        was_drag = self._in_drag
-        self._reset_erase_drag()
-        self._in_drag = False
-        self.queue_draw()
-        if not was_drag or x0 is None or x1 is None:
-            # Plain right-click in erase mode: show the context menu on release.
-            self._on_right_click(None, 1, self._right_press_x, self._right_press_y)
-            return
-        t0_us = max(0, self._x_to_time_us(x0))
-        t1_us = max(t0_us, self._x_to_time_us(x1))
-        self._editor._ripple_delete_range(t0_us, t1_us)
-
     def _on_pointer_motion(self, controller, x, y) -> None:
         self._hover_x = x
         self._hover_y = y
         gaps_visible = not self._editor._erase_mode and not self._editor._drag_locked
         candidate = (
-            self._gap_at_position(x, y)
-            if gaps_visible and self._hit_test(x, y) is None
-            else None
+            self._gap_at_position(x, y) if gaps_visible and self._hit_test(x, y) is None else None
         )
         if candidate is not None and candidate == self._suppressed_hover_gap:
             candidate = None
@@ -1152,14 +1071,14 @@ class TimelineWidget(Gtk.DrawingArea):
         return False
 
     def _on_right_click(self, gesture, n_press, x, y) -> None:
-        if gesture is not None and self._editor._erase_mode:
-            # In erase mode the right button is owned by the ripple drag; a
-            # plain right-click reopens the menu via _on_right_drag_end.
-            return
         ev = self._hit_test(x, y)
         track = self._get_track_at_y(y)
         t_us = max(0, self._x_to_time_us(x))
         t_label = _format_time_us(t_us)
+        self._insertion_us = t_us
+        if ev is not None and not any(item is ev for item in self.selected_items()):
+            self.set_selection([ev])
+        self._editor._update_selection_summary()
 
         self._context_menu_x = x
         self.queue_draw()
@@ -1169,6 +1088,7 @@ class TimelineWidget(Gtk.DrawingArea):
         def _on_popover_closed(_popover) -> None:
             self._context_menu_x = None
             self.queue_draw()
+            _popover.unparent()
 
         popover.connect("closed", _on_popover_closed)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1176,6 +1096,13 @@ class TimelineWidget(Gtk.DrawingArea):
         box.set_margin_bottom(4)
         box.set_margin_start(4)
         box.set_margin_end(4)
+
+        self._editor._append_selection_commands(
+            box, popover, paste_at_us=t_us, timeline_point=(x, y)
+        )
+        box.append(Gtk.Separator())
+        if len(self.selected_items()) > 1:
+            ev = None
 
         if track == "keyboard":
             add_btn = Gtk.Button(label=f"Add Keystroke at {t_label}")

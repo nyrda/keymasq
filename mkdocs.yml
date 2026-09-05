@@ -104,6 +104,7 @@ nav:
       - Superkeys: SUPERKEYS.md
       - Combos: COMBOS.md
       - Macros: MACROS.md
+      - Macro Timeline Editor: MACRO_EDITOR.md
       - Gamepad: GAMEPAD.md
   - Examples:
       - Overview: EXAMPLES.md

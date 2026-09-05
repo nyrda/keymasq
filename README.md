@@ -198,6 +198,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for details.
 - Superkeys system: [docs/SUPERKEYS.md](docs/SUPERKEYS.md)
 - Combo system: [docs/COMBOS.md](docs/COMBOS.md)
 - Macro system: [docs/MACROS.md](docs/MACROS.md)
+- Macro timeline editor: [docs/MACRO_EDITOR.md](docs/MACRO_EDITOR.md)
 - GNOME setup: [docs/GNOME.md](docs/GNOME.md)
 - CLI reference: [docs/CLI.md](docs/CLI.md)
 - Performance: [docs/PERFORMANCE.md](docs/PERFORMANCE.md)

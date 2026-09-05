@@ -114,13 +114,16 @@ class SaveControllerMixin:
             )
             if create_result.get("status") != "ok":
                 return create_result
-            delete_result = self._session_request(
-                {
-                    "command": "delete_macro",
-                    "name": target.current_name,
-                    "expected_revision": target.revision,
-                }
-            ) or {}
+            delete_result = (
+                self._session_request(
+                    {
+                        "command": "delete_macro",
+                        "name": target.current_name,
+                        "expected_revision": target.revision,
+                    }
+                )
+                or {}
+            )
             if delete_result.get("status") != "ok":
                 detail = str(
                     delete_result.get("message", "Failed to remove the old macro")
@@ -244,6 +247,8 @@ class SaveControllerMixin:
         save.add_css_class("suggested-action")
 
         def on_save_copy(_button) -> None:
+            if not save.get_sensitive():
+                return
             name = entry.get_text().strip()
             if not name:
                 error_lbl.set_label("Name cannot be empty")

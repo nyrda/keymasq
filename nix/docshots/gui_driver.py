@@ -595,6 +595,9 @@ def _drain_events() -> None:
 def _close_dialog(dialog: object | None) -> None:
     if dialog is None:
         return
+    if isinstance(dialog, MacroEditorDialog):
+        dialog._force_close_without_warning()
+        return
     close = getattr(dialog, "close", None)
     if callable(close):
         close()
@@ -1192,7 +1195,8 @@ class DocshotRunner:
     def _close_current_dialog(self) -> None:
         if self.current_popover is not None:
             self.current_popover.popdown()
-            self.current_popover.unparent()
+            if self.current_popover.get_parent() is not None:
+                self.current_popover.unparent()
             self.current_popover = None
         _close_dialog(self.current_dialog)
         self.current_dialog = None
@@ -1527,6 +1531,55 @@ class DocshotRunner:
             GLib.timeout_add(600, self._open_macro_loop_dropdown, dialog)
             return
         self._set_dialog_crop(dialog, shot)
+        self._apply_declared_crop_widget(dialog, shot)
+        if shot.get("scenario"):
+            GLib.timeout_add(50, self._prepare_macro_selection_scenario, dialog, shot)
+
+    def _prepare_macro_selection_scenario(self, dialog: MacroEditorDialog, shot: Json) -> bool:
+        if dialog is not self.current_dialog:
+            return False
+        if not dialog._initial_state_loaded:
+            return True
+        scenario = str(shot["scenario"])
+        timeline = dialog._timeline
+        dialog._auto_zoom_enabled = False
+        timeline._pps = 250.0
+        timeline.set_scroll_offset(0)
+        timeline._insertion_us = 250_000
+        timeline.set_time_selection(250_000, 1_250_000)
+        dialog._update_canvas_width()
+        if scenario == "paste_selection":
+            dialog._copy_selection()
+            dialog._paste_selection(at_us=2_000_000)
+        elif scenario == "selection_timing":
+            self.capture_root_window = True
+            dialog._show_selection_timing(
+                timeline_point=(timeline._time_to_x(1_350_000), timeline._m_y + 20)
+            )
+            popover = next(
+                widget for widget in _iter_widget_tree(timeline) if isinstance(widget, Gtk.Popover)
+            )
+            stack = next(
+                widget for widget in _iter_widget_tree(popover) if isinstance(widget, Gtk.Stack)
+            )
+            stack.set_visible_child_name("scale")
+            spin = next(
+                widget
+                for widget in _iter_widget_tree(stack.get_visible_child())
+                if isinstance(widget, Gtk.SpinButton)
+            )
+            spin.set_value(50)
+            self.current_popover = popover
+        elif scenario == "erase_selection":
+            dialog._erase_btn.set_active(True)
+            first = timeline._time_to_x(250_000)
+            last = timeline._time_to_x(1_250_000)
+            timeline._on_drag_begin(None, first, timeline._m_y + 20)
+            timeline._on_drag_update(None, last - first, 0)
+        elif scenario != "time_selection":
+            raise ValueError(f"unknown macro selection scenario {scenario!r}")
+        timeline.queue_draw()
+        return False
 
     def _show_macro_timing_tools_popover(self, dialog: MacroEditorDialog) -> bool:
         if self.current_popover is not None:

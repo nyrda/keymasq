@@ -10,6 +10,7 @@ security model.
   - `docs/PROFILES.md`
   - `docs/COMBOS.md`
   - `docs/MACROS.md`
+  - `docs/MACRO_EDITOR.md`
   - `docs/SECURITY.md`
 - Prefer a small issue or discussion before large design changes.
 

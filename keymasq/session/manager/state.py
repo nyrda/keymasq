@@ -30,16 +30,6 @@ class CaptureRuntimeState:
 
 
 @dataclass
-class PendingSave:
-    data: JsonObject
-    token: str
-    owner_writer_id: int | None = None
-    owner_pid: int | None = None
-    owner_uid: int | None = None
-    created_at: float = 0.0
-
-
-@dataclass
 class PendingSlot:
     data: JsonObject
     token: str
@@ -54,7 +44,6 @@ class RecordingRuntimeState:
     active: bool = False
     active_slot: int = 0
     pending_slots: dict[int, PendingSlot] = field(default_factory=dict)
-    pending_save: PendingSave | None = None
     active_owner_writer_id: int | None = None
     active_owner_pid: int | None = None
     active_owner_uid: int | None = None

@@ -24,7 +24,7 @@ from keymasq.common.settings import GlobalSettings
 from keymasq.session.listeners.kde import KDEListener
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import application, coordinator, runtime_status
-from keymasq.session.manager.state import PendingSave, PendingSlot
+from keymasq.session.manager.state import PendingSlot
 from tests.session.support import grant_recording_refresh_owner
 
 
@@ -51,14 +51,6 @@ def set_pending_recording_slot(
         created_at=created_at,
     )
     manager.recording_state.pending_slots[slot] = pending_slot
-    manager.recording_state.pending_save = PendingSave(
-        data=pending_slot.data,
-        token=pending_slot.token,
-        owner_writer_id=pending_slot.owner_writer_id,
-        owner_pid=pending_slot.owner_pid,
-        owner_uid=pending_slot.owner_uid,
-        created_at=pending_slot.created_at,
-    )
     return pending_slot
 
 
@@ -3180,10 +3172,9 @@ async def test_save_recording_keeps_pending_macro_save_slot(
     assert "start_x" not in sent_command.data
     assert "start_y" not in sent_command.data
     assert sent_command.data["block_mouse_movement"] is True
-    assert manager.recording_state.pending_save is not None
-    assert manager.recording_state.pending_save.token == "pending-1"
-    assert manager.recording_state.pending_save.owner_writer_id == 123
-    assert manager.recording_state.pending_save.data is pending_slot.data
+    assert manager.recording_state.pending_slots[1].token == "pending-1"
+    assert manager.recording_state.pending_slots[1].owner_writer_id == 123
+    assert manager.recording_state.pending_slots[1] is pending_slot
     assert pending_slot.data == {
         "pending_recording_id": "recording-1",
         "duration_ms": 10,
@@ -3264,7 +3255,7 @@ async def test_save_recording_requires_active_unlock_owner() -> None:
 @pytest.mark.asyncio
 async def test_delete_recording_slot_rejects_stale_pending_macro_save_token() -> None:
     manager = SessionManager()
-    pending_slot = set_pending_recording_slot(
+    set_pending_recording_slot(
         manager,
         {"events": [{"t_us": 0}]},
         token="current",
@@ -3279,9 +3270,8 @@ async def test_delete_recording_slot_rejects_stale_pending_macro_save_token() ->
 
     assert result["status"] == "error"
     assert result["error_code"] == "stale_pending_macro_save"
-    assert pending_slot.data["events"] == [{"t_us": 0}]
-    assert manager.recording_state.pending_save is not None
-    assert manager.recording_state.pending_save.token == "current"
+    assert manager.recording_state.pending_slots[1].data["events"] == [{"t_us": 0}]
+    assert manager.recording_state.pending_slots[1].token == "current"
 
 
 @pytest.mark.asyncio
@@ -3303,14 +3293,6 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
     pending_slot.owner_pid = 456
     pending_slot.owner_uid = 789
     pending_slot.created_at = 1.0
-    manager.recording_state.pending_save = PendingSave(
-        data=pending_slot.data,
-        token=old_token,
-        owner_writer_id=123,
-        owner_pid=456,
-        owner_uid=789,
-        created_at=1.0,
-    )
 
     def fake_token_urlsafe(_size: int) -> str:
         return "fresh-token"
@@ -3334,8 +3316,6 @@ async def test_replaced_pending_slot_rejects_previous_pending_save_token(
 
     refreshed_slot = manager.recording_state.pending_slots[1]
     assert refreshed_slot.token == "fresh-token"
-    assert manager.recording_state.pending_save is not None
-    assert manager.recording_state.pending_save.token == "fresh-token"
     assert refreshed_slot.data["pending_save_token"] == "fresh-token"
     assert refreshed_slot.owner_writer_id is None
     assert refreshed_slot.owner_pid is None
@@ -3400,8 +3380,7 @@ async def test_delete_recording_slot_keeps_state_when_daemon_delete_fails() -> N
 
     assert result == {"status": "error", "message": "No pending recording"}
     assert manager.recording_state.pending_slots[1].data["pending_recording_id"] == "recording-1"
-    assert manager.recording_state.pending_save is not None
-    assert manager.recording_state.pending_save.token == "pending-1"
+    assert manager.recording_state.pending_slots[1].token == "pending-1"
 
 
 @pytest.mark.asyncio
@@ -3422,7 +3401,6 @@ async def test_delete_recording_slot_clears_pending_macro_save_state() -> None:
 
     assert result == {"status": "ok"}
     assert manager.recording_state.pending_slots == {}
-    assert manager.recording_state.pending_save is None
 
 
 @pytest.mark.asyncio

@@ -651,7 +651,6 @@ async def test_start_recording_replaces_pending_recording_in_selected_slot() -> 
     assert sent_commands[1].data["recording_slot"] == 1
     assert sent_commands[2].data == {"pending_recording_id": "recording-old"}
     assert manager.recording_state.pending_slots == {}
-    assert manager.recording_state.pending_save is None
 
 
 @pytest.mark.asyncio

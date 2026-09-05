@@ -16,7 +16,6 @@ from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.grabbed_device import actions
 from keymasq.keymasqd.runtime.grabbed_device.event.classification import (
     find_action_for_code,
-    find_action_for_event,
     find_button_id_for_code,
     get_event_name,
 )
@@ -98,7 +97,14 @@ async def apply_mapped_action_or_passthrough(
     deps: EventProcessingDeps,
 ) -> str:
     evdev_mod = deps.evdev_mod
-    action = find_action_for_event(device_runtime, event, mapping)
+    action = find_action_for_code(
+        device_runtime,
+        int(event.type),
+        int(event.code),
+        int(event.value),
+        event_name,
+        mapping,
+    )
     if event.type == evdev_mod.ecodes.EV_KEY:
         held_action = device_runtime.state.held_source_actions.get(event_name)
         if int(event.value) == 1 and event_name not in device_runtime.state.held_source_actions:

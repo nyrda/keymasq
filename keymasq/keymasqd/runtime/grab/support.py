@@ -34,10 +34,6 @@ class EventLoopDevice(Protocol):
     async def stop_event_loop(self) -> None: ...
 
 
-async def stop_device_event_loop(device: EventLoopDevice) -> None:
-    await device.stop_event_loop()
-
-
 async def stop_device_event_loops(devices: Sequence[EventLoopDevice]) -> None:
     for device in devices:
-        await stop_device_event_loop(device)
+        await device.stop_event_loop()

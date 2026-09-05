@@ -501,10 +501,10 @@ class TestSocketServer:
         self,
         temp_socket_dir,
     ):
-        calls: list[str] = []
+        observations: list[tuple[str, ClientContext | None]] = []
 
         async def handle_disconnect() -> None:
-            calls.append("disconnect")
+            observations.append(("disconnect", server._owner_context))
 
         server = SocketServer(
             str(paths.SOCKET_PATH),
@@ -516,8 +516,7 @@ class TestSocketServer:
         reconnect_writer = _BroadcastWriter()
 
         async def on_wait_closed() -> None:
-            assert calls == ["disconnect"]
-            assert server._owner_context is not None
+            observations.append(("wait_closed", server._owner_context))
             server.clients.add(reconnect_writer)
 
         owner_writer = _DropClientWriter(on_wait_closed=on_wait_closed)
@@ -534,7 +533,8 @@ class TestSocketServer:
 
         await server._drop_client(owner_writer)  # type: ignore[arg-type]
 
-        assert calls == ["disconnect"]
+        assert observations == [("disconnect", owner_context), ("wait_closed", None)]
+        assert reconnect_writer in server.clients
         assert server._owner_context is None
 
     async def test_connection_rejected_when_peer_credentials_missing(

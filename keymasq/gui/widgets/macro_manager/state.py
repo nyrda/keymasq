@@ -59,8 +59,6 @@ class MacroRowState:
 class CatalogState:
     macros: list[MacroData] = field(default_factory=list)
     query: str = ""
-    search_visible: bool = False
-    selected_name: str | None = None
 
     @classmethod
     def from_response(cls, response: object) -> "CatalogState":
@@ -81,14 +79,6 @@ class CatalogState:
         return cls(validated)
 
     @property
-    def saved_macros(self) -> list[MacroData]:
-        return [macro for macro in self.macros if not _is_temporary_slot(macro)]
-
-    @property
-    def temporary_slots(self) -> list[MacroData]:
-        return [macro for macro in self.macros if _is_temporary_slot(macro)]
-
-    @property
     def names(self) -> set[str]:
         return {str(macro.get("name", "")) for macro in self.macros if str(macro.get("name", ""))}
 
@@ -98,24 +88,6 @@ class CatalogState:
             for macro in self.macros
             if fuzzy_query_matches(self.query, macro_search_text(macro))
         ]
-
-    def show_search(self) -> None:
-        self.search_visible = True
-
-    def hide_search(self) -> None:
-        self.query = ""
-        self.search_visible = False
-
-    def set_query(self, query: str) -> None:
-        self.query = query
-        if self.selected_name is not None and all(
-            str(macro.get("name", "")) != self.selected_name for macro in self.filtered_macros()
-        ):
-            self.selected_name = None
-
-    def select(self, name: str | None) -> None:
-        if name is None or name in self.names:
-            self.selected_name = name
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +152,3 @@ def suggest_duplicate_macro_name(source_name: str, existing_names: set[str]) -> 
         if candidate not in existing_names:
             return candidate
         index += 1
-
-
-def _is_temporary_slot(macro: MacroData) -> bool:
-    return str(macro.get("kind", "") or "") == "recording_slot"

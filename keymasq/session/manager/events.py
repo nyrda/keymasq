@@ -25,7 +25,7 @@ from . import (
     recording_lifecycle,
     recording_unlock,
 )
-from .common import JsonObject, json_list
+from .common import JsonObject, device_name_for_hardware, json_list
 from .constants import (
     GRAB_RETRY_DELAY_S,
     TOPOLOGY_REFRESH_DEBOUNCE_S,
@@ -920,13 +920,6 @@ async def on_device_disconnected(manager: "SessionManager", device_info: JsonObj
 async def _refresh_recording_devices_cache_after_topology(manager: "SessionManager") -> None:
     await asyncio.sleep(TOPOLOGY_REFRESH_DEBOUNCE_S + 0.1)
     await recording_device_selection.refresh_recording_devices_cache(manager)
-
-
-def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:
-    hardware = manager.hardware.get_hardware(hardware_id)
-    if hardware is None:
-        return hardware_id
-    return str(getattr(hardware, "name", "") or hardware_id)
 
 
 def _hardware_or_model_known(manager: "SessionManager", hardware_id: str) -> bool:

@@ -26,7 +26,6 @@ from keymasq.common.virtual_devices import (
     clamp_virtual_gamepad_count,
 )
 from keymasq.keymasqd import device_inventory
-from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -72,16 +71,9 @@ from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivatio
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
 log = logging.getLogger("keymasqd.devices")
-ACTIVE_KEY_IDLE_LOG_INTERVAL_S = 1.0
-ACTIVE_KEY_IDLE_MAX_WAIT_S = 300.0
-COMBO_HELD_REARM_MODIFIERS = frozenset({"shift", "ctrl", "alt", "meta"})
 TOPOLOGY_POLL_INTERVAL_S = 0.5
 TOPOLOGY_DEBOUNCE_S = 0.5
 type BroadcastCallback = Callable[[CommandType, JsonObject], Awaitable[None]]
-type MappingGetter = Callable[[], dict[str, MappingAction]]
-type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
-type MacroPlayer = Callable[..., Awaitable[JsonObject]]
-type RapidfireTaskFactory = Callable[[], asyncio.Task[None]]
 
 
 class _ManagedInputDevice(Protocol):
@@ -191,7 +183,6 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             debounce_s=max(0.05, float(topology_debounce_s)),
         )
         self._command_type = CommandType
-        self._desired_grab_config_cls = DesiredGrabConfig
         self._device_input = _device_input
 
     def initialize_output_devices(self) -> None:

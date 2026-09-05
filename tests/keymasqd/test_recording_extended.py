@@ -29,11 +29,7 @@ def _add_pending_recording_snapshot(
     event_count: int = 1,
     device_types: list[str] | None = None,
 ) -> tuple[RecordingSnapshot, Path]:
-    path_id = (
-        recording_id
-        if recording_id.startswith("recording-")
-        else f"recording-{recording_id}"
-    )
+    path_id = recording_id if recording_id.startswith("recording-") else f"recording-{recording_id}"
     path = tmp_path / f"{path_id}.jsonl"
     path.write_text(f'{{"t_us":{t_us}}}\n' * event_count, encoding="utf-8")
     snapshot = RecordingSnapshot(
@@ -49,8 +45,8 @@ def _add_pending_recording_snapshot(
 
 
 @pytest.mark.asyncio
-async def test_recording_event_filtering_for_mouse_controls():
-    recorder = RecordingManager()
+async def test_recording_event_filtering_for_mouse_controls(tmp_path: Path):
+    recorder = RecordingManager(spool_dir=tmp_path)
 
     await recorder.start(
         [],
@@ -79,8 +75,8 @@ async def test_recording_event_filtering_for_mouse_controls():
 
 
 @pytest.mark.asyncio
-async def test_recording_keeps_wheel_events_without_mouse_movement_enabled() -> None:
-    recorder = RecordingManager()
+async def test_recording_keeps_wheel_events_without_mouse_movement_enabled(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
 
     await recorder.start(
         [],
@@ -113,9 +109,9 @@ async def test_recording_keeps_wheel_events_without_mouse_movement_enabled() -> 
 
 
 @pytest.mark.asyncio
-async def test_recording_callback_fires_on_start_and_stop(monkeypatch):
+async def test_recording_callback_fires_on_start_and_stop(monkeypatch, tmp_path: Path):
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback)
+    recorder = RecordingManager(spool_dir=tmp_path, broadcast_callback=callback)
 
     await recorder.start([])
     recorder.record_event(
@@ -132,13 +128,13 @@ async def test_recording_callback_fires_on_start_and_stop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_recording_start_ignores_invalid_device_path(monkeypatch):
+async def test_recording_start_ignores_invalid_device_path(monkeypatch, tmp_path: Path):
     def _bad_device(_path: str):
         raise OSError("bad path")
 
     monkeypatch.setattr(evdev, "InputDevice", _bad_device)
 
-    recorder = RecordingManager()
+    recorder = RecordingManager(spool_dir=tmp_path)
     result = await recorder.start([{"path": "/does/not/exist"}])
 
     assert result == {"status": "ok"}
@@ -149,6 +145,7 @@ async def test_recording_start_ignores_invalid_device_path(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recording_start_logs_expected_device_open_error(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -157,7 +154,7 @@ async def test_recording_start_logs_expected_device_open_error(
 
     monkeypatch.setattr(evdev, "InputDevice", _bad_device)
 
-    recorder = RecordingManager()
+    recorder = RecordingManager(spool_dir=tmp_path)
     with caplog.at_level(logging.DEBUG, logger="keymasqd.recording"):
         result = await recorder.start([{"path": "/does/not/exist"}])
 
@@ -168,6 +165,7 @@ async def test_recording_start_logs_expected_device_open_error(
 
 @pytest.mark.asyncio
 async def test_recording_start_logs_unexpected_device_open_error(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -176,7 +174,7 @@ async def test_recording_start_logs_unexpected_device_open_error(
 
     monkeypatch.setattr(evdev, "InputDevice", _broken_device)
 
-    recorder = RecordingManager()
+    recorder = RecordingManager(spool_dir=tmp_path)
     with caplog.at_level(logging.ERROR, logger="keymasqd.recording"):
         result = await recorder.start([{"path": "/dev/input/event99"}])
 
@@ -186,9 +184,9 @@ async def test_recording_start_logs_unexpected_device_open_error(
 
 
 @pytest.mark.asyncio
-async def test_recording_stop_skips_callback_when_not_recording():
+async def test_recording_stop_skips_callback_when_not_recording(tmp_path: Path):
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback)
+    recorder = RecordingManager(spool_dir=tmp_path, broadcast_callback=callback)
 
     await recorder.stop()
 
@@ -197,10 +195,11 @@ async def test_recording_stop_skips_callback_when_not_recording():
 
 @pytest.mark.asyncio
 async def test_concurrent_recording_stops_finalize_the_spool_once(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback)
+    recorder = RecordingManager(spool_dir=tmp_path, broadcast_callback=callback)
     await recorder.start([])
     spool = recorder._spool
     assert spool is not None
@@ -237,8 +236,8 @@ async def test_concurrent_recording_stops_finalize_the_spool_once(
 
 
 @pytest.mark.asyncio
-async def test_recording_event_filters_sync_and_msc_events() -> None:
-    recorder = RecordingManager()
+async def test_recording_event_filters_sync_and_msc_events(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
 
     await recorder.start([])
     recorder.record_event("keyboard", evdev.InputEvent(1, 1, evdev.ecodes.EV_SYN, 0, 0))
@@ -250,9 +249,9 @@ async def test_recording_event_filters_sync_and_msc_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_recording_progress_reports_latest_event() -> None:
+async def test_recording_progress_reports_latest_event(tmp_path: Path) -> None:
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback)
+    recorder = RecordingManager(spool_dir=tmp_path, broadcast_callback=callback)
     await recorder.start([])
     if recorder._progress_task:
         recorder._progress_task.cancel()
@@ -279,10 +278,13 @@ async def test_recording_progress_reports_latest_event() -> None:
 
 @pytest.mark.asyncio
 async def test_recording_duration_limit_stops_normally_from_progress_task(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback, macro_recording_time_limit=1)
+    recorder = RecordingManager(
+        spool_dir=tmp_path, broadcast_callback=callback, macro_recording_time_limit=1
+    )
     await recorder.start([])
     original_progress_task = recorder._progress_task
     assert original_progress_task is not None
@@ -307,10 +309,13 @@ async def test_recording_duration_limit_stops_normally_from_progress_task(
 
 @pytest.mark.asyncio
 async def test_zero_recording_duration_limit_does_not_auto_stop(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     callback = AsyncMock()
-    recorder = RecordingManager(broadcast_callback=callback, macro_recording_time_limit=0)
+    recorder = RecordingManager(
+        spool_dir=tmp_path, broadcast_callback=callback, macro_recording_time_limit=0
+    )
     await recorder.start([])
     original_progress_task = recorder._progress_task
     assert original_progress_task is not None
@@ -330,8 +335,8 @@ async def test_zero_recording_duration_limit_does_not_auto_stop(
 
 
 @pytest.mark.asyncio
-async def test_recording_classifies_combo_device_events_per_event_type() -> None:
-    recorder = RecordingManager()
+async def test_recording_classifies_combo_device_events_per_event_type(tmp_path: Path) -> None:
+    recorder = RecordingManager(spool_dir=tmp_path)
 
     await recorder.start([], include_mouse_clicks=True)
     recorder.record_event(

@@ -7,8 +7,7 @@ import pytest
 
 import keymasq.session.listeners.gnome as gnome_module
 from keymasq.session.listeners.gnome import GnomeListener
-from tests.async_fakes import FakeStreamReader as _ScriptedReader
-from tests.async_fakes import FakeStreamWriter
+from tests.async_fakes import FakeStreamWriter, make_stream_reader
 
 
 def _decode_bridge_payload(data: bytes) -> object:
@@ -298,7 +297,7 @@ async def test_gnome_stale_bridge_reader_does_not_clear_new_connection() -> None
     listener._bridge_protocol = 1
     listener._bridge_protocol_compatible = True
 
-    await listener._bridge_read_loop(_ScriptedReader([]), stale_writer)
+    await listener._bridge_read_loop(make_stream_reader([]), stale_writer)
 
     assert listener._writer is active_writer
     assert stale_writer.closed is True
@@ -322,7 +321,7 @@ async def test_gnome_bridge_read_loop_logs_and_skips_malformed_frames(
     writer = _FakeWriter()
     listener._writer = writer
     listener._bridge_connected = True
-    reader = _ScriptedReader(
+    reader = make_stream_reader(
         [
             b"\xff\n",
             b"{not-json\n",
@@ -359,7 +358,7 @@ async def test_gnome_bridge_read_loop_logs_unexpected_handler_errors(
     writer = _FakeWriter()
     listener._writer = writer
     listener._bridge_connected = True
-    reader = _ScriptedReader(
+    reader = make_stream_reader(
         [
             gnome_module.json.dumps(
                 {
@@ -390,7 +389,7 @@ async def test_gnome_bridge_read_loop_logs_unexpected_close_errors(
     listener._bridge_connected = True
 
     with caplog.at_level(logging.ERROR, logger="keymasq-session.listeners.gnome"):
-        await listener._bridge_read_loop(_ScriptedReader([]), writer)
+        await listener._bridge_read_loop(make_stream_reader([]), writer)
 
     assert "Unexpected failure while closing GNOME bridge client writer" in caplog.text
     assert "close bug" in caplog.text

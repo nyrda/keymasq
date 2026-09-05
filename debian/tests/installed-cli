@@ -13,13 +13,13 @@ PYTHONPATH= python3 -m pytest -q \
     tests/common/test_hardware_manager.py \
     tests/common/test_mapping_and_profile_state.py \
     tests/common/test_profile_manager.py \
-    tests/test_cli_commands_helpers.py \
-    tests/test_devices.py \
-    tests/test_entrypoints_and_cli.py \
-    tests/test_ipc.py \
-    tests/test_output_helpers.py \
-    tests/test_paths.py \
-    tests/test_record_cli.py \
-    tests/test_recording_guard.py \
-    tests/test_security.py \
-    tests/test_toml.py
+    tests/common/test_cli_commands_helpers.py \
+    tests/common/test_devices.py \
+    tests/common/test_entrypoints_and_cli.py \
+    tests/common/test_ipc.py \
+    tests/keymasqd/test_output_helpers.py \
+    tests/common/test_paths.py \
+    tests/keymasqd/test_record_cli.py \
+    tests/common/test_recording_guard.py \
+    tests/common/test_security.py \
+    tests/session/test_toml.py

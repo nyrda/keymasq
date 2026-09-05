@@ -7,33 +7,8 @@ import keymasq.session.client as client_module
 from keymasq.common.ipc import HEADER_FORMAT, Command, CommandType, Response, encode_response
 from keymasq.session.client import KeymasqdClient
 from tests.async_fakes import BlockingStreamReader as _BlockingReader
-from tests.async_fakes import FakeStreamReader as _FakeReader
 from tests.async_fakes import FakeStreamWriter as _FakeWriter
-
-
-def test_fake_stream_reader_read_honors_size() -> None:
-    async def _run() -> None:
-        reader = _FakeReader([b"abcdef", b"gh"])
-
-        assert await reader.read(2) == b"ab"
-        assert await reader.read(3) == b"cde"
-        assert await reader.read(10) == b"f"
-        assert await reader.read(10) == b"gh"
-        assert await reader.read(10) == b""
-
-    asyncio.run(_run())
-
-
-def test_fake_stream_reader_readline_splits_newlines() -> None:
-    async def _run() -> None:
-        reader = _FakeReader([b"one\ntwo\n", b"three"])
-
-        assert await reader.readline() == b"one\n"
-        assert await reader.readline() == b"two\n"
-        assert await reader.readline() == b"three"
-        assert await reader.readline() == b""
-
-    asyncio.run(_run())
+from tests.async_fakes import make_stream_reader
 
 
 def test_keymasqd_client_disconnect_fails_pending_requests_immediately() -> None:
@@ -122,7 +97,7 @@ def test_keymasqd_client_discards_oversized_response_before_valid(
         valid = encode_response(Response(status="ok", request_id="ok", data={"done": True}))
 
         client = KeymasqdClient(event_handler=lambda _event, _data: None)
-        client.reader = _FakeReader([oversized + valid, b""])
+        client.reader = make_stream_reader([oversized + valid, b""])
         client.writer = _FakeWriter()
         future: asyncio.Future[Response] = asyncio.get_running_loop().create_future()
         client._pending_requests["ok"] = future

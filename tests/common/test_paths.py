@@ -10,38 +10,38 @@ import pytest
 def test_config_dir_defaults_to_home_config(monkeypatch: pytest.MonkeyPatch) -> None:
     import keymasq.common.paths as paths
 
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-
-    reloaded = importlib.reload(paths)
     try:
-        assert reloaded.CONFIG_DIR == Path.home() / ".config" / "keymasq"
-        assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
-        assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
-        assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
-        assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
-        assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
-        assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
+        with monkeypatch.context() as patch:
+            patch.delenv("XDG_CONFIG_HOME", raising=False)
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.CONFIG_DIR == Path.home() / ".config" / "keymasq"
+            assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
+            assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
+            assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+            assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
+            assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
+            assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
     finally:
         importlib.reload(paths)
 
 
-def test_config_dir_honors_xdg_config_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_dir_honors_xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import keymasq.common.paths as paths
 
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
-
-    reloaded = importlib.reload(paths)
     try:
-        assert reloaded.XDG_CONFIG_HOME == tmp_path / "xdg-config"
-        assert reloaded.CONFIG_DIR == tmp_path / "xdg-config" / "keymasq"
-        assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
-        assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
-        assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
-        assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
-        assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
-        assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
+        with monkeypatch.context() as patch:
+            patch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.XDG_CONFIG_HOME == tmp_path / "xdg-config"
+            assert reloaded.CONFIG_DIR == tmp_path / "xdg-config" / "keymasq"
+            assert reloaded.HARDWARE_DIR == reloaded.CONFIG_DIR / "hardware"
+            assert reloaded.PROFILES_DIR == reloaded.CONFIG_DIR / "profiles"
+            assert reloaded.SUPERKEYS_DIR == reloaded.CONFIG_DIR / "superkeys"
+            assert reloaded.SETTINGS_PATH == reloaded.CONFIG_DIR / "settings.toml"
+            assert reloaded.ANALOG_CONTROLS_DIR == reloaded.CONFIG_DIR / "analog_controls"
+            assert reloaded.VIRTUAL_DEVICES_PATH == reloaded.CONFIG_DIR / "virtual_devices.toml"
     finally:
         importlib.reload(paths)
 
@@ -56,18 +56,18 @@ def test_resolve_keymasq_record_helper_path_uses_build_override(
     helper.write_text("#!/bin/sh\n", encoding="utf-8")
     helper.chmod(0o755)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "keymasq.common.build_paths",
-        SimpleNamespace(KEYMASQ_RECORD_HELPER_PATH=str(helper)),
-    )
-
-    reloaded = importlib.reload(paths)
     try:
-        assert reloaded.KEYMASQ_RECORD_HELPER_PATH == helper
-        assert reloaded.resolve_keymasq_record_helper_path() == str(helper)
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(KEYMASQ_RECORD_HELPER_PATH=str(helper)),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.KEYMASQ_RECORD_HELPER_PATH == helper
+            assert reloaded.resolve_keymasq_record_helper_path() == str(helper)
     finally:
-        monkeypatch.delitem(sys.modules, "keymasq.common.build_paths", raising=False)
         importlib.reload(paths)
 
 
@@ -81,21 +81,21 @@ def test_resolve_slurp_path_uses_build_override(
     slurp.write_text("#!/bin/sh\n", encoding="utf-8")
     slurp.chmod(0o755)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "keymasq.common.build_paths",
-        SimpleNamespace(
-            KEYMASQ_RECORD_HELPER_PATH=str(tmp_path / "keymasq-record"),
-            SLURP_PATH=str(slurp),
-        ),
-    )
-
-    reloaded = importlib.reload(paths)
     try:
-        assert reloaded.SLURP_PATH == slurp
-        assert reloaded.resolve_slurp_path() == str(slurp)
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(
+                    KEYMASQ_RECORD_HELPER_PATH=str(tmp_path / "keymasq-record"),
+                    SLURP_PATH=str(slurp),
+                ),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.SLURP_PATH == slurp
+            assert reloaded.resolve_slurp_path() == str(slurp)
     finally:
-        monkeypatch.delitem(sys.modules, "keymasq.common.build_paths", raising=False)
         importlib.reload(paths)
 
 

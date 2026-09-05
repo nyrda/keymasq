@@ -2048,6 +2048,45 @@ class TestDialogConstruction:
         assert dialog.playback_stop_hint.get_label() == "Interrupt macro playback: Ctrl+Alt+Esc"
         assert dialog.playback_stop_hint.get_halign() == Gtk.Align.CENTER
 
+    @pytest.mark.parametrize("dialog_name", ["MacroManagerDialog", "TypeMacroDialog"])
+    def test_macro_dialog_request_uses_supplied_timeout(self, monkeypatch, dialog_name):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui import session_client
+        import keymasq.gui.widgets.macro_manager_dialog as dialogs
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        requests = []
+        responses = []
+        hooks = []
+
+        def request(payload, timeout=5.0):
+            requests.append((payload, timeout))
+            return {"status": "ok"}
+
+        def run_task(worker, callback, *, on_start=None, on_done=None):
+            if on_start is not None:
+                on_start()
+            callback(session_client.GuiTaskResult(value=worker()))
+            if on_done is not None:
+                on_done()
+
+        monkeypatch.setattr(session_client, "session_request", request)
+        monkeypatch.setattr(session_client, "run_gui_task", run_task)
+        dialog = getattr(dialogs, dialog_name)(Gtk.Window())
+        dialog._session_request_async(
+            {"command": "list_macros"},
+            responses.append,
+            timeout=0.25,
+            on_start=lambda: hooks.append("start"),
+            on_done=lambda: hooks.append("done"),
+        )
+
+        assert requests == [({"command": "list_macros"}, 0.25)]
+        assert responses == [{"status": "ok"}]
+        assert hooks == ["start", "done"]
+
     def test_macro_manager_dialog_docs_button_links_to_macros_docs(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
@@ -2764,7 +2803,9 @@ class TestDialogConstruction:
         requests: list[dict] = []
         created: list[bool] = []
 
-        def fake_session_request_async(payload, callback, on_start=None, on_done=None):
+        def fake_session_request_async(
+            payload, callback, timeout=5.0, *, on_start=None, on_done=None
+        ):
             requests.append(payload)
             if on_start:
                 on_start()

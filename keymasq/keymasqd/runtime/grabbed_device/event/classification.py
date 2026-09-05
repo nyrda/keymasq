@@ -126,22 +126,6 @@ def get_key_name(code: int, *, evdev_mod: EvdevModule) -> str | None:
     return _evdev_code_name(raw_code_name, code)
 
 
-def find_action_for_event(
-    device_runtime: GrabbedDeviceRuntime,
-    event: InputEventLike,
-    mapping: dict[str, MappingAction],
-) -> MappingAction | None:
-    event_name = get_event_name(event, evdev_mod=evdev)
-    return find_action_for_code(
-        device_runtime,
-        int(event.type),
-        int(event.code),
-        int(event.value),
-        event_name,
-        mapping,
-    )
-
-
 def find_action_for_code(
     device_runtime: GrabbedDeviceRuntime,
     event_type: int,

@@ -172,19 +172,18 @@ class ManagerViewMixin:
         )
 
     def _show_search(self) -> None:
-        self._catalog.show_search()
         self._search_entry.set_visible(True)
         self._search_entry.grab_focus()
         self._search_entry.select_region(0, -1)
 
     def _hide_search(self) -> None:
-        self._catalog.hide_search()
+        self._catalog.query = ""
         self._search_entry.set_text("")
         self._search_entry.set_visible(False)
         self._update_empty_state()
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
-        self._catalog.set_query(entry.get_text())
+        self._catalog.query = entry.get_text()
         self._update_empty_state()
 
     def _on_search_clicked(self, _button: Gtk.Button) -> None:

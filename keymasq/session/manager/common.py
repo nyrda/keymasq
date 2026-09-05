@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from keymasq.common.coercion import (
     json_list,
     json_object,
@@ -5,8 +7,12 @@ from keymasq.common.coercion import (
 from keymasq.common.types import JsonObject
 from keymasq.session.listeners.base import WindowListener
 
+if TYPE_CHECKING:
+    from .core import SessionManager
+
 __all__ = [
     "JsonObject",
+    "device_name_for_hardware",
     "json_list",
     "json_object",
     "merge_support_details",
@@ -28,3 +34,10 @@ def merge_support_details(
                 if isinstance(value, (bool, int, str)):
                     merged[key] = value
     return merged
+
+
+def device_name_for_hardware(manager: "SessionManager", hardware_id: str) -> str:
+    hardware = manager.hardware.get_hardware(hardware_id)
+    if hardware is None:
+        return hardware_id
+    return str(getattr(hardware, "name", "") or hardware_id)

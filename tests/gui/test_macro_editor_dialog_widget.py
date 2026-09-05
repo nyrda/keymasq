@@ -2424,16 +2424,18 @@ def test_macro_editor_erase_band_stays_time_anchored_under_autoscroll(monkeypatc
     x_start = timeline._time_to_x(keyboard.press_t_us) - 4.0
     timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
     timeline._on_drag_update(None, 20.0, 0.0)
-    x0_before = timeline._erase_x0
-    x1_before = timeline._erase_x1
-    assert x0_before is not None and x1_before is not None
+    band_before = timeline._build_render_state()._erase_band
+    assert band_before is not None
+    _, x0_before, x1_before = band_before
 
     # Simulate edge auto-scroll shifting the slice: the anchored end follows
     # its time (moves left on screen) while the pointer end stays put.
     timeline.set_scroll_offset(timeline._scroll_offset + 30.0)
     timeline._apply_erase_band()
-    assert timeline._erase_x0 == pytest.approx(x0_before - 30.0, abs=0.01)
-    assert timeline._erase_x1 == pytest.approx(x1_before, abs=0.01)
+    band_after = timeline._build_render_state()._erase_band
+    assert band_after is not None
+    assert band_after[1] == pytest.approx(x0_before - 30.0, abs=0.01)
+    assert band_after[2] == pytest.approx(x1_before, abs=0.01)
 
     timeline._on_drag_end(None, 20.0, 0.0)
     assert timeline._autoscroll_tick_id == 0

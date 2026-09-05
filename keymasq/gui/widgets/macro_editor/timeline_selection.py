@@ -72,7 +72,7 @@ class TimelineSelectionMixin:
                 self.set_selection(kept, time_range=expanded)
                 return
         if len(kept) != len(selected):
-            self.set_selection(kept, time_range=time_range)
+            self.set_selection(kept, time_range=time_range if kept else None)
 
     def _selection_click(self, hit: selection.Item, modifiers: int) -> None:
         current = self.selected_items()

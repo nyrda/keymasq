@@ -1,6 +1,8 @@
 # ruff: noqa: E402, I001
 """Exercise bulk editing through the GTK timeline and its commands."""
 
+import fcntl
+
 import pytest
 
 gi = pytest.importorskip("gi")
@@ -13,6 +15,17 @@ from gi.repository import Gdk
 
 from keymasq.gui.widgets.macro_editor.model import EditableEvent, reconstruct_events
 from tests.gui.macro_editor_dialog_support import _build_macro_dialog
+
+
+@pytest.fixture(autouse=True)
+def exclusive_native_clipboard(request, tmp_path_factory):
+    # Xdist workers share one X server and therefore one native clipboard.
+    lock_dir = tmp_path_factory.getbasetemp()
+    if hasattr(request.config, "workerinput"):
+        lock_dir = lock_dir.parent
+    with (lock_dir / "macro-editor-clipboard.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def _key(start: int, end: int, code: int = evdev.ecodes.KEY_A) -> EditableEvent:
@@ -229,6 +242,27 @@ def test_action_selection_discards_ruler_padding(monkeypatch) -> None:
     assert not timeline._on_selection_key(None, Gdk.KEY_d, 0, Gdk.ModifierType.CONTROL_MASK)
 
 
+def test_deleting_last_action_from_properties_clears_selected_time_range(monkeypatch) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    timeline = dialog._timeline
+    timeline.set_time_selection(250_000, 450_000)
+    dialog._on_delete_event(None)
+    assert timeline.selected_items() == []
+    assert timeline._time_selection is None
+    assert dialog._capture_selection() is None
+    assert [event.press_t_us for event in dialog._events] == [100_000, 500_000]
+
+
+def test_pruning_keeps_padding_while_selected_actions_survive(monkeypatch) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    timeline = dialog._timeline
+    timeline.set_time_selection(250_000, 650_000)
+    dialog._delete_event(dialog._events[1])
+    assert timeline.selected_items() == [dialog._events[1]]
+    assert timeline._time_selection == (250_000, 650_000)
+    assert dialog._capture_selection().duration_us == 400_000
+
+
 def test_silent_range_insert_moves_later_actions_and_can_be_undone(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     dialog._timeline.set_time_selection(200_000, 250_000)
@@ -361,7 +395,7 @@ def test_erase_silence_clamps_to_macro_end_and_is_one_undo_step(monkeypatch, fir
     timeline._on_drag_begin(None, x0, timeline._kb_y + 12)
     timeline._on_drag_update(None, x1 - x0, 0)
     assert timeline._erase_pending == []
-    assert timeline._erase_x1 == timeline._time_to_x(min(last, 700_000))
+    assert timeline._erase_time_range == (first, min(last, 700_000))
     assert dialog._current_macro_payload() == before
     timeline._on_drag_end(None, x1 - x0, 0)
     assert len(dialog._events) == 3
@@ -372,6 +406,34 @@ def test_erase_silence_clamps_to_macro_end_and_is_one_undo_step(monkeypatch, fir
     assert dialog._current_macro_payload() == before
     dialog._restore_history(redo=True)
     assert dialog._duration_us == 650_000
+
+
+@pytest.mark.parametrize("zoom", [False, True])
+def test_erase_commits_previewed_times_after_scroll_or_zoom(monkeypatch, zoom) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    timeline = dialog._timeline
+    timeline._pps = 2000
+    dialog._update_canvas_width()
+    dialog._erase_btn.set_active(True)
+    first, second, third = dialog._events
+    second.press_t_us, second.release_t_us = 250_000, 260_000
+    x0, x1 = timeline._time_to_x(250_000), timeline._time_to_x(400_000)
+    timeline._on_drag_begin(None, x0, timeline._kb_y + 12)
+    timeline._on_drag_update(None, x1 - x0, 0)
+    assert timeline._erase_pending == [second]
+    old_transform = (timeline._pps, timeline._scroll_offset)
+    controller = _Gesture(Gdk.ModifierType.CONTROL_MASK if zoom else 0)
+    assert timeline._on_scroll(controller, 0, 1)
+    assert (timeline._pps, timeline._scroll_offset) != old_transform
+    assert timeline._build_render_state()._erase_band == (
+        "all",
+        timeline._time_to_x(250_000),
+        timeline._time_to_x(400_000),
+    )
+    timeline._on_drag_end(None, x1 - x0, 0)
+    assert dialog._events == [first, third]
+    assert [event.press_t_us for event in dialog._events] == [100_000, 350_000]
+    assert dialog._duration_us == 550_000
 
 
 def test_single_property_edit_can_be_undone(monkeypatch) -> None:

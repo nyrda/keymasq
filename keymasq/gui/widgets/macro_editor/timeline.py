@@ -121,8 +121,7 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
         # visible slice without the band's fixed end drifting with it.
         self._erase_track: str | None = None
         self._erase_anchor_t_us: int = 0
-        self._erase_x0: float | None = None
-        self._erase_x1: float | None = None
+        self._erase_time_range: tuple[int, int] | None = None
         self._erase_pending: list[object] = []
 
         self.set_draw_func(self._draw, None)
@@ -370,10 +369,12 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
             _g_y=self._g_y,
             _wave_y=self._wave_y,
             _erase_band=(
-                (self._erase_track, self._erase_x0, self._erase_x1)
-                if self._erase_track is not None
-                and self._erase_x0 is not None
-                and self._erase_x1 is not None
+                (
+                    self._erase_track,
+                    self._time_to_x(self._erase_time_range[0]),
+                    self._time_to_x(self._erase_time_range[1]),
+                )
+                if self._erase_track is not None and self._erase_time_range is not None
                 else None
             ),
             _erase_pending_ids=frozenset(id(obj) for obj in self._erase_pending),
@@ -777,8 +778,7 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
 
     def _reset_erase_drag(self) -> None:
         self._erase_track = None
-        self._erase_x0 = None
-        self._erase_x1 = None
+        self._erase_time_range = None
         self._erase_pending = []
 
     def _on_gap_click_pressed(
@@ -915,8 +915,7 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
             max(0, self._x_to_time_us(self._drag_start_x + self._drag_last_offset_x)),
         )
         t0_us, t1_us = sorted((self._erase_anchor_t_us, pointer_us))
-        self._erase_x0 = self._time_to_x(t0_us)
-        self._erase_x1 = self._time_to_x(t1_us)
+        self._erase_time_range = (t0_us, t1_us)
         self._erase_pending = self._collect_ripple_hits(t0_us, t1_us) if t1_us > t0_us else []
         self.queue_draw()
 
@@ -980,12 +979,12 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
             return
         self._stop_autoscroll()
         if self._erase_track is not None and self._in_drag:
-            x0, x1 = self._erase_x0, self._erase_x1
+            time_range = self._erase_time_range
             self._reset_erase_drag()
             self._drag_selected_obj = None
             self._in_drag = False
-            if x0 is not None and x1 is not None:
-                self._editor._ripple_delete_range(self._x_to_time_us(x0), self._x_to_time_us(x1))
+            if time_range is not None:
+                self._editor._ripple_delete_range(*time_range)
             self.queue_draw()
             return
         self._reset_erase_drag()

@@ -537,7 +537,10 @@ async def test_profile_activation_timeout_broadcasts_deactivate_requested() -> N
 
 
 @pytest.mark.asyncio
-async def test_profile_activation_action_count_consumes_any_recorded_action() -> None:
+@pytest.mark.parametrize("source_profile_name", ["Other", "Nav", None])
+async def test_profile_activation_action_count_consumes_any_recorded_action(
+    source_profile_name: str | None,
+) -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
     deactivate_event = asyncio.Event()
     expected_deactivate = (
@@ -563,22 +566,31 @@ async def test_profile_activation_action_count_consumes_any_recorded_action() ->
         "trigger-1",
         {"after_actions": 2},
     )
-    manager.record_profile_action("Other")
-    manager.record_profile_action("Nav")
+    manager.record_profile_action(source_profile_name)
+    # Expiry schedules the manager callback, which schedules the broadcast task.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
     assert events == []
 
-    manager.record_profile_action(None)
+    manager.record_profile_action(source_profile_name)
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
+    assert events == [expected_deactivate]
+
+    manager.record_profile_action(source_profile_name)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
     assert events == [expected_deactivate]
 
 
 @pytest.mark.asyncio
 async def test_profile_activation_action_count_ignores_activation_trigger() -> None:
     events: list[tuple[CommandType, dict[str, object]]] = []
+    deactivate_event = asyncio.Event()
 
     async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
         events.append((event_type, data))
+        deactivate_event.set()
 
     manager = DeviceManager(broadcast_callback=broadcast)
 
@@ -586,11 +598,27 @@ async def test_profile_activation_action_count_ignores_activation_trigger() -> N
         "Nav",
         "activation-1",
         "1234:5678:key_capslock",
-        {"after_actions": 1},
+        {"after_actions": 2},
     )
-    manager.record_profile_action(None, "1234:5678:key_capslock")
+    for trigger_id in ("1234:5678:key_capslock", "1234:5678:key_a"):
+        manager.record_profile_action(None, trigger_id)
+        # Let both the expiry callback and its broadcast task run before asserting.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert events == []
 
-    assert events == []
+    manager.record_profile_action(None, "1234:5678:key_b")
+    await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
+    assert events == [
+        (
+            CommandType.PROFILE_DEACTIVATE_REQUESTED,
+            {
+                "profile_name": "Nav",
+                "activation_id": "activation-1",
+                "reason": "action_count",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

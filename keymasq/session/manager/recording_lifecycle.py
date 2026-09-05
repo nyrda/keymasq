@@ -26,7 +26,7 @@ from .recording_device_selection import (
     recording_device_id,
     refresh_recording_devices_cache,
 )
-from .state import PendingSave, PendingSlot
+from .state import PendingSlot
 
 if TYPE_CHECKING:
     from .core import SessionManager
@@ -50,51 +50,6 @@ def normalize_pending_macro_recording_slot(value: object, *, default: int = 1) -
     return default if 1 <= default <= MAX_MACRO_RECORDING_SLOTS else 1
 
 
-def _sync_pending_macro_save(manager: "SessionManager") -> None:
-    state = manager.recording_state
-    if not state.pending_slots:
-        state.pending_save = None
-        return
-
-    slot = max(
-        state.pending_slots,
-        key=lambda current_slot: state.pending_slots[current_slot].created_at,
-    )
-    pending_slot = state.pending_slots[slot]
-    state.pending_save = PendingSave(
-        data=pending_slot.data,
-        token=pending_slot.token,
-        owner_writer_id=pending_slot.owner_writer_id,
-        owner_pid=pending_slot.owner_pid,
-        owner_uid=pending_slot.owner_uid,
-        created_at=pending_slot.created_at,
-    )
-
-
-def _ensure_pending_macro_save_slot(manager: "SessionManager") -> None:
-    state = manager.recording_state
-    pending_save = state.pending_save
-    if state.pending_slots or pending_save is None or not pending_save.token:
-        return
-
-    slot = normalize_pending_macro_recording_slot(
-        pending_save.data.get("recording_slot"),
-        default=1,
-    )
-    data = dict(pending_save.data)
-    data["recording_slot"] = slot
-    data["pending_save_token"] = pending_save.token
-    state.pending_slots[slot] = PendingSlot(
-        data=data,
-        token=pending_save.token,
-        owner_writer_id=pending_save.owner_writer_id,
-        owner_pid=pending_save.owner_pid,
-        owner_uid=pending_save.owner_uid,
-        created_at=pending_save.created_at or _monotonic(),
-    )
-    _sync_pending_macro_save(manager)
-
-
 def pending_macro_save_slot_for_token(
     manager: "SessionManager",
     token: str,
@@ -102,7 +57,6 @@ def pending_macro_save_slot_for_token(
     token = str(token or "").strip()
     if not token:
         return 0
-    _ensure_pending_macro_save_slot(manager)
     for slot, pending_slot in manager.recording_state.pending_slots.items():
         if pending_slot.token == token:
             return slot
@@ -115,7 +69,6 @@ def pending_macro_save_slot(
     recording_slot: int = 0,
     pending_save_token: str = "",
 ) -> int:
-    _ensure_pending_macro_save_slot(manager)
     token = str(pending_save_token or "").strip()
     token_slot = pending_macro_save_slot_for_token(manager, pending_save_token)
     if token_slot:
@@ -140,12 +93,11 @@ def has_pending_macro_save(
     *,
     recording_slot: int = 0,
 ) -> bool:
-    _ensure_pending_macro_save_slot(manager)
     state = manager.recording_state
     slot = normalize_macro_recording_slot(recording_slot)
     if slot:
         return bool(state.pending_slots.get(slot))
-    return bool(state.pending_slots) or bool(state.pending_save)
+    return bool(state.pending_slots)
 
 
 def macro_recording_disabled_response() -> JsonObject:
@@ -242,7 +194,6 @@ def begin_pending_macro_save(
         owner_uid=state.active_owner_uid,
         created_at=_monotonic(),
     )
-    _sync_pending_macro_save(manager)
     _clear_active_recording_owner(manager)
     return token
 
@@ -254,7 +205,6 @@ def clear_pending_macro_save(
     pending_save_token: str = "",
 ) -> None:
     state = manager.recording_state
-    _ensure_pending_macro_save_slot(manager)
     slot = pending_macro_save_slot(
         manager,
         recording_slot=recording_slot,
@@ -262,11 +212,9 @@ def clear_pending_macro_save(
     )
     if slot:
         state.pending_slots.pop(slot, None)
-        _sync_pending_macro_save(manager)
     else:
         if recording_slot or str(pending_save_token or "").strip():
             return
-        state.pending_save = None
         state.pending_slots.clear()
 
 
@@ -276,7 +224,6 @@ async def delete_pending_macro_slot(
     recording_slot: int = 0,
     pending_save_token: str = "",
 ) -> bool:
-    _ensure_pending_macro_save_slot(manager)
     slot = pending_macro_save_slot(
         manager,
         recording_slot=recording_slot,
@@ -321,7 +268,6 @@ async def store_pending_macro_save(
             existing.data["recording_slot"] = slot
             if token:
                 existing.data["pending_save_token"] = token
-            _sync_pending_macro_save(manager)
             return token
         await delete_pending_macro_slot(manager, recording_slot=slot)
 
@@ -401,8 +347,6 @@ def replace_pending_macro_slots_from_daemon(
                 token=token,
                 created_at=_monotonic(),
             )
-
-    _sync_pending_macro_save(manager)
 
 
 def pending_macro_save_token_matches(
@@ -848,13 +792,11 @@ async def save_recording(
             created_name = str(created.get("name", safe_name))
 
     data["block_mouse_movement"] = bool(block_mouse_movement)
-    _sync_pending_macro_save(manager)
     manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
     return {"status": "ok", "name": created_name}
 
 
 def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]:
-    _ensure_pending_macro_save_slot(manager)
     out: list[JsonObject] = []
     for slot in sorted(manager.recording_state.pending_slots):
         pending_slot = manager.recording_state.pending_slots[slot]

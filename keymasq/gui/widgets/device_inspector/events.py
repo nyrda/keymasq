@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from .model import EVENT_ROW_LIMIT, Payload, int_or_none, text
+from .model import EVENT_ROW_LIMIT, Payload, text
 
 EVENT_RENDER_THROTTLE_MS = 33
 
@@ -37,7 +37,6 @@ class EventsMixin:
 
     def _store_event(self: Any, event: Payload) -> None:
         category = self._event_history.add(event)
-        self._event_order = self._event_history.order
         if not self._event_filter_active(category):
             return
         if category == "button":
@@ -147,9 +146,3 @@ class EventsMixin:
             return
         GLib.source_remove(self._event_render_source_id)
         self._event_render_source_id = 0
-
-
-def event_order(event: Payload) -> int:
-    """Return the stable event ordering key used by GTK consumers."""
-
-    return int_or_none(event.get("_inspector_order")) or 0

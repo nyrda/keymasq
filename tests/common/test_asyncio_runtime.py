@@ -1,14 +1,20 @@
-import importlib
 import logging
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+import keymasq.common.asyncio_runtime as runtime
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runtime, "_runtime_status", runtime._STATUS_UNKNOWN)
+    monkeypatch.setattr(runtime, "_runtime_detail", "")
+    monkeypatch.setattr(runtime, "_logged_statuses", set())
+
 
 def test_ensure_uvloop_installs_policy(monkeypatch) -> None:
-    import keymasq.common.asyncio_runtime as runtime
-
-    runtime = importlib.reload(runtime)
-
     installed_policies: list[object] = []
 
     class _FakePolicy:
@@ -36,10 +42,6 @@ def test_ensure_uvloop_installs_policy(monkeypatch) -> None:
 
 
 def test_ensure_uvloop_logs_warning_once_when_unavailable(monkeypatch) -> None:
-    import keymasq.common.asyncio_runtime as runtime
-
-    runtime = importlib.reload(runtime)
-
     def _raise_missing():
         raise ModuleNotFoundError("No module named 'uvloop'")
 
@@ -57,10 +59,6 @@ def test_ensure_uvloop_logs_warning_once_when_unavailable(monkeypatch) -> None:
 
 
 def test_ensure_uvloop_logs_unexpected_setup_failure(monkeypatch, caplog) -> None:
-    import keymasq.common.asyncio_runtime as runtime
-
-    runtime = importlib.reload(runtime)
-
     class _FakePolicy:
         pass
 

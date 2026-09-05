@@ -83,7 +83,7 @@ def _cache_or_fallback_status(
     return status
 
 
-async def _resolve_unlock_status_async_impl(
+async def resolve_unlock_status_async(
     manager: "SessionManager",
     uid: int,
 ) -> RecordingStatus:
@@ -115,14 +115,7 @@ async def _resolve_unlock_status_async_impl(
     return _cache_or_fallback_status(manager.unlock_state.unlock_status_cache, uid, status)
 
 
-async def resolve_unlock_status_async(
-    manager: "SessionManager",
-    uid: int,
-) -> RecordingStatus:
-    return await _resolve_unlock_status_async_impl(manager, uid)
-
-
-async def _resolve_macro_recording_status_async_impl(
+async def resolve_macro_recording_status_async(
     manager: "SessionManager",
     uid: int,
 ) -> RecordingStatus:
@@ -156,13 +149,6 @@ async def _resolve_macro_recording_status_async_impl(
         uid,
         status,
     )
-
-
-async def resolve_macro_recording_status_async(
-    manager: "SessionManager",
-    uid: int,
-) -> RecordingStatus:
-    return await _resolve_macro_recording_status_async_impl(manager, uid)
 
 
 def serialize_recording_unlock_state(

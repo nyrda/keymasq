@@ -184,7 +184,10 @@ async def refresh_recording_devices_cache(
     try:
         devices = await get_devices_for_recording(
             manager,
-            recording_device_filter_types(include_other),
+            recording_device_filter_types(
+                include_other,
+                include_motion=manager.recording_state.devices_cache_include_motion,
+            ),
             include_grabbed=True,
         )
         manager.recording_state.devices_cache = devices

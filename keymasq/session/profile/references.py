@@ -89,14 +89,10 @@ def remove_motion_control(config: ProfileConfig, name: str) -> Rewrite:
             remaining_names = [
                 control_name for control_name in action.motion_control_names if control_name != name
             ]
-            layer.mappings[source_id] = (
-                MappingAction(
-                    action_type=ActionType.MOTION_CONTROL,
-                    motion_control_names=remaining_names,
-                )
-                if remaining_names
-                else MappingAction(action_type=ActionType.SUPPRESS)
-            )
+            action.motion_control_names = remaining_names
+            action.motion_control_name = remaining_names[0] if remaining_names else None
+            if not remaining_names and not action.motion_control_configs:
+                layer.mappings[source_id] = MappingAction(action_type=ActionType.SUPPRESS)
             count += 1
     return Rewrite(updated if count else None, count)
 

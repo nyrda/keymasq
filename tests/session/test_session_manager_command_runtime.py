@@ -3955,6 +3955,26 @@ async def test_hardware_inventory_can_request_motion_devices(
         recording_device_selection_module.recording_device_filter_types(include_motion=True),
         include_grabbed=True,
     )
+    assert manager.recording_state.devices_cache_include_motion
+
+    get_devices.reset_mock()
+    await recording_device_selection_module.refresh_recording_devices_cache(manager)
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(include_motion=True),
+        include_grabbed=True,
+    )
+
+    # A normal recording-device request must clear the hardware-inventory filter.
+    await manager._handle_session_request({"command": "list_devices_for_recording"}, peer, object())
+    assert not manager.recording_state.devices_cache_include_motion
+    get_devices.reset_mock()
+    await recording_device_selection_module.refresh_recording_devices_cache(manager)
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(),
+        include_grabbed=True,
+    )
 
 
 @pytest.mark.asyncio

@@ -401,16 +401,18 @@ class MappingAction:
             self.analog_control_configs = [self.analog_control_config]
         elif self.analog_control_configs:
             self.analog_control_config = self.analog_control_configs[0]
-        if self.motion_control_name and not self.motion_control_names:
-            self.motion_control_names = [self.motion_control_name]
-        else:
-            self.motion_control_names = list(
-                dict.fromkeys(
-                    str(name).strip() for name in self.motion_control_names if str(name).strip()
-                )
+        self.motion_control_names = list(
+            dict.fromkeys(
+                str(name).strip() for name in self.motion_control_names if str(name).strip()
             )
-            if self.motion_control_names:
-                self.motion_control_name = self.motion_control_names[0]
+        )
+        if not self.motion_control_names and self.motion_control_name:
+            name = str(self.motion_control_name).strip()
+            if name:
+                self.motion_control_names = [name]
+        self.motion_control_name = (
+            self.motion_control_names[0] if self.motion_control_names else None
+        )
         if self.motion_control_config and not self.motion_control_configs:
             self.motion_control_configs = [self.motion_control_config]
         elif self.motion_control_configs:

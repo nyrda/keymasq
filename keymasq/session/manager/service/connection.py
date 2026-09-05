@@ -111,6 +111,7 @@ class DaemonConnectionMixin:
         self.recording_state.selected_devices_cache.clear()
         self.recording_state.devices_cache_ready = False
         self.recording_state.devices_cache_include_other = False
+        self.recording_state.devices_cache_include_motion = False
         self.capture_state.tokens.clear()
         self.capture_state.locks.clear()
         self.capture_state.resume_profiles.clear()

@@ -31,6 +31,7 @@ async def handle_capture_commands(
         manager.recording_state.devices_cache = devices
         manager.recording_state.devices_cache_ready = True
         manager.recording_state.devices_cache_include_other = include_other
+        manager.recording_state.devices_cache_include_motion = include_motion
         recording_device_selection.update_selected_recording_devices_cache(manager)
         return {"status": "ok", "devices": devices}
 

@@ -1483,7 +1483,10 @@ class TestHardwareSetupDialog:
             },
         )
 
-        dialog = HardwareSetupDialog(Gtk.Window(), SimpleNamespace(get_hardware=lambda _id: None))
+        dialog = HardwareSetupDialog(
+            Gtk.Window(),
+            SimpleNamespace(get_hardware=lambda _id: None, list_hardware_ids=lambda: []),
+        )
         detected_devices: dict[str, dict] = {}
 
         assert dialog._detect_devices_via_session(detected_devices) is True

@@ -61,6 +61,14 @@ to provide that output, even when the motion mapping is the profile's only mappi
 buttons and sticks continue through the passthrough gamepad. Mouse-only motion mappings do
 not require this additional grab.
 
+Same-device output is a software copy of the controller, retaining its original name and
+controller identity. It does not modify the physical controller's HID reports. Steam or a
+game using a direct HID driver can bypass this output by reading the physical controller
+through `hidraw`; Keymasq's source hiding covers evdev and joystick nodes, not `hidraw`.
+In that case, select a virtual gamepad such as `keymasq-gamepad` and route both the Analog
+Stick Control and Gyro Stick to it. The game must use that virtual controller. Matching names
+can be distinguished by the software device's `/devices/virtual/input/` sysfs path.
+
 Gyro Stick adds a rotation-based adjustment to the latest passthrough stick or Analog Stick
 Control output from the same source controller, when both target the same output stick. Each
 axis is clamped to the destination's range. Stopping rotation removes the adjustment as the

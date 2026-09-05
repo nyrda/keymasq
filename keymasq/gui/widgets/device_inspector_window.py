@@ -55,7 +55,6 @@ class DeviceInspectorWindow(
         self._device_kind = resolve_device_layout_kind(device)
         self._control_widgets: dict[str, Gtk.Widget] = {}
         self._event_history = EventHistory()
-        self._event_order = 0
         self._event_rows: list[Gtk.ListBoxRow] = []
         self._event_filter_buttons: dict[str, Gtk.ToggleButton] = {}
         self._event_render_source_id = 0

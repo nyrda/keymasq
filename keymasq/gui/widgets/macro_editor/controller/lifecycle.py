@@ -14,7 +14,6 @@ from keymasq.gui.widgets.macro_editor.document import (
     close_action,
     close_response_action,
     has_pending_changes,
-    normalized_payload,
 )
 
 
@@ -28,9 +27,6 @@ class LifecycleControllerMixin:
             else self._macro_name
         )
         return self._build_macro_payload(name)
-
-    def _macro_payload_for_dirty_compare(self, payload: dict) -> dict:
-        return normalized_payload(payload)
 
     def _has_pending_changes(self) -> bool:
         if not self._initial_state_loaded or not self._initial_macro_data:

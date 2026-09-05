@@ -17,7 +17,7 @@ from keymasq.gui.widgets.macro_editor.model import EditableEvent, reconstruct_ev
 from tests.gui.macro_editor_dialog_support import _build_macro_dialog
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def exclusive_native_clipboard(request, tmp_path_factory):
     # Xdist workers share one X server and therefore one native clipboard.
     lock_dir = tmp_path_factory.getbasetemp()
@@ -116,6 +116,7 @@ def test_marquee_selects_whole_pair_and_recorded_movement_across_tracks(monkeypa
 
 
 @pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_ruler_drag_copies_padding_and_paste_is_one_undo_step(monkeypatch, reverse) -> None:
     source = _loaded_dialog(monkeypatch)
     timeline = source._timeline
@@ -263,6 +264,7 @@ def test_pruning_keeps_padding_while_selected_actions_survive(monkeypatch) -> No
     assert dialog._capture_selection().duration_us == 400_000
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_silent_range_insert_moves_later_actions_and_can_be_undone(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     dialog._timeline.set_time_selection(200_000, 250_000)
@@ -315,6 +317,7 @@ def test_group_drag_is_one_undo_step_and_redo_preserves_revision(monkeypatch) ->
     assert dialog._has_pending_changes()
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_copy_across_dialogs_and_paste_stays_selected(monkeypatch) -> None:
     source = _loaded_dialog(monkeypatch)
     source._timeline.set_selection(source._events[:2])
@@ -340,6 +343,7 @@ def test_copy_across_dialogs_and_paste_stays_selected(monkeypatch) -> None:
     assert len(target._events) == 5
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_cut_delete_and_paste_are_reversible(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     dialog._timeline.set_selection(dialog._events[:2])
@@ -601,6 +605,7 @@ def test_revert_is_one_undo_step_for_events_and_multiple_settings(monkeypatch) -
     assert dialog._current_macro_payload() == before
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_apply_does_not_add_an_invisible_undo_step(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     dialog._timeline.set_selection([dialog._events[0]])
@@ -624,6 +629,7 @@ def test_apply_does_not_add_an_invisible_undo_step(monkeypatch) -> None:
     assert not dialog._has_pending_changes()
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_failed_clipboard_write_does_not_cut_actions(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     dialog._timeline.set_selection([dialog._events[0]])
@@ -634,6 +640,7 @@ def test_failed_clipboard_write_does_not_cut_actions(monkeypatch) -> None:
     assert not dialog._edit_history.past
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_context_paste_reads_native_data_after_clipboard_owner_changes(monkeypatch) -> None:
     import json
     from gi.repository import GLib, Gtk
@@ -771,6 +778,7 @@ def test_async_paste_restores_focus_for_keyboard_undo_and_redo(monkeypatch) -> N
 
 
 @pytest.mark.parametrize("load_before_present", [False, True])
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_paste_into_new_macro_after_closing_source_without_timeline_click(
     monkeypatch, load_before_present
 ) -> None:
@@ -806,6 +814,7 @@ def test_paste_into_new_macro_after_closing_source_without_timeline_click(
         target._parent.destroy()
 
 
+@pytest.mark.usefixtures("exclusive_native_clipboard")
 def test_editor_shortcuts_work_on_buttons_but_leave_text_fields_alone(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     _present_editor(dialog)

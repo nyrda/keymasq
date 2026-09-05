@@ -7,10 +7,6 @@ Keymasq can activate more than one profile at the same time, then merge those
 profiles into the final mapping for each device based on profile type,
 priority, and active window rules.
 
-Saving profile settings requests a session reevaluation. If that request fails,
-the GUI requests a full session reload in the background so the window stays
-responsive while the session responds.
-
 > **Profiles are global, not per-device.** A single profile can contain
 > mappings for your keyboard, mouse, and gamepad together.
 

@@ -25,14 +25,6 @@ def _make_learn_analog_flow(device, on_complete=None, parent=None):
     )
 
 
-def test_notify_session_reload_returns_false_without_shell_fallback(monkeypatch):
-    from keymasq.gui import session_reload
-
-    monkeypatch.setattr(session_reload, "session_request", lambda payload, timeout=5.0: None)
-
-    assert session_reload.notify_session_reload(timeout=0.1) is False
-
-
 class _SavingHardwareManager:
     def __init__(self) -> None:
         self.saved = []

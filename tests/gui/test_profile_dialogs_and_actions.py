@@ -30,6 +30,44 @@ class TestProfileCreateDialog:
 
 
 class TestProfileManagedTab:
+    @pytest.mark.parametrize("result", [None, {"status": "error"}, {"status": "ok"}])
+    def test_save_profile_queues_reload_only_when_reevaluation_fails(
+        self, temp_config_dir, monkeypatch, result
+    ):
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui import session_reload
+        from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module
+        from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
+        from keymasq.session.profile.manager import ProfileManager
+
+        pending_requests = []
+
+        def request_async(payload, callback, timeout=5.0):
+            pending_requests.append((payload, callback))
+
+        monkeypatch.setattr(profile_managed_tab_module, "session_request_async", request_async)
+        monkeypatch.setattr(session_reload, "session_request_async", request_async)
+        manager = ProfileManager()
+        manager.save_profile(ProfileConfig(name="Gaming"))
+        tab = ProfileManagedTab(manager)
+        profile = manager.get_profile("Gaming")
+        assert profile is not None
+        tab._selected_profile = profile
+        profile.config.priority = 42
+
+        assert tab._save_profile() is True
+        saved = ProfileManager().get_profile("Gaming")
+        assert saved is not None
+        assert saved.config.priority == 42
+        assert len(pending_requests) == 1
+        payload, callback = pending_requests.pop()
+        assert payload == {"command": "reevaluate_profiles"}
+
+        assert callback(result) is False
+
+        expected = [] if result == {"status": "ok"} else [{"command": "reload"}]
+        assert [payload for payload, _callback in pending_requests] == expected
+
     def test_window_rules_summary_wraps_all_rules_in_action_row_subtitle(self):
         from pathlib import Path
 

@@ -1,5 +1,7 @@
+import errno
 import logging
 import lzma
+import os
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
@@ -69,6 +71,38 @@ def test_macro_store_revision_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         store.update("macro_a", {"duration_us": 10_000}, expected_revision=7)
+
+
+def test_macro_store_closes_lock_when_permission_setup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MacroStore(tmp_path / "macros")
+    original = store.create({"name": "macro_a", "events": []})
+    opened_fds: list[int] = []
+
+    def deny_chmod(fd: int, mode: int) -> None:
+        opened_fds.append(fd)
+        raise PermissionError("lock mode change denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(macro_store_module.os, "fchmod", deny_chmod)
+        with pytest.raises(PermissionError, match="lock mode change denied"):
+            store.update("macro_a", {"duration_us": 10_000}, expected_revision=1)
+
+    assert len(opened_fds) == 1
+    try:
+        os.fstat(opened_fds[0])
+    except OSError as exc:
+        assert exc.errno == errno.EBADF
+    else:
+        os.close(opened_fds[0])
+        pytest.fail("Failed mutation left its lock descriptor open")
+
+    assert store.get("macro_a") == original
+    updated = store.update("macro_a", {"duration_us": 10_000}, expected_revision=1)
+    assert updated["revision"] == 2
+    assert updated["duration_us"] == 10_000
 
 
 def test_macro_store_snapshot_ends_repeated_reads_after_revision_change(

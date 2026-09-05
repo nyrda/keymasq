@@ -322,6 +322,7 @@ class MacroStore:
         with _PROCESS_MUTATION_LOCK:
             fd = self._open_mutation_lock()
             try:
+                os.fchmod(fd, 0o600)
                 fcntl.flock(fd, fcntl.LOCK_EX)
                 try:
                     yield
@@ -334,9 +335,7 @@ class MacroStore:
         flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        fd = os.open(self.base_dir / _MUTATION_LOCK_NAME, flags, 0o600)
-        os.fchmod(fd, 0o600)
-        return fd
+        return os.open(self.base_dir / _MUTATION_LOCK_NAME, flags, 0o600)
 
 
 def _payload_events(payload: MacroPayload) -> list[MacroEvent]:

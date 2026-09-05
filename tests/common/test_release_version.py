@@ -148,7 +148,7 @@ def test_rewrite_changelog_stamps_undated_release_header(tmp_path: Path) -> None
     )
 
 
-def test_release_version_apply_rules_limits_duplicate_matches(tmp_path: Path) -> None:
+def test_release_version_apply_rules_dry_run_leaves_metadata_unchanged(tmp_path: Path) -> None:
     script = load_script(
         SCRIPT_PATH,
         SCRIPT_MODULE,
@@ -162,11 +162,11 @@ def test_release_version_apply_rules_limits_duplicate_matches(tmp_path: Path) ->
         'VERSION="2.0.0"',
     )
 
-    changed_paths = script.apply_rules(tmp_path, [rule], dry_run=False)
+    changed_paths = script.apply_rules(tmp_path, [rule], dry_run=True)
 
     assert changed_paths == [Path("metadata.env")]
     assert target.read_text(encoding="utf-8") == (
-        'VERSION="2.0.0"\nVERSION="1.0.0"\n'
+        'VERSION="1.0.0"\nVERSION="1.0.0"\n'
     )
 
 

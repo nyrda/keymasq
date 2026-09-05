@@ -1087,8 +1087,9 @@ async def test_keyboard_actions_notify_key_event_tracker() -> None:
     keyboard_uinput.write = MagicMock()
     keyboard_uinput.syn = MagicMock()
 
-    def track(action_type: str, code: int, value: int) -> None:
+    def track(action_type: str, code: int, value: int) -> bool:
         tracked.append((action_type, code, value))
+        return True
 
     machine = SuperkeyMachine(
         config=SuperkeyConfig(name="tracker_test"),
@@ -1106,6 +1107,10 @@ async def test_keyboard_actions_notify_key_event_tracker() -> None:
     assert tracked == [
         ("keyboard", evdev.ecodes.KEY_G, 1),
         ("keyboard", evdev.ecodes.KEY_G, 0),
+    ]
+    assert [tuple(call.args) for call in keyboard_uinput.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_G, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_G, 0),
     ]
 
 

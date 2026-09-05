@@ -751,14 +751,7 @@ class GrabbedDevice:
         self.output_feedback_proxy = None
         if proxy is None:
             return
-        stop_and_wait = cast(
-            Callable[[], Awaitable[None]] | None,
-            getattr(proxy, "stop_and_wait", None),
-        )
-        if callable(stop_and_wait):
-            await stop_and_wait()
-            return
-        proxy.stop()
+        await proxy.stop_and_wait()
 
     def release_tracked_outputs(self) -> None:
         outputs.release_all_keys(

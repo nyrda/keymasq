@@ -61,8 +61,7 @@ jobs:
               - "pyproject.toml"
               - "scripts/**"
               - "tests/common/**"
-              - "tests/conftest.py"
-              - "tests/test_*.py"
+              - "tests/*.py"
             keymasqd:
               - "keymasq/keymasqd/**"
               - "tests/keymasqd/**"

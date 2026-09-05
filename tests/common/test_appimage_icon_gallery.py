@@ -4,7 +4,7 @@ import ast
 import subprocess
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).parents[1]
+_PROJECT_ROOT = Path(__file__).parents[2]
 _GALLERY = _PROJECT_ROOT / "nix/appimage-brotway-integration-test/icon_gallery.py"
 _RUNNER = _PROJECT_ROOT / "nix/appimage-brotway-integration-test/run_icon_gallery.sh"
 _APPIMAGE_ICON_MANIFEST = _PROJECT_ROOT / "packaging/appimage/assets/gui-icon-names.txt"

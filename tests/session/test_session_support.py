@@ -19,20 +19,18 @@ from tests.async_fakes import (
     FakeProcess as _FakeProcess,
 )
 from tests.async_fakes import (
-    FakeStreamReader as _FakeReader,
-)
-from tests.async_fakes import (
     FakeStreamWriter as _FakeWriter,
 )
+from tests.async_fakes import make_stream_reader
 
 
 @pytest.mark.asyncio
 async def test_keymasqd_client_connect_and_disconnect(monkeypatch: pytest.MonkeyPatch) -> None:
-    reader = _FakeReader([])
+    reader = make_stream_reader([])
     writer = _FakeWriter(wait_closed_error=RuntimeError("closed"))
     opened_paths: list[str] = []
 
-    async def _open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+    async def _open_unix_connection(path: str) -> tuple[asyncio.StreamReader, _FakeWriter]:
         opened_paths.append(path)
         return reader, writer
 
@@ -96,7 +94,9 @@ async def test_keymasqd_client_send_command_timeout_cleans_pending() -> None:
 async def test_keymasqd_client_listen_loop_decodes_partial_messages() -> None:
     response = encode_response(Response(status="ok", request_id="9", data={"done": True}))
     client = KeymasqdClient(event_handler=lambda _event, _data: None)
-    client.reader = _FakeReader([response[:5], response[5:], b""])
+    reader = asyncio.StreamReader()
+    reader.feed_data(response[:5])
+    client.reader = reader
     client.writer = _FakeWriter()
 
     seen: list[Response] = []
@@ -106,7 +106,18 @@ async def test_keymasqd_client_listen_loop_decodes_partial_messages() -> None:
 
     client._handle_response = _handle_response  # type: ignore[method-assign]
 
-    await client._listen_loop()
+    listen_task = asyncio.create_task(client._listen_loop())
+    try:
+        await asyncio.sleep(0)
+        assert seen == []
+        assert not listen_task.done()
+
+        reader.feed_data(response[5:])
+        reader.feed_eof()
+        await asyncio.wait_for(listen_task, timeout=0.5)
+    finally:
+        listen_task.cancel()
+        await asyncio.gather(listen_task, return_exceptions=True)
 
     assert [message.request_id for message in seen] == ["9"]
     assert client.writer is None

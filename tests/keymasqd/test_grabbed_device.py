@@ -62,12 +62,12 @@ class TestGrabbedDevice:
         )
 
         await grabbed.grab()
-
-        assert grabbed.device is not None
-        assert grabbed.uinput is not None
-        assert grabbed.running is True
-
-        await grabbed.release()
+        try:
+            assert grabbed.device is not None
+            assert grabbed.uinput is not None
+            assert grabbed.running is True
+        finally:
+            await grabbed.release()
 
     @pytest.mark.asyncio
     async def test_release_device(self, virtual_mouse, event_callback, mapping_getter):
@@ -99,13 +99,13 @@ class TestGrabbedDevice:
         )
 
         await grabbed.grab()
+        try:
+            virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1)
+            virtual_mouse.syn()
 
-        virtual_mouse.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1)
-        virtual_mouse.syn()
-
-        await asyncio.sleep(0.2)
-
-        await grabbed.release()
+            await asyncio.sleep(0.2)
+        finally:
+            await grabbed.release()
 
         assert event_callback.call_count >= 1
 
@@ -211,9 +211,7 @@ class TestGrabbedDevice:
             assert grabbed.output_feedback_proxy is not None
             source_caps = virtual_force_feedback_device.capabilities()
             passthrough_caps = grabbed.uinput.capabilities()
-            assert set(passthrough_caps[evdev.ecodes.EV_FF]) == set(
-                source_caps[evdev.ecodes.EV_FF]
-            )
+            assert set(passthrough_caps[evdev.ecodes.EV_FF]) == set(source_caps[evdev.ecodes.EV_FF])
             assert grabbed.uinput.device.ff_effects_count == (
                 virtual_force_feedback_device.device.ff_effects_count
             )

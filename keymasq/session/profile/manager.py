@@ -21,7 +21,7 @@ from .codec import ProfileCodec
 from .repair import repair_created_at
 from .repository import MAX_PATH_ATTEMPTS, ProfileRepository
 from .resolution import ProfileResolver
-from .rules import has_unsupported_rules, matches_window_rules, validate_window_rules
+from .rules import validate_window_rules
 from .types import ProfileInfo, ResolvedProfiles, TomlDict
 
 if TYPE_CHECKING:
@@ -274,19 +274,8 @@ class ProfileManager:
         return updated_config
 
     @staticmethod
-    def has_unsupported_rules(config: ProfileConfig, capabilities: list[str]) -> bool:
-        return has_unsupported_rules(config, capabilities)
-
-    @staticmethod
     def validate_window_rules(window_rules: list[WindowRule]) -> None:
         validate_window_rules(window_rules)
-
-    @staticmethod
-    def _matches_window_rules(
-        profile: ProfileConfig,
-        window_info: TomlDict | None,
-    ) -> bool:
-        return matches_window_rules(profile, window_info)
 
     @_with_profile_state_lock
     def resolve_active_profiles(

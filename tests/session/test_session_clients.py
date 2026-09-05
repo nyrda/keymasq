@@ -294,6 +294,7 @@ def _install_fake_glib(
     glib_module = types.ModuleType("GLib")
 
     if idle_add is None:
+
         def _idle_add(callback: Callable[..., Any], *args: Any) -> bool:
             callback(*args)
             return True
@@ -428,7 +429,9 @@ def test_persistent_session_request_timeout_closes_connection() -> None:
     assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 
 
-def test_stale_request_timeout_does_not_close_replacement_connection() -> None:
+def test_stale_request_timeout_does_not_close_replacement_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     connection = gui_session_client._PersistentSessionConnection()
     old_sock = _RequestOnlySocket()
     new_sock = _RequestOnlySocket()
@@ -443,12 +446,16 @@ def test_stale_request_timeout_does_not_close_replacement_connection() -> None:
 
     response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1)
     response_queue.get = replace_during_wait  # type: ignore[method-assign]
-    original_queue = gui_session_client.queue.Queue
-    gui_session_client.queue.Queue = lambda maxsize=0: response_queue  # type: ignore[assignment]
-    try:
-        response = connection.request({"command": "get_status"}, timeout=0.01)
-    finally:
-        gui_session_client.queue.Queue = original_queue
+    monkeypatch.setattr(
+        gui_session_client,
+        "queue",
+        types.SimpleNamespace(
+            Queue=lambda maxsize=0: response_queue,
+            Empty=queue.Empty,
+            Full=queue.Full,
+        ),
+    )
+    response = connection.request({"command": "get_status"}, timeout=0.01)
 
     assert response is None
     assert old_sock.closed is True

@@ -10,6 +10,11 @@ from keymasq.common.slurp import SlurpCapture, SlurpMode, SlurpResult
 from tests.async_fakes import FakeProcess as _FakeSlurpProcess
 
 
+@pytest.fixture(autouse=True)
+def reset_slurp_capture_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(SlurpCapture, "_instance", None)
+
+
 def _patch_slurp_process(
     monkeypatch: pytest.MonkeyPatch,
     process: _FakeSlurpProcess,

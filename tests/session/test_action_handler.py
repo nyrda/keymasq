@@ -33,8 +33,12 @@ def _process_exists(pid: int) -> bool:
 
 async def _read_pid(path: Path) -> int:
     for _ in range(100):
-        if path.exists():
-            return int(path.read_text(encoding="utf-8"))
+        try:
+            content = await asyncio.to_thread(path.read_text, encoding="utf-8")
+            if content.endswith("\n"):
+                return int(content)
+        except (FileNotFoundError, ValueError):
+            pass
         await asyncio.sleep(0.01)
     raise AssertionError("child process pid was not written")
 
@@ -54,21 +58,23 @@ async def test_execute_command_timeout_kills_spawned_child(tmp_path: Path) -> No
         "import pathlib, subprocess\n"
         f"pid_path = pathlib.Path({str(pid_path)!r})\n"
         "process = subprocess.Popen(['sleep', '30'])\n"
-        "pid_path.write_text(str(process.pid), encoding='utf-8')\n"
+        "pid_path.write_text(str(process.pid) + '\\n', encoding='utf-8')\n"
         "process.wait()\n"
     )
     cmd = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
     task = asyncio.create_task(ActionHandler().execute_command(cmd, timeout_s=0.5))
-    child_pid = await _read_pid(pid_path)
+    child_pid: int | None = None
 
     try:
+        child_pid = await _read_pid(pid_path)
         result = await asyncio.wait_for(task, timeout=3.0)
 
         assert result == -1
         assert await _wait_process_gone(child_pid)
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(child_pid, signal.SIGKILL)
         if not task.done():
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        await asyncio.gather(task, return_exceptions=True)
+        if child_pid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)

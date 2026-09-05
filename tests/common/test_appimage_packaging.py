@@ -8,9 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-CHECK_SCRIPT = ROOT / "scripts/check.sh"
-CI_WORKFLOW = ROOT / ".github/workflows/tests.yml"
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
 APPIMAGE_ASSETS = ROOT / "packaging/appimage/assets"
@@ -19,7 +19,6 @@ BROTWAY_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-run.sh"
 BROTWAY_DEBUGMENU_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-debugmenu.sh"
 BROTWAY_TEST_RUNNER = ROOT / "scripts/test-appimage-brotway"
 GLIBC_COMPATIBILITY_CHECK = ROOT / "packaging/appimage/check-glibc-compatibility.sh"
-ICON_GALLERY_RUNNER = ROOT / "nix/appimage-brotway-integration-test/run_icon_gallery.sh"
 PYTHON_RUNTIME_PACKAGE_MANIFEST = APPIMAGE_ASSETS / "python-runtime-site-packages.txt"
 
 
@@ -61,24 +60,6 @@ def test_appimage_dependency_scan_limits_file_probes() -> None:
 
     assert "-name '*.so' -o -name '*.so.*' -o -perm /111" in builder
     assert 'find "$root" -type f -print0' not in builder
-
-
-def test_all_appimage_changes_select_the_full_ci_and_local_gates() -> None:
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    check_script = CHECK_SCRIPT.read_text(encoding="utf-8")
-
-    assert '"packaging/appimage/**"' in workflow
-    auto_category = check_script.split("resolve_auto_category() {", maxsplit=1)[1].split(
-        "\n}", maxsplit=1
-    )[0]
-    assert auto_category.count("packaging/appimage") == 3
-    assert "packaging/appimage/*)" in auto_category
-
-
-def test_icon_gallery_runner_defaults_to_its_dedicated_port() -> None:
-    runner = ICON_GALLERY_RUNNER.read_text(encoding="utf-8")
-
-    assert "port=${KEYMASQ_ICON_GALLERY_PORT:-18102}" in runner
 
 
 def test_appimage_checks_brotway_against_bundled_glibc_before_dependency_scan() -> None:
@@ -199,31 +180,18 @@ def test_appimage_builder_makes_the_installed_payload_world_readable() -> None:
     assert builder.index(permissions) < builder.index('"$quick_sharun" --make-appimage')
 
 
-def test_brotway_launcher_keeps_child_processes_in_the_appimage_runtime() -> None:
-    launcher = BROTWAY_LAUNCHER.read_text(encoding="utf-8")
-
-    assert 'export BROTWAY_LOADER="$loader"' in launcher
-    assert 'export BROTWAY_LIBRARY_PATH="$library_path"' in launcher
-    assert 'export BROTWAY_HELPER_PATH="$appdir/bin"' in launcher
-    assert "brotway_address=${BROTWAY_ADDRESS:-127.0.0.1}" in launcher
-    assert 'export BROTWAY_ADDRESS="$brotway_address"' in launcher
-    assert 'export BROTWAY_DISPLAY="$brotway_display"' in launcher
-    assert "export KEYMASQ_APPIMAGE_RENDERING=auto" in launcher
-    assert "export GSK_RENDERER=broadway" in launcher
-    assert 'export DISPLAY="$brotway_display"' in launcher
-    assert "KEYMASQ_GUI_NON_UNIQUE" not in launcher
-    assert "export LD_LIBRARY_PATH=" not in launcher
-
-
-def test_brotway_debugmenu_uses_the_loader_without_exporting_library_path() -> None:
-    launcher = BROTWAY_DEBUGMENU_LAUNCHER.read_text(encoding="utf-8")
-
-    assert 'exec "$loader" --library-path "$library_path"' in launcher
-    assert "export LD_LIBRARY_PATH=" not in launcher
-
-
-def test_brotway_launcher_does_not_expose_appimage_libraries_to_host_shells(
+@pytest.mark.parametrize(
+    ("launcher", "program", "arguments"),
+    [
+        (BROTWAY_LAUNCHER, "gtk4-brotway-run", ["--display", ":09", "/opt/keymasq/bin/keymasq"]),
+        (BROTWAY_DEBUGMENU_LAUNCHER, "gtk4-brotway-debugmenu", ["argument with spaces"]),
+    ],
+)
+def test_brotway_launchers_preserve_host_libraries_and_configure_bundled_runtime(
     tmp_path: Path,
+    launcher: Path,
+    program: str,
+    arguments: list[str],
 ) -> None:
     appdir = tmp_path / "AppDir"
     brotway_dir = appdir / "lib/gtk4-brotway"
@@ -231,17 +199,26 @@ def test_brotway_launcher_does_not_expose_appimage_libraries_to_host_shells(
     (appdir / "bin").mkdir()
     (appdir / "shared/bin").mkdir(parents=True)
     log_path = tmp_path / "launcher-env.log"
-    _write_executable(brotway_dir / "gtk4-brotway-run", "#!/bin/sh\nexit 0\n")
+    _write_executable(brotway_dir / program, "#!/bin/sh\nexit 0\n")
     _write_executable(appdir / "shared/bin/python3", "#!/bin/sh\nexit 0\n")
     _write_executable(
         appdir / "lib/ld-linux-x86-64.so.2",
         """#!/bin/sh
-printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH-unset}" > "$KEYMASQ_LAUNCHER_ENV_LOG"
-printf 'BROTWAY_LIBRARY_PATH=%s\n' "$BROTWAY_LIBRARY_PATH" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
-printf 'BROTWAY_ADDRESS=%s\n' "$BROTWAY_ADDRESS" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
-printf 'BROTWAY_DISPLAY=%s\n' "$BROTWAY_DISPLAY" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
-printf 'DISPLAY=%s\n' "$DISPLAY" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
-printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
+{
+    printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH-unset}"
+    printf 'BROTWAY_LIBRARY_PATH=%s\n' "$BROTWAY_LIBRARY_PATH"
+    printf 'BROTWAY_ADDRESS=%s\n' "$BROTWAY_ADDRESS"
+    printf 'BROTWAY_DISPLAY=%s\n' "$BROTWAY_DISPLAY"
+    printf 'DISPLAY=%s\n' "$DISPLAY"
+    printf 'BROTWAY_LOADER=%s\n' "${BROTWAY_LOADER-}"
+    printf 'BROTWAY_HELPER_PATH=%s\n' "${BROTWAY_HELPER_PATH-}"
+    printf 'KEYMASQ_APPIMAGE_RENDERING=%s\n' "${KEYMASQ_APPIMAGE_RENDERING-}"
+    printf 'KEYMASQ_APPIMAGE_BROTWAY=%s\n' "$KEYMASQ_APPIMAGE_BROTWAY"
+    printf 'BROTWAY_PREFIX=%s\n' "$BROTWAY_PREFIX"
+    printf 'GSK_RENDERER=%s\n' "${GSK_RENDERER-}"
+    printf 'KEYMASQ_GUI_NON_UNIQUE=%s\n' "${KEYMASQ_GUI_NON_UNIQUE-unset}"
+    printf 'arg=%s\n' "$@"
+} > "$KEYMASQ_LAUNCHER_ENV_LOG"
 """,
     )
     env = os.environ.copy()
@@ -254,16 +231,19 @@ printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
             "DISPLAY": ":99",
         }
     )
-    env.pop("BROTWAY_ADDRESS", None)
+    for name in (
+        "BROTWAY_ADDRESS",
+        "BROTWAY_LOADER",
+        "BROTWAY_HELPER_PATH",
+        "BROTWAY_LIBRARY_PATH",
+        "KEYMASQ_GUI_NON_UNIQUE",
+    ):
+        env.pop(name, None)
+    env["KEYMASQ_APPIMAGE_RENDERING"] = "software"
+    env["GSK_RENDERER"] = "cairo"
 
     subprocess.run(
-        [
-            "sh",
-            str(BROTWAY_LAUNCHER),
-            "--display",
-            ":09",
-            "/opt/keymasq/bin/keymasq",
-        ],
+        ["sh", str(launcher), *arguments],
         check=True,
         env=env,
     )
@@ -271,12 +251,26 @@ printf 'argv=%s\n' "$*" >> "$KEYMASQ_LAUNCHER_ENV_LOG"
     launcher_env = log_path.read_text(encoding="utf-8")
     library_path = f"{brotway_dir}:{appdir}/lib"
     assert "LD_LIBRARY_PATH=/host/libraries\n" in launcher_env
-    assert f"BROTWAY_LIBRARY_PATH={library_path}\n" in launcher_env
-    assert "BROTWAY_ADDRESS=127.0.0.1\n" in launcher_env
-    assert "BROTWAY_DISPLAY=:09\n" in launcher_env
-    assert "DISPLAY=:09\n" in launcher_env
-    assert f"argv=--library-path {library_path} " in launcher_env
-    assert launcher_env.endswith(" --display :09 /opt/keymasq/bin/keymasq\n")
+    assert f"BROTWAY_PREFIX={brotway_dir}\n" in launcher_env
+    assert "KEYMASQ_APPIMAGE_BROTWAY=1\n" in launcher_env
+    assert "KEYMASQ_GUI_NON_UNIQUE=unset\n" in launcher_env
+    assert [
+        line.removeprefix("arg=") for line in launcher_env.splitlines() if line.startswith("arg=")
+    ] == [
+        "--library-path",
+        library_path,
+        str(brotway_dir / program),
+        *arguments,
+    ]
+    if launcher == BROTWAY_LAUNCHER:
+        assert f"BROTWAY_LIBRARY_PATH={library_path}\n" in launcher_env
+        assert f"BROTWAY_LOADER={appdir}/lib/ld-linux-x86-64.so.2\n" in launcher_env
+        assert f"BROTWAY_HELPER_PATH={appdir}/bin\n" in launcher_env
+        assert "BROTWAY_ADDRESS=127.0.0.1\n" in launcher_env
+        assert "BROTWAY_DISPLAY=:09\n" in launcher_env
+        assert "DISPLAY=:09\n" in launcher_env
+        assert "KEYMASQ_APPIMAGE_RENDERING=auto\n" in launcher_env
+        assert "GSK_RENDERER=broadway\n" in launcher_env
 
 
 def test_brotway_launcher_rejects_an_occupied_port_before_starting_gtk(

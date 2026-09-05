@@ -14,7 +14,7 @@ from keymasq.session.profile.types import (
     ResolvedDeviceProfile,
 )
 
-from ..common import JsonObject, json_object
+from ..common import JsonObject, device_name_for_hardware, json_object
 from ..constants import GRAB_DEVICE_TIMEOUT_S, GRAB_RETRY_DELAY_S
 from ..payload import combo, mapping, references
 from .grab_plan import (
@@ -28,7 +28,6 @@ from .reconciliation import profile_apply_is_current, raise_if_stale_profile_app
 from .runtime_state import (
     cancel_grab_retry,
     clear_hardware_runtime_state,
-    device_name_for_hardware,
 )
 
 if TYPE_CHECKING:

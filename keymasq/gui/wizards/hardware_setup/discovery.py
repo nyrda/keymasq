@@ -12,6 +12,7 @@ from keymasq.gui.wizards.hardware_setup.identity import (
     strip_input_suffix,
 )
 from keymasq.gui.wizards.hardware_setup.types import DetectedDevice, DetectedInterface
+from keymasq.session.hardware import HardwareManager
 
 
 def detected_identity_key(
@@ -93,7 +94,7 @@ def _session_device_sort_key(
 def detect_devices_via_session(
     detected_devices: dict[str, DetectedDevice],
     *,
-    hardware_manager: object,
+    hardware_manager: HardwareManager,
     show_raw_evdev_devices: bool,
 ) -> bool:
     result = (
@@ -113,7 +114,6 @@ def detect_devices_via_session(
     used_hardware_ids = inventory.configured_hardware_ids(hardware_manager)
     configured_identity_hardware_ids = inventory.configured_identity_hardware_ids(hardware_manager)
     pending_identity_hardware_ids: dict[str, str] = {}
-    has_config_inventory = callable(getattr(hardware_manager, "list_hardware", None))
 
     raw_devices = result.get("devices", [])
     session_devices: list[dict[str, Any]] = [
@@ -163,13 +163,7 @@ def detect_devices_via_session(
             config_path=config_path,
         )
         configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
-        if not show_raw_evdev_devices and (
-            configured_hardware_id
-            or (
-                not has_config_inventory
-                and inventory.hardware_config_exists(hardware_manager, vid_pid)
-            )
-        ):
+        if not show_raw_evdev_devices and configured_hardware_id:
             continue
         source_fields = interface_source_fields(dev)
         is_grabbed = bool(source_fields.get("grabbed_by_keymasq", False))

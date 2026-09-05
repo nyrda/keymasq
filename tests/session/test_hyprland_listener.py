@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from unittest.mock import AsyncMock
 
@@ -5,9 +6,9 @@ import pytest
 
 import keymasq.session.listeners.hyprland as hyprland_module
 from keymasq.session.listeners.hyprland import HyprlandListener
-from tests.async_fakes import FakeStreamReader as _FakeReader
 from tests.async_fakes import FakeStreamWriter as _FakeWriter
 from tests.async_fakes import StallingStreamReader as _StallingReader
+from tests.async_fakes import make_stream_reader
 
 
 async def _noop_callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
@@ -151,9 +152,9 @@ async def test_hyprland_send_cmd_opens_one_shot_connection(monkeypatch) -> None:
     writer = _FakeWriter()
     listener.cmd_socket_path = "/tmp/hypr.sock"
 
-    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+    async def fake_open_unix_connection(path: str) -> tuple[asyncio.StreamReader, _FakeWriter]:
         assert path == "/tmp/hypr.sock"
-        return _FakeReader([b"100,200"]), writer
+        return make_stream_reader([b"100,200"]), writer
 
     monkeypatch.setattr(
         hyprland_module.asyncio,
@@ -200,7 +201,7 @@ async def test_hyprland_send_cmd_logs_unexpected_command_errors(
     listener = HyprlandListener(_noop_callback)
     listener.cmd_socket_path = "/tmp/hypr.sock"
 
-    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+    async def fake_open_unix_connection(path: str) -> tuple[asyncio.StreamReader, _FakeWriter]:
         assert path == "/tmp/hypr.sock"
         raise RuntimeError("connect bug")
 
@@ -226,9 +227,9 @@ async def test_hyprland_send_cmd_logs_unexpected_close_errors(
     writer = _FakeWriter(wait_closed_error=RuntimeError("close bug"))
     listener.cmd_socket_path = "/tmp/hypr.sock"
 
-    async def fake_open_unix_connection(path: str) -> tuple[_FakeReader, _FakeWriter]:
+    async def fake_open_unix_connection(path: str) -> tuple[asyncio.StreamReader, _FakeWriter]:
         assert path == "/tmp/hypr.sock"
-        return _FakeReader([b"100,200"]), writer
+        return make_stream_reader([b"100,200"]), writer
 
     monkeypatch.setattr(
         hyprland_module.asyncio,

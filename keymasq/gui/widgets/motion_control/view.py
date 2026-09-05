@@ -272,6 +272,7 @@ class MotionControlEditorView(Gtk.Box):
 
         gamepad_form = LabeledForm(label_width=164)
         self.max_rate = self._spin(1.0, 4000.0, 10.0)
+        self.max_rate.set_digits(0)
         self.max_rate.set_tooltip_text(
             "Controller rotation speed needed for full stick output. "
             "Lower values make aiming faster; higher values make it slower. "
@@ -279,6 +280,7 @@ class MotionControlEditorView(Gtk.Box):
         )
         self.max_rate_label = gamepad_form.append("Full stick rate (°/s):", self.max_rate)
         self.minimum_output = self._spin(0.0, 100.0, 1.0)
+        self.minimum_output.set_digits(0)
         self.minimum_output.set_tooltip_text(
             "Compensates for Steam or game stick deadzones while gyro contributes. "
             "Increase until slow rotation registers. Too much can make aiming jump."

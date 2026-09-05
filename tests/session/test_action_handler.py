@@ -34,7 +34,7 @@ def _process_exists(pid: int) -> bool:
 async def _read_pid(path: Path) -> int:
     for _ in range(100):
         try:
-            content = path.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(path.read_text, encoding="utf-8")
             if content.endswith("\n"):
                 return int(content)
         except (FileNotFoundError, ValueError):

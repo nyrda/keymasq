@@ -409,7 +409,15 @@ def _emit_gamepad_axes(
             target_analog_id=config.gamepad.target_analog_id,
         ),
     )
-    emit_gamepad_output(device_runtime, state_key, sensor_id, analog_config, deps=deps)
+    emit_gamepad_output(
+        device_runtime,
+        state_key,
+        sensor_id,
+        analog_config,
+        gyro=config.mode == "gamepad",
+        minimum_output=config.gamepad.minimum_output,
+        deps=deps,
+    )
 
 
 def _routed_gyro_rates(

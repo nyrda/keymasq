@@ -10,6 +10,7 @@ from typing import cast
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
+from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class GamepadOutputTarget:
     bucket: str
     is_virtual: bool
     analog_inputs: dict[str, object] = field(default_factory=dict)
+    stick_output: StickOutputState = field(default_factory=StickOutputState)
 
 
 type ClearComboRuntime = Callable[[], Awaitable[None]]
@@ -84,6 +86,7 @@ class GamepadOutputRouter:
         self._logger = logger
         self._monotonic = monotonic
         self._warning_at: dict[tuple[str, str], float] = {}
+        self._virtual_stick_outputs: dict[str, tuple[object, StickOutputState]] = {}
 
     def resolve(
         self,
@@ -101,13 +104,19 @@ class GamepadOutputRouter:
             outputs = cast(dict[str, object], raw_outputs) if isinstance(raw_outputs, dict) else {}
             uinput = outputs.get(resolved_id)
             if uinput is None:
+                self._virtual_stick_outputs.pop(resolved_id, None)
                 self._warn(resolved_id, "virtual output is not configured", context, explicit)
                 return None
+            previous = self._virtual_stick_outputs.get(resolved_id)
+            if previous is None or previous[0] is not uinput:
+                previous = (uinput, StickOutputState())
+                self._virtual_stick_outputs[resolved_id] = previous
             return GamepadOutputTarget(
                 output_id=resolved_id,
                 uinput=uinput,
                 bucket=f"gamepad:{resolved_id}",
                 is_virtual=True,
+                stick_output=previous[1],
             )
 
         devices = grabbed_devices.get(resolved_id)
@@ -125,6 +134,9 @@ class GamepadOutputRouter:
                 continue
             uinput = getattr(device, "uinput", None)
             if uinput is not None:
+                stick_output = getattr(
+                    getattr(device, "state", None), "passthrough_stick_output", None
+                )
                 raw_analog_inputs = getattr(device, "analog_inputs", {}) or {}
                 analog_inputs = (
                     dict(cast(dict[str, object], raw_analog_inputs))
@@ -137,6 +149,9 @@ class GamepadOutputRouter:
                     bucket=f"gamepad:{resolved_id}",
                     is_virtual=False,
                     analog_inputs=analog_inputs,
+                    stick_output=stick_output
+                    if isinstance(stick_output, StickOutputState)
+                    else StickOutputState(),
                 )
         self._warn(
             resolved_id,

@@ -61,6 +61,35 @@ to provide that output, even when the motion mapping is the profile's only mappi
 buttons and sticks continue through the passthrough gamepad. Mouse-only motion mappings do
 not require this additional grab.
 
+Gyro Stick adds a rotation-based adjustment to the latest passthrough stick or Analog Stick
+Control output from the same source controller, when both target the same output stick. Each
+axis is clamped to the destination's range. Stopping rotation removes the adjustment as the
+gyro settles to zero; disabling the motion mapping restores the stored stick position. A held
+stick does not need to move again. At full stick deflection, gyro cannot increase the output
+further in that direction.
+
+New Gyro Stick controls default to a **90°/s full stick rate** and a **0°/s deadzone**.
+The full stick rate measures rotation speed, not the angle at which you hold the controller.
+It is the rotation speed needed to reach full stick output. Lower values make aiming faster;
+higher values make it slower. With a linear curve and zero deadzone, rotating at 45°/s gives
+50% output at a 90°/s full stick rate, or 25% at 180°/s, before minimum-output compensation.
+Existing saved values are kept; edit your current control to try these defaults.
+
+**Minimum stick output (%)** compensates for deadzones in Steam or a game. It defaults to 25%.
+For example, a 25% minimum turns a 1% signal into about 25.75% output. Tune it to the game's
+deadzone: lower it if aiming jumps, or increase it if slow rotation still does not register.
+Higher values can amplify gyro noise.
+The setting applies per axis to the combined stick-plus-gyro position while that axis has a
+nonzero gyro contribution. Exact cancellation stays neutral, and when gyro stops or is
+disabled the ordinary stick position is restored without compensation. The output is still
+limited to the destination axis range. This setting is stored as `gamepad.minimum_output`,
+a fraction from 0 to 1.
+
+Ordinary stick inputs still overwrite one another rather than being added. A stick from
+another source controller is not paired with the gyro. Competing mappings to one destination
+can still overwrite each other. Tilt Stick and Motion to Analog retain their existing output
+behavior; this adjustment applies only to Gyro Stick.
+
 For more specialized mappings, **Motion to Analog** sends gyro movement or tilt into a saved
 [Analog Control](ANALOG_CONTROLS.md). The Analog Control supplies its own deadzones, response
 curve, digital actions, mouse behavior, and gamepad target.

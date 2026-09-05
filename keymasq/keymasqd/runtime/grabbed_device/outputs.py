@@ -297,7 +297,12 @@ def passthrough(
     writer = uinput_writer(uinput)
     if writer is None:
         return
-    writer.write(event.type, event.code, event.value)
+    value = event.value
+    if event.type == evdev_mod.ecodes.EV_ABS:
+        value = device_runtime.state.passthrough_stick_output.write_base(
+            device_runtime.hardware_id, int(event.code), int(value)
+        )
+    writer.write(event.type, event.code, value)
     if sync:
         writer.syn()
     else:

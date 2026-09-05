@@ -468,6 +468,54 @@ def test_motion_control_manager_round_trip(temp_config_dir) -> None:
     assert "horizontal_axis" not in content
 
 
+def test_gyro_stick_minimum_output_survives_storage_and_runtime_payload(temp_config_dir):
+    manager = SessionManager()
+    config = MotionControlConfig(
+        name="Stick Aim",
+        mode="gamepad",
+        gamepad=MotionGamepadConfig(minimum_output=0.12, max_rate_dps=180, deadzone_dps=0.5),
+    )
+    manager.motion_controls.save_motion_control(config)
+    loaded = MotionControlManager().get_motion_control(config.name)
+    assert loaded == config
+    action = MappingAction(action_type=ActionType.MOTION_CONTROL, motion_control_name=config.name)
+    parsed = parse_action(manager, mapping_action_payload(manager, action, "controller"))
+    assert parsed.motion_control_config == config
+
+
+@pytest.mark.parametrize(
+    "saved_settings,expected",
+    [
+        ({}, (90.0, 0.0, 0.25)),
+        ({"max_rate_dps": 360.0, "deadzone_dps": 1.0}, (360.0, 1.0, 0.25)),
+        ({"minimum_output": 0.0}, (90.0, 0.0, 0.0)),
+    ],
+)
+def test_gyro_stick_defaults_and_existing_settings(temp_config_dir, saved_settings, expected):
+    directory = temp_config_dir / "motion_controls"
+    directory.mkdir(exist_ok=True)
+    settings = "\n".join(f"{key} = {value}" for key, value in saved_settings.items())
+    (directory / "aim.toml").write_text(f'name = "Aim"\nmode = "gamepad"\n[gamepad]\n{settings}\n')
+    loaded = MotionControlManager().get_motion_control("Aim")
+    assert loaded is not None
+    parsed = parse_action(
+        SimpleNamespace(),
+        {
+            "action": "motion_control",
+            "motion_control": {"name": "Aim", "mode": "gamepad", "gamepad": saved_settings},
+        },
+    )
+    assert parsed.motion_control_config is not None
+    for config in (loaded.gamepad, parsed.motion_control_config.gamepad):
+        assert (config.max_rate_dps, config.deadzone_dps, config.minimum_output) == expected
+    defaults = MotionGamepadConfig()
+    assert (defaults.max_rate_dps, defaults.deadzone_dps, defaults.minimum_output) == (
+        90.0,
+        0.0,
+        0.25,
+    )
+
+
 def test_tilt_motion_control_manager_round_trip(temp_config_dir) -> None:
     manager = MotionControlManager()
     config = MotionControlConfig(

@@ -90,8 +90,9 @@ class MotionControlManager:
                 target_analog_id=(
                     str(gamepad["target_analog_id"]) if gamepad.get("target_analog_id") else None
                 ),
-                max_rate_dps=coerce_float(gamepad.get("max_rate_dps"), 360.0),
-                deadzone_dps=coerce_float(gamepad.get("deadzone_dps"), 1.0),
+                max_rate_dps=coerce_float(gamepad.get("max_rate_dps"), 90.0),
+                minimum_output=coerce_float(gamepad.get("minimum_output"), 0.25),
+                deadzone_dps=coerce_float(gamepad.get("deadzone_dps"), 0.0),
                 smoothing=coerce_float(gamepad.get("smoothing"), 0.15),
                 response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
                 invert_x=bool(gamepad.get("invert_x", False)),
@@ -207,6 +208,7 @@ class MotionControlManager:
             "gamepad": {
                 "target": config.gamepad.target,
                 "max_rate_dps": config.gamepad.max_rate_dps,
+                "minimum_output": config.gamepad.minimum_output,
                 "deadzone_dps": config.gamepad.deadzone_dps,
                 "smoothing": config.gamepad.smoothing,
                 "response_curve": config.gamepad.response_curve,

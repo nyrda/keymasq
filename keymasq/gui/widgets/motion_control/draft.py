@@ -66,6 +66,7 @@ class MotionGamepadDraft:
     target: str
     target_analog_id: str | None
     max_rate_dps: float
+    minimum_output: float
     deadzone_dps: float
     smoothing: float
     response_curve: float
@@ -79,6 +80,7 @@ class MotionGamepadDraft:
             target=config.target,
             target_analog_id=config.target_analog_id,
             max_rate_dps=config.max_rate_dps,
+            minimum_output=config.minimum_output,
             deadzone_dps=config.deadzone_dps,
             smoothing=config.smoothing,
             response_curve=config.response_curve,
@@ -92,6 +94,7 @@ class MotionGamepadDraft:
             target=self.target,
             target_analog_id=self.target_analog_id,
             max_rate_dps=self.max_rate_dps,
+            minimum_output=self.minimum_output,
             deadzone_dps=self.deadzone_dps,
             smoothing=self.smoothing,
             response_curve=self.response_curve,

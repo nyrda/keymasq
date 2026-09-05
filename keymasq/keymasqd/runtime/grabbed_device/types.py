@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.adapters import (
     UInputWriter,
 )
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
+from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.superkey_state import SuperkeyMachine
@@ -179,10 +180,12 @@ class RapidfireOutputState:
 class AnalogGamepadOutputState:
     output_id: str | None
     reset_axes: tuple[tuple[int, int], ...]
+    gyro: bool = False
 
 
 @dataclass
 class GrabbedDeviceState:
+    passthrough_stick_output: StickOutputState = field(default_factory=StickOutputState)
     rapidfire_active: dict[str, bool] = field(default_factory=dict)
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)

@@ -162,8 +162,9 @@ class MotionGamepadConfig:
     output_id: str | None = SAME_DEVICE_OUTPUT_ID
     target: str = "right"
     target_analog_id: str | None = None
-    max_rate_dps: float = 360.0
-    deadzone_dps: float = 1.0
+    max_rate_dps: float = 90.0
+    deadzone_dps: float = 0.0
+    minimum_output: float = 0.25
     smoothing: float = 0.15
     response_curve: float = 1.0
     invert_x: bool = False
@@ -178,6 +179,7 @@ class MotionGamepadConfig:
         if self.target != "analog":
             self.target_analog_id = None
         self.max_rate_dps = max(1.0, float(self.max_rate_dps))
+        self.minimum_output = max(0.0, min(1.0, float(self.minimum_output)))
         self.deadzone_dps = max(0.0, float(self.deadzone_dps))
         self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
         self.response_curve = max(0.1, min(4.0, float(self.response_curve)))

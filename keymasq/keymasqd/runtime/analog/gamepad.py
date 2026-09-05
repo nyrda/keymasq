@@ -38,6 +38,8 @@ def emit_gamepad_output(
     source_id: str,
     config: AnalogControlConfig,
     *,
+    gyro: bool = False,
+    minimum_output: float = 0.0,
     deps: ActionExecutionDeps,
 ) -> None:
     if not config.gamepad_output.enabled:
@@ -45,7 +47,15 @@ def emit_gamepad_output(
     if config.input_type == "axis":
         _emit_trigger_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
         return
-    _emit_stick_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
+    _emit_stick_gamepad_output(
+        device_runtime,
+        state_key,
+        source_id,
+        config,
+        gyro=gyro,
+        minimum_output=minimum_output,
+        deps=deps,
+    )
 
 
 def _gamepad_output_direction(config: AnalogControlConfig) -> str:
@@ -69,10 +79,20 @@ def _emit_stick_gamepad_output(
     source_id: str,
     config: AnalogControlConfig,
     *,
+    gyro: bool = False,
+    minimum_output: float = 0.0,
     deps: ActionExecutionDeps,
 ) -> None:
     if config.gamepad_output.target == "analog":
-        _emit_analog_stick_output(device_runtime, state_key, source_id, config, deps=deps)
+        _emit_analog_stick_output(
+            device_runtime,
+            state_key,
+            source_id,
+            config,
+            gyro=gyro,
+            minimum_output=minimum_output,
+            deps=deps,
+        )
         return
     target = resolve_gamepad_output_target(device_runtime, source_id, config)
     if target is None:
@@ -115,6 +135,15 @@ def _emit_stick_gamepad_output(
             for role, axis_code, minimum, maximum, center, invert in axis_specs
         ),
         reset_axes=stick_output_reset_axes(axis_specs),
+        gyro_axes=(
+            {
+                code: (minimum, maximum, center, (x if role == "x" else y) * (-1 if invert else 1))
+                for role, code, minimum, maximum, center, invert in axis_specs
+            }
+            if gyro
+            else None
+        ),
+        minimum_output=minimum_output,
         deps=deps,
         target=target,
     )
@@ -312,6 +341,8 @@ def _emit_analog_stick_output(
     source_id: str,
     config: AnalogControlConfig,
     *,
+    gyro: bool = False,
+    minimum_output: float = 0.0,
     deps: ActionExecutionDeps,
 ) -> None:
     target = resolve_gamepad_output_target(device_runtime, source_id, config)
@@ -322,6 +353,7 @@ def _emit_analog_stick_output(
         return
     axes: list[tuple[int, int]] = []
     reset_axes: list[tuple[int, int]] = []
+    gyro_axes: dict[int, tuple[int, int, int, float]] = {}
     axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
     x = float(axis_values.get("x", 0.0))
     y = float(axis_values.get("y", 0.0))
@@ -341,6 +373,13 @@ def _emit_analog_stick_output(
             return
         minimum, maximum = axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
         reset_value = stick_axis_center(axis, minimum, maximum)
+        invert = bool(axis.get("invert", False)) ^ _gamepad_output_stick_axis_inverted(config, role)
+        gyro_axes[axis_code] = (
+            minimum,
+            maximum,
+            reset_value,
+            -normalized if invert else normalized,
+        )
         axes.append(
             (
                 axis_code,
@@ -349,8 +388,7 @@ def _emit_analog_stick_output(
                     minimum,
                     maximum,
                     center=reset_value,
-                    invert=bool(axis.get("invert", False))
-                    ^ _gamepad_output_stick_axis_inverted(config, role),
+                    invert=invert,
                 ),
             )
         )
@@ -362,6 +400,8 @@ def _emit_analog_stick_output(
         config,
         tuple(axes),
         reset_axes=tuple(reset_axes),
+        gyro_axes=gyro_axes if gyro else None,
+        minimum_output=minimum_output,
         deps=deps,
         target=target,
     )

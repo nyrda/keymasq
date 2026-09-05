@@ -143,6 +143,30 @@ def test_motion_control_view_preserves_each_output_mode_while_switching() -> Non
     assert modified
 
 
+def test_gyro_stick_minimum_output_editor_saves_and_survives_mode_switch(temp_config_dir):
+    manager = MotionControlManager()
+    dialog = MotionControlDialog(Gtk.Window(), manager=manager)
+    view = dialog.editor
+    view.name_entry.set_text("Stick Aim")
+    view.mode_dropdown.set_selected(1)
+    assert view.max_rate.get_value() == 90.0
+    assert view.deadzone.get_value() == 0.0
+    assert view.minimum_output.get_value() == 25.0
+    view.minimum_output.set_value(12.0)
+    view.mode_dropdown.set_selected(3)
+    assert view.minimum_output.get_visible() is False
+    view.mode_dropdown.set_selected(1)
+    assert view.minimum_output.get_visible() is True
+    assert view.minimum_output.get_value() == 12.0
+    assert dialog._save_current() is True
+    loaded = MotionControlManager().get_motion_control("Stick Aim")
+    assert loaded is not None
+    assert loaded.gamepad.minimum_output == 0.12
+    reopened = MotionControlEditorView(on_modified=lambda: None)
+    reopened.load(MotionControlDraft.from_config(loaded))
+    assert reopened.minimum_output.get_value() == 12.0
+
+
 def test_motion_axis_routing_defaults_to_yaw_and_roll_horizontal() -> None:
     view = MotionControlEditorView(on_modified=lambda: None)
 

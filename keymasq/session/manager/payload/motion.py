@@ -60,6 +60,7 @@ def serialize(
             "target": config.gamepad.target,
             "target_analog_id": config.gamepad.target_analog_id,
             "max_rate_dps": config.gamepad.max_rate_dps,
+            "minimum_output": config.gamepad.minimum_output,
             "deadzone_dps": config.gamepad.deadzone_dps,
             "smoothing": config.gamepad.smoothing,
             "response_curve": config.gamepad.response_curve,

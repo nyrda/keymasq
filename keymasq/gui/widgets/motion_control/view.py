@@ -272,7 +272,20 @@ class MotionControlEditorView(Gtk.Box):
 
         gamepad_form = LabeledForm(label_width=164)
         self.max_rate = self._spin(1.0, 4000.0, 10.0)
+        self.max_rate.set_tooltip_text(
+            "Controller rotation speed needed for full stick output. "
+            "Lower values make aiming faster; higher values make it slower. "
+            "This is degrees per second, not a tilt angle."
+        )
         self.max_rate_label = gamepad_form.append("Full stick rate (°/s):", self.max_rate)
+        self.minimum_output = self._spin(0.0, 100.0, 1.0)
+        self.minimum_output.set_tooltip_text(
+            "Compensates for Steam or game stick deadzones while gyro contributes. "
+            "Increase until slow rotation registers. Too much can make aiming jump."
+        )
+        self.minimum_output_label = gamepad_form.append(
+            "Minimum stick output (%):", self.minimum_output
+        )
         self.gamepad_box.append(gamepad_form.grid)
         self.append(self.gamepad_box)
 
@@ -301,6 +314,7 @@ class MotionControlEditorView(Gtk.Box):
             self.sensitivity_x,
             self.sensitivity_y,
             self.max_rate,
+            self.minimum_output,
             self.full_scale,
             self.tilt_speed_x,
             self.tilt_speed_y,
@@ -419,6 +433,7 @@ class MotionControlEditorView(Gtk.Box):
                 self._gamepad_draft.target_analog_id,
             )
             self.max_rate.set_value(self._gamepad_draft.max_rate_dps)
+            self.minimum_output.set_value(self._gamepad_draft.minimum_output * 100.0)
             self._update_output_warning()
 
     def _store_active_settings(self) -> None:
@@ -465,6 +480,7 @@ class MotionControlEditorView(Gtk.Box):
             return
         self._store_gamepad_output(
             max_rate_dps=self.max_rate.get_value(),
+            minimum_output=self.minimum_output.get_value() / 100.0,
             deadzone_dps=self.deadzone.get_value(),
             smoothing=self.smoothing.get_value(),
             response_curve=self.response_curve.get_value(),
@@ -476,6 +492,7 @@ class MotionControlEditorView(Gtk.Box):
         self,
         *,
         max_rate_dps: float | None = None,
+        minimum_output: float | None = None,
         deadzone_dps: float | None = None,
         smoothing: float | None = None,
         response_curve: float | None = None,
@@ -488,6 +505,9 @@ class MotionControlEditorView(Gtk.Box):
             target_analog_id=self.current_output_target_analog_id(),
             max_rate_dps=(
                 self._gamepad_draft.max_rate_dps if max_rate_dps is None else max_rate_dps
+            ),
+            minimum_output=(
+                self._gamepad_draft.minimum_output if minimum_output is None else minimum_output
             ),
             deadzone_dps=(
                 self._gamepad_draft.deadzone_dps if deadzone_dps is None else deadzone_dps
@@ -551,6 +571,8 @@ class MotionControlEditorView(Gtk.Box):
         self.motion_analog_box.set_visible(is_analog)
         self.max_rate_label.set_visible(self._active_mode == "gamepad")
         self.max_rate.set_visible(self._active_mode == "gamepad")
+        self.minimum_output_label.set_visible(self._active_mode == "gamepad")
+        self.minimum_output.set_visible(self._active_mode == "gamepad")
         self.normalization_note.set_label(
             (
                 "Hardware configuration normalizes motion signals. The attached Analog "

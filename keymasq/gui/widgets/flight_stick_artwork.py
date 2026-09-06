@@ -215,16 +215,16 @@ class FlightStickDrawing(Gtk.DrawingArea):
         ink(0.2 if dark else 0.9)
         cr.set_line_width(1)
         cr.stroke()
-        # Side trigger and top trigger tip.
+        # Flush side button follows the grip contour below the head.
         path(
-            (127, 65),
-            (117, 68, 113, 81, 117, 96),
-            (119, 103, 126, 103, 130, 97),
-            (126, 85),
-            (127, 65),
+            (133, 83),
+            (129, 89, 127, 96, 128, 103),
+            (130, 108, 137, 107, 139, 101),
+            (140, 95, 136, 87, 133, 83),
             (),
         )
-        finish(shell + (0.08 if dark else -0.1), edge, 1.2)
+        finish(shell + (0.12 if dark else -0.18), shell, 0.6)
+        # Top trigger tip.
         path((150, 17), (151, 11), (166, 10), (169, 16), ())
         finish(shell, edge, 1)
 

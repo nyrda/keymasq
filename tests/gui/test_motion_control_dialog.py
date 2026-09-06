@@ -376,6 +376,43 @@ def test_motion_selector_refresh_preserves_surviving_selections(delete_first, mo
     assert selected[-1].motion_control_names == expected
 
 
+def test_motion_to_analog_adaptive_smoothing_settings() -> None:
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        analog_controls_loader=lambda: {"Stick": AnalogControlConfig(name="Stick")},
+    )
+    view.load(
+        MotionControlDraft.from_config(
+            MotionControlConfig(
+                name="Filter", mode="analog", analog=MotionAnalogConfig(analog_control_name="Stick")
+            )
+        )
+    )
+    assert view.analog_smoothing.get_visible()
+    assert not view.analog_min_cutoff.get_visible()
+    assert view.draft().analog.smoothing_mode == "fixed"
+
+    view.analog_smoothing_mode.set_selected(1)
+    assert not view.analog_smoothing.get_visible()
+    assert view.analog_min_cutoff.get_visible()
+    assert view.analog_beta.get_visible()
+    view.analog_min_cutoff.set_value(2.5)
+    view.analog_beta.set_value(17)
+    config = view.draft().to_config()
+    assert config.analog.smoothing_mode == "adaptive"
+    assert config.analog.adaptive_min_cutoff_hz == 2.5
+    assert config.analog.adaptive_beta == 17
+
+    view.load(MotionControlDraft.from_config(config))
+    view.mode_dropdown.set_selected(0)
+    view.mode_dropdown.set_selected(4)
+    assert view.draft().to_config().analog == config.analog
+    view.analog_smoothing_mode.set_selected(0)
+    assert view.analog_smoothing.get_visible()
+    assert not view.analog_beta.get_visible()
+    assert view.draft().analog.smoothing == 0.15
+
+
 def test_motion_to_analog_view_selects_one_matching_analog_control() -> None:
     edited: list[str] = []
     controls = {

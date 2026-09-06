@@ -134,6 +134,7 @@ class _Runtime:
 
     def reset_motion_controls(self) -> None:
         self.state.motion_frame_values.clear()
+        self.state.motion_adaptive_filters.clear()
         self.state.motion_smoothed_values.clear()
         self.state.motion_last_frame_ns.clear()
         self.state.motion_mouse_accumulators.clear()
@@ -540,7 +541,8 @@ def test_tilt_motion_control_manager_round_trip(temp_config_dir) -> None:
     assert "speed_y = 360.0" in content
 
 
-def test_motion_to_analog_manager_round_trip(temp_config_dir) -> None:
+@pytest.mark.parametrize("smoothing_mode", ["fixed", "adaptive"])
+def test_motion_to_analog_manager_round_trip(temp_config_dir, smoothing_mode) -> None:
     manager = MotionControlManager()
     config = MotionControlConfig(
         name="Tilt Directions",
@@ -553,6 +555,9 @@ def test_motion_to_analog_manager_round_trip(temp_config_dir) -> None:
             reference="gravity",
             full_scale_deg=40.0,
             smoothing=0.4,
+            smoothing_mode=smoothing_mode,
+            adaptive_min_cutoff_hz=2.5,
+            adaptive_beta=17.0,
             invert_y=True,
         ),
     )
@@ -560,6 +565,10 @@ def test_motion_to_analog_manager_round_trip(temp_config_dir) -> None:
     manager.save_motion_control(config)
 
     assert MotionControlManager().get_motion_control("Tilt Directions") == config
+    session = SessionManager()
+    action = MappingAction(action_type=ActionType.MOTION_CONTROL, motion_control_name=config.name)
+    parsed = parse_action(session, mapping_action_payload(session, action, "controller"))
+    assert parsed.motion_control_config == config
     content = (temp_config_dir / "motion_controls" / "tilt_directions.toml").read_text()
     assert 'mode = "analog"' in content
     assert "[analog]" in content
@@ -990,6 +999,61 @@ async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control() -> N
     assert right_stick_x[-1] > 0
     assert "motion:motion_1:control:0" in runtime.state.motion_tilt_centers
     assert "motion:motion_1:control:1" in runtime.state.analog_axis_values
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["gyro", "tilt"])
+async def test_motion_to_analog_adaptive_filter_is_scoped_and_uses_frame_time(source) -> None:
+    runtime = _Runtime()
+    configs = [
+        MotionControlConfig(
+            name=mode,
+            mode="analog",
+            analog=MotionAnalogConfig(
+                analog_control_config=AnalogControlConfig(name="Axis", input_type="axis"),
+                source=source,
+                reference="gravity",
+                x_axis="yaw" if source == "gyro" else "roll",
+                full_scale_dps=100,
+                full_scale_deg=90,
+                smoothing=0,
+                smoothing_mode=mode,
+            ),
+        )
+        for mode in ("fixed", "adaptive")
+    ]
+    mapping = {
+        "motion_1": MappingAction(
+            action_type=ActionType.MOTION_CONTROL, motion_control_configs=configs
+        )
+    }
+    neutral = (
+        {evdev.ecodes.ABS_RZ: 0}
+        if source == "gyro"
+        else {evdev.ecodes.ABS_X: 0, evdev.ecodes.ABS_Y: 0, evdev.ecodes.ABS_Z: 1000}
+    )
+    moved = (
+        {evdev.ecodes.ABS_RZ: -50}
+        if source == "gyro"
+        else {evdev.ecodes.ABS_X: -1000, evdev.ecodes.ABS_Y: 0, evdev.ecodes.ABS_Z: 1000}
+    )
+    await _send_motion_frame(runtime, mapping, 1_000_000, neutral)
+    await _send_motion_frame(runtime, mapping, 1_010_000, moved)
+    fixed = runtime.state.analog_axis_values["motion:motion_1:control:0"]["x_signed"]
+    adaptive = runtime.state.analog_axis_values["motion:motion_1:control:1"]["x_signed"]
+    assert fixed == pytest.approx(0.5)
+    assert 0.3 < adaptive < 0.4
+    assert list(runtime.state.motion_adaptive_filters) == ["motion:motion_1:control:1"]
+    await _send_motion_frame(runtime, mapping, 1_020_000, moved)
+    assert runtime.state.analog_axis_values["motion:motion_1:control:1"]["x_signed"] > adaptive
+
+    await dispatch_motion_event(
+        runtime,
+        evdev.InputEvent(1, 30000, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_DROPPED, 0),
+        mapping,
+        deps=build_action_execution_deps(),
+    )
+    assert runtime.state.motion_adaptive_filters == {}
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from keymasq.common.coercion import coerce_float
 from keymasq.common.model.actions import normalize_output_id
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
 from keymasq.common.virtual_devices import virtual_gamepad_output_id
@@ -228,6 +229,9 @@ class MotionAnalogConfig:
     reference: str = "activation"
     full_scale_dps: float = 360.0
     full_scale_deg: float = 30.0
+    smoothing_mode: str = "fixed"
+    adaptive_min_cutoff_hz: float = 1.0
+    adaptive_beta: float = 10.0
     smoothing: float = 0.15
     invert_x: bool = False
     invert_y: bool = False
@@ -251,6 +255,13 @@ class MotionAnalogConfig:
             self.reference = "activation"
         self.full_scale_dps = max(1.0, float(self.full_scale_dps))
         self.full_scale_deg = max(0.1, min(90.0, float(self.full_scale_deg)))
+        self.smoothing_mode = str(self.smoothing_mode or "fixed").strip().lower()
+        if self.smoothing_mode not in {"fixed", "adaptive"}:
+            self.smoothing_mode = "fixed"
+        self.adaptive_min_cutoff_hz = max(
+            0.1, min(30.0, coerce_float(self.adaptive_min_cutoff_hz, 1.0))
+        )
+        self.adaptive_beta = max(0.0, min(100.0, coerce_float(self.adaptive_beta, 10.0)))
         self.smoothing = max(0.0, min(0.99, float(self.smoothing)))
 
 

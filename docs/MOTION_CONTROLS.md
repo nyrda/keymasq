@@ -142,6 +142,22 @@ For **Motion to Analog**, the full-output rate or angle determines how much move
 the Analog Control's maximum input. Axis controls use one selected gyro or tilt axis. Stick
 controls use two.
 
+Motion to Analog offers **Fixed** and **Adaptive** smoothing. Fixed is the default and keeps
+using the existing Smoothing setting. Adaptive uses a [One Euro filter](https://gery.casiez.net/1euro/)
+on each normalized axis before the Analog Control applies its deadzones, curves, and actions.
+It works with both gyro and tilt sources.
+
+Start with a **Rest cutoff** of **1 Hz** and **Motion response** of **10**. Lower the rest
+cutoff to reduce wobble further, at the cost of more delay during slow movement. Raise motion
+response to follow movement faster, at the cost of letting more noise through. Adaptive smoothing
+replaces fixed smoothing for this control. It has no movement threshold, so tiny sustained
+movements still pass through unless the receiving Analog Control or game applies a deadzone.
+
+Filtering cannot distinguish intentional tilt from the accelerometer response to linear movement.
+It reduces jitter but cannot remove that source of tilt error. Filter history resets when the
+mapping resets, after dropped input, after a gap of more than half a second, or if input
+timestamps move backwards.
+
 ## Use motion controls in profiles
 
 A profile can attach one or more Motion Controls to the same sensor. Each control keeps its own

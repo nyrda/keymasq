@@ -19,6 +19,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     GrabbedDeviceRuntime,
     InputEventLike,
 )
+from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
 
 
 async def dispatch_motion_event(
@@ -214,6 +215,7 @@ async def _emit_motion_control(
             config,
             frame,
             event,
+            now_ns,
             source_profile_name=source_profile_name,
             deps=deps,
         )
@@ -276,6 +278,7 @@ async def _emit_motion_analog(
     config: MotionControlConfig,
     frame: dict[str, dict[str, float]],
     event: InputEventLike,
+    now_ns: int,
     *,
     source_profile_name: str | None,
     deps: ActionExecutionDeps,
@@ -314,15 +317,26 @@ async def _emit_motion_analog(
 
     raw_x = _selected_motion_signal(signals, config.analog.x_axis)
     raw_y = _selected_motion_signal(signals, config.analog.y_axis)
-    x, y = _filtered_axes(
-        device_runtime,
-        state_key,
-        raw_x,
-        raw_y,
-        config.analog.smoothing,
-    )
-    x = max(-1.0, min(1.0, x / maximum))
-    y = max(-1.0, min(1.0, y / maximum))
+    if config.analog.smoothing_mode == "adaptive":
+        filters = device_runtime.state.motion_adaptive_filters.get(state_key)
+        if filters is None:
+            filters = (OneEuroFilter(), OneEuroFilter())
+            device_runtime.state.motion_adaptive_filters[state_key] = filters
+        # Normalize before filtering so tuning is shared by gyro and tilt sources.
+        x, y = (
+            axis_filter.update(
+                value / maximum,
+                now_ns,
+                config.analog.adaptive_min_cutoff_hz,
+                config.analog.adaptive_beta,
+            )
+            for axis_filter, value in zip(filters, (raw_x, raw_y), strict=True)
+        )
+    else:
+        x, y = _filtered_axes(device_runtime, state_key, raw_x, raw_y, config.analog.smoothing)
+        x, y = x / maximum, y / maximum
+    x = max(-1.0, min(1.0, x))
+    y = max(-1.0, min(1.0, y))
     if config.analog.invert_x:
         x = -x
     if config.analog.invert_y:

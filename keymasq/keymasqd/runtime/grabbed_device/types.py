@@ -25,6 +25,7 @@ from keymasq.keymasqd.runtime.adapters import (
     DeviceInfo,
     UInputWriter,
 )
+from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
@@ -239,6 +240,9 @@ class GrabbedDeviceState:
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
     motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     motion_resyncing: bool = False
+    motion_adaptive_filters: dict[str, tuple[OneEuroFilter, OneEuroFilter]] = field(
+        default_factory=dict
+    )
     motion_smoothed_values: dict[str, dict[str, float]] = field(default_factory=dict)
     motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
     motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)

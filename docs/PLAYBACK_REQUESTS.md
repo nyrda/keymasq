@@ -65,7 +65,12 @@ Use the playback ID on the same connection:
 A query returns the current state and any result fields. Cancellation returns the
 current state after requesting the stop. If the request is still being submitted
 to the daemon, cancellation follows its start acknowledgement. The terminal event
-confirms the outcome. Completion can win a race with cancellation.
+confirms the outcome. Completion can win a race with cancellation. If the daemon
+has not acknowledged cancellation within two seconds, the command returns an
+error with an unknown outcome. The request remains tracked until a terminal event
+or daemon disconnect arrives. An acknowledgement timeout does not release the
+next ordered request. Disconnect and shutdown send cancellations concurrently so
+this timeout does not multiply by the number of requests.
 
 Cancelling queued work prevents it from starting. Cancelling running work stops
 that macro and its children and releases their held outputs. Requests belong to

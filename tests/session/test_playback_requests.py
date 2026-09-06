@@ -7,6 +7,7 @@ import pytest
 
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.types import JsonObject
+from keymasq.session.manager import playback as playback_module
 from keymasq.session.manager.command.macro import handle_macro_commands
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.playback import PlaybackRequests
@@ -26,7 +27,11 @@ def setup_requests():
     sent: asyncio.Queue[Command] = asyncio.Queue()
 
     async def send(command: Command, timeout: float | None = None) -> Response:
-        assert timeout is None
+        assert (
+            timeout is None
+            if command.command != CommandType.CANCEL_MACRO_PLAYBACK
+            else timeout is not None
+        )
         sent.put_nowait(command)
         if command.command == CommandType.CANCEL_MACRO_PLAYBACK:
             requests.finished({"playback_id": command.data["playback_id"], "state": "cancelled"})
@@ -100,8 +105,12 @@ async def test_disconnect_during_acceptance_cancels_after_ack() -> None:
     original_send = manager.client.send_command
 
     async def send(command: Command, timeout: float | None = None) -> Response:
-        assert timeout is None
-        result = await original_send(command)
+        assert (
+            timeout is None
+            if command.command != CommandType.CANCEL_MACRO_PLAYBACK
+            else timeout is not None
+        )
+        result = await original_send(command, timeout=timeout)
         if command.command == CommandType.MACRO_PLAY_BY_NAME:
             await accepted.wait()
         return result
@@ -125,7 +134,11 @@ async def test_completion_before_acceptance_and_failure_release_queue() -> None:
     manager, requests, _ = setup_requests()
 
     async def send(command: Command, timeout: float | None = None) -> Response:
-        assert timeout is None
+        assert (
+            timeout is None
+            if command.command != CommandType.CANCEL_MACRO_PLAYBACK
+            else timeout is not None
+        )
         requests.finished(
             {
                 "playback_id": command.data["playback_id"],
@@ -214,8 +227,12 @@ async def test_global_stop_cancels_queue_and_submission_in_progress() -> None:
     original_send = manager.client.send_command
 
     async def send(command: Command, timeout: float | None = None) -> Response:
-        assert timeout is None
-        result = await original_send(command)
+        assert (
+            timeout is None
+            if command.command != CommandType.CANCEL_MACRO_PLAYBACK
+            else timeout is not None
+        )
+        result = await original_send(command, timeout=timeout)
         if command.command == CommandType.MACRO_PLAY_BY_NAME:
             await release.wait()
         return result
@@ -258,3 +275,68 @@ async def test_default_requests_run_concurrently_even_with_an_ordered_request(co
         requests.finished({"playback_id": result["playback_id"], "state": "completed"})
     for result in results:
         assert (await join(requests, result))["state"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_cancel_timeout_keeps_request_tracked_and_ordered_queue_blocked(monkeypatch) -> None:
+    manager, requests, sent = setup_requests()
+    monkeypatch.setattr(playback_module, "CANCEL_ACK_TIMEOUT_S", 0.01)
+    original_send = manager.client.send_command
+
+    async def send(command: Command, timeout: float | None = None) -> Response:
+        if command.command == CommandType.CANCEL_MACRO_PLAYBACK:
+            await asyncio.wait_for(asyncio.Event().wait(), timeout)
+        return await original_send(command, timeout=timeout)
+
+    manager.client.send_command = AsyncMock(side_effect=send)
+    writer = owner()
+    first = requests.submit(
+        {"command": "play_macro", "name": "a", "track": True, "ordered": True}, writer
+    )
+    second = requests.submit(
+        {"command": "play_macro", "name": "b", "track": True, "ordered": True}, writer
+    )
+    await asyncio.wait_for(sent.get(), 1)
+    result = await asyncio.wait_for(requests.cancel(str(first["playback_id"]), writer), 0.5)
+    assert result["status"] == "error"
+    assert "outcome unknown" in str(result["message"])
+    assert requests.status(str(first["playback_id"]), writer)["state"] == "running"
+    assert sent.empty()
+    requests.finished({"playback_id": first["playback_id"], "state": "cancelled"})
+    assert (await join(requests, first))["state"] == "cancelled"
+    assert (await asyncio.wait_for(sent.get(), 1)).data["playback_id"] == second["playback_id"]
+    requests.finished({"playback_id": second["playback_id"], "state": "completed"})
+    await join(requests, second)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["disconnect", "shutdown"])
+async def test_teardown_returns_when_daemon_does_not_acknowledge_cancel(
+    monkeypatch, operation
+) -> None:
+    manager, requests, sent = setup_requests()
+    monkeypatch.setattr(playback_module, "CANCEL_ACK_TIMEOUT_S", 0.1)
+    cancellations = 0
+    original_send = manager.client.send_command
+
+    async def send(command: Command, timeout: float | None = None) -> Response:
+        nonlocal cancellations
+        if command.command == CommandType.CANCEL_MACRO_PLAYBACK:
+            cancellations += 1
+            await asyncio.wait_for(asyncio.Event().wait(), timeout)
+        return await original_send(command, timeout=timeout)
+
+    manager.client.send_command = AsyncMock(side_effect=send)
+    writer = owner()
+    for _ in range(8):
+        requests.submit({"command": "play_macro", "name": "a", "track": True}, writer)
+    for _ in range(8):
+        await asyncio.wait_for(sent.get(), 1)
+    if operation == "disconnect":
+        await asyncio.wait_for(requests.disconnect(writer), 0.5)
+        assert all(job.owner is None for job in requests.requests.values())
+    else:
+        await asyncio.wait_for(requests.shutdown(), 0.5)
+        assert all(job.result["state"] == "failed" for job in requests.requests.values())
+    assert cancellations == 8
+    await requests.daemon_disconnected()

@@ -19,6 +19,7 @@ log = logging.getLogger("keymasq-session.playback")
 TERMINAL_STATES = {"completed", "cancelled", "failed"}
 MAX_ACTIVE_REQUESTS = 128
 MAX_FINISHED_REQUESTS = 256
+CANCEL_ACK_TIMEOUT_S = 2.0
 
 
 @dataclass
@@ -76,20 +77,29 @@ class PlaybackRequests:
                     job.task.cancel()
                 self._finish(job, {"state": "cancelled"})
             elif job.result["state"] == "running":
-                await self._cancel_daemon(job)
+                error = await self._cancel_daemon(job)
+                if error is not None:
+                    return {**job.result, "status": "error", "message": error}
             # A request being submitted is cancelled by _play once acceptance arrives.
         return dict(job.result)
 
-    async def _cancel_daemon(self, job: PlaybackRequest) -> None:
-        response = await self.manager.client.send_command(
-            Command(
-                command=CommandType.CANCEL_MACRO_PLAYBACK,
-                data={"playback_id": job.playback_id},
-            ),
-            timeout=None,
-        )
+    async def _cancel_daemon(self, job: PlaybackRequest) -> str | None:
+        try:
+            response = await self.manager.client.send_command(
+                Command(
+                    command=CommandType.CANCEL_MACRO_PLAYBACK,
+                    data={"playback_id": job.playback_id},
+                ),
+                timeout=CANCEL_ACK_TIMEOUT_S,
+            )
+        except TimeoutError:
+            return "Cancellation acknowledgement timed out; playback outcome unknown"
+        except (OSError, RuntimeError) as exc:
+            log.warning("Playback cancellation request failed: %s", exc)
+            return "Cancellation unavailable; playback outcome unknown"
         if response.status != "ok":
-            raise RuntimeError(response.error or "Cancellation failed")
+            return response.error or "Cancellation failed"
+        return None
 
     async def _run(self, job: PlaybackRequest, request: JsonObject) -> None:
         try:
@@ -157,17 +167,15 @@ class PlaybackRequests:
             self.requests.pop(key, None)
 
     async def disconnect(self, writer: asyncio.StreamWriter) -> None:
-        for job in list(self.requests.values()):
-            if job.owner is not writer:
-                continue
-            if job.cancel_on_disconnect:
-                try:
-                    await self.cancel(job.playback_id, writer)
-                except (OSError, RuntimeError):
-                    pass
-            job.owner = None
-            if job.result["state"] in TERMINAL_STATES:
-                self.requests.pop(job.playback_id, None)
+        jobs = [job for job in self.requests.values() if job.owner is writer]
+        await asyncio.gather(*(self._disconnect_job(job, writer) for job in jobs))
+
+    async def _disconnect_job(self, job: PlaybackRequest, writer: asyncio.StreamWriter) -> None:
+        if job.cancel_on_disconnect:
+            await self.cancel(job.playback_id, writer)
+        job.owner = None
+        if job.result["state"] in TERMINAL_STATES:
+            self.requests.pop(job.playback_id, None)
 
     async def daemon_disconnected(self) -> None:
         tasks: list[asyncio.Task[None]] = []
@@ -194,10 +202,11 @@ class PlaybackRequests:
 
     async def shutdown(self) -> None:
         self.cancel_pending()
-        for job in list(self.requests.values()):
-            if job.submitted and job.result["state"] not in TERMINAL_STATES:
-                try:
-                    await self._cancel_daemon(job)
-                except (OSError, RuntimeError):
-                    pass
+        await asyncio.gather(
+            *(
+                self._cancel_daemon(job)
+                for job in list(self.requests.values())
+                if job.submitted and job.result["state"] not in TERMINAL_STATES
+            )
+        )
         await self.daemon_disconnected()

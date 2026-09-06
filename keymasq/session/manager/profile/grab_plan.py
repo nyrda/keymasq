@@ -97,7 +97,17 @@ def _motion_requires_gamepad_output(
                     analog = manager.analog_controls.get_analog_control(
                         config.analog.analog_control_name
                     )
-                if analog is None or analog_control_primary_mode(analog) != "gamepad":
+                if analog is None:
+                    continue
+                mode = analog_control_primary_mode(analog)
+                if mode == "digital" and any(
+                    child.action_type in {ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS}
+                    and child.output_id == hardware.hardware_id
+                    for threshold in analog.thresholds
+                    for child in threshold.actions
+                ):
+                    return True
+                if mode != "gamepad":
                     continue
                 output_id = analog.gamepad_output.output_id
             else:

@@ -47,6 +47,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     NaturalMouseMover,
     RuntimeDisconnectCallback,
 )
+from keymasq.keymasqd.runtime.motion_controls import initialize_motion_state
 from keymasq.keymasqd.runtime.outputs import (
     create_uinput_with_permission_hint,
     uinput_identity,
@@ -475,6 +476,7 @@ class GrabbedDevice:
         )
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
         self.reset_motion_controls()
+        initialize_motion_state(self, self.mapping_getter())
         await self.reset_superkeys()
         grab.seed_startup_held_actions(self)
 
@@ -534,6 +536,7 @@ class GrabbedDevice:
         self.resolved_event_path = os.path.realpath(self.path)
         self.source_hidden_kernel_names = []
         self.device = _device_input(self.path)
+        initialize_motion_state(self, self.mapping_getter())
 
         if self.access_mode is InputAccessMode.OBSERVE:
             self.running = True

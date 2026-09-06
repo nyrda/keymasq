@@ -71,8 +71,9 @@ can be distinguished by the software device's `/devices/virtual/input/` sysfs pa
 
 Gyro Stick adds a rotation-based adjustment to the latest passthrough stick or Analog Stick
 Control output from the same source controller, when both target the same output stick. Each
-axis is clamped to the destination's range. Stopping rotation removes the adjustment as the
-gyro settles to zero; disabling the motion mapping restores the stored stick position. A held
+axis is clamped to the destination's range. Each gyro axis returns to neutral as soon as its
+unsmoothed rate enters the configured gyro deadzone. Smoothing does not prolong minimum-output
+compensation after input stops. Disabling the motion mapping restores the stored stick position. A held
 stick does not need to move again. At full stick deflection, gyro cannot increase the output
 further in that direction.
 
@@ -133,6 +134,7 @@ control when you want the output to continue while the controller stays at an an
 Tilt controls use the controller's pose when the profile becomes active as their neutral pose.
 Choose **Absolute gravity** if you want a level controller to be neutral instead. Keymasq takes
 a new activation pose after a profile change, device reconnect, or device reset.
+The pose comes from the device's current axis state, including axes that have not changed.
 
 An accelerometer can measure pitch and roll from gravity, but it cannot determine yaw. Fast
 controller movement adds acceleration of its own, so the reported tilt may wobble briefly while

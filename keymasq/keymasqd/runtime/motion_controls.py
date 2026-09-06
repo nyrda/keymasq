@@ -33,7 +33,7 @@ async def dispatch_motion_event(
             int(event.type) == int(deps.evdev_mod.ecodes.EV_SYN)
             and int(event.code) == 0  # SYN_REPORT ends the incomplete frame.
         ):
-            device_runtime.state.motion_resyncing = not _resync_motion_values(device_runtime)
+            initialize_motion_state(device_runtime, mapping)
         return bool(device_runtime.motion_axis_bindings)
 
     binding = device_runtime.motion_axis_bindings.get((int(event.type), int(event.code)))
@@ -115,6 +115,44 @@ def _resync_motion_values(device_runtime: GrabbedDeviceRuntime) -> bool:
             return False
         _record_motion_value(device_runtime, binding, float(value))
     return True
+
+
+def initialize_motion_state(
+    device_runtime: GrabbedDeviceRuntime,
+    mapping: dict[str, MappingAction],
+) -> None:
+    """Read unchanged axes and capture the activation pose before processing events."""
+    if not device_runtime.motion_axis_bindings or device_runtime.device is None:
+        return
+    device_runtime.state.motion_resyncing = not _resync_motion_values(device_runtime)
+    if device_runtime.state.motion_resyncing:
+        return
+    for sensor_id, frame in device_runtime.state.motion_frame_values.items():
+        action = mapping.get(sensor_id)
+        if action is None:
+            continue
+        angles = _accelerometer_angles(frame.get("accelerometer", {}))
+        if angles is None:
+            continue
+        pitch, roll = angles
+        configs = _action_motion_control_configs(action)
+        for index, config in enumerate(configs):
+            state_key = _motion_control_state_key(sensor_id, index, len(configs))
+            if config.mode == "analog":
+                if config.analog.source != "tilt" or config.analog.reference != "activation":
+                    continue
+                signals = {"yaw": 0.0, "pitch": -pitch, "roll": -roll}
+                center = (
+                    _selected_motion_signal(signals, config.analog.x_axis),
+                    _selected_motion_signal(signals, config.analog.y_axis),
+                )
+            elif config.mode in {"tilt_mouse", "tilt_gamepad", "area_mouse"}:
+                if config.tilt.reference != "activation":
+                    continue
+                center = _routed_tilt_angles(pitch, roll, config)
+            else:
+                continue
+            device_runtime.state.motion_tilt_centers[state_key] = center
 
 
 def _motion_action_consumes(action: MappingAction | None) -> bool:
@@ -360,6 +398,7 @@ def _emit_gyro_control(
         raw_x,
         raw_y,
         config.gamepad.smoothing,
+        neutral_deadzone=config.gamepad.deadzone_dps,
     )
     x = _normalized_rate(
         x,
@@ -498,10 +537,18 @@ def _filtered_axes(
     x: float,
     y: float,
     smoothing: float,
+    *,
+    neutral_deadzone: float | None = None,
 ) -> tuple[float, float]:
     previous = device_runtime.state.motion_smoothed_values.get(state_key, {})
     smoothed_x = x * (1.0 - smoothing) + float(previous.get("x", x)) * smoothing
     smoothed_y = y * (1.0 - smoothing) + float(previous.get("y", y)) * smoothing
+    # Minimum stick output must not amplify a smoothing tail after input stops.
+    if neutral_deadzone is not None:
+        if abs(x) <= neutral_deadzone:
+            smoothed_x = 0.0
+        if abs(y) <= neutral_deadzone:
+            smoothed_y = 0.0
     device_runtime.state.motion_smoothed_values[state_key] = {
         "x": smoothed_x,
         "y": smoothed_y,

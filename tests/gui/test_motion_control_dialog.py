@@ -388,29 +388,28 @@ def test_motion_to_analog_adaptive_smoothing_settings() -> None:
             )
         )
     )
-    assert view.analog_smoothing.get_visible()
-    assert not view.analog_min_cutoff.get_visible()
-    assert view.draft().analog.smoothing_mode == "fixed"
-
-    view.analog_smoothing_mode.set_selected(1)
-    assert not view.analog_smoothing.get_visible()
-    assert view.analog_min_cutoff.get_visible()
+    assert isinstance(view.analog_steadiness, Gtk.Scale)
+    assert view.analog_steadiness.get_visible()
+    assert view.analog_steadiness.get_value() == 50
+    assert view.analog_cutoff_label.get_text() == "1.00 Hz"
+    assert view.draft().analog.adaptive_min_cutoff_hz == 1
     assert view.analog_beta.get_visible()
-    view.analog_min_cutoff.set_value(2.5)
+
+    for position, cutoff in ((0, 10), (25, 10**0.5), (50, 1), (75, 10**-0.5), (100, 0.1)):
+        view.analog_steadiness.set_value(position)
+        assert view.draft().analog.adaptive_min_cutoff_hz == pytest.approx(cutoff)
+        assert view.analog_cutoff_label.get_text() == f"{cutoff:.2f} Hz"
+
     view.analog_beta.set_value(17)
     config = view.draft().to_config()
-    assert config.analog.smoothing_mode == "adaptive"
-    assert config.analog.adaptive_min_cutoff_hz == 2.5
-    assert config.analog.adaptive_beta == 17
-
+    # Loading an arbitrary cutoff must preserve precision despite rounded display.
+    config.analog.adaptive_min_cutoff_hz = 0.63
     view.load(MotionControlDraft.from_config(config))
     view.mode_dropdown.set_selected(0)
     view.mode_dropdown.set_selected(4)
-    assert view.draft().to_config().analog == config.analog
-    view.analog_smoothing_mode.set_selected(0)
-    assert view.analog_smoothing.get_visible()
-    assert not view.analog_beta.get_visible()
-    assert view.draft().analog.smoothing == 0.15
+    saved = view.draft().to_config().analog
+    assert saved.adaptive_min_cutoff_hz == pytest.approx(0.63)
+    assert saved.adaptive_beta == 17
 
 
 def test_motion_to_analog_view_selects_one_matching_analog_control() -> None:

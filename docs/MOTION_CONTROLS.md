@@ -142,16 +142,21 @@ For **Motion to Analog**, the full-output rate or angle determines how much move
 the Analog Control's maximum input. Axis controls use one selected gyro or tilt axis. Stick
 controls use two.
 
-Motion to Analog offers **Fixed** and **Adaptive** smoothing. Fixed is the default and keeps
-using the existing Smoothing setting. Adaptive uses a [One Euro filter](https://gery.casiez.net/1euro/)
+Motion to Analog uses adaptive smoothing with a [One Euro filter](https://gery.casiez.net/1euro/)
 on each normalized axis before the Analog Control applies its deadzones, curves, and actions.
 It works with both gyro and tilt sources.
 
-Start with a **Rest cutoff** of **1 Hz** and **Motion response** of **10**. Lower the rest
-cutoff to reduce wobble further, at the cost of more delay during slow movement. Raise motion
-response to follow movement faster, at the cost of letting more noise through. Adaptive smoothing
-replaces fixed smoothing for this control. It has no movement threshold, so tiny sustained
-movements still pass through unless the receiving Analog Control or game applies a deadzone.
+Use the **Steadiness** slider to tune smoothing. Moving toward **Steady** reduces wobble but
+adds delay to slow movements. Moving toward **Responsive** follows small movements faster but
+lets more noise through. The readout beside the slider shows the resting cutoff in Hz.
+Start at the midpoint, **1.00 Hz**. The slider runs from **10.00 Hz** at Responsive to
+**0.10 Hz** at Steady, with logarithmic spacing for finer adjustment at low cutoffs.
+Even at the Responsive end, some smoothing remains.
+
+**Motion response** defaults to **10**. Raise it to follow faster movement with less delay,
+at the cost of letting more noise through. Smoothing has no movement threshold, so tiny
+sustained movements still pass through unless the receiving Analog Control or game applies
+a deadzone.
 
 Filtering cannot distinguish intentional tilt from the accelerometer response to linear movement.
 It reduces jitter but cannot remove that source of tilt error. Filter history resets when the

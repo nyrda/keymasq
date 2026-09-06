@@ -106,6 +106,8 @@ class MotionControlDialog(Adw.Dialog):
             on_modified=self._mark_dirty,
             edit_analog_control=self._edit_analog_control,
         )
+        self.shell.editor_scrolled.set_overlay_scrolling(False)
+        self.shell.editor_container.set_margin_end(6)
         self.shell.append_editor_widget(self.editor)
         self.set_child(self.shell.root)
 

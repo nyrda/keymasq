@@ -56,16 +56,14 @@ def test_adaptive_filter_initialization_duplicate_timestamp_and_gap() -> None:
 
 
 @pytest.mark.parametrize(
-    "mode,cutoff,beta,expected",
+    "cutoff,beta,expected",
     [
-        (" ADAPTIVE ", 2.5, 17, ("adaptive", 2.5, 17)),
-        ("unknown", 0, -1, ("fixed", 0.1, 0)),
-        ("fixed", 100, 200, ("fixed", 30, 100)),
-        ("adaptive", float("nan"), float("inf"), ("adaptive", 1, 10)),
+        (2.5, 17, (2.5, 17)),
+        (0, -1, (0.1, 0)),
+        (100, 200, (10, 100)),
+        (float("nan"), float("inf"), (1, 10)),
     ],
 )
-def test_adaptive_settings_are_normalized(mode, cutoff, beta, expected) -> None:
-    config = MotionAnalogConfig(
-        smoothing_mode=mode, adaptive_min_cutoff_hz=cutoff, adaptive_beta=beta
-    )
-    assert (config.smoothing_mode, config.adaptive_min_cutoff_hz, config.adaptive_beta) == expected
+def test_adaptive_settings_are_normalized(cutoff, beta, expected) -> None:
+    config = MotionAnalogConfig(adaptive_min_cutoff_hz=cutoff, adaptive_beta=beta)
+    assert (config.adaptive_min_cutoff_hz, config.adaptive_beta) == expected

@@ -158,10 +158,8 @@ class MotionAnalogDraft:
     reference: str
     full_scale_dps: float
     full_scale_deg: float
-    smoothing_mode: str
     adaptive_min_cutoff_hz: float
     adaptive_beta: float
-    smoothing: float
     invert_x: bool
     invert_y: bool
 
@@ -175,10 +173,8 @@ class MotionAnalogDraft:
             reference=config.reference,
             full_scale_dps=config.full_scale_dps,
             full_scale_deg=config.full_scale_deg,
-            smoothing_mode=config.smoothing_mode,
             adaptive_min_cutoff_hz=config.adaptive_min_cutoff_hz,
             adaptive_beta=config.adaptive_beta,
-            smoothing=config.smoothing,
             invert_x=config.invert_x,
             invert_y=config.invert_y,
         )
@@ -192,10 +188,8 @@ class MotionAnalogDraft:
             reference=self.reference,
             full_scale_dps=self.full_scale_dps,
             full_scale_deg=self.full_scale_deg,
-            smoothing_mode=self.smoothing_mode,
             adaptive_min_cutoff_hz=self.adaptive_min_cutoff_hz,
             adaptive_beta=self.adaptive_beta,
-            smoothing=self.smoothing,
             invert_x=self.invert_x,
             invert_y=self.invert_y,
         )

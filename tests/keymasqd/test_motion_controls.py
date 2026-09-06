@@ -1,5 +1,6 @@
 import logging
 import math
+import tomllib
 from types import SimpleNamespace
 
 import evdev
@@ -358,7 +359,6 @@ async def test_motion_only_profile_plans_and_routes_its_gamepad_output(mode, out
         config.analog = MotionAnalogConfig(
             analog_control_name="Stick",
             reference="gravity",
-            smoothing=0,
         )
     manager.motion_controls.save_motion_control(config)
     hardware = HardwareConfig(
@@ -541,8 +541,7 @@ def test_tilt_motion_control_manager_round_trip(temp_config_dir) -> None:
     assert "speed_y = 360.0" in content
 
 
-@pytest.mark.parametrize("smoothing_mode", ["fixed", "adaptive"])
-def test_motion_to_analog_manager_round_trip(temp_config_dir, smoothing_mode) -> None:
+def test_motion_to_analog_manager_round_trip(temp_config_dir) -> None:
     manager = MotionControlManager()
     config = MotionControlConfig(
         name="Tilt Directions",
@@ -554,8 +553,6 @@ def test_motion_to_analog_manager_round_trip(temp_config_dir, smoothing_mode) ->
             y_axis="pitch",
             reference="gravity",
             full_scale_deg=40.0,
-            smoothing=0.4,
-            smoothing_mode=smoothing_mode,
             adaptive_min_cutoff_hz=2.5,
             adaptive_beta=17.0,
             invert_y=True,
@@ -573,6 +570,8 @@ def test_motion_to_analog_manager_round_trip(temp_config_dir, smoothing_mode) ->
     assert 'mode = "analog"' in content
     assert "[analog]" in content
     assert 'analog_control_name = "Direction Actions"' in content
+    assert "smoothing" not in tomllib.loads(content)["analog"]
+    assert "smoothing_mode" not in tomllib.loads(content)["analog"]
 
 
 def test_motion_manager_updates_attached_analog_control_references(temp_config_dir) -> None:
@@ -976,7 +975,6 @@ async def test_motion_fan_out_runs_tilt_mouse_and_attached_analog_control() -> N
             x_axis="roll",
             y_axis="pitch",
             full_scale_deg=30.0,
-            smoothing=0.0,
         ),
     )
     mapping = {
@@ -1007,7 +1005,7 @@ async def test_motion_to_analog_adaptive_filter_is_scoped_and_uses_frame_time(so
     runtime = _Runtime()
     configs = [
         MotionControlConfig(
-            name=mode,
+            name=f"Response {beta}",
             mode="analog",
             analog=MotionAnalogConfig(
                 analog_control_config=AnalogControlConfig(name="Axis", input_type="axis"),
@@ -1016,11 +1014,10 @@ async def test_motion_to_analog_adaptive_filter_is_scoped_and_uses_frame_time(so
                 x_axis="yaw" if source == "gyro" else "roll",
                 full_scale_dps=100,
                 full_scale_deg=90,
-                smoothing=0,
-                smoothing_mode=mode,
+                adaptive_beta=beta,
             ),
         )
-        for mode in ("fixed", "adaptive")
+        for beta in (0, 10)
     ]
     mapping = {
         "motion_1": MappingAction(
@@ -1039,11 +1036,11 @@ async def test_motion_to_analog_adaptive_filter_is_scoped_and_uses_frame_time(so
     )
     await _send_motion_frame(runtime, mapping, 1_000_000, neutral)
     await _send_motion_frame(runtime, mapping, 1_010_000, moved)
-    fixed = runtime.state.analog_axis_values["motion:motion_1:control:0"]["x_signed"]
+    slow = runtime.state.analog_axis_values["motion:motion_1:control:0"]["x_signed"]
     adaptive = runtime.state.analog_axis_values["motion:motion_1:control:1"]["x_signed"]
-    assert fixed == pytest.approx(0.5)
+    assert 0.02 < slow < 0.04
     assert 0.3 < adaptive < 0.4
-    assert list(runtime.state.motion_adaptive_filters) == ["motion:motion_1:control:1"]
+    assert len(runtime.state.motion_adaptive_filters) == 2
     await _send_motion_frame(runtime, mapping, 1_020_000, moved)
     assert runtime.state.analog_axis_values["motion:motion_1:control:1"]["x_signed"] > adaptive
 
@@ -1081,7 +1078,6 @@ async def test_motion_to_analog_uses_signed_axis_thresholds() -> None:
             source="gyro",
             x_axis="yaw",
             full_scale_dps=180.0,
-            smoothing=0.0,
         ),
     )
     mapping = {

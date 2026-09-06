@@ -190,18 +190,12 @@ async def test_gyro_axis_settles_independently_inside_configured_deadzone(monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "mode,smoothing_mode", [("tilt_gamepad", "fixed"), ("analog", "fixed"), ("analog", "adaptive")]
-)
-async def test_motion_startup_and_profile_reset_seed_unchanged_axes(
-    monkeypatch, mode, smoothing_mode
-):
+@pytest.mark.parametrize("mode", ["tilt_gamepad", "analog"])
+async def test_motion_startup_and_profile_reset_seed_unchanged_axes(monkeypatch, mode):
     rig = _Rig(monkeypatch)
     rig.config.mode = mode
     rig.config.tilt = MotionTiltConfig(reference="activation", smoothing=0, deadzone_deg=0)
     rig.config.analog = MotionAnalogConfig(
-        smoothing=0,
-        smoothing_mode=smoothing_mode,
         analog_control_config=AnalogControlConfig(
             name="Tilt stick",
             gamepad_output=AnalogGamepadOutputConfig(
@@ -250,7 +244,6 @@ async def test_motion_threshold_plans_and_routes_gamepad_output(
         source="gyro",
         x_axis="yaw",
         y_axis="none",
-        smoothing=0,
         full_scale_dps=90,
         analog_control_config=AnalogControlConfig(
             name="Threshold",

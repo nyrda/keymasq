@@ -312,16 +312,16 @@ Raw-unit calibration and driver-specific axis normalization remain in the hardwa
 Gyro sources accept `yaw`, `pitch`, `roll`, or `none`. Tilt sources accept `pitch`, `roll`,
 or `none`. `full_scale_dps` and `full_scale_deg` define the physical value that becomes a
 normalized magnitude of `1.0`. Axis Analog Controls consume X only, while stick controls
-consume X and Y. `smoothing_mode` is `fixed` by default and uses `smoothing`.
-Set `smoothing_mode = "adaptive"` for timestamp-based One Euro filtering before the Analog
-Control processes the normalized axes. `adaptive_min_cutoff_hz` defaults to `1.0` and accepts
-`0.1` to `30.0`; lower values suppress more resting jitter but add slow-motion delay.
+consume X and Y. Motion to Analog always uses timestamp-based One Euro filtering before the
+Analog Control processes the normalized axes. `adaptive_min_cutoff_hz` defaults to `1.0` and
+accepts `0.1` to `10.0`; lower values suppress more resting jitter but add slow-motion delay.
+The GUI exposes this as Steadiness from 0 to 100, with cutoff = 10^(1 - steadiness/50).
+The midpoint of 50 corresponds to the default 1 Hz; 0 still applies light smoothing.
 `adaptive_beta` defaults to `10.0` and accepts `0.0` to `100.0`; higher values reduce delay
 while moving but pass more noise. The derivative cutoff is fixed at 1 Hz. Beta applies to
-normalized input, so its units do not change between gyro and tilt sources. The fixed
-`smoothing` value is ignored in adaptive mode. Filter state is separate for each control
-and axis and resets with the mapping, dropped input, a gap over 0.5 seconds, or backwards
-input timestamps.
+normalized input, so its units do not change between gyro and tilt sources. Filter state is
+separate for each control and axis and resets with the mapping, dropped input, a gap over
+0.5 seconds, or backwards input timestamps.
 
 Bind a saved macro:
 

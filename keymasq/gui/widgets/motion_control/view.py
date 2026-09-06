@@ -1,5 +1,6 @@
 """GTK form for editing one Motion Control draft."""
 
+import math
 from collections.abc import Callable
 
 import gi
@@ -46,7 +47,6 @@ _MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "analog")
 _TILT_MODES = frozenset({"tilt_mouse", "tilt_gamepad"})
 _GAMEPAD_MODES = frozenset({"gamepad", "tilt_gamepad"})
 _TILT_REFERENCES = ("activation", "gravity")
-_MOTION_ANALOG_SMOOTHING_MODES = ("fixed", "adaptive")
 _MOTION_ANALOG_SOURCES = ("gyro", "tilt")
 _GYRO_SIGNAL_AXES = ("none", "yaw", "pitch", "roll")
 _TILT_SIGNAL_AXES = ("none", "pitch", "roll")
@@ -167,17 +167,39 @@ class MotionControlEditorView(Gtk.Box):
         )
         self.analog_full_scale_rate = self._spin(1.0, 4000.0, 10.0)
         self.analog_full_scale_angle = self._spin(0.1, 90.0, 0.5)
-        self.analog_smoothing = self._spin(0.0, 0.99, 0.01)
-        self.analog_smoothing_mode = Gtk.DropDown.new_from_strings(["Fixed", "Adaptive"])
-        self.analog_min_cutoff = self._spin(0.1, 30.0, 0.1)
-        self.analog_min_cutoff.set_digits(1)
-        self.analog_min_cutoff.set_tooltip_text(
-            "Lower values reduce resting jitter but add delay to slow movement."
+        self.analog_steadiness = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.analog_steadiness.set_hexpand(True)
+        self.analog_steadiness.set_draw_value(False)
+        self.analog_steadiness.set_round_digits(-1)
+        self.analog_steadiness.add_mark(0, Gtk.PositionType.BOTTOM, "Responsive")
+        self.analog_steadiness.add_mark(100, Gtk.PositionType.BOTTOM, "Steady")
+        self.analog_steadiness.set_tooltip_text(
+            "Smooths wobble while the controller is still or moving slowly.\n\n"
+            "Toward Steady (lower Hz): less wobble, but more delay in following tiny movements.\n"
+            "Toward Responsive (higher Hz): less delay, but more jitter can get through.\n\n"
+            "Hz is the filter cutoff, not the sensor update rate. Small sustained movements "
+            "still pass through; this does not add a deadzone.\n\n"
+            "Start at 1.00 Hz. Tune this first, then use Motion response to reduce delay "
+            "during quicker changes in motion."
         )
+        self.analog_cutoff_label = Gtk.Label(label="1.00 Hz", xalign=1)
+        self.analog_cutoff_label.set_width_chars(8)
+        self.analog_cutoff_label.add_css_class("numeric")
+        self.analog_steadiness_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.analog_steadiness_row.set_halign(Gtk.Align.START)
+        self.analog_steadiness_row.append(self.analog_steadiness)
+        self.analog_steadiness_row.append(self.analog_cutoff_label)
+        self.analog_steadiness_row.set_tooltip_text(self.analog_steadiness.get_tooltip_text())
         self.analog_beta = self._spin(0.0, 100.0, 1.0)
         self.analog_beta.set_digits(0)
         self.analog_beta.set_tooltip_text(
-            "Higher values reduce delay while moving, but can let more jitter through."
+            "Controls how much smoothing relaxes when motion changes quickly, "
+            "such as when you start moving or reverse direction.\n\n"
+            "Higher values: quicker response, but more jitter can get through.\n"
+            "Lower values: smoother output, but more delay while moving.\n"
+            "At 0, smoothing stays at the level set by Steadiness.\n\n"
+            "This changes filtering, not aiming sensitivity or maximum output. "
+            "Start at 10 and increase it if movement feels sluggish after tuning Steadiness."
         )
         analog_control_picker = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         analog_control_hint = Gtk.Label(label="Select one · right-click to edit")
@@ -222,12 +244,12 @@ class MotionControlEditorView(Gtk.Box):
         self.analog_angle_label = analog_form.append(
             "Full output angle (°):", self.analog_full_scale_angle
         )
-        analog_form.append("Smoothing filter:", self.analog_smoothing_mode)
-        self.analog_smoothing_label = analog_form.append("Smoothing:", self.analog_smoothing)
-        self.analog_min_cutoff_label = analog_form.append(
-            "Rest cutoff (Hz):", self.analog_min_cutoff
-        )
+        for spin in (self.analog_full_scale_rate, self.analog_full_scale_angle, self.analog_beta):
+            spin.set_halign(Gtk.Align.START)
+        steadiness_label = analog_form.append("Steadiness:", self.analog_steadiness_row)
+        steadiness_label.set_tooltip_text(self.analog_steadiness.get_tooltip_text())
         self.analog_beta_label = analog_form.append("Motion response:", self.analog_beta)
+        self.analog_beta_label.set_tooltip_text(self.analog_beta.get_tooltip_text())
         self.motion_analog_box.append(analog_form.grid)
         analog_invert_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.analog_invert_x = Gtk.CheckButton(label="Invert X")
@@ -334,9 +356,7 @@ class MotionControlEditorView(Gtk.Box):
         self.analog_reference.connect("notify::selected", self._on_modified)
         self.analog_full_scale_rate.connect("value-changed", self._on_modified)
         self.analog_full_scale_angle.connect("value-changed", self._on_modified)
-        self.analog_smoothing.connect("value-changed", self._on_modified)
-        self.analog_smoothing_mode.connect("notify::selected", self._on_analog_smoothing_changed)
-        self.analog_min_cutoff.connect("value-changed", self._on_modified)
+        self.analog_steadiness.connect("value-changed", self._on_steadiness_changed)
         self.analog_beta.connect("value-changed", self._on_modified)
         self.analog_invert_x.connect("toggled", self._on_modified)
         self.analog_invert_y.connect("toggled", self._on_modified)
@@ -597,15 +617,16 @@ class MotionControlEditorView(Gtk.Box):
         self.analog_reference.set_selected(_TILT_REFERENCES.index(draft.reference))
         self.analog_full_scale_rate.set_value(draft.full_scale_dps)
         self.analog_full_scale_angle.set_value(draft.full_scale_deg)
-        self.analog_smoothing.set_value(draft.smoothing)
-        self.analog_smoothing_mode.set_selected(
-            _MOTION_ANALOG_SMOOTHING_MODES.index(draft.smoothing_mode)
-        )
-        self.analog_min_cutoff.set_value(draft.adaptive_min_cutoff_hz)
+        self.analog_steadiness.set_value(50.0 * (1.0 - math.log10(draft.adaptive_min_cutoff_hz)))
         self.analog_beta.set_value(draft.adaptive_beta)
         self.analog_invert_x.set_active(draft.invert_x)
         self.analog_invert_y.set_active(draft.invert_y)
         self._update_motion_analog_visibility()
+
+    def _on_steadiness_changed(self, *_args: object) -> None:
+        cutoff = 10.0 ** (1.0 - self.analog_steadiness.get_value() / 50.0)
+        self.analog_cutoff_label.set_text(f"{cutoff:.2f} Hz")
+        self._on_modified()
 
     def _store_motion_analog_settings(self) -> None:
         source = _MOTION_ANALOG_SOURCES[
@@ -622,11 +643,8 @@ class MotionControlEditorView(Gtk.Box):
             ],
             full_scale_dps=self.analog_full_scale_rate.get_value(),
             full_scale_deg=self.analog_full_scale_angle.get_value(),
-            smoothing=self.analog_smoothing.get_value(),
-            smoothing_mode=_MOTION_ANALOG_SMOOTHING_MODES[
-                min(1, int(self.analog_smoothing_mode.get_selected()))
-            ],
-            adaptive_min_cutoff_hz=self.analog_min_cutoff.get_value(),
+            # Reverse logarithmic scale: 0 = 10 Hz, 50 = 1 Hz, 100 = 0.1 Hz.
+            adaptive_min_cutoff_hz=10.0 ** (1.0 - self.analog_steadiness.get_value() / 50.0),
             adaptive_beta=self.analog_beta.get_value(),
             invert_x=self.analog_invert_x.get_active(),
             invert_y=self.analog_invert_y.get_active(),
@@ -769,21 +787,7 @@ class MotionControlEditorView(Gtk.Box):
         selected = int(dropdown.get_selected())
         return axes[selected] if 0 <= selected < len(axes) else "none"
 
-    def _on_analog_smoothing_changed(self, *_args: object) -> None:
-        self._update_motion_analog_visibility()
-        self._on_modified()
-
     def _update_motion_analog_visibility(self) -> None:
-        adaptive = self.analog_smoothing_mode.get_selected() == 1
-        self.analog_smoothing_label.set_visible(not adaptive)
-        self.analog_smoothing.set_visible(not adaptive)
-        for widget in (
-            self.analog_min_cutoff_label,
-            self.analog_min_cutoff,
-            self.analog_beta_label,
-            self.analog_beta,
-        ):
-            widget.set_visible(adaptive)
         source = _MOTION_ANALOG_SOURCES[
             min(len(_MOTION_ANALOG_SOURCES) - 1, int(self.analog_source_dropdown.get_selected()))
         ]

@@ -64,13 +64,19 @@ def resolve_output_axis(
         neutral = axis_int(axis, "rest")
         if neutral is None:
             neutral = max(minimum, min(0, maximum))
-        return OutputAxis(
-            str(axis.get("evdev") or capability_name(deps.evdev_mod.ecodes.EV_ABS, code)),
-            str(analog.get("label", "Axis")),
-            minimum,
-            maximum,
-            max(minimum, min(maximum, neutral)),
-        )
+        name = str(axis.get("evdev") or "") or capability_name(deps.evdev_mod.ecodes.EV_ABS, code)
+        if not name:
+            return None
+        try:
+            return OutputAxis(
+                name,
+                str(analog.get("label", "Axis")),
+                minimum,
+                maximum,
+                max(minimum, min(maximum, neutral)),
+            )
+        except ValueError:
+            return None
     code = trigger_outputaxis_code(device_runtime, source_id, config, deps=deps)
     if code is None:
         return None

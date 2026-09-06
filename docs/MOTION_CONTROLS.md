@@ -53,8 +53,6 @@ The presets cover the common uses:
   gamepad or another configured controller.
 - **Tilt Mouse** moves the pointer continuously while the controller remains tilted.
 - **Tilt Stick** holds a stick away from center while the controller remains tilted.
-- **Area Mouse** maps tilt to a bounded area around the pointer's starting position. Returning
-  to the neutral pose moves the pointer back toward that position.
 
 The Right Stick presets output to the same controller. Keymasq grabs its gamepad interface
 to provide that output, even when the motion mapping is the profile's only mapping. Its
@@ -139,9 +137,6 @@ The pose comes from the device's current axis state, including axes that have no
 An accelerometer can measure pitch and roll from gravity, but it cannot determine yaw. Fast
 controller movement adds acceleration of its own, so the reported tilt may wobble briefly while
 the controller is moving.
-
-For **Area Mouse**, the full-output angle sets the horizontal and vertical range. Enable **Drag
-center** if you want the neutral point to follow when you tilt beyond that range.
 
 For **Motion to Analog**, the full-output rate or angle determines how much movement produces
 the Analog Control's maximum input. Axis controls use one selected gyro or tilt axis. Stick

@@ -110,9 +110,6 @@ class MotionControlManager:
                 invert_y=bool(tilt.get("invert_y", False)),
                 speed_x=coerce_float(tilt.get("speed_x"), 900.0),
                 speed_y=coerce_float(tilt.get("speed_y"), 900.0),
-                area_radius_x=coerce_float(tilt.get("area_radius_x"), 400.0),
-                area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
-                drag_center=bool(tilt.get("drag_center", True)),
             ),
             analog=MotionAnalogConfig(
                 analog_control_name=(
@@ -233,9 +230,6 @@ class MotionControlManager:
                 "invert_y": config.tilt.invert_y,
                 "speed_x": config.tilt.speed_x,
                 "speed_y": config.tilt.speed_y,
-                "area_radius_x": config.tilt.area_radius_x,
-                "area_radius_y": config.tilt.area_radius_y,
-                "drag_center": config.tilt.drag_center,
             },
             "analog": {
                 "source": config.analog.source,

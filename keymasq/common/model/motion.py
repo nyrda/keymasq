@@ -9,9 +9,7 @@ from keymasq.common.virtual_devices import virtual_gamepad_output_id
 MOTION_GYRO_AXES = frozenset({"pitch", "yaw", "roll"})
 MOTION_ACCELEROMETER_AXES = frozenset({"x", "y", "z"})
 MOTION_AXES = MOTION_GYRO_AXES | MOTION_ACCELEROMETER_AXES
-MOTION_CONTROL_MODES = frozenset(
-    {"mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse", "analog"}
-)
+MOTION_CONTROL_MODES = frozenset({"mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "analog"})
 MOTION_GAMEPAD_TARGETS = frozenset({"left", "right", "analog"})
 MOTION_AXIS_OUTPUTS = frozenset({"none", "horizontal", "vertical"})
 MOTION_TILT_REFERENCES = frozenset({"activation", "gravity"})
@@ -200,9 +198,6 @@ class MotionTiltConfig:
     invert_y: bool = False
     speed_x: float = 900.0
     speed_y: float = 900.0
-    area_radius_x: float = 400.0
-    area_radius_y: float = 400.0
-    drag_center: bool = True
 
     def __post_init__(self) -> None:
         self.reference = str(self.reference or "activation").strip().lower()
@@ -219,8 +214,6 @@ class MotionTiltConfig:
         self.response_curve = max(0.1, min(4.0, float(self.response_curve)))
         self.speed_x = max(0.0, float(self.speed_x))
         self.speed_y = max(0.0, float(self.speed_y))
-        self.area_radius_x = max(0.0, float(self.area_radius_x))
-        self.area_radius_y = max(0.0, float(self.area_radius_y))
 
 
 @dataclass
@@ -279,8 +272,7 @@ class MotionControlConfig:
         self.mode = str(self.mode or "mouse").strip().lower()
         if self.mode not in MOTION_CONTROL_MODES:
             raise ValueError(
-                "motion control mode must be mouse, gamepad, tilt_mouse, "
-                "tilt_gamepad, area_mouse, or analog"
+                "motion control mode must be mouse, gamepad, tilt_mouse, tilt_gamepad, or analog"
             )
 
 

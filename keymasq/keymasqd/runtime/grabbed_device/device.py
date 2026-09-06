@@ -505,7 +505,6 @@ class GrabbedDevice:
         self.state.motion_last_frame_ns.clear()
         self.state.motion_mouse_accumulators.clear()
         self.state.motion_tilt_centers.clear()
-        self.state.motion_mouse_area_offsets.clear()
 
     async def _cleanup_failed_grab(self) -> None:
         await self._stop_output_feedback_proxy()

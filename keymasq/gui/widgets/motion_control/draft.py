@@ -116,9 +116,6 @@ class MotionTiltDraft:
     invert_y: bool
     speed_x: float
     speed_y: float
-    area_radius_x: float
-    area_radius_y: float
-    drag_center: bool
 
     @classmethod
     def from_config(cls, config: MotionTiltConfig) -> "MotionTiltDraft":
@@ -134,9 +131,6 @@ class MotionTiltDraft:
             invert_y=config.invert_y,
             speed_x=config.speed_x,
             speed_y=config.speed_y,
-            area_radius_x=config.area_radius_x,
-            area_radius_y=config.area_radius_y,
-            drag_center=config.drag_center,
         )
 
     def to_config(self) -> MotionTiltConfig:
@@ -152,9 +146,6 @@ class MotionTiltDraft:
             invert_y=self.invert_y,
             speed_x=self.speed_x,
             speed_y=self.speed_y,
-            area_radius_x=self.area_radius_x,
-            area_radius_y=self.area_radius_y,
-            drag_center=self.drag_center,
         )
 
 

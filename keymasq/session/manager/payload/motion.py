@@ -79,9 +79,6 @@ def serialize(
             "invert_y": config.tilt.invert_y,
             "speed_x": config.tilt.speed_x,
             "speed_y": config.tilt.speed_y,
-            "area_radius_x": config.tilt.area_radius_x,
-            "area_radius_y": config.tilt.area_radius_y,
-            "drag_center": config.tilt.drag_center,
         },
         "analog": {
             "analog_control_name": config.analog.analog_control_name,

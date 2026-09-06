@@ -42,8 +42,8 @@ from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.hardware import HardwareManager
 
 _AXIS_OUTPUTS = ("none", "horizontal", "vertical")
-_MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "area_mouse", "analog")
-_TILT_MODES = frozenset({"tilt_mouse", "tilt_gamepad", "area_mouse"})
+_MODES = ("mouse", "gamepad", "tilt_mouse", "tilt_gamepad", "analog")
+_TILT_MODES = frozenset({"tilt_mouse", "tilt_gamepad"})
 _GAMEPAD_MODES = frozenset({"gamepad", "tilt_gamepad"})
 _TILT_REFERENCES = ("activation", "gravity")
 _MOTION_ANALOG_SOURCES = ("gyro", "tilt")
@@ -114,7 +114,6 @@ class MotionControlEditorView(Gtk.Box):
                 "Gyro Stick",
                 "Tilt Mouse",
                 "Tilt Stick",
-                "Area Mouse",
                 "Motion to Analog",
             ]
         )
@@ -239,19 +238,6 @@ class MotionControlEditorView(Gtk.Box):
         self.tilt_mouse_box.append(tilt_mouse_form.grid)
         self.append(self.tilt_mouse_box)
 
-        self.area_mouse_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        area_mouse_form = LabeledForm(label_width=164)
-        self.area_radius_x = self._spin(0.0, 10000.0, 10.0)
-        self.area_radius_y = self._spin(0.0, 10000.0, 10.0)
-        self.drag_center = Gtk.CheckButton(
-            label="Drag the center after moving past the configured angle"
-        )
-        area_mouse_form.append("Horizontal radius:", self.area_radius_x)
-        area_mouse_form.append("Vertical radius:", self.area_radius_y)
-        self.area_mouse_box.append(area_mouse_form.grid)
-        self.area_mouse_box.append(self.drag_center)
-        self.append(self.area_mouse_box)
-
         self.gamepad_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         output_group = Adw.PreferencesGroup(
             title="Analog Output Settings",
@@ -320,13 +306,10 @@ class MotionControlEditorView(Gtk.Box):
             self.full_scale,
             self.tilt_speed_x,
             self.tilt_speed_y,
-            self.area_radius_x,
-            self.area_radius_y,
         ):
             spin.connect("value-changed", self._on_modified)
         self.invert_x.connect("toggled", self._on_modified)
         self.invert_y.connect("toggled", self._on_modified)
-        self.drag_center.connect("toggled", self._on_modified)
         self.analog_control_listbox.connect("row-selected", self._on_analog_control_selected)
         self.analog_source_dropdown.connect("notify::selected", self._on_analog_source_changed)
         self.analog_x_axis.connect("notify::selected", self._on_modified)
@@ -411,9 +394,6 @@ class MotionControlEditorView(Gtk.Box):
             self.full_scale.set_value(self._tilt_draft.full_scale_deg)
             self.tilt_speed_x.set_value(self._tilt_draft.speed_x)
             self.tilt_speed_y.set_value(self._tilt_draft.speed_y)
-            self.area_radius_x.set_value(self._tilt_draft.area_radius_x)
-            self.area_radius_y.set_value(self._tilt_draft.area_radius_y)
-            self.drag_center.set_active(self._tilt_draft.drag_center)
             deadzone = self._tilt_draft.deadzone_deg
         else:
             settings = self._mouse_draft if self._active_mode == "mouse" else self._gamepad_draft
@@ -461,9 +441,6 @@ class MotionControlEditorView(Gtk.Box):
                 invert_y=self.invert_y.get_active(),
                 speed_x=self.tilt_speed_x.get_value(),
                 speed_y=self.tilt_speed_y.get_value(),
-                area_radius_x=self.area_radius_x.get_value(),
-                area_radius_y=self.area_radius_y.get_value(),
-                drag_center=self.drag_center.get_active(),
             )
             if self._active_mode == "tilt_gamepad":
                 self._store_gamepad_output()
@@ -566,7 +543,6 @@ class MotionControlEditorView(Gtk.Box):
         self.deadzone_label.set_label("Deadzone (°):" if is_tilt else "Deadzone (°/s):")
         self.mouse_box.set_visible(self._active_mode == "mouse")
         self.tilt_mouse_box.set_visible(self._active_mode == "tilt_mouse")
-        self.area_mouse_box.set_visible(self._active_mode == "area_mouse")
         self.gamepad_box.set_visible(is_gamepad)
         self.axes_grid.set_visible(not is_analog)
         self.invert_box.set_visible(not is_analog)

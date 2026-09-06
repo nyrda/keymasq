@@ -138,7 +138,6 @@ class _Runtime:
         self.state.motion_last_frame_ns.clear()
         self.state.motion_mouse_accumulators.clear()
         self.state.motion_tilt_centers.clear()
-        self.state.motion_mouse_area_offsets.clear()
 
     def resolve_gamepad_output(self, output_id, context):
         return None
@@ -423,7 +422,6 @@ async def test_syn_dropped_clears_motion_state_with_scoped_analog_reset() -> Non
     runtime.state.motion_last_frame_ns["motion:motion_1"] = 123
     runtime.state.motion_mouse_accumulators["motion:motion_1"] = (0.5, 0.0)
     runtime.state.motion_tilt_centers["motion:motion_1"] = (1.0, 2.0)
-    runtime.state.motion_mouse_area_offsets["motion:motion_1"] = (3.0, 4.0)
     dropped = SimpleNamespace(
         type=evdev.ecodes.EV_SYN,
         code=evdev.ecodes.SYN_DROPPED,
@@ -437,7 +435,6 @@ async def test_syn_dropped_clears_motion_state_with_scoped_analog_reset() -> Non
     assert runtime.state.motion_last_frame_ns == {}
     assert runtime.state.motion_mouse_accumulators == {}
     assert runtime.state.motion_tilt_centers == {}
-    assert runtime.state.motion_mouse_area_offsets == {}
     assert runtime.analog_reset_prefixes == ["motion:"]
 
 
@@ -519,28 +516,28 @@ def test_gyro_stick_defaults_and_existing_settings(temp_config_dir, saved_settin
 def test_tilt_motion_control_manager_round_trip(temp_config_dir) -> None:
     manager = MotionControlManager()
     config = MotionControlConfig(
-        name="Area Mouse",
-        mode="area_mouse",
+        name="Tilt Mouse",
+        mode="tilt_mouse",
         tilt=MotionTiltConfig(
             reference="gravity",
             pitch="none",
             roll="horizontal",
             deadzone_deg=3.0,
             full_scale_deg=40.0,
-            area_radius_x=640.0,
-            area_radius_y=360.0,
-            drag_center=False,
+            speed_x=640.0,
+            speed_y=360.0,
         ),
     )
 
     manager.save_motion_control(config)
 
-    assert MotionControlManager().get_motion_control("Area Mouse") == config
-    content = (temp_config_dir / "motion_controls" / "area_mouse.toml").read_text()
-    assert 'mode = "area_mouse"' in content
+    assert MotionControlManager().get_motion_control("Tilt Mouse") == config
+    content = (temp_config_dir / "motion_controls" / "tilt_mouse.toml").read_text()
+    assert 'mode = "tilt_mouse"' in content
     assert "[tilt]" in content
     assert 'reference = "gravity"' in content
-    assert "drag_center = false" in content
+    assert "speed_x = 640.0" in content
+    assert "speed_y = 360.0" in content
 
 
 def test_motion_to_analog_manager_round_trip(temp_config_dir) -> None:
@@ -924,42 +921,6 @@ async def test_tilt_stick_pitch_outputs_both_axis_directions() -> None:
     assert pitch_values[0] == 0
     assert pitch_values[1] < 0
     assert pitch_values[2] > 0
-
-
-@pytest.mark.asyncio
-async def test_area_mouse_maps_tilt_to_an_area_and_drags_its_center() -> None:
-    runtime = _Runtime()
-    config = MotionControlConfig(
-        name="Area Mouse",
-        mode="area_mouse",
-        tilt=MotionTiltConfig(
-            deadzone_deg=0.0,
-            full_scale_deg=30.0,
-            smoothing=0.0,
-            area_radius_x=100.0,
-            area_radius_y=100.0,
-            drag_center=True,
-        ),
-    )
-    mapping = {
-        "motion_1": MappingAction(
-            action_type=ActionType.MOTION_CONTROL,
-            motion_control_config=config,
-        )
-    }
-    deps = build_action_execution_deps()
-
-    await _send_accelerometer_frame(runtime, mapping, deps, 0, 0, 1000)
-    await _send_accelerometer_frame(runtime, mapping, deps, -1000, 0, 0)
-    await _send_accelerometer_frame(runtime, mapping, deps, -985, 0, 174)
-
-    horizontal = [
-        value
-        for event_type, code, value in runtime.mouse_uinput.events
-        if event_type == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_X
-    ]
-    assert horizontal[0] == 100
-    assert horizontal[1] < 0
 
 
 @pytest.mark.asyncio

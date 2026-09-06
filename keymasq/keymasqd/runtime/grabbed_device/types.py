@@ -243,7 +243,6 @@ class GrabbedDeviceState:
     motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
     motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     motion_tilt_centers: dict[str, tuple[float, float]] = field(default_factory=dict)
-    motion_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 class ActionRuntime(Protocol):

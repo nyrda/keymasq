@@ -177,7 +177,7 @@ def test_motion_axis_routing_defaults_to_yaw_and_roll_horizontal() -> None:
     assert draft.axis_routing.roll == "horizontal"
 
 
-def test_motion_view_exposes_separate_tilt_and_area_modes() -> None:
+def test_motion_view_preserves_tilt_settings_when_switching_outputs() -> None:
     choices = GamepadOutputChoiceSet(
         choices=[(None, "Virtual Gamepad 1")],
         count=1,
@@ -204,7 +204,6 @@ def test_motion_view_exposes_separate_tilt_and_area_modes() -> None:
     assert view.yaw_output.get_visible() is False
     assert view.reference_dropdown.get_visible() is True
     assert view.tilt_mouse_box.get_visible() is True
-    assert view.area_mouse_box.get_visible() is False
     assert view.reference_dropdown.get_selected() == 1
 
     view.tilt_speed_x.set_value(800.0)
@@ -217,15 +216,6 @@ def test_motion_view_exposes_separate_tilt_and_area_modes() -> None:
     assert tilt_stick.gamepad.output_id == "virtual-gamepad-1"
     assert view.gamepad_box.get_visible() is True
     assert view.max_rate.get_visible() is False
-
-    view.mode_dropdown.set_selected(4)
-    view.area_radius_x.set_value(640.0)
-    area_mouse = view.draft()
-
-    assert area_mouse.mode == "area_mouse"
-    assert area_mouse.tilt.area_radius_x == 640.0
-    assert view.area_mouse_box.get_visible() is True
-    assert view.gamepad_box.get_visible() is False
 
 
 def test_motion_controller_output_defaults_to_origin_device() -> None:
@@ -413,7 +403,7 @@ def test_motion_to_analog_view_selects_one_matching_analog_control() -> None:
         )
     )
 
-    assert view.mode_dropdown.get_selected() == 5
+    assert view.mode_dropdown.get_selected() == 4
     assert view.motion_analog_box.get_visible() is True
     assert view.analog_control_listbox.get_selection_mode() == Gtk.SelectionMode.SINGLE
     assert view.analog_control_scrolled.get_min_content_height() == 176

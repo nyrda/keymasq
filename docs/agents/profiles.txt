@@ -298,14 +298,13 @@ motion_control_names = ["Gyro Aim", "Tilt Directions"]
 ```
 
 Motion Controls live under `~/.config/keymasq/motion_controls/`. Their `mode` is `mouse`,
-`gamepad`, `tilt_mouse`, `tilt_gamepad`, `area_mouse`, or `analog`. The top-level
+`gamepad`, `tilt_mouse`, `tilt_gamepad`, or `analog`. The top-level
 `[axis_routing]` table configures gyro controls. It assigns each of `yaw`, `pitch`, and
 `roll` to `none`, `horizontal`, or `vertical`.
 
 Accelerometer controls use the `[tilt]` table. `pitch` and `roll` select the output channel;
 `reference` is `activation` or `gravity`; `deadzone_deg` and `full_scale_deg` set the angular
-range. Tilt Mouse uses `speed_x` and `speed_y`. Area Mouse uses `area_radius_x`,
-`area_radius_y`, and `drag_center`. Tilt Stick uses the single output route from `[gamepad]`.
+range. Tilt Mouse uses `speed_x` and `speed_y`. Tilt Stick uses the single output route from `[gamepad]`.
 Raw-unit calibration and driver-specific axis normalization remain in the hardware file.
 
 `mode = "analog"` uses the `[analog]` table. `source` is `gyro` or `tilt`; `x_axis` and

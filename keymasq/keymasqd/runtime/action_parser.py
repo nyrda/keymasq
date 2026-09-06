@@ -346,9 +346,6 @@ def parse_motion_control_config(manager: object, data: object) -> MotionControlC
             invert_y=bool(tilt.get("invert_y", False)),
             speed_x=coerce_float(tilt.get("speed_x"), 900.0),
             speed_y=coerce_float(tilt.get("speed_y"), 900.0),
-            area_radius_x=coerce_float(tilt.get("area_radius_x"), 400.0),
-            area_radius_y=coerce_float(tilt.get("area_radius_y"), 400.0),
-            drag_center=bool(tilt.get("drag_center", True)),
         ),
         analog=MotionAnalogConfig(
             analog_control_name=coerce_str(analog.get("analog_control_name"), None),

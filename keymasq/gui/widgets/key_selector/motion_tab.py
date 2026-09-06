@@ -31,7 +31,6 @@ class MotionTabMixin:
             ("gamepad", "Right Stick", "Drive the right stick while the controller rotates"),
             ("tilt_mouse", "Tilt Mouse", "Keep the pointer moving while the controller is tilted"),
             ("tilt_gamepad", "Tilt Right Stick", "Hold stick output by tilting the controller"),
-            ("area_mouse", "Area Mouse", "Move within an area selected by controller tilt"),
         ):
             preset = Gtk.Button(label=label)
             preset.add_css_class("card")
@@ -124,7 +123,6 @@ class MotionTabMixin:
                     "gamepad": "Gyro stick",
                     "tilt_mouse": "Tilt mouse",
                     "tilt_gamepad": "Tilt stick",
-                    "area_mouse": "Area mouse",
                     "analog": "Motion to analog",
                 }[config.mode]
             )
@@ -182,7 +180,6 @@ class MotionTabMixin:
             "gamepad": "Right Stick",
             "tilt_mouse": "Tilt Mouse",
             "tilt_gamepad": "Tilt Right Stick",
-            "area_mouse": "Area Mouse",
         }[mode]
         name = manager.unique_motion_control_name(base)
         config = MotionControlConfig(

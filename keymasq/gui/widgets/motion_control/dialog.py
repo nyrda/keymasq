@@ -50,7 +50,6 @@ def motion_control_search_text(config: MotionControlConfig | None, name: str) ->
         "gamepad": "gyro controller gamepad stick",
         "tilt_mouse": "accelerometer tilt continuous mouse",
         "tilt_gamepad": "accelerometer tilt controller gamepad stick",
-        "area_mouse": "accelerometer tilt area mouse pointer",
         "analog": "motion analog control gyro accelerometer tilt axis stick",
     }[config.mode]
     return " ".join((config.name, config.description or "", mode))

@@ -146,7 +146,7 @@ def initialize_motion_state(
                     _selected_motion_signal(signals, config.analog.x_axis),
                     _selected_motion_signal(signals, config.analog.y_axis),
                 )
-            elif config.mode in {"tilt_mouse", "tilt_gamepad", "area_mouse"}:
+            elif config.mode in {"tilt_mouse", "tilt_gamepad"}:
                 if config.tilt.reference != "activation":
                     continue
                 center = _routed_tilt_angles(pitch, roll, config)
@@ -231,14 +231,6 @@ async def _emit_motion_control(
         device_runtime.state.motion_tilt_centers[state_key] = center
     raw_x = absolute_x - center[0]
     raw_y = absolute_y - center[1]
-    if config.mode == "area_mouse" and config.tilt.drag_center:
-        center, raw_x, raw_y = _drag_tilt_center(
-            center,
-            raw_x,
-            raw_y,
-            config.tilt.full_scale_deg,
-        )
-        device_runtime.state.motion_tilt_centers[state_key] = center
     x, y = _filtered_axes(
         device_runtime,
         state_key,
@@ -264,13 +256,6 @@ async def _emit_motion_control(
             state_key,
             x * config.tilt.speed_x * dt,
             y * config.tilt.speed_y * dt,
-        )
-    elif config.mode == "area_mouse":
-        _emit_mouse_area(
-            device_runtime,
-            state_key,
-            x * config.tilt.area_radius_x,
-            y * config.tilt.area_radius_y,
         )
     else:
         _emit_gamepad_axes(
@@ -511,26 +496,6 @@ def _routed_tilt_angles(
     return horizontal, vertical
 
 
-def _drag_tilt_center(
-    center: tuple[float, float],
-    x: float,
-    y: float,
-    maximum: float,
-) -> tuple[tuple[float, float], float, float]:
-    center_x, center_y = center
-    if abs(x) > maximum:
-        overflow = abs(x) - maximum
-        shift = math.copysign(overflow, x)
-        center_x += shift
-        x -= shift
-    if abs(y) > maximum:
-        overflow = abs(y) - maximum
-        shift = math.copysign(overflow, y)
-        center_y += shift
-        y -= shift
-    return (center_x, center_y), x, y
-
-
 def _filtered_axes(
     device_runtime: GrabbedDeviceRuntime,
     state_key: str,
@@ -607,17 +572,3 @@ def _emit_mouse(
     )
     if move_x or move_y:
         emit_mouse_move(identity_uinput_writer(device_runtime.mouse_uinput), move_x, move_y)
-
-
-def _emit_mouse_area(
-    device_runtime: GrabbedDeviceRuntime,
-    state_key: str,
-    target_x: float,
-    target_y: float,
-) -> None:
-    old_x, old_y = device_runtime.state.motion_mouse_area_offsets.get(
-        state_key,
-        (0.0, 0.0),
-    )
-    device_runtime.state.motion_mouse_area_offsets[state_key] = (target_x, target_y)
-    _emit_mouse(device_runtime, state_key, target_x - old_x, target_y - old_y)

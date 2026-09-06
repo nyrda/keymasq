@@ -342,3 +342,27 @@ async def test_teardown_returns_when_daemon_does_not_acknowledge_cancel(
         assert all(job.result["state"] == "failed" for job in requests.requests.values())
     assert cancellations == 8
     await requests.daemon_disconnected()
+
+
+@pytest.mark.asyncio
+async def test_terminal_retention_uses_completion_order_and_preserves_active_requests(
+    monkeypatch,
+) -> None:
+    _, requests, sent = setup_requests()
+    monkeypatch.setattr(playback_module, "MAX_FINISHED_REQUESTS", 2)
+    writer = owner()
+    results = [
+        requests.submit({"command": "play_macro", "name": "a", "track": True}, writer)
+        for _ in range(4)
+    ]
+    for _ in results:
+        await asyncio.wait_for(sent.get(), 1)
+    first, second, third, active = results
+    for result in (second, third, first):
+        requests.finished({"playback_id": result["playback_id"], "state": "completed"})
+        await join(requests, result)
+    assert requests.status(str(first["playback_id"]), writer)["state"] == "completed"
+    assert requests.status(str(third["playback_id"]), writer)["state"] == "completed"
+    assert requests.status(str(second["playback_id"]), writer)["status"] == "error"
+    assert requests.status(str(active["playback_id"]), writer)["state"] == "running"
+    await requests.daemon_disconnected()

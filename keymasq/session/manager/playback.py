@@ -159,8 +159,11 @@ class PlaybackRequests:
                 {**job.result, "event": "macro_playback_finished"},
                 {id(job.owner)},
             )
-        if job.owner is None:
-            self.requests.pop(job.playback_id, None)
+        # Reinsert terminal requests so eviction follows completion order, even
+        # when an early request finishes after many later submissions.
+        self.requests.pop(job.playback_id, None)
+        if job.owner is not None:
+            self.requests[job.playback_id] = job
         finished = [
             key for key, value in self.requests.items() if value.result["state"] in TERMINAL_STATES
         ]

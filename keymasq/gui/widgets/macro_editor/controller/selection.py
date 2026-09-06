@@ -467,7 +467,13 @@ class SelectionControllerMixin:
             value = spin.get_value()
             self._record_edit_history()
             if name == "move":
-                selection.move(selected, round(value * 1000))
+                time_range = self._timeline._time_selection
+                delta = round(value * 1000)
+                if time_range is not None:
+                    delta = max(delta, -time_range[0])
+                delta = selection.move(selected, delta)
+                if time_range is not None:
+                    self._timeline._time_selection = (time_range[0] + delta, time_range[1] + delta)
             elif name == "pauses":
                 selection.set_pauses(selected, round(value * 1000))
             else:

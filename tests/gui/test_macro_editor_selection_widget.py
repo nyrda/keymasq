@@ -499,6 +499,45 @@ def test_selection_timing_tabs_apply_one_operation(monkeypatch, tab, value, butt
     assert [event.press_t_us for event in dialog._events] == [100_000, 300_000, 500_000]
 
 
+@pytest.mark.parametrize("delta_ms", [50, 1000, -1000])
+def test_selection_timing_move_preserves_range_padding_and_undo(monkeypatch, delta_ms):
+    from gi.repository import Gtk
+
+    from tests.gui.support import collect_widgets
+
+    dialog = _loaded_dialog(monkeypatch)
+    timeline = dialog._timeline
+    timeline.set_time_selection(250_000, 450_000)
+    before = dialog._current_macro_payload()
+    popovers = []
+    monkeypatch.setattr(Gtk.Popover, "popup", lambda popover: popovers.append(popover))
+    dialog._show_selection_timing()
+    popover = popovers[-1]
+    stack = collect_widgets(popover.get_child(), Gtk.Stack)[0]
+    stack.set_visible_child_name("move")
+    spin = collect_widgets(stack.get_visible_child(), Gtk.SpinButton)[0]
+    spin.set_value(delta_ms)
+    apply = next(
+        button
+        for button in collect_widgets(popover.get_child(), Gtk.Button)
+        if button.has_css_class("suggested-action")
+    )
+    apply.emit("clicked")
+    delta = max(delta_ms * 1000, -250_000)
+    assert timeline._time_selection == (250_000 + delta, 450_000 + delta)
+    selected = timeline.selected_items()[0]
+    assert (selected.press_t_us, selected.release_t_us) == (300_000 + delta, 350_000 + delta)
+    fragment = dialog._capture_selection()
+    assert fragment.duration_us == 200_000
+    assert [event["t_us"] for event in fragment.events] == [50_000, 100_000]
+    after = dialog._current_macro_payload()
+    assert len(dialog._edit_history.past) == 1
+    dialog._restore_history()
+    assert dialog._current_macro_payload() == before
+    dialog._restore_history(redo=True)
+    assert dialog._current_macro_payload() == after
+
+
 @pytest.mark.parametrize("kind", ["overlap", "touching", "single"])
 def test_selection_timing_explains_unavailable_pauses_and_blocks_apply(monkeypatch, kind):
     from gi.repository import Gtk

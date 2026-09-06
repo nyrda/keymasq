@@ -10,6 +10,7 @@ from typing import Any
 import evdev
 
 from keymasq.gui.widgets.macro_editor.model import (
+    _EDITOR_ORDER_ATTR,
     EditableControl,
     EditableEvent,
     EditableMove,
@@ -147,6 +148,32 @@ def assign_missing_orders(lists: TimelineLists) -> int:
     return next_order
 
 
+def _reserve_insert_orders(lists: TimelineLists, end_us: int, count: int) -> int:
+    """Place fragment orders between the destination prefix and shifted suffix."""
+    slots: list[tuple[bool, int, Item, str]] = []
+
+    def add(item: Item, attribute: str, stamp: int) -> None:
+        order = getattr(item, attribute)
+        assert isinstance(order, int)  # assign_missing_orders has filled every slot.
+        slots.append((stamp >= end_us, order, item, attribute))
+
+    for item in items(lists):
+        if isinstance(item, EditableEvent):
+            add(item, "original_press_order", item.press_t_us)
+            if item.ev_type == evdev.ecodes.EV_KEY:
+                add(item, "original_release_order", item.release_t_us)
+        elif isinstance(item, dict):
+            add(item, _EDITOR_ORDER_ATTR, start(item))
+        else:
+            add(item, "original_order", item.t_us)
+    # Compact orders on every insertion so repeated pastes cannot inflate them.
+    slots.sort(key=lambda slot: (slot[0], slot[1]))
+    prefix_count = sum(not suffix for suffix, _, _, _ in slots)
+    for index, (suffix, _, item, attribute) in enumerate(slots):
+        setattr(item, attribute, index + (count if suffix else 0))
+    return prefix_count
+
+
 @dataclass
 class Fragment:
     events: list[MacroEvent]
@@ -211,9 +238,11 @@ class Fragment:
                     shift(item, self.duration_us)
                 elif isinstance(item, EditableEvent) and item.release_t_us > at_us:
                     item.release_t_us += self.duration_us
-        # Rebase source order after destination events. Equal-time source order
-        # remains intact, including release-before-press at block boundaries.
+        # Ordinary paste follows destination events at equal times. Insertion
+        # instead places the fragment between the prefix and shifted suffix.
         next_order = assign_missing_orders(lists)
+        if insert:
+            next_order = _reserve_insert_orders(lists, at_us + self.duration_us, len(self.events))
         raw = []
         for event in self.events:
             cloned = copy.deepcopy(event)

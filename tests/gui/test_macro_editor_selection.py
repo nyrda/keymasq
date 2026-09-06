@@ -3,6 +3,7 @@
 import json
 
 import evdev
+import pytest
 
 from keymasq.gui.widgets.macro_editor import selection
 from keymasq.gui.widgets.macro_editor.model import (
@@ -160,12 +161,69 @@ def test_insert_makes_room_and_extends_a_held_modifier() -> None:
     assert (target[0][-1].press_t_us, target[0][-1].release_t_us) == (500, 700)
 
 
+@pytest.mark.parametrize("recorded", [False, True])
+@pytest.mark.parametrize("at_us", [0, 100_000])
+def test_insert_preserves_key_cycles_at_both_fragment_boundaries(recorded, at_us) -> None:
+    target: TimelineLists = ([key(0, 100_000), key(100_000, 200_000)], [], [], [], [])
+    if recorded:
+        target = parse_events(reconstruct_events(*target))
+    source: TimelineLists = ([key(0, 100_000)], [], [], [], [])
+    fragment = selection.Fragment.capture(source, selection.items(source))
+    fragment.paste(target, at_us, insert=True)
+    raw = reconstruct_events(*target)
+    assert [(event["t_us"], event["value"]) for event in raw] == [
+        (0, 1),
+        (100_000, 0),
+        (100_000, 1),
+        (200_000, 0),
+        (200_000, 1),
+        (300_000, 0),
+    ]
+    reloaded = parse_events(raw)
+    assert [(event.press_t_us, event.release_t_us) for event in reloaded[0]] == [
+        (0, 100_000),
+        (100_000, 200_000),
+        (200_000, 300_000),
+    ]
+
+
 def test_ordinary_paste_leaves_other_items_fixed() -> None:
     existing = key(0, 1000)
     target: TimelineLists = ([existing], [], [], [], [])
     source: TimelineLists = ([key(100, 300)], [], [], [], [])
     selection.Fragment.capture(source, selection.items(source)).paste(target, 500)
     assert (existing.press_t_us, existing.release_t_us) == (0, 1000)
+
+
+def test_insert_keeps_mixed_destination_order_and_spanning_hold() -> None:
+    target: TimelineLists = (
+        [
+            key(0, 200, evdev.ecodes.KEY_LEFTCTRL),
+            key(0, 100),
+            key(100, 200),
+            EditableEvent("gamepad", evdev.ecodes.EV_ABS, 0, 100, 100, value=42),
+        ],
+        [{"t_us": 100, "device_type": "mouse", "type": 2, "code": 0, "value": 4}],
+        [{"t_us": 100, "device_type": "keyboard", "type": 4, "code": 4, "value": 30}],
+        [EditableMove("rel", 100, x=5, y=10)],
+        [EditableControl("wait", 100, duration_us=500)],
+    )
+    original = reconstruct_events(*target)
+    source: TimelineLists = ([key(0, 100)], [], [], [], [])
+    fragment = selection.Fragment.capture(source, selection.items(source))
+    prefix = [
+        event
+        for event in original
+        if event["t_us"] < 100
+        or (event["t_us"] == 100 and event["type"] == 1 and event["value"] == 0)
+    ]
+    suffix = [{**event, "t_us": event["t_us"] + 100} for event in original if event not in prefix]
+    inserted = [{**event, "t_us": event["t_us"] + 100} for event in fragment.events]
+    expected = sorted([*prefix, *inserted, *suffix], key=lambda event: event["t_us"])
+    fragment.paste(target, 100, insert=True)
+    assert reconstruct_events(*target) == expected
+    assert reconstruct_events(*parse_events(expected)) == expected
+    assert (target[0][0].press_t_us, target[0][0].release_t_us) == (0, 300)
 
 
 def test_pause_edit_preserves_overlaps_and_hold_durations() -> None:

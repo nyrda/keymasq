@@ -165,7 +165,8 @@ editing also work with Move Actions off, which is the default.
 The group keeps its relative timing, holds, and overlaps. Moving left stops
 the whole group at time zero; moving right can extend the macro. A time
 selection keeps its leading and trailing silence. Unselected actions stay in
-place. Use [Selection Timing](#adjust-selected-timing) for an exact offset.
+place. Use [Selection Timing](#adjust-selected-timing) for an exact offset;
+its Move operation preserves the same padding and stops the whole range at zero.
 
 ## Copy and paste
 

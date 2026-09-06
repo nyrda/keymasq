@@ -44,7 +44,11 @@ class _DeviceCommandManager(Protocol):
         categories: Sequence[object] | None = None,
     ) -> JsonObject: ...
 
-    async def set_virtual_gamepads(self, count: object) -> JsonObject: ...
+    async def set_virtual_gamepads(
+        self,
+        count: object,
+        virtual_devices: object | None = None,
+    ) -> JsonObject: ...
 
     async def track_profile_activation(
         self,
@@ -148,7 +152,10 @@ async def handle_device_command(
         return await daemon.device_manager.set_diagnostics(enabled, interval, categories)
 
     if command_type == CommandType.SET_VIRTUAL_GAMEPADS:
-        return await daemon.device_manager.set_virtual_gamepads(data.get("count"))
+        return await daemon.device_manager.set_virtual_gamepads(
+            data.get("count"),
+            data.get("virtual_devices") if "virtual_devices" in data else None,
+        )
 
     if command_type == CommandType.TRACK_PROFILE_ACTIVATION:
         return await daemon.device_manager.track_profile_activation(

@@ -7,9 +7,16 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
+import evdev
+
 from keymasq.common.model.core import DeviceType
 from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis, learned_output_axes
 from keymasq.common.types import JsonObject
+from keymasq.common.virtual_device_templates import (
+    ResolvedVirtualDevice,
+    template_analog_inputs,
+    template_output_axes,
+)
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
@@ -23,6 +30,8 @@ class GamepadOutputTarget:
     analog_inputs: dict[str, object] = field(default_factory=dict)
     stick_output: StickOutputState = field(default_factory=StickOutputState)
     output_axes: tuple[OutputAxis, ...] | None = None
+    axis_rest_values: dict[int, int] = field(default_factory=dict)
+    axis_ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
 
 
 type ClearComboRuntime = Callable[[], Awaitable[None]]
@@ -85,9 +94,10 @@ async def reconfigure_virtual_gamepads(
     configure_outputs: ConfigureVirtualGamepads,
     set_inactive_count: Callable[[int], None],
     logger: logging.Logger,
+    configuration_changed: bool = False,
 ) -> JsonObject:
     """Reset dependent output state before replacing virtual gamepads."""
-    if count == current_count:
+    if count == current_count and not configuration_changed:
         return {"status": "ok", "count": count}
 
     cancelled_tasks: list[asyncio.Task[None]] = []
@@ -147,9 +157,15 @@ class GamepadOutputRouter:
         explicit = output_id is not None
         resolved_id = str(output_id or "virtual-gamepad-1").strip() or "virtual-gamepad-1"
 
-        if is_virtual_gamepad_output_id(resolved_id):
-            raw_outputs = getattr(output_state, "virtual_gamepad_uinputs", {})
-            outputs = cast(dict[str, object], raw_outputs) if isinstance(raw_outputs, dict) else {}
+        raw_outputs = getattr(output_state, "virtual_gamepad_uinputs", {})
+        outputs = cast(dict[str, object], raw_outputs) if isinstance(raw_outputs, dict) else {}
+        raw_specs = getattr(output_state, "virtual_device_specs", {})
+        specs = cast(dict[str, object], raw_specs) if isinstance(raw_specs, dict) else {}
+        if (
+            resolved_id in outputs
+            or resolved_id in specs
+            or is_virtual_gamepad_output_id(resolved_id)
+        ):
             uinput = outputs.get(resolved_id)
             if uinput is None:
                 self._virtual_stick_outputs.pop(resolved_id, None)
@@ -159,13 +175,40 @@ class GamepadOutputRouter:
             if previous is None or previous[0] is not uinput:
                 previous = (uinput, StickOutputState())
                 self._virtual_stick_outputs[resolved_id] = previous
+            spec = specs.get(resolved_id)
+            axis_rest_values = (
+                {
+                    int(getattr(evdev.ecodes, axis.evdev.upper())): axis.rest
+                    for axis in spec.template.axes
+                }
+                if isinstance(spec, ResolvedVirtualDevice)
+                else {}
+            )
             return GamepadOutputTarget(
                 output_id=resolved_id,
                 uinput=uinput,
                 bucket=f"gamepad:{resolved_id}",
                 is_virtual=True,
                 stick_output=previous[1],
-                output_axes=STANDARD_OUTPUT_AXES,
+                output_axes=(
+                    template_output_axes(spec.template)
+                    if isinstance(spec, ResolvedVirtualDevice)
+                    else STANDARD_OUTPUT_AXES
+                ),
+                analog_inputs=(
+                    template_analog_inputs(spec.template)
+                    if isinstance(spec, ResolvedVirtualDevice)
+                    else {}
+                ),
+                axis_rest_values=axis_rest_values,
+                axis_ranges=(
+                    {
+                        int(getattr(evdev.ecodes, axis.evdev.upper())): (axis.minimum, axis.maximum)
+                        for axis in spec.template.axes
+                    }
+                    if isinstance(spec, ResolvedVirtualDevice)
+                    else {}
+                ),
             )
 
         devices = grabbed_devices.get(resolved_id)

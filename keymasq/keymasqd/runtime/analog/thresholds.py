@@ -13,7 +13,10 @@ from keymasq.keymasqd.runtime.analog.threshold_state import (
     threshold_key,
 )
 from keymasq.keymasqd.runtime.grabbed_device import actions
-from keymasq.keymasqd.runtime.grabbed_device.outputs import track_refcounted_output_bucket
+from keymasq.keymasqd.runtime.grabbed_device.outputs import (
+    gamepad_axis_release_value,
+    track_refcounted_output_bucket,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -232,6 +235,7 @@ def track_threshold_abs_output(
     axis_code: int,
     value: int,
 ) -> bool:
+    release_value = gamepad_axis_release_value(device_runtime, bucket, axis_code)
     return track_refcounted_output_bucket(
         device_runtime.state.analog_threshold_abs_refcounts,
         device_runtime.state.held_output_abs,
@@ -239,6 +243,7 @@ def track_threshold_abs_output(
         axis_code,
         value,
         pressed_value=None,
+        release_value=release_value,
     )
 
 

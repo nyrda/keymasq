@@ -223,9 +223,10 @@ controller, or pass through with adjusted tuning.
 - **Output Axis** — for 1D controls, choose `Same Axis` or an individual
   supported destination axis, including components of a stick
 - **Output Control** — for sticks, preserve the source side, force `Left` or
-  `Right`, or select a learned stick on physical hardware
-- Physical stick outputs use the target stick's hardware range and center
-  when available; virtual gamepad sticks use the standard Xbox stick range
+  `Right`, or select a learned hardware or template stick
+- Physical and template-backed virtual outputs use the target axis ranges and
+  rest values when available. The built-in standard gamepad uses its standard
+  stick range.
 - **Output Deadzone** — values below this are sent as centered/released
 - **Output Rest** — manual release value when **Use Axis Neutral** is disabled
 - **Output Direction** — `Min`, `Max`, or `Both` (1D axes):
@@ -314,12 +315,18 @@ analog_control_names = ["WASD", "Mouse Wheel"]
 
 ## Game Compatibility
 
-The virtual gamepad appears as a standard Linux gamepad:
+The built-in Xbox output appears as a standard Xbox 360 controller:
 
 - **SDL2/SDL3** — full support
 - **Steam Input** — full support
 - **Wine/Proton** — works via evdev translation
 - **Native Linux games** — works with evdev-compatible games
+
+Template-backed joysticks are exposed through Linux evdev and SDL's joystick
+API. Games launched through Steam can open them directly, including through
+Wine/Proton when the game supports a joystick. Steam Input itself does not
+provide remapping for flight sticks and wheels, so do not expect a joystick
+template in Steam's gamepad configurator.
 
 Use [jstest-gtk](https://github.com/Grumbel/jstest-gtk) to verify that
 your virtual gamepad buttons and axes are working as expected.
@@ -328,8 +335,9 @@ your virtual gamepad buttons and axes are working as expected.
 
 ### Virtual Gamepads
 
-When you map an input to a gamepad action, Keymasq creates a virtual gamepad
-using Linux uinput. Games see it as a standard Xbox 360 controller.
+When you map an input to a gamepad action, Keymasq creates virtual gaming
+devices with Linux uinput. The existing virtual gamepads are instances of the
+built-in Xbox 360 template.
 
 Keymasq creates one virtual gamepad by default. You can configure 0–4 from
 the GUI hamburger menu under **Settings**. The setting is stored in
@@ -344,12 +352,183 @@ If the setting cannot be written to disk, the requested count remains active
 for the current session and Keymasq shows a warning that it may revert after a
 restart.
 
-Each virtual gamepad uses Xbox 360 hardware IDs:
+Each standard numbered virtual gamepad uses Xbox 360 hardware IDs:
 
 - **Name**: `keymasq-gamepad` (first), `keymasq-gamepad-2` through `-4`
 - **Vendor**: `0x045e` (Microsoft)
 - **Product**: `0x028e` (Xbox 360 controller)
 - **Capabilities**: 17 digital buttons, 8 analog axes
+
+### Template-backed virtual devices
+
+Open **Settings → Custom virtual devices** to create stable output instances
+from a template. Keymasq ships two built-in templates:
+
+- **Standard gamepad**, used by the existing 0–4 **Virtual gamepads** setting,
+  with two sticks, two triggers, and directional controls
+- **Flight stick**, with 12 joystick buttons and six
+  axes: X, Y, twist, throttle, and a two-axis hat
+
+The standard gamepad uses the Xbox 360 identity (`045e:028e`). The flight stick
+uses the Logitech Extreme 3D Pro identity (`046d:c215`) and Linux capability
+layout. These model references describe the emulated identities used for game
+detection; the GUI uses generic template names. Existing template IDs, Linux
+device names, and vendor/product IDs remain unchanged.
+
+An output instance keeps its configured
+`output_id` across restarts, so profiles do not depend on discovery order.
+
+The built-in flight stick has a dedicated mapping picker. Direction pads select
+stick and hat directions; twist selects left or right, and throttle shortcuts
+select Idle, Half, or Full. Grip buttons and base buttons surround a joystick
+illustration. Base buttons 7–12 correspond to the template's Base 1–6 controls.
+Tooltips show each control's Linux code.
+
+The axis editor accepts exact values or percentages of travel from rest. Stick
+and twist percentages range from -100 to 100; throttle ranges from 0 at idle to
+100 at full travel. The throttle's raw range is reversed: idle is 255 and full
+is 0. Select **Map axis** to use the chosen value. Custom templates retain their
+gamepad or flight stick layout, with shortcuts using the configured axis ranges.
+Only controls defined by the template are available to map. Other buttons appear
+in a numbered **Additional buttons** grid below the illustration and axis editor.
+The shortcut above the illustration jumps to this grid; search by label, number,
+control ID, or Linux code to find a button.
+
+Analog mappings to a virtual template resolve **Same**, **Left**, and **Right**
+using the destination's event codes, ranges, and rest values. A destination that
+does not contain the requested control receives no axis events. Choose a named
+destination control when the source and destination use different codes. Motion
+mappings also offer the template's named sticks instead of assuming two gamepad
+sticks.
+
+Use **Add output** on a template to create a controller from it. The output
+dialog selects that template and suggests an unused output ID. Identity overrides
+are optional and otherwise inherit the template's values.
+
+When applying changes, Keymasq prepares replacement outputs before removing the
+old ones. If creating or initializing a replacement fails, the existing outputs
+and their configuration remain available.
+
+Use **Customize** on a built-in template, or **Duplicate** on a custom template,
+to create an editable copy. Copies receive an unused ID that can be changed before
+saving. **New template** lets you start from the gamepad or flight stick. The
+**Layout** choice controls the mapping illustration independently of the template
+ID. Changing it preserves the configured buttons, axes, and device identity.
+
+The template editor has **Identity**, **Buttons**, and **Axes** tabs. Expand a
+control to edit its label and select a Linux code from a searchable list. Axis
+controls remain available in the mapping picker's axis selector. **Add numbered
+buttons** adds a batch of buttons using unused `BTN_TRIGGER_HAPPY*` codes, up to
+the template's 40-button total. Rename these buttons to describe their purpose.
+Axis rows include minimum, maximum, and rest fields. Control IDs, fuzz, flat, and
+resolution are under **Advanced**; the Linux device name, USB IDs, and bus type are under **Device
+identity**. Validation errors keep the editor open with your changes intact.
+Axis metadata must fit signed 32-bit integers. Linux aliases for the same button
+or axis count as one event code and cannot define separate controls.
+
+A template defines:
+
+- a template ID, display label, Linux device name, bus type, vendor ID,
+  product ID, and version
+- 1–40 named buttons, each bound to a Linux `BTN_*` code
+- 2–8 named axes, each bound to an `ABS_*` code with minimum, maximum, rest,
+  fuzz, flat, and resolution values
+
+Keymasq requires `ABS_X` and `ABS_Y` plus a joystick-classifying button or
+axis. This prevents custom devices that Linux exposes through uinput but SDL
+silently ignores. `BTN_TRIGGER_HAPPY*` controls are supported, but a template
+made only from TriggerHappy buttons still needs a classifying axis such as
+`ABS_RZ`.
+
+**Use changes** returns edits to the virtual devices dialog. Changes are drafts
+until **Apply** is pressed; closing with unapplied changes asks before discarding
+them. Applying reconnects affected
+uinput devices, so close games that currently have them open first.
+
+Named virtual outputs preserve raw axis values when mappings and superkeys are
+saved. At runtime, Keymasq limits those values to the target template's axis
+range and releases the axis to its declared rest value. The standard numbered
+virtual gamepads retain their existing axis limits.
+
+The advanced format is stored in
+`~/.config/keymasq/virtual_devices.toml`. Built-in templates are referenced by
+ID and are not copied into the file. This creates a flight stick output:
+
+```toml
+[[devices]]
+output_id = "flight-stick"
+template = "logitech-extreme-3d-pro"
+```
+
+Identity fields can be overridden per output:
+
+```toml
+[[devices]]
+output_id = "left-seat-stick"
+template = "logitech-extreme-3d-pro"
+name = "Left Seat Stick"
+vendor_id = "046d"
+product_id = "c215"
+version = "0110"
+bustype = "usb"
+```
+
+A custom template and output use arrays of button and axis tables:
+
+```toml
+[[templates]]
+id = "space-panel"
+label = "Space Panel"
+layout = "flight-stick"
+name = "Keymasq Space Panel"
+vendor_id = "4b4d"
+product_id = "2001"
+version = "0100"
+bustype = "usb"
+
+[[templates.buttons]]
+id = "fire"
+label = "Fire"
+evdev = "btn_trigger_happy1"
+
+[[templates.buttons]]
+id = "mode"
+label = "Mode"
+evdev = "btn_trigger_happy2"
+
+[[templates.axes]]
+id = "x"
+label = "Stick X"
+evdev = "abs_x"
+minimum = -32768
+maximum = 32767
+rest = 0
+
+[[templates.axes]]
+id = "y"
+label = "Stick Y"
+evdev = "abs_y"
+minimum = -32768
+maximum = 32767
+rest = 0
+
+[[templates.axes]]
+id = "twist"
+label = "Twist"
+evdev = "abs_rz"
+minimum = -32768
+maximum = 32767
+rest = 0
+
+[[devices]]
+output_id = "space-rig"
+template = "space-panel"
+```
+
+The mapper shows the selected template's control labels and axis endpoints.
+Profiles continue to store the corresponding evdev target, such as
+`btn_trigger_happy1` or `abs_rz`, together with the stable `output_id`. Axis
+actions return to the template's declared `rest` value when released.
 
 ### Output Routing
 
@@ -359,6 +538,7 @@ Valid values:
 | Value | Target |
 |-------|--------|
 | `virtual-gamepad-1` … `virtual-gamepad-4` | A configured virtual gamepad |
+| A configured template output ID (for example `flight-stick`) | A template-backed virtual device |
 | A hardware ID (e.g. `045e:028e@2`) | A grabbed physical controller |
 
 If `output_id` is omitted, output goes to `virtual-gamepad-1`. If the

@@ -72,7 +72,13 @@ def write_gamepad_axes(
         elif value == reset_values.get(axis_code, 0):
             _clear_tracked_abs_state(device_runtime, target_bucket, axis_code)
         else:
-            track_abs_state(device_runtime, axis_code, value, bucket=target_bucket)
+            track_abs_state(
+                device_runtime,
+                axis_code,
+                value,
+                bucket=target_bucket,
+                release_value=reset_values.get(axis_code, 0),
+            )
     syn_if_passthrough_frame_closed(
         target_uinput,
         writer,

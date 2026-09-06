@@ -130,7 +130,10 @@ async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon
     assert result == {"status": "error", "message": "daemon rejected count"}
     sent = manager.client.send_command.await_args.args[0]
     assert sent.command == CommandType.SET_VIRTUAL_GAMEPADS
-    assert sent.data == {"count": 2}
+    assert sent.data == {
+        "count": 2,
+        "virtual_devices": {"templates": [], "devices": []},
+    }
     assert manager.virtual_gamepad_count == 3
     assert session_settings.load_global_settings().virtual_gamepad_count == 3
     manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]

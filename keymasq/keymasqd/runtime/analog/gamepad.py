@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.analog.metadata import (
     axis_min_max,
     resolve_gamepad_output_target,
     resolve_output_axis,
+    resolve_virtual_output_config,
     stick_axis_center,
     stick_output_axis_specs,
     stick_output_reset_axes,
@@ -42,8 +43,19 @@ def emit_gamepad_output(
 ) -> None:
     if not config.gamepad_output.enabled:
         return
+    target = resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
+        return
+    resolved_config = resolve_virtual_output_config(
+        device_runtime, source_id, config, deps=deps, target=target
+    )
+    if resolved_config is None:
+        return
+    config = resolved_config
     if config.input_type == "axis":
-        _emit_axis_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
+        _emit_axis_gamepad_output(
+            device_runtime, state_key, source_id, config, deps=deps, target=target
+        )
         return
     _emit_stick_gamepad_output(
         device_runtime,
@@ -53,6 +65,7 @@ def emit_gamepad_output(
         gyro=gyro,
         minimum_output=minimum_output,
         deps=deps,
+        target=target,
     )
 
 
@@ -80,6 +93,7 @@ def _emit_stick_gamepad_output(
     gyro: bool = False,
     minimum_output: float = 0.0,
     deps: ActionExecutionDeps,
+    target: object,
 ) -> None:
     if config.gamepad_output.target == "analog":
         _emit_analog_stick_output(
@@ -90,10 +104,8 @@ def _emit_stick_gamepad_output(
             gyro=gyro,
             minimum_output=minimum_output,
             deps=deps,
+            target=target,
         )
-        return
-    target = resolve_gamepad_output_target(device_runtime, source_id, config)
-    if target is None:
         return
     axis_specs = stick_output_axis_specs(
         device_runtime,
@@ -154,10 +166,8 @@ def _emit_axis_gamepad_output(
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
+    target: object,
 ) -> None:
-    target = resolve_gamepad_output_target(device_runtime, source_id, config)
-    if target is None:
-        return
     axis = resolve_output_axis(device_runtime, source_id, config, target=target, deps=deps)
     if axis is None:
         return
@@ -223,23 +233,27 @@ def reset_gamepad_output(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    if config.gamepad_output.target == "analog" and config.input_type != "axis":
-        _reset_analog_gamepad_output(device_runtime, state_key, source_id, config, deps=deps)
+    target = resolve_gamepad_output_target(device_runtime, source_id, config)
+    if target is None:
         return
-    target: object | None = None
+    resolved_config = resolve_virtual_output_config(
+        device_runtime, source_id, config, deps=deps, target=target
+    )
+    if resolved_config is None:
+        return
+    config = resolved_config
+    if config.gamepad_output.target == "analog" and config.input_type != "axis":
+        _reset_analog_gamepad_output(
+            device_runtime, state_key, source_id, config, deps=deps, target=target
+        )
+        return
     if config.input_type == "axis":
-        target = resolve_gamepad_output_target(device_runtime, source_id, config)
-        if target is None:
-            return
         axis = resolve_output_axis(device_runtime, source_id, config, target=target, deps=deps)
         if axis is None:
             return
         rest = config.gamepad_output.output_rest
         axes = ((axis.code, axis.clamp(rest if rest is not None else axis.neutral)),)
     else:
-        target = resolve_gamepad_output_target(device_runtime, source_id, config)
-        if target is None:
-            return
         axis_specs = stick_output_axis_specs(
             device_runtime,
             source_id,
@@ -272,10 +286,8 @@ def _emit_analog_stick_output(
     gyro: bool = False,
     minimum_output: float = 0.0,
     deps: ActionExecutionDeps,
+    target: object,
 ) -> None:
-    target = resolve_gamepad_output_target(device_runtime, source_id, config)
-    if target is None:
-        return
     analog = target_analog_input(target, config, expected_type="stick")
     if analog is None:
         return
@@ -342,10 +354,8 @@ def _reset_analog_gamepad_output(
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
+    target: object,
 ) -> None:
-    target = resolve_gamepad_output_target(device_runtime, source_id, config)
-    if target is None:
-        return
     analog = target_analog_input(target, config, expected_type=config.input_type)
     if analog is None:
         return

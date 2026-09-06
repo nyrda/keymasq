@@ -2114,6 +2114,62 @@ def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch)
     assert ("045e:028e@2", "Living Room Pad (045e:028e@2)") in dialog._gamepad_output_choices()
 
 
+def test_key_selector_dialog_uses_selected_virtual_device_template(monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE_ID,
+        VirtualDeviceConfig,
+        VirtualDeviceInstance,
+    )
+    import keymasq.gui.widgets.key_selector.tabs as dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+    config = VirtualDeviceConfig(
+        devices=(
+            VirtualDeviceInstance(
+                output_id="flight-stick",
+                template_id=LOGITECH_EXTREME_3D_TEMPLATE_ID,
+            ),
+        )
+    )
+    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(dialog_module, "virtual_device_config", lambda: config)
+    monkeypatch.setattr(
+        dialog_module,
+        "HardwareManager",
+        lambda: SimpleNamespace(list_hardware=lambda: []),
+    )
+
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Trigger",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_trigger",
+            output_id="flight-stick",
+        ),
+    )
+
+    labels: set[str] = set()
+
+    def collect_labels(widget: Gtk.Widget) -> None:
+        if isinstance(widget, Gtk.Button) and widget.get_label():
+            labels.add(str(widget.get_label()))
+        child = widget.get_first_child()
+        while child is not None:
+            collect_labels(child)
+            child = child.get_next_sibling()
+
+    collect_labels(dialog._template_gamepad_picker)
+
+    assert dialog._standard_gamepad_picker.get_visible() is False
+    assert dialog._template_gamepad_picker.get_visible() is True
+    assert {"Trigger", "12", "Idle", "Half", "Full", "Map axis"} <= labels
+
+
 def test_key_selector_dialog_gamepad_default_warns_when_virtual_count_zero(monkeypatch):
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk

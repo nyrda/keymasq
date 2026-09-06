@@ -21,7 +21,7 @@ def test_settings_dialog_constructs(monkeypatch, temp_config_dir) -> None:
     assert isinstance(dialog, Adw.Dialog)
     assert dialog.get_child() is not None
     assert dialog.get_content_width() == 460
-    assert dialog.get_content_height() == 380
+    assert dialog.get_content_height() == 480
     assert dialog._macro_settings_btn.get_tooltip_text() == "Open macro recording settings"
 
 

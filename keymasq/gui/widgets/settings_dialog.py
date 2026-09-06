@@ -27,7 +27,7 @@ def _count_value(value: object, default: int) -> int:
 
 class SettingsDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window | None = None) -> None:
-        super().__init__(title="Settings", content_width=460, content_height=380)
+        super().__init__(title="Settings", content_width=460, content_height=480)
         self._parent = parent
         self._settings = load_global_settings()
         self._gamepad_count = self._settings.virtual_gamepad_count
@@ -44,11 +44,11 @@ class SettingsDialog(Adw.Dialog):
 
         page = Adw.PreferencesPage()
 
-        gamepad_group = Adw.PreferencesGroup(title="Virtual Devices")
+        gamepad_group = Adw.PreferencesGroup(title="Virtual devices")
         page.add(gamepad_group)
 
         gamepad_row = Adw.ActionRow(title="Virtual gamepads")
-        gamepad_row.set_subtitle("Set virtual controller outputs")
+        gamepad_row.set_subtitle("Number of standard virtual gamepads")
         count_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         count_box.set_valign(Gtk.Align.CENTER)
         self._minus_button = Gtk.Button(icon_name="list-remove-symbolic")
@@ -66,6 +66,16 @@ class SettingsDialog(Adw.Dialog):
         gamepad_row.add_suffix(count_box)
         gamepad_group.add(gamepad_row)
         self._sync_gamepad_count_controls()
+
+        virtual_devices_row = Adw.ActionRow(title="Custom virtual devices")
+        virtual_devices_row.set_subtitle("Configure templates and additional outputs")
+        virtual_devices_button = Gtk.Button(icon_name="go-next-symbolic")
+        virtual_devices_button.set_tooltip_text("Manage custom virtual devices")
+        virtual_devices_button.set_valign(Gtk.Align.CENTER)
+        virtual_devices_button.connect("clicked", self._on_virtual_devices_clicked)
+        virtual_devices_row.add_suffix(virtual_devices_button)
+        gamepad_group.add(virtual_devices_row)
+        self._virtual_devices_button = virtual_devices_button
 
         macro_group = Adw.PreferencesGroup(title="Macros")
         page.add(macro_group)
@@ -118,6 +128,11 @@ class SettingsDialog(Adw.Dialog):
 
         dialog = RecordMacroDialog(self._parent)
         dialog.present(self._parent)
+
+    def _on_virtual_devices_clicked(self, _button: Gtk.Button) -> None:
+        from keymasq.gui.widgets.virtual_devices_dialog import VirtualDevicesDialog
+
+        VirtualDevicesDialog(self).present(self)
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
         if self._save_inflight or self._save_applied:

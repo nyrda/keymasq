@@ -18,6 +18,12 @@ from keymasq.common.output_axes import (
     find_output_axis,
     learned_output_axes,
 )
+from keymasq.common.virtual_device_templates import (
+    XBOX_360_TEMPLATE_ID,
+    resolve_virtual_devices,
+    template_analog_inputs,
+    template_output_axes,
+)
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.gui.widgets.analog_control.draft import ControlDraft, GamepadDraft, MouseDraft
 from keymasq.gui.widgets.analog_control.gamepad import (
@@ -114,6 +120,8 @@ class AnalogControlEditorView(Gtk.Box):
         self._output_target_items: list[tuple[str, str | None]] = []
         self._output_target_buttons: dict[str, Gtk.ToggleButton] = {}
         self._hardware_output_configs: dict[str, object] = {}
+        self._virtual_output_axes: dict[str, tuple[OutputAxis, ...]] = {}
+        self._virtual_output_analog_inputs: dict[str, dict[str, object]] = {}
         self._refreshing_outputs = False
         self._tick_ms = 8
 
@@ -415,6 +423,9 @@ class AnalogControlEditorView(Gtk.Box):
         if selected == SAME_DEVICE_OUTPUT_ID:
             # Reusable controls have no source device until they are bound.
             return STANDARD_OUTPUT_AXES
+        virtual_axes = self._virtual_output_axes.get(selected or "")
+        if virtual_axes is not None:
+            return virtual_axes
         hardware = self._hardware_output_configs.get(selected or "")
         if hardware is not None:
             return learned_output_axes(getattr(hardware, "analog_inputs", []) or [])
@@ -501,6 +512,23 @@ class AnalogControlEditorView(Gtk.Box):
             )
             return axis_choices
         selected = self._selected_output_id
+        virtual_analogs = self._virtual_output_analog_inputs.get(selected or "")
+        if virtual_analogs is not None:
+            choices = [
+                (
+                    "same",
+                    None,
+                    gamepad_output_target_label_for_input_type(input_type, "same"),
+                )
+            ]
+            for analog_id, raw_analog in virtual_analogs.items():
+                if not isinstance(raw_analog, dict):
+                    continue
+                if str(raw_analog.get("type", "") or "") != input_type:
+                    continue
+                label = str(raw_analog.get("label", "") or analog_id)
+                choices.append(("analog", analog_id, label))
+            return choices
         hardware = (
             self._hardware_output_configs.get(selected or "")
             if selected and not is_virtual_gamepad_output_id(selected)
@@ -613,6 +641,17 @@ class AnalogControlEditorView(Gtk.Box):
         self._hardware_output_configs = {
             str(getattr(config, "hardware_id", "") or ""): config
             for config in choice_set.hardware_configs
+        }
+        virtual_devices = resolve_virtual_devices(
+            choice_set.count, choice_set.virtual_device_config
+        )
+        self._virtual_output_axes = {
+            device.output_id: template_output_axes(device.template) for device in virtual_devices
+        }
+        self._virtual_output_analog_inputs = {
+            device.output_id: template_analog_inputs(device.template)
+            for device in virtual_devices
+            if device.template.id != XBOX_360_TEMPLATE_ID
         }
         choices = [(SAME_DEVICE_OUTPUT_ID, "Default (same device)"), *choice_set.choices]
         self._output_ids = [output_id for output_id, _ in choices]

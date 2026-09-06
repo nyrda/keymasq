@@ -420,6 +420,7 @@ def parse_analog_control_config(
         deadzone=coerce_float((gamepad_config or {}).get("deadzone"), 0.0),
         target=coerce_str((gamepad_config or {}).get("target"), "same") or "same",
         target_analog_id=coerce_str((gamepad_config or {}).get("target_analog_id"), None),
+        target_axis=coerce_str((gamepad_config or {}).get("target_axis"), None),
         output_rest=coerce_int(
             (gamepad_config or {}).get("output_rest"),
             None,

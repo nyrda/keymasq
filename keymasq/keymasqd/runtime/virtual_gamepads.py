@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from keymasq.common.model.core import DeviceType
+from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis, learned_output_axes
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
@@ -21,10 +22,57 @@ class GamepadOutputTarget:
     is_virtual: bool
     analog_inputs: dict[str, object] = field(default_factory=dict)
     stick_output: StickOutputState = field(default_factory=StickOutputState)
+    output_axes: tuple[OutputAxis, ...] | None = None
 
 
 type ClearComboRuntime = Callable[[], Awaitable[None]]
 type ConfigureVirtualGamepads = Callable[[int], None]
+
+
+def _resolved_hardware_analog_inputs(device: object) -> dict[str, object]:
+    """Combine saved metadata with cached grab-time calibration without mutating either."""
+    raw_inputs = getattr(device, "analog_inputs", None)
+    if not isinstance(raw_inputs, dict):
+        return {}
+    inputs = dict(cast(dict[str, object], raw_inputs))
+    raw_calibrations = getattr(device, "analog_axis_calibrations", None)
+    calibrations = (
+        cast(dict[tuple[str, str], dict[str, object]], raw_calibrations)
+        if isinstance(raw_calibrations, dict)
+        else {}
+    )
+    raw_ranges = getattr(device, "analog_axis_ranges", None)
+    ranges = (
+        cast(dict[tuple[str, str], tuple[int, int]], raw_ranges)
+        if isinstance(raw_ranges, dict)
+        else {}
+    )
+    for analog_id, raw_input in inputs.items():
+        if not isinstance(raw_input, dict):
+            continue
+        analog = cast(dict[str, object], raw_input)
+        raw_axes = analog.get("axes")
+        if not isinstance(raw_axes, list):
+            continue
+        axes: list[object] = []
+        for raw_axis in cast(list[object], raw_axes):
+            if not isinstance(raw_axis, dict):
+                axes.append(raw_axis)
+                continue
+            axis = dict(cast(dict[str, object], raw_axis))
+            key = (analog_id, str(axis.get("role", "") or "").strip().lower())
+            calibration = calibrations.get(key, {})
+            for field_name in ("minimum", "maximum", "center", "rest"):
+                if axis.get(field_name) is None and calibration.get(field_name) is not None:
+                    axis[field_name] = calibration[field_name]
+            axis_range = ranges.get(key)
+            if axis_range is not None:
+                for field_name, value in zip(("minimum", "maximum"), axis_range, strict=True):
+                    if axis.get(field_name) is None:
+                        axis[field_name] = value
+            axes.append(axis)
+        inputs[analog_id] = {**analog, "axes": axes}
+    return inputs
 
 
 async def reconfigure_virtual_gamepads(
@@ -117,6 +165,7 @@ class GamepadOutputRouter:
                 bucket=f"gamepad:{resolved_id}",
                 is_virtual=True,
                 stick_output=previous[1],
+                output_axes=STANDARD_OUTPUT_AXES,
             )
 
         devices = grabbed_devices.get(resolved_id)
@@ -137,18 +186,14 @@ class GamepadOutputRouter:
                 stick_output = getattr(
                     getattr(device, "state", None), "passthrough_stick_output", None
                 )
-                raw_analog_inputs = getattr(device, "analog_inputs", {}) or {}
-                analog_inputs = (
-                    dict(cast(dict[str, object], raw_analog_inputs))
-                    if isinstance(raw_analog_inputs, dict)
-                    else {}
-                )
+                analog_inputs = _resolved_hardware_analog_inputs(device)
                 return GamepadOutputTarget(
                     output_id=resolved_id,
                     uinput=uinput,
                     bucket=f"gamepad:{resolved_id}",
                     is_virtual=False,
                     analog_inputs=analog_inputs,
+                    output_axes=learned_output_axes(analog_inputs.values()),
                     stick_output=stick_output
                     if isinstance(stick_output, StickOutputState)
                     else StickOutputState(),

@@ -168,6 +168,7 @@ class AnalogControlManager:
                 deadzone=coerce_float(gamepad_data.get("deadzone"), 0.0),
                 target=_toml_str(gamepad_data, "target", "same") or "same",
                 target_analog_id=_toml_str(gamepad_data, "target_analog_id"),
+                target_axis=_toml_str(gamepad_data, "target_axis"),
                 output_rest=(
                     coerce_int(gamepad_data.get("output_rest"), 0)
                     if gamepad_data.get("output_rest") is not None
@@ -324,6 +325,9 @@ class AnalogControlManager:
         if config.gamepad_output.target_analog_id:
             gamepad_output = cast(dict[str, object], data["gamepad_output"])
             gamepad_output["target_analog_id"] = config.gamepad_output.target_analog_id
+        if config.gamepad_output.target_axis:
+            gamepad_output = cast(dict[str, object], data["gamepad_output"])
+            gamepad_output["target_axis"] = config.gamepad_output.target_axis
         if config.gamepad_output.output_rest is not None:
             gamepad_output = cast(dict[str, object], data["gamepad_output"])
             gamepad_output["output_rest"] = int(config.gamepad_output.output_rest)

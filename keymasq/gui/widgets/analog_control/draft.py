@@ -98,12 +98,13 @@ class GamepadDraft:
     deadzone: float
     target: str
     target_analog_id: str | None
-    output_rest: int
+    output_rest: int | None
     output_direction: str
     invert_x: bool
     invert_y: bool
     sensitivity: float
     response_curve: float
+    target_axis: str | None = None
 
     @classmethod
     def from_config(cls, config: AnalogGamepadOutputConfig) -> "GamepadDraft":
@@ -115,7 +116,8 @@ class GamepadDraft:
             deadzone=config.deadzone,
             target=config.target,
             target_analog_id=config.target_analog_id,
-            output_rest=config.output_rest or 0,
+            output_rest=config.output_rest,
+            target_axis=config.target_axis,
             output_direction=config.output_direction,
             invert_x=invert_x,
             invert_y=config.output_invert_y,
@@ -132,6 +134,7 @@ class GamepadDraft:
             deadzone=self.deadzone,
             target=self.target,
             target_analog_id=self.target_analog_id,
+            target_axis=self.target_axis,
             output_rest=self.output_rest if is_axis else None,
             output_direction=direction,
             output_invert=is_axis

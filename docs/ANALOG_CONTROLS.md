@@ -81,9 +81,10 @@ Returning to rest brings the pointer back to the origin. When
 enabled = true
 output_id = "same-device"    # same-device, hardware ID, or virtual-gamepad-N
 deadzone = 0.0               # 0.0–0.95; values below are sent as centered
-target = "same"              # same|left|right|analog
+target = "same"              # same|left|right|analog|axis
 target_analog_id = ""        # required when target = "analog"
-output_rest = 0              # raw value at rest (1D axis only)
+# target_axis = "abs_x"      # required when target = "axis" (1D axis only)
+# output_rest = 0            # optional raw rest override; omitted uses destination neutral
 output_direction = "both"    # min|max|both (1D axis only)
 output_invert = false        # 1D axis only; inverts direction when output_direction = "both"
 output_invert_x = false      # stick output only
@@ -94,6 +95,14 @@ response_curve = 1.0         # 0.25–4.0
 
 ### Output targets
 
+- `axis` selects one supported destination axis by `target_axis`, independently
+  of the source axis. The built-in virtual gamepad supports `abs_x`, `abs_y`,
+  `abs_rx`, `abs_ry`, `abs_z`, `abs_rz`, `abs_hat0x`, and `abs_hat0y`.
+  Hardware outputs expose learned axes with valid ranges, including individual
+  components of a stick and custom axes such as `abs_throttle`.
+  At runtime, missing saved ranges and rest values are filled from the
+  destination's grab-time calibration. Valid numeric-only `evdev_code` identities
+  are also supported by the daemon's output capability resolver.
 - `same` — preserves the source side: `left_stick` writes `ABS_X`/`ABS_Y`,
   `right_stick` writes `ABS_RX`/`ABS_RY`, `left_trigger` writes `ABS_Z`,
   `right_trigger` writes `ABS_RZ`.
@@ -125,8 +134,49 @@ output axis independently after deadzone/sensitivity/curve shaping. Learned
 hardware target-axis inversion is still honored and combines with these
 per-control flags.
 
-Virtual Xbox gamepads use fixed semantic targets (left/right stick and
-trigger) and ignore `target_analog_id`.
+Virtual Xbox gamepads also accept the legacy left/right stick and trigger
+targets. Their individual axes can be selected with `target = "axis"`.
+
+### Individual axis routing
+
+The editor's **Output Axis** dropdown lists axes on the selected destination.
+**Use Axis Neutral** keeps the rest value automatic. Turn it off to enter a
+raw rest override. Saved unavailable selections remain visible and are not
+silently replaced. With the default same-device output, the editor offers
+standard axes; availability and neutral are resolved against the bound device
+at runtime. Select a specific hardware output to choose its custom axes.
+
+For example, a trigger can drive the negative half of a stick:
+
+```toml
+name = "Trigger to Stick X"
+input_type = "axis"
+
+[gamepad_output]
+enabled = true
+output_id = "virtual-gamepad-1"
+target = "axis"
+target_axis = "abs_x"
+output_direction = "min"
+```
+
+Released input writes zero and full input writes -32768. With `max`, full
+input writes 32767. `both` uses signed input on either side of neutral, with
+optional inversion. Deadzone, sensitivity, and response curve apply before
+conversion to the destination range. Rest overrides and emitted values are
+clamped to that range. Only the selected axis is written and reset, including
+when a profile is removed or replaced. Single stick-axis output also preserves
+the existing gyro-offset behavior.
+
+Three-state hat axes use -1, 0, and 1. After output shaping, a direction engages
+at 55% displacement from zero and releases at 45%. This hysteresis prevents
+chatter near the threshold. Release/reset clears the previous hat state.
+
+Existing `same`, `left`, `right`, and `analog` configurations remain readable.
+Standard targets now use destination axis metadata too. Unsupported axes emit
+no output, rather than falling back to a different axis. Selecting an axis does
+not add capabilities to an output device; additional virtual-device axes must
+be advertised by its provider. See [Output axis metadata](OUTPUT_AXES.md).
 
 ## Thresholds (Digital Actions)
 

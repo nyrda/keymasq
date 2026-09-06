@@ -35,6 +35,77 @@ def _select_mode(dialog, mode: str) -> None:
     )
 
 
+def _select_output_axis(dialog, axis: str) -> None:
+    dropdown = dialog.editor.gamepad.gamepad_output_target_box.get_first_child()
+    model = dropdown.get_model()
+    for index in range(model.get_n_items()):
+        if model.get_string(index).endswith(f"· {axis}"):
+            dropdown.set_selected(index)
+            return
+    pytest.fail(f"Missing output axis {axis}")
+
+
+def test_axis_dropdown_saves_virtual_stick_component_and_automatic_neutral(temp_config_dir):
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.editor.name_entry.set_text("Stick Component")
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "gamepad")
+    dialog.editor.gamepad.gamepad_output_dropdown.set_selected(1)
+    _select_output_axis(dialog, "ABS_Y")
+    assert dialog.editor.gamepad.gamepad_output_target_side_row.get_title() == "Output Axis"
+    assert dialog.editor.gamepad.gamepad_output_auto_rest_row.get_active()
+    assert not dialog.editor.gamepad.gamepad_output_rest_row.get_sensitive()
+    assert dialog._save_current()
+    saved = dialog.manager.get_analog_control("Stick Component")
+    assert saved.gamepad_output.target_axis == "abs_y"
+    assert saved.gamepad_output.output_rest is None
+    reloaded = AnalogControlDialog(Gtk.Window())
+    assert reloaded.editor.draft().gamepad.target_axis == "abs_y"
+    assert reloaded.editor.draft().gamepad.output_rest is None
+    _select_output_axis(reloaded, "ABS_HAT0X")
+    assert reloaded.editor.draft().gamepad.target_axis == "abs_hat0x"
+
+
+@pytest.mark.parametrize(
+    "target, detail", [("left", None), ("analog", "brake"), ("axis", "abs_throttle")]
+)
+def test_axis_editor_preserves_saved_unavailable_and_legacy_targets(
+    temp_config_dir, target, detail
+):
+    from dataclasses import replace
+
+    from gi.repository import Gtk
+
+    from keymasq.common.model.analog import AnalogControlConfig, AnalogGamepadOutputConfig
+    from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
+    from keymasq.session.analog_controls import AnalogControlManager
+
+    config = AnalogControlConfig(
+        name="Saved Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            output_id="virtual-gamepad-1",
+            target=target,
+            target_axis=detail if target == "axis" else None,
+            target_analog_id=detail if target == "analog" else None,
+            output_rest=123,
+        ),
+    )
+    AnalogControlManager().save_analog_control(config)
+    dialog = AnalogControlDialog(Gtk.Window())
+    # The editor canonicalizes virtual-gamepad-1 to the default output.
+    assert dialog.editor.draft().to_config().gamepad_output == replace(
+        config.gamepad_output, output_id=None
+    )
+    if target == "axis":
+        assert dialog.editor.gamepad.gamepad_output_warning_row.get_visible()
+
+
 def test_new_analog_control_keeps_draft_when_add_row_reselected(temp_config_dir) -> None:
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
@@ -1311,16 +1382,33 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
         buttons=[],
         analog_inputs=[
             AnalogInputDefinition(
+                id="stick",
+                label="Stick",
+                type="stick",
+                axes=[
+                    AnalogAxisDefinition("x", "ABS_X", minimum=-100, maximum=100, center=5),
+                    AnalogAxisDefinition("y", "ABS_Y", minimum=0, maximum=1023, center=512),
+                ],
+            ),
+            AnalogInputDefinition(
                 id="gas",
                 label="Gas",
                 type="axis",
-                axes=[AnalogAxisDefinition(role="x", evdev="abs_gas", evdev_code=9)],
+                axes=[
+                    AnalogAxisDefinition(
+                        role="x", evdev="abs_gas", evdev_code=9, minimum=0, maximum=1023
+                    )
+                ],
             ),
             AnalogInputDefinition(
                 id="brake",
                 label="Brake",
                 type="axis",
-                axes=[AnalogAxisDefinition(role="x", evdev="abs_brake", evdev_code=10)],
+                axes=[
+                    AnalogAxisDefinition(
+                        role="x", evdev="abs_brake", evdev_code=10, minimum=0, maximum=1023
+                    )
+                ],
             ),
         ],
     )
@@ -1339,8 +1427,11 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
     assert dialog.editor.gamepad.gamepad_output_dropdown is not None
     dialog.editor.gamepad.gamepad_output_dropdown.set_selected(2)
 
-    assert "analog:brake" in dialog.editor.output_target_buttons
-    dialog.editor.output_target_buttons["analog:brake"].set_active(True)
+    _select_output_axis(dialog, "ABS_Y")
+    assert dialog.editor.gamepad.gamepad_output_rest_row.get_value() == 512
+    assert dialog.editor.draft().gamepad.output_rest is None
+    _select_output_axis(dialog, "ABS_BRAKE")
+    dialog.editor.gamepad.gamepad_output_auto_rest_row.set_active(False)
     dialog.editor.gamepad.gamepad_output_rest_row.set_value(100)
     dialog.editor.gamepad.gamepad_output_direction_both_btn.set_active(True)
 
@@ -1348,8 +1439,8 @@ def test_analog_output_controls_use_learned_hardware_targets(temp_config_dir, mo
     saved = dialog.manager.get_analog_control("Route Pedal")
     assert saved is not None
     assert saved.gamepad_output.output_id == "1234:5678"
-    assert saved.gamepad_output.target == "analog"
-    assert saved.gamepad_output.target_analog_id == "brake"
+    assert saved.gamepad_output.target == "axis"
+    assert saved.gamepad_output.target_axis == "abs_brake"
     assert saved.gamepad_output.output_rest == 100
     assert saved.gamepad_output.output_direction == "both"
     assert saved.gamepad_output.output_invert is False

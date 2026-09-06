@@ -14,6 +14,7 @@ from keymasq.common.model.analog import (
     AnalogMouseMotionConfig,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
@@ -21,6 +22,7 @@ from keymasq.keymasqd.runtime.analog.curves import (
     normalize_axis_value,
     normalize_control_axis_value,
 )
+from keymasq.keymasqd.runtime.analog.gamepad import emit_gamepad_output, reset_gamepad_output
 from keymasq.keymasqd.runtime.analog.mouse import axis_motion_delta, motion_delta
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
 from keymasq.keymasqd.runtime.analog_controls import (
@@ -33,6 +35,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     AnalogGamepadOutputState,
     GrabbedDeviceState,
 )
+from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputTarget
 
 
 class FakeUInput:
@@ -87,6 +90,236 @@ def _runtime(mapping: dict[str, MappingAction], keyboard: FakeUInput) -> SimpleN
         analog_axis_calibrations={},
         resolve_gamepad_output=lambda _output_id, _context: None,
     )
+
+
+def _axis_output_runtime(config: AnalogControlConfig, axes=STANDARD_OUTPUT_AXES):
+    gamepad = FakeUInput()
+    runtime = _runtime({}, FakeUInput())
+    target = GamepadOutputTarget("virtual-gamepad-1", gamepad, "gamepad", True, output_axes=axes)
+    runtime.resolve_gamepad_output = lambda _id, _context: target
+
+    def emit(value: float) -> None:
+        runtime.state.analog_axis_values["source"] = {"x": abs(value), "x_signed": value}
+        emit_gamepad_output(runtime, "source", "source", config, deps=_deps())
+
+    return runtime, gamepad, target, emit
+
+
+@pytest.mark.parametrize("axis", STANDARD_OUTPUT_AXES)
+def test_explicit_axis_uses_destination_endpoints_and_resets_only_that_axis(axis) -> None:
+    config = AnalogControlConfig(
+        name="Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis=axis.evdev,
+            output_direction="both",
+        ),
+    )
+    runtime, gamepad, _, emit = _axis_output_runtime(config)
+    for value, expected in [(1.0, axis.maximum), (-1.0, axis.minimum), (0.0, axis.neutral)]:
+        emit(value)
+        assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, axis.code, expected)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, axis.code, axis.neutral)
+    assert {code for _, code, _ in gamepad.events} == {axis.code}
+
+
+@pytest.mark.parametrize("direction, expected", [("max", 32767), ("min", -32768)])
+def test_trigger_can_drive_either_half_of_stick(direction, expected) -> None:
+    config = AnalogControlConfig(
+        name="Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_X",
+            output_direction=direction,
+        ),
+    )
+    _, gamepad, _, emit = _axis_output_runtime(config)
+    emit(1)
+    emit(0)
+    assert gamepad.events == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, expected),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+    ]
+
+
+@pytest.mark.parametrize("rest", [None, 400, 5000])
+@pytest.mark.asyncio
+async def test_custom_axis_neutral_override_and_recorded_reset_after_profile_change(rest) -> None:
+    config = AnalogControlConfig(
+        name="Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_THROTTLE",
+            output_direction="both",
+            output_rest=rest,
+            output_invert=True,
+        ),
+    )
+    axis = OutputAxis("ABS_THROTTLE", "Throttle", 100, 900, 500)
+    runtime, gamepad, _, emit = _axis_output_runtime(config, (axis,))
+    emit(1)
+    assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, axis.code, 100)
+    emit(-1)
+    assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, axis.code, 900)
+    await reset_analog_controls(runtime, deps=_deps())
+    assert gamepad.events[-1] == (
+        evdev.ecodes.EV_ABS,
+        axis.code,
+        axis.clamp(rest if rest is not None else 500),
+    )
+    assert runtime.state.analog_gamepad_outputs == {}
+    assert runtime.state.held_output_abs.get("gamepad", set()) == set()
+
+
+@pytest.mark.parametrize("axes", [(), STANDARD_OUTPUT_AXES])
+def test_unsupported_axis_does_not_write_or_fall_back(axes) -> None:
+    config = AnalogControlConfig(
+        name="Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_THROTTLE",
+        ),
+    )
+    runtime, gamepad, _, emit = _axis_output_runtime(config, axes)
+    emit(1)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    assert gamepad.events == []
+    assert runtime.state.analog_gamepad_outputs == {}
+
+
+def test_hat_hysteresis_and_reset() -> None:
+    config = AnalogControlConfig(
+        name="Hat",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_HAT0X",
+            output_direction="both",
+        ),
+    )
+    runtime, gamepad, _, emit = _axis_output_runtime(config)
+    for value in [0.54, 0.55, 0.50, 0.45, -0.55, -0.50, -0.45]:
+        emit(value)
+    assert [value for _, _, value in gamepad.events] == [0, 1, 1, 0, -1, -1, 0]
+    emit(1)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    emit(0.50)
+    assert gamepad.events[-1][2] == 0
+
+
+def test_explicit_axis_resolves_component_of_learned_hardware_stick() -> None:
+    config = AnalogControlConfig(
+        name="Hardware Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_Y",
+            output_direction="both",
+        ),
+    )
+    runtime, gamepad, _, emit = _axis_output_runtime(config)
+    target = GamepadOutputTarget(
+        "hardware",
+        gamepad,
+        "gamepad:hardware",
+        False,
+        analog_inputs={
+            "stick": {
+                "type": "stick",
+                "axes": [
+                    {"role": "x", "evdev": "ABS_X", "minimum": -100, "maximum": 100, "center": 0},
+                    {"role": "y", "evdev": "ABS_Y", "minimum": 0, "maximum": 1023, "center": 512},
+                ],
+            }
+        },
+    )
+    runtime.resolve_gamepad_output = lambda _id, _context: target
+    emit(0.5)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    assert gamepad.events == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 768),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 512),
+    ]
+
+
+@pytest.mark.parametrize(
+    "axis_identity, expected",
+    [
+        ({"evdev_code": 99999}, []),
+        ({"evdev_code": evdev.ecodes.ABS_BRAKE, "evdev": "abs_unknown"}, []),
+        (
+            {"evdev_code": evdev.ecodes.ABS_BRAKE},
+            [
+                (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_BRAKE, 1023),
+                (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_BRAKE, 0),
+            ],
+        ),
+    ],
+)
+def test_learned_axis_name_resolution_handles_invalid_metadata(axis_identity, expected) -> None:
+    config = AnalogControlConfig(
+        name="Learned Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="analog",
+            target_analog_id="pedal",
+        ),
+    )
+    runtime, gamepad, _, emit = _axis_output_runtime(config)
+    target = GamepadOutputTarget(
+        "hardware",
+        gamepad,
+        "gamepad:hardware",
+        False,
+        analog_inputs={
+            "pedal": {
+                "type": "axis",
+                "axes": [
+                    {"role": "x", "minimum": 0, "maximum": 1023, "rest": 0, **axis_identity},
+                ],
+            }
+        },
+    )
+    runtime.resolve_gamepad_output = lambda _id, _context: target
+    emit(1)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    assert gamepad.events == expected
+    if not expected:
+        assert runtime.state.analog_gamepad_outputs == {}
+
+
+def test_single_stick_axis_preserves_gyro_offset_and_other_axis() -> None:
+    config = AnalogControlConfig(
+        name="Axis",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis="ABS_X",
+        ),
+    )
+    runtime, gamepad, target, emit = _axis_output_runtime(config)
+    target.stick_output.write_base(runtime.hardware_id, evdev.ecodes.ABS_Y, 1234)
+    target.stick_output.write_gyro(
+        runtime.hardware_id, (1, "gyro"), evdev.ecodes.ABS_X, -32768, 32767, 0, 0.1
+    )
+    emit(0.5)
+    assert gamepad.events[-1][2] == round(round(32767 * 0.5) + 32767 * 0.1)
+    reset_gamepad_output(runtime, "source", "source", config, deps=_deps())
+    assert gamepad.events[-1][2] == round(32767 * 0.1)
+    assert target.stick_output.bases[evdev.ecodes.ABS_Y][1] == 1234
 
 
 def test_normalize_axis_value_maps_sides_independently() -> None:
@@ -1354,6 +1587,7 @@ async def test_generic_axis_gamepad_output_same_uses_learned_axis_code() -> None
     runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
         uinput=gamepad,
         bucket="gamepad",
+        output_axes=(OutputAxis("ABS_GAS", "Gas", 0, 255),),
     )
     event = FakeEvent(255)
     event.code = evdev.ecodes.ABS_GAS
@@ -1741,9 +1975,7 @@ async def test_scoped_analog_reset_only_resets_tracked_matching_outputs() -> Non
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 0),
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0),
     ]
-    assert runtime.state.analog_axis_values == {
-        "left_stick": {"x": 1.0, "y": 0.0}
-    }
+    assert runtime.state.analog_axis_values == {"left_stick": {"x": 1.0, "y": 0.0}}
     assert set(runtime.state.analog_gamepad_outputs) == {"left_stick"}
 
 

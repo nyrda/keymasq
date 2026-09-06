@@ -182,6 +182,7 @@ class AnalogGamepadOutputState:
     output_id: str | None
     reset_axes: tuple[tuple[int, int], ...]
     gyro: bool = False
+    last_axes: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass

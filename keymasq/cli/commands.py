@@ -1,3 +1,4 @@
+import asyncio
 import json
 import socket
 import sys
@@ -407,8 +408,18 @@ def mpris_status_cli(*, json_output: bool = False) -> None:
     _print_mpris_status(_mpris_payload(result))
 
 
-def play_macro_cli(name: str, speed: float = 1.0, *, json_output: bool = False) -> None:
-    result = _request_or_error({"command": "play_macro", "name": name, "speed": float(speed)})
+def _playback_request(payload: JsonObject, wait: bool) -> JsonObject:
+    if wait:
+        from keymasq.cli.playback import wait_for_playback
+
+        return asyncio.run(wait_for_playback(payload))
+    return _request_or_error(payload)
+
+
+def play_macro_cli(
+    name: str, speed: float = 1.0, *, json_output: bool = False, wait: bool = False
+) -> None:
+    result = _playback_request({"command": "play_macro", "name": name, "speed": float(speed)}, wait)
     if _handled_json_or_error(result, json_output):
         return
     print(f"Played macro: {name}")
@@ -454,6 +465,7 @@ def type_cli(
     speed: float = 1.0,
     use_unicode_input: bool = True,
     print_json: bool = False,
+    wait: bool = False,
     json_output: bool = False,
 ) -> None:
     text = " ".join(text_parts) if text_parts else _read_stdin_or_exit("No text provided")
@@ -476,7 +488,7 @@ def type_cli(
         _print_json(macro_definition_from_events(events))
         return
 
-    result = _request_or_error(
+    result = _playback_request(
         {
             "command": "type_text",
             "text": text,
@@ -484,11 +496,13 @@ def type_cli(
             "pause_ms": max(0, int(pause_ms)),
             "use_unicode_input": bool(use_unicode_input),
             "speed": float(speed),
-        }
+        },
+        wait,
     )
     if _handled_json_or_error(result, json_output):
         return
-    print(f"Played type macro: {len(text)} chars")
+    action = "Completed" if wait else "Queued"
+    print(f"{action} type macro: {len(text)} chars")
 
 
 def cancel_macro_cli(*, json_output: bool = False) -> None:

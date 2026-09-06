@@ -83,6 +83,8 @@ class DaemonConnectionMixin:
 
     async def _handle_keymasqd_disconnect(self: Any) -> None:
         was_connected = self.connected
+        if hasattr(self, "playback_requests"):
+            await self.playback_requests.daemon_disconnected()
         await events.cancel_event_tasks(self)
         await runtime_state.cancel_all_grab_retries(self)
         self.connected = False

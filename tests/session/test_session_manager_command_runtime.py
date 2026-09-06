@@ -888,7 +888,6 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     sent_commands = []
     to_thread_calls = []
 
@@ -903,7 +902,9 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
     manager.client.send_command = send_command  # type: ignore[method-assign]
 
-    result = await manager._handle_session_request(
+    result = await macro_commands_module.handle_macro_commands(
+        manager,
+        "type_text",
         {
             "command": "type_text",
             "text": "Hi",
@@ -911,10 +912,9 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
             "pause_ms": 0,
             "speed": 1.25,
         },
-        peer,
-        object(),
     )
 
+    assert result is not None
     assert result["status"] == "ok"
     assert result["char_count"] == 2
     assert result["event_count"] == len(sent_commands[0].data["macro_events"])
@@ -928,13 +928,12 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
 @pytest.mark.asyncio
 async def test_type_text_reports_error_when_compilation_produces_no_events() -> None:
     manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     manager.client.send_command = AsyncMock()
 
-    result = await manager._handle_session_request(
+    result = await macro_commands_module.handle_macro_commands(
+        manager,
+        "type_text",
         {"command": "type_text", "text": ""},
-        peer,
-        object(),
     )
 
     assert result == {"status": "error", "message": "type macro produced no events"}
@@ -3826,10 +3825,10 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
         peer,
         object(),
     )
-    type_text_error = await manager._handle_session_request(
+    type_text_error = await macro_commands_module.handle_macro_commands(
+        manager,
+        "type_text",
         {"command": "type_text", "text": "Hi"},
-        peer,
-        object(),
     )
     assert create_missing == {"status": "error", "message": "macro payload required"}
     assert update_missing == {"status": "error", "message": "macro payload required"}
@@ -3839,16 +3838,15 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
 @pytest.mark.asyncio
 async def test_type_text_reports_daemon_failures() -> None:
     manager = SessionManager()
-    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
     payload = {"command": "type_text", "text": "a"}
 
     manager.client.send_command = AsyncMock(side_effect=OSError("daemon down"))
-    unavailable = await manager._handle_session_request(payload, peer, object())
+    unavailable = await macro_commands_module.handle_macro_commands(manager, "type_text", payload)
 
     manager.client.send_command = AsyncMock(
         return_value=Response(status="error", error="play failed")
     )
-    failed = await manager._handle_session_request(payload, peer, object())
+    failed = await macro_commands_module.handle_macro_commands(manager, "type_text", payload)
 
     assert unavailable == {"status": "error", "message": "Daemon unavailable"}
     assert failed == {"status": "error", "message": "play failed"}

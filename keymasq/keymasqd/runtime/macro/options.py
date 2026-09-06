@@ -128,6 +128,7 @@ class MacroPlaybackOptions:
         default=1,
         metadata=_playback_metadata(_parse_playback_int),
     )
+    playback_id: str = field(default="", metadata=_playback_metadata(_parse_playback_text))
     load_stored_macro: bool = True
 
 

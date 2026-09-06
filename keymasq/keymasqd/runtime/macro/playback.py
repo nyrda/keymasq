@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import normalize_macro_loop_stop_behavior
 from keymasq.keymasqd.runtime.macro import cleanup, loops, scheduler
 from keymasq.keymasqd.runtime.macro.events import list_macro_event_source
@@ -53,7 +54,7 @@ async def play_macro(
     if int(playback_options.trigger_value) != 1:
         return {"status": "ok"}
 
-    if normalized_loop == "toggle":
+    if normalized_loop == "toggle" and not playback_options.playback_id:
         toggle_instances = loops.find_matching_macro_instances(
             manager.macro_state,
             loop_mode="toggle",
@@ -78,6 +79,14 @@ async def play_macro(
         int_value_fn=deps.int_value_fn,
     )
     if event_source.event_count <= 0:
+        if playback_options.playback_id:
+            manager._broadcast_runtime_event(
+                CommandType.MACRO_PLAYBACK_FINISHED,
+                {
+                    "playback_id": playback_options.playback_id,
+                    "state": "completed",
+                },
+            )
         return {"status": "ok"}
 
     _start_macro_instance(
@@ -157,6 +166,7 @@ def _start_macro_instance(
         loop_stop_behavior=normalized_loop_stop_behavior,
         parent_instance_id=parent_instance_id,
     )
+    manager.macro_state.instance_meta[instance_id]["playback_id"] = playback_options.playback_id
     task = deps.asyncio_mod.create_task(
         scheduler.play_macro_task(
             manager,
@@ -177,6 +187,19 @@ def _start_macro_instance(
         )
     )
     manager.macro_state.tasks[instance_id] = task
+    if playback_options.playback_id:
+
+        def finished(done: asyncio.Task[None]) -> None:
+            result: dict[str, object] = {"playback_id": playback_options.playback_id}
+            if done.cancelled():
+                result["state"] = "cancelled"
+            elif (error := done.exception()) is not None:
+                result.update(state="failed", message=str(error))
+            else:
+                result["state"] = "completed"
+            manager._broadcast_runtime_event(CommandType.MACRO_PLAYBACK_FINISHED, result)
+
+        task.add_done_callback(finished)
     return task
 
 

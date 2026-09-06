@@ -319,6 +319,7 @@ def test_cli_main_type_routes_to_helper(monkeypatch: pytest.MonkeyPatch) -> None
             "speed": 1.25,
             "use_unicode_input": True,
             "print_json": False,
+            "wait": False,
             "json_output": False,
         }
     ]

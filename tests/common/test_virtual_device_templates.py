@@ -220,3 +220,42 @@ def test_axis_sentinels_are_not_template_controls(sentinel):
     axes[0]["evdev"] = sentinel
     with pytest.raises(VirtualDeviceConfigError, match="axis sentinel"):
         virtual_device_config_from_toml(data)
+
+
+def test_same_device_routing_sentinel_cannot_name_virtual_output():
+    data = _custom_config_data()
+    devices = cast(list[dict[str, object]], data["devices"])
+    devices[0]["output_id"] = "same-device"
+    with pytest.raises(VirtualDeviceConfigError, match="same-device.*reserved"):
+        virtual_device_config_from_toml(data)
+
+
+@pytest.mark.parametrize(
+    "controls",
+    [
+        [("x", "abs_x"), ("y", "abs_y"), ("x__y", "abs_rz")],
+        [("a__b", "abs_x"), ("c", "abs_y"), ("a", "abs_rx"), ("b__c", "abs_ry")],
+    ],
+)
+def test_derived_analog_id_collisions_are_rejected(controls):
+    data = _custom_config_data()
+    templates = cast(list[dict[str, object]], data["templates"])
+    templates[0]["axes"] = [
+        {
+            "id": control_id,
+            "label": control_id,
+            "evdev": code,
+            "minimum": -100,
+            "maximum": 100,
+            "rest": 0,
+        }
+        for control_id, code in controls
+    ]
+    with pytest.raises(VirtualDeviceConfigError, match="derived analog ID.*not unique"):
+        virtual_device_config_from_toml(data)
+
+
+def test_existing_generated_analog_ids_remain_stable():
+    data = _custom_config_data()
+    config = virtual_device_config_from_toml(data)
+    assert set(template_analog_inputs(config.templates[0])) == {"x__y"}

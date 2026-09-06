@@ -139,6 +139,144 @@ def test_apply_freezes_draft_and_restores_editor_on_failure(dialog_module, monke
     assert dialog._status.get_text() == "Could not create output"
 
 
+@pytest.mark.parametrize("outcome", ["unchanged", "applied", "unavailable", "invalid"])
+def test_unknown_apply_outcome_is_reconciled_without_local_save(
+    dialog_module, monkeypatch, temp_config_dir, outcome
+):
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE_ID,
+        VirtualDeviceConfig,
+        VirtualDeviceInstance,
+        config_to_json,
+    )
+    from keymasq.session.virtual_devices import save_virtual_device_config
+
+    old = VirtualDeviceConfig()
+    save_virtual_device_config(old)
+    config_path = temp_config_dir / "virtual_devices.toml"
+    previous_bytes = config_path.read_bytes()
+    requests = []
+    monkeypatch.setattr(
+        dialog_module,
+        "session_request_async",
+        lambda payload, callback, **kwargs: requests.append((payload, callback)),
+    )
+    dialog = dialog_module.VirtualDevicesDialog()
+    dialog._set_config(devices=[VirtualDeviceInstance("flight", LOGITECH_EXTREME_3D_TEMPLATE_ID)])
+    candidate = dialog._config
+    dialog._apply(None)
+    requests[-1][1](None)
+    assert requests[-1][0] == {"command": "get_virtual_devices"}
+    assert dialog._dirty
+    assert dialog._applying
+    assert config_path.read_bytes() == previous_bytes
+    confirmed = outcome == "applied"
+    response = {"status": "ok", "config": config_to_json(candidate if confirmed else old)}
+    if outcome == "invalid":
+        response["config"] = None
+    requests[-1][1](None if outcome == "unavailable" else response)
+    assert dialog._dirty is not confirmed
+    assert not dialog._applying
+    assert dialog._config == candidate
+    assert config_path.read_bytes() == previous_bytes
+    assert dialog._apply_button.get_sensitive() is not confirmed
+
+
+def test_apply_timeout_followed_by_rejection_preserves_disk(
+    dialog_module, monkeypatch, temp_config_dir, tmp_path
+):
+    import json
+    import socket
+    import threading
+
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE_ID,
+        VirtualDeviceConfig,
+        VirtualDeviceInstance,
+        config_to_json,
+    )
+    from keymasq.gui import session_client
+    from keymasq.session.virtual_devices import save_virtual_device_config
+
+    old = VirtualDeviceConfig()
+    save_virtual_device_config(old)
+    config_path = temp_config_dir / "virtual_devices.toml"
+    original = config_path.read_bytes()
+    dialog = dialog_module.VirtualDevicesDialog()
+    dialog._set_config(devices=[VirtualDeviceInstance("flight", LOGITECH_EXTREME_3D_TEMPLATE_ID)])
+    socket_path = tmp_path / "session.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(socket_path))
+    server.listen(2)
+    server.settimeout(2)
+    timed_out = threading.Event()
+    requests = []
+    errors = []
+
+    def serve():
+        try:
+            connection, _ = server.accept()
+            with connection, connection.makefile("rb") as reader:
+                requests.append(json.loads(reader.readline()))
+                assert timed_out.wait(2)
+                try:
+                    connection.sendall(b'{"status":"error","message":"rejected"}\n')
+                except OSError:
+                    pass  # The client closes the first connection when its request times out.
+            connection, _ = server.accept()
+            with connection, connection.makefile("rb") as reader:
+                requests.append(json.loads(reader.readline()))
+                response = {"status": "ok", "config": config_to_json(old)}
+                connection.sendall((json.dumps(response) + "\n").encode())
+        except (OSError, ValueError, AssertionError) as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    client = session_client._PersistentSessionConnection()
+    monkeypatch.setattr(session_client, "SESSION_SOCKET_PATH", socket_path)
+
+    def request(payload, callback, **kwargs):
+        timeout = 0.05 if payload["command"] == "set_virtual_devices" else 1.0
+        response = client.request(payload, timeout=timeout)
+        if payload["command"] == "set_virtual_devices":
+            assert response is None
+            timed_out.set()
+        callback(response)
+
+    monkeypatch.setattr(dialog_module, "session_request_async", request)
+    try:
+        dialog._apply(None)
+    finally:
+        timed_out.set()
+        client.shutdown()
+        thread.join(3)
+        server.close()
+    assert not thread.is_alive()
+    assert not errors
+    assert [item["command"] for item in requests] == ["set_virtual_devices", "get_virtual_devices"]
+    assert config_path.read_bytes() == original
+    assert dialog._dirty
+    assert dialog._apply_button.get_sensitive()
+    assert "Could not confirm" in dialog._status.get_text()
+
+
+def test_output_editor_rejects_same_device_id(dialog_module, monkeypatch):
+    editors = []
+    monkeypatch.setattr(
+        dialog_module.VirtualDeviceInstanceDialog,
+        "present",
+        lambda self, parent: editors.append(self),
+    )
+    dialog = dialog_module.VirtualDevicesDialog()
+    dialog._new_device(None)
+    editor = editors[-1]
+    editor._output_row.set_text("same-device")
+    editor._save(None)
+    assert not dialog._config.devices
+    assert "reserved" in editor._status.get_text()
+
+
 def test_custom_template_editor_preserves_layout_and_adds_batch(dialog_module):
     from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
 

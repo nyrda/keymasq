@@ -8,7 +8,11 @@ from typing import cast
 import evdev
 
 from keymasq.common.output_axes import OutputAxis
-from keymasq.common.virtual_devices import MAX_VIRTUAL_GAMEPADS, virtual_gamepad_output_id
+from keymasq.common.virtual_devices import (
+    MAX_VIRTUAL_GAMEPADS,
+    SAME_DEVICE_OUTPUT_ID,
+    virtual_gamepad_output_id,
+)
 
 MAX_USER_VIRTUAL_DEVICES = 4
 MAX_TEMPLATE_BUTTONS = 40
@@ -373,6 +377,7 @@ def validate_template(template: VirtualDeviceTemplate) -> None:
         raise VirtualDeviceConfigError(
             "SDL-compatible templates need a joystick button or an RX/RY/RZ-style axis"
         )
+    template_analog_inputs(template)
 
 
 def instance_from_data(value: object) -> VirtualDeviceInstance:
@@ -414,10 +419,11 @@ def virtual_device_config_from_toml(data: dict[str, object]) -> VirtualDeviceCon
     if len({device.output_id for device in devices}) != len(devices):
         raise VirtualDeviceConfigError("device output IDs must be unique")
     reserved_outputs = {
-        virtual_gamepad_output_id(index) for index in range(1, MAX_VIRTUAL_GAMEPADS + 1)
+        SAME_DEVICE_OUTPUT_ID,
+        *(virtual_gamepad_output_id(index) for index in range(1, MAX_VIRTUAL_GAMEPADS + 1)),
     }
     if reserved_outputs.intersection(device.output_id for device in devices):
-        raise VirtualDeviceConfigError("virtual-gamepad-N output IDs are reserved")
+        raise VirtualDeviceConfigError("same-device and virtual-gamepad-N output IDs are reserved")
     template_ids = {template.id for template in (*BUILTIN_VIRTUAL_DEVICE_TEMPLATES, *templates)}
     missing = {device.template_id for device in devices} - template_ids
     if missing:
@@ -511,6 +517,8 @@ def template_analog_inputs(template: VirtualDeviceTemplate) -> dict[str, object]
         if x_axis is None or y_axis is None:
             continue
         analog_id = f"{x_axis.id}__{y_axis.id}"
+        if analog_id in inputs:
+            raise VirtualDeviceConfigError(f"derived analog ID {analog_id!r} is not unique")
         inputs[analog_id] = {
             "label": f"{x_axis.label} / {y_axis.label}",
             "type": "stick",
@@ -523,6 +531,8 @@ def template_analog_inputs(template: VirtualDeviceTemplate) -> dict[str, object]
     for axis in template.axes:
         if axis.id in paired_axis_ids:
             continue
+        if axis.id in inputs:
+            raise VirtualDeviceConfigError(f"derived analog ID {axis.id!r} is not unique")
         inputs[axis.id] = {
             "label": axis.label,
             "type": "axis",

@@ -409,6 +409,11 @@ When applying changes, Keymasq prepares replacement outputs before removing the
 old ones. If creating or initializing a replacement fails, the existing outputs
 and their configuration remain available.
 
+Applying changes from the GUI requires the session service. If the Apply response
+is lost, the dialog checks the service's current configuration. It keeps the edits
+unapplied when it cannot confirm them, instead of saving an unconfirmed candidate
+to disk. Retry once the service responds.
+
 Use **Customize** on a built-in template, or **Duplicate** on a custom template,
 to create an editable copy. Copies receive an unused ID that can be changed before
 saving. **New template** lets you start from the gamepad or flight stick. The
@@ -425,6 +430,9 @@ resolution are under **Advanced**; the Linux device name, USB IDs, and bus type 
 identity**. Validation errors keep the editor open with your changes intact.
 Axis metadata must fit signed 32-bit integers. Linux aliases for the same button
 or axis count as one event code and cannot define separate controls.
+Output IDs cannot use the reserved `same-device` routing identifier or numbered
+`virtual-gamepad-N` IDs. Axis IDs must also produce unique analog-control IDs:
+the generated X/Y stick ID `x__y`, for example, cannot also name a standalone axis.
 
 A template defines:
 

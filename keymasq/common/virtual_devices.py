@@ -1,6 +1,7 @@
 MIN_VIRTUAL_GAMEPADS = 0
 MAX_VIRTUAL_GAMEPADS = 4
 DEFAULT_VIRTUAL_GAMEPADS = 1
+SAME_DEVICE_OUTPUT_ID = "same-device"
 
 
 def clamp_virtual_gamepad_count(value: object) -> int:

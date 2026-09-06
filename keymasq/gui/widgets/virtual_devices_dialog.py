@@ -30,12 +30,9 @@ from keymasq.common.virtual_device_templates import (
     template_from_data,
     template_to_data,
 )
-from keymasq.gui.session_client import GuiTaskResult, run_gui_task, session_request_async
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.virtual_template_controls import TemplateControlRow, event_names
-from keymasq.session.virtual_devices import (
-    load_virtual_device_config,
-    save_virtual_device_config,
-)
+from keymasq.session.virtual_devices import load_virtual_device_config
 
 
 def unique_template_copy(
@@ -793,12 +790,20 @@ class VirtualDevicesDialog(Adw.Dialog):
             self._content.set_sensitive(True)
             self._rebuild()
 
-        def saved(result: GuiTaskResult[VirtualDeviceConfig]) -> bool:
-            if result.ok:
-                self._dirty = False
-                self._status.set_text("Saved. The session service is unavailable.")
-            else:
-                self._status.set_text(f"Could not save: {result.error}")
+        def reconciled(response: dict[str, object] | None) -> bool:
+            confirmed = False
+            if isinstance(response, dict) and response.get("status") == "ok":
+                try:
+                    confirmed = config_from_json(response.get("config")) == config
+                except VirtualDeviceConfigError:
+                    pass
+            self._dirty = not confirmed
+            self._status.set_text(
+                "Applied. Confirmed with the session service."
+                if confirmed
+                else "Could not confirm changes. Your edits are kept; "
+                "retry when the service responds."
+            )
             finish()
             return False
 
@@ -813,7 +818,8 @@ class VirtualDevicesDialog(Adw.Dialog):
                 self._status.set_text(str(response.get("message") or "Failed to apply"))
                 finish()
                 return False
-            run_gui_task(lambda: save_virtual_device_config(config), saved)
+            self._status.set_text("No response to Apply. Checking the current configuration…")
+            session_request_async({"command": "get_virtual_devices"}, reconciled, timeout=2.0)
             return False
 
         session_request_async(

@@ -113,10 +113,6 @@ class Application(Adw.Application):
         settings_action.connect("activate", self._on_settings)
         self.add_action(settings_action)
 
-        feedback_action = Gio.SimpleAction.new("feedback", None)
-        feedback_action.connect("activate", self._on_feedback)
-        self.add_action(feedback_action)
-
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about)
         self.add_action(about_action)
@@ -219,14 +215,6 @@ class Application(Adw.Application):
         from keymasq.gui.widgets.settings_dialog import SettingsDialog
 
         dialog = SettingsDialog(self.window)
-        dialog.present(self.window)
-
-    def _on_feedback(self, action, param) -> None:
-        if not self.window:
-            return
-        from keymasq.gui.widgets.feedback_dialog import FeedbackDialog
-
-        dialog = FeedbackDialog(self.window)
         dialog.present(self.window)
 
     def _on_about(self, action, param) -> None:

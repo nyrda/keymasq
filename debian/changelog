@@ -50,8 +50,6 @@ keymasq (0.16.0-1) unstable; urgency=medium
 
 keymasq (0.15.0-1) unstable; urgency=medium
 
-  * Add a feedback dialog for submitting bugs, ideas, or questions with
-    optional diagnostics.
   * Move profile settings into a dedicated dialog with per-device grab toggles
     and an active-profiles summary.
   * Improve CLI responsiveness by deferring heavy imports and offloading macro

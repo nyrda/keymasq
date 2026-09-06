@@ -85,13 +85,14 @@ class PlaybackRequests:
 
     async def _cancel_daemon(self, job: PlaybackRequest) -> str | None:
         try:
-            response = await self.manager.client.send_command(
-                Command(
-                    command=CommandType.CANCEL_MACRO_PLAYBACK,
-                    data={"playback_id": job.playback_id},
-                ),
-                timeout=CANCEL_ACK_TIMEOUT_S,
-            )
+            async with asyncio.timeout(CANCEL_ACK_TIMEOUT_S):
+                response = await self.manager.client.send_command(
+                    Command(
+                        command=CommandType.CANCEL_MACRO_PLAYBACK,
+                        data={"playback_id": job.playback_id},
+                    ),
+                    timeout=CANCEL_ACK_TIMEOUT_S,
+                )
         except TimeoutError:
             return "Cancellation acknowledgement timed out; playback outcome unknown"
         except (OSError, RuntimeError) as exc:

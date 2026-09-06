@@ -285,7 +285,8 @@ async def test_cancel_timeout_keeps_request_tracked_and_ordered_queue_blocked(mo
 
     async def send(command: Command, timeout: float | None = None) -> Response:
         if command.command == CommandType.CANCEL_MACRO_PLAYBACK:
-            await asyncio.wait_for(asyncio.Event().wait(), timeout)
+            # Also model a blocked write/drain before the client reply timeout.
+            await asyncio.Event().wait()
         return await original_send(command, timeout=timeout)
 
     manager.client.send_command = AsyncMock(side_effect=send)
@@ -323,7 +324,8 @@ async def test_teardown_returns_when_daemon_does_not_acknowledge_cancel(
         nonlocal cancellations
         if command.command == CommandType.CANCEL_MACRO_PLAYBACK:
             cancellations += 1
-            await asyncio.wait_for(asyncio.Event().wait(), timeout)
+            # Also model a blocked write/drain before the client reply timeout.
+            await asyncio.Event().wait()
         return await original_send(command, timeout=timeout)
 
     manager.client.send_command = AsyncMock(side_effect=send)

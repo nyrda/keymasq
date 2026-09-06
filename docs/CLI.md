@@ -138,6 +138,8 @@ keymasq macros cancel
 | Option | Description |
 |---|---|
 | `--speed SPEED` | Playback speed multiplier for event timestamps; explicit wait controls are not scaled |
+| `--wait` | Wait for the terminal playback result; interruption cancels this request |
+| `--ordered` | Opt into the shared FIFO with other ordered requests; concurrent playback is the default |
 
 **Options for `create`:**
 

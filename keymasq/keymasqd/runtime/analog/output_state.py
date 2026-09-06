@@ -51,7 +51,7 @@ def write_gamepad_axes(
         axis_code = int(axis_code)
         value = int(value)
         emitted = value
-        if isinstance(stick_output, StickOutputState) and config.input_type == "stick":
+        if isinstance(stick_output, StickOutputState):
             if gyro_axes is not None:
                 emitted = stick_output.write_gyro(
                     device_runtime.hardware_id,
@@ -81,6 +81,7 @@ def write_gamepad_axes(
     device_runtime.state.analog_gamepad_outputs[state_key] = AnalogGamepadOutputState(
         output_id=resolved_gamepad_output_id(device_runtime, config),
         gyro=gyro_axes is not None,
+        last_axes=axes,
         reset_axes=(
             tuple((int(axis_code), int(value)) for axis_code, value in reset_axes)
             if reset_axes is not None

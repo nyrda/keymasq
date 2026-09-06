@@ -102,6 +102,7 @@ def _serialize_control(
             "deadzone": float(config.gamepad_output.deadzone),
             "target": config.gamepad_output.target,
             "target_analog_id": config.gamepad_output.target_analog_id,
+            "target_axis": config.gamepad_output.target_axis,
             "output_rest": config.gamepad_output.output_rest,
             "output_direction": config.gamepad_output.output_direction,
             "output_invert": bool(config.gamepad_output.output_invert),

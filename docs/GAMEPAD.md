@@ -207,21 +207,27 @@ after applying.
 
 #### Analog Output
 
+For a 1D control, choose an **Output Axis** on the destination: a trigger,
+an individual stick axis, a Hat 0 axis, or a learned hardware axis. Output uses
+that axis's range and neutral value. **Use Axis Neutral** supplies the default
+release value; disable it for a manual override. Hat output uses three states
+with hysteresis. See [Individual axis routing](ANALOG_CONTROLS.md#individual-axis-routing)
+for direction, scaling, and compatibility details.
+
 Routes the analog source to a gamepad axis on a selected output device.
 Use this to remap one stick to another, route a trigger to a different
 controller, or pass through with adjusted tuning.
 
 - **Output** — target device: a virtual gamepad, the same physical device
   (`same-device`), or another grabbed controller by hardware ID
-- **Output Control** — which axis to write:
-  - `Same Axis` — preserves the source side (left stick stays left stick)
-  - `Left Trigger` / `Right Trigger` or `Left` / `Right` — forces the
-    output side
-  - Learned analog outputs on physical hardware are also available
+- **Output Axis** — for 1D controls, choose `Same Axis` or an individual
+  supported destination axis, including components of a stick
+- **Output Control** — for sticks, preserve the source side, force `Left` or
+  `Right`, or select a learned stick on physical hardware
 - Physical stick outputs use the target stick's hardware range and center
   when available; virtual gamepad sticks use the standard Xbox stick range
 - **Output Deadzone** — values below this are sent as centered/released
-- **Output Rest** — raw value written when the axis is at rest (1D axes)
+- **Output Rest** — manual release value when **Use Axis Neutral** is disabled
 - **Output Direction** — `Min`, `Max`, or `Both` (1D axes):
   - `Min` maps from rest toward the minimum endpoint
   - `Max` maps from rest toward the maximum endpoint

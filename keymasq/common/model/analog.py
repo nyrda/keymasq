@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field, replace
 from typing import cast
 
+from keymasq.common.gamepad_axes import normalize_gamepad_axis_target
 from keymasq.common.model.actions import MappingAction, normalize_output_id
 from keymasq.common.model.core import ActionType
 
@@ -21,7 +22,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 ANALOG_MOUSE_DIRECTIONS = frozenset({"left", "right", "up", "down", "horizontal", "vertical"})
 ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
 SAME_DEVICE_OUTPUT_ID = "same-device"
-ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog"})
+ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog", "axis"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
 MAX_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 2.0
@@ -110,6 +111,7 @@ class AnalogGamepadOutputConfig:
     deadzone: float = 0.0
     target: str = "same"
     target_analog_id: str | None = None
+    target_axis: str | None = None
     output_rest: int | None = None
     output_direction: str = ""
     output_invert: bool = False
@@ -127,6 +129,13 @@ class AnalogGamepadOutputConfig:
         self.target_analog_id = normalize_output_id(self.target_analog_id)
         if self.target != "analog":
             self.target_analog_id = None
+        if self.target == "axis":
+            normalized_axis = normalize_gamepad_axis_target(self.target_axis)
+            if normalized_axis is None:
+                raise ValueError("analog output target_axis must be a valid ABS axis")
+            self.target_axis = normalized_axis
+        else:
+            self.target_axis = None
         if self.output_rest is not None:
             self.output_rest = int(self.output_rest)
         output_invert = bool(self.output_invert)
@@ -213,6 +222,8 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
         raise ValueError("analog control input_type must be 'stick' or 'axis'")
     if config.input_type == "axis" and config.mouse_motion.mode == "area":
         raise ValueError("analog mouse area mode requires a stick control")
+    if config.gamepad_output.target == "axis" and config.input_type != "axis":
+        raise ValueError("an individual output axis requires a 1D axis control")
     for index, threshold in enumerate(config.thresholds, start=1):
         allowed_axes = {"x", "y"} if config.input_type == "stick" else {"x"}
         if threshold.axis not in allowed_axes:

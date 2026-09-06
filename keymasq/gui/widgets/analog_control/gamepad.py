@@ -40,6 +40,7 @@ class GamepadOutputGroupHandle(GamepadOutputRoutingHandle):
     group: Adw.PreferencesGroup
     gamepad_output_deadzone_row: Adw.SpinRow
     gamepad_output_rest_row: Adw.SpinRow
+    gamepad_output_auto_rest_row: Adw.SwitchRow
     gamepad_output_direction_row: Adw.ActionRow
     gamepad_output_direction_min_btn: Gtk.ToggleButton
     gamepad_output_direction_max_btn: Gtk.ToggleButton
@@ -200,6 +201,10 @@ def build_gamepad_output_group(
         reset_value=0,
     )
     gamepad_output_rest_row.set_subtitle("Raw value written when the output axis is released")
+    auto_rest = Adw.SwitchRow(title="Use Axis Neutral", active=True)
+    auto_rest.set_subtitle("Use the destination axis neutral value when released")
+    auto_rest.connect("notify::active", modified)
+    group.add(auto_rest)
     group.add(gamepad_output_rest_row)
 
     gamepad_output_direction_row = Adw.ActionRow(title="Output Direction")
@@ -254,7 +259,7 @@ def build_gamepad_output_group(
         gamepad_output_sensitivity_row,
         page_step=ANALOG_CURVE_SENSITIVITY.page_step,
     )
-    gamepad_output_sensitivity_row.set_subtitle("How quickly stick output reaches full range")
+    gamepad_output_sensitivity_row.set_subtitle("How quickly output reaches full range")
     gamepad_output_sensitivity_row.connect(
         "notify::value",
         curve_changed,
@@ -305,6 +310,7 @@ def build_gamepad_output_group(
         gamepad_output_target_box=routing.gamepad_output_target_box,
         gamepad_output_deadzone_row=gamepad_output_deadzone_row,
         gamepad_output_rest_row=gamepad_output_rest_row,
+        gamepad_output_auto_rest_row=auto_rest,
         gamepad_output_direction_row=gamepad_output_direction_row,
         gamepad_output_direction_min_btn=gamepad_output_direction_min_btn,
         gamepad_output_direction_max_btn=gamepad_output_direction_max_btn,

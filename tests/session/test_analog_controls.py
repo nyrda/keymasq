@@ -30,6 +30,67 @@ def test_gamepad_output_deadzone_defaults_to_zero() -> None:
     assert AnalogGamepadOutputConfig().deadzone == 0.0
 
 
+@pytest.mark.parametrize("axis", ["ABS_X", "ABS_HAT0X", "ABS_THROTTLE"])
+@pytest.mark.parametrize("rest", [None, 100])
+def test_explicit_output_axis_round_trips_toml_and_runtime_payload(temp_config_dir, axis, rest):
+    from types import SimpleNamespace
+
+    from keymasq.keymasqd.runtime.action_parser import parse_analog_control_config
+    from keymasq.session.manager.payload.analog import serialize, serialize_signature
+
+    config = AnalogControlConfig(
+        name="Axis Output",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target="axis",
+            target_axis=axis,
+            output_direction="both",
+            output_rest=rest,
+            output_invert=True,
+        ),
+    )
+    AnalogControlManager().save_analog_control(config)
+    loaded = AnalogControlManager().get_analog_control(config.name)
+    assert loaded == config
+    payload = serialize(SimpleNamespace(), config, "hardware")
+    assert parse_analog_control_config(SimpleNamespace(), payload, json_object=None) == config
+    assert (
+        serialize_signature(SimpleNamespace(), config, "hardware")["gamepad_output"]["target_axis"]
+        == axis.lower()
+    )
+
+
+def test_explicit_output_axis_validation() -> None:
+    with pytest.raises(ValueError, match="valid ABS"):
+        AnalogGamepadOutputConfig(target="axis", target_axis="KEY_A")
+    with pytest.raises(ValueError, match="valid ABS"):
+        AnalogGamepadOutputConfig(target="axis")
+    with pytest.raises(ValueError, match="1D"):
+        validate_analog_control_config(
+            AnalogControlConfig(
+                name="Stick",
+                input_type="stick",
+                gamepad_output=AnalogGamepadOutputConfig(target="axis", target_axis="ABS_X"),
+            )
+        )
+
+
+@pytest.mark.parametrize("target", ["same", "left", "right", "analog"])
+def test_legacy_output_targets_preserve_automatic_rest(temp_config_dir, target) -> None:
+    config = AnalogControlConfig(
+        name="Legacy",
+        input_type="axis",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True,
+            target=target,
+            target_analog_id="brake" if target == "analog" else None,
+        ),
+    )
+    AnalogControlManager().save_analog_control(config)
+    assert AnalogControlManager().get_analog_control("Legacy") == config
+
+
 def test_analog_control_non_finite_mouse_values_use_defaults(temp_config_dir) -> None:
     config_path = temp_config_dir / "analog_controls" / "non_finite.toml"
     config_path.write_text(

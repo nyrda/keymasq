@@ -2,8 +2,14 @@
 
 from typing import cast
 
-from keymasq.common.devices import resolve_evdev_code
+from keymasq.common.devices import capability_name, resolve_evdev_code
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
+from keymasq.common.output_axes import (
+    STANDARD_OUTPUT_AXES,
+    OutputAxis,
+    find_output_axis,
+    learned_output_axes,
+)
 from keymasq.keymasqd.runtime.analog.curves import (
     DEFAULT_STICK_MAX,
     DEFAULT_STICK_MIN,
@@ -21,6 +27,54 @@ TRIGGER_OUTPUT_AXES = {
     "left_trigger": "ABS_Z",
     "right_trigger": "ABS_RZ",
 }
+
+
+def output_axis_specs(target: object) -> tuple[OutputAxis, ...]:
+    supplied = getattr(target, "output_axes", None)
+    if supplied is not None:
+        return cast(tuple[OutputAxis, ...], supplied)
+    analog_inputs = target_analog_inputs(target)
+    if analog_inputs:
+        return learned_output_axes(analog_inputs.values())
+    return STANDARD_OUTPUT_AXES if bool(getattr(target, "is_virtual", True)) else ()
+
+
+def resolve_output_axis(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    target: object,
+    deps: ActionExecutionDeps,
+) -> OutputAxis | None:
+    output = config.gamepad_output
+    if output.target == "axis":
+        return find_output_axis(output_axis_specs(target), output.target_axis or "")
+    if output.target == "analog":
+        analog = target_analog_input(target, config, expected_type="axis")
+        if analog is None:
+            return None
+        axis = target_axis(analog, "x")
+        if axis is None:
+            return None
+        code = axis_evdev_code(axis)
+        if code is None:
+            return None
+        minimum, maximum = axis_min_max(axis, 0, 255)
+        neutral = axis_int(axis, "rest")
+        if neutral is None:
+            neutral = max(minimum, min(0, maximum))
+        return OutputAxis(
+            str(axis.get("evdev") or capability_name(deps.evdev_mod.ecodes.EV_ABS, code)),
+            str(analog.get("label", "Axis")),
+            minimum,
+            maximum,
+            max(minimum, min(maximum, neutral)),
+        )
+    code = trigger_outputaxis_code(device_runtime, source_id, config, deps=deps)
+    if code is None:
+        return None
+    return next((axis for axis in output_axis_specs(target) if axis.code == code), None)
 
 
 def _gamepad_output_stick_axis_inverted(

@@ -12,6 +12,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID
+from keymasq.common.output_axes import (
+    STANDARD_OUTPUT_AXES,
+    OutputAxis,
+    find_output_axis,
+    learned_output_axes,
+)
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.gui.widgets.analog_control.draft import ControlDraft, GamepadDraft, MouseDraft
 from keymasq.gui.widgets.analog_control.gamepad import (
@@ -104,6 +110,7 @@ class AnalogControlEditorView(Gtk.Box):
         self._mode_items = mode_items_for_input_type("stick")
         self._selected_output_id: str | None = SAME_DEVICE_OUTPUT_ID
         self._output_ids: list[str | None] = []
+        self._axis_target_dropdown: Gtk.DropDown | None = None
         self._output_target_items: list[tuple[str, str | None]] = []
         self._output_target_buttons: dict[str, Gtk.ToggleButton] = {}
         self._hardware_output_configs: dict[str, object] = {}
@@ -163,6 +170,9 @@ class AnalogControlEditorView(Gtk.Box):
 
         self.input_type_dropdown.connect("notify::selected", self._on_input_type_changed)
         self.mode_dropdown.connect("notify::selected", self._on_mode_changed)
+        self.gamepad.gamepad_output_auto_rest_row.connect(
+            "notify::active", self._on_auto_rest_changed
+        )
         self._loading = False
         self.load(ControlDraft.new())
 
@@ -179,12 +189,10 @@ class AnalogControlEditorView(Gtk.Box):
         self.name_entry.connect("changed", self._on_modified)
         self.description_entry.connect("changed", self._on_modified)
         for label, widget in (
-            (
-                ("Name:", self.name_entry),
-                ("Description:", self.description_entry),
-                ("Input Type:", self.input_type_dropdown),
-                ("Mode:", self.mode_dropdown),
-            )
+            ("Name:", self.name_entry),
+            ("Description:", self.description_entry),
+            ("Input Type:", self.input_type_dropdown),
+            ("Mode:", self.mode_dropdown),
         ):
             form.append(label, widget)
         self.append(form.grid)
@@ -234,7 +242,12 @@ class AnalogControlEditorView(Gtk.Box):
                 deadzone=self.gamepad.gamepad_output_deadzone_row.get_value() / 100.0,
                 target=self.current_output_target(),
                 target_analog_id=self.current_output_target_analog_id(),
-                output_rest=int(self.gamepad.gamepad_output_rest_row.get_value()),
+                target_axis=self.current_output_axis(),
+                output_rest=(
+                    None
+                    if self.gamepad.gamepad_output_auto_rest_row.get_active()
+                    else int(self.gamepad.gamepad_output_rest_row.get_value())
+                ),
                 output_direction=self.current_output_direction(),
                 invert_x=self.gamepad.gamepad_output_invert_x_btn.get_active(),
                 invert_y=self.gamepad.gamepad_output_invert_y_btn.get_active(),
@@ -267,9 +280,7 @@ class AnalogControlEditorView(Gtk.Box):
 
     def capture_active(self) -> bool:
         return bool(
-            self.capture.pending
-            or self.capture.timeout_id
-            or self.capture.apply is not None
+            self.capture.pending or self.capture.timeout_id or self.capture.apply is not None
         )
 
     def set_modifier_key(self, keyval: int, pressed: bool) -> None:
@@ -338,9 +349,12 @@ class AnalogControlEditorView(Gtk.Box):
     def _load_gamepad(self, draft: GamepadDraft, input_type: str) -> None:
         self._selected_output_id = draft.output_id
         self._refresh_output_choices()
-        self._set_output_target_options(input_type, draft.target, draft.target_analog_id)
+        self._set_output_target_options(
+            input_type, draft.target, draft.target_analog_id, draft.target_axis
+        )
         self.gamepad.gamepad_output_deadzone_row.set_value(round(draft.deadzone * 100.0))
-        self.gamepad.gamepad_output_rest_row.set_value(draft.output_rest)
+        self.gamepad.gamepad_output_rest_row.set_value(draft.output_rest or 0)
+        self.gamepad.gamepad_output_auto_rest_row.set_active(draft.output_rest is None)
         direction = {
             "both": self.gamepad.gamepad_output_direction_both_btn,
             "min": self.gamepad.gamepad_output_direction_min_btn,
@@ -365,8 +379,9 @@ class AnalogControlEditorView(Gtk.Box):
         input_type: str,
         selected_target: str | None = None,
         selected_analog_id: str | None = None,
+        selected_axis: str | None = None,
     ) -> None:
-        choices = self._output_target_choices(input_type)
+        choices: list[tuple[str, str | None, str]] = self._output_target_choices(input_type)
         if not choices:
             choices = [
                 (
@@ -375,6 +390,17 @@ class AnalogControlEditorView(Gtk.Box):
                     gamepad_output_target_label_for_input_type(input_type, "same"),
                 )
             ]
+        self.gamepad.gamepad_output_target_side_row.set_title(
+            "Output Axis" if input_type == "axis" else "Output Control"
+        )
+        if input_type == "axis":
+            self._set_axis_target_choices(
+                choices,
+                selected_target or "same",
+                selected_axis if selected_target == "axis" else selected_analog_id,
+            )
+            return
+        self._axis_target_dropdown = None
         self._output_target_items = [(target, analog_id) for target, analog_id, _ in choices]
         self._output_target_buttons = populate_gamepad_output_target_buttons(
             self.gamepad.gamepad_output_target_box,
@@ -384,7 +410,96 @@ class AnalogControlEditorView(Gtk.Box):
             on_toggled=self._on_output_target_toggled,
         )
 
+    def _available_output_axes(self) -> tuple[OutputAxis, ...]:
+        selected = self._selected_output_id
+        if selected == SAME_DEVICE_OUTPUT_ID:
+            # Reusable controls have no source device until they are bound.
+            return STANDARD_OUTPUT_AXES
+        hardware = self._hardware_output_configs.get(selected or "")
+        if hardware is not None:
+            return learned_output_axes(getattr(hardware, "analog_inputs", []) or [])
+        if selected is None or is_virtual_gamepad_output_id(selected):
+            return STANDARD_OUTPUT_AXES
+        return ()
+
+    def _set_axis_target_choices(
+        self,
+        choices: list[tuple[str, str | None, str]],
+        target: str,
+        detail: str | None,
+    ) -> None:
+        selected = (target, detail)
+        if selected not in [(kind, value) for kind, value, _ in choices]:
+            saved_label = detail or gamepad_output_target_label_for_input_type("axis", target)
+            label = (
+                f"{saved_label} (unavailable)"
+                if target == "axis"
+                else f"{saved_label} (saved target)"
+            )
+            choices.append((target, detail, label))
+        box = self.gamepad.gamepad_output_target_box
+        while child := box.get_first_child():
+            box.remove(child)
+        self._output_target_buttons.clear()
+        self._output_target_items = [(kind, value) for kind, value, _ in choices]
+        dropdown = Gtk.DropDown.new_from_strings([label for _, _, label in choices])
+        dropdown.set_enable_search(True)
+        dropdown.set_selected(self._output_target_items.index(selected))
+        dropdown.connect("notify::selected", self._on_axis_target_selected)
+        self._axis_target_dropdown = dropdown
+        box.append(dropdown)
+        self._sync_axis_rest()
+
+    def _selected_axis_target(self) -> tuple[str, str | None]:
+        dropdown = self._axis_target_dropdown
+        if dropdown is not None and 0 <= dropdown.get_selected() < len(self._output_target_items):
+            return self._output_target_items[dropdown.get_selected()]
+        return "same", None
+
+    def current_output_axis(self) -> str | None:
+        target, detail = self._selected_axis_target()
+        return detail if target == "axis" else None
+
+    def _on_axis_target_selected(self, _dropdown: Gtk.DropDown, _param: object) -> None:
+        self._sync_axis_rest()
+        self._update_output_warning()
+        self._on_modified()
+
+    def _sync_axis_rest(self) -> None:
+        automatic = self.gamepad.gamepad_output_auto_rest_row.get_active()
+        row = self.gamepad.gamepad_output_rest_row
+        row.set_sensitive(not automatic)
+        axis = find_output_axis(self._available_output_axes(), self.current_output_axis() or "")
+        if self._selected_output_id == SAME_DEVICE_OUTPUT_ID:
+            axis = None
+        if automatic and axis is not None:
+            row.set_value(axis.neutral)
+        elif automatic:
+            row.set_value(0)
+        row.set_visible(
+            self.current_mode() == "gamepad"
+            and self.current_input_type() == "axis"
+            and (not automatic or axis is not None)
+        )
+        self.gamepad.gamepad_output_auto_rest_row.set_subtitle(
+            f"Neutral: {axis.neutral}. Range: {axis.minimum} to {axis.maximum}."
+            if axis is not None
+            else "Use the destination axis neutral value when released"
+        )
+
+    def _on_auto_rest_changed(self, _row: Adw.SwitchRow, _param: object) -> None:
+        self._sync_axis_rest()
+
     def _output_target_choices(self, input_type: str) -> list[tuple[str, str | None, str]]:
+        if input_type == "axis":
+            axis_choices: list[tuple[str, str | None, str]] = [("same", None, "Same Axis")]
+            axis_choices.extend(
+                [
+                    ("axis", axis.evdev.lower(), f"{axis.label} · {axis.evdev}")
+                    for axis in self._available_output_axes()
+                ]
+            )
+            return axis_choices
         selected = self._selected_output_id
         hardware = (
             self._hardware_output_configs.get(selected or "")
@@ -417,6 +532,8 @@ class AnalogControlEditorView(Gtk.Box):
         return gamepad_output_target_key(target, analog_id)
 
     def current_output_target(self) -> str:
+        if self._axis_target_dropdown is not None:
+            return self._selected_axis_target()[0]
         for target, analog_id in self._output_target_items:
             button = self._output_target_buttons.get(self._output_target_key(target, analog_id))
             if button is not None and button.get_active():
@@ -424,6 +541,9 @@ class AnalogControlEditorView(Gtk.Box):
         return "same"
 
     def current_output_target_analog_id(self) -> str | None:
+        if self._axis_target_dropdown is not None:
+            target, detail = self._selected_axis_target()
+            return detail if target == "analog" else None
         for target, analog_id in self._output_target_items:
             button = self._output_target_buttons.get(self._output_target_key(target, analog_id))
             if button is not None and button.get_active() and target == "analog":
@@ -470,6 +590,8 @@ class AnalogControlEditorView(Gtk.Box):
         gamepad_visible = mode == "gamepad"
         self.gamepad.group.set_visible(gamepad_visible)
         self.gamepad.gamepad_output_rest_row.set_visible(gamepad_visible and is_axis)
+        self.gamepad.gamepad_output_auto_rest_row.set_visible(gamepad_visible and is_axis)
+        self._sync_axis_rest()
         self.gamepad.gamepad_output_direction_row.set_visible(gamepad_visible and is_axis)
         show_invert = gamepad_visible and (not is_axis or self.current_output_direction() == "both")
         self.gamepad.gamepad_output_invert_row.set_title(
@@ -518,12 +640,13 @@ class AnalogControlEditorView(Gtk.Box):
             return
         target = self.current_output_target()
         analog_id = self.current_output_target_analog_id()
+        selected_axis = self.current_output_axis()
         self._selected_output_id = selected_gamepad_output_id(
             int(dropdown.get_selected()),
             self._output_ids,
             self._selected_output_id,
         )
-        self._set_output_target_options(self.current_input_type(), target, analog_id)
+        self._set_output_target_options(self.current_input_type(), target, analog_id, selected_axis)
         self._update_output_warning()
         self._on_modified()
 
@@ -537,6 +660,16 @@ class AnalogControlEditorView(Gtk.Box):
             self._selected_output_id,
             count_loader=self._output_count_loader,
         )
+        axis_name = self.current_output_axis()
+        if (
+            axis_name
+            and self._selected_output_id != SAME_DEVICE_OUTPUT_ID
+            and find_output_axis(self._available_output_axes(), axis_name) is None
+        ):
+            message = (
+                f"{axis_name.upper()} is unavailable on this output. No axis output will be sent."
+            )
+            self.gamepad.gamepad_output_warning_label.set_label(message)
         self.gamepad.gamepad_output_warning_row.set_visible(bool(message))
 
     def _on_input_type_changed(self, _dropdown: Gtk.DropDown, _param: object) -> None:
@@ -548,6 +681,7 @@ class AnalogControlEditorView(Gtk.Box):
             input_type,
             self.current_output_target(),
             self.current_output_target_analog_id(),
+            self.current_output_axis(),
         )
         expanded = self.thresholds.expanded_indices()
         self.thresholds.sync_for_input_type(axis_control=input_type == "axis")

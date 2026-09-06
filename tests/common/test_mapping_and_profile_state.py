@@ -194,3 +194,23 @@ class TestProtectedButtons:
     def test_other_buttons_not_protected(self):
         assert is_protected_button("btn_back") is False
         assert is_protected_button("btn_forward") is False
+
+
+@pytest.mark.parametrize(("target", "value"), [("abs_x", 65535), ("abs_rz", -32768)])
+def test_named_output_axis_values_survive_action_conversions(target, value):
+    from keymasq.keymasqd.superkey_state import SuperkeyActionData
+
+    mapping = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS,
+        target=target,
+        axis_value=value,
+        output_id="custom-stick",
+    )
+    assert mapping.axis_value == value
+    superkey = mapping_action_to_superkey_action(mapping)
+    assert superkey.axis_value == value
+    assert superkey_action_to_mapping_action(superkey).axis_value == value
+    runtime = SuperkeyActionData(
+        action_type="gamepad_axis", target=target, axis_value=value, output_id="custom-stick"
+    )
+    assert runtime.axis_value == value

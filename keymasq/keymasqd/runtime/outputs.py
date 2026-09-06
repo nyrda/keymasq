@@ -9,10 +9,15 @@ from typing import Any, Final, Protocol, cast
 
 from evdev.uinput import UInputError
 
+from keymasq.common.virtual_device_templates import (
+    ResolvedVirtualDevice,
+    VirtualDeviceConfig,
+    resolve_virtual_devices,
+)
 from keymasq.common.virtual_devices import (
     DEFAULT_VIRTUAL_GAMEPADS,
     clamp_virtual_gamepad_count,
-    virtual_gamepad_output_id,
+    is_virtual_gamepad_output_id,
 )
 from keymasq.keymasqd.permission_hints import (
     is_uinput_permission_error,
@@ -34,6 +39,8 @@ class OutputRuntimeState:
     mouse_uinput: ClosableUInput | None = None
     virtual_gamepad_uinputs: dict[str, ClosableUInput] = field(default_factory=dict)
     virtual_gamepad_count: int = DEFAULT_VIRTUAL_GAMEPADS
+    virtual_device_config: VirtualDeviceConfig = field(default_factory=VirtualDeviceConfig)
+    virtual_device_specs: dict[str, ResolvedVirtualDevice] = field(default_factory=dict)
 
     @property
     def gamepad_uinput(self) -> ClosableUInput | None:
@@ -66,6 +73,8 @@ class _OutputState(Protocol):
     gamepad_uinput: ClosableUInput | None
     virtual_gamepad_uinputs: dict[str, ClosableUInput]
     virtual_gamepad_count: int
+    virtual_device_config: VirtualDeviceConfig
+    virtual_device_specs: dict[str, ResolvedVirtualDevice]
 
 
 class _OutputManager(Protocol):
@@ -240,9 +249,7 @@ def keyboard_caps(
 ) -> dict[int, Sequence[object]]:
     ecodes = evdev_mod.ecodes
     key_codes = sorted(
-        int(code)
-        for code in ecodes.KEY
-        if ecodes.KEY_RESERVED < int(code) < ecodes.KEY_MAX
+        int(code) for code in ecodes.KEY if ecodes.KEY_RESERVED < int(code) < ecodes.KEY_MAX
     )
     return {
         ecodes.EV_KEY: key_codes,
@@ -250,58 +257,49 @@ def keyboard_caps(
     }
 
 
-def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
+def virtual_device_caps(
+    device: ResolvedVirtualDevice,
+    evdev_mod: _EvdevModule,
+) -> dict[int, Sequence[object]]:
     return {
         evdev_mod.ecodes.EV_KEY: [
-            evdev_mod.ecodes.BTN_SOUTH,
-            evdev_mod.ecodes.BTN_EAST,
-            evdev_mod.ecodes.BTN_NORTH,
-            evdev_mod.ecodes.BTN_WEST,
-            evdev_mod.ecodes.BTN_TL,
-            evdev_mod.ecodes.BTN_TR,
-            evdev_mod.ecodes.BTN_TL2,
-            evdev_mod.ecodes.BTN_TR2,
-            evdev_mod.ecodes.BTN_SELECT,
-            evdev_mod.ecodes.BTN_START,
-            evdev_mod.ecodes.BTN_MODE,
-            evdev_mod.ecodes.BTN_THUMBL,
-            evdev_mod.ecodes.BTN_THUMBR,
-            evdev_mod.ecodes.BTN_DPAD_UP,
-            evdev_mod.ecodes.BTN_DPAD_DOWN,
-            evdev_mod.ecodes.BTN_DPAD_LEFT,
-            evdev_mod.ecodes.BTN_DPAD_RIGHT,
+            cast(int, getattr(evdev_mod.ecodes, button.evdev.upper()))
+            for button in device.template.buttons
         ],
         evdev_mod.ecodes.EV_ABS: [
-            (evdev_mod.ecodes.ABS_X, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-            (evdev_mod.ecodes.ABS_Y, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-            (evdev_mod.ecodes.ABS_RX, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-            (evdev_mod.ecodes.ABS_RY, evdev_mod.AbsInfo(0, -32768, 32767, 16, 128, 0)),
-            (evdev_mod.ecodes.ABS_Z, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
-            (evdev_mod.ecodes.ABS_RZ, evdev_mod.AbsInfo(0, 0, 255, 0, 0, 0)),
-            (evdev_mod.ecodes.ABS_HAT0X, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
-            (evdev_mod.ecodes.ABS_HAT0Y, evdev_mod.AbsInfo(0, -1, 1, 0, 0, 0)),
+            (
+                cast(int, getattr(evdev_mod.ecodes, axis.evdev.upper())),
+                evdev_mod.AbsInfo(
+                    axis.rest,
+                    axis.minimum,
+                    axis.maximum,
+                    axis.fuzz,
+                    axis.flat,
+                    axis.resolution,
+                ),
+            )
+            for axis in device.template.axes
         ],
         evdev_mod.ecodes.EV_SYN: [],
     }
 
 
-def _initialize_gamepad_axes(
+def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
+    """Return the built-in Xbox template capabilities for compatibility."""
+    device = resolve_virtual_devices(1, VirtualDeviceConfig())[0]
+    return virtual_device_caps(device, evdev_mod)
+
+
+def _initialize_virtual_device_axes(
     uinput_dev: WritableUInput | None,
+    device: ResolvedVirtualDevice,
     evdev_mod: _EvdevModule,
 ) -> None:
     if uinput_dev is None:
         return
-    for axis in (
-        evdev_mod.ecodes.ABS_X,
-        evdev_mod.ecodes.ABS_Y,
-        evdev_mod.ecodes.ABS_RX,
-        evdev_mod.ecodes.ABS_RY,
-        evdev_mod.ecodes.ABS_Z,
-        evdev_mod.ecodes.ABS_RZ,
-        evdev_mod.ecodes.ABS_HAT0X,
-        evdev_mod.ecodes.ABS_HAT0Y,
-    ):
-        uinput_dev.write(evdev_mod.ecodes.EV_ABS, axis, 0)
+    for axis in device.template.axes:
+        code = cast(int, getattr(evdev_mod.ecodes, axis.evdev.upper()))
+        uinput_dev.write(evdev_mod.ecodes.EV_ABS, code, axis.rest)
     uinput_dev.syn()
 
 
@@ -343,29 +341,45 @@ def _create_synthetic_uinput(
     )
 
 
+def create_virtual_device(
+    device: ResolvedVirtualDevice,
+    evdev_mod: _EvdevModule,
+    uinput_writer: UInputWriter,
+) -> ClosableUInput:
+    test_name = device.output_id
+    if is_virtual_gamepad_output_id(device.output_id):
+        index = int(device.output_id.removeprefix("virtual-gamepad-"))
+        test_name = "gamepad" if index == 1 else f"gamepad-{index}"
+    gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
+        device.name,
+        "gamepad",
+        test_name=test_name,
+    )
+    uinput_dev = _create_synthetic_uinput(
+        f"virtual gaming device {device.output_id}",
+        evdev_mod,
+        events=virtual_device_caps(device, evdev_mod),
+        name=gamepad_name,
+        vendor=device.vendor_id if gamepad_vendor is None else gamepad_vendor,
+        product=device.product_id if gamepad_product is None else gamepad_product,
+        version=device.version,
+        bustype=device.bustype,
+    )
+    try:
+        _initialize_virtual_device_axes(uinput_writer(uinput_dev), device, evdev_mod)
+    except Exception:
+        uinput_dev.close()
+        raise
+    return uinput_dev
+
+
 def create_virtual_gamepad(
     index: int,
     evdev_mod: _EvdevModule,
     uinput_writer: UInputWriter,
 ) -> ClosableUInput:
-    normal_name = "keymasq-gamepad" if index == 1 else f"keymasq-gamepad-{index}"
-    gamepad_name, gamepad_vendor, gamepad_product = uinput_identity(
-        normal_name,
-        "gamepad",
-        test_name="gamepad" if index == 1 else f"gamepad-{index}",
-    )
-    uinput_dev = _create_synthetic_uinput(
-        "virtual gamepad",
-        evdev_mod,
-        events=gamepad_caps(evdev_mod),
-        name=gamepad_name,
-        vendor=0x045E if gamepad_vendor is None else gamepad_vendor,
-        product=0x028E if gamepad_product is None else gamepad_product,
-        version=0x0110,
-        bustype=0x0003,
-    )
-    _initialize_gamepad_axes(uinput_writer(uinput_dev), evdev_mod)
-    return uinput_dev
+    device = resolve_virtual_devices(index, VirtualDeviceConfig())[index - 1]
+    return create_virtual_device(device, evdev_mod, uinput_writer)
 
 
 def configure_virtual_gamepads(
@@ -375,15 +389,38 @@ def configure_virtual_gamepads(
     evdev_mod: _EvdevModule,
     log: logging.Logger,
     uinput_writer: UInputWriter,
+    config: VirtualDeviceConfig | None = None,
 ) -> int:
     count = clamp_virtual_gamepad_count(count)
     output_state = cast(Any, manager.output_state)
     if not hasattr(output_state, "virtual_gamepad_uinputs"):
         output_state.virtual_gamepad_uinputs = {}
+    if not hasattr(output_state, "virtual_device_config"):
+        output_state.virtual_device_config = VirtualDeviceConfig()
+    if not hasattr(output_state, "virtual_device_specs"):
+        output_state.virtual_device_specs = {}
+    if config is None:
+        config = cast(VirtualDeviceConfig, output_state.virtual_device_config)
     current = cast(dict[str, ClosableUInput], output_state.virtual_gamepad_uinputs)
-    desired_ids = {virtual_gamepad_output_id(index) for index in range(1, count + 1)}
+    current_specs = cast(dict[str, ResolvedVirtualDevice], output_state.virtual_device_specs)
+    desired = {device.output_id: device for device in resolve_virtual_devices(count, config)}
+    desired_ids = set(desired)
 
-    for output_id in sorted(set(current) - desired_ids):
+    prepared: dict[str, ClosableUInput] = {}
+    try:
+        for output_id, device in desired.items():
+            if output_id in current and current_specs.get(output_id) == device:
+                continue
+            prepared[output_id] = create_virtual_device(device, evdev_mod, uinput_writer)
+    except Exception:
+        for output_id, uinput_dev in prepared.items():
+            try:
+                uinput_dev.close()
+            except Exception:
+                log.exception("Failed to close prepared virtual gamepad %s", output_id)
+        raise
+
+    for output_id in sorted((set(current) - desired_ids) | (set(current) & set(prepared))):
         uinput_dev = current.pop(output_id)
         try:
             uinput_dev.close()
@@ -391,19 +428,16 @@ def configure_virtual_gamepads(
             log.warning("Failed to close virtual gamepad %s: %s", output_id, exc)
         except Exception:
             log.exception("Unexpected failure closing virtual gamepad %s", output_id)
+        current_specs.pop(output_id, None)
 
-    for index in range(1, count + 1):
-        output_id = virtual_gamepad_output_id(index)
-        if output_id in current:
-            continue
-        current[output_id] = create_virtual_gamepad(
-            index,
-            evdev_mod,
-            uinput_writer,
-        )
-        log.info("Created virtual gamepad %s", output_id)
+    for output_id, uinput_dev in prepared.items():
+        device = desired[output_id]
+        current[output_id] = uinput_dev
+        log.info("Created virtual gaming device %s from %s", output_id, device.template.id)
 
     output_state.virtual_gamepad_count = count
+    output_state.virtual_device_config = config
+    output_state.virtual_device_specs = desired
     return count
 
 
@@ -499,6 +533,9 @@ def _close_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> No
     manager.output_state.keyboard_uinput = None
     manager.output_state.mouse_uinput = None
     virtual_gamepad_uinputs.clear()
+    virtual_device_specs = getattr(manager.output_state, "virtual_device_specs", None)
+    if isinstance(virtual_device_specs, dict):
+        virtual_device_specs.clear()
 
 
 def create_global_uinputs(

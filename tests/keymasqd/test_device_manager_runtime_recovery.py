@@ -10,10 +10,11 @@ from evdev.uinput import UInputError
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
+from keymasq.common.virtual_device_templates import virtual_device_config_from_toml
 from keymasq.keymasqd import device_manager
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.permission_hints import UINPUT_PERMISSION_HINT
-from keymasq.keymasqd.runtime import action_parser, adapters, outputs, topology
+from keymasq.keymasqd.runtime import action_parser, adapters, outputs, topology, virtual_gamepads
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.grab import acquisition, planning, release
 from keymasq.keymasqd.runtime.grabbed_device import (
@@ -33,6 +34,69 @@ from tests.keymasqd.device_manager_support import (
     combo_runtime_deps,
     make_grabbed_device,
 )
+
+
+def test_configure_virtual_gamepads_instantiates_bundled_joystick_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(outputs.TEST_UINPUT_ENV, raising=False)
+    created: list[FakeUInput] = []
+
+    def fake_uinput(**kwargs) -> FakeUInput:
+        device = FakeUInput(**kwargs)
+        created.append(device)
+        return device
+
+    manager = SimpleNamespace(output_state=outputs.OutputRuntimeState())
+    config = virtual_device_config_from_toml(
+        {
+            "devices": [
+                {
+                    "output_id": "flight-stick",
+                    "template": "logitech-extreme-3d-pro",
+                }
+            ]
+        }
+    )
+
+    outputs.configure_virtual_gamepads(
+        manager,
+        1,
+        evdev_mod=SimpleNamespace(
+            ecodes=evdev.ecodes,
+            UInput=fake_uinput,
+            AbsInfo=evdev.AbsInfo,
+        ),
+        log=logging.getLogger("test"),
+        uinput_writer=lambda device: device,
+        config=config,
+    )
+
+    assert list(manager.output_state.virtual_gamepad_uinputs) == [
+        "virtual-gamepad-1",
+        "flight-stick",
+    ]
+    joystick = created[1]
+    assert joystick.kwargs["name"] == "Logitech Logitech Extreme 3D"
+    assert joystick.kwargs["vendor"] == 0x046D
+    assert joystick.kwargs["product"] == 0xC215
+    assert evdev.ecodes.BTN_TRIGGER in joystick.kwargs["events"][evdev.ecodes.EV_KEY]
+    axis_codes = {
+        item[0]
+        for item in joystick.kwargs["events"][evdev.ecodes.EV_ABS]
+        if isinstance(item, tuple)
+    }
+    assert {evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y, evdev.ecodes.ABS_THROTTLE} <= axis_codes
+
+    target = manager.output_state.virtual_gamepad_uinputs["flight-stick"]
+    resolved = virtual_gamepads.GamepadOutputRouter(logging.getLogger("test")).resolve(
+        manager.output_state,
+        {},
+        "flight-stick",
+    )
+    assert resolved is not None
+    assert resolved.uinput is target
+    assert resolved.bucket == "gamepad:flight-stick"
 
 
 class TestEventLoopRecovery:
@@ -435,8 +499,8 @@ class TestDeviceManagerHelpers:
                 return keyboard
             if context == "mouse":
                 return mouse
-            assert context == "virtual gamepad"
             gamepad_creations += 1
+            assert context == f"virtual gaming device virtual-gamepad-{gamepad_creations}"
             if gamepad_creations == 2:
                 raise RuntimeError("gamepad creation failed")
             return first_gamepad

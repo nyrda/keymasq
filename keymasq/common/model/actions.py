@@ -449,7 +449,9 @@ def normalize_common_action_fields(action: _CommonActionFields) -> None:
     action.output_id = normalize_gamepad_output_id(action.action_type, action.output_id)
     if action.action_type == ActionType.GAMEPAD_AXIS:
         action.target = normalize_gamepad_axis_target(action.target)
-        action.axis_value = clamp_gamepad_axis_value(action.target, action.axis_value)
+        action.axis_value = clamp_gamepad_axis_value(
+            action.target, action.axis_value, output_id=action.output_id
+        )
     rapidfire_enabled, rapidfire_hold_ms, rapidfire_wait_ms = normalize_rapidfire_fields(
         action.action_type,
         rapidfire_enabled=bool(action.rapidfire_enabled),

@@ -11,6 +11,7 @@ from keymasq.keymasqd.runtime.action.state import (
 )
 from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     bucket_for_uinput,
+    target_axis_release_value,
     write_abs_axis,
     write_key,
 )
@@ -62,6 +63,12 @@ async def execute_gamepad_axis_action(
     if axis_code is None:
         mark_action_started(execution_handle)
         return
+    target_bucket = str(getattr(target, "bucket", "gamepad"))
+    active_value = int(action.axis_value)
+    axis_ranges = getattr(target, "axis_ranges", {})
+    if axis_code in axis_ranges:
+        minimum, maximum = axis_ranges[axis_code]
+        active_value = max(minimum, min(maximum, active_value))
     await execute_abs_axis_output(
         device_runtime,
         action,
@@ -69,10 +76,10 @@ async def execute_gamepad_axis_action(
         event_name,
         deps=deps,
         axis_code=axis_code,
-        active_value=int(action.axis_value),
-        release_value=0,
+        active_value=active_value,
+        release_value=target_axis_release_value(target, axis_code),
         target_uinput=getattr(target, "uinput", None),
-        target_bucket=str(getattr(target, "bucket", "gamepad")),
+        target_bucket=target_bucket,
         rapidfire_kind="axis",
         tap_label=f"tap axis action {event_name}",
         shared_abs_output_tracker=shared_abs_output_tracker,
@@ -171,6 +178,7 @@ async def execute_abs_axis_output(
             evdev_mod=deps.evdev_mod,
             uinput_writer=deps.uinput_writer,
             bucket=target_bucket,
+            release_value=release_value,
         )
     mark_action_started(execution_handle)
 

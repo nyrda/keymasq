@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.paths import SOCKET_PATH
+from keymasq.common.virtual_device_templates import config_to_json
 
 from .. import events, recording_device_selection, recording_lifecycle
 from ..common import JsonObject
@@ -20,7 +21,10 @@ class DaemonConnectionMixin:
             response = await self.client.send_command(
                 Command(
                     command=CommandType.SET_VIRTUAL_GAMEPADS,
-                    data={"count": int(self.virtual_gamepad_count)},
+                    data={
+                        "count": int(self.virtual_gamepad_count),
+                        "virtual_devices": config_to_json(self.virtual_device_config),
+                    },
                 )
             )
             if response.status == "ok" and isinstance(response.data, dict):

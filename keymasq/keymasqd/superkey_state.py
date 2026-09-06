@@ -100,7 +100,9 @@ class SuperkeyActionData:
         ) or None
         if self.action_type == ActionType.GAMEPAD_AXIS.value:
             self.target = normalize_gamepad_axis_target(self.target)
-            self.axis_value = clamp_gamepad_axis_value(self.target, self.axis_value)
+            self.axis_value = clamp_gamepad_axis_value(
+                self.target, self.axis_value, output_id=self.output_id
+            )
         self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(self.rapidfire_hold_ms)
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(self.rapidfire_wait_ms)
         self.profile_deactivation = normalize_profile_deactivation_policy(

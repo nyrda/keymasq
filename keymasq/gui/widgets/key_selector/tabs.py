@@ -14,11 +14,17 @@ from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.superkeys import SuperkeyAction
+from keymasq.common.virtual_device_templates import (
+    XBOX_360_TEMPLATE_ID,
+    ResolvedVirtualDevice,
+    resolve_virtual_devices,
+)
 from keymasq.gui.widgets import input_picker_shared
 from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
     gamepad_output_choices,
     gamepad_output_unavailable_message,
+    virtual_device_config,
     virtual_gamepad_count,
 )
 from keymasq.gui.widgets.mouse_move_units import (
@@ -538,7 +544,7 @@ class SharedInputTabsMixin:
             warning.add_css_class("warning")
             self._gamepad_output_warning_label = warning
             box.append(warning)
-            box.append(input_picker_shared.build_gamepad_tab(self))
+            self._append_gamepad_pickers(box)
             self._update_gamepad_output_warning()
             self._prefill_gamepad_inputs()
             return box
@@ -575,10 +581,71 @@ class SharedInputTabsMixin:
         warning.add_css_class("warning")
         self._gamepad_output_warning_label = warning
         outer.append(warning)
-        outer.append(input_picker_shared.build_gamepad_tab(self))
+        self._append_gamepad_pickers(outer)
         self._update_gamepad_output_warning()
         self._prefill_gamepad_inputs()
         return outer
+
+    def _append_gamepad_pickers(self, parent: Gtk.Box) -> None:
+        self._virtual_device_config = virtual_device_config()
+        self._virtual_gamepad_count = virtual_gamepad_count()
+        self._standard_gamepad_picker = input_picker_shared.build_gamepad_tab(self)
+        self._template_gamepad_picker = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+        )
+        self._template_gamepad_picker.set_margin_top(12)
+        self._template_gamepad_picker.set_margin_bottom(12)
+        self._template_gamepad_picker.set_margin_start(12)
+        self._template_gamepad_picker.set_margin_end(12)
+        parent.append(self._standard_gamepad_picker)
+        self._template_gamepad_scroll = Gtk.ScrolledWindow(
+            vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER
+        )
+        viewport = Gtk.Viewport(scroll_to_focus=True)
+        viewport.set_child(self._template_gamepad_picker)
+        self._template_gamepad_scroll.set_child(viewport)
+        parent.append(self._template_gamepad_scroll)
+        self._refresh_virtual_device_picker()
+
+    def _selected_virtual_device(self) -> ResolvedVirtualDevice | None:
+        output_id = self._selected_gamepad_output_id or "virtual-gamepad-1"
+        for device in resolve_virtual_devices(
+            self._virtual_gamepad_count,
+            self._virtual_device_config,
+        ):
+            if device.output_id == output_id:
+                return device
+        return None
+
+    def _refresh_virtual_device_picker(self) -> None:
+        standard = getattr(self, "_standard_gamepad_picker", None)
+        custom = getattr(self, "_template_gamepad_picker", None)
+        if standard is None or custom is None:
+            return
+        device = self._selected_virtual_device()
+        use_template = device is not None and device.template.id != XBOX_360_TEMPLATE_ID
+        standard.set_visible(not use_template)
+        custom.set_visible(use_template)
+        self._template_gamepad_scroll.set_visible(use_template)
+        if not use_template or device is None:
+            return
+
+        while child := custom.get_first_child():
+            custom.remove(child)
+
+        from keymasq.gui.widgets.virtual_device_picker import VirtualDevicePicker
+
+        action = getattr(self, "_current_action", None)
+        custom.append(
+            VirtualDevicePicker(
+                device.template,
+                self._on_gamepad_clicked,
+                self._on_gamepad_axis_clicked,
+                current_target=getattr(action, "target", None),
+                current_value=int(getattr(action, "axis_value", 0)),
+            )
+        )
 
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()
@@ -606,9 +673,16 @@ class SharedInputTabsMixin:
         return box
 
     def _gamepad_output_choices(self) -> list[tuple[str | None, str]]:
+        count = getattr(self, "_virtual_gamepad_count", None)
+        if count is None:
+            count = virtual_gamepad_count()
+        config = getattr(self, "_virtual_device_config", None)
+        if config is None:
+            config = virtual_device_config()
         return gamepad_output_choices(
             self._selected_gamepad_output_id,
-            count=virtual_gamepad_count(),
+            count=count,
+            device_config=config,
             hardware_manager_factory=HardwareManager,
         )
 
@@ -617,6 +691,7 @@ class SharedInputTabsMixin:
         if 0 <= selected < len(self._gamepad_output_ids):
             self._selected_gamepad_output_id = self._gamepad_output_ids[selected]
         self._update_gamepad_output_warning()
+        self._refresh_virtual_device_picker()
 
     def _update_gamepad_output_warning(self) -> None:
         label = self._gamepad_output_warning_label

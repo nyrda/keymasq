@@ -101,6 +101,7 @@ nav:
       - Profiles: PROFILES.md
       - Actions: ACTIONS.md
       - Analog Controls: ANALOG_CONTROLS.md
+      - Motion Controls: MOTION_CONTROLS.md
       - Superkeys: SUPERKEYS.md
       - Combos: COMBOS.md
       - Macros: MACROS.md

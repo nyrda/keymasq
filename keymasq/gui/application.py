@@ -92,6 +92,10 @@ class Application(Adw.Application):
         analog_controls_action.connect("activate", self._on_analog_controls)
         self.add_action(analog_controls_action)
 
+        motion_controls_action = Gio.SimpleAction.new("motion-controls", None)
+        motion_controls_action.connect("activate", self._on_motion_controls)
+        self.add_action(motion_controls_action)
+
         macros_action = Gio.SimpleAction.new("macros", None)
         macros_action.connect("activate", self._on_macros)
         self.add_action(macros_action)
@@ -167,6 +171,19 @@ class Application(Adw.Application):
         dialog.present(self.window)
 
     def _on_analog_control_changed(self, dialog, name: str) -> None:
+        notify_session_reload_async()
+
+    def _on_motion_controls(self, action, param) -> None:
+        if not self.window:
+            return
+        from keymasq.gui.widgets.motion_control.dialog import MotionControlDialog
+
+        dialog = MotionControlDialog(self.window, self.window.profile_manager)
+        dialog.connect("motion-control-saved", self._on_motion_control_changed)
+        dialog.connect("motion-control-deleted", self._on_motion_control_changed)
+        dialog.present(self.window)
+
+    def _on_motion_control_changed(self, dialog, name: str) -> None:
         notify_session_reload_async()
 
     def _on_macros(self, action, param) -> None:

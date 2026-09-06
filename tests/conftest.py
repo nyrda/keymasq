@@ -71,6 +71,7 @@ def isolate_keymasq_config_paths(
     profiles_dir = config_dir / "profiles"
     superkeys_dir = config_dir / "superkeys"
     analog_controls_dir = config_dir / "analog_controls"
+    motion_controls_dir = config_dir / "motion_controls"
     settings_path = config_dir / "settings.toml"
     virtual_devices_path = config_dir / "virtual_devices.toml"
 
@@ -84,6 +85,7 @@ def isolate_keymasq_config_paths(
         "SUPERKEYS_DIR": superkeys_dir,
         "SETTINGS_PATH": settings_path,
         "ANALOG_CONTROLS_DIR": analog_controls_dir,
+        "MOTION_CONTROLS_DIR": motion_controls_dir,
         "VIRTUAL_DEVICES_PATH": virtual_devices_path,
     }
     for name, value in patched_paths.items():

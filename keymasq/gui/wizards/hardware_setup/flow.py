@@ -172,6 +172,14 @@ class DiscoveryMixin:
             )
             config_path = str(iface.get("config_path") or default_config_path)
             capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
+            raw_capabilities = merge_inventory_abs_info(
+                raw_capabilities,
+                iface.get("abs_info"),
+            )
+            if not capability_names:
+                capability_names = [
+                    str(value) for value in iface.get("capabilities", []) if str(value)
+                ]
             interfaces.append(
                 {
                     "path": raw_path,
@@ -183,6 +191,8 @@ class DiscoveryMixin:
                     "device_types": self._interface_device_types(iface),
                     "capabilities": capability_names,
                     "raw_capabilities": raw_capabilities,
+                    "abs_info": dict(iface.get("abs_info", {}) or {}),
+                    "driver": str(iface.get("driver", "") or ""),
                     **interface_source_fields(iface),
                 }
             )
@@ -224,6 +234,8 @@ class DiscoveryMixin:
                         dict[int, list[object]],
                         iface.get("raw_capabilities") or {},
                     ),
+                    "abs_info": dict(iface.get("abs_info", {}) or {}),
+                    "driver": str(iface.get("driver", "") or ""),
                 },
             )
         return discovered_interfaces
@@ -253,3 +265,38 @@ class DiscoveryMixin:
                 log.debug("Failed to close capability probe device %s: %s", raw_path, exc)
 
         return (capability_names_from_capabilities(raw_capabilities), raw_capabilities)
+
+
+def merge_inventory_abs_info(
+    raw_capabilities: dict[int, list[object]],
+    raw_abs_info: object,
+) -> dict[int, list[object]]:
+    """Merge daemon-read ABS metadata when the GUI cannot open an input node."""
+    if not isinstance(raw_abs_info, dict):
+        return raw_capabilities
+
+    merged = {event_type: list(values) for event_type, values in raw_capabilities.items()}
+    existing = {
+        int(value[0]): value
+        for value in merged.get(evdev.ecodes.EV_ABS, [])
+        if isinstance(value, (tuple, list)) and value
+    }
+    for raw_code, raw_info in raw_abs_info.items():
+        if not isinstance(raw_info, dict):
+            continue
+        try:
+            code = int(raw_code)
+            info = evdev.AbsInfo(
+                value=int(raw_info.get("value", 0)),
+                min=int(raw_info.get("minimum", 0)),
+                max=int(raw_info.get("maximum", 0)),
+                fuzz=int(raw_info.get("fuzz", 0)),
+                flat=int(raw_info.get("flat", 0)),
+                resolution=int(raw_info.get("resolution", 0)),
+            )
+        except (TypeError, ValueError):
+            continue
+        existing[code] = (code, info)
+    if existing:
+        merged[evdev.ecodes.EV_ABS] = [existing[code] for code in sorted(existing)]
+    return merged

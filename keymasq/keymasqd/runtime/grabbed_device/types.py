@@ -10,6 +10,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Final, Protocol, TypeVar
 
 import evdev
@@ -24,7 +25,9 @@ from keymasq.keymasqd.runtime.adapters import (
     DeviceInfo,
     UInputWriter,
 )
+from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
+from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
 if TYPE_CHECKING:
     from keymasq.keymasqd.superkey_state import SuperkeyMachine
@@ -51,6 +54,11 @@ type RuntimeCleanupCallback = Callable[[str, str | None], Awaitable[None]]
 type RuntimeDisconnectCallback = Callable[[str, str], Awaitable[None]]
 type OutputTracker = Callable[[str, int, int], bool]
 _T = TypeVar("_T")
+
+
+class InputAccessMode(Enum):
+    EXCLUSIVE = "exclusive"
+    OBSERVE = "observe"
 
 
 class InputEventLike(Protocol):
@@ -122,6 +130,7 @@ class Ecodes(Protocol):
     EV_KEY: Final[int]
     EV_REL: Final[int]
     EV_SYN: Final[int]
+    SYN_DROPPED: Final[int]
     EV_ABS: Final[int]
     REL_X: Final[int]
     REL_Y: Final[int]
@@ -172,10 +181,12 @@ class RapidfireOutputState:
 class AnalogGamepadOutputState:
     output_id: str | None
     reset_axes: tuple[tuple[int, int], ...]
+    gyro: bool = False
 
 
 @dataclass
 class GrabbedDeviceState:
+    passthrough_stick_output: StickOutputState = field(default_factory=StickOutputState)
     rapidfire_active: dict[str, bool] = field(default_factory=dict)
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
@@ -227,6 +238,15 @@ class GrabbedDeviceState:
     analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_mouse_area_active: set[str] = field(default_factory=set)
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
+    motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
+    motion_resyncing: bool = False
+    motion_adaptive_filters: dict[str, tuple[OneEuroFilter, OneEuroFilter]] = field(
+        default_factory=dict
+    )
+    motion_smoothed_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
+    motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
+    motion_tilt_centers: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 class ActionRuntime(Protocol):
@@ -279,6 +299,9 @@ class ActionRuntime(Protocol):
 
 
 class GrabbedDeviceRuntime(ActionRuntime, Protocol):
+    @property
+    def access_mode(self) -> InputAccessMode: ...
+
     @property
     def stable_path(self) -> str: ...
 
@@ -371,6 +394,21 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     @property
     def analog_axis_calibrations(self) -> dict[tuple[str, str], dict[str, object]]: ...
 
+    @property
+    def motion_sensors(self) -> dict[str, object]: ...
+
+    @property
+    def motion_axis_bindings(
+        self,
+    ) -> dict[tuple[int, int], tuple[str, str, str, float, float, bool, float]]: ...
+
     async def reset_superkeys(self) -> None: ...
 
-    async def reset_analog_controls(self) -> None: ...
+    async def reset_analog_controls(
+        self,
+        preserve_state_keys: set[str] | None = None,
+        *,
+        state_key_prefix: str | None = None,
+    ) -> None: ...
+
+    def reset_motion_controls(self) -> None: ...

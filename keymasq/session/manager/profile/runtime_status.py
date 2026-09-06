@@ -123,6 +123,7 @@ def build_device_status_payload(
         hardware,
         resolved,
         inspector_active=inspector_active,
+        manager=manager,
     )
     grab_status = dict(manager.profile_state.grab_status.get(hardware_id, {}))
 
@@ -188,12 +189,13 @@ def _requested_interfaces_for_device(
     resolved: ResolvedDeviceProfile,
     *,
     inspector_active: bool,
+    manager: "SessionManager",
 ) -> dict[str, str]:
     if hardware is None:
         return {}
     if inspector_active:
         return all_configured_interfaces(hardware)
-    return get_interfaces_to_grab(hardware, resolved)
+    return get_interfaces_to_grab(hardware, resolved, manager=manager)
 
 
 def _unknown_configured_interface_payloads(

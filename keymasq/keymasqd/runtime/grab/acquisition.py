@@ -9,6 +9,7 @@ from typing import Any, cast
 import evdev
 
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
@@ -23,6 +24,7 @@ from keymasq.keymasqd.runtime.grab.planning import (
     device_has_mapped_buttons,
     grabbed_device_claim_paths,
     log_grab_request,
+    motion_input_bindings,
     persist_desired_grab,
     store_grabbed_devices,
     update_existing_devices,
@@ -47,6 +49,7 @@ from keymasq.keymasqd.runtime.grab.state import (
     ManagedGrabbedDevice,
 )
 from keymasq.keymasqd.runtime.grab.support import combo_runtime_deps
+from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -208,6 +211,7 @@ def construct_grabbed_device(
         button_codes=plan.resolved_button_codes,
         button_values=plan.resolved_button_values,
         analog_inputs=dict(plan.analog_inputs),
+        motion_sensors=dict(plan.motion_sensors),
         mapping_getter=mapping_getter,
         event_callback=callbacks.event_callback,
         device_type=detected_type,
@@ -239,6 +243,11 @@ def construct_grabbed_device(
         runtime_disconnect_callback=callbacks.runtime_disconnect_callback,
         repeat_state=manager.repeat_state,
         interface_id=interface_id,
+        access_mode=(
+            InputAccessMode.OBSERVE
+            if detected_type is DeviceType.MOTION
+            else InputAccessMode.EXCLUSIVE
+        ),
     )
 
 
@@ -284,6 +293,10 @@ async def grab_one_interface(
         ).lower()
         interface_mapped_bindings = plan.button_mapped_bindings | analog_input_bindings(
             plan.analog_inputs,
+            source=interface_id,
+        )
+        interface_mapped_bindings |= motion_input_bindings(
+            plan.motion_sensors,
             source=interface_id,
         )
         has_mapped_buttons = device_has_mapped_buttons(

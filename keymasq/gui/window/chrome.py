@@ -141,6 +141,13 @@ def _setup_content(window) -> None:
     connect_menu_action(analog_controls_btn, "analog-controls")
     menu_box.append(analog_controls_btn)
 
+    motion_controls_btn = _runtime.Gtk.Button(label="Motion Controls")
+    _configure_menu_button(window, motion_controls_btn)
+    connect_menu_action(motion_controls_btn, "motion-controls")
+    motion_controls_btn.set_visible(False)
+    menu_box.append(motion_controls_btn)
+    window._menu_motion_controls_btn = motion_controls_btn
+
     diagnostics_btn = _runtime.Gtk.Button(label="Diagnostics")
     _configure_menu_button(window, diagnostics_btn)
     connect_menu_action(diagnostics_btn, "diagnostics")
@@ -305,6 +312,29 @@ def _configure_menu_button(window, button: _runtime.Gtk.Button) -> None:
     button.set_halign(_runtime.Gtk.Align.FILL)
     button.set_margin_top(2)
     button.set_margin_bottom(2)
+
+
+def _motion_controls_available(devices) -> bool:
+    for device in devices:
+        motion_sensors = getattr(device, "motion_sensors", ())
+        interfaces = getattr(device, "evdev_devices", ())
+        has_gamepad = any(
+            _interface_device_type(interface) == "gamepad" for interface in interfaces
+        )
+        if has_gamepad and motion_sensors:
+            return True
+    return False
+
+
+def _interface_device_type(interface) -> str:
+    device_type = getattr(interface, "device_type", "")
+    return str(getattr(device_type, "value", device_type))
+
+
+def _update_motion_controls_menu_visibility(window, devices) -> None:
+    button = window._menu_motion_controls_btn
+    if button is not None:
+        button.set_visible(_motion_controls_available(devices))
 
 
 def _on_appearance_mode_toggled(

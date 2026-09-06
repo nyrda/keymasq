@@ -10,6 +10,7 @@ from keymasq.common.model.core import ActionType
 
 if TYPE_CHECKING:
     from keymasq.common.model.analog import AnalogControlConfig
+    from keymasq.common.model.motion import MotionControlConfig
     from keymasq.common.model.superkeys import SuperkeyConfig
 
 log = logging.getLogger("keymasq.common.model.actions")
@@ -342,6 +343,10 @@ class MappingAction:
     analog_control_names: list[str] = field(default_factory=list)
     analog_control_config: "AnalogControlConfig | None" = None
     analog_control_configs: list["AnalogControlConfig"] = field(default_factory=list)
+    motion_control_name: str | None = None
+    motion_control_names: list[str] = field(default_factory=list)
+    motion_control_config: "MotionControlConfig | None" = None
+    motion_control_configs: list["MotionControlConfig"] = field(default_factory=list)
     macro_name: str | None = None
     macro_events: list[dict[str, object]] | None = None
     macro_replay_mouse_movement: bool = True
@@ -396,6 +401,22 @@ class MappingAction:
             self.analog_control_configs = [self.analog_control_config]
         elif self.analog_control_configs:
             self.analog_control_config = self.analog_control_configs[0]
+        self.motion_control_names = list(
+            dict.fromkeys(
+                str(name).strip() for name in self.motion_control_names if str(name).strip()
+            )
+        )
+        if not self.motion_control_names and self.motion_control_name:
+            name = str(self.motion_control_name).strip()
+            if name:
+                self.motion_control_names = [name]
+        self.motion_control_name = (
+            self.motion_control_names[0] if self.motion_control_names else None
+        )
+        if self.motion_control_config and not self.motion_control_configs:
+            self.motion_control_configs = [self.motion_control_config]
+        elif self.motion_control_configs:
+            self.motion_control_config = self.motion_control_configs[0]
         normalize_common_action_fields(self)
         if self.action_type == ActionType.REPEAT:
             self.repeat_categories = normalize_repeat_categories(self.repeat_categories)

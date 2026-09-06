@@ -19,8 +19,9 @@ from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
     EvdevDevicesAddResult,
     HardwareSettingsDialog,
-    append_unique_evdev_devices,
+    append_evdev_device_selection,
 )
+from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class HardwareSettingsMixin:
 
     def _add_hardware_evdev_devices(
         self: Any,
-        evdev_devices: list[EvdevDevice],
+        evdev_devices: list[EvdevDevice] | EvdevDeviceSelection,
     ) -> EvdevDevicesAddResult:
         if self.hardware_manager is None:
             log.warning(
@@ -89,19 +90,31 @@ class HardwareSettingsMixin:
         if conflict:
             return 0, f"Product ID detection is already used by {conflict}.", True
 
-        added = append_unique_evdev_devices(self.device, evdev_devices)
-        if added <= 0:
+        added, motion_added = append_evdev_device_selection(self.device, evdev_devices)
+        if added <= 0 and motion_added <= 0:
             return 0, "That event device is already attached.", False
 
         self.hardware_manager.save_hardware(self.device)
         self._request_session_async({"command": "reload"}, self._ignore_session_response)
         self._sync_always_grab_device_list()
-        self._update_header_caption()
-        return (
-            added,
-            f"Added {self._count_label(added, 'event device')} to this hardware ID.",
-            False,
-        )
+        if motion_added and self.profile_manager is not None:
+            self._reload_ui()
+        else:
+            self._update_header_caption()
+        self._refresh_motion_controls_menu_visibility()
+        if added and motion_added:
+            message = (
+                f"Added {self._count_label(added, 'event device')} and "
+                f"{self._count_label(motion_added, 'motion sensor')} to this hardware ID."
+            )
+        elif motion_added:
+            message = (
+                f"Added {self._count_label(motion_added, 'motion sensor')} to the attached "
+                "event device."
+            )
+        else:
+            message = f"Added {self._count_label(added, 'event device')} to this hardware ID."
+        return added, message, False
 
     def _product_detection_conflict_for_evdev_devices(
         self: Any,
@@ -342,7 +355,14 @@ class HardwareSettingsMixin:
             self._reload_ui()
         else:
             self._update_header_caption()
+        self._refresh_motion_controls_menu_visibility()
         return True
+
+    def _refresh_motion_controls_menu_visibility(self: Any) -> None:
+        root = self.main_window or self.get_root()
+        refresh = getattr(root, "refresh_motion_controls_menu_visibility", None)
+        if callable(refresh):
+            refresh()
 
     def _remove_controls_for_evdev_device(self: Any, evdev_device: EvdevDevice) -> list[str]:
         source = str(evdev_device.id or "").strip()
@@ -355,6 +375,9 @@ class HardwareSettingsMixin:
         removed_analog_ids = [
             analog.id for analog in self.device.analog_inputs if analog.source == source
         ]
+        removed_motion_ids = [
+            sensor.id for sensor in self.device.motion_sensors if sensor.source == source
+        ]
         if removed_button_ids:
             self.device.buttons = [
                 button for button in self.device.buttons if button.source != source
@@ -363,7 +386,11 @@ class HardwareSettingsMixin:
             self.device.analog_inputs = [
                 analog for analog in self.device.analog_inputs if analog.source != source
             ]
-        return [*removed_button_ids, *removed_analog_ids]
+        if removed_motion_ids:
+            self.device.motion_sensors = [
+                sensor for sensor in self.device.motion_sensors if sensor.source != source
+            ]
+        return [*removed_button_ids, *removed_analog_ids, *removed_motion_ids]
 
     @staticmethod
     def _same_evdev_device(left: EvdevDevice, right: EvdevDevice) -> bool:

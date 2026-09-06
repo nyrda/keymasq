@@ -9,6 +9,7 @@ from keymasq.common.model.hardware import (
     EvdevDevice,
     HardwareConfig,
 )
+from keymasq.common.model.motion import MotionSensorDefinition
 
 from . import templates
 
@@ -128,8 +129,10 @@ class PersistenceMixin:
             return
         vendor_id, product_id, name = self._selected_device_fields(selected_device)
         gamepad_interfaces = self._gamepad_interfaces()
+        motion_interfaces = self._interfaces_for_roles({"motion"})
         interfaces = self._merge_interface_lists(
             gamepad_interfaces,
+            motion_interfaces,
             list(self._discovery_state.discovered_interfaces.values()),
         )
         self._persist_config(
@@ -140,6 +143,7 @@ class PersistenceMixin:
                 evdev_devices=self._build_evdev_devices(interfaces),
                 buttons=self._build_gamepad_buttons(gamepad_interfaces),
                 analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),
+                motion_sensors=self._build_motion_sensors(motion_interfaces),
                 id=self._selected_config_id(selected_device),
             )
         )
@@ -197,6 +201,12 @@ class PersistenceMixin:
         interfaces: Sequence[Mapping[str, Any]],
     ) -> list[AnalogInputDefinition]:
         return templates.build_gamepad_analog_inputs(interfaces)
+
+    def _build_motion_sensors(
+        self: Any,
+        interfaces: Sequence[Mapping[str, Any]],
+    ) -> list[MotionSensorDefinition]:
+        return templates.build_motion_sensors(interfaces)
 
     def _build_standard_keyboard_buttons(
         self: Any,

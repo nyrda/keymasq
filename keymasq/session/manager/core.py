@@ -27,6 +27,7 @@ from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.client import KeymasqdClient
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.hardware import HardwareManager
+from keymasq.session.motion_controls import MotionControlManager
 from keymasq.session.mpris import MprisController, MprisDBusError
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.settings import load_global_settings
@@ -72,9 +73,11 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         )
         self.superkeys = SuperkeyManager()
         self.analog_controls = AnalogControlManager()
+        self.motion_controls = MotionControlManager()
         self.profiles = ProfileManager(
             superkey_manager=self.superkeys,
             analog_control_manager=self.analog_controls,
+            motion_control_manager=self.motion_controls,
             auto_create_default_if_empty=True,
         )
         self.hardware = HardwareManager()

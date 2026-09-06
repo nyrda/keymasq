@@ -597,6 +597,38 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
     )
 
 
+@pytest.mark.asyncio
+async def test_capture_begin_forwards_motion_axis_codes(daemon_testbed):
+    daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
+
+    result = await daemon._handle_command(
+        CommandType.CAPTURE_BEGIN,
+        {
+            "hardware_id": "2dc8:3106",
+            "evdev_paths": ["/dev/input/event21"],
+            "mode": "motion",
+            "motion_axis_codes": [
+                evdev.ecodes.ABS_RX,
+                evdev.ecodes.ABS_RY,
+                evdev.ecodes.ABS_RZ,
+            ],
+        },
+    )
+
+    assert result == {"token": "cap-token"}
+    capture_manager.begin.assert_called_once_with(
+        hardware_id="2dc8:3106",
+        evdev_paths=["/dev/input/event21"],
+        evdev_interfaces=None,
+        mode="motion",
+        motion_axis_codes=[
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ],
+    )
+
+
 def test_capture_event_code_name_handles_list_style_evdev_aliases(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -764,6 +796,53 @@ def test_capture_manager_hardware_interface_lookup_keeps_first_alias_owner(monke
     assert calls == ["2dc8:3106", "2dc8:3106@2"]
     assert path_hardware_ids["/dev/input/event9"] == "2dc8:3106"
     assert path_sources["/dev/input/event9"] == "2dc8:3106-source"
+
+
+def test_capture_manager_observes_motion_but_still_grabs_other_devices(monkeypatch):
+    class _CaptureDevice:
+        def __init__(self, path: str, *, motion: bool) -> None:
+            self.path = path
+            self.motion = motion
+            self.grab_calls = 0
+            self.ungrab_calls = 0
+            self.close_calls = 0
+
+        def input_props(self) -> list[int]:
+            return [evdev.ecodes.INPUT_PROP_ACCELEROMETER] if self.motion else []
+
+        def grab(self) -> None:
+            self.grab_calls += 1
+
+        def ungrab(self) -> None:
+            self.ungrab_calls += 1
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    motion = _CaptureDevice("/dev/input/event-motion", motion=True)
+    keyboard = _CaptureDevice("/dev/input/event-keyboard", motion=False)
+    manager = CaptureManager()
+    monkeypatch.setattr(
+        manager,
+        "_find_devices_by_paths",
+        lambda _paths: [motion, keyboard],
+    )
+
+    result = manager.begin(
+        "1234:5678",
+        evdev_paths=[motion.path, keyboard.path],
+        mode="analog",
+    )
+
+    assert motion.grab_calls == 0
+    assert keyboard.grab_calls == 1
+
+    manager.end(str(result["token"]))
+
+    assert motion.ungrab_calls == 0
+    assert keyboard.ungrab_calls == 1
+    assert motion.close_calls == 1
+    assert keyboard.close_calls == 1
 
 
 def test_capture_manager_hardware_interface_lookup_excludes_prior_model_claims(monkeypatch):

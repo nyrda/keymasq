@@ -29,6 +29,7 @@ class DesiredGrabConfig:
     button_codes: dict[str, int] = field(default_factory=dict)
     button_values: dict[str, int] = field(default_factory=dict)
     analog_inputs: dict[str, object] = field(default_factory=dict)
+    motion_sensors: dict[str, object] = field(default_factory=dict)
     force_grab_unmapped: bool = False
     evdev_interfaces: list[JsonObject] = field(default_factory=list)
 
@@ -73,6 +74,7 @@ class GrabRequest:
     button_codes: dict[str, int] | None = None
     button_values: dict[str, int] | None = None
     analog_inputs: dict[str, object] | None = None
+    motion_sensors: dict[str, object] | None = None
     force_grab_unmapped: bool = False
     evdev_interfaces: list[JsonObject] | None = None
     update_desired: bool = True
@@ -101,6 +103,7 @@ class GrabPlan:
     previous_desired_paths: set[str] | None
     previous_desired_config: object | None
     requests_gamepad_source_hiding: bool
+    motion_sensors: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass

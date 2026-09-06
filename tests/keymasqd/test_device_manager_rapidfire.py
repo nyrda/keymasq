@@ -20,6 +20,7 @@ from keymasq.keymasqd.runtime.grabbed_device import actions, grab, repeat
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     combo_runtime_deps,
@@ -207,6 +208,70 @@ class TestRapidfireRelease:
         assert isinstance(device.uinput, FakeUInput)
         assert call_order == ["uinput", "active_keys", "active_keys", "grab"]
         assert created_tasks
+
+    @pytest.mark.asyncio
+    async def test_motion_device_is_observed_without_grab_or_passthrough(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "imu")
+
+        class _FakeInputDevice:
+            def __init__(self) -> None:
+                self.grab_calls = 0
+                self.ungrab_calls = 0
+                self.close_calls = 0
+
+            def grab(self) -> None:
+                self.grab_calls += 1
+
+            def ungrab(self) -> None:
+                self.ungrab_calls += 1
+
+            def close(self) -> None:
+                self.close_calls += 1
+
+        physical = _FakeInputDevice()
+        original_create_task = asyncio.create_task
+        original_sleep = asyncio.sleep
+
+        def fake_create_task(coro):
+            coro.close()
+            return original_create_task(original_sleep(0))
+
+        monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: physical)
+        monkeypatch.setattr(
+            grabbed_device.evdev,
+            "UInput",
+            Mock(side_effect=AssertionError("motion observation created passthrough")),
+        )
+        monkeypatch.setattr(grabbed_device.asyncio, "create_task", fake_create_task)
+        wait_for_active_keys = AsyncMock()
+        monkeypatch.setattr(grab, "wait_for_active_keys_to_clear", wait_for_active_keys)
+
+        device = GrabbedDevice(
+            path="/dev/input/event-motion",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.MOTION,
+            device_types=[DeviceType.MOTION.value],
+        )
+
+        await device.grab()
+        await original_sleep(0)
+
+        assert device.access_mode is InputAccessMode.OBSERVE
+        assert device.uinput is None
+        assert physical.grab_calls == 0
+        wait_for_active_keys.assert_not_awaited()
+
+        await device.release()
+
+        assert physical.ungrab_calls == 0
+        assert physical.close_calls == 1
 
     @pytest.mark.asyncio
     async def test_wait_for_active_keys_logs_progress_while_delaying_grab(

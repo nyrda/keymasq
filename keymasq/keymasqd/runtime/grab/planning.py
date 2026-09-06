@@ -97,7 +97,12 @@ def build_grab_plan(
         if (event_type := resolve_evdev_event_type(request.button_map.get(button_id))) is not None
     }
     analog_inputs = dict(request.analog_inputs or {})
-    mapped_bindings = button_mapped_bindings | analog_input_bindings(analog_inputs)
+    motion_sensors = dict(request.motion_sensors or {})
+    mapped_bindings = (
+        button_mapped_bindings
+        | analog_input_bindings(analog_inputs)
+        | motion_input_bindings(motion_sensors)
+    )
 
     return GrabPlan(
         hardware_id=request.hardware_id,
@@ -114,6 +119,7 @@ def build_grab_plan(
         button_mapped_bindings=button_mapped_bindings,
         mapped_bindings=mapped_bindings,
         analog_inputs=analog_inputs,
+        motion_sensors=motion_sensors,
         existing_devices=existing_devices,
         existing_by_claim_path=existing_by_claim_path,
         previous_desired_paths=previous_desired_paths,
@@ -137,6 +143,7 @@ def persist_desired_grab(
         button_codes=dict(plan.resolved_button_codes),
         button_values=dict(plan.resolved_button_values),
         analog_inputs=dict(plan.analog_inputs),
+        motion_sensors=dict(plan.motion_sensors),
         force_grab_unmapped=bool(request.force_grab_unmapped),
         evdev_interfaces=list(plan.raw_interfaces) if plan.evdev_interfaces_provided else [],
     )
@@ -187,6 +194,9 @@ def update_existing_devices(
         update_analog_inputs = getattr(device, "update_analog_inputs", None)
         if callable(update_analog_inputs):
             update_analog_inputs(dict(plan.analog_inputs))
+        update_motion_sensors = getattr(device, "update_motion_sensors", None)
+        if callable(update_motion_sensors):
+            update_motion_sensors(dict(plan.motion_sensors))
 
 
 def grabbed_paths_for_other_hardware(
@@ -384,6 +394,32 @@ def analog_input_bindings(
             code = _axis_code(axis_data)
             if code is not None:
                 bindings.add((int(evdev.ecodes.EV_ABS), int(code)))
+    return bindings
+
+
+def motion_input_bindings(
+    motion_sensors: dict[str, object],
+    *,
+    source: str | None = None,
+) -> set[tuple[int, int]]:
+    bindings: set[tuple[int, int]] = set()
+    normalized_source = str(source or "").strip().lower()
+    for raw_sensor in motion_sensors.values():
+        if not isinstance(raw_sensor, dict):
+            continue
+        sensor = cast(dict[str, object], raw_sensor)
+        sensor_source = str(sensor.get("source", "") or "").strip().lower()
+        if normalized_source and sensor_source and sensor_source != normalized_source:
+            continue
+        for key in ("gyro_axes", "accelerometer_axes"):
+            axes = sensor.get(key)
+            if not isinstance(axes, list):
+                continue
+            for value in cast(list[object], axes):
+                if isinstance(value, dict) and (
+                    code := _axis_code(cast(dict[str, object], value))
+                ) is not None:
+                    bindings.add((int(evdev.ecodes.EV_ABS), int(code)))
     return bindings
 
 

@@ -653,7 +653,10 @@ async def start_recording(
     include_mouse_clicks = settings.get("include_mouse_clicks", False)
     record_start_position = settings.get("record_start_position", False)
     include_other_devices = manager.recording_state.devices_cache_include_other
-    device_types = recording_device_filter_types(include_other_devices)
+    device_types = recording_device_filter_types(
+        include_other_devices,
+        include_motion=manager.recording_state.devices_cache_include_motion,
+    )
 
     await refresh_recording_devices_cache(manager, include_other=include_other_devices)
     if not manager.recording_state.devices_cache_ready:

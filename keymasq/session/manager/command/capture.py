@@ -1,7 +1,7 @@
 import asyncio
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.coercion import coerce_bool, coerce_float, coerce_str
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerce_str
 
 from .. import recording_capture, recording_device_selection
 from ..common import JsonObject, json_list
@@ -18,7 +18,11 @@ async def handle_capture_commands(
 ) -> JsonObject | None:
     if command == "list_devices_for_recording":
         include_other = coerce_bool(request.get("include_other"), False)
-        device_types = recording_device_selection.recording_device_filter_types(include_other)
+        include_motion = coerce_bool(request.get("include_motion"), False)
+        device_types = recording_device_selection.recording_device_filter_types(
+            include_other,
+            include_motion=include_motion,
+        )
         devices = await recording_device_selection.get_devices_for_recording(
             manager,
             device_types,
@@ -27,6 +31,7 @@ async def handle_capture_commands(
         manager.recording_state.devices_cache = devices
         manager.recording_state.devices_cache_ready = True
         manager.recording_state.devices_cache_include_other = include_other
+        manager.recording_state.devices_cache_include_motion = include_motion
         recording_device_selection.update_selected_recording_devices_cache(manager)
         return {"status": "ok", "devices": devices}
 
@@ -38,6 +43,12 @@ async def handle_capture_commands(
             coerce_str(path, "")
             for path in json_list(request.get("evdev_paths"))
             if coerce_str(path, "")
+        ]
+        source = coerce_str(request.get("source"), "")
+        motion_axis_codes = [
+            coerce_int(code, -1)
+            for code in json_list(request.get("motion_axis_codes"))
+            if coerce_int(code, -1) >= 0
         ]
         evdev_interfaces_raw = request.get("evdev_interfaces")
         evdev_interfaces = (
@@ -56,6 +67,8 @@ async def handle_capture_commands(
             evdev_paths,
             evdev_interfaces=evdev_interfaces,
             mode=mode,
+            source=source or None,
+            motion_axis_codes=motion_axis_codes,
             owner_writer=writer if bool(request.get("end_on_disconnect", False)) else None,
         )
 

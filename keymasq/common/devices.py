@@ -10,7 +10,15 @@ import evdev
 
 from keymasq.common.model.core import DeviceType
 
-INPUT_CLASS_ORDER = ("mouse", "touchpad", "keyboard", "gamepad", "pointstick", "other")
+INPUT_CLASS_ORDER = (
+    "mouse",
+    "touchpad",
+    "keyboard",
+    "motion",
+    "gamepad",
+    "pointstick",
+    "other",
+)
 KEYMASQ_DEVICE_PATH_PREFIX = "keymasq:"
 log = logging.getLogger("keymasq.common.devices")
 INPUT_CLASS_LABELS = {
@@ -18,6 +26,7 @@ INPUT_CLASS_LABELS = {
     "touchpad": "Touchpad",
     "keyboard": "Keyboard",
     "gamepad": "Gamepad",
+    "motion": "Motion Sensor",
     "pointstick": "Pointstick",
     "other": "Other",
 }
@@ -395,6 +404,9 @@ def detect_input_classes_from_capabilities(
     props = {int(prop) for prop in (input_props or [])}
 
     classes: list[str] = []
+    is_motion = evdev.ecodes.INPUT_PROP_ACCELEROMETER in props
+    if is_motion:
+        classes.append("motion")
     has_touchpad_axes = bool(abs_codes & _TOUCHPAD_MT_ABS_CODES) or (
         evdev.ecodes.ABS_X in abs_codes and evdev.ecodes.ABS_Y in abs_codes
     )
@@ -410,7 +422,7 @@ def detect_input_classes_from_capabilities(
         evdev.ecodes.BTN_JOYSTICK <= code < evdev.ecodes.BTN_DIGI for code in key_codes
     )
     is_plain_absolute_touch = evdev.ecodes.BTN_TOUCH in key_codes and not has_controller_buttons
-    if has_gamepad_axes and not is_touchpad and not is_plain_absolute_touch:
+    if has_gamepad_axes and not is_motion and not is_touchpad and not is_plain_absolute_touch:
         classes.append("gamepad")
 
     if is_touchpad:
@@ -442,6 +454,8 @@ def detect_input_classes(device: _CapabilityDevice) -> list[str]:
 
 def primary_input_class(classes: Iterable[str | DeviceType] | None) -> DeviceType:
     normalized = normalize_input_classes(classes)
+    if "motion" in normalized:
+        return DeviceType.MOTION
     if "gamepad" in normalized:
         return DeviceType.GAMEPAD
     if "mouse" in normalized or "pointstick" in normalized:
@@ -481,6 +495,8 @@ def classify_event_device_type(
             return "mouse"
 
     if event_type == evdev.ecodes.EV_ABS:
+        if "motion" in normalized:
+            return "motion"
         if "gamepad" in normalized and event_code in _GAMEPAD_ABS_CODES:
             return "gamepad"
         if "touchpad" in normalized:
@@ -490,7 +506,7 @@ def classify_event_device_type(
         if "gamepad" in normalized:
             return "gamepad"
 
-    for label in ("keyboard", "touchpad", "mouse", "gamepad"):
+    for label in ("keyboard", "touchpad", "mouse", "motion", "gamepad"):
         if label in normalized:
             return label
     return "other"

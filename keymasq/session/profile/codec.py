@@ -52,9 +52,11 @@ class ProfileCodec:
         *,
         superkey_exists: Callable[[str], bool] | None = None,
         analog_control_exists: Callable[[str], bool] | None = None,
+        motion_control_exists: Callable[[str], bool] | None = None,
     ) -> None:
         self._superkey_exists = superkey_exists
         self._analog_control_exists = analog_control_exists
+        self._motion_control_exists = motion_control_exists
 
     def load(self, path: Path) -> DecodedProfile:
         with open(path, "rb") as profile_file:
@@ -96,9 +98,7 @@ class ProfileCodec:
                 if parsed_created_at.utcoffset() is None:
                     created_at = parsed_created_at
                 else:
-                    created_at_repair_reason = (
-                        f"timezone-aware created_at '{created_at_raw}'"
-                    )
+                    created_at_repair_reason = f"timezone-aware created_at '{created_at_raw}'"
         elif created_at_raw is None:
             created_at_repair_reason = "missing created_at"
         else:
@@ -238,6 +238,39 @@ class ProfileCodec:
             log.warning(
                 "Analog control action missing analog_control_names, replacing with suppress"
             )
+            return MappingAction(action_type=ActionType.SUPPRESS)
+
+        if action_type == ActionType.MOTION_CONTROL:
+            raw_names = normalized_action_data.get("motion_control_names")
+            if isinstance(raw_names, list):
+                raw_motion_control_names = cast(list[object], raw_names)
+            else:
+                raw_motion_name: object = normalized_action_data.get("motion_control_name")
+                raw_motion_control_names = [raw_motion_name] if raw_motion_name is not None else []
+            motion_control_names = [
+                name for raw_name in raw_motion_control_names if (name := str(raw_name).strip())
+            ]
+            if motion_control_names:
+                if self._motion_control_exists is not None:
+                    missing = next(
+                        (
+                            name
+                            for name in motion_control_names
+                            if not self._motion_control_exists(name)
+                        ),
+                        None,
+                    )
+                    if missing is not None:
+                        log.warning(
+                            "Unknown motion control '%s', replacing with suppress",
+                            missing,
+                        )
+                        return MappingAction(action_type=ActionType.SUPPRESS)
+                return MappingAction(
+                    action_type=ActionType.MOTION_CONTROL,
+                    motion_control_names=motion_control_names,
+                )
+            log.warning("Motion control action missing control names, replacing with suppress")
             return MappingAction(action_type=ActionType.SUPPRESS)
 
         return mapping_action_from_toml(

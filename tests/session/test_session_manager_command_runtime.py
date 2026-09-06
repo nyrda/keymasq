@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock, call
 
+import evdev
 import pytest
 
 import keymasq.session.manager.command.macro as macro_commands_module
@@ -166,9 +167,7 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
     manager = SessionManager()
     manager.virtual_gamepad_count = 1
     manager.connected = True
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"count": 2})
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={"count": 2}))
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     save = Mock(side_effect=OSError("disk full"))
@@ -2325,9 +2324,7 @@ async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2365,9 +2362,7 @@ async def test_begin_capture_cancellation_rolls_back_when_daemon_end_fails(
     manager.client.disconnect = AsyncMock()
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2405,9 +2400,7 @@ async def test_begin_capture_cancellation_preserves_state_when_disconnect_fails(
     manager.client.disconnect = AsyncMock(side_effect=OSError("disconnect failed"))
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2441,9 +2434,7 @@ async def test_begin_capture_defers_repeated_cancellation_until_ack(
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     await asyncio.sleep(0)
@@ -2480,9 +2471,7 @@ async def test_begin_capture_defers_cancellation_during_capture_end(
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2519,9 +2508,7 @@ async def test_begin_capture_defers_repeated_cancellation_during_rejected_rollba
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2545,18 +2532,14 @@ async def test_begin_capture_defers_cancellation_after_rejected_response(
     hardware_id = "2dc8:3106"
     rollback_started = asyncio.Event()
     release_rollback = asyncio.Event()
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="error", error="rejected")
-    )
+    manager.client.send_command = AsyncMock(return_value=Response(status="error", error="rejected"))
 
     async def reevaluate_profiles(*_args, **_kwargs) -> None:
         rollback_started.set()
         await release_rollback.wait()
 
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await rollback_started.wait()
     capture_task.cancel()
     release_rollback.set()
@@ -2609,9 +2592,7 @@ async def test_begin_capture_preserves_cancellation_when_request_fails(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
     release_response.set()
@@ -2646,9 +2627,7 @@ async def test_begin_capture_bounds_silent_request_settlement(
     reevaluate_profiles = AsyncMock()
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
-    capture_task = asyncio.create_task(
-        recording_capture_module.capture_begin(manager, hardware_id)
-    )
+    capture_task = asyncio.create_task(recording_capture_module.capture_begin(manager, hardware_id))
     await request_started.wait()
     capture_task.cancel()
 
@@ -2824,6 +2803,44 @@ async def test_capture_end_keeps_token_when_daemon_end_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_capture_read_forwards_motion_frame_batch() -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.capture_state.tokens[hardware_id] = "token-1"
+    frames = [
+        {
+            "timestamp_ns": 123,
+            "source": "imu",
+            "values": {
+                str(evdev.ecodes.ABS_RX): 10,
+                str(evdev.ecodes.ABS_RY): 20,
+                str(evdev.ecodes.ABS_RZ): 30,
+            },
+        }
+    ]
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={
+                "frames": frames,
+                "dropped_frames": 0,
+                "discontinuities": 0,
+            },
+        )
+    )
+
+    result = await recording_capture_module.capture_read(manager, hardware_id)
+
+    assert result == {
+        "status": "ok",
+        "captured": None,
+        "frames": frames,
+        "dropped_frames": 0,
+        "discontinuities": 0,
+    }
+
+
+@pytest.mark.asyncio
 async def test_capture_end_logs_unexpected_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -2922,6 +2939,77 @@ async def test_begin_capture_with_paths_uses_configured_interfaces_when_omitted(
                 "type": "gamepad",
                 "phys": "bluetooth/input0",
                 "capabilities": ["btn_south"],
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_begin_capture_source_selects_only_motion_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    hardware_id = "2dc8:3106"
+    manager.hardware.get_hardware = lambda _hardware_id: SimpleNamespace(  # type: ignore[assignment]
+        evdev_devices=[
+            SimpleNamespace(
+                id="gamepad",
+                path="/dev/input/event20",
+                device_type=SimpleNamespace(value="gamepad"),
+                phys="usb-pad/input0",
+                capabilities=["btn_south"],
+            ),
+            SimpleNamespace(
+                id="imu",
+                path="/dev/input/event21",
+                device_type=SimpleNamespace(value="motion"),
+                phys="usb-pad/input1",
+                capabilities=["abs_rx", "abs_ry", "abs_rz"],
+            ),
+        ]
+    )
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"token": "capture-token", "warnings": []})
+    )
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    writer = object()
+    grant_recording_refresh_owner(manager, peer, writer, monkeypatch)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "begin_capture",
+            "hardware_id": hardware_id,
+            "mode": "motion",
+            "source": "imu",
+            "motion_axis_codes": [
+                evdev.ecodes.ABS_RX,
+                evdev.ecodes.ABS_RY,
+                evdev.ecodes.ABS_RZ,
+            ],
+        },
+        peer,
+        writer,
+    )
+
+    assert result["status"] == "ok"
+    sent = manager.client.send_command.await_args.args[0]
+    assert sent.command == CommandType.CAPTURE_BEGIN
+    assert sent.data == {
+        "hardware_id": hardware_id,
+        "mode": "motion",
+        "motion_axis_codes": [
+            evdev.ecodes.ABS_RX,
+            evdev.ecodes.ABS_RY,
+            evdev.ecodes.ABS_RZ,
+        ],
+        "evdev_paths": ["/dev/input/event21"],
+        "evdev_interfaces": [
+            {
+                "id": "imu",
+                "path": "/dev/input/event21",
+                "type": "motion",
+                "phys": "usb-pad/input1",
+                "capabilities": ["abs_rx", "abs_ry", "abs_rz"],
             }
         ],
     }
@@ -3812,6 +3900,59 @@ async def test_list_devices_for_recording_coerces_include_other(
     )
     assert manager.recording_state.devices_cache_include_other is expected_include_other
     update_selected.assert_called_once_with(manager)
+
+
+@pytest.mark.asyncio
+async def test_hardware_inventory_can_request_motion_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = False
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    get_devices = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "get_devices_for_recording",
+        get_devices,
+    )
+    monkeypatch.setattr(
+        recording_device_selection_module,
+        "update_selected_recording_devices_cache",
+        Mock(),
+    )
+
+    result = await manager._handle_session_request(
+        {"command": "list_devices_for_recording", "include_motion": True},
+        peer,
+        object(),
+    )
+
+    assert result == {"status": "ok", "devices": []}
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(include_motion=True),
+        include_grabbed=True,
+    )
+    assert manager.recording_state.devices_cache_include_motion
+
+    get_devices.reset_mock()
+    await recording_device_selection_module.refresh_recording_devices_cache(manager)
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(include_motion=True),
+        include_grabbed=True,
+    )
+
+    # A normal recording-device request must clear the hardware-inventory filter.
+    await manager._handle_session_request({"command": "list_devices_for_recording"}, peer, object())
+    assert not manager.recording_state.devices_cache_include_motion
+    get_devices.reset_mock()
+    await recording_device_selection_module.refresh_recording_devices_cache(manager)
+    get_devices.assert_awaited_once_with(
+        manager,
+        recording_device_selection_module.recording_device_filter_types(),
+        include_grabbed=True,
+    )
 
 
 @pytest.mark.asyncio

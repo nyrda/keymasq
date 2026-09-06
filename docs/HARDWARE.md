@@ -84,12 +84,14 @@ profile layers.
 `Add Event Device` attaches another raw evdev device to the same hardware ID
 through the Add Device dialog in raw evdev mode. This is what you want for
 hardware that exposes more than one interface, like a mouse with an extra
-keyboard endpoint.
+keyboard endpoint. Selecting a controller motion interface also adds its
+gyroscope and accelerometer axes to the hardware layout, so it appears under
+Motion Normalization as soon as the hardware is saved.
 
 Each device row has a remove button. Removing a device drops its evdev entry and
-the controls whose `source` points at it, and optionally clears the profile
-mappings for those controls. Controls from the other attached devices are
-untouched.
+the controls whose `source` points at it, including an attached motion sensor.
+It can also clear the profile mappings for those controls. Controls from the
+other attached devices are untouched.
 
 ## Switching Detection Methods
 

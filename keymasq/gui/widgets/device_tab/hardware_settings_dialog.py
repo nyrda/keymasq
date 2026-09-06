@@ -1,6 +1,7 @@
 import logging
 import re
 from collections.abc import Callable, Sequence
+from copy import deepcopy
 from typing import Literal, cast
 
 import gi
@@ -14,14 +15,21 @@ from keymasq import __version__
 from keymasq.common.devices import is_keymasq_device_path
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+from keymasq.common.model.motion import MotionSensorDefinition
+from keymasq.gui.widgets.device_tab.motion_calibration_dialog import (
+    MotionCalibrationDialog,
+)
 from keymasq.gui.widgets.docs_links import docs_page_url
+from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
 from keymasq.session.hardware import HardwareManager
 
 log = logging.getLogger("keymasq.gui.widgets.device_tab.hardware_settings_dialog")
 
 DetectionMethod = Literal["stable", "product"]
 EvdevDevicesAddResult = tuple[int, str, bool]
-EvdevDevicesAddedCallback = Callable[[list[EvdevDevice]], EvdevDevicesAddResult]
+EvdevDevicesAddedCallback = Callable[
+    [list[EvdevDevice] | EvdevDeviceSelection], EvdevDevicesAddResult
+]
 EvdevDeviceDeleteCallback = Callable[[EvdevDevice, bool], bool]
 EvdevDetectionMethodCallback = Callable[[EvdevDevice, DetectionMethod], tuple[bool, str]]
 EvdevStableDetectionStatusCallback = Callable[[EvdevDevice], tuple[bool, str]]
@@ -36,12 +44,27 @@ def append_unique_evdev_devices(
     hardware_config: HardwareConfig,
     evdev_devices: Sequence[EvdevDevice],
 ) -> int:
+    added, _motion_added = append_evdev_device_selection(
+        hardware_config,
+        evdev_devices,
+    )
+    return added
+
+
+def append_evdev_device_selection(
+    hardware_config: HardwareConfig,
+    evdev_devices: Sequence[EvdevDevice],
+) -> tuple[int, int]:
+    """Attach selected interfaces and any motion layout discovered with them."""
     used_ids = {
         _normalize_interface_id(str(device.id or ""))
         for device in hardware_config.evdev_devices
         if str(device.id or "").strip()
     }
-    signatures = {_evdev_device_signature(device) for device in hardware_config.evdev_devices}
+    devices_by_signature = {
+        _evdev_device_signature(device): device for device in hardware_config.evdev_devices
+    }
+    source_ids: dict[str, str] = {}
 
     added = 0
     for device in evdev_devices:
@@ -49,21 +72,49 @@ def append_unique_evdev_devices(
         if not path:
             continue
         signature = _evdev_device_signature(device)
-        if signature in signatures:
+        if existing := devices_by_signature.get(signature):
+            source = str(device.id or "").strip()
+            existing_source = str(existing.id or "").strip()
+            if source and existing_source:
+                source_ids[source] = existing_source
             continue
         source_id = _dedupe_interface_id(str(device.id or ""), used_ids)
-        hardware_config.evdev_devices.append(
-            EvdevDevice(
-                path=path,
-                device_type=_evdev_device_type(device),
-                id=source_id,
-                phys=str(device.phys or "") or None,
-                capabilities=[str(item) for item in device.capabilities],
-            )
+        appended = EvdevDevice(
+            path=path,
+            device_type=_evdev_device_type(device),
+            id=source_id,
+            phys=str(device.phys or "") or None,
+            capabilities=[str(item) for item in device.capabilities],
         )
-        signatures.add(signature)
+        hardware_config.evdev_devices.append(appended)
+        devices_by_signature[signature] = appended
+        original_source = str(device.id or "").strip()
+        if original_source:
+            source_ids[original_source] = source_id
         added += 1
-    return added
+
+    selected_motion_sensors = (
+        evdev_devices.motion_sensors
+        if isinstance(evdev_devices, EvdevDeviceSelection)
+        else []
+    )
+    used_motion_ids = {
+        _normalize_interface_id(sensor.id) for sensor in hardware_config.motion_sensors
+    }
+    motion_added = 0
+    for sensor in selected_motion_sensors:
+        target_source = source_ids.get(str(sensor.source or "").strip())
+        if not target_source:
+            continue
+        if any(existing.source == target_source for existing in hardware_config.motion_sensors):
+            continue
+        appended_sensor = deepcopy(sensor)
+        appended_sensor.id = _dedupe_interface_id(sensor.id or "motion", used_motion_ids)
+        appended_sensor.source = target_source
+        hardware_config.motion_sensors.append(appended_sensor)
+        motion_added += 1
+
+    return added, motion_added
 
 
 class HardwareSettingsDialog(Adw.Dialog):
@@ -101,6 +152,9 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._can_delete_profile_mappings = can_delete_profile_mappings
         self._interface_rows: list[Adw.ActionRow] = []
         self._identity_row: Adw.ActionRow | None = None
+        self._motion_rows: dict[str, Adw.ActionRow] = {}
+        self._motion_group: Adw.PreferencesGroup | None = None
+        self._motion_calibration_dialog: MotionCalibrationDialog | None = None
         self._updating_detection_method = False
 
         self._setup_ui()
@@ -139,6 +193,10 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._interfaces_group = Adw.PreferencesGroup(title="Attached Event Devices")
         box.append(self._interfaces_group)
         self._refresh_interface_rows()
+
+        self._motion_group = Adw.PreferencesGroup(title="Motion Normalization")
+        box.append(self._motion_group)
+        self._refresh_motion_rows()
 
         self._status_label = Gtk.Label()
         self._status_label.add_css_class("dim-label")
@@ -196,6 +254,7 @@ class HardwareSettingsDialog(Adw.Dialog):
     def refresh_runtime_metadata(self) -> None:
         self._refresh_identity()
         self._refresh_interface_rows()
+        self._refresh_motion_rows()
 
     def _refresh_interface_rows(self) -> None:
         for row in self._interface_rows:
@@ -233,6 +292,26 @@ class HardwareSettingsDialog(Adw.Dialog):
             row.add_suffix(delete_btn)
             self._interfaces_group.add(row)
             self._interface_rows.append(row)
+
+    def _refresh_motion_rows(self) -> None:
+        if self._motion_group is None:
+            return
+        for row in self._motion_rows.values():
+            self._motion_group.remove(row)
+        self._motion_rows = {}
+
+        for sensor in self._hardware_config.motion_sensors:
+            row = Adw.ActionRow(
+                title=sensor.label,
+                subtitle=_motion_sensor_subtitle(sensor),
+            )
+            edit_btn = Gtk.Button(label="Calibrate gyro…")
+            edit_btn.set_sensitive(bool(sensor.gyro_axes))
+            edit_btn.connect("clicked", self._on_motion_calibration_clicked, sensor)
+            row.add_suffix(edit_btn)
+            self._motion_group.add(row)
+            self._motion_rows[sensor.id] = row
+        self._motion_group.set_visible(bool(self._hardware_config.motion_sensors))
 
     def _detection_method_toggle_box(self, device: EvdevDevice) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -295,6 +374,34 @@ class HardwareSettingsDialog(Adw.Dialog):
         picker.connect("evdev-devices-selected", self._on_evdev_devices_selected)
         picker.present(parent)
 
+    def _on_motion_calibration_clicked(
+        self,
+        _button: Gtk.Button,
+        sensor: MotionSensorDefinition,
+    ) -> None:
+        if self._motion_calibration_dialog is not None:
+            self._motion_calibration_dialog.present(self._parent_window())
+            return
+        dialog = MotionCalibrationDialog(
+            self._parent_window(),
+            self._hardware_config,
+            sensor,
+            self._hardware_manager,
+        )
+        self._motion_calibration_dialog = dialog
+        dialog.connect("closed", self._on_motion_calibration_closed, sensor)
+        dialog.present(self._parent_window())
+
+    def _on_motion_calibration_closed(
+        self,
+        _dialog: Adw.Dialog,
+        sensor: MotionSensorDefinition,
+    ) -> None:
+        self._motion_calibration_dialog = None
+        row = self._motion_rows.get(sensor.id)
+        if row is not None:
+            row.set_subtitle(_motion_sensor_subtitle(sensor))
+
     def _on_evdev_devices_selected(
         self,
         _dialog: object,
@@ -305,8 +412,12 @@ class HardwareSettingsDialog(Adw.Dialog):
         devices = [
             device for device in cast(list[object], raw_devices) if isinstance(device, EvdevDevice)
         ]
-        _added, message, error = self._on_add_devices(devices)
+        selection: list[EvdevDevice] | EvdevDeviceSelection = devices
+        if isinstance(raw_devices, EvdevDeviceSelection):
+            selection = EvdevDeviceSelection(devices, raw_devices.motion_sensors)
+        _added, message, error = self._on_add_devices(selection)
         self._refresh_interface_rows()
+        self._refresh_motion_rows()
         self._set_status(message, error=error)
 
     def _on_detection_method_toggled(
@@ -476,6 +587,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         if self._on_delete_evdev_device(device, delete_profiles_check.get_active()):
             dialog.close()
             self._refresh_interface_rows()
+            self._refresh_motion_rows()
             self._set_status("Removed event device.")
             return
         button.set_sensitive(True)
@@ -489,6 +601,9 @@ class HardwareSettingsDialog(Adw.Dialog):
         ids = [button.id for button in self._hardware_config.buttons if button.source == source]
         ids.extend(
             analog.id for analog in self._hardware_config.analog_inputs if analog.source == source
+        )
+        ids.extend(
+            sensor.id for sensor in self._hardware_config.motion_sensors if sensor.source == source
         )
         return ids
 
@@ -514,6 +629,13 @@ def _interface_row_title(device: EvdevDevice) -> str:
     source_id = str(device.id or "").strip()
     device_type = _evdev_device_type(device).value
     return f"{source_id or 'input'} ({device_type})"
+
+
+def _motion_sensor_subtitle(sensor: MotionSensorDefinition) -> str:
+    source = sensor.driver or "generic evdev"
+    if sensor.calibration_samples > 0:
+        return f"{source} · gyro calibrated from {sensor.calibration_samples} samples"
+    return f"{source} · kernel scale · gyro bias not measured"
 
 
 def _detection_method_for_device(device: EvdevDevice) -> DetectionMethod:

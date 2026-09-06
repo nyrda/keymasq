@@ -8,6 +8,7 @@ from typing import NotRequired, TypedDict, cast
 
 import evdev
 
+from keymasq.common.coercion import coerce_float
 from keymasq.common.combos import normalize_combo_evdev
 from keymasq.common.devices import (
     get_interface_id,
@@ -39,12 +40,14 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     DeviceInspectorSuppressionGetter,
     EmergencyResetter,
     GrabbedDeviceState,
+    InputAccessMode,
     MacroPlayer,
     ManagedInputDevice,
     MappingGetter,
     NaturalMouseMover,
     RuntimeDisconnectCallback,
 )
+from keymasq.keymasqd.runtime.motion_controls import initialize_motion_state
 from keymasq.keymasqd.runtime.outputs import (
     create_uinput_with_permission_hint,
     uinput_identity,
@@ -275,7 +278,9 @@ class GrabbedDevice:
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
+        motion_sensors: dict[str, object] | None = None,
         interface_id: str | None = None,
+        access_mode: InputAccessMode | None = None,
     ) -> None:
         self.path = path
         self.resolved_event_path = os.path.realpath(path)
@@ -297,10 +302,25 @@ class GrabbedDevice:
         self.analog_axis_calibrations: dict[tuple[str, str], dict[str, object]] = {}
         self.analog_input_types: dict[str, str] = {}
         self.update_analog_inputs(analog_inputs or {})
+        self.motion_sensors: dict[str, object] = {}
+        self.motion_axis_bindings: dict[
+            tuple[int, int], tuple[str, str, str, float, float, bool, float]
+        ] = {}
+        self.update_motion_sensors(motion_sensors or {})
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
         self.device_type = device_type
         self.device_types = device_types or [device_type.value]
+        is_motion_device = (
+            device_type is DeviceType.MOTION or DeviceType.MOTION.value in self.device_types
+        )
+        if access_mode is InputAccessMode.OBSERVE and not is_motion_device:
+            raise ValueError("observe access is supported only for motion devices")
+        self.access_mode = (
+            InputAccessMode.OBSERVE
+            if is_motion_device
+            else access_mode or InputAccessMode.EXCLUSIVE
+        )
         self.verbosity = verbosity
         self.keyboard_uinput = keyboard_uinput
         self.mouse_uinput = mouse_uinput
@@ -404,6 +424,39 @@ class GrabbedDevice:
                     self.analog_axis_calibrations[(str(analog_id), role)] = calibration
         self._refresh_analog_axis_ranges()
 
+    def update_motion_sensors(self, motion_sensors: dict[str, object]) -> None:
+        self.motion_sensors = dict(motion_sensors)
+        self.motion_axis_bindings = {}
+        for sensor_id, raw_sensor in self.motion_sensors.items():
+            if not isinstance(raw_sensor, dict):
+                continue
+            sensor = cast(dict[str, object], raw_sensor)
+            source = str(sensor.get("source", "") or "").strip().lower()
+            if source and source != self.interface_id:
+                continue
+            for kind, key in (("gyro", "gyro_axes"), ("accelerometer", "accelerometer_axes")):
+                raw_axes = sensor.get(key)
+                if not isinstance(raw_axes, list):
+                    continue
+                for raw_axis in cast(list[object], raw_axes):
+                    if not isinstance(raw_axis, dict):
+                        continue
+                    axis = cast(dict[str, object], raw_axis)
+                    role = str(axis.get("role", "") or "").strip().lower()
+                    code = _axis_code(axis)
+                    valid_roles = {"pitch", "yaw", "roll"} if kind == "gyro" else {"x", "y", "z"}
+                    if role not in valid_roles or code is None:
+                        continue
+                    self.motion_axis_bindings[(int(evdev.ecodes.EV_ABS), int(code))] = (
+                        str(sensor_id),
+                        kind,
+                        role,
+                        coerce_float(axis.get("offset"), 0.0),
+                        coerce_float(axis.get("scale"), 1.0),
+                        bool(axis.get("invert", False)),
+                        coerce_float(axis.get("noise"), 0.0),
+                    )
+
     async def reset_mapping_runtime_state(
         self,
         previous_mapping: dict[str, MappingAction] | None = None,
@@ -422,6 +475,8 @@ class GrabbedDevice:
             else set[str]()
         )
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
+        self.reset_motion_controls()
+        initialize_motion_state(self, self.mapping_getter())
         await self.reset_superkeys()
         grab.seed_startup_held_actions(self)
 
@@ -433,12 +488,24 @@ class GrabbedDevice:
     async def reset_analog_controls(
         self,
         preserve_state_keys: set[str] | None = None,
+        *,
+        state_key_prefix: str | None = None,
     ) -> None:
         await reset_analog_controls(
             self,
             deps=pipeline.build_action_execution_deps(),
             preserve_state_keys=preserve_state_keys,
+            state_key_prefix=state_key_prefix,
         )
+
+    def reset_motion_controls(self) -> None:
+        self.state.motion_resyncing = False
+        self.state.motion_frame_values.clear()
+        self.state.motion_adaptive_filters.clear()
+        self.state.motion_smoothed_values.clear()
+        self.state.motion_last_frame_ns.clear()
+        self.state.motion_mouse_accumulators.clear()
+        self.state.motion_tilt_centers.clear()
 
     async def _cleanup_failed_grab(self) -> None:
         await self._stop_output_feedback_proxy()
@@ -469,6 +536,19 @@ class GrabbedDevice:
         self.resolved_event_path = os.path.realpath(self.path)
         self.source_hidden_kernel_names = []
         self.device = _device_input(self.path)
+        initialize_motion_state(self, self.mapping_getter())
+
+        if self.access_mode is InputAccessMode.OBSERVE:
+            self.running = True
+            self.task = asyncio.create_task(
+                pipeline.event_loop(
+                    self,
+                    asyncio_mod=adapters.ASYNCIO_RUNTIME,
+                    log=log,
+                )
+            )
+            log.info("Observing %s for %s", self.path, self.hardware_id)
+            return
 
         try:
             self._refresh_analog_axis_ranges()
@@ -624,12 +704,13 @@ class GrabbedDevice:
         await self._stop_output_feedback_proxy()
 
         if self.device:
-            try:
-                self.device.ungrab()
-            except OSError as exc:
-                log.warning("Failed to ungrab %s: %s", self.path, exc)
-            except Exception:
-                log.exception("Unexpected failure ungrabbing %s", self.path)
+            if self.access_mode is InputAccessMode.EXCLUSIVE:
+                try:
+                    self.device.ungrab()
+                except OSError as exc:
+                    log.warning("Failed to ungrab %s: %s", self.path, exc)
+                except Exception:
+                    log.exception("Unexpected failure ungrabbing %s", self.path)
             try:
                 self.device.close()
             except OSError as exc:

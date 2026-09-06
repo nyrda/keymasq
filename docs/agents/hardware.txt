@@ -118,6 +118,21 @@ evdev_code = 2
   for generic axes), `evdev`, optional `evdev_code`, and optional learned
   calibration fields: `minimum`, `maximum`, `center`, `rest`, and `invert`
 
+`[[hardware.layout.motion_sensors]]` entries:
+
+- `id`: source ID used in profile mappings
+- `source`: motion evdev interface `id`
+- `driver`: optional kernel driver, including `hid-playstation`, `hid-nintendo`, or `hid-steam`
+- `gyro_axes`, `accelerometer_axes`: axis tables with `role`, `evdev`, optional
+  `evdev_code`, raw `offset`, canonical-units-per-count `scale`, `invert`, and
+  canonical `noise`
+
+Gyro roles are `pitch`, `yaw`, and `roll`. Accelerometer roles are `x`, `y`, and `z`.
+The hardware template converts each supported driver's raw order and signs into these
+canonical roles. Gyro canonical units are rad/s and accelerometer units are m/s².
+Calibration is hardware-owned; sensitivity, deadzone, smoothing, curves, and output choice
+belong to a Motion Control referenced by a profile.
+
 Detection paths:
 
 - `/dev/input/by-id/...` is the preferred stable kernel-provided path

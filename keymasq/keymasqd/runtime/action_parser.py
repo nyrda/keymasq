@@ -24,6 +24,7 @@ from keymasq.common.model.actions import (
     parse_rapidfire_fields,
 )
 from keymasq.common.model.analog import (
+    SAME_DEVICE_OUTPUT_ID,
     AnalogActionThreshold,
     AnalogControlConfig,
     AnalogGamepadOutputConfig,
@@ -31,6 +32,14 @@ from keymasq.common.model.analog import (
     normalize_analog_control_features,
 )
 from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.common.model.motion import (
+    MotionAnalogConfig,
+    MotionAxisRoutingConfig,
+    MotionControlConfig,
+    MotionGamepadConfig,
+    MotionMouseConfig,
+    MotionTiltConfig,
+)
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import superkey_state
 
@@ -198,6 +207,22 @@ def parse_action(
             )
         analog_control_config = analog_control_configs[0] if analog_control_configs else None
 
+    motion_control_config = None
+    motion_control_configs: list[MotionControlConfig] = []
+    if action_type == ActionType.MOTION_CONTROL and "motion_control" in action_data:
+        motion_control_config = parse_motion_control_config(
+            manager,
+            action_data["motion_control"],
+        )
+        motion_control_configs = [motion_control_config]
+    elif action_type == ActionType.MOTION_CONTROL and isinstance(
+        action_data.get("motion_controls"),
+        list,
+    ):
+        for raw_config in cast(list[object], action_data["motion_controls"]):
+            motion_control_configs.append(parse_motion_control_config(manager, raw_config))
+        motion_control_config = motion_control_configs[0] if motion_control_configs else None
+
     shared = _parse_shared_action_fields(
         action_data,
         action_type,
@@ -217,6 +242,10 @@ def parse_action(
         analog_control_names=cast(list[str], action_data.get("analog_control_names") or []),
         analog_control_config=analog_control_config,
         analog_control_configs=analog_control_configs,
+        motion_control_name=coerce_str(action_data.get("motion_control_name"), None),
+        motion_control_names=cast(list[str], action_data.get("motion_control_names") or []),
+        motion_control_config=motion_control_config,
+        motion_control_configs=motion_control_configs,
         macro_name=shared.macro_name,
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=shared.macro_replay_mouse_movement,
@@ -250,6 +279,88 @@ def parse_action(
         tap_enabled=bool(action_data.get("tap_enabled", False)),
         tap_hold_ms=coerce_int(action_data.get("tap_hold_ms"), 10),
         repeat_categories=cast(list[str] | None, action_data.get("repeat_categories")),
+    )
+
+
+def parse_motion_control_config(manager: object, data: object) -> MotionControlConfig:
+    if not isinstance(data, dict):
+        raise TypeError("motion control config must be an object")
+    config = cast(JsonObject, data)
+    raw_mouse = config.get("mouse", {})
+    raw_gamepad = config.get("gamepad", {})
+    raw_tilt = config.get("tilt", {})
+    raw_analog = config.get("analog", {})
+    raw_axis_routing = config.get("axis_routing", {})
+    mouse = cast(JsonObject, raw_mouse) if isinstance(raw_mouse, dict) else {}
+    gamepad = cast(JsonObject, raw_gamepad) if isinstance(raw_gamepad, dict) else {}
+    tilt = cast(JsonObject, raw_tilt) if isinstance(raw_tilt, dict) else {}
+    analog = cast(JsonObject, raw_analog) if isinstance(raw_analog, dict) else {}
+    axis_routing = cast(JsonObject, raw_axis_routing) if isinstance(raw_axis_routing, dict) else {}
+    analog_control_config = (
+        parse_analog_control_config(
+            manager,
+            analog["analog_control"],
+            json_object=getattr(manager, "_json_object", None),
+        )
+        if "analog_control" in analog
+        else None
+    )
+    return MotionControlConfig(
+        name=coerce_str(config.get("name"), "Motion Control"),
+        mode=coerce_str(config.get("mode"), "mouse"),
+        axis_routing=MotionAxisRoutingConfig(
+            yaw=coerce_str(axis_routing.get("yaw"), "horizontal"),
+            pitch=coerce_str(axis_routing.get("pitch"), "vertical"),
+            roll=coerce_str(axis_routing.get("roll"), "horizontal"),
+        ),
+        mouse=MotionMouseConfig(
+            sensitivity_x=coerce_float(mouse.get("sensitivity_x"), 8.0),
+            sensitivity_y=coerce_float(mouse.get("sensitivity_y"), 8.0),
+            deadzone_dps=coerce_float(mouse.get("deadzone_dps"), 0.5),
+            smoothing=coerce_float(mouse.get("smoothing"), 0.15),
+            response_curve=coerce_float(mouse.get("response_curve"), 1.0),
+            invert_x=bool(mouse.get("invert_x", False)),
+            invert_y=bool(mouse.get("invert_y", False)),
+        ),
+        gamepad=MotionGamepadConfig(
+            output_id=coerce_str(gamepad.get("output_id"), SAME_DEVICE_OUTPUT_ID),
+            target=coerce_str(gamepad.get("target"), "right"),
+            target_analog_id=coerce_str(gamepad.get("target_analog_id"), None),
+            max_rate_dps=coerce_float(gamepad.get("max_rate_dps"), 90.0),
+            minimum_output=coerce_float(gamepad.get("minimum_output"), 0.25),
+            deadzone_dps=coerce_float(gamepad.get("deadzone_dps"), 0.0),
+            smoothing=coerce_float(gamepad.get("smoothing"), 0.15),
+            response_curve=coerce_float(gamepad.get("response_curve"), 1.0),
+            invert_x=bool(gamepad.get("invert_x", False)),
+            invert_y=bool(gamepad.get("invert_y", False)),
+        ),
+        tilt=MotionTiltConfig(
+            reference=coerce_str(tilt.get("reference"), "activation"),
+            pitch=coerce_str(tilt.get("pitch"), "vertical"),
+            roll=coerce_str(tilt.get("roll"), "horizontal"),
+            deadzone_deg=coerce_float(tilt.get("deadzone_deg"), 2.0),
+            full_scale_deg=coerce_float(tilt.get("full_scale_deg"), 30.0),
+            smoothing=coerce_float(tilt.get("smoothing"), 0.8),
+            response_curve=coerce_float(tilt.get("response_curve"), 1.0),
+            invert_x=bool(tilt.get("invert_x", False)),
+            invert_y=bool(tilt.get("invert_y", False)),
+            speed_x=coerce_float(tilt.get("speed_x"), 900.0),
+            speed_y=coerce_float(tilt.get("speed_y"), 900.0),
+        ),
+        analog=MotionAnalogConfig(
+            analog_control_name=coerce_str(analog.get("analog_control_name"), None),
+            analog_control_config=analog_control_config,
+            source=coerce_str(analog.get("source"), "tilt"),
+            x_axis=coerce_str(analog.get("x_axis"), "roll"),
+            y_axis=coerce_str(analog.get("y_axis"), "pitch"),
+            reference=coerce_str(analog.get("reference"), "activation"),
+            full_scale_dps=coerce_float(analog.get("full_scale_dps"), 360.0),
+            full_scale_deg=coerce_float(analog.get("full_scale_deg"), 30.0),
+            adaptive_min_cutoff_hz=coerce_float(analog.get("adaptive_min_cutoff_hz"), 1.0),
+            adaptive_beta=coerce_float(analog.get("adaptive_beta"), 10.0),
+            invert_x=bool(analog.get("invert_x", False)),
+            invert_y=bool(analog.get("invert_y", False)),
+        ),
     )
 
 

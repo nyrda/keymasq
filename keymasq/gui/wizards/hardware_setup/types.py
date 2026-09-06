@@ -1,4 +1,20 @@
+from collections.abc import Sequence
 from typing import Any, TypedDict
+
+from keymasq.common.model.hardware import EvdevDevice
+from keymasq.common.model.motion import MotionSensorDefinition
+
+
+class EvdevDeviceSelection(list[EvdevDevice]):
+    """Selected evdev devices plus layout data derived during discovery."""
+
+    def __init__(
+        self,
+        devices: Sequence[EvdevDevice],
+        motion_sensors: Sequence[MotionSensorDefinition] = (),
+    ) -> None:
+        super().__init__(devices)
+        self.motion_sensors = list(motion_sensors)
 
 
 class DetectedInterface(TypedDict, total=False):
@@ -12,7 +28,9 @@ class DetectedInterface(TypedDict, total=False):
     device_type: Any
     device_types: list[str]
     capabilities: list[str]
+    abs_info: dict[str, object]
     raw_capabilities: dict[int, list[object]]
+    driver: str
     grabbed_by_keymasq: bool
     source_hardware_id: str
     source_interface_id: str

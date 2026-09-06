@@ -9,6 +9,7 @@ from keymasq.common.model.hardware import (
     AnalogInputDefinition,
     ButtonDefinition,
 )
+from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
 from keymasq.common.security import PeerCredentials
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
@@ -361,6 +362,10 @@ def build_device_inspector_snapshot(
             _serialize_analog_input(analog, resolved, mapping_profile_names)
             for analog in hardware.analog_inputs
         ],
+        "motion_sensors": [
+            _serialize_motion_sensor(sensor, resolved, mapping_profile_names)
+            for sensor in hardware.motion_sensors
+        ],
     }
 
 
@@ -429,4 +434,37 @@ def _serialize_axis(axis: AnalogAxisDefinition) -> JsonObject:
         "center": axis.center,
         "rest": axis.rest,
         "invert": bool(axis.invert),
+    }
+
+
+def _serialize_motion_sensor(
+    sensor: MotionSensorDefinition,
+    resolved: ResolvedDeviceProfile,
+    mapping_profile_names: dict[str, str],
+) -> JsonObject:
+    mapping = resolved.mappings.get(sensor.id)
+    return {
+        "id": sensor.id,
+        "label": sensor.label,
+        "kind": "motion",
+        "source": sensor.source or "",
+        "driver": sensor.driver or "",
+        "profile_name": mapping_profile_names.get(sensor.id, ""),
+        "action": serialize_mapping_action(mapping),
+        "gyro_axes": [_serialize_motion_axis(axis) for axis in sensor.gyro_axes],
+        "accelerometer_axes": [
+            _serialize_motion_axis(axis) for axis in sensor.accelerometer_axes
+        ],
+    }
+
+
+def _serialize_motion_axis(axis: MotionAxisDefinition) -> JsonObject:
+    return {
+        "role": axis.role,
+        "evdev": axis.evdev,
+        "evdev_code": axis.evdev_code,
+        "offset": axis.offset,
+        "scale": axis.scale,
+        "invert": axis.invert,
+        "noise": axis.noise,
     }

@@ -470,6 +470,34 @@ class TestProfileTOML:
         assert action.analog_control_names == ["New Control"]
         assert action.analog_control_name == "New Control"
 
+    def test_update_multi_motion_control_references(self, temp_config_dir):
+        manager = ProfileManager()
+        manager.save_profile(
+            ProfileConfig(
+                name="Motion Profile",
+                device_layers={
+                    "1234:5678": DeviceProfileLayer(
+                        hardware_id="1234:5678",
+                        mappings={
+                            "motion_1": MappingAction(
+                                action_type=ActionType.MOTION_CONTROL,
+                                motion_control_names=["Gyro Aim", "Tilt Actions"],
+                            )
+                        },
+                    )
+                },
+            )
+        )
+
+        assert manager.rename_motion_control_references("Gyro Aim", "Precise Aim") == 1
+        assert manager.replace_motion_control_with_suppress("Tilt Actions") == 1
+
+        reloaded = ProfileManager()
+        action = reloaded.list_profiles()[0].config.device_layers["1234:5678"].mappings["motion_1"]
+        assert action.action_type == ActionType.MOTION_CONTROL
+        assert action.motion_control_names == ["Precise Aim"]
+        assert action.motion_control_name == "Precise Aim"
+
     def test_profile_gamepad_output_id_roundtrip(self, temp_config_dir):
         original = ProfileConfig(
             name="Routed Gamepad",

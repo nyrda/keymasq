@@ -262,6 +262,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         button_codes: dict[str, int] | None = None,
         button_values: dict[str, int] | None = None,
         analog_inputs: dict[str, object] | None = None,
+        motion_sensors: dict[str, object] | None = None,
         force_grab_unmapped: bool = False,
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
@@ -273,6 +274,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 button_codes=button_codes,
                 button_values=button_values,
                 analog_inputs=analog_inputs,
+                motion_sensors=motion_sensors,
                 force_grab_unmapped=force_grab_unmapped,
                 evdev_interfaces=evdev_interfaces,
                 update_desired=True,
@@ -382,6 +384,10 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     held_sources.update(device.state.combo_passthrough_held)
                     device.state.quarantined_source_keys.update(held_sources)
 
+                    attempt_sync(
+                        f"resetting motion controls for {device.path}",
+                        device.reset_motion_controls,
+                    )
                     await attempt(
                         f"resetting analog controls for {device.path}",
                         device.reset_analog_controls,

@@ -817,6 +817,122 @@ def test_device_tab_uses_pango_ellipsizing_for_long_action_summary(temp_config_d
     assert widget._action_label.get_tooltip_text() == ("▶ grimblast --freeze --notify copy area")
 
 
+def test_motion_card_uses_its_allocated_width_before_ellipsizing(temp_config_dir):
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType, DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+    from keymasq.common.model.motion import MotionSensorDefinition
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
+
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Gaming",
+            enabled=True,
+            is_permanent=True,
+            device_layers={
+                "057e:2009": DeviceProfileLayer(
+                    hardware_id="057e:2009",
+                    mappings={
+                        "imu": MappingAction(
+                            action_type=ActionType.MOTION_CONTROL,
+                            motion_control_name="Right Stick",
+                        )
+                    },
+                )
+            },
+        )
+    )
+    device = HardwareConfig(
+        vendor_id="057e",
+        product_id="2009",
+        name="Pro Controller",
+        evdev_devices=[
+            EvdevDevice(
+                path="keymasq:057e:2009",
+                device_type=DeviceType.GAMEPAD,
+                id="gamepad",
+            )
+        ],
+        buttons=[],
+        motion_sensors=[MotionSensorDefinition(id="imu", label="Nintendo Motion Sensor")],
+    )
+    tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=True)
+    tab.refresh_profiles(preferred_profile_name="Gaming")
+
+    widget = tab._button_widgets["imu"]
+    tab._update_button_display("imu")
+
+    assert widget._action_label.get_text() == "Right Stick"
+    assert "..." not in widget._action_label.get_text()
+    assert widget._action_label.get_ellipsize().value_name == "PANGO_ELLIPSIZE_MIDDLE"
+    assert widget._action_label.get_hexpand() is True
+    assert widget._action_label.get_tooltip_text() is None
+
+
+def test_motion_mapping_right_click_opens_attached_control(temp_config_dir, monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType, DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+    from keymasq.common.model.motion import MotionSensorDefinition
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
+
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Gaming",
+            enabled=True,
+            is_permanent=True,
+            device_layers={
+                "057e:2009": DeviceProfileLayer(
+                    hardware_id="057e:2009",
+                    mappings={
+                        "imu": MappingAction(
+                            action_type=ActionType.MOTION_CONTROL,
+                            motion_control_name="Right Stick",
+                        )
+                    },
+                )
+            },
+        )
+    )
+    sensor = MotionSensorDefinition(id="imu", label="Nintendo Motion Sensor")
+    device = HardwareConfig(
+        vendor_id="057e",
+        product_id="2009",
+        name="Pro Controller",
+        evdev_devices=[
+            EvdevDevice(
+                path="keymasq:057e:2009",
+                device_type=DeviceType.GAMEPAD,
+                id="gamepad",
+            )
+        ],
+        buttons=[],
+        motion_sensors=[sensor],
+    )
+    tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=True)
+    tab.refresh_profiles(preferred_profile_name="Gaming")
+    opened: list[str] = []
+    monkeypatch.setattr(tab, "_open_motion_control_manager", opened.append)
+
+    tab._on_motion_action_right_clicked(
+        Gtk.GestureClick(),
+        1,
+        0.0,
+        0.0,
+        sensor,
+    )
+
+    assert opened == ["Right Stick"]
+
+
 def test_device_tab_renders_analog_controls_for_keyboard_layout(temp_config_dir):
     from keymasq.common.model.hardware import (
         AnalogAxisDefinition,
@@ -1486,6 +1602,97 @@ def test_key_selector_macro_right_click_opens_macro_editor(monkeypatch):
     )
 
     assert opened == ["demo_macro"]
+
+
+def test_key_selector_motion_right_click_opens_manager_for_control(
+    temp_config_dir,
+    monkeypatch,
+):
+    from gi.repository import Gtk
+
+    from keymasq.common.model.motion import MotionControlConfig
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+    from keymasq.session.motion_controls import MotionControlManager
+
+    MotionControlManager().save_motion_control(MotionControlConfig(name="Right Stick"))
+    dialog = KeySelectorDialog(Gtk.Window(), "Motion Sensor", source_type="motion")
+    opened: list[str | None] = []
+    monkeypatch.setattr(dialog, "_open_motion_control_manager", opened.append)
+
+    dialog._on_motion_control_row_right_pressed(
+        Gtk.GestureClick(),
+        1,
+        0.0,
+        0.0,
+        "Right Stick",
+    )
+
+    assert opened == ["Right Stick"]
+
+
+def test_key_selector_open_motion_manager_selects_control(monkeypatch):
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.motion_control.dialog as motion_dialog_module
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+    captured: dict[str, object] = {}
+    parent = Gtk.Box()
+    root = Gtk.Window()
+    profile_manager = object()
+    root.profile_manager = profile_manager
+    parent.main_window = root
+
+    class DummyMotionControlDialog:
+        def __init__(self, root_arg, profile_manager_arg):
+            captured["root"] = root_arg
+            captured["profile_manager"] = profile_manager_arg
+            captured["signals"] = []
+
+        def connect(self, signal_name, callback):
+            captured["signals"].append(signal_name)
+            captured[signal_name] = callback
+
+        def present(self, root_arg):
+            captured["present_root"] = root_arg
+
+        def select_control_by_name(self, name):
+            captured["selected_name"] = name
+
+    monkeypatch.setattr(
+        motion_dialog_module,
+        "MotionControlDialog",
+        DummyMotionControlDialog,
+    )
+    dialog = KeySelectorDialog(parent, "Motion Sensor", source_type="motion")
+    monkeypatch.setattr(dialog, "get_root", lambda: root)
+
+    dialog._open_motion_control_manager("Right Stick")
+
+    assert captured["root"] is root
+    assert captured["profile_manager"] is profile_manager
+    assert captured["present_root"] is root
+    assert captured["signals"] == ["motion-control-saved", "motion-control-deleted"]
+    assert captured["selected_name"] == "Right Stick"
+
+
+def test_motion_right_stick_preset_uses_plain_default_name(temp_config_dir):
+    from gi.repository import Gtk
+
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+    from keymasq.session.motion_controls import MotionControlManager
+
+    dialog = KeySelectorDialog(Gtk.Window(), "Motion Sensor", source_type="motion")
+    selected: list[MappingAction] = []
+    dialog.connect("key-selected", lambda _dialog, action: selected.append(action))
+
+    dialog._on_motion_preset_clicked(Gtk.Button(), "gamepad")
+
+    assert MotionControlManager().list_motion_controls() == ["Right Stick"]
+    assert selected[0].action_type == ActionType.MOTION_CONTROL
+    assert selected[0].motion_control_name == "Right Stick"
 
 
 def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatch):

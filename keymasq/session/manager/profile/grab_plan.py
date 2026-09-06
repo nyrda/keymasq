@@ -1,14 +1,16 @@
-"""Pure grab planning and daemon payload construction for resolved profiles."""
+"""Grab planning and daemon payload construction for resolved profiles."""
 
 import json
 import logging
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.model.core import ActionType
+from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, analog_control_primary_mode
+from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from ..common import JsonObject, json_list
+from ..payload import motion
 
 if TYPE_CHECKING:
     from ..core import SessionManager
@@ -19,6 +21,8 @@ log = logging.getLogger("keymasq-session")
 def get_interfaces_to_grab(
     hardware_config: HardwareConfig,
     resolved: ResolvedDeviceProfile,
+    *,
+    manager: "SessionManager",
 ) -> dict[str, str]:
     """Select the configured interfaces needed by mappings and combo sources."""
     interface_to_path = all_configured_interfaces(hardware_config)
@@ -31,6 +35,10 @@ def get_interfaces_to_grab(
     }
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
     button_to_source.update({analog.id: analog.source for analog in analog_inputs if analog.source})
+    motion_sensors = getattr(hardware_config, "motion_sensors", []) or []
+    button_to_source.update(
+        {sensor.id: sensor.source for sensor in motion_sensors if sensor.source}
+    )
 
     sources_to_grab: set[str] = set()
     for button_id, action in resolved.mappings.items():
@@ -38,6 +46,13 @@ def get_interfaces_to_grab(
             source = button_to_source.get(button_id)
             if source:
                 sources_to_grab.add(source)
+
+    if _motion_requires_gamepad_output(manager, hardware_config, resolved):
+        sources_to_grab.update(
+            device.id
+            for device in hardware_config.evdev_devices
+            if device.id and device.device_type == DeviceType.GAMEPAD
+        )
 
     if resolved.combo_event_count:
         if resolved.combo_sources:
@@ -62,6 +77,44 @@ def get_interfaces_to_grab(
         for source in sources_to_grab
         if source in interface_to_path
     }
+
+
+def _motion_requires_gamepad_output(
+    manager: "SessionManager",
+    hardware: HardwareConfig,
+    resolved: ResolvedDeviceProfile,
+) -> bool:
+    for sensor in getattr(hardware, "motion_sensors", ()):
+        action = resolved.mappings.get(sensor.id)
+        if action is None or action.action_type != ActionType.MOTION_CONTROL:
+            continue
+        for config in motion.resolve(manager, action):
+            if config.mode in {"gamepad", "tilt_gamepad"}:
+                output_id = config.gamepad.output_id
+            elif config.mode == "analog":
+                analog = config.analog.analog_control_config
+                if analog is None and config.analog.analog_control_name:
+                    analog = manager.analog_controls.get_analog_control(
+                        config.analog.analog_control_name
+                    )
+                if analog is None:
+                    continue
+                mode = analog_control_primary_mode(analog)
+                if mode == "digital" and any(
+                    child.action_type in {ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS}
+                    and child.output_id == hardware.hardware_id
+                    for threshold in analog.thresholds
+                    for child in threshold.actions
+                ):
+                    return True
+                if mode != "gamepad":
+                    continue
+                output_id = analog.gamepad_output.output_id
+            else:
+                continue
+            if output_id in {SAME_DEVICE_OUTPUT_ID, hardware.hardware_id}:
+                return True
+    return False
 
 
 def all_configured_interfaces(hardware_config: HardwareConfig) -> dict[str, str]:
@@ -122,6 +175,7 @@ def build_grab_device_payload(
 ) -> JsonObject:
     """Build the complete daemon grab payload for a resolved device profile."""
     analog_inputs = getattr(hardware_config, "analog_inputs", []) or []
+    motion_sensors = getattr(hardware_config, "motion_sensors", []) or []
     selected_sources = set(interfaces.keys())
     return {
         "hardware_id": hardware_id,
@@ -165,7 +219,23 @@ def build_grab_device_payload(
             }
             for analog in analog_inputs
         },
-        "force_grab_unmapped": bool(force_grab_unmapped) or bool(resolved.combo_event_count),
+        "motion_sensors": {
+            sensor.id: {
+                "label": sensor.label,
+                **({"source": sensor.source} if sensor.source else {}),
+                **({"driver": sensor.driver} if sensor.driver else {}),
+                "gyro_axes": [_motion_axis_payload(axis) for axis in sensor.gyro_axes],
+                "accelerometer_axes": [
+                    _motion_axis_payload(axis) for axis in sensor.accelerometer_axes
+                ],
+            }
+            for sensor in motion_sensors
+        },
+        "force_grab_unmapped": (
+            bool(force_grab_unmapped)
+            or bool(resolved.combo_event_count)
+            or _motion_requires_gamepad_output(manager, hardware_config, resolved)
+        ),
     }
 
 
@@ -178,9 +248,22 @@ def grab_device_payload_signature(payload: JsonObject) -> str:
         "button_codes": payload.get("button_codes", {}),
         "button_values": payload.get("button_values", {}),
         "analog_inputs": payload.get("analog_inputs", {}),
+        "motion_sensors": payload.get("motion_sensors", {}),
         "force_grab_unmapped": bool(payload.get("force_grab_unmapped", False)),
     }
     return json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))
+
+
+def _motion_axis_payload(axis: object) -> JsonObject:
+    return {
+        "role": str(getattr(axis, "role", "")),
+        "evdev": str(getattr(axis, "evdev", "")),
+        "evdev_code": getattr(axis, "evdev_code", None),
+        "offset": float(getattr(axis, "offset", 0.0)),
+        "scale": float(getattr(axis, "scale", 1.0)),
+        "invert": bool(getattr(axis, "invert", False)),
+        "noise": float(getattr(axis, "noise", 0.0)),
+    }
 
 
 def _signature_evdev_interfaces(value: object) -> list[object]:

@@ -76,6 +76,7 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self._placeholder_subtitle: _runtime.Gtk.Label | None = None
         self._menu_unlock_btn: _runtime.Gtk.Button | None = None
         self._menu_unlock_separator: _runtime.Gtk.Widget | None = None
+        self._menu_motion_controls_btn: _runtime.Gtk.Button | None = None
         self._appearance_buttons: dict[str, _runtime.Gtk.ToggleButton] = {}
         self._syncing_appearance = False
         self._unlock_status_label: _runtime.Gtk.Label | None = None
@@ -154,6 +155,12 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
 
     def list_device_tab_configs(self) -> list[HardwareConfig]:
         return tab_layout.list_device_tab_configs(self)
+
+    def refresh_motion_controls_menu_visibility(self) -> None:
+        chrome._update_motion_controls_menu_visibility(
+            self,
+            self.list_device_tab_configs(),
+        )
 
     def register_event_handler(self, event_type: str, callback: Callable[[dict], None]) -> None:
         connection.register_event_handler(self, event_type, callback)

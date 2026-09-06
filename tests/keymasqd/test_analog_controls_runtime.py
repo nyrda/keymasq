@@ -23,10 +23,14 @@ from keymasq.keymasqd.runtime.analog.curves import (
 )
 from keymasq.keymasqd.runtime.analog.mouse import axis_motion_delta, motion_delta
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
-from keymasq.keymasqd.runtime.analog_controls import process_analog_event
+from keymasq.keymasqd.runtime.analog_controls import (
+    process_analog_event,
+    process_normalized_analog_values,
+)
 from keymasq.keymasqd.runtime.grabbed_device.outputs import release_all_keys
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
+    AnalogGamepadOutputState,
     GrabbedDeviceState,
 )
 
@@ -1684,6 +1688,187 @@ async def test_reset_analog_controls_centers_gamepad_output() -> None:
 
     assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 0) in gamepad.events
     assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0) in gamepad.events
+
+
+@pytest.mark.asyncio
+async def test_scoped_analog_reset_only_resets_tracked_matching_outputs() -> None:
+    keyboard = FakeUInput()
+    gamepad = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Route Left Stick",
+                gamepad_output=AnalogGamepadOutputConfig(
+                    enabled=True,
+                    target="left",
+                ),
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    runtime.mapping_getter = lambda: pytest.fail(  # noqa: E731
+        "scoped reset must not inspect hardware-wide mappings"
+    )
+    runtime.resolve_gamepad_output = lambda _output_id, _context: SimpleNamespace(  # noqa: E731
+        uinput=gamepad,
+        bucket="gamepad",
+    )
+    runtime.state.analog_axis_values = {
+        "left_stick": {"x": 1.0, "y": 0.0},
+        "motion:imu": {"x": 1.0, "y": 0.0},
+    }
+    runtime.state.analog_gamepad_outputs = {
+        "left_stick": AnalogGamepadOutputState(
+            output_id="virtual-gamepad-1",
+            reset_axes=(
+                (evdev.ecodes.ABS_X, 0),
+                (evdev.ecodes.ABS_Y, 0),
+            ),
+        ),
+        "motion:imu": AnalogGamepadOutputState(
+            output_id="virtual-gamepad-1",
+            reset_axes=(
+                (evdev.ecodes.ABS_RX, 0),
+                (evdev.ecodes.ABS_RY, 0),
+            ),
+        ),
+    }
+
+    await reset_analog_controls(runtime, deps=_deps(), state_key_prefix="motion:")
+
+    assert gamepad.events == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0),
+    ]
+    assert runtime.state.analog_axis_values == {
+        "left_stick": {"x": 1.0, "y": 0.0}
+    }
+    assert set(runtime.state.analog_gamepad_outputs) == {"left_stick"}
+
+
+@pytest.mark.asyncio
+async def test_scoped_analog_reset_only_releases_matching_thresholds() -> None:
+    keyboard = FakeUInput()
+    motion_control = AnalogControlConfig(
+        name="Motion Buttons",
+        thresholds=[
+            AnalogActionThreshold(
+                axis="x",
+                trigger_min=0.65,
+                trigger_max=1.0,
+                release_min=0.55,
+                release_max=1.0,
+                actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_a")],
+            )
+        ],
+    )
+    stick_control = AnalogControlConfig(
+        name="Stick Buttons",
+        thresholds=[
+            AnalogActionThreshold(
+                axis="x",
+                trigger_min=0.65,
+                trigger_max=1.0,
+                release_min=0.55,
+                release_max=1.0,
+                actions=[MappingAction(action_type=ActionType.KEYBOARD, target="key_b")],
+            )
+        ],
+    )
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=stick_control,
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    event = FakeEvent(32767)
+
+    await process_normalized_analog_values(
+        runtime,
+        "motion:imu",
+        "imu",
+        motion_control,
+        event,
+        1.0,
+        0.0,
+        source_profile_name=None,
+        deps=_deps(),
+    )
+    await process_normalized_analog_values(
+        runtime,
+        "left_stick",
+        "left_stick",
+        stick_control,
+        event,
+        1.0,
+        0.0,
+        source_profile_name=None,
+        deps=_deps(),
+    )
+    keyboard.events.clear()
+
+    await reset_analog_controls(runtime, deps=_deps(), state_key_prefix="motion:")
+
+    assert keyboard.events == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)]
+    assert set(runtime.state.analog_active_thresholds) == {"left_stick"}
+    assert set(runtime.state.analog_active_threshold_actions) == {"left_stick:0"}
+
+
+@pytest.mark.asyncio
+async def test_scoped_analog_reset_only_cancels_matching_mouse_tasks() -> None:
+    keyboard = FakeUInput()
+    motion_control = AnalogControlConfig(
+        name="Motion Mouse",
+        mouse_motion=AnalogMouseMotionConfig(enabled=True),
+    )
+    stick_control = AnalogControlConfig(
+        name="Stick Mouse",
+        mouse_motion=AnalogMouseMotionConfig(enabled=True),
+    )
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=stick_control,
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    event = FakeEvent(32767)
+
+    await process_normalized_analog_values(
+        runtime,
+        "motion:imu",
+        "imu",
+        motion_control,
+        event,
+        1.0,
+        0.0,
+        source_profile_name=None,
+        deps=_deps(),
+    )
+    await process_normalized_analog_values(
+        runtime,
+        "left_stick",
+        "left_stick",
+        stick_control,
+        event,
+        1.0,
+        0.0,
+        source_profile_name=None,
+        deps=_deps(),
+    )
+    motion_task = runtime.state.analog_mouse_tasks["motion:imu"]
+    stick_task = runtime.state.analog_mouse_tasks["left_stick"]
+
+    try:
+        await reset_analog_controls(runtime, deps=_deps(), state_key_prefix="motion:")
+
+        assert motion_task.cancelled()
+        assert not stick_task.done()
+        assert set(runtime.state.analog_mouse_tasks) == {"left_stick"}
+    finally:
+        await reset_analog_controls(runtime, deps=_deps())
 
 
 @pytest.mark.asyncio

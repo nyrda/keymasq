@@ -565,7 +565,7 @@ async def apply_resolved_device_profile(
     new_interfaces = (
         all_configured_interfaces(hardware_config)
         if inspector_active
-        else get_interfaces_to_grab(hardware_config, resolved)
+        else get_interfaces_to_grab(hardware_config, resolved, manager=manager)
     )
     current_interfaces = manager.profile_state.grabbed_interfaces.get(
         hardware_id,

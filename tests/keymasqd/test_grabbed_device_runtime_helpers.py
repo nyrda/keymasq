@@ -557,6 +557,154 @@ class TestGrabbedDeviceHelpers:
         ]
 
     @pytest.mark.asyncio
+    async def test_consumed_motion_syn_flushes_unrelated_passthrough_events(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _CountingUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            mapping={"imu": MappingAction(action_type=ActionType.SUPPRESS)},
+            motion_sensors={
+                "imu": {
+                    "source": "kbd",
+                    "gyro_axes": [
+                        {
+                            "role": "yaw",
+                            "evdev": "abs_rx",
+                            "evdev_code": evdev.ecodes.ABS_RX,
+                        }
+                    ],
+                }
+            },
+            passthrough_uinput=passthrough,
+        )
+        deps = pipeline.build_event_processing_deps(log=logging.getLogger("test"))
+
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            deps=deps,
+        )
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 10),
+            deps=deps,
+        )
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+            deps=deps,
+        )
+
+        assert passthrough.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+        assert passthrough.syn_count == 1
+        assert not device_outputs.passthrough_frame_open(device, passthrough)
+
+    @pytest.mark.asyncio
+    async def test_observed_motion_device_never_replays_physical_events(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        passthrough = _CountingUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            device_type=DeviceType.MOTION,
+            device_types=[DeviceType.MOTION.value],
+            mapping={"imu": MappingAction(action_type=ActionType.SUPPRESS)},
+            motion_sensors={
+                "imu": {
+                    "source": "kbd",
+                    "gyro_axes": [
+                        {
+                            "role": "yaw",
+                            "evdev": "abs_rx",
+                            "evdev_code": evdev.ecodes.ABS_RX,
+                        }
+                    ],
+                }
+            },
+            passthrough_uinput=passthrough,
+        )
+        deps = pipeline.build_event_processing_deps(log=logging.getLogger("test"))
+
+        for event in (
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 10),
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0),
+        ):
+            await pipeline.process_event(device, event, deps=deps)
+
+        assert passthrough.writes == []
+        assert passthrough.syn_count == 0
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("paused", "suppressed", "expected_diagnostic"),
+        [
+            (True, False, "runtime_input_paused"),
+            (False, True, "inspector_suppressed"),
+            (False, False, "action_motion_control"),
+        ],
+    )
+    async def test_motion_syn_dropped_resets_before_input_interception(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        paused: bool,
+        suppressed: bool,
+        expected_diagnostic: str,
+    ) -> None:
+        diagnostics: list[str] = []
+        device = make_grabbed_device(
+            monkeypatch,
+            device_type=DeviceType.MOTION,
+            device_types=[DeviceType.MOTION.value],
+            interface_id="motion",
+            input_paused_getter=lambda: paused,
+            inspector_suppression_getter=lambda _hardware_id: suppressed,
+            diagnostics_recorder=lambda label, _duration_us: diagnostics.append(label),
+            motion_sensors={
+                "imu": {
+                    "source": "motion",
+                    "gyro_axes": [
+                        {
+                            "role": "yaw",
+                            "evdev": "abs_rx",
+                            "evdev_code": evdev.ecodes.ABS_RX,
+                        }
+                    ],
+                }
+            },
+        )
+        device.state.motion_frame_values["imu"] = {"gyro": {"yaw": 1.0}}
+        device.state.motion_smoothed_values["motion:imu"] = {"x": 1.0, "y": 0.0}
+        device.state.motion_last_frame_ns["motion:imu"] = 123
+        device.state.analog_axis_values["motion:imu"] = {"x": 1.0, "y": 0.0}
+        reset_analog_controls = AsyncMock(wraps=device.reset_analog_controls)
+        monkeypatch.setattr(device, "reset_analog_controls", reset_analog_controls)
+
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_SYN,
+                evdev.ecodes.SYN_DROPPED,
+                0,
+            ),
+            deps=grabbed_event_processing_deps(),
+        )
+
+        assert device.state.motion_frame_values == {}
+        assert device.state.motion_smoothed_values == {}
+        assert device.state.motion_last_frame_ns == {}
+        assert device.state.analog_axis_values == {}
+        assert diagnostics == [expected_diagnostic]
+        reset_analog_controls.assert_awaited_once_with(state_key_prefix="motion:")
+        cast(AsyncMock, device.event_callback).assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_passthrough_syn_mt_report_opens_frame_for_empty_contact_update(
         self,
         monkeypatch: pytest.MonkeyPatch,

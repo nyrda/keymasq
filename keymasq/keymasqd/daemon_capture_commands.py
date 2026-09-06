@@ -51,6 +51,7 @@ class _CaptureCommandCaptureManager(Protocol):
         evdev_paths: list[str] | None = None,
         evdev_interfaces: JsonObjectList | None = None,
         mode: str = "button",
+        motion_axis_codes: list[int] | None = None,
     ) -> JsonObject: ...
 
     def read(self, token: str) -> JsonObject: ...
@@ -100,12 +101,22 @@ async def handle_capture_command(
         evdev_paths = cast(list[str], data.get("evdev_paths", []))
         evdev_interfaces = cast(JsonObjectList, data.get("evdev_interfaces", []))
         mode = str(data.get("mode", "button") or "button")
+        motion_axis_codes = [
+            int(code)
+            for code in cast(list[object], data.get("motion_axis_codes", []))
+            if isinstance(code, int) and not isinstance(code, bool) and code >= 0
+        ]
         return await asyncio.to_thread(
             daemon.capture_manager.begin,
             hardware_id=hardware_id,
             evdev_paths=evdev_paths or None,
             evdev_interfaces=evdev_interfaces or None,
             mode=mode,
+            **(
+                {"motion_axis_codes": motion_axis_codes}
+                if motion_axis_codes
+                else {}
+            ),
         )
 
     if command_type == CommandType.CAPTURE_READ:

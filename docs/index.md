@@ -37,6 +37,7 @@ and multi-step automation.
 - [Macros](MACROS.md): creation, recording, triggers, and playback settings.
 - [Macro timeline editor](MACRO_EDITOR.md): add actions, select and reuse sections, and adjust timing.
 - [Gamepad](GAMEPAD.md) — controller remapping, analog controls, and virtual gamepads.
+- [Motion Controls](MOTION_CONTROLS.md) — controller gyro setup, normalization, and outputs.
 - [Device Inspector](DEVICE_INSPECTOR.md) — inspect final mappings, raw events,
   and configured analog inputs for one device.
 

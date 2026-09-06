@@ -8,6 +8,7 @@ from typing import Any, BinaryIO, cast
 import tomli_w
 
 from keymasq.common import paths
+from keymasq.common.coercion import coerce_float
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.model.core import DeviceType
@@ -17,6 +18,12 @@ from keymasq.common.model.hardware import (
     ButtonDefinition,
     EvdevDevice,
     HardwareConfig,
+)
+from keymasq.common.model.motion import (
+    MOTION_NORMALIZATION_VERSION,
+    MotionAxisDefinition,
+    MotionSensorDefinition,
+    canonical_motion_axis,
 )
 from keymasq.session.config_loading import load_config_files_sync
 
@@ -158,6 +165,54 @@ class HardwareManager:
                 )
             )
 
+        motion_sensors: list[MotionSensorDefinition] = []
+        for sensor in cast(list[dict[str, Any]], layout.get("motion_sensors", [])):
+            driver = cast(str | None, sensor.get("driver"))
+            calibration_version = int(sensor.get("calibration_version", 1))
+            gyro_axes = self._load_motion_axes(sensor.get("gyro_axes", []))
+            accelerometer_axes = self._load_motion_axes(sensor.get("accelerometer_axes", []))
+            if calibration_version < 2:
+                gyro_axes = self._canonicalize_motion_axes(
+                    gyro_axes,
+                    driver,
+                    "gyro",
+                    normalization_version=2,
+                )
+                accelerometer_axes = self._canonicalize_motion_axes(
+                    accelerometer_axes,
+                    driver,
+                    "accelerometer",
+                    normalization_version=2,
+                )
+                calibration_version = 2
+            if calibration_version < MOTION_NORMALIZATION_VERSION:
+                gyro_axes = self._migrate_motion_axes(
+                    gyro_axes,
+                    driver,
+                    "gyro",
+                    source_version=calibration_version,
+                )
+                accelerometer_axes = self._migrate_motion_axes(
+                    accelerometer_axes,
+                    driver,
+                    "accelerometer",
+                    source_version=calibration_version,
+                )
+                calibration_version = MOTION_NORMALIZATION_VERSION
+            motion_sensors.append(
+                MotionSensorDefinition(
+                    id=str(sensor["id"]),
+                    label=str(sensor.get("label", sensor["id"])),
+                    source=cast(str | None, sensor.get("source")),
+                    driver=driver,
+                    gyro_axes=gyro_axes,
+                    accelerometer_axes=accelerometer_axes,
+                    calibration_version=calibration_version,
+                    calibrated_at=cast(str | None, sensor.get("calibrated_at")),
+                    calibration_samples=int(sensor.get("calibration_samples", 0)),
+                )
+            )
+
         return HardwareConfig(
             vendor_id=vendor_id,
             product_id=product_id,
@@ -165,9 +220,102 @@ class HardwareManager:
             evdev_devices=evdev_devices,
             buttons=buttons,
             analog_inputs=analog_inputs,
+            motion_sensors=motion_sensors,
             image=hw.get("image"),
             id=hardware_id or None,
         )
+
+    @staticmethod
+    def _load_motion_axes(value: object) -> list[MotionAxisDefinition]:
+        if not isinstance(value, list):
+            return []
+        axes: list[MotionAxisDefinition] = []
+        for raw_item in cast(list[object], value):
+            if not isinstance(raw_item, dict):
+                continue
+            item = cast(dict[str, object], raw_item)
+            if not item.get("role") or not item.get("evdev"):
+                continue
+            raw_code = item.get("evdev_code")
+            axes.append(
+                MotionAxisDefinition(
+                    role=str(item["role"]),
+                    evdev=str(item["evdev"]),
+                    evdev_code=raw_code if isinstance(raw_code, int) else None,
+                    offset=coerce_float(item.get("offset"), 0.0),
+                    scale=coerce_float(item.get("scale"), 1.0),
+                    invert=bool(item.get("invert", False)),
+                    noise=coerce_float(item.get("noise"), 0.0),
+                )
+            )
+        return axes
+
+    @staticmethod
+    def _canonicalize_motion_axes(
+        axes: list[MotionAxisDefinition],
+        driver: str | None,
+        kind: str,
+        *,
+        normalization_version: int,
+    ) -> list[MotionAxisDefinition]:
+        canonical_axes: list[MotionAxisDefinition] = []
+        for axis in axes:
+            canonical = canonical_motion_axis(
+                driver,
+                kind,
+                axis.evdev,
+                normalization_version=normalization_version,
+            )
+            if canonical is None:
+                canonical_axes.append(axis)
+                continue
+            role, invert = canonical
+            canonical_axes.append(
+                MotionAxisDefinition(
+                    role=role,
+                    evdev=axis.evdev,
+                    evdev_code=axis.evdev_code,
+                    offset=axis.offset,
+                    scale=axis.scale,
+                    invert=axis.invert != invert,
+                    noise=axis.noise,
+                )
+            )
+        return canonical_axes
+
+    @staticmethod
+    def _migrate_motion_axes(
+        axes: list[MotionAxisDefinition],
+        driver: str | None,
+        kind: str,
+        *,
+        source_version: int,
+    ) -> list[MotionAxisDefinition]:
+        migrated_axes: list[MotionAxisDefinition] = []
+        for axis in axes:
+            previous = canonical_motion_axis(
+                driver,
+                kind,
+                axis.evdev,
+                normalization_version=source_version,
+            )
+            current = canonical_motion_axis(driver, kind, axis.evdev)
+            if previous is None or current is None or axis.role != previous[0]:
+                migrated_axes.append(axis)
+                continue
+            user_inverted = axis.invert != previous[1]
+            migrated_axes.append(
+                MotionAxisDefinition(
+                    role=current[0],
+                    evdev=axis.evdev,
+                    evdev_code=axis.evdev_code,
+                    offset=axis.offset,
+                    scale=axis.scale,
+                    invert=current[1] != user_inverted,
+                    noise=axis.noise,
+                )
+            )
+        return migrated_axes
 
     def _add_loaded_hardware(
         self,
@@ -347,6 +495,25 @@ class HardwareManager:
             analog_data["axes"] = axes_data
             analogs_data.append(analog_data)
 
+        motion_sensors_data: list[dict[str, object]] = []
+        for sensor in config.motion_sensors:
+            sensor_data: dict[str, object] = {
+                "id": sensor.id,
+                "label": sensor.label,
+                "calibration_version": sensor.calibration_version,
+            }
+            if sensor.source:
+                sensor_data["source"] = sensor.source
+            if sensor.driver:
+                sensor_data["driver"] = sensor.driver
+            if sensor.calibrated_at:
+                sensor_data["calibrated_at"] = sensor.calibrated_at
+            if sensor.calibration_samples:
+                sensor_data["calibration_samples"] = sensor.calibration_samples
+            sensor_data["gyro_axes"] = self._dump_motion_axes(sensor.gyro_axes)
+            sensor_data["accelerometer_axes"] = self._dump_motion_axes(sensor.accelerometer_axes)
+            motion_sensors_data.append(sensor_data)
+
         evdev_devices_data: list[dict[str, object]] = []
         for d in config.evdev_devices:
             dev_data: dict[str, object] = {
@@ -382,6 +549,7 @@ class HardwareManager:
                     "type": layout_type,
                     "buttons": buttons_data,
                     **({"analogs": analogs_data} if analogs_data else {}),
+                    **({"motion_sensors": motion_sensors_data} if motion_sensors_data else {}),
                 },
             }
         }
@@ -403,6 +571,25 @@ class HardwareManager:
 
         self._cache[config.hardware_id] = _HardwareEntry(path=path, config=config)
         log.info(f"Saved hardware config: {path}")
+
+    @staticmethod
+    def _dump_motion_axes(axes: list[MotionAxisDefinition]) -> list[dict[str, object]]:
+        values: list[dict[str, object]] = []
+        for axis in axes:
+            value: dict[str, object] = {
+                "role": axis.role,
+                "evdev": axis.evdev,
+                "offset": axis.offset,
+                "scale": axis.scale,
+            }
+            if axis.evdev_code is not None:
+                value["evdev_code"] = axis.evdev_code
+            if axis.invert:
+                value["invert"] = True
+            if axis.noise:
+                value["noise"] = axis.noise
+            values.append(value)
+        return values
 
     def delete_hardware(self, hardware_id: str) -> bool:
         entry = self._cache.get(hardware_id)

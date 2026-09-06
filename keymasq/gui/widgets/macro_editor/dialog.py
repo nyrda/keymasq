@@ -10,6 +10,7 @@ from collections.abc import Callable
 from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Adw,  # pyright: ignore[reportAttributeAccessIssue]
     Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    Gio,  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
@@ -30,6 +31,7 @@ from keymasq.gui.widgets.macro_editor.controller.lifecycle import (
 )
 from keymasq.gui.widgets.macro_editor.controller.load import LoadControllerMixin
 from keymasq.gui.widgets.macro_editor.controller.save import SaveControllerMixin
+from keymasq.gui.widgets.macro_editor.controller.selection import SelectionControllerMixin
 from keymasq.gui.widgets.macro_editor.controller.timing import TimelineControllerMixin
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
@@ -42,6 +44,7 @@ from keymasq.gui.widgets.macro_editor.panel.chrome import EditorChromeMixin
 from keymasq.gui.widgets.macro_editor.panel.controls import ControlEditorMixin
 from keymasq.gui.widgets.macro_editor.panel.properties import EventPropertiesMixin
 from keymasq.gui.widgets.macro_editor.panel.settings import MacroSettingsMixin
+from keymasq.gui.widgets.macro_editor.selection import EditHistory
 from keymasq.gui.widgets.position_capture import PositionCaptureController
 
 
@@ -70,6 +73,7 @@ class MacroEditorDialog(
     LoadControllerMixin,
     TimelineControllerMixin,
     SaveControllerMixin,
+    SelectionControllerMixin,
     LifecycleControllerMixin,
 ):
     """Compose the macro document controllers and GTK editor panels."""
@@ -145,6 +149,7 @@ class MacroEditorDialog(
         self._macro_exists = False
         self._close_warning_dialog: Adw.AlertDialog | None = None
         self._save_in_flight = False
+        self._paste_cancellable: Gio.Cancellable | None = None
         self._footer_action_buttons: list[Gtk.Button] = []
         self._editor_content: Gtk.Widget | None = None
         self._editor_busy_overlay: Gtk.Widget | None = None
@@ -154,6 +159,8 @@ class MacroEditorDialog(
         self._updating_props = False
         self._drag_locked: bool = True
         self._erase_mode: bool = False
+        self._edit_history = EditHistory()
+        self._history_restoring = False
 
         self._install_css()
         self._build_ui()

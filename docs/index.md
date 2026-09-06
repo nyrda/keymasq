@@ -28,13 +28,14 @@ and multi-step automation.
   everything else builds on.
 - [Actions](ACTIONS.md) — what each mapping can do.
 - [Examples](EXAMPLES.md) — small task-focused recipes for common workflows.
-- [Macros](MACROS.md) — record, edit, and play back input sequences, including autoclicker-style loops.
+- [Macros](MACROS.md): create, record, and play input sequences, including autoclicker loops.
 
 ## User guide
 
 - [Superkeys](SUPERKEYS.md) — one key fires multiple actions, or different actions for tap vs hold vs double-tap.
 - [Combos](COMBOS.md) — trigger actions or superkeys from any input combination, even across devices.
-- [Macros](MACROS.md) — record, edit, and play back input sequences.
+- [Macros](MACROS.md): creation, recording, triggers, and playback settings.
+- [Macro timeline editor](MACRO_EDITOR.md): add actions, select and reuse sections, and adjust timing.
 - [Gamepad](GAMEPAD.md) — controller remapping, analog controls, and virtual gamepads.
 - [Device Inspector](DEVICE_INSPECTOR.md) — inspect final mappings, raw events,
   and configured analog inputs for one device.

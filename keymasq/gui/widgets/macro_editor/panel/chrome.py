@@ -1,5 +1,7 @@
 """Macro editor layout, toolbar, timing tools, and footer."""
 
+import logging
+
 import gi
 
 # pyright: reportAttributeAccessIssue=false
@@ -8,7 +10,10 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
+
+log = logging.getLogger(__name__)
 
 
 class EditorChromeMixin:
@@ -24,6 +29,7 @@ class EditorChromeMixin:
         root.append(self._build_toolbar())
         root.append(Gtk.Separator())
         root.append(self._build_timeline_area())
+        root.append(self._build_selection_bar())
         root.append(Gtk.Separator())
         root.append(self._build_property_panel())
         root.append(self._build_name_row())
@@ -35,6 +41,10 @@ class EditorChromeMixin:
         frame = Gtk.Frame()
         frame.add_css_class("macro-editor-outline")
         frame.set_child(root)
+        self._editor_key_controller = Gtk.EventControllerKey()
+        self._editor_key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self._editor_key_controller.connect("key-pressed", self._on_editor_key_pressed)
+        frame.add_controller(self._editor_key_controller)
 
         busy_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         busy_content.set_halign(Gtk.Align.CENTER)
@@ -89,7 +99,17 @@ class EditorChromeMixin:
         timing_btn.set_popover(self._build_timing_popover())
         bar.append(timing_btn)
 
-        undo_btn = Gtk.Button(label="Undo All")
+        self._undo_button = Gtk.Button(icon_name="edit-undo-symbolic")
+        self._undo_button.set_tooltip_text("Undo (Ctrl+Z)")
+        self._undo_button.set_sensitive(False)
+        self._undo_button.connect("clicked", self._on_undo_clicked)
+        bar.append(self._undo_button)
+        self._redo_button = Gtk.Button(icon_name="edit-redo-symbolic")
+        self._redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
+        self._redo_button.set_sensitive(False)
+        self._redo_button.connect("clicked", self._on_redo_clicked)
+        bar.append(self._redo_button)
+        undo_btn = Gtk.Button(label="Revert")
         undo_btn.add_css_class("flat")
         undo_btn.set_tooltip_text("Restore macro to loaded state")
         undo_btn.connect("clicked", self._on_undo_all_changes)
@@ -123,20 +143,19 @@ class EditorChromeMixin:
         sep2.set_margin_end(4)
         bar.append(sep2)
 
-        self._lock_btn = Gtk.ToggleButton(label="Lock Move")
-        self._lock_btn.set_active(True)
-        self._lock_btn.set_tooltip_text(
-            "Unlock to drag actions or click highlighted gaps; "
-            "double-click a hidden gap while locked"
+        self._move_btn = Gtk.ToggleButton(label="Move Actions")
+        self._move_btn.set_tooltip_text(
+            "Allow dragging selected actions to change their timing. "
+            "Also shows gaps for click-to-edit; double-click gaps when off."
         )
-        self._lock_btn.connect("toggled", self._on_move_lock_toggled)
-        bar.append(self._lock_btn)
+        self._move_btn.connect("toggled", self._on_move_actions_toggled)
+        bar.append(self._move_btn)
 
         self._erase_btn = Gtk.ToggleButton(label="Erase")
         self._erase_btn.set_tooltip_text(
-            "When on: drag across a lane to delete the events it touches; "
-            "right-drag to ripple delete a time span across all lanes and "
-            "close the gap"
+            "Drag to erase time across all tracks and shift later actions earlier. "
+            "Keys held across the entire span stay held and become shorter. "
+            "To delete actions without shifting time, select them and press Delete or Backspace."
         )
         self._erase_btn.connect("toggled", self._on_erase_mode_toggled)
         bar.append(self._erase_btn)
@@ -359,28 +378,37 @@ class EditorChromeMixin:
         GLib.idle_add(self._update_canvas_width)
 
     def _build_footer(self) -> Gtk.Widget:
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        footer.set_halign(Gtk.Align.END)
+        footer = Gtk.CenterBox()
         footer.set_margin_top(8)
         footer.set_margin_bottom(4)
+        footer.set_margin_start(8)
         footer.set_margin_end(8)
 
+        docs_btn = Gtk.Button(label="?")
+        docs_btn.add_css_class("flat")
+        docs_btn.add_css_class("actions-docs-button")
+        docs_btn.set_tooltip_text("Open Macro timeline editor documentation")
+        docs_btn.connect("clicked", self._on_editor_docs_clicked)
+        footer.set_start_widget(docs_btn)
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer.set_end_widget(actions)
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", self._on_close_clicked)
-        footer.append(cancel_btn)
+        actions.append(cancel_btn)
 
         copy_btn = Gtk.Button(label="Save as Copy…")
         copy_btn.connect("clicked", self._on_save_as_copy)
-        footer.append(copy_btn)
+        actions.append(copy_btn)
 
         apply_btn = Gtk.Button(label="Apply")
         apply_btn.connect("clicked", self._on_apply)
-        footer.append(apply_btn)
+        actions.append(apply_btn)
 
         save_btn = Gtk.Button(label="Save Changes")
         save_btn.add_css_class("suggested-action")
         save_btn.connect("clicked", self._on_save)
-        footer.append(save_btn)
+        actions.append(save_btn)
 
         self._footer_action_buttons = [
             cancel_btn,
@@ -390,9 +418,20 @@ class EditorChromeMixin:
         ]
         return footer
 
-    def _on_move_lock_toggled(self, btn: Gtk.ToggleButton) -> None:
-        self._drag_locked = btn.get_active()
-        btn.set_label("Lock Move" if self._drag_locked else "Move Unlocked")
+    def _on_editor_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = docs_page_url("MACRO_EDITOR")
+        try:
+            launcher = Gtk.UriLauncher.new(url)
+            launcher.launch(None, None, None)
+        except Exception:
+            log.exception("Could not open Macro timeline editor documentation %s", url)
+
+    def _on_move_actions_toggled(self, btn: Gtk.ToggleButton) -> None:
+        self._drag_locked = not btn.get_active()
+        if btn.get_active():
+            btn.add_css_class("suggested-action")
+        else:
+            btn.remove_css_class("suggested-action")
         self._timeline.set_move_locked(self._drag_locked)
 
     def _on_erase_mode_toggled(self, btn: Gtk.ToggleButton) -> None:
@@ -416,12 +455,20 @@ class EditorChromeMixin:
     def _on_undo_all_changes(self, _btn) -> None:
         if not self._initial_macro_data:
             return
+        self._history_restoring = True
+        try:
+            self._revert_to_saved_state()
+        finally:
+            self._history_restoring = False
+        self._sync_close_guard()
 
+    def _revert_to_saved_state(self) -> None:
         self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self._apply_macro_state(self._initial_macro_data)
 
         self._timeline._selected = None
+        self._timeline.set_selection([])
         self._revealer.set_reveal_child(False)
         self._timeline._context_menu_x = None
         self._timeline._hover_x = None
@@ -436,10 +483,15 @@ class EditorChromeMixin:
         self._update_stats()
         self._update_canvas_width()
         self._timeline.queue_draw()
-        self._sync_close_guard()
 
     def _on_zoom_in(self, btn) -> None:
         self._zoom_timeline(1.25)
+
+    def _on_undo_clicked(self, _btn) -> None:
+        self._restore_history()
+
+    def _on_redo_clicked(self, _btn) -> None:
+        self._restore_history(redo=True)
 
     def _on_zoom_out(self, btn) -> None:
         self._zoom_timeline(1.0 / 1.25)

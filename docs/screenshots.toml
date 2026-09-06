@@ -150,6 +150,42 @@ window_height = 1080
 crop = [0, 0, 732, 864]
 
 [[shot]]
+name = "macro_edit_time_selection"
+target = "macro_editor"
+macro = "selection_demo"
+scenario = "time_selection"
+window_width = 1220
+crop_widget = "_editor_content"
+crop_height = 500
+
+[[shot]]
+name = "macro_edit_paste_selection"
+target = "macro_editor"
+macro = "selection_demo"
+scenario = "paste_selection"
+window_width = 1220
+crop_widget = "_editor_content"
+crop_height = 500
+
+[[shot]]
+name = "macro_edit_selection_timing"
+target = "macro_editor"
+macro = "selection_demo"
+scenario = "selection_timing"
+window_width = 1220
+crop_widget = "_editor_content"
+crop_height = 500
+
+[[shot]]
+name = "macro_edit_erase_selection"
+target = "macro_editor"
+macro = "selection_demo"
+scenario = "erase_selection"
+window_width = 1220
+crop_widget = "_editor_content"
+crop_height = 500
+
+[[shot]]
 name = "key_selector_special"
 target = "key_selector"
 device = "35ef:0021"

@@ -58,6 +58,7 @@ class TimelineRenderState:
     _wave_y: int
     _erase_band: tuple[str, float, float] | None
     _erase_pending_ids: frozenset[int]
+    _selected_ids: frozenset[int] = frozenset()
 
     def _time_to_x(self, t_us: int) -> float:
         return self.LABEL_WIDTH + self.TIMELINE_PAD + t_us / 1e6 * self._pps - self._scroll_offset
@@ -299,7 +300,7 @@ def _draw_event_rect(
     if x1 > width or x1 + w < state.LABEL_WIDTH:
         return  # Completely off screen
 
-    is_sel = ev is state._selected
+    is_sel = ev is state._selected or id(ev) in state._selected_ids
     is_pending_delete = id(ev) in state._erase_pending_ids
     margin = max(1, min(4, int(track_h * 0.10)))
     rect_y = y_top + margin
@@ -554,7 +555,7 @@ def _draw_passthrough_markers_for_track(
             cr.set_line_width(1.6)
             cr.arc(x, y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
-        elif ev is state._selected:
+        elif ev is state._selected or id(ev) in state._selected_ids:
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.98)
             cr.set_line_width(1.2)
             cr.arc(x, y, size + 3.0, 0, 6.283185307179586)
@@ -567,6 +568,8 @@ def get_passthrough_marker_layouts(
     width: int,
     y_top: int,
     track_h: int,
+    *,
+    include_offscreen: bool = False,
 ) -> list[tuple[MacroEvent, float, float, float]]:
     unknown_events = [ev for ev in state.passthrough_events if _passthrough_track(ev) == track]
     if not unknown_events:
@@ -579,7 +582,7 @@ def get_passthrough_marker_layouts(
 
     for ev in unknown_events:
         x = state._time_to_x(int(ev.get("t_us", 0)))
-        if x < state.LABEL_WIDTH - 8 or x > width + 8:
+        if not include_offscreen and (x < state.LABEL_WIDTH - 8 or x > width + 8):
             continue
 
         x_px = int(x)
@@ -672,7 +675,7 @@ def _draw_synthetic_move_markers(cr, state: TimelineRenderState, width: int) -> 
             cr.set_line_width(1.6)
             cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
-        elif move is state._selected:
+        elif move is state._selected or id(move) in state._selected_ids:
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.98)
             cr.set_line_width(1.2)
             cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
@@ -743,7 +746,7 @@ def _draw_control_markers(cr, state: TimelineRenderState, width: int) -> None:
             cr.set_line_width(1.6)
             cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
             cr.stroke()
-        elif control is state._selected:
+        elif control is state._selected or id(control) in state._selected_ids:
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.98)
             cr.set_line_width(1.2)
             cr.arc(x, base_y, size + 3.0, 0, 6.283185307179586)
@@ -790,7 +793,7 @@ def _draw_erase_band(cr, state: TimelineRenderState, width: int) -> None:
     pending_count = len(state._erase_pending_ids)
     if track == "all":
         span_us = int((band_x1 - band_x0) / state._pps * 1e6)
-        label = f"Ripple delete {pending_count} · -{_format_time_us(span_us)}"
+        label = f"Erase {_format_time_us(span_us)} · {pending_count} actions"
     elif pending_count == 0:
         return
     else:

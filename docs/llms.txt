@@ -39,6 +39,7 @@ Primary docs:
 - Profiles: https://keymasq.tools/docs/latest/PROFILES/
 - Actions: https://keymasq.tools/docs/latest/ACTIONS/
 - Macros: https://keymasq.tools/docs/latest/MACROS/
+- Macro timeline editor: https://keymasq.tools/docs/latest/MACRO_EDITOR/
 - Combos: https://keymasq.tools/docs/latest/COMBOS/
 - Superkeys: https://keymasq.tools/docs/latest/SUPERKEYS/
 - Gamepad: https://keymasq.tools/docs/latest/GAMEPAD/

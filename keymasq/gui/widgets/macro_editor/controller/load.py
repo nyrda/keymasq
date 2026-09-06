@@ -55,6 +55,7 @@ class LoadControllerMixin:
         if self._dialog_closed:
             return
         self._set_editor_busy(False)
+        self._timeline.grab_focus()
 
     def _load_initial_state(self) -> dict[str, object]:
         timeout_max = 30000

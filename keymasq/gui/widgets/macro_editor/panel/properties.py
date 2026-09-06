@@ -246,6 +246,12 @@ class EventPropertiesMixin:
         return self._revealer
 
     def _on_selection_changed(self, selected_obj: object | None) -> None:
+        if hasattr(self, "_selection_summary"):
+            if selected_obj is not None and selected_obj is self._timeline._selected:
+                if not any(item is selected_obj for item in self._timeline._selection):
+                    self._timeline._time_selection = None
+                self._timeline._selection = [selected_obj]
+            self._update_selection_summary()
         if selected_obj is None:
             self._prop_context_label.set_visible(False)
             self._cancel_capture_selected_move("")
@@ -516,34 +522,6 @@ class EventPropertiesMixin:
                 self._timeline._selected = None
                 self._revealer.set_reveal_child(False)
             self._refresh_after_timing_edit()
-
-    def _delete_events_bulk(self, evs: list[object]) -> None:
-        pending_ids = {id(ev) for ev in evs}
-        if not pending_ids:
-            return
-        kept_events = [e for e in self._events if id(e) not in pending_ids]
-        kept_rel = [e for e in self._rel_events if id(e) not in pending_ids]
-        kept_passthrough = [e for e in self._passthrough_events if id(e) not in pending_ids]
-        kept_moves = [move for move in self._synthetic_moves if id(move) not in pending_ids]
-        kept_controls = [
-            control for control in self._control_events if id(control) not in pending_ids
-        ]
-        deleted = (
-            len(kept_events) != len(self._events)
-            or len(kept_rel) != len(self._rel_events)
-            or len(kept_passthrough) != len(self._passthrough_events)
-            or len(kept_moves) != len(self._synthetic_moves)
-            or len(kept_controls) != len(self._control_events)
-        )
-        if not deleted:
-            return
-        self._events = kept_events
-        self._rel_events = kept_rel
-        self._passthrough_events = kept_passthrough
-        self._synthetic_moves = kept_moves
-        self._control_events = kept_controls
-        self._clear_selection_if_removed()
-        self._refresh_after_timing_edit()
 
     def _on_change_key_clicked(self, btn) -> None:
         ev = self._timeline._selected

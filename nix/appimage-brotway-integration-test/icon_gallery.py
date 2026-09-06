@@ -50,6 +50,8 @@ ICON_NAMES = (
     "edit-delete-symbolic",
     "edit-find-symbolic",
     "edit-paste-symbolic",
+    "edit-redo-symbolic",
+    "edit-undo-symbolic",
     "emblem-system-symbolic",
     "go-down-symbolic",
     "go-next-symbolic",

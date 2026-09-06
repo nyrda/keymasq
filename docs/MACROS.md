@@ -22,18 +22,19 @@ by hand, and assign it to a key. This doesn't require any special permissions
 or unlock steps.
 
 1. Open the Keymasq GUI and go to **Macro Manager**.
-2. Click **Empty Macro…** and give it a name.
+2. Click **Empty** and give it a name.
 3. The macro editor opens with a blank timeline. Add the key presses or mouse
-   actions you want — for example, a Ctrl+C shortcut.
+   actions you want. See [Add and edit actions](MACRO_EDITOR.md#add-and-edit-actions)
+   for a Ctrl+C example.
 4. Save the macro.
 5. Go to the **Device** tab for your keyboard, pick a key, and set its action
    to **Play Macro**. Choose the macro you just created.
 6. Press that key — your macro plays back exactly as you built it.
 
-That's it. The sections below cover the other creation methods (live recording
-and type templates), loop modes, timing adjustments, and more.
+This guide covers recording, type templates, and playback. Use the
+[Macro timeline editor guide](MACRO_EDITOR.md) to build and refine the sequence.
 
-![Macro Manager — the three creation buttons are at the bottom](assets/screenshots/keymasq_macros.png)
+![Macro Manager with saved macros and the Empty and Type creation buttons](assets/screenshots/keymasq_macros.png)
 
 ![A key bound to a macro appears with the macro name underneath](assets/screenshots/keymasq_macro_bound.png)
 
@@ -83,6 +84,7 @@ your profiles.
 5. Press the same **Toggle Recording** key again to stop.
 6. Save the temporary slot from the save dialog, or click **Later** and save it
    from Macro Manager.
+7. Open the saved macro to [edit its timeline](MACRO_EDITOR.md).
 
 The session sends desktop notifications when a recording starts and when it
 stops, including the temporary slot number.
@@ -167,7 +169,7 @@ you need.
 **How to create one:**
 
 1. Open **Macro Manager**.
-2. Click **Empty Macro…**.
+2. Click **Empty**.
 3. Enter a name for the macro.
 4. The editor opens with an empty timeline. Add key presses, mouse clicks, or
    movement events and arrange their timing.
@@ -177,7 +179,8 @@ you need.
 to capture live timing — for example, a simple keyboard shortcut, a short
 button sequence, or a starting point you plan to refine in the editor.
 
-![The macro editor — add events to build your macro by hand](assets/screenshots/keymasq_edit_macro_1.png)
+Continue with [Add and edit actions](MACRO_EDITOR.md#add-and-edit-actions) in
+the editor guide. It explains the tracks, input picker, and timing fields.
 
 ### Type Macro Template
 
@@ -194,7 +197,7 @@ remote sessions, or input method setups may not accept it.
 **How to create one:**
 
 1. Open **Macro Manager**.
-2. Click **Type Macro…**.
+2. Click **Type**.
 3. Enter the text and adjust the delay settings.
 4. Save.
 
@@ -214,13 +217,13 @@ This creates a normal type macro with a generated `type_text_*` name and maps it
 in one step. The macro appears in the Macro Library and can be edited, renamed,
 reused, or deleted like any other macro.
 
-Use the Macro Manager's **Type Macro…** button instead when you want a named,
+Use the Macro Manager's **Type** button instead when you want a named,
 reusable macro that can be edited and selected from multiple mappings.
 
 ### Type Macro Inline Controls
 
 Type macro text supports inline controls. These work from the Macro Manager's
-**Type Macro…** dialog, the key selector's **Type** tab, and `keymasq type`.
+**Type** dialog, the key selector's **Type** tab, and `keymasq type`.
 
 | Control | Description |
 |---|---|
@@ -290,12 +293,13 @@ better choice when you need a specific click pattern instead of a simple
 One straightforward setup:
 
 1. Open **Macro Manager** and create an **Empty Macro**.
-2. Add a mouse click press event for the button you want, such as left click.
-3. Add the matching mouse click release event shortly after it.
-4. If needed, adjust the gap between clicks in the timeline.
+2. Right-click the mouse track and add a click, such as left click.
+3. Select the click and set its hold duration. The editor creates the press and
+   release together.
+4. If needed, [adjust the timing](MACRO_EDITOR.md#adjust-timing) between clicks.
 5. Save the macro with a clear name such as `auto_left_click`.
 6. Go to the **Device** tab and bind a key or mouse button to **Play Macro**.
-7. Set the loop mode to **Hold** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
+7. Set the loop mode to **While Held** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
 
 Use this approach when you want:
 
@@ -314,16 +318,16 @@ automatically.
 
 | Mode | Behavior |
 |---|---|
-| **None** | Play once and stop. |
+| **Once** | Play once and stop. Stored as `none`. |
 | **Count** | Play a fixed number of times, then stop. |
-| **Hold** | Keep replaying for as long as you hold the trigger key down. Release stops after the current run by default. |
+| **While Held** | Keep replaying for as long as you hold the trigger key down. Release stops after the current run by default. |
 | **Toggle** | Press the trigger once to start looping. Press it again to stop after the current run by default. |
 
-**Hold** and **Toggle** are especially useful for repeated actions — auto-fire
+**While Held** and **Toggle** are especially useful for repeated actions — auto-fire
 in a game, continuous scrolling, or any workflow where you want the macro to
 keep running without pressing the trigger again and again.
 
-For **Hold** and **Toggle** macros, the editor has a **Finish current run
+For **While Held** and **Toggle** macros, the editor has a **Finish current run
 before stopping** option. When it is enabled, releasing a held trigger or
 pressing a toggle trigger again lets the current macro pass complete and only
 prevents the next repeat. When it is disabled, stop input cancels playback
@@ -338,15 +342,15 @@ Editing, renaming, or deleting a macro stops any looped playback of that macro
 before its next repetition. A repetition already in progress finishes using
 the version with which it started.
 
-![Loop mode dropdown — None, Count, Hold, or Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
+![Loop mode dropdown with Once, Count, While Held, and Toggle](assets/screenshots/keymasq_macro_edit_loop_modes.png)
 
 ### Concurrency
 
 Multiple macros can run at the same time. Here's how overlapping playback
 works:
 
-- **None** and **Count** macros can overlap freely with other running macros.
-- **Hold** macros will not start a second copy from the same trigger while one
+- **Once** and **Count** macros can overlap freely with other running macros.
+- **While Held** macros will not start a second copy from the same trigger while one
   is already running. Releasing the trigger either finishes the current run or
   cancels it immediately, depending on the macro's loop stop behavior.
 - **Toggle** macros use the trigger as an on/off switch — pressing it while
@@ -359,66 +363,36 @@ There is no built-in limit on how many macros can run at once or how long they
 can be. If you create a very long macro or trigger many simultaneously, you're
 responsible for the result.
 
-## Editing Macros
+Playback failures during a sequence, such as a missing target device, are not
+reported by the GUI.
 
-Open a saved macro in the editor from Macro Manager — click anywhere on its
-row, or use the pencil button (or open it from a profile's macro action
-context). Clicking a temporary recording slot row opens the save dialog
-instead. Right-clicking a saved macro's row opens a context menu with **Copy
-Name** (copies the exact macro name for use in profiles, superkeys, combos, or
-the CLI), **Play**, **Edit**, **Duplicate**, and **Delete**. In Macro Manager
-you can also just start typing (or press Ctrl+F) to filter the list by name,
-device type, or event count. The editor shows your macro as a visual timeline
-of keyboard, mouse, and movement events. While the saved macro is being loaded,
-the editor stays read-only behind a spinner, so edits can't be made and lost
-before the existing content arrives. The same read-only state is shown while
-applying or saving changes, preventing newer edits from being mistaken for
-persisted ones. Save failures are shown immediately. If a renamed macro is saved
-successfully but its old file cannot be removed, the editor keeps the successful
-save and warns that both names remain.
+### Wait Controls
 
-The editor only starts with an empty document when opened through **Create Empty
-Macro**. If an existing macro cannot be loaded, the editor closes and shows the
-daemon or filesystem error instead of treating the failed load as a new macro.
+A Wait pauses playback for a fixed duration; a Random Wait chooses a duration
+between its configured minimum and maximum. Both are explicit macro events.
+They keep their configured wall-clock duration when macro speed changes.
 
-You can:
+An empty timeline gap is different: its elapsed playback time scales with macro
+speed. Inserting a Wait leaves later event timestamps unchanged in the editor;
+during playback, the wait delays those later events. Use this when an application
+needs a fixed pause even if the surrounding key sequence runs faster.
 
-- Add or delete individual events.
-- Mass-delete events: toggle **Erase** in the toolbar, then drag across a lane.
-  Events touched by the band light up red and are deleted on release — touching
-  any part of a press/release pair deletes the whole pair, and sweeping the ≈
-  lane also erases recorded mouse movement in the span. A pair that fully spans
-  the band (held down before it, released after it) is left alone. Right-drag
-  instead to ripple delete: the band sweeps all lanes at once and the deleted
-  time span is collapsed, pulling later events left; spanning pairs survive the
-  ripple and are shortened by the collapsed amount. **Undo All** restores the
-  macro to its loaded state if you delete too much.
-- Move events forward or backward in time.
-- Change which key or button an event uses.
-- Insert wait controls.
-- Insert compositor actions.
-- Use timing tools to trim, scale, or adjust gaps.
-- Click **Apply** to save without closing the editor, or **Save Changes** to
-  save and close it.
-- If you close the editor with unsaved changes, Keymasq asks whether to save,
-  discard, or keep editing.
+See [adding and editing waits](MACRO_EDITOR.md#waits-commands-and-macro-calls).
 
-### Event Types
+### Mouse movement
 
-The editor lets you insert several kinds of events into the timeline:
+Natural mouse move events are stored at a single timestamp. During playback,
+`keymasqd` runs the movement to completion, then shifts later event deadlines
+back by the actual elapsed move time. Enable **Stop macro if target can't be
+reached** on a natural move when later clicks or key presses should not run
+after a timeout or missing cursor feedback.
 
-| Event type | Description |
-|---|---|
-| **Key press / release** | Any keyboard key — letters, modifiers, function keys, media keys, etc. |
-| **Mouse click** | Press or release of any mouse button. |
-| **Gamepad button** | Press or release of a gamepad button. Routed events can target a configured virtual or hardware gamepad output. |
-| **Natural mouse movement** | Move toward an exact screen coordinate with the same natural movement engine used by mappings. Prefer this for fixed UI targets when realtime cursor feedback is available. Playback waits for the move to finish before continuing. |
-| **Relative mouse movement** | Move the pointer by a delta (pixels). Useful for macros that should work regardless of where the cursor starts. |
-| **Absolute mouse movement** | Attempt to move the pointer to a screen coordinate with the older reset-and-offset virtual mouse action. Use it as a fallback when natural movement is unavailable. |
-| **Wait** | Pause macro playback for a fixed duration. The editor stores it at its timestamp and does not move later events. |
-| **Wait (random)** | Pause macro playback for a random duration in a configured range. The editor stores it at its timestamp and does not estimate the eventual delay. |
-| **Run command** | Run an external program. It can pause at the event, run in parallel and join at the end of the iteration, or detach from macro playback. |
-| **Compositor action** | Send a compositor dispatch through the active session listener. This uses the same Hyprland, Niri, KDE, or GNOME action picker as normal mappings. |
+Use natural movement for fixed screen targets when realtime cursor feedback is
+available. Relative moves use offsets from the current position; the older
+absolute move is a fallback when natural movement is unavailable. See
+[editing mouse movement](MACRO_EDITOR.md#mouse-movement) for the controls.
+
+### Commands and compositor actions
 
 Waitable Exec events (**Wait for completion** and **Run in parallel**) use the
 configured timeout. A command that reaches it is killed by the session process.
@@ -433,9 +407,6 @@ The three execution modes are:
 - **Run detached** continues the timeline and does not join or cancel the
   command. The command can outlive the macro.
 
-The timeline context menu has one **Run Command** action. After inserting it,
-choose its execution mode in the event properties.
-
 Exec events are the recommended way to call existing hardware/vendor tooling
 from a macro. For example, DPI changes can be delegated to OpenRazer or
 ratbagd tooling:
@@ -449,40 +420,14 @@ Compositor events fire at their timestamp and macro playback continues
 immediately. They are available only when the current session has a supported
 compositor listener with compositor dispatch enabled.
 
-Playback errors are silent — if a macro fails mid-sequence (for example, the
-target device is gone), the GUI won't notify you.
-
-Natural mouse move events are stored at a single timestamp. During playback,
-`keymasqd` runs the movement to completion, then shifts later event deadlines
-back by the actual elapsed move time. Enable **Stop macro if target can't be
-reached** on a natural move when later clicks or key presses should not run
-after a timeout or missing cursor feedback.
-
-### Wait Controls
-
-A wait control is a real macro event you place on the timeline. It is stored
-with the macro and replayed by `keymasqd`. The GUI edits wait timing in
-milliseconds, while the macro file stores wait durations in microseconds.
-
-**Why use them?** Sometimes you need a delay at a specific point in your
-macro — for example, waiting for a menu to open before clicking an option.
-Instead of dragging every event after that point by hand, insert a wait and
-set how long the pause should be. Later event timestamps do not change in the
-editor; during playback, `keymasqd` sleeps at the wait and pushes later
-deadlines back by the actual elapsed wait time. Macro speed changes event
-timestamps, but explicit wait durations remain wall-clock delays.
-
-Wait controls appear as **W** or **WR** markers on the timeline. You can move
-them, edit their duration, or delete them at any time.
-
-![Wait and random-wait controls on the macro timeline](assets/screenshots/macro_edit_wait_wait_random_markers.png)
+See the [editor guide](MACRO_EDITOR.md#waits-commands-and-macro-calls) to insert
+and configure these actions.
 
 ### Calling macros from macros
 
-A macro can call another saved macro from its timeline. Right-click the
-timeline at the desired time, choose **Call Macro**, then select the macro from
-the normal Macro Library selector. Choose **Run and wait** or **Run in parallel**
-in the event properties. The resulting **MW** or **MP** marker remains editable.
+A macro can call another saved macro at a timestamp in its timeline. The call
+may wait for the child or run it in parallel. See the
+[editor guide](MACRO_EDITOR.md#waits-commands-and-macro-calls) to add a call.
 
 - **Run and wait** pauses the parent at the marker until the child completes.
   Later parent deadlines move back by the time spent in the child.
@@ -505,47 +450,20 @@ logs the full call chain. If a macro tries to call a name already present in
 its active parent chain, Keymasq stops the call tree and logs the attempted
 cycle. This runtime check does not scan or rewrite saved macros.
 
-### Editing individual gaps
+## Editing Macros
 
-Gap controls stay hidden while Move is locked. Double-click empty time between
-two actions to open the gap editor directly. Unlock Move to make gaps appear on
-hover; a single click on a highlighted gap then opens the editor. Right-clicking
-empty space still opens the event insertion menu.
+Open **Macro Manager** and click a saved macro's row or pencil button to edit
+it. Temporary recording slots must be saved as regular macros first. You can
+also open the editor from a profile's macro action context menu.
 
-Inside an event track, the gap belongs to that input type. Keyboard events use
-the next keyboard action by start time, regardless of which temporary sub-lane
-the renderer uses to display parallel actions. Mouse-button, gamepad,
-mouse-move, and control tracks follow the same rule. Activity in other tracks
-does not affect the gap. Use the timeline ruler to select a macro-wide gap.
+The separate [Macro timeline editor guide](MACRO_EDITOR.md) covers the timeline,
+adding actions, selecting time, moving groups, copying and pasting, deleting or
+erasing, timing tools, and saving changes.
 
-Cancel, press Escape, click elsewhere, or lock Move again to close the gap
-editor and clear its highlight.
-
-Choose **Next action only** to move just the action after the gap. Track gaps
-also offer **Following actions in this track**, which leaves other tracks
-unchanged. Choose **Everything after this time** to move the rest of the macro
-together.
-
-For macro-wide ruler gaps, actions that start together count as one step. The
-gap starts after the last active editable action ends. Recorded mouse-movement
-samples, key-repeat markers, and other raw passthrough events do not split ruler
-gaps. A negative value moves the next step into an overlap. Select an overlap
-from the timeline ruler when there is no empty interval to click.
-
-### Timing Tools
-
-The **Timing Tools** menu provides bulk adjustments to your macro's timing:
-
-| Tool | What it does |
-|---|---|
-| **Trim Start** | Remove silence at the beginning of the macro. |
-| **Trim End** | Remove trailing silence after the last event. |
-| **Scale** | Multiply all timing gaps by a factor (e.g. 0.5× = twice as fast). |
-| **Apply Gap Limits** | Set a minimum and/or maximum gap between events, clamping any that fall outside. |
-| **Total Time** | Set the minimum macro duration to the entered time, adding or removing trailing empty time. |
-| **Insert Wait** | Add a real wait control at a specific time. |
-
-![Timing Tools menu — Trim, Scale, Gap Limits, Total Time, and Insert Wait](assets/screenshots/macro_edit_timing_tools.png)
+In Macro Manager, start typing or press Ctrl+F to filter by name, device type,
+or event count. Right-click a saved macro for **Copy Name**, **Play**, **Edit**,
+**Duplicate**, and **Delete**. Copy Name gives you its exact name for use in
+profiles, superkeys, combos, or the CLI.
 
 ## CLI Usage
 

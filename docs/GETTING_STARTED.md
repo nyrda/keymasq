@@ -47,6 +47,7 @@ You've created your first remap. Explore further:
 - [Profiles](PROFILES.md) — create profiles for different apps or contexts
 - [Actions](ACTIONS.md) — all available action types
 - [Macros](MACROS.md) — record and play input sequences
+- [Macro timeline editor](MACRO_EDITOR.md): build macros and refine recordings
 - [Combos](COMBOS.md) — trigger actions from key combinations
 - [Super Keys](SUPERKEYS.md) — tap, hold, and double-tap behaviors
 

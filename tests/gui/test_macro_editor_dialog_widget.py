@@ -930,9 +930,23 @@ def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
     footer = children[-1]
 
     assert footer_spacer.get_vexpand() is True
-    assert footer.get_halign() == Gtk.Align.END
+    assert isinstance(footer, Gtk.CenterBox)
+    docs_btn = footer.get_start_widget()
+    assert isinstance(docs_btn, Gtk.Button)
+    assert docs_btn.get_label() == "?"
+    assert docs_btn.has_css_class("actions-docs-button")
+    assert docs_btn.get_tooltip_text() == "Open Macro timeline editor documentation"
+    opened = []
+    monkeypatch.setattr(
+        Gtk.UriLauncher, "launch", lambda launcher, *args: opened.append(launcher.get_uri())
+    )
+    docs_btn.emit("clicked")
+    from keymasq.gui.widgets.docs_links import docs_page_url
+
+    assert opened == [docs_page_url("MACRO_EDITOR")]
     assert [
-        button.get_label() for button in collect_widgets(footer, Gtk.Button, include_self=True)
+        button.get_label()
+        for button in collect_widgets(footer.get_end_widget(), Gtk.Button, include_self=True)
     ] == ["Cancel", "Save as Copy…", "Apply", "Save Changes"]
 
 
@@ -1101,9 +1115,7 @@ def test_macro_editor_failed_existing_load_shows_error_and_closes(monkeypatch) -
     monkeypatch.setattr(
         macro_editor_dialog_module.Adw.AlertDialog,
         "present",
-        lambda alert, parent: alerts.append(
-            (alert.get_heading(), alert.get_body(), parent)
-        ),
+        lambda alert, parent: alerts.append((alert.get_heading(), alert.get_body(), parent)),
     )
 
     result = {
@@ -1115,9 +1127,7 @@ def test_macro_editor_failed_existing_load_shows_error_and_closes(monkeypatch) -
     assert closed == [True]
     assert dialog._dialog_closed is True
     assert dialog._initial_state_loaded is False
-    assert alerts == [
-        ("Unable To Load Macro", "Read-only file system", dialog._parent)
-    ]
+    assert alerts == [("Unable To Load Macro", "Read-only file system", dialog._parent)]
 
 
 def test_macro_editor_create_new_skips_lookup_and_opens_empty(monkeypatch) -> None:
@@ -1384,9 +1394,7 @@ def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -
     monkeypatch.setattr(
         macro_editor_dialog_module.Adw.AlertDialog,
         "present",
-        lambda alert, parent: alerts.append(
-            (alert.get_heading(), alert.get_body(), parent)
-        ),
+        lambda alert, parent: alerts.append((alert.get_heading(), alert.get_body(), parent)),
     )
     monkeypatch.setattr(
         macro_editor_dialog_module,
@@ -2155,82 +2163,8 @@ def _build_erase_mode_dialog(monkeypatch):
     return dialog, keyboard, later_keyboard, mouse, keyboard_passthrough, movement_passthrough
 
 
-def test_macro_editor_erase_drag_deletes_band_touched_events_in_start_track(
-    monkeypatch,
-) -> None:
-    (
-        dialog,
-        keyboard,
-        later_keyboard,
-        mouse,
-        keyboard_passthrough,
-        movement_passthrough,
-    ) = _build_erase_mode_dialog(monkeypatch)
-    assert dialog._erase_mode is True
-    timeline = dialog._timeline
-
-    # Band covers only the release edge of `keyboard` plus the raw marker at
-    # 160ms; it must delete the whole press/release pair, leave the later
-    # keyboard event alone, and never touch the mouse track.
-    x_start = timeline._time_to_x(keyboard.release_t_us) - 2.0
-    x_end = timeline._time_to_x(170_000)
-    timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
-    timeline._on_drag_update(None, x_end - x_start, 0.0)
-
-    assert timeline._erase_track == "keyboard"
-    assert keyboard in timeline._erase_pending
-    assert keyboard_passthrough in timeline._erase_pending
-    assert later_keyboard not in timeline._erase_pending
-    assert mouse not in timeline._erase_pending
-
-    timeline._on_drag_end(None, x_end - x_start, 0.0)
-
-    assert keyboard not in dialog._events
-    assert later_keyboard in dialog._events
-    assert mouse in dialog._events
-    assert keyboard_passthrough not in dialog._passthrough_events
-    assert movement_passthrough in dialog._passthrough_events
-    assert len(dialog._rel_events) == 2
-    assert timeline._erase_track is None
-    assert timeline._erase_pending == []
-
-
-def test_macro_editor_erase_drag_on_movement_track_deletes_rel_in_span(monkeypatch) -> None:
-    dialog, *_ = _build_erase_mode_dialog(monkeypatch)
-    timeline = dialog._timeline
-
-    x_start = timeline._time_to_x(90_000)
-    x_end = timeline._time_to_x(170_000)
-    timeline._on_drag_begin(None, x_start, timeline._wave_y + 5)
-    timeline._on_drag_update(None, x_end - x_start, 0.0)
-    timeline._on_drag_end(None, x_end - x_start, 0.0)
-
-    assert dialog._synthetic_moves == []
-    assert dialog._control_events == []
-    assert all(_passthrough_track(ev) != "movement" for ev in dialog._passthrough_events)
-    # Recorded EV_REL movement inside the span is erased; movement outside and
-    # the keyboard/mouse lanes stay untouched.
-    assert [int(ev["t_us"]) for ev in dialog._rel_events] == [400_000]
-    assert len(dialog._events) == 3
-
-
-def test_macro_editor_erase_drag_on_mouse_lane_deletes_clicks_only(monkeypatch) -> None:
-    dialog, keyboard, later_keyboard, mouse, *_ = _build_erase_mode_dialog(monkeypatch)
-    timeline = dialog._timeline
-
-    x_start = timeline._time_to_x(mouse.press_t_us) - 2.0
-    x_end = timeline._time_to_x(mouse.release_t_us) + 2.0
-    timeline._on_drag_begin(None, x_start, timeline._m_y + 12)
-    timeline._on_drag_update(None, x_end - x_start, 0.0)
-    timeline._on_drag_end(None, x_end - x_start, 0.0)
-
-    assert mouse not in dialog._events
-    assert keyboard in dialog._events
-    assert later_keyboard in dialog._events
-    assert len(dialog._rel_events) == 2
-
-
-def test_macro_editor_right_drag_ripple_deletes_span_and_collapses(monkeypatch) -> None:
+@pytest.mark.parametrize("track", ["keyboard", "mouse", "movement", "ruler"])
+def test_macro_editor_erase_left_drag_removes_time_across_tracks(monkeypatch, track) -> None:
     (
         dialog,
         keyboard,
@@ -2243,8 +2177,14 @@ def test_macro_editor_right_drag_ripple_deletes_span_and_collapses(monkeypatch) 
 
     x_start = timeline._time_to_x(90_000)
     x_end = timeline._time_to_x(170_000)
-    timeline._on_right_drag_begin(None, x_start, timeline._kb_y + 12)
-    timeline._on_right_drag_update(None, x_end - x_start, 0.0)
+    y = {
+        "keyboard": timeline._kb_y + 12,
+        "mouse": timeline._m_y + 12,
+        "movement": timeline._wave_y + 5,
+        "ruler": 10,
+    }[track]
+    timeline._on_drag_begin(None, x_start, y)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
 
     assert timeline._erase_track == "all"
     assert keyboard in timeline._erase_pending
@@ -2253,7 +2193,7 @@ def test_macro_editor_right_drag_ripple_deletes_span_and_collapses(monkeypatch) 
     assert movement_passthrough in timeline._erase_pending
     assert later_keyboard not in timeline._erase_pending
 
-    timeline._on_right_drag_end(None, x_end - x_start, 0.0)
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
 
     # Everything in the 90-170ms span is gone across all lanes, and the span
     # itself is collapsed: later events are pulled 80ms left.
@@ -2264,7 +2204,7 @@ def test_macro_editor_right_drag_ripple_deletes_span_and_collapses(monkeypatch) 
     assert dialog._synthetic_moves == []
     assert dialog._control_events == []
     assert [int(ev["t_us"]) for ev in dialog._rel_events] == [320_000]
-    assert dialog._duration_us == 320_000
+    assert dialog._duration_us == 370_000
     assert timeline._erase_track is None
 
 
@@ -2296,7 +2236,7 @@ def test_macro_editor_erase_band_skips_events_spanning_the_range(monkeypatch) ->
     assert keyboard not in dialog._events
     assert spanning in dialog._events
     assert spanning.press_t_us == 10_000
-    assert spanning.release_t_us == 440_000
+    assert spanning.release_t_us == 320_000
 
 
 def test_macro_editor_ripple_shortens_spanning_events_instead_of_deleting(
@@ -2316,13 +2256,13 @@ def test_macro_editor_ripple_shortens_spanning_events_instead_of_deleting(
 
     x_start = timeline._time_to_x(90_000)
     x_end = timeline._time_to_x(170_000)
-    timeline._on_right_drag_begin(None, x_start, timeline._kb_y + 12)
-    timeline._on_right_drag_update(None, x_end - x_start, 0.0)
+    timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
+    timeline._on_drag_update(None, x_end - x_start, 0.0)
 
     assert keyboard in timeline._erase_pending
     assert spanning not in timeline._erase_pending
 
-    timeline._on_right_drag_end(None, x_end - x_start, 0.0)
+    timeline._on_drag_end(None, x_end - x_start, 0.0)
 
     # The held shift keeps its press and is shortened by the collapsed 80ms;
     # later events shift left as usual.
@@ -2333,19 +2273,17 @@ def test_macro_editor_ripple_shortens_spanning_events_instead_of_deleting(
     assert later_keyboard.release_t_us == 320_000
 
 
-def test_macro_editor_erase_mode_right_press_defers_context_menu(monkeypatch) -> None:
+def test_macro_editor_erase_mode_right_click_opens_context_menu(monkeypatch) -> None:
     dialog, *_ = _build_erase_mode_dialog(monkeypatch)
     timeline = dialog._timeline
-
-    # The press-time handler must not open the menu while erase mode owns the
-    # right button; a plain right-click reopens it from the drag-end fallback.
+    before = dialog._current_macro_payload()
+    popovers = []
+    monkeypatch.setattr(Gtk.Popover, "popup", lambda popover: popovers.append(popover))
     timeline._on_right_click(object(), 1, 50.0, timeline._kb_y + 5.0)
-    assert timeline._context_menu_x is None
-
-    # Outside erase mode the ripple drag never arms.
-    dialog._erase_btn.set_active(False)
-    timeline._on_right_drag_begin(None, 40.0, timeline._kb_y + 5.0)
+    assert len(popovers) == 1
+    assert timeline._context_menu_x == 50.0
     assert timeline._erase_track is None
+    assert dialog._current_macro_payload() == before
 
 
 def test_macro_editor_context_menu_has_one_command_and_macro_call_action(monkeypatch) -> None:
@@ -2486,16 +2424,18 @@ def test_macro_editor_erase_band_stays_time_anchored_under_autoscroll(monkeypatc
     x_start = timeline._time_to_x(keyboard.press_t_us) - 4.0
     timeline._on_drag_begin(None, x_start, timeline._kb_y + 12)
     timeline._on_drag_update(None, 20.0, 0.0)
-    x0_before = timeline._erase_x0
-    x1_before = timeline._erase_x1
-    assert x0_before is not None and x1_before is not None
+    band_before = timeline._build_render_state()._erase_band
+    assert band_before is not None
+    _, x0_before, x1_before = band_before
 
     # Simulate edge auto-scroll shifting the slice: the anchored end follows
     # its time (moves left on screen) while the pointer end stays put.
     timeline.set_scroll_offset(timeline._scroll_offset + 30.0)
     timeline._apply_erase_band()
-    assert timeline._erase_x0 == pytest.approx(x0_before - 30.0, abs=0.01)
-    assert timeline._erase_x1 == pytest.approx(x1_before, abs=0.01)
+    band_after = timeline._build_render_state()._erase_band
+    assert band_after is not None
+    assert band_after[1] == pytest.approx(x0_before - 30.0, abs=0.01)
+    assert band_after[2] == pytest.approx(x1_before, abs=0.01)
 
     timeline._on_drag_end(None, 20.0, 0.0)
     assert timeline._autoscroll_tick_id == 0
@@ -2514,15 +2454,6 @@ def test_macro_editor_erase_drags_arm_autoscroll_at_edges(monkeypatch) -> None:
     timeline._on_drag_end(None, 699.0, 0.0)
     assert timeline._autoscroll_tick_id == 0
 
-    # Right-drag ripple band behaves the same.
-    timeline._on_right_drag_begin(None, 100.0, timeline._kb_y + 12)
-    timeline._on_right_drag_update(None, 699.0, 0.0)
-    assert timeline._erase_track == "all"
-    assert timeline._autoscroll_tick_id != 0
-    assert timeline._autoscroll_velocity > 0.0
-    timeline._on_right_drag_end(None, 699.0, 0.0)
-    assert timeline._autoscroll_tick_id == 0
-
 
 def test_macro_editor_erase_band_draws_with_pending_highlights(monkeypatch) -> None:
     import cairo
@@ -2537,7 +2468,7 @@ def test_macro_editor_erase_band_draws_with_pending_highlights(monkeypatch) -> N
 
     state = timeline._build_render_state()
     assert state._erase_band is not None
-    assert state._erase_band[0] == "keyboard"
+    assert state._erase_band[0] == "all"
     assert id(keyboard) in state._erase_pending_ids
 
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1200, 520)

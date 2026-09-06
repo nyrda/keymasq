@@ -182,8 +182,18 @@ def test_unknown_apply_outcome_is_reconciled_without_local_save(
     assert dialog._apply_button.get_sensitive() is not confirmed
 
 
+@pytest.fixture
+def short_socket_path():
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    # CI's pytest temporary paths can exceed the Unix socket address limit.
+    with TemporaryDirectory(prefix="km-", dir="/tmp") as directory:
+        yield Path(directory) / "session.sock"
+
+
 def test_apply_timeout_followed_by_rejection_preserves_disk(
-    dialog_module, monkeypatch, temp_config_dir, tmp_path
+    dialog_module, monkeypatch, temp_config_dir, short_socket_path
 ):
     import json
     import socket
@@ -204,7 +214,7 @@ def test_apply_timeout_followed_by_rejection_preserves_disk(
     original = config_path.read_bytes()
     dialog = dialog_module.VirtualDevicesDialog()
     dialog._set_config(devices=[VirtualDeviceInstance("flight", LOGITECH_EXTREME_3D_TEMPLATE_ID)])
-    socket_path = tmp_path / "session.sock"
+    socket_path = short_socket_path
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(socket_path))
     server.listen(2)

@@ -2,31 +2,39 @@ import asyncio
 import json
 import signal
 import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 
+@pytest.fixture
+def socket_path() -> Iterator[Path]:
+    # pytest's per-worker temporary paths can exceed Linux's AF_UNIX limit.
+    with tempfile.TemporaryDirectory(prefix="km-cli-", dir="/tmp") as directory:
+        yield Path(directory) / "session.sock"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome,exit_code", [("completed", 0), ("failed", 1), ("cancelled", 1)])
 async def test_wait_cli_waits_for_its_terminal_event(
-    tmp_path: Path, outcome: str, exit_code: int
+    socket_path: Path, outcome: str, exit_code: int
 ) -> None:
-    await run_cli(tmp_path, outcome, exit_code)
+    await run_cli(socket_path, outcome, exit_code)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
 async def test_interrupt_cancels_individual_playback(
-    tmp_path: Path, signum: signal.Signals
+    socket_path: Path, signum: signal.Signals
 ) -> None:
-    await run_cli(tmp_path, "cancelled", 128 + signum, signum)
+    await run_cli(socket_path, "cancelled", 128 + signum, signum)
 
 
 async def run_cli(
-    tmp_path: Path, outcome: str, exit_code: int, signum: signal.Signals | None = None
+    socket_path: Path, outcome: str, exit_code: int, signum: signal.Signals | None = None
 ) -> None:
-    socket_path = tmp_path / "session.sock"
     accepted = asyncio.Event()
     finish = asyncio.Event()
     disconnected = asyncio.Event()

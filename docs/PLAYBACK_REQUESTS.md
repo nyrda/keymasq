@@ -13,7 +13,7 @@ Send text with tracking enabled:
 {"command":"type_text","text":"hello<enter>","track":true}
 ```
 
-The session immediately acknowledges queue acceptance:
+The session immediately acknowledges request acceptance:
 
 ```json
 {"status":"ok","playback_id":"…","state":"queued"}
@@ -40,12 +40,16 @@ Named macros use the same protocol:
 {"command":"play_macro","name":"My macro","track":true}
 ```
 
-Text requests share one FIFO queue across session clients. Compilation and
-playback finish before the next text request starts, preventing interleaved text.
-Add `"ordered":true` to a tracked named macro to put it in the same queue.
-Other named macros and hardware-triggered macros can still run concurrently.
+Text and named macro requests run concurrently by default. Tracking and waiting
+for completion do not serialize requests.
 
-`track` defaults to false. Text still queues without tracking, and its acceptance
+Add `"ordered":true` to a text or named macro request to opt into a shared FIFO
+queue across session clients. Compilation and playback finish before the next
+ordered request starts. Only requests that opt in use this queue; ordinary
+requests and hardware-triggered macros can still run concurrently. Ordering
+follows acceptance order at the session socket, not shell process launch order.
+
+`track` defaults to false. Text still returns immediately without tracking, and its acceptance
 response includes a playback ID. Untracked named macros retain their immediate
 start acknowledgement. Use tracking when the result matters.
 
@@ -91,9 +95,11 @@ keymasq type --wait 'hello<enter>'
 keymasq type --wait 'first' && keymasq type --wait 'second'
 keymasq macros play --wait 'My macro'
 keymasq type --wait --json 'hello'
+keymasq type --ordered --wait 'hello'
 ```
 
-`--wait` keeps the CLI connected until a terminal result arrives. Successful
+`--ordered` opts into the shared FIFO. `--wait` alone permits concurrent playback
+and keeps the CLI connected until a terminal result arrives. Successful
 completion exits with status 0; cancellation or failure exits with status 1.
 SIGINT, including Ctrl+C, cancels this request and exits with status 130. SIGTERM
 cancels it and exits with status 143. The CLI waits up to three seconds for the

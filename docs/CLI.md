@@ -28,8 +28,9 @@ keymasq --json status
 
 ### type
 
-Queue text as a temporary keyboard macro. Text requests play in order across
-clients. Use `--wait` to wait for completion and cancel this request on interruption.
+Submit text as a temporary keyboard macro. Requests can run concurrently. Use
+`--ordered` to serialize with other requests that opt in, and `--wait` to wait
+for completion and cancel this request on interruption.
 
 ```bash
 keymasq type "hello"
@@ -52,6 +53,7 @@ keymasq type --print-json "hello"
 | `--pause-ms MS` | Pause between typed characters. Use `0` for no inter-key delay. Default: `10` |
 | `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
+| `--ordered` | Serialize with other requests that opt into ordering |
 | `--wait` | Wait for completion; SIGINT or SIGTERM cancels this request |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
@@ -118,7 +120,7 @@ Control macro playback.
 ```bash
 keymasq macros list
 keymasq macros create <name> [--force] [JSON]
-keymasq macros play <name> [--speed SPEED] [--wait]
+keymasq macros play <name> [--speed SPEED] [--wait] [--ordered]
 keymasq macros delete <name>
 keymasq macros cancel
 ```

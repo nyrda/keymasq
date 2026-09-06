@@ -417,12 +417,26 @@ def _playback_request(payload: JsonObject, wait: bool) -> JsonObject:
 
 
 def play_macro_cli(
-    name: str, speed: float = 1.0, *, json_output: bool = False, wait: bool = False
+    name: str,
+    speed: float = 1.0,
+    *,
+    json_output: bool = False,
+    wait: bool = False,
+    ordered: bool = False,
 ) -> None:
-    result = _playback_request({"command": "play_macro", "name": name, "speed": float(speed)}, wait)
+    result = _playback_request(
+        {
+            "command": "play_macro",
+            "name": name,
+            "speed": float(speed),
+            **({"ordered": True} if ordered else {}),
+        },
+        wait,
+    )
     if _handled_json_or_error(result, json_output):
         return
-    print(f"Played macro: {name}")
+    action = "Completed" if wait else "Queued" if ordered else "Played"
+    print(f"{action} macro: {name}")
 
 
 def create_macro_cli(
@@ -466,6 +480,7 @@ def type_cli(
     use_unicode_input: bool = True,
     print_json: bool = False,
     wait: bool = False,
+    ordered: bool = False,
     json_output: bool = False,
 ) -> None:
     text = " ".join(text_parts) if text_parts else _read_stdin_or_exit("No text provided")
@@ -496,12 +511,13 @@ def type_cli(
             "pause_ms": max(0, int(pause_ms)),
             "use_unicode_input": bool(use_unicode_input),
             "speed": float(speed),
+            **({"ordered": True} if ordered else {}),
         },
         wait,
     )
     if _handled_json_or_error(result, json_output):
         return
-    action = "Completed" if wait else "Queued"
+    action = "Completed" if wait else "Submitted"
     print(f"{action} type macro: {len(text)} chars")
 
 

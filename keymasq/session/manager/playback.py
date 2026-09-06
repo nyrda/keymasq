@@ -1,4 +1,4 @@
-"""Connection-owned playback requests and the FIFO text playback queue."""
+"""Connection-owned playback requests with optional FIFO ordering."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class PlaybackRequests:
     def __init__(self, manager: SessionManager) -> None:
         self.manager = manager
         self.requests: dict[str, PlaybackRequest] = {}
-        self.text_lock = asyncio.Lock()
+        self.ordered_lock = asyncio.Lock()
 
     def submit(self, request: JsonObject, writer: asyncio.StreamWriter) -> JsonObject:
         active = sum(job.result["state"] not in TERMINAL_STATES for job in self.requests.values())
@@ -93,8 +93,8 @@ class PlaybackRequests:
 
     async def _run(self, job: PlaybackRequest, request: JsonObject) -> None:
         try:
-            if request.get("command") == "type_text" or request.get("ordered") is True:
-                async with self.text_lock:
+            if request.get("ordered") is True:
+                async with self.ordered_lock:
                     await self._play(job, request)
             else:
                 await self._play(job, request)

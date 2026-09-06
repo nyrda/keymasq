@@ -51,8 +51,12 @@ async def join(requests: PlaybackRequests, result: JsonObject) -> JsonObject:
 async def test_text_fifo_across_clients_and_owner_only_completion() -> None:
     manager, requests, sent = setup_requests()
     first_owner, second_owner = owner(), owner()
-    first = requests.submit({"command": "type_text", "text": "a", "track": True}, first_owner)
-    second = requests.submit({"command": "type_text", "text": "b", "track": True}, second_owner)
+    first = requests.submit(
+        {"command": "type_text", "text": "a", "track": True, "ordered": True}, first_owner
+    )
+    second = requests.submit(
+        {"command": "type_text", "text": "b", "track": True, "ordered": True}, second_owner
+    )
     command = await asyncio.wait_for(sent.get(), 1)
     assert command.data["playback_id"] == first["playback_id"]
     assert sent.empty()
@@ -70,8 +74,12 @@ async def test_text_fifo_across_clients_and_owner_only_completion() -> None:
 async def test_cancel_is_scoped_and_queued_cancellation_never_starts() -> None:
     _, requests, sent = setup_requests()
     writer, stranger = owner(), owner()
-    first = requests.submit({"command": "type_text", "text": "a", "track": True}, writer)
-    second = requests.submit({"command": "type_text", "text": "b", "track": True}, writer)
+    first = requests.submit(
+        {"command": "type_text", "text": "a", "track": True, "ordered": True}, writer
+    )
+    second = requests.submit(
+        {"command": "type_text", "text": "b", "track": True, "ordered": True}, writer
+    )
     await asyncio.wait_for(sent.get(), 1)
     first_id, second_id = str(first["playback_id"]), str(second["playback_id"])
     assert (await requests.cancel(first_id, stranger))["status"] == "error"
@@ -129,8 +137,12 @@ async def test_completion_before_acceptance_and_failure_release_queue() -> None:
 
     manager.client.send_command = AsyncMock(side_effect=send)
     writer = owner()
-    first = requests.submit({"command": "type_text", "text": "a", "track": True}, writer)
-    second = requests.submit({"command": "type_text", "text": "b", "track": True}, writer)
+    first = requests.submit(
+        {"command": "type_text", "text": "a", "track": True, "ordered": True}, writer
+    )
+    second = requests.submit(
+        {"command": "type_text", "text": "b", "track": True, "ordered": True}, writer
+    )
     for result in (first, second):
         terminal = await join(requests, result)
         assert terminal["state"] == "failed"
@@ -142,7 +154,9 @@ async def test_daemon_loss_finishes_active_and_queued_requests() -> None:
     _, requests, sent = setup_requests()
     writer = owner()
     results = [
-        requests.submit({"command": "type_text", "text": "a", "track": True}, writer)
+        requests.submit(
+            {"command": "type_text", "text": "a", "track": True, "ordered": True}, writer
+        )
         for _ in range(2)
     ]
     await asyncio.wait_for(sent.get(), 1)
@@ -211,7 +225,9 @@ async def test_global_stop_cancels_queue_and_submission_in_progress() -> None:
     first = requests.submit(
         {"command": "play_macro", "name": "a", "track": True, "ordered": True}, writer
     )
-    second = requests.submit({"command": "type_text", "text": "b", "track": True}, writer)
+    second = requests.submit(
+        {"command": "type_text", "text": "b", "track": True, "ordered": True}, writer
+    )
     await sent.get()
     requests.cancel_pending()
     release.set()
@@ -219,3 +235,26 @@ async def test_global_stop_cancels_queue_and_submission_in_progress() -> None:
     assert requests.status(str(second["playback_id"]), writer)["state"] == "cancelled"
     assert sent.get_nowait().command == CommandType.CANCEL_MACRO_PLAYBACK
     assert sent.empty()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["type_text", "play_macro"])
+async def test_default_requests_run_concurrently_even_with_an_ordered_request(command: str) -> None:
+    _, requests, sent = setup_requests()
+    writer = owner()
+    results = [
+        requests.submit(
+            {"command": command, "text": "a", "name": "a", "track": True, "ordered": ordered},
+            writer,
+        )
+        for ordered in (True, False, False)
+    ]
+    submitted = [await asyncio.wait_for(sent.get(), 1) for _ in results]
+    assert {item.data["playback_id"] for item in submitted} == {
+        result["playback_id"] for result in results
+    }
+    # All three starts were accepted before any completion was delivered.
+    for result in results:
+        requests.finished({"playback_id": result["playback_id"], "state": "completed"})
+    for result in results:
+        assert (await join(requests, result))["state"] == "completed"

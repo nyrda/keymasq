@@ -83,6 +83,9 @@ def main() -> None:
     type_parser.add_argument(
         "--wait", action="store_true", help="Wait for completion; interrupt to cancel this playback"
     )
+    type_parser.add_argument(
+        "--ordered", action="store_true", help="Serialize with other requests that use --ordered"
+    )
     _add_json_output(type_parser)
     type_parser.add_argument("text", nargs="*", help="Text to type; stdin is used when omitted")
     type_parser.add_argument(
@@ -137,6 +140,9 @@ def main() -> None:
     macros_play_parser = macros_sub.add_parser("play", help="Play a macro by name")
     macros_play_parser.add_argument(
         "--wait", action="store_true", help="Wait for completion; interrupt to cancel this playback"
+    )
+    macros_play_parser.add_argument(
+        "--ordered", action="store_true", help="Serialize with other requests that use --ordered"
     )
     macros_play_parser.add_argument("name", help="Macro name")
     macros_play_parser.add_argument(
@@ -239,6 +245,7 @@ def main() -> None:
             use_unicode_input=not args.no_unicode,
             print_json=args.print_json,
             wait=args.wait,
+            ordered=args.ordered,
             json_output=json_output,
         )
     elif args.command == "macros":
@@ -257,6 +264,7 @@ def main() -> None:
                 args.speed,
                 json_output=json_output,
                 wait=args.wait,
+                ordered=args.ordered,
             )
         elif args.macros_command == "cancel":
             commands.cancel_macro_cli(json_output=json_output)

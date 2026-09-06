@@ -35,6 +35,8 @@ class _MacroCommandDeviceManager(Protocol):
         playback_options: MacroPlaybackOptions,
     ) -> JsonObject: ...
 
+    async def cancel_macro_request(self, playback_id: str) -> JsonObject: ...
+
     async def cancel_macro_playback(self) -> JsonObject: ...
 
     async def emergency_reset(self) -> JsonObject: ...
@@ -176,6 +178,11 @@ async def handle_macro_command(
         return await play_macro_by_name(daemon, data)
 
     if command_type == CommandType.CANCEL_MACRO_PLAYBACK:
+        if "playback_id" in data:
+            playback_id = coerce_str(data.get("playback_id"), "")
+            if not playback_id:
+                return {"status": "error", "message": "playback_id required"}
+            return await daemon.device_manager.cancel_macro_request(playback_id)
         return await daemon.device_manager.cancel_macro_playback()
 
     if command_type == CommandType.EMERGENCY_RESET:

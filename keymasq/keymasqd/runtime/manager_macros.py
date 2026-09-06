@@ -192,16 +192,30 @@ class MacroManagerMixin:
             deps=deps,
         )
 
+    async def cancel_macro_request(self, playback_id: str) -> JsonObject:
+        ids = [
+            instance_id
+            for instance_id, meta in self.macro_state.instance_meta.items()
+            if meta.get("playback_id") == playback_id
+        ]
+        cancelled = await cleanup.cancel_macro_instances(
+            self,
+            ids,
+            deps=self._macro_runtime_deps_factory(),
+        )
+        return {"status": "ok", "cancelled": cancelled > 0}
+
     async def cancel_macro_playback(self) -> JsonObject:
         result = await cleanup.cancel_macro_playback(
             self,
             deps=self._macro_runtime_deps_factory(),
         )
-        if bool(result.get("cancelled", False)):
-            self._broadcast_runtime_event(
-                CommandType.MACRO_PLAYBACK_CANCELLED,
-                {"reason": "cancel_macro_playback", "cancelled": True},
-            )
+        # The session may still be compiling or queueing text even when no
+        # daemon instance is running yet.
+        self._broadcast_runtime_event(
+            CommandType.MACRO_PLAYBACK_CANCELLED,
+            {"reason": "cancel_macro_playback", "cancelled": bool(result.get("cancelled", False))},
+        )
         return result
 
     async def cancel_macro_playback_and_release_outputs(self) -> JsonObject:

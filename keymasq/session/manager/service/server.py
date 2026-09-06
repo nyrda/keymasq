@@ -131,6 +131,8 @@ class SessionServerMixin:
                 peer.uid,
             )
         finally:
+            if hasattr(self, "playback_requests"):
+                await self.playback_requests.disconnect(writer)
             try:
                 await device_inspector.clear_device_inspectors_for_writer(self, writer)
             except Exception:

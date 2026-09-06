@@ -292,24 +292,25 @@ class TestCombos:
         manager.emergency_reset.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_cancel_macro_playback_broadcasts_when_cancelled(self, monkeypatch):
+    @pytest.mark.parametrize("cancelled", [True, False])
+    async def test_cancel_macro_playback_broadcasts_when_cancelled(self, monkeypatch, cancelled):
         events: list[tuple[CommandType, dict[str, object]]] = []
 
         async def broadcast(event_type: CommandType, data: dict[str, object]) -> None:
             events.append((event_type, data))
 
         manager = DeviceManager(broadcast_callback=broadcast)
-        cancel_macro_playback = AsyncMock(return_value={"status": "ok", "cancelled": True})
+        cancel_macro_playback = AsyncMock(return_value={"status": "ok", "cancelled": cancelled})
         monkeypatch.setattr(cleanup, "cancel_macro_playback", cancel_macro_playback)
 
         result = await manager.cancel_macro_playback()
         await asyncio.sleep(0)
 
-        assert result == {"status": "ok", "cancelled": True}
+        assert result == {"status": "ok", "cancelled": cancelled}
         assert events == [
             (
                 CommandType.MACRO_PLAYBACK_CANCELLED,
-                {"reason": "cancel_macro_playback", "cancelled": True},
+                {"reason": "cancel_macro_playback", "cancelled": cancelled},
             )
         ]
 

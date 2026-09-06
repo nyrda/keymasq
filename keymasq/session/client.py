@@ -66,7 +66,7 @@ class KeymasqdClient:
         self.reader = None
         self.writer = None
 
-    async def send_command(self, command: Command, timeout: float = 10.0) -> Response:
+    async def send_command(self, command: Command, timeout: float | None = 10.0) -> Response:
         if not self.writer:
             raise ConnectionError("Not connected to keymasqd")
 

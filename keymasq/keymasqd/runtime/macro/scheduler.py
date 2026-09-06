@@ -209,11 +209,15 @@ async def play_macro_task(
     except asyncio_mod.CancelledError:
         raise
     except MacroCallError as exc:
-        if _is_child_instance(manager, instance_id):
+        if _is_child_instance(manager, instance_id) or manager.macro_state.instance_meta.get(
+            instance_id, {}
+        ).get("playback_id"):
             raise
         deps.log.error("Macro playback aborted: %s", exc)
     except MacroFileChangedError:
-        if _is_child_instance(manager, instance_id):
+        if _is_child_instance(manager, instance_id) or manager.macro_state.instance_meta.get(
+            instance_id, {}
+        ).get("playback_id"):
             raise MacroCallError(
                 f"{manager.macro_state.call_chain(instance_id)}: macro was modified or removed"
             ) from None
@@ -222,7 +226,9 @@ async def play_macro_task(
             macro_name or "<unnamed>",
         )
     except Exception as exc:
-        if _is_child_instance(manager, instance_id):
+        if _is_child_instance(manager, instance_id) or manager.macro_state.instance_meta.get(
+            instance_id, {}
+        ).get("playback_id"):
             if isinstance(exc, MacroChildPlaybackError):
                 raise
             raise MacroChildPlaybackError(

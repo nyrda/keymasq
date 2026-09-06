@@ -31,6 +31,7 @@ class CommandType(Enum):
     RECORDING_STARTED = "recording_started"
     RECORDING_STOPPED = "recording_stopped"
     RECORDING_PROGRESS = "recording_progress"
+    MACRO_PLAYBACK_FINISHED = "macro_playback_finished"
     MACRO_PLAYBACK_CANCELLED = "macro_playback_cancelled"
     RUNTIME_RESET = "runtime_reset"
     PLAY_MACRO = "play_macro"

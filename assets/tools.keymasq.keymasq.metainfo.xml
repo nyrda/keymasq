@@ -70,8 +70,7 @@
     </release>
     <release version="0.15.0" date="2026-05-06">
       <description>
-        <p>Adds a feedback dialog for submitting bugs, ideas, or questions, with optional diagnostics.</p>
-        <p>Also moves profile settings into a dedicated dialog with per-device grab toggles, improves CLI and macro responsiveness, and refreshes device mapping card polish.</p>
+        <p>Moves profile settings into a dedicated dialog with per-device grab toggles, improves CLI and macro responsiveness, and refreshes device mapping card polish.</p>
       </description>
     </release>
     <release version="0.14.0" date="2026-05-05">

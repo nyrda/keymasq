@@ -178,11 +178,6 @@ def _setup_content(window) -> None:
     menu_box.append(menu_unlock_separator)
     window._menu_unlock_separator = menu_unlock_separator
 
-    feedback_btn = _runtime.Gtk.Button(label="Feedback")
-    _configure_menu_button(window, feedback_btn)
-    connect_menu_action(feedback_btn, "feedback")
-    menu_box.append(feedback_btn)
-
     about_btn = _runtime.Gtk.Button(label="About")
     _configure_menu_button(window, about_btn)
     connect_menu_action(about_btn, "about")

@@ -10,7 +10,6 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
 
     import keymasq.gui.application as application_module
     import keymasq.gui.widgets.diagnostics_dialog as diagnostics_module
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
     import keymasq.gui.widgets.macro_manager_dialog as macro_manager_module
     import keymasq.gui.widgets.superkey_editor.dialog as superkey_module
     from keymasq.gui.application import Application
@@ -56,7 +55,6 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     monkeypatch.setattr(superkey_module, "SuperkeyDialog", _Dialog)
     monkeypatch.setattr(macro_manager_module, "MacroManagerDialog", _Dialog)
     monkeypatch.setattr(diagnostics_module, "DiagnosticsDialog", _Dialog)
-    monkeypatch.setattr(feedback_module, "FeedbackDialog", _Dialog)
     monkeypatch.setattr(application_module.Adw, "AboutDialog", _AboutDialog)
 
     app = Application()
@@ -70,7 +68,6 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     app._on_macros(None, None)
     app._on_record_macro(None, None)
     app._on_diagnostics(None, None)
-    app._on_feedback(None, None)
     app._on_about(None, None)
     app._on_macro_manager_closed(None, window)
 
@@ -259,170 +256,3 @@ def test_session_reload_reports_sync_and_async_status(
 
     assert callbacks == [False, False]
     assert seen == [True, False]
-
-
-def test_feedback_submit_reports_thanks_without_backend_detail(monkeypatch) -> None:
-    pytest.importorskip("gi")
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    class _Response:
-        status = 202
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def read(self, _limit: int) -> bytes:
-            return b'{"message":"Discord notification sent"}'
-
-    captured: dict[str, object] = {}
-
-    def fake_urlopen(request, timeout: float):
-        captured["timeout"] = timeout
-        captured["body"] = request.data.decode("utf-8")
-        return _Response()
-
-    monkeypatch.setattr(feedback_module.urllib.request, "urlopen", fake_urlopen)
-
-    result = feedback_module.submit_feedback(
-        "https://feedback.example/api/feedback",
-        {"message": "This is a useful amount of feedback."},
-    )
-
-    assert result.ok is True
-    assert result.message == "Thanks for the feedback."
-    body = captured["body"]
-    assert isinstance(body, str)
-    assert "useful amount" in body
-
-
-def test_feedback_submit_reports_rate_limit(monkeypatch) -> None:
-    from io import BytesIO
-    import urllib.error
-
-    pytest.importorskip("gi")
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    def fake_urlopen(_request, timeout: float):
-        raise urllib.error.HTTPError(
-            "https://feedback.example/api/feedback",
-            429,
-            "Too Many Requests",
-            {},
-            BytesIO(b"rate limited"),
-        )
-
-    monkeypatch.setattr(feedback_module.urllib.request, "urlopen", fake_urlopen)
-
-    result = feedback_module.submit_feedback(
-        "https://feedback.example/api/feedback",
-        {"message": "This is a useful amount of feedback."},
-    )
-
-    assert result.ok is False
-    assert result.message == "Please wait before sending more feedback."
-
-
-def test_feedback_dialog_includes_diagnostics_by_default(monkeypatch) -> None:
-    gi = pytest.importorskip("gi")
-    gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    monkeypatch.setattr(feedback_module.platform, "platform", lambda: "Linux-Test")
-    monkeypatch.setattr(
-        feedback_module,
-        "linux_distribution_name",
-        lambda: "NixOS Test",
-    )
-    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
-    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
-
-    parent = Gtk.Window()
-    parent.hardware_manager = SimpleNamespace(  # type: ignore[attr-defined]
-        list_hardware=lambda: [
-            SimpleNamespace(
-                hardware_id="1111:2222",
-                name="Test Keyboard",
-            )
-        ]
-    )
-    dialog = feedback_module.FeedbackDialog(parent, endpoint="https://feedback.example")
-    buffer = dialog.message_view.get_buffer()
-    buffer.set_text("The app did something unexpected.", -1)
-
-    payload = dialog._payload()
-    message = payload["message"]
-    assert isinstance(message, str)
-    assert payload["category"] == "Question"
-    assert "The app did something unexpected." in message
-    assert "Diagnostics:" not in message
-    assert dialog.diagnostics_check.get_active() is True
-    assert "Keymasq version" in (dialog.diagnostics_check.get_tooltip_text() or "")
-    assert payload["distribution"] == "NixOS Test"
-    assert payload["platform"] == "Linux-Test"
-    assert payload["desktop"] == "GNOME"
-    assert payload["session_type"] == "wayland"
-    assert payload["devices"] == ["Test Keyboard (1111:2222)"]
-
-
-def test_feedback_dialog_can_opt_out_of_diagnostics(monkeypatch) -> None:
-    gi = pytest.importorskip("gi")
-    gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    monkeypatch.setattr(feedback_module.platform, "platform", lambda: "Linux-Test")
-    dialog = feedback_module.FeedbackDialog(Gtk.Window(), endpoint="https://feedback.example")
-    dialog.message_view.get_buffer().set_text("The app did something unexpected.", -1)
-    dialog.diagnostics_check.set_active(False)
-
-    payload = dialog._payload()
-
-    assert "app_version" not in payload
-    assert "distribution" not in payload
-    assert "platform" not in payload
-    assert "desktop" not in payload
-    assert "session_type" not in payload
-    assert "devices" not in payload
-
-
-def test_feedback_distribution_name_uses_os_release_pretty_name(monkeypatch) -> None:
-    pytest.importorskip("gi")
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    monkeypatch.setattr(
-        feedback_module.platform,
-        "freedesktop_os_release",
-        lambda: {
-            "NAME": "NixOS",
-            "PRETTY_NAME": "NixOS 25.05 (Warbler)",
-            "ID": "nixos",
-        },
-    )
-
-    assert feedback_module.linux_distribution_name() == "NixOS 25.05 (Warbler)"
-
-
-def test_feedback_distribution_name_falls_back_to_unknown(monkeypatch) -> None:
-    pytest.importorskip("gi")
-
-    import keymasq.gui.widgets.feedback_dialog as feedback_module
-
-    def raise_os_error() -> dict[str, str]:
-        raise OSError
-
-    monkeypatch.setattr(
-        feedback_module.platform,
-        "freedesktop_os_release",
-        raise_os_error,
-    )
-
-    assert feedback_module.linux_distribution_name() == "unknown"

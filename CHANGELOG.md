@@ -74,8 +74,6 @@
 
 ### Improved
 
-- Added a feedback dialog for submitting bugs, ideas, or questions, with
-  optional diagnostics.
 - Moved profile settings into a dedicated Adwaita dialog with per-device grab
   toggles, an active-profile summary, and quicker access from the profile
   picker.

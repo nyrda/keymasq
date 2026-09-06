@@ -24,7 +24,10 @@ def event_names(*, axis: bool) -> list[str]:
     return sorted(
         name.lower()
         for name, code in vars(evdev.ecodes).items()
-        if name.startswith(prefix) and isinstance(code, int) and code in table
+        if name.startswith(prefix)
+        and isinstance(code, int)
+        and code in table
+        and (not axis or name not in {"ABS_MAX", "ABS_CNT"})
     )
 
 

@@ -243,6 +243,8 @@ def _event_code(name: object, *, axis: bool) -> str:
     prefix = "abs_" if axis else "btn_"
     if not normalized.startswith(prefix):
         raise VirtualDeviceConfigError(f"event code must start with {prefix}")
+    if axis and normalized in {"abs_max", "abs_cnt"}:
+        raise VirtualDeviceConfigError(f"{normalized} is an axis sentinel, not an input axis")
     code = getattr(evdev.ecodes, normalized.upper(), None)
     code_table = evdev.ecodes.ABS if axis else evdev.ecodes.keys
     if not isinstance(code, int) or code not in code_table:

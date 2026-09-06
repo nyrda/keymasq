@@ -2115,6 +2115,7 @@ def test_key_selector_dialog_gamepad_output_labels_hardware_by_name(monkeypatch)
 
 
 def test_key_selector_dialog_uses_selected_virtual_device_template(monkeypatch):
+    gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk
 
     from keymasq.common.model.actions import MappingAction

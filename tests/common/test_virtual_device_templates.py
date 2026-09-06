@@ -210,3 +210,13 @@ def test_button_aliases_cannot_define_duplicate_controls():
     buttons.append({"id": "alias", "label": "Alias", "evdev": "btn_joystick"})
     with pytest.raises(VirtualDeviceConfigError, match="evdev codes must be unique"):
         virtual_device_config_from_toml(data)
+
+
+@pytest.mark.parametrize("sentinel", ["abs_max", "abs_cnt"])
+def test_axis_sentinels_are_not_template_controls(sentinel):
+    data = _custom_config_data()
+    templates = cast(list[dict[str, object]], data["templates"])
+    axes = cast(list[dict[str, object]], templates[0]["axes"])
+    axes[0]["evdev"] = sentinel
+    with pytest.raises(VirtualDeviceConfigError, match="axis sentinel"):
+        virtual_device_config_from_toml(data)

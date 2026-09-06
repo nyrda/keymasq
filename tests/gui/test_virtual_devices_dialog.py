@@ -3,6 +3,17 @@ import pytest
 gi = pytest.importorskip("gi")
 
 
+def test_axis_choices_exclude_sentinels():
+    from keymasq.gui.widgets.virtual_template_controls import event_names
+
+    axes = event_names(axis=True)
+    assert "abs_x" in axes
+    assert "abs_throttle" in axes
+    assert "abs_max" not in axes
+    assert "abs_cnt" not in axes
+    assert "btn_trigger_happy1" in event_names(axis=False)
+
+
 @pytest.fixture
 def dialog_module(monkeypatch, temp_config_dir):
     from keymasq.gui.widgets import virtual_devices_dialog

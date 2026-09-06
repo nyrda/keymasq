@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from keymasq.common.model.core import DeviceType
+from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis, learned_output_axes
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
@@ -21,6 +22,7 @@ class GamepadOutputTarget:
     is_virtual: bool
     analog_inputs: dict[str, object] = field(default_factory=dict)
     stick_output: StickOutputState = field(default_factory=StickOutputState)
+    output_axes: tuple[OutputAxis, ...] | None = None
 
 
 type ClearComboRuntime = Callable[[], Awaitable[None]]
@@ -117,6 +119,7 @@ class GamepadOutputRouter:
                 bucket=f"gamepad:{resolved_id}",
                 is_virtual=True,
                 stick_output=previous[1],
+                output_axes=STANDARD_OUTPUT_AXES,
             )
 
         devices = grabbed_devices.get(resolved_id)
@@ -149,6 +152,7 @@ class GamepadOutputRouter:
                     bucket=f"gamepad:{resolved_id}",
                     is_virtual=False,
                     analog_inputs=analog_inputs,
+                    output_axes=learned_output_axes(analog_inputs.values()),
                     stick_output=stick_output
                     if isinstance(stick_output, StickOutputState)
                     else StickOutputState(),

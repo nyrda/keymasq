@@ -6,6 +6,7 @@ from typing import cast
 
 import evdev
 
+from keymasq.common.devices import capability_name
 from keymasq.common.gamepad_axes import GAMEPAD_AXIS_RANGES, normalize_gamepad_axis_target
 
 
@@ -85,9 +86,13 @@ def learned_output_axes(analog_inputs: Iterable[object]) -> tuple[OutputAxis, ..
             if neutral is None:
                 neutral = round((minimum + maximum) / 2) if stick else max(minimum, min(0, maximum))
             role = str(_field(axis, "role") or "").upper()
+            name = str(_field(axis, "evdev") or "")
+            if not name:
+                code = _integer(_field(axis, "evdev_code"))
+                name = capability_name(evdev.ecodes.EV_ABS, code) or ""
             try:
                 spec = OutputAxis(
-                    str(_field(axis, "evdev") or ""),
+                    name,
                     f"{label} {role}" if stick else label,
                     minimum,
                     maximum,

@@ -54,3 +54,44 @@ def test_provider_axes_require_valid_range_and_neutral() -> None:
         OutputAxis("ABS_X", "X", 0, 10, 20)
     with pytest.raises(ValueError):
         OutputAxis("KEY_A", "X", 0, 10)
+
+
+@pytest.mark.parametrize("code", [2, "0x2"])
+def test_learned_output_axes_accept_numeric_only_identity(code) -> None:
+    assert learned_output_axes(
+        [
+            {
+                "type": "axis",
+                "label": "Trigger",
+                "axes": [
+                    {"role": "x", "evdev_code": code, "minimum": 0, "maximum": 255},
+                ],
+            }
+        ]
+    ) == (OutputAxis("ABS_Z", "Trigger", 0, 255),)
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {"evdev_code": 99999},
+        {"evdev_code": -1},
+        {"evdev_code": "unknown"},
+        {"evdev": "ABS_UNKNOWN", "evdev_code": 2},
+        {"evdev": "KEY_A", "evdev_code": 2},
+    ],
+)
+def test_learned_output_axes_reject_invalid_identities(identity) -> None:
+    assert (
+        learned_output_axes(
+            [
+                {
+                    "type": "axis",
+                    "axes": [
+                        {"role": "x", "minimum": 0, "maximum": 255, **identity},
+                    ],
+                }
+            ]
+        )
+        == ()
+    )

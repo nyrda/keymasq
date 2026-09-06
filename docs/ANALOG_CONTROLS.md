@@ -100,6 +100,9 @@ response_curve = 1.0         # 0.25–4.0
   `abs_rx`, `abs_ry`, `abs_z`, `abs_rz`, `abs_hat0x`, and `abs_hat0y`.
   Hardware outputs expose learned axes with valid ranges, including individual
   components of a stick and custom axes such as `abs_throttle`.
+  At runtime, missing saved ranges and rest values are filled from the
+  destination's grab-time calibration. Valid numeric-only `evdev_code` identities
+  are also supported by the daemon's output capability resolver.
 - `same` — preserves the source side: `left_stick` writes `ABS_X`/`ABS_Y`,
   `right_stick` writes `ABS_RX`/`ABS_RY`, `left_trigger` writes `ABS_Z`,
   `right_trigger` writes `ABS_RZ`.

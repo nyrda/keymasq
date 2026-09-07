@@ -381,9 +381,12 @@ def test_unicode_codepoints_and_following_text_have_no_held_modifiers(
     held: set[int] = set()
     plain_presses: list[int] = []
     last_release_us = -1
+    previous_event_us = -1
     modifiers = {evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT}
 
     for event in events:
+        assert event["t_us"] >= previous_event_us
+        previous_event_us = event["t_us"]
         code = int(event["code"])
         if event["value"] == 1:
             if code == evdev.ecodes.KEY_U:

@@ -35,6 +35,7 @@ class VirtualDevicePicker(Gtk.Box):
         *,
         current_target: str | None = None,
         current_value: int = 0,
+        unknown_rest_axes: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         self.set_halign(Gtk.Align.CENTER)
@@ -42,6 +43,7 @@ class VirtualDevicePicker(Gtk.Box):
         self._on_axis = on_axis
         self._axes = {axis.evdev: axis for axis in template.axes}
         self._template = template
+        self._unknown_rest_axes = unknown_rest_axes
         self._buttons = {
             int(getattr(evdev.ecodes, item.evdev.upper())): item for item in template.buttons
         }
@@ -79,7 +81,8 @@ class VirtualDevicePicker(Gtk.Box):
         self.percent_spin = Gtk.SpinButton(numeric=True, width_chars=4)
         self.percent_spin.set_tooltip_text("Deflection from rest; 100% is full travel")
         editor.append(self.percent_spin)
-        editor.append(Gtk.Label(label="%"))
+        self._percent_label = Gtk.Label(label="%")
+        editor.append(self._percent_label)
         apply = Gtk.Button(label="Map axis")
         apply.add_css_class("suggested-action")
         apply.connect("clicked", self._map_axis)
@@ -217,7 +220,7 @@ class VirtualDevicePicker(Gtk.Box):
 
     def _axis_shortcut(self, label: str, code: str, percent: float, tooltip: str) -> Gtk.Widget:
         axis = self._axes.get(code)
-        if axis is None:
+        if axis is None or code in self._unknown_rest_axes:
             return Gtk.Box(visible=False)
         return self._axis_button(label, code, axis_percent_value(axis, percent), tooltip)
 
@@ -379,6 +382,10 @@ class VirtualDevicePicker(Gtk.Box):
 
     def _axis_changed(self, *_args: object) -> None:
         axis = self._selected_axis()
+        rest_known = axis.evdev not in self._unknown_rest_axes
+        self.percent_spin.set_sensitive(rest_known)
+        self.percent_spin.set_visible(rest_known)
+        self._percent_label.set_visible(rest_known)
         self._syncing = True
         self.value_spin.set_adjustment(
             Gtk.Adjustment(
@@ -394,14 +401,17 @@ class VirtualDevicePicker(Gtk.Box):
             )
         )
         self._syncing = False
-        self.value_spin.set_value(axis_percent_value(axis, 100))
+        self.value_spin.set_value(axis_percent_value(axis, 100) if rest_known else axis.minimum)
         self._value_changed()
-        self.range_label.set_text(f"Range {axis.minimum} to {axis.maximum} · Rest {axis.rest}")
+        rest = str(axis.rest) if rest_known else "unavailable"
+        self.range_label.set_text(f"Range {axis.minimum} to {axis.maximum} · Rest {rest}")
 
     def _value_changed(self, *_args: object) -> None:
         if self._syncing:
             return
         axis = self._selected_axis()
+        if axis.evdev in self._unknown_rest_axes:
+            return
         value = self.value_spin.get_value()
         endpoint = axis.maximum if value >= axis.rest else axis.minimum
         distance = abs(endpoint - axis.rest)
@@ -413,7 +423,7 @@ class VirtualDevicePicker(Gtk.Box):
         self._syncing = False
 
     def _percent_changed(self, *_args: object) -> None:
-        if self._syncing:
+        if self._syncing or self._selected_axis().evdev in self._unknown_rest_axes:
             return
         self._syncing = True
         self.value_spin.set_value(

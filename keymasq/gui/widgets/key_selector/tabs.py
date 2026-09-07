@@ -11,16 +11,21 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.controller_capabilities import hardware_controller_template
+from keymasq.common.controller_capabilities import (
+    hardware_controller_template,
+    routed_controller_template,
+)
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.model.superkeys import SuperkeyAction
+from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     XBOX_360_TEMPLATE_ID,
     ResolvedVirtualDevice,
     resolve_virtual_devices,
 )
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets import input_picker_shared
 from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
@@ -630,12 +635,38 @@ class SharedInputTabsMixin:
             self._physical_gamepad_configs = load_gamepad_output_hardware_configs(HardwareManager)
         device = self._selected_virtual_device()
         template = device.template if device is not None else None
+        unknown_rest_axes = frozenset()
+        physical_message = None
         for hardware in getattr(self, "_physical_gamepad_configs", []):
             if (
                 isinstance(hardware, HardwareConfig)
                 and hardware.hardware_id == self._selected_gamepad_output_id
             ):
                 template = hardware_controller_template(hardware)
+                if not hasattr(self, "_physical_output_inventory"):
+                    self._physical_output_inventory = []
+                    self._physical_output_loading = True
+                    session_request_async(
+                        {"command": "list_devices_for_recording", "include_other": True},
+                        self._received_physical_output_inventory,
+                    )
+                routed = next(
+                    (
+                        item
+                        for item in self._physical_output_inventory
+                        if item.get("source_hardware_id") == hardware.hardware_id
+                        and isinstance(item.get("gamepad_output"), dict)
+                    ),
+                    None,
+                )
+                if routed is not None:
+                    template, unknown_rest_axes = routed_controller_template(hardware, routed)
+                else:
+                    physical_message = (
+                        "Loading physical output controls…"
+                        if self._physical_output_loading
+                        else "Grab this controller to select its available output controls."
+                    )
                 break
         use_template = template is not None and (
             device is None or template.id != XBOX_360_TEMPLATE_ID
@@ -649,6 +680,10 @@ class SharedInputTabsMixin:
         while child := custom.get_first_child():
             custom.remove(child)
 
+        if physical_message:
+            custom.append(Gtk.Label(label=physical_message, wrap=True))
+            return
+
         from keymasq.gui.widgets.virtual_device_picker import VirtualDevicePicker
 
         action = getattr(self, "_current_action", None)
@@ -659,8 +694,15 @@ class SharedInputTabsMixin:
                 self._on_gamepad_axis_clicked,
                 current_target=getattr(action, "target", None),
                 current_value=int(getattr(action, "axis_value", 0)),
+                unknown_rest_axes=unknown_rest_axes,
             )
         )
+
+    def _received_physical_output_inventory(self, response: JsonObject | None) -> bool:
+        self._physical_output_loading = False
+        self._physical_output_inventory = (response or {}).get("devices", [])
+        self._refresh_virtual_device_picker()
+        return False
 
     def _build_gamepad_output_header(self) -> Gtk.Widget | None:
         choices = self._gamepad_output_choices()

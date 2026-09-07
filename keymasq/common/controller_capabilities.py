@@ -1,6 +1,7 @@
 """Controller naming and a shared capability-backed output picker description."""
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
@@ -10,6 +11,7 @@ from keymasq.common.devices import (
 from keymasq.common.gamepad_axes import gamepad_axis_range
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.output_axes import OutputAxis, learned_output_axes
+from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     VirtualAxis,
     VirtualButton,
@@ -114,3 +116,53 @@ def hardware_controller_template(config: HardwareConfig) -> VirtualDeviceTemplat
         ),
         layout="flight-stick" if flight else "gamepad",
     )
+
+
+def routed_controller_template(
+    config: HardwareConfig, inventory: JsonObject
+) -> tuple[VirtualDeviceTemplate, frozenset[str]]:
+    """Describe only the live interface selected by the physical output router."""
+    source = str(inventory.get("source_interface_id", "") or "").lower()
+    capabilities = set(inventory.get("capabilities", []))
+
+    def advertised(name: str, event_type: str) -> bool:
+        return (
+            name.lower() in capabilities
+            or f"{event_type}_{resolve_evdev_code(name)}" in capabilities
+        )
+
+    config = replace(
+        config,
+        buttons=[
+            button
+            for button in config.buttons
+            if (not button.source or button.source.lower() == source)
+            and advertised(button.evdev, "EV_KEY")
+        ],
+        analog_inputs=[],
+    )
+    template = hardware_controller_template(config)
+    analogs = inventory["gamepad_output"].get("analog_inputs", {})
+    axes = learned_output_axes(analogs.values())
+    unknown_rest_codes = {
+        resolve_evdev_code(axis.get("evdev")) if axis.get("evdev") else axis.get("evdev_code")
+        for analog in analogs.values()
+        if analog.get("type") != "stick"
+        for axis in analog.get("axes", [])
+        if axis.get("rest") is None
+    }
+    return replace(
+        template,
+        axes=tuple(
+            VirtualAxis(
+                axis.evdev.lower(),
+                axis.label,
+                axis.evdev.lower(),
+                axis.minimum,
+                axis.maximum,
+                rest=axis.neutral,
+            )
+            for axis in axes
+            if advertised(axis.evdev, "EV_ABS")
+        ),
+    ), frozenset(axis.evdev.lower() for axis in axes if axis.code in unknown_rest_codes)

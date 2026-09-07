@@ -42,11 +42,13 @@ sticks use stick, twist, and throttle labels. Other controls use readable evdev
 names. Existing saved hardware configurations are not changed automatically.
 
 The device tab keeps the standard gamepad sections and lists remaining buttons
-under Additional Controls. In the key selector, physical controllers use their
-saved controls and axis ranges. Flight sticks use the flight-stick picker, with
-additional buttons available through its searchable list. Axes without known
-ranges use the previous standard ranges for conventional gamepad axes. Other
-axes without ranges are not offered; use Learn Analog to calibrate them.
+under Additional Controls. In the key selector, grab a physical controller to
+load its available output controls and resolved axis calibration. Flight sticks
+use the flight-stick picker, with additional buttons in its searchable list.
+For hardware with multiple gamepad interfaces, the picker offers only controls
+on the first grabbed interface with a passthrough output, matching the output
+router. Choosing a different destination interface is not currently supported.
+Axes without known ranges are not offered.
 
 Remap any button from the device tab: click it in the grid and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
@@ -59,6 +61,10 @@ including rapidfire and tap (see [Actions](ACTIONS.md)).
 You can map any key or button to a gamepad axis value — useful for binding
 keyboard keys to stick or trigger output. The mapping sends a fixed axis
 value while the source is held and returns to neutral on release.
+Physical targets use their resolved center or rest value for release, tap,
+rapidfire, and cleanup. Percentage shortcuts use the same calibration, including
+the grab-time sample for an automatic rest. If rest is unavailable, percentage
+shortcuts are disabled and exact raw-value entry remains available.
 
 Triggers are analog axes, not buttons. Gamepad button mappings do not
 produce trigger output — use axis mappings instead.

@@ -11,6 +11,10 @@ from typing import Any, Protocol, cast
 from keymasq.common.coercion import coerce_str
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.runtime.virtual_gamepads import (
+    physical_gamepad_output_device,
+    resolved_hardware_analog_inputs,
+)
 
 
 class InventoryDeviceInfo(Protocol):
@@ -119,6 +123,7 @@ def recording_virtual_device_metadata(
         }
 
     for devices in grabbed_devices.values():
+        output_device = physical_gamepad_output_device(devices)
         for grabbed in devices:
             path = uinput_device_path(getattr(grabbed, "uinput", None))
             if not path:
@@ -133,6 +138,11 @@ def recording_virtual_device_metadata(
                 **_analog_calibration_metadata(grabbed),
                 "source_stable_path": str(getattr(grabbed, "stable_path", "") or ""),
                 "source_path": str(getattr(grabbed, "path", "") or ""),
+                **(
+                    {"gamepad_output": {"analog_inputs": resolved_hardware_analog_inputs(grabbed)}}
+                    if grabbed is output_device
+                    else {}
+                ),
             }
     return metadata
 

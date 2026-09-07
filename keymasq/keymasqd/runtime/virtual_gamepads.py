@@ -38,7 +38,7 @@ type ClearComboRuntime = Callable[[], Awaitable[None]]
 type ConfigureVirtualGamepads = Callable[[int], None]
 
 
-def _resolved_hardware_analog_inputs(device: object) -> dict[str, object]:
+def resolved_hardware_analog_inputs(device: object) -> dict[str, object]:
     """Combine saved metadata with cached grab-time calibration without mutating either."""
     raw_inputs = getattr(device, "analog_inputs", None)
     if not isinstance(raw_inputs, dict):
@@ -56,10 +56,14 @@ def _resolved_hardware_analog_inputs(device: object) -> dict[str, object]:
         if isinstance(raw_ranges, dict)
         else {}
     )
-    for analog_id, raw_input in inputs.items():
+    for analog_id, raw_input in list(inputs.items()):
         if not isinstance(raw_input, dict):
             continue
         analog = cast(dict[str, object], raw_input)
+        source = str(analog.get("source", "") or "").strip().lower()
+        if source and source != getattr(device, "interface_id", ""):
+            inputs.pop(analog_id, None)
+            continue
         raw_axes = analog.get("axes")
         if not isinstance(raw_axes, list):
             continue
@@ -82,6 +86,21 @@ def _resolved_hardware_analog_inputs(device: object) -> dict[str, object]:
             axes.append(axis)
         inputs[analog_id] = {**analog, "axes": axes}
     return inputs
+
+
+def physical_gamepad_output_device(devices: Sequence[object]) -> object | None:
+    """Select the same passthrough interface for routing and inventory."""
+    for device in devices:
+        raw_types = getattr(device, "device_types", None)
+        device_types: set[object] = (
+            set(cast(Sequence[object], raw_types)) if isinstance(raw_types, Sequence) else set()
+        )
+        if (
+            getattr(device, "device_type", None) == DeviceType.GAMEPAD
+            or DeviceType.GAMEPAD in device_types
+        ) and getattr(device, "uinput", None) is not None:
+            return device
+    return None
 
 
 async def reconfigure_virtual_gamepads(
@@ -216,31 +235,24 @@ class GamepadOutputRouter:
             self._warn(resolved_id, "target hardware is not grabbed", context, explicit)
             return None
 
-        for device in devices:
-            device_type = getattr(device, "device_type", None)
-            raw_types = getattr(device, "device_types", None)
-            device_types: set[object] = (
-                set(cast(Sequence[object], raw_types)) if isinstance(raw_types, Sequence) else set()
+        device = physical_gamepad_output_device(devices)
+        if device is not None:
+            stick_output = getattr(getattr(device, "state", None), "passthrough_stick_output", None)
+            analog_inputs = resolved_hardware_analog_inputs(device)
+            axes = learned_output_axes(analog_inputs.values())
+            return GamepadOutputTarget(
+                output_id=resolved_id,
+                uinput=getattr(device, "uinput", None),
+                bucket=f"gamepad:{resolved_id}",
+                is_virtual=False,
+                analog_inputs=analog_inputs,
+                output_axes=axes,
+                axis_rest_values={axis.code: axis.neutral for axis in axes},
+                axis_ranges={axis.code: (axis.minimum, axis.maximum) for axis in axes},
+                stick_output=stick_output
+                if isinstance(stick_output, StickOutputState)
+                else StickOutputState(),
             )
-            if device_type != DeviceType.GAMEPAD and DeviceType.GAMEPAD not in device_types:
-                continue
-            uinput = getattr(device, "uinput", None)
-            if uinput is not None:
-                stick_output = getattr(
-                    getattr(device, "state", None), "passthrough_stick_output", None
-                )
-                analog_inputs = _resolved_hardware_analog_inputs(device)
-                return GamepadOutputTarget(
-                    output_id=resolved_id,
-                    uinput=uinput,
-                    bucket=f"gamepad:{resolved_id}",
-                    is_virtual=False,
-                    analog_inputs=analog_inputs,
-                    output_axes=learned_output_axes(analog_inputs.values()),
-                    stick_output=stick_output
-                    if isinstance(stick_output, StickOutputState)
-                    else StickOutputState(),
-                )
         self._warn(
             resolved_id,
             "target hardware has no grabbed gamepad passthrough output",

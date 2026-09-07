@@ -1,10 +1,12 @@
 """Capability-to-hardware regression tests for controller setup and targeting."""
 
 import evdev
+import pytest
 
 from keymasq.common.controller_capabilities import hardware_controller_template
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE, XBOX_360_TEMPLATE
 from keymasq.gui.wizards.hardware_setup.flow import merge_inventory_abs_info
 from keymasq.gui.wizards.hardware_setup.templates import (
@@ -40,6 +42,74 @@ def hardware_from_interfaces(interfaces):
         buttons=build_gamepad_buttons(interfaces),
         analog_inputs=build_gamepad_analog_inputs(interfaces),
     )
+
+
+def output_inventory(config, *, source="controller") -> JsonObject:
+    from dataclasses import asdict
+
+    return {
+        "source_hardware_id": config.hardware_id,
+        "source_interface_id": source,
+        "capabilities": [b.evdev for b in config.buttons]
+        + [axis.evdev for analog in config.analog_inputs for axis in analog.axes],
+        "gamepad_output": {
+            "analog_inputs": {analog.id: asdict(analog) for analog in config.analog_inputs}
+        },
+    }
+
+
+def test_routed_picker_excludes_secondary_interface_buttons_and_duplicates():
+    from keymasq.common.controller_capabilities import routed_controller_template
+
+    config = hardware_from_interfaces(
+        [
+            {"id": "one", "capabilities": ["btn_trigger"]},
+            {"id": "two", "capabilities": ["btn_trigger", "btn_trigger_happy1"]},
+        ]
+    )
+    inventory = output_inventory(config, source="one")
+    inventory["capabilities"] = [f"EV_KEY_{evdev.ecodes.BTN_TRIGGER}"]
+    template, _ = routed_controller_template(config, inventory)
+    assert [(b.id, b.evdev) for b in template.buttons] == [
+        (config.buttons[0].id, "btn_trigger"),
+    ]
+
+
+@pytest.mark.parametrize("rest", [None, 255])
+def test_routed_picker_uses_resolved_rest_or_disables_percentages(rest):
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.common.controller_capabilities import routed_controller_template
+    from keymasq.gui.widgets.virtual_device_picker import VirtualDevicePicker
+
+    config = hardware_from_interfaces([controller_interface(LOGITECH_EXTREME_3D_TEMPLATE)])
+    inventory = output_inventory(config)
+    inventory["gamepad_output"]["analog_inputs"]["abs_throttle"]["axes"][0]["rest"] = rest
+    template, unknown = routed_controller_template(config, inventory)
+    events = []
+    picker = VirtualDevicePicker(
+        template,
+        lambda *_: None,
+        lambda _b, code, value: events.append((code, value)),
+        unknown_rest_axes=unknown,
+    )
+    picker.axis_choice.set_selected(picker.axis_names.index("abs_throttle"))
+    assert picker.percent_spin.get_sensitive() == (rest is not None)
+    if rest is None:
+        shortcut = picker._axis_shortcut("Idle", "abs_throttle", 0, "Idle")
+        assert not shortcut.get_visible()
+        assert "unavailable" in picker.range_label.get_text()
+        picker.value_spin.set_value(42)
+        picker._map_axis(Gtk.Button())
+        assert events == [("abs_throttle", 42)]
+    else:
+        picker.percent_spin.set_value(0)
+        assert picker.value_spin.get_value_as_int() == 255
+        picker.percent_spin.set_value(100)
+        assert picker.value_spin.get_value_as_int() == 0
 
 
 def test_flight_stick_preserves_every_control_and_range():
@@ -134,6 +204,11 @@ def test_physical_selector_uses_saved_flight_controls_and_ranges(monkeypatch):
     monkeypatch.setattr(
         tabs, "HardwareManager", lambda: SimpleNamespace(list_hardware=lambda: [config])
     )
+    monkeypatch.setattr(
+        tabs,
+        "session_request_async",
+        lambda _request, callback: callback({"devices": [output_inventory(config)]}),
+    )
     dialog = KeySelectorDialog(
         Gtk.Box(),
         "Source",
@@ -157,6 +232,55 @@ def test_physical_selector_uses_saved_flight_controls_and_ranges(monkeypatch):
     assert actions[0].axis_value == 1023
     assert actions[0].target == "abs_x"
     assert all(axis.evdev != "abs_z" for axis in picker._template.axes)
+
+    # Execute the action emitted by the picker through the physical router.
+    import asyncio
+    import logging
+    from dataclasses import asdict
+    from unittest.mock import AsyncMock
+
+    from keymasq.keymasqd.runtime.action.outputs import execute_gamepad_axis_action
+    from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
+    from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+    from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps
+    from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputRouter
+
+    runtime = GrabbedDevice(
+        path="/dev/test",
+        hardware_id=config.hardware_id,
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+        device_type=DeviceType.GAMEPAD,
+    )
+    runtime.interface_id = "controller"
+    runtime.update_analog_inputs({analog.id: asdict(analog) for analog in config.analog_inputs})
+    emitted = []
+    runtime.uinput = SimpleNamespace(write=lambda *event: emitted.append(event), syn=lambda: None)
+    router = GamepadOutputRouter(logging.getLogger(__name__))
+    runtime._gamepad_output_resolver = lambda output_id, _context: router.resolve(
+        SimpleNamespace(),
+        {config.hardware_id: [runtime]},
+        output_id,
+    )
+    deps = ActionExecutionDeps(
+        asyncio_mod=asyncio,
+        evdev_mod=evdev,
+        uinput_writer=identity_uinput_writer,
+        fire_and_observe_fn=lambda coro, _label: asyncio.create_task(coro),
+    )
+
+    async def press_release():
+        for value in (1, 0):
+            await execute_gamepad_axis_action(
+                runtime, actions[0], SimpleNamespace(value=value), "key_a", deps=deps
+            )
+
+    asyncio.run(press_release())
+    assert emitted == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 1023),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 511),
+    ]
 
 
 def test_button_only_physical_picker_does_not_invent_axes():

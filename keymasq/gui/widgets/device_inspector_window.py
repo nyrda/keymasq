@@ -24,6 +24,7 @@ from keymasq.gui.widgets.device_inspector.model import (
     EventHistory,
     Payload,
 )
+from keymasq.gui.widgets.device_inspector.motion import MotionMixin, MotionViewer
 from keymasq.gui.widgets.device_inspector.session import InspectorSession
 from keymasq.gui.widgets.device_inspector.suppression import SuppressionMixin
 
@@ -41,6 +42,7 @@ class DeviceInspectorWindow(
     LifecycleMixin,
     EventsMixin,
     AnalogMixin,
+    MotionMixin,
     MappingMixin,
     SuppressionMixin,
     Adw.Window,
@@ -53,12 +55,15 @@ class DeviceInspectorWindow(
         self._syncing_suppression = False
         self._snapshot: Payload = {}
         self._device_kind = resolve_device_layout_kind(device)
+        self._has_live_column = self._device_kind == "gamepad" or bool(device.motion_sensors)
         self._control_widgets: dict[str, Gtk.Widget] = {}
         self._event_history = EventHistory()
         self._event_rows: list[Gtk.ListBoxRow] = []
         self._event_filter_buttons: dict[str, Gtk.ToggleButton] = {}
         self._event_render_source_id = 0
         self._analog_viewers: dict[str, AnalogViewer] = {}
+        self._motion_viewers: dict[str, MotionViewer] = {}
+        self._motion_render_source_id = 0
         self._flash_timeout_ids: dict[str, int] = {}
         self._session = InspectorSession(
             hardware_id=self._hardware_id,
@@ -68,7 +73,9 @@ class DeviceInspectorWindow(
         )
 
         self.set_title(f"Inspect {device.name}")
-        window_width, window_height = _inspector_default_size(self._device_kind)
+        window_width, window_height = _inspector_default_size(
+            "gamepad" if self._has_live_column else self._device_kind
+        )
         self.set_default_size(window_width, window_height)
         self.set_transient_for(parent)
         self.set_modal(False)
@@ -130,10 +137,12 @@ class DeviceInspectorWindow(
         key_controller.connect("key-pressed", self._on_key_pressed)
         self.add_controller(key_controller)
 
-        window_width, _window_height = _inspector_default_size(self._device_kind)
+        window_width, _window_height = _inspector_default_size(
+            "gamepad" if self._has_live_column else self._device_kind
+        )
         live_panel_width = (
             AXES_PANEL_WIDTH + RAW_EVENTS_PANEL_WIDTH
-            if self._device_kind == "gamepad"
+            if self._has_live_column
             else RAW_EVENTS_PANEL_WIDTH
         )
         self._paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -154,13 +163,17 @@ class DeviceInspectorWindow(
         mapping_scrolled.set_child(self._mapping_box)
         self._paned.set_start_child(mapping_scrolled)
 
-        if self._device_kind == "gamepad":
+        if self._has_live_column:
             live_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
             live_box.set_size_request(live_panel_width, -1)
             live_box.set_hexpand(False)
             axes_parent = self._build_live_panel_column(AXES_PANEL_WIDTH)
             events_parent = self._build_live_panel_column(RAW_EVENTS_PANEL_WIDTH)
-            live_box.append(axes_parent)
+            axes_scrolled = Gtk.ScrolledWindow()
+            axes_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            axes_scrolled.set_vexpand(True)
+            axes_scrolled.set_child(axes_parent)
+            live_box.append(axes_scrolled)
             live_box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
             live_box.append(events_parent)
         else:
@@ -168,7 +181,7 @@ class DeviceInspectorWindow(
             axes_parent = live_box
             events_parent = live_box
 
-        self._axes_title = Gtk.Label(label="Configured Axes")
+        self._axes_title = Gtk.Label(label="Live Inputs")
         self._axes_title.add_css_class("button-section-title")
         self._axes_title.set_halign(Gtk.Align.START)
         self._axes_title.set_visible(False)

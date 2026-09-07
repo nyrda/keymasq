@@ -28,14 +28,14 @@ class AnalogMixin:
         self._clear_box(self._axes_box)
         self._analog_viewers.clear()
         analogs = list_of_dicts(snapshot.get("analog_inputs"))
-        self._axes_title.set_visible(bool(analogs))
-        self._axes_box.set_visible(bool(analogs))
-        if not analogs:
-            return
+        has_inputs = bool(analogs or list_of_dicts(snapshot.get("motion_sensors")))
+        self._axes_title.set_visible(has_inputs)
+        self._axes_box.set_visible(has_inputs)
 
         for analog in analogs:
             viewer = self._create_analog_viewer(analog)
             self._analog_viewers[viewer.analog_id] = viewer
+        self._render_motion(snapshot)
 
     def _create_analog_viewer(self: Any, analog: Payload) -> AnalogViewer:
         analog_id = text(analog.get("id"))

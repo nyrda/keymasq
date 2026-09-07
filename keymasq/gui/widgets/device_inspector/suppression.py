@@ -30,6 +30,8 @@ class SuppressionMixin:
             self._syncing_suppression = False
         self._suppression_switch.set_sensitive(active and not self._session.closing)
         self._suppression_hint_label.set_visible(active and suppressed)
+        if not active:
+            self._reset_motion()
 
     def _set_status_title(self: Any, value: str, state: str) -> None:
         self._status_label.set_text(value)
@@ -55,6 +57,7 @@ class SuppressionMixin:
 
     def _on_keymasqd_status(self: Any, event: Payload) -> bool:
         if not bool(event.get("connected", False)):
+            self._reset_motion()
             self._set_status_title(f"{self.device.name} - Daemon disconnected", "stopped")
             self._suppression_switch.set_sensitive(False)
         return False

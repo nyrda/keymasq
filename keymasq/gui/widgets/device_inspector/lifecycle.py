@@ -46,6 +46,7 @@ class LifecycleMixin:
         return False
 
     def _on_runtime_reset(self: Any, _event: Payload) -> bool:
+        self._reset_motion()
         self._request_snapshot()
         return False
 
@@ -60,6 +61,7 @@ class LifecycleMixin:
         if self._session.finalized:
             return
         self._cancel_event_render()
+        self._cancel_motion_render()
         for source_id in list(self._flash_timeout_ids.values()):
             GLib.source_remove(source_id)
         self._flash_timeout_ids.clear()

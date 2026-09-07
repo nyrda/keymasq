@@ -1,6 +1,6 @@
 import pytest
 
-from tests.gui.support import SessionIpcHarness, collect_child_widgets
+from tests.gui.support import SessionIpcHarness, collect_child_widgets, collect_widgets
 
 gi = pytest.importorskip("gi")
 gi.require_version("Gtk", "4.0")
@@ -584,3 +584,58 @@ def test_device_inspector_close_stops_inspector_and_unregisters_events(
     assert callbacks["runtime_reset"] == []
     assert callbacks["keymasqd_status"] == []
     window._on_destroy()
+
+
+def test_motion_preview_mapping_frames_recenter_and_cleanup(inspector_harness):
+    from gi.repository import GLib, Gtk
+
+    from tests.gui.test_device_inspector_motion import frame, motion_sensor, sample
+
+    window = inspector_harness.window
+    snapshot = {**_snapshot(), "motion_sensors": [motion_sensor()]}
+    window._apply_snapshot(snapshot)
+    viewer = window._motion_viewers["motion"]
+    assert "motion" in window._control_widgets
+    assert window._axes_title.get_text() == "Live Inputs"
+    assert viewer.status.get_text() == "Waiting for motion data"
+    assert not viewer.recenter.get_sensitive()
+    inspector_harness.emit_event(sample(4, 1000, source="pad"))
+    assert not viewer.state.values
+    inspector_harness.emit_event(sample(4, 1000))
+    inspector_harness.emit_event(frame(1_000_000))
+    inspector_harness.emit_event(frame(1_010_000))
+    # The Axes/Syn raw-event filters are off; the preview still receives frames.
+    assert not window._event_filter_buttons["axis"].get_active()
+    assert window._motion_render_source_id
+    viewer.refresh()
+    assert viewer.status.get_text() == "Estimated orientation"
+    assert "+57.3" in viewer.rates["yaw"][0].get_text()
+    assert viewer.recenter.get_sensitive()
+    requests_before = list(inspector_harness.requests)
+    viewer.recenter.emit("clicked")
+    assert viewer.state.display_orientation == pytest.approx((1, 0, 0, 0))
+    assert inspector_harness.requests == requests_before
+    # A mapping refresh preserves the visual reference and samples.
+    window._apply_snapshot(snapshot)
+    viewer = window._motion_viewers["motion"]
+    assert viewer.state.ready
+    assert viewer.state.display_orientation == pytest.approx((1, 0, 0, 0))
+    assert any(
+        widget.get_label() == "Sensor details"
+        for widget in collect_widgets(window._axes_box, Gtk.Expander)
+    )
+    viewer.last_frame_us = GLib.get_monotonic_time() - 2_000_000
+    viewer.refresh()
+    assert viewer.status.get_text() == "Motion data paused"
+    assert not viewer.recenter.get_sensitive()
+    inspector_harness.emit_status({"active": False})
+    assert not viewer.state.ready
+    assert not window._motion_render_source_id
+    window._apply_snapshot({**snapshot, "analog_inputs": []})
+    assert window._axes_box.get_visible()
+    assert "motion" in window._motion_viewers
+    inspector_harness.emit_event(sample(4, 1000))
+    inspector_harness.emit_event(frame(2_000_000))
+    assert window._motion_render_source_id
+    window._on_close_request()
+    assert not window._motion_render_source_id

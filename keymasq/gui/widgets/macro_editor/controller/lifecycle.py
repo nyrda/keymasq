@@ -48,8 +48,10 @@ class LifecycleControllerMixin:
         self._request_close()
 
     def _request_close(self) -> None:
-        if self._dialog_closed or self._save_in_flight:
+        if self._dialog_closed:
             self._close_continuation = None
+            return
+        if self._save_in_flight:
             return
         action = close_action(self._has_pending_changes())
         if action is CloseAction.CLOSE:

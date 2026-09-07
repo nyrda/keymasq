@@ -189,6 +189,58 @@ def test_failed_child_load_shows_error_before_destroying_window(editor_parent, m
     assert window not in editor_module._editors
 
 
+@pytest.mark.parametrize("close_after_save", [False, True])
+@pytest.mark.parametrize("save_succeeds", [False, True])
+def test_quit_waits_for_pending_save_and_stops_on_failure(
+    editor_parent,
+    monkeypatch,
+    close_after_save,
+    save_succeeds,
+):
+    window = editor_module.get_macro_editor(editor_parent, "child", standalone=True)
+    window.present()
+    load_empty(window, "child")
+    pending = []
+    finished = []
+    errors = []
+
+    def defer_save(_worker, callback, *, on_start=None, on_done=None):
+        if on_start:
+            on_start()
+        pending.append((callback, on_done))
+
+    monkeypatch.setattr(window, "_run_gui_task", defer_save)
+    monkeypatch.setattr(window, "_show_save_error", errors.append)
+    monkeypatch.setattr(editor_module, "notify_session_reload_async", lambda: None)
+    window._save_current_macro(None, close_after_save=close_after_save)
+    editor_module.close_macro_editors(
+        editor_parent.get_application(), lambda: finished.append(True)
+    )
+
+    assert window._save_in_flight
+    assert not window._dialog_closed
+    assert finished == []
+
+    callback, on_done = pending.pop()
+    if save_succeeds:
+        response = {"status": "ok", "macro": {**window._current_macro_payload(), "revision": 3}}
+    else:
+        response = {"status": "error", "message": "Save failed"}
+    callback(GuiTaskResult(value=response))
+    on_done()
+
+    assert not window._save_in_flight
+    assert window._close_continuation is None
+    if save_succeeds:
+        assert finished == [True]
+        assert window._dialog_closed
+        assert errors == []
+    else:
+        assert finished == []
+        assert not window._dialog_closed
+        assert errors == ["Save failed"]
+
+
 def test_shift_edit_uses_button_activation_and_resets_cancelled_click(editor_parent, monkeypatch):
     from gi.repository import GLib
 

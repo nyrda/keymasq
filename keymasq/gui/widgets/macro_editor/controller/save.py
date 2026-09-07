@@ -93,6 +93,8 @@ class SaveControllerMixin:
         self._set_editor_busy(False)
         self._set_save_controls_sensitive(True, extra_button=extra_button)
         self._sync_close_guard()
+        if self._close_continuation is not None:
+            self._request_close()
 
     def _save_macro_request(
         self,

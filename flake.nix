@@ -581,6 +581,8 @@
               pkgs.adwaita-icon-theme
               pkgs.hicolor-icon-theme
               pkgs.git
+              pkgs.tmux
+              pkgs.util-linux # flock for serializing dev workspace controls
               pkgs.openssh
               pkgs.gnupg
               pkgs.rpm

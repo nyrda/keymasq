@@ -16,29 +16,52 @@ fi
 source "${REPO_ROOT}/scripts/dev-shell-env.sh"
 normalize_dev_shell_for_pkexec
 
+host_command() {
+  # Match optional NixOS sudo rules even when the worktree's Nix shell uses
+  # another nixpkgs pin. Other hosts keep using their normal PATH commands.
+  local name="$1"
+  if [[ -x "/run/current-system/sw/bin/${name}" ]]; then
+    printf '/run/current-system/sw/bin/%s\n' "${name}"
+  else
+    command -v "${name}"
+  fi
+}
+
+if [[ -x /run/wrappers/bin/sudo ]]; then
+  SUDO_COMMAND=/run/wrappers/bin/sudo
+else
+  SUDO_COMMAND="$(command -v sudo)"
+fi
+SYSTEMCTL_COMMAND="$(host_command systemctl || true)"
+INSTALL_COMMAND="$(host_command install)"
+ENV_COMMAND="$(host_command env)"
+
+# Normal sudo uses a matching NOPASSWD rule automatically, and otherwise
+# authenticates as usual. Do not retry executed commands on failure: a daemon
+# exit is not an indication that passwordless authorization was unavailable.
 stop_installed_daemon_service() {
-  if ! command -v systemctl >/dev/null 2>&1; then
+  if [[ -z "${SYSTEMCTL_COMMAND}" ]]; then
     return
   fi
 
-  if ! systemctl is-active --quiet keymasqd.service; then
+  if ! "${SYSTEMCTL_COMMAND}" is-active --quiet keymasqd.service; then
     return
   fi
 
   if [[ "${EUID}" -eq 0 ]]; then
-    systemctl stop keymasqd.service
+    "${SYSTEMCTL_COMMAND}" stop keymasqd.service
   else
-    sudo systemctl stop keymasqd.service
+    "${SUDO_COMMAND}" "${SYSTEMCTL_COMMAND}" stop keymasqd.service
   fi
 }
 
 prepare_runtime_dirs() {
   if [[ "${EUID}" -eq 0 ]]; then
-    install -d -m 0755 -o keymasq -g keymasq /run/keymasq
-    install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+    "${INSTALL_COMMAND}" -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    "${INSTALL_COMMAND}" -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
   else
-    sudo install -d -m 0755 -o keymasq -g keymasq /run/keymasq
-    sudo install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+    "${SUDO_COMMAND}" "${INSTALL_COMMAND}" -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    "${SUDO_COMMAND}" "${INSTALL_COMMAND}" -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
   fi
 }
 
@@ -67,7 +90,7 @@ export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
 stop_installed_daemon_service
 prepare_runtime_dirs
 
-exec sudo -u keymasq env \
+exec "${SUDO_COMMAND}" -u keymasq "${ENV_COMMAND}" \
   HOME=/var/lib/keymasq \
   PATH="${PATH}" \
   PYTHONPATH="${PYTHONPATH}" \

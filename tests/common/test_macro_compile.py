@@ -352,7 +352,7 @@ def test_type_macro_builder_reports_unsupported_character_position() -> None:
         build_type_macro_events("aé", 10, 0)
 
 
-def test_type_macro_builder_unicode_input_holds_modifiers_until_confirmed() -> None:
+def test_type_macro_builder_unicode_input_releases_chord_before_codepoint() -> None:
     events = build_type_macro_events("é", 10, 0, use_unicode_input=True)
 
     assert [
@@ -362,14 +362,57 @@ def test_type_macro_builder_unicode_input_holds_modifiers_until_confirmed() -> N
         (evdev.ecodes.KEY_LEFTSHIFT, 1),
         (evdev.ecodes.KEY_U, 1),
         (evdev.ecodes.KEY_U, 0),
+        (evdev.ecodes.KEY_LEFTSHIFT, 0),
+        (evdev.ecodes.KEY_LEFTCTRL, 0),
         (evdev.ecodes.KEY_E, 1),
         (evdev.ecodes.KEY_E, 0),
         (evdev.ecodes.KEY_9, 1),
         (evdev.ecodes.KEY_9, 0),
-        (evdev.ecodes.KEY_ENTER, 1),
-        (evdev.ecodes.KEY_ENTER, 0),
-        (evdev.ecodes.KEY_LEFTSHIFT, 0),
-        (evdev.ecodes.KEY_LEFTCTRL, 0),
+        (evdev.ecodes.KEY_SPACE, 1),
+        (evdev.ecodes.KEY_SPACE, 0),
+    ]
+
+
+@pytest.mark.parametrize("down_ms,pause_ms", [(0, 0), (5, 10)])
+def test_unicode_codepoints_and_following_text_have_no_held_modifiers(
+    down_ms: int, pause_ms: int
+) -> None:
+    events = build_type_macro_events("é😀a", down_ms, pause_ms, use_unicode_input=True)
+    held: set[int] = set()
+    plain_presses: list[int] = []
+    last_release_us = -1
+    previous_event_us = -1
+    modifiers = {evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT}
+
+    for event in events:
+        assert event["t_us"] >= previous_event_us
+        previous_event_us = event["t_us"]
+        code = int(event["code"])
+        if event["value"] == 1:
+            if code == evdev.ecodes.KEY_U:
+                assert held == modifiers
+            elif code not in modifiers:
+                assert not held
+                assert event["t_us"] > last_release_us
+                plain_presses.append(code)
+            held.add(code)
+        else:
+            held.remove(code)
+            if code in modifiers:
+                last_release_us = event["t_us"]
+
+    assert not held
+    assert plain_presses == [
+        evdev.ecodes.KEY_E,
+        evdev.ecodes.KEY_9,
+        evdev.ecodes.KEY_SPACE,
+        evdev.ecodes.KEY_1,
+        evdev.ecodes.KEY_F,
+        evdev.ecodes.KEY_6,
+        evdev.ecodes.KEY_0,
+        evdev.ecodes.KEY_0,
+        evdev.ecodes.KEY_SPACE,
+        evdev.ecodes.KEY_A,
     ]
 
 

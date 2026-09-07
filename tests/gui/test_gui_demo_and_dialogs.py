@@ -2185,7 +2185,7 @@ class TestDialogConstruction:
             evdev.ecodes.KEY_U,
             evdev.ecodes.KEY_E,
             evdev.ecodes.KEY_9,
-            evdev.ecodes.KEY_ENTER,
+            evdev.ecodes.KEY_SPACE,
         ]
 
     def test_macro_manager_closes_when_recording_starts(self, monkeypatch):

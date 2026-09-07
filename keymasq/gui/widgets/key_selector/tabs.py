@@ -11,8 +11,10 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.controller_capabilities import hardware_controller_template
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
+from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.model.superkeys import SuperkeyAction
 from keymasq.common.virtual_device_templates import (
     XBOX_360_TEMPLATE_ID,
@@ -24,6 +26,7 @@ from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
     gamepad_output_choices,
     gamepad_output_unavailable_message,
+    load_gamepad_output_hardware_configs,
     virtual_device_config,
     virtual_gamepad_count,
 )
@@ -623,12 +626,24 @@ class SharedInputTabsMixin:
         custom = getattr(self, "_template_gamepad_picker", None)
         if standard is None or custom is None:
             return
+        if not hasattr(self, "_physical_gamepad_configs"):
+            self._physical_gamepad_configs = load_gamepad_output_hardware_configs(HardwareManager)
         device = self._selected_virtual_device()
-        use_template = device is not None and device.template.id != XBOX_360_TEMPLATE_ID
+        template = device.template if device is not None else None
+        for hardware in getattr(self, "_physical_gamepad_configs", []):
+            if (
+                isinstance(hardware, HardwareConfig)
+                and hardware.hardware_id == self._selected_gamepad_output_id
+            ):
+                template = hardware_controller_template(hardware)
+                break
+        use_template = template is not None and (
+            device is None or template.id != XBOX_360_TEMPLATE_ID
+        )
         standard.set_visible(not use_template)
         custom.set_visible(use_template)
         self._template_gamepad_scroll.set_visible(use_template)
-        if not use_template or device is None:
+        if not use_template or template is None:
             return
 
         while child := custom.get_first_child():
@@ -639,7 +654,7 @@ class SharedInputTabsMixin:
         action = getattr(self, "_current_action", None)
         custom.append(
             VirtualDevicePicker(
-                device.template,
+                template,
                 self._on_gamepad_clicked,
                 self._on_gamepad_axis_clicked,
                 current_target=getattr(action, "target", None),
@@ -679,11 +694,13 @@ class SharedInputTabsMixin:
         config = getattr(self, "_virtual_device_config", None)
         if config is None:
             config = virtual_device_config()
+        if not hasattr(self, "_physical_gamepad_configs"):
+            self._physical_gamepad_configs = load_gamepad_output_hardware_configs(HardwareManager)
         return gamepad_output_choices(
             self._selected_gamepad_output_id,
             count=count,
             device_config=config,
-            hardware_manager_factory=HardwareManager,
+            hardware_configs=self._physical_gamepad_configs,
         )
 
     def _on_gamepad_output_selected(self, dropdown: Gtk.DropDown, _param) -> None:

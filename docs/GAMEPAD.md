@@ -35,11 +35,18 @@ releases the grab or stops.
 
 ## Button Mapping
 
-Keymasq uses an Xbox 360 controller as the template for game controllers.
-When you add a controller, buttons that the hardware reports are included
-automatically. Buttons the controller does not advertise are omitted — you
-can add extra buttons later from the device tab using the listen/capture
-flow.
+When you add a controller, Keymasq creates controls from its advertised
+capabilities, including joystick buttons, extra gamepad buttons, hats, and
+individual axes. Familiar gamepad controls keep their standard labels. Flight
+sticks use stick, twist, and throttle labels. Other controls use readable evdev
+names. Existing saved hardware configurations are not changed automatically.
+
+The device tab keeps the standard gamepad sections and lists remaining buttons
+under Additional Controls. In the key selector, physical controllers use their
+saved controls and axis ranges. Flight sticks use the flight-stick picker, with
+additional buttons available through its searchable list. Axes without known
+ranges use the previous standard ranges for conventional gamepad axes. Other
+axes without ranges are not offered; use Learn Analog to calibrate them.
 
 Remap any button from the device tab: click it in the grid and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
@@ -70,13 +77,16 @@ the **Analog Controls** dialog (accessible from the main menu).
 
 ### Learning Analog Inputs
 
-The controller template already includes standard left and right stick
-inputs, so most controllers are ready for analog remapping out of the box.
-Use **Learn Analog** when your controller has additional or non-standard
-analog axes that the template does not cover. You can also delete a
-template stick and re-add its axes individually as 1D axes — useful when
-you want to remap a single stick direction to an analog trigger or other
-1D output.
+Setup pairs X/Y into a stick and, for gamepads, RX/RY into the right stick.
+Each complete hat X/Y pair becomes a two-axis control. Pairs must come from
+the same interface. Flight-stick rotation axes and all unmatched axes remain
+individual controls. Motion sensor axes are handled separately.
+
+Setup saves advertised minimum and maximum values. Centered sticks and
+flight-stick rotation axes use the range midpoint as an initial center.
+The current axis position is not saved as calibration. Use **Learn Analog**
+to adjust calibration or change grouping, for example by deleting a stick
+and re-adding its components as individual axes.
 
 1. Open the **Device** tab for your controller.
 2. Click **Learn Analog**.
@@ -574,3 +584,23 @@ Button positions are based on physical location, not labels.
   analog control configs
 - [Actions](ACTIONS.md)
 - [Super Keys](SUPERKEYS.md)
+
+### Editing an existing analog input
+
+Right-click an analog input's name in the device tab to open **Edit Analog Input**.
+You can rename it and edit each axis's minimum, maximum, and center for a stick
+or rest position for a single axis. Values are raw axis units; leaving a field
+blank removes that override and lets runtime calibration supply it. Minimum must
+be less than maximum, and an explicit center/rest must lie within the supplied
+bounds. Source interface and axis codes are shown for reference.
+
+Save preserves the input ID, axis assignments, and existing profile mappings.
+Cancel leaves the configuration unchanged. Delete remains available in the same
+dialog. To change stick grouping or source axes, use Learn Analog.
+
+Blank calibration fields display device-reported bounds when the connected
+interface can be identified. Automatic stick center shows the calculated
+midpoint of the effective bounds. Automatic single-axis rest shows the daemon's
+grab-time sample when available. The editor does not treat the current axis
+position as rest or estimate unavailable values. These hints are not saved as
+overrides unless you enter a value.

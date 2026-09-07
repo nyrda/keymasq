@@ -91,7 +91,10 @@ class VirtualDevicePicker(Gtk.Box):
         self.axis_choice.connect("notify::selected", self._axis_changed)
         self.value_spin.connect("value-changed", self._value_changed)
         self.percent_spin.connect("value-changed", self._percent_changed)
-        self._axis_changed()
+        editor.set_visible(bool(self.axis_names))
+        self.range_label.set_visible(bool(self.axis_names))
+        if self.axis_names:
+            self._axis_changed()
         if current_target in self.axis_names:
             self.axis_choice.set_selected(self.axis_names.index(current_target))
             self.value_spin.set_value(current_value)

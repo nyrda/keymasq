@@ -67,6 +67,21 @@ def is_virtual_input(device: object) -> bool:
     return phys == "py-evdev-uinput" or name.startswith("keymasq-")
 
 
+def _analog_calibration_metadata(device: object) -> JsonObject:
+    result: JsonObject = {}
+    raw = getattr(device, "analog_axis_calibrations", {})
+    if not isinstance(raw, dict):
+        return result
+    calibrations = cast(dict[tuple[str, str], dict[str, object]], raw)
+    for (analog_id, role), values in calibrations.items():
+        result.setdefault(analog_id, {})[role] = {
+            field: value
+            for field, value in values.items()
+            if field in {"minimum", "maximum", "center", "rest"} and isinstance(value, int)
+        }
+    return {"analog_calibration": result} if result else {}
+
+
 def recording_virtual_device_metadata(
     output_state: object,
     grabbed_devices: Mapping[str, Sequence[object]],
@@ -115,6 +130,7 @@ def recording_virtual_device_metadata(
                 "recording_kind": "keymasq_passthrough",
                 "source_hardware_id": hardware_id,
                 "source_interface_id": interface_id,
+                **_analog_calibration_metadata(grabbed),
                 "source_stable_path": str(getattr(grabbed, "stable_path", "") or ""),
                 "source_path": str(getattr(grabbed, "path", "") or ""),
             }
@@ -132,6 +148,7 @@ def recording_grabbed_source_metadata(
                 metadata[stable_path] = {
                     "source_hardware_id": str(getattr(grabbed, "hardware_id", "") or ""),
                     "source_interface_id": str(getattr(grabbed, "interface_id", "") or ""),
+                    **_analog_calibration_metadata(grabbed),
                 }
     return metadata
 

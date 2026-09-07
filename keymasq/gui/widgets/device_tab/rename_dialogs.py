@@ -89,19 +89,19 @@ def present_analog_relabel_dialog(
     parent,
     analog: AnalogInputDefinition,
     on_delete_clicked: Callable[[Gtk.Button, Adw.Dialog, AnalogInputDefinition], None],
-    on_save: Callable[[AnalogInputDefinition, str], bool],
+    on_save: Callable[[AnalogInputDefinition], bool],
     on_close_clicked: Callable[[Gtk.Button, Adw.Dialog], None],
-) -> None:
-    _present_input_relabel_dialog(
-        parent=parent,
-        title="Rename Analog Input",
-        label=f"Rename '{analog.label}'",
-        current_label=analog.label,
-        subject=analog,
-        on_delete_clicked=on_delete_clicked,
+):
+    from keymasq.gui.widgets.device_tab.analog_edit_dialog import AnalogInputEditDialog
+
+    dialog = AnalogInputEditDialog(
+        analog,
         on_save=on_save,
+        on_delete_clicked=on_delete_clicked,
         on_close_clicked=on_close_clicked,
     )
+    dialog.present(parent)
+    return dialog
 
 
 def present_delete_device_dialog(

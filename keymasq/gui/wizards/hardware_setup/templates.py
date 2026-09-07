@@ -4,16 +4,22 @@ from typing import Any
 
 import evdev
 
+from keymasq.common.controller_capabilities import (
+    controller_button_name,
+    controller_control_label,
+    is_flight_stick,
+)
 from keymasq.common.devices import (
     canonical_gamepad_button_name,
     capability_name,
     evdev_code_value,
-    gamepad_button_label,
     is_by_id_path,
     is_low_res_wheel_evdev,
     normalize_input_classes,
     ordered_gamepad_button_names,
     primary_input_class,
+    resolve_evdev_code,
+    resolve_evdev_event_type,
     wheel_button_id,
     wheel_label,
 )
@@ -192,119 +198,168 @@ def standard_wheel_buttons(
     return buttons
 
 
+def _controller_entries(iface: InterfaceInfo, event_type: int) -> dict[int, object]:
+    raw = iface.get("raw_capabilities") or {}
+    entries = {
+        code: entry
+        for entry in raw.get(event_type, [])
+        if (code := evdev_code_value(entry)) is not None
+    }
+    for name in iface.get("capabilities", []):
+        code = resolve_evdev_code(name)
+        if code is not None and resolve_evdev_event_type(name) == event_type:
+            entries.setdefault(code, code)
+    return entries
+
+
+def _controller_names(iface: InterfaceInfo) -> list[str]:
+    return [
+        controller_button_name(name)
+        for code in _controller_entries(iface, evdev.ecodes.EV_KEY)
+        if (name := capability_name(evdev.ecodes.EV_KEY, code)) is not None
+    ]
+
+
+def _unique_control_id(base: str, source: str | None, used: set[str]) -> str:
+    candidate = base
+    suffix = 2
+    if candidate in used and source:
+        candidate = f"{base}_{source}"
+    while candidate in used:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
 def build_gamepad_buttons(interfaces: Sequence[InterfaceInfo]) -> list[ButtonDefinition]:
-    button_specs: dict[str, tuple[int, str | None]] = {}
-
-    for iface in interfaces:
-        raw_capabilities = iface.get("raw_capabilities") or {}
-        if not isinstance(raw_capabilities, dict):
-            continue
-
-        source_id = str(iface.get("id", "") or "")
-        for code in raw_capabilities.get(evdev.ecodes.EV_KEY, []):
-            code_int = evdev_code_value(code)
-            if code_int is None:
-                continue
-            evdev_name = capability_name(evdev.ecodes.EV_KEY, code_int)
-            if not evdev_name:
-                continue
-            label = gamepad_button_label(evdev_name)
-            canonical = canonical_gamepad_button_name(evdev_name)
-            if canonical in button_specs or label is None:
-                continue
-            button_specs[canonical] = (code_int, source_id or None)
-
     buttons: list[ButtonDefinition] = []
-    for canonical in ordered_gamepad_button_names(button_specs):
-        code_int, source_id = button_specs[canonical]
-        label = gamepad_button_label(canonical)
-        if label is None:
+    used: set[str] = set()
+    for iface in interfaces:
+        if interface_has_role(iface, "motion"):
             continue
-        buttons.append(
-            ButtonDefinition(
-                id=canonical,
-                label=label,
-                evdev=canonical,
-                evdev_code=code_int,
-                source=source_id,
-                type="gamepad",
+        source = str(iface.get("id", "") or "") or None
+        names = ordered_gamepad_button_names(_controller_names(iface))
+        for name in names:
+            canonical = canonical_gamepad_button_name(name)
+            buttons.append(
+                ButtonDefinition(
+                    id=_unique_control_id(canonical, source, used),
+                    label=controller_control_label(canonical),
+                    evdev=canonical,
+                    evdev_code=resolve_evdev_code(canonical),
+                    source=source,
+                    type="gamepad",
+                )
             )
-        )
-
     return buttons
 
 
 def build_gamepad_analog_inputs(
     interfaces: Sequence[InterfaceInfo],
 ) -> list[AnalogInputDefinition]:
-    axis_specs = {
-        "left_stick": (
-            "Left Stick",
-            "stick",
-            ((evdev.ecodes.ABS_X, "x"), (evdev.ecodes.ABS_Y, "y")),
-        ),
-        "right_stick": (
-            "Right Stick",
-            "stick",
-            ((evdev.ecodes.ABS_RX, "x"), (evdev.ecodes.ABS_RY, "y")),
-        ),
-        "left_trigger": (
-            "Left Trigger",
-            "axis",
-            ((evdev.ecodes.ABS_Z, "x"),),
-        ),
-        "right_trigger": (
-            "Right Trigger",
-            "axis",
-            ((evdev.ecodes.ABS_RZ, "x"),),
-        ),
-    }
-    discovered: dict[str, dict[int, tuple[str, str]]] = {}
-
+    analogs: list[AnalogInputDefinition] = []
+    used: set[str] = set()
+    flight = any(
+        is_flight_stick(_controller_names(iface))
+        for iface in interfaces
+        if not interface_has_role(iface, "motion")
+    )
     for iface in interfaces:
         if interface_has_role(iface, "motion"):
             continue
-        raw_capabilities = iface.get("raw_capabilities") or {}
-        if not isinstance(raw_capabilities, dict):
-            continue
-        source_id = str(iface.get("id", "") or "")
-        abs_codes = {
-            code_int
-            for code in raw_capabilities.get(evdev.ecodes.EV_ABS, [])
-            if (code_int := evdev_code_value(code)) is not None
+        source = str(iface.get("id", "") or "") or None
+        entries = _controller_entries(iface, evdev.ecodes.EV_ABS)
+        # Touch and sensor axes do not describe controller controls.
+        entries = {
+            code: entry
+            for code, entry in entries.items()
+            if code < evdev.ecodes.ABS_MT_SLOT and code != evdev.ecodes.ABS_RESERVED
         }
-        for analog_id, (_label, _input_type, axes) in axis_specs.items():
-            codes = tuple(code for code, _role in axes)
-            if all(code in abs_codes for code in codes):
-                discovered[analog_id] = {code: (role, source_id) for code, role in axes}
-
-    analog_inputs: list[AnalogInputDefinition] = []
-    for analog_id, (label, input_type, axes) in axis_specs.items():
-        axis_data = discovered.get(analog_id)
-        if axis_data is None:
-            continue
-        codes = tuple(code for code, _role in axes)
-        source_id = next(
-            (axis_data[code][1] for code in codes if axis_data[code][1]),
-            None,
-        )
-        analog_inputs.append(
-            AnalogInputDefinition(
-                id=analog_id,
-                label=label,
-                type=input_type,
-                source=source_id,
-                axes=[
-                    AnalogAxisDefinition(
-                        role=axis_data[code][0],
-                        evdev=capability_name(evdev.ecodes.EV_ABS, code) or str(code),
-                        evdev_code=code,
-                    )
-                    for code in codes
-                ],
+        groups = [
+            (
+                "stick" if flight else "left_stick",
+                "Stick" if flight else "Left Stick",
+                (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y),
             )
-        )
-    return analog_inputs
+        ]
+        if not flight:
+            groups.append(
+                ("right_stick", "Right Stick", (evdev.ecodes.ABS_RX, evdev.ecodes.ABS_RY))
+            )
+        for index in range(4):
+            groups.append(
+                (
+                    f"hat_{index}",
+                    f"Hat {index + 1}",
+                    (evdev.ecodes.ABS_HAT0X + index * 2, evdev.ecodes.ABS_HAT0Y + index * 2),
+                )
+            )
+
+        def add(
+            analog_id: str,
+            label: str,
+            codes: tuple[int, ...],
+            *,
+            entries: dict[int, object] = entries,
+            flight: bool = flight,
+            source: str | None = source,
+        ) -> None:
+            axes = []
+            paired = len(codes) == 2
+            for role, code in zip(("x", "y"), codes, strict=False):
+                entry = entries.pop(code)
+                info = entry[1] if isinstance(entry, (tuple, list)) and len(entry) > 1 else None
+                minimum, maximum = getattr(info, "min", None), getattr(info, "max", None)
+                valid = isinstance(minimum, int) and isinstance(maximum, int) and minimum < maximum
+                name = capability_name(evdev.ecodes.EV_ABS, code) or str(code)
+                # Current position is not calibration. Only conventional centered
+                # controls get a midpoint; other single axes retain runtime learning.
+                centered = paired or (
+                    flight and name in {"abs_rx", "abs_ry", "abs_rz", "abs_rudder"}
+                )
+                midpoint = (
+                    (minimum + maximum) // 2
+                    if isinstance(minimum, int) and isinstance(maximum, int) and valid and centered
+                    else None
+                )
+                axes.append(
+                    AnalogAxisDefinition(
+                        role=role,
+                        evdev=name,
+                        evdev_code=code,
+                        minimum=minimum if valid else None,
+                        maximum=maximum if valid else None,
+                        center=midpoint if paired else None,
+                        rest=midpoint if not paired else None,
+                    )
+                )
+            analogs.append(
+                AnalogInputDefinition(
+                    id=_unique_control_id(analog_id, source, used),
+                    label=label,
+                    type="stick" if paired else "axis",
+                    source=source,
+                    axes=axes,
+                )
+            )
+
+        for analog_id, label, codes in groups:
+            if all(code in entries for code in codes):
+                add(analog_id, label, codes)
+        for code in sorted(entries):
+            name = capability_name(evdev.ecodes.EV_ABS, code) or str(code)
+            analog_id, label = name, controller_control_label(name)
+            if not flight and code in {evdev.ecodes.ABS_Z, evdev.ecodes.ABS_RZ}:
+                analog_id, label = (
+                    ("left_trigger", "Left Trigger")
+                    if code == evdev.ecodes.ABS_Z
+                    else ("right_trigger", "Right Trigger")
+                )
+            elif flight and code == evdev.ecodes.ABS_RZ:
+                label = "Twist"
+            add(analog_id, label, (code,))
+    return analogs
 
 
 MOTION_DRIVER_LABELS = {

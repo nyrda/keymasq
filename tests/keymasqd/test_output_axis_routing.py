@@ -197,7 +197,8 @@ def test_physical_axis_action_returns_to_calibrated_neutral(mode):
     assert set(values) == {127, 255}
 
 
-def test_physical_output_inventory_matches_router_interface_and_calibration():
+@pytest.mark.parametrize("primary_type", [DeviceType.GAMEPAD, DeviceType.KEYBOARD])
+def test_physical_output_inventory_matches_router_interface_and_calibration(primary_type):
     from keymasq.keymasqd.device_inventory import recording_virtual_device_metadata
 
     first = _hardware(
@@ -207,6 +208,8 @@ def test_physical_output_inventory_matches_router_interface_and_calibration():
     second = _hardware(
         {"role": "x", "evdev": "ABS_RZ"}, absinfo=evdev.AbsInfo(127, 0, 255, 0, 0, 0)
     )
+    first.device_type = primary_type
+    first.device_types = [primary_type.value, "gamepad"]
     first.interface_id, second.interface_id = "one", "two"
     first.uinput.device = SimpleNamespace(path="/dev/input/first-output")
     second.uinput.device = SimpleNamespace(path="/dev/input/second-output")

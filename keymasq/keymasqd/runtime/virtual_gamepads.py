@@ -97,7 +97,7 @@ def physical_gamepad_output_device(devices: Sequence[object]) -> object | None:
         )
         if (
             getattr(device, "device_type", None) == DeviceType.GAMEPAD
-            or DeviceType.GAMEPAD in device_types
+            or DeviceType.GAMEPAD.value in device_types
         ) and getattr(device, "uinput", None) is not None:
             return device
     return None

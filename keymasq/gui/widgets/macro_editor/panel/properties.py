@@ -59,10 +59,16 @@ class EventPropertiesMixin:
         self._prop_context_label.add_css_class("heading")
         self._prop_context_label.add_css_class("dim-label")
         self._prop_context_label.set_halign(Gtk.Align.START)
-        self._prop_context_label.set_hexpand(True)
+        self._prop_context_label.set_hexpand(False)
         self._prop_context_label.set_ellipsize(Pango.EllipsizeMode.END)
         self._prop_context_label.set_visible(False)
         title_row.append(self._prop_context_label)
+        self._edit_child_macro_btn = Gtk.Button(icon_name="document-edit-symbolic")
+        self._edit_child_macro_btn.add_css_class("flat")
+        self._edit_child_macro_btn.set_tooltip_text("Edit child macro in a new window")
+        self._edit_child_macro_btn.set_visible(False)
+        self._edit_child_macro_btn.connect("clicked", self._on_edit_child_macro)
+        title_row.append(self._edit_child_macro_btn)
         panel.append(title_row)
 
         timing_row = Gtk.Box(
@@ -246,6 +252,7 @@ class EventPropertiesMixin:
         return self._revealer
 
     def _on_selection_changed(self, selected_obj: object | None) -> None:
+        self._edit_child_macro_btn.set_visible(False)
         if hasattr(self, "_selection_summary"):
             if selected_obj is not None and selected_obj is self._timeline._selected:
                 if not any(item is selected_obj for item in self._timeline._selection):

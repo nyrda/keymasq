@@ -27,8 +27,55 @@ from keymasq.gui.widgets.macro_manager.state import (
 class MacroActionsMixin:
     """Coordinate macro mutations and dialogs without owning list rendering."""
 
-    def _on_edit_clicked(self, _btn: Gtk.Button, name: str) -> None:
-        self._open_macro_editor(name)
+    def _on_edit_clicked(self, button: Gtk.Button, name: str) -> None:
+        standalone = bool(getattr(button, "_macro_edit_shift", False))
+        self._reset_edit_modifiers(button)
+        if standalone:
+            self._open_macro_editor(name, standalone=True)
+        else:
+            self._open_macro_editor(name)
+
+    def _on_edit_pressed(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+    ) -> None:
+        button = gesture.get_widget()
+        if button is not None:
+            button._macro_edit_shift = bool(
+                gesture.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK
+            )
+
+    def _on_edit_released(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        _x: float,
+        _y: float,
+    ) -> None:
+        button = gesture.get_widget()
+        if button is not None:
+            # GtkButton emits clicked later in this event dispatch. Clear unused
+            # modifiers afterwards as well, for releases outside the button.
+            GLib.idle_add(self._reset_edit_modifiers, button)
+
+    def _on_edit_key_pressed(
+        self,
+        controller: Gtk.EventControllerKey,
+        _keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        button = controller.get_widget()
+        if button is not None:
+            self._reset_edit_modifiers(button)
+        return False
+
+    def _reset_edit_modifiers(self, button: Gtk.Widget) -> bool:
+        button._macro_edit_shift = False
+        return False
 
     def _on_row_right_pressed(
         self,
@@ -233,10 +280,22 @@ class MacroActionsMixin:
     def _open_empty_macro_editor(self, name: str) -> None:
         self._open_macro_editor(name, create_new=True)
 
-    def _open_macro_editor(self, name: str, *, create_new: bool = False) -> None:
-        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
+    def _open_macro_editor(
+        self,
+        name: str,
+        *,
+        create_new: bool = False,
+        standalone: bool = False,
+    ) -> None:
+        from keymasq.gui.widgets.macro_editor.dialog import get_macro_editor
 
-        dialog = MacroEditorDialog(self._parent, name, create_new=create_new)
+        dialog = get_macro_editor(
+            self._parent,
+            name,
+            create_new=create_new,
+            standalone=standalone,
+        )
+        dialog.connect("saved", self._on_editor_closed)
         dialog.connect("closed", self._on_editor_closed)
         dialog.present(self._parent)
 

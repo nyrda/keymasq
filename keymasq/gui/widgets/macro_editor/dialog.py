@@ -1,5 +1,9 @@
 """GTK composition root for the macro timeline editor."""
 
+# pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
+
+import weakref
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -11,6 +15,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Adw,  # pyright: ignore[reportAttributeAccessIssue]
     Gdk,  # pyright: ignore[reportAttributeAccessIssue]
     Gio,  # pyright: ignore[reportAttributeAccessIssue]
+    GObject,  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
@@ -62,8 +67,7 @@ def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
     return width, height
 
 
-class MacroEditorDialog(
-    Adw.Dialog,
+class MacroEditorMixin(
     EditorChromeMixin,
     EventPropertiesMixin,
     ControlEditorMixin,
@@ -78,7 +82,7 @@ class MacroEditorDialog(
 ):
     """Compose the macro document controllers and GTK editor panels."""
 
-    def __init__(
+    def _init_editor(
         self,
         parent: Gtk.Window,
         macro_name: str,
@@ -86,13 +90,10 @@ class MacroEditorDialog(
         select_initial_event: bool = True,
         create_new: bool = False,
     ):
-        dialog_width, dialog_height = _compute_macro_editor_dialog_size(parent)
-        super().__init__(
-            title=f"Edit macro ({macro_name})",
-            content_width=dialog_width,
-            content_height=dialog_height,
-        )
-        self._parent = parent
+        self._owner = parent
+        self._application = parent.get_application()
+        self._parent = self if isinstance(self, Gtk.Window) else parent
+        self._close_continuation: Callable[[], None] | None = None
         self._macro_name = macro_name
         self._select_initial_event = bool(select_initial_event)
         self._create_new = bool(create_new)
@@ -166,6 +167,17 @@ class MacroEditorDialog(
         self._build_ui()
         self.set_can_close(False)
         self._load_initial_state_async()
+        _editors.add(self)
+        self.connect("closed", self._on_host_closed)
+
+    def _on_host_closed(self, _host: object) -> None:
+        if not self._dialog_closed:
+            self._dialog_closed = True
+            if self._paste_cancellable is not None:
+                self._paste_cancellable.cancel()
+            self._cancel_capture_start_position("")
+            self._cancel_capture_selected_move("")
+        _editors.discard(self)
 
     def _install_css(self) -> None:
         provider = Gtk.CssProvider()
@@ -215,10 +227,134 @@ class MacroEditorDialog(
         )
 
     def _notify_session_reload(self) -> None:
+        self.emit("saved")
         notify_session_reload_async()
+
+
+class MacroEditorDialog(Adw.Dialog, MacroEditorMixin):
+    """The default editor, embedded in the opening window."""
+
+    __gsignals__ = {"saved": (GObject.SignalFlags.RUN_FIRST, None, ())}
+
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        macro_name: str,
+        *,
+        select_initial_event: bool = True,
+        create_new: bool = False,
+    ):
+        width, height = _compute_macro_editor_dialog_size(parent)
+        super().__init__(
+            title=f"Edit macro ({macro_name})",
+            content_width=width,
+            content_height=height,
+        )
+        self._init_editor(
+            parent,
+            macro_name,
+            select_initial_event=select_initial_event,
+            create_new=create_new,
+        )
 
     def do_close_attempt(self) -> None:
         self._request_close()
 
     def close(self) -> None:
         self._request_close()
+
+
+class MacroEditorWindow(Adw.ApplicationWindow, MacroEditorMixin):
+    """An explicitly requested independent macro editor."""
+
+    __gsignals__ = {
+        "closed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "saved": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(
+        self,
+        parent: Gtk.Window,
+        macro_name: str,
+        *,
+        select_initial_event: bool = True,
+        create_new: bool = False,
+    ):
+        width, height = _compute_macro_editor_dialog_size(parent)
+        super().__init__(
+            application=parent.get_application(),
+            title=f"Edit macro ({macro_name})",
+            default_width=width,
+            default_height=height,
+        )
+        self._init_editor(
+            parent,
+            macro_name,
+            select_initial_event=select_initial_event,
+            create_new=create_new,
+        )
+        self.connect("close-request", self._on_window_close_request)
+
+    def set_child(self, child: Gtk.Widget) -> None:
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        toolbar.set_content(child)
+        self.set_content(toolbar)
+
+    def set_can_close(self, _can_close: bool) -> None:
+        # All window closure goes through _request_close, including clean documents.
+        pass
+
+    def force_close(self) -> None:
+        self.destroy()
+        self.emit("closed")
+
+    def present(self, parent: Gtk.Widget | None = None) -> None:
+        # Accept the same call shape as the embedded editor.
+        super().present()
+
+    def _on_window_close_request(self, _window: Gtk.Window) -> bool:
+        self._request_close()
+        return True
+
+
+_editors: weakref.WeakSet[MacroEditorMixin] = weakref.WeakSet()
+
+
+def get_macro_editor(
+    parent: Gtk.Window,
+    macro_name: str,
+    *,
+    standalone: bool = False,
+    **options: bool,
+) -> MacroEditorDialog | MacroEditorWindow:
+    """Reuse an open document, including after it has been renamed."""
+    for editor in _editors:
+        if (
+            not editor._dialog_closed
+            and editor._macro_name == macro_name
+            and not options.get("create_new", False)
+            and (
+                editor._owner is parent
+                or (
+                    parent.get_application() is not None
+                    and editor._application is parent.get_application()
+                )
+            )
+            and isinstance(editor, (MacroEditorDialog, MacroEditorWindow))
+        ):
+            if isinstance(editor, MacroEditorDialog):
+                editor._owner.present()
+            return editor
+    editor_type = MacroEditorWindow if standalone else MacroEditorDialog
+    return editor_type(parent, macro_name, **options)
+
+
+def close_macro_editors(application: Gtk.Application, on_closed: Callable[[], None]) -> None:
+    """Close editors in sequence, stopping when the user cancels or a save fails."""
+    for editor in list(_editors):
+        if not editor._dialog_closed and editor._application is application:
+            editor._close_continuation = lambda: close_macro_editors(application, on_closed)
+            editor._request_close()
+            return
+    on_closed()

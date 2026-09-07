@@ -195,9 +195,9 @@ class MappingMixin:
             self._show_function_editor(button)
             return False
 
-        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
+        from keymasq.gui.widgets.macro_editor.dialog import get_macro_editor
 
-        dialog = MacroEditorDialog(self.get_root(), macro_name)
+        dialog = get_macro_editor(self.get_root(), macro_name)
         dialog.present(self.get_root())
         return False
 

@@ -310,6 +310,8 @@ class ControlEditorMixin:
         self._prop_context_label.set_label(state.title_context)
         self._prop_context_label.set_tooltip_text(state.title_context or None)
         self._prop_context_label.set_visible(bool(state.title_context))
+        self._edit_child_macro_btn.set_visible(state.show_macro)
+        self._edit_child_macro_btn.set_sensitive(bool(control.macro_name))
         self._key_info_label.set_label(state.detail)
         self._press_label.set_label("At:")
         self._duration_text_label.set_visible(False)
@@ -350,9 +352,7 @@ class ControlEditorMixin:
                 _set_entry_text_if_needed(self._control_cmd_entry, state.command)
             if state.show_exec_mode:
                 self._control_exec_mode_dropdown.set_selected(
-                    {"exec_sync": 0, "exec_parallel": 1, "exec_async": 2}.get(
-                        state.exec_mode, 0
-                    )
+                    {"exec_sync": 0, "exec_parallel": 1, "exec_async": 2}.get(state.exec_mode, 0)
                 )
             if state.show_sync:
                 self._control_timeout_spin.set_value(state.timeout_ms)
@@ -384,6 +384,21 @@ class ControlEditorMixin:
         self._timeline.queue_draw()
         self._on_selection_changed(control)
         self._sync_close_guard()
+
+    def _on_edit_child_macro(self, _button: Gtk.Button) -> None:
+        from keymasq.gui.widgets.macro_editor.dialog import get_macro_editor
+
+        control = self._timeline._selected
+        if (
+            not isinstance(control, EditableControl)
+            or control.mode not in {"macro_sync", "macro_parallel"}
+            or not control.macro_name
+        ):
+            return
+        parent = self.get_root()
+        if isinstance(parent, Gtk.Window):
+            editor = get_macro_editor(parent, control.macro_name, standalone=True)
+            editor.present(parent)
 
     def _update_timeout_clamp_hint(self, timeout_ms: int) -> None:
         self._control_timeout_hint_label.set_label(

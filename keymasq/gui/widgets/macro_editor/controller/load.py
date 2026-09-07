@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.session_client import GuiTaskResult
 from keymasq.gui.widgets.macro_editor.document import MacroDocument, selection_order
@@ -139,14 +139,21 @@ class LoadControllerMixin:
         return False
 
     def _show_macro_load_error(self, message: str) -> None:
-        self._force_close_without_warning()
         dialog = Adw.AlertDialog()
         dialog.set_heading("Unable To Load Macro")
         dialog.set_body(message)
         dialog.add_response("ok", "OK")
         dialog.set_default_response("ok")
         dialog.set_close_response("ok")
+        if isinstance(self, Gtk.Window):
+            # Keep the owning window alive until its error has been read.
+            dialog.connect("response", self._on_load_error_dismissed)
+        else:
+            self._force_close_without_warning()
         dialog.present(self._parent)
+
+    def _on_load_error_dismissed(self, _dialog: Adw.AlertDialog, _response: str) -> None:
+        self._force_close_without_warning()
 
     def _refresh_loaded_macro_state(self) -> None:
         self._update_stats()

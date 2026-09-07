@@ -21,6 +21,16 @@ In **Macro Manager**, click a saved macro's row or its pencil button. You can
 also open the editor from a profile's macro action context menu. To start from
 scratch, choose **Empty** in Macro Manager and name the new macro.
 
+The editor normally opens as a dialog inside the current window. **Shift-click**
+a saved macro's pencil button in Macro Manager to open an independent, resizable
+editor window instead. Normal clicks keep the existing dialog behavior.
+
+When a **Macro Call** event is selected, the small pencil button beside the child
+macro name opens that macro in an independent window. You can arrange the parent
+and child editors side by side and use **Apply** in either editor without closing
+it. Closing the parent editor does not close the child window. Opening a macro
+that is already being edited focuses its existing editor, including unsaved edits.
+
 Save a temporary recording slot as a regular macro before editing it. Clicking
 a temporary slot opens its save dialog.
 

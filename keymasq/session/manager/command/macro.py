@@ -21,7 +21,22 @@ async def handle_macro_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
+    writer: asyncio.StreamWriter | None = None,
 ) -> JsonObject | None:
+    if writer is not None:
+        request = dict(request)
+        if command in {"play_macro", "type_text"}:
+            request.pop("playback_id", None)
+        if command in {"get_macro_playback", "cancel_macro_request"}:
+            playback_id = coerce_str(request.get("playback_id"), "")
+            if command == "get_macro_playback":
+                return manager.playback_requests.status(playback_id, writer)
+            return await manager.playback_requests.cancel(playback_id, writer)
+        if command == "type_text" or (
+            command == "play_macro"
+            and (request.get("track") is True or request.get("ordered") is True)
+        ):
+            return manager.playback_requests.submit(request, writer)
     if command == "list_macros":
         result = await send_daemon_request(manager, Command(command=CommandType.MACRO_LIST_META))
         if result is None:
@@ -145,6 +160,11 @@ async def handle_macro_commands(
                 command=CommandType.MACRO_PLAY_BY_NAME,
                 data={
                     "name": name,
+                    **(
+                        {"playback_id": request["playback_id"]}
+                        if request.get("playback_id")
+                        else {}
+                    ),
                     "replay_mouse_movement": request.get("replay_mouse_movement", True),
                     "replay_mouse_clicks": request.get("replay_mouse_clicks", True),
                     "speed": coerce_float(request.get("speed"), 1.0),
@@ -172,13 +192,17 @@ async def handle_macro_commands(
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
 
-        result = await _play_type_macro(manager, events, speed)
+        result = await _play_type_macro(
+            manager, events, speed, coerce_str(request.get("playback_id"), "")
+        )
         if result.get("status") == "ok":
             result.setdefault("char_count", len(text))
             result.setdefault("event_count", len(events))
         return result
 
     if command == "cancel_macro_playback":
+        if hasattr(manager, "playback_requests"):
+            manager.playback_requests.cancel_pending()
         result = await send_daemon_request(
             manager,
             Command(command=CommandType.CANCEL_MACRO_PLAYBACK),
@@ -213,7 +237,12 @@ async def _play_type_macro(
     manager: "SessionManager",
     events: list[JsonObject],
     speed: float,
+    playback_id: str = "",
 ) -> JsonObject:
+    if playback_id:
+        job = manager.playback_requests.requests.get(playback_id)
+        if job is not None and job.cancel_requested:
+            return {"status": "error", "message": "Playback cancelled"}
     if not events:
         return {"status": "error", "message": "type macro produced no events"}
 
@@ -226,6 +255,7 @@ async def _play_type_macro(
             command=CommandType.PLAY_MACRO,
             data={
                 "macro_events": sanitized_events,
+                **({"playback_id": playback_id} if playback_id else {}),
                 "speed": speed,
             },
         ),

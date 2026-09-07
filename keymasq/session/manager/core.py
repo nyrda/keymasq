@@ -36,6 +36,7 @@ from keymasq.session.virtual_devices import load_virtual_device_config
 
 from . import compositor, events, recording_device_selection
 from .common import JsonObject
+from .playback import PlaybackRequests
 from .profile import application, coordinator, runtime_state
 from .service.connection import DaemonConnectionMixin
 from .service.server import SessionServerMixin
@@ -114,6 +115,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
             asyncio.StreamWriter,
             asyncio.Task[None],
         ] = {}
+        self.playback_requests = PlaybackRequests(self)
         self.capture_state = CaptureRuntimeState()
 
         self.exec_state = ExecRuntimeState()
@@ -265,6 +267,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
                 log.exception("Unexpected failure ending daemon capture during session shutdown")
         self.capture_state.tokens.clear()
 
+        await self.playback_requests.shutdown()
         await self.client.disconnect()
         await events.cancel_event_tasks(self)
         if self.action_handler is not None:

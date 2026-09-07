@@ -269,11 +269,19 @@ async def handle_event(
         handle_device_grab_status_event(manager, data)
         return
 
+    if event_type == CommandType.MACRO_PLAYBACK_FINISHED:
+        manager.playback_requests.finished(data)
+        return
+
     if event_type == CommandType.MACRO_PLAYBACK_CANCELLED:
+        if hasattr(manager, "playback_requests"):
+            manager.playback_requests.cancel_pending()
         handle_macro_playback_cancelled_event(manager, data)
         return
 
     if event_type == CommandType.RUNTIME_RESET:
+        if hasattr(manager, "playback_requests"):
+            manager.playback_requests.cancel_pending()
         create_event_task(
             manager,
             handle_runtime_reset_event(manager, data),
@@ -480,6 +488,8 @@ async def handle_stop_macro_trigger(
 
 
 async def handle_cancel_macro_trigger(manager: "SessionManager") -> None:
+    if hasattr(manager, "playback_requests"):
+        manager.playback_requests.cancel_pending()
     try:
         await manager.client.send_command(Command(command=CommandType.CANCEL_MACRO_PLAYBACK))
     except OSError:
@@ -489,6 +499,8 @@ async def handle_cancel_macro_trigger(manager: "SessionManager") -> None:
 
 
 async def handle_emergency_reset_trigger(manager: "SessionManager") -> None:
+    if hasattr(manager, "playback_requests"):
+        manager.playback_requests.cancel_pending()
     try:
         await manager.client.send_command(Command(command=CommandType.EMERGENCY_RESET))
     except OSError:
@@ -842,6 +854,8 @@ def handle_macro_playback_cancelled_event(
     data: JsonObject,
 ) -> None:
     manager.broadcast_to_session_clients({"event": "macro_playback_cancelled", **data})
+    if data.get("cancelled") is False:
+        return
     manager.send_notification(
         "Keymasq: Macro Playback Cancelled",
         "Stopped all running macro playback.",

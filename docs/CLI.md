@@ -28,7 +28,9 @@ keymasq --json status
 
 ### type
 
-Compile text into a temporary keyboard macro and play it immediately.
+Submit text as a temporary keyboard macro. Requests can run concurrently. Use
+`--ordered` to serialize with other requests that opt in, and `--wait` to wait
+for completion and cancel this request on interruption.
 
 ```bash
 keymasq type "hello"
@@ -51,6 +53,8 @@ keymasq type --print-json "hello"
 | `--pause-ms MS` | Pause between typed characters. Use `0` for no inter-key delay. Default: `10` |
 | `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
+| `--ordered` | Serialize with other requests that opt into ordering |
+| `--wait` | Wait for completion; SIGINT or SIGTERM cancels this request |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
 When no text argument is given, `type` reads the full text from stdin. By
@@ -116,7 +120,7 @@ Control macro playback.
 ```bash
 keymasq macros list
 keymasq macros create <name> [--force] [JSON]
-keymasq macros play <name> [--speed SPEED]
+keymasq macros play <name> [--speed SPEED] [--wait] [--ordered]
 keymasq macros delete <name>
 keymasq macros cancel
 ```
@@ -134,6 +138,8 @@ keymasq macros cancel
 | Option | Description |
 |---|---|
 | `--speed SPEED` | Playback speed multiplier for event timestamps; explicit wait controls are not scaled |
+| `--wait` | Wait for the terminal playback result; interruption cancels this request |
+| `--ordered` | Opt into the shared FIFO with other ordered requests; concurrent playback is the default |
 
 **Options for `create`:**
 
@@ -181,3 +187,6 @@ The default category is `mainline`, which shows the normal passthrough and
 remap-action paths. Use `--include combo` for combo-specific timing and
 `--include macro` for stored-macro loading and playback timing, or
 `--include internal` for low-level daemon details.
+
+See [Playback requests](PLAYBACK_REQUESTS.md) for completion results, exit codes,
+and the session protocol for third-party clients.

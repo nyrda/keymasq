@@ -563,3 +563,19 @@ def test_type_cli_print_json_infers_mouse_device_type(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["device_types"] == ["mouse", "keyboard"]
+
+
+@pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize("wait", [False, True])
+def test_cli_playback_ordering_is_independent_of_wait(monkeypatch, ordered, wait) -> None:
+    sent = []
+
+    def request(payload, requested_wait):
+        sent.append((payload, requested_wait))
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_playback_request", request)
+    commands.type_cli(["hello"], wait=wait, ordered=ordered)
+    commands.play_macro_cli("hello", wait=wait, ordered=ordered)
+    assert all(payload.get("ordered", False) == ordered for payload, _ in sent)
+    assert all(requested_wait == wait for _, requested_wait in sent)

@@ -60,7 +60,7 @@ async def handle_session_request(
     if result is not None:
         return result
 
-    result = await handle_macro_commands(manager, command, request)
+    result = await handle_macro_commands(manager, command, request, writer)
     if result is not None:
         return result
 

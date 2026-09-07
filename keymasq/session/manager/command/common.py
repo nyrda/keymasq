@@ -37,6 +37,10 @@ async def send_daemon_request(
     command: Command,
 ) -> Response | None:
     try:
+        if command.data.get("playback_id"):
+            # A local timeout can lose acceptance while the daemon still starts
+            # the macro. Keep ownership until acceptance or transport failure.
+            return await manager.client.send_command(command, timeout=None)
         return await manager.client.send_command(command)
     except OSError as exc:
         log.debug("Daemon request %s failed: %s", command.command.value, exc, exc_info=True)

@@ -91,6 +91,10 @@ def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -
             self.application = application
             self.present_count = 0
 
+        def connect(self, signal, callback) -> None:
+            assert signal == "destroy"
+            self.on_destroy = callback
+
         def present(self) -> None:
             self.present_count += 1
 
@@ -103,6 +107,12 @@ def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -
 
     assert calls == ["config", "window:True", "config"]
     assert app.window.present_count == 2
+
+    window = app.window
+    window.on_destroy(window)
+    assert app.window is None
+    app.do_activate()
+    assert app.window is not window
 
     class _App:
         def __init__(self, demo_mode: bool = False) -> None:

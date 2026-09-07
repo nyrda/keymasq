@@ -48,6 +48,9 @@ class LifecycleControllerMixin:
         self._request_close()
 
     def _request_close(self) -> None:
+        if self._dialog_closed or self._save_in_flight:
+            self._close_continuation = None
+            return
         action = close_action(self._has_pending_changes())
         if action is CloseAction.CLOSE:
             self._force_close_without_warning()
@@ -62,6 +65,10 @@ class LifecycleControllerMixin:
         self._cancel_capture_selected_move("")
         self.set_can_close(True)
         self.force_close()
+        continuation = self._close_continuation
+        self._close_continuation = None
+        if continuation is not None:
+            continuation()
 
     def _show_unsaved_close_warning(self) -> None:
         if self._close_warning_dialog is not None:
@@ -84,6 +91,8 @@ class LifecycleControllerMixin:
     def _on_unsaved_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
         self._close_warning_dialog = None
         action = close_response_action(response)
+        if response == "cancel":
+            self._close_continuation = None
         if action is CloseAction.DISCARD:
             self._force_close_without_warning()
             return

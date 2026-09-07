@@ -419,9 +419,9 @@ class SaveMacroDialog(Adw.Dialog):
         return False
 
     def _present_saved_macro_editor(self, name: str) -> bool:
-        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
+        from keymasq.gui.widgets.macro_editor.dialog import get_macro_editor
 
-        dialog = MacroEditorDialog(self._parent, name, select_initial_event=True)
+        dialog = get_macro_editor(self._parent, name, select_initial_event=True)
         dialog.present(self._parent)
         return False
 

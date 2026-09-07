@@ -40,6 +40,7 @@ class SaveControllerMixin:
 
         new_name = self._name_entry.get_text().strip()
         if not self._validate_name_for_save(new_name):
+            self._close_continuation = None
             return
 
         macro_payload = self._build_macro_payload(new_name)
@@ -158,6 +159,7 @@ class SaveControllerMixin:
     ) -> bool:
         payload = result.value if result.ok and isinstance(result.value, dict) else {}
         if payload.get("status") != "ok":
+            self._close_continuation = None
             if self._is_name_conflict_response(payload, requested_name):
                 self._show_name_conflict(requested_name)
             else:

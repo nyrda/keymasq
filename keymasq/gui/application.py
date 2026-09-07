@@ -126,8 +126,13 @@ class Application(Adw.Application):
 
         if not self.window:
             self.window = MainWindow(application=self, demo_mode=self.demo_mode)
+            self.window.connect("destroy", self._on_main_window_destroyed)
 
         self.window.present()
+
+    def _on_main_window_destroyed(self, window: MainWindow) -> None:
+        if self.window is window:
+            self.window = None
 
     def do_shutdown(self) -> None:
         from keymasq.gui.session_client import shutdown_gui_runtime
@@ -230,7 +235,9 @@ class Application(Adw.Application):
             dialog.present(self.window)
 
     def _on_quit(self, action, param) -> None:
-        self.quit()
+        from keymasq.gui.widgets.macro_editor.dialog import close_macro_editors
+
+        close_macro_editors(self, self.quit)
 
     def apply_appearance_mode(self, mode: AppearanceMode, *, persist: bool = True) -> None:
         Adw.StyleManager.get_default().set_color_scheme(COLOR_SCHEME_BY_APPEARANCE[mode])

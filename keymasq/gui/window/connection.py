@@ -291,7 +291,7 @@ def _retry_connection_check(window) -> None:
 
 
 def _on_quit_clicked(window, _button: _runtime.Gtk.Button) -> None:
-    window.get_application().quit()
+    window.get_application().activate_action("quit", None)
 
 
 def _on_retry_connection_clicked(window, _button: _runtime.Gtk.Button) -> None:

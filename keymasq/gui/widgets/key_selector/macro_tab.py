@@ -434,11 +434,12 @@ class MacroTabMixin:
         self._open_macro_editor(name)
 
     def _open_macro_editor(self, name: str) -> None:
-        from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
+        from keymasq.gui.widgets.macro_editor.dialog import get_macro_editor
 
         root = self.get_root()
         parent = root if root is not None else self._parent
-        dialog = MacroEditorDialog(parent, name)
+        dialog = get_macro_editor(parent, name)
+        dialog.connect("saved", self._on_macro_editor_closed)
         dialog.connect("closed", self._on_macro_editor_closed)
         dialog.present(parent)
 

@@ -251,9 +251,8 @@ class HardwareSetupDialog(
             "standard mouse with scroll wheel directions."
         )
         self.gamepad_mode_info = add_mode_info_label(
-            "Gamepad template includes detected digital buttons and standard stick "
-            "inputs. Use Learn Analog from the device tab to add triggers or other "
-            "analog axes."
+            "Controller setup includes detected buttons, sticks, hats, and individual "
+            "axes. Use Learn Analog from the device tab to customize axis grouping."
         )
         self.custom_mode_info = add_mode_info_label(
             "Custom profile saves the selected raw evdev interface without preset "

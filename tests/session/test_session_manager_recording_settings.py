@@ -450,6 +450,42 @@ async def test_get_devices_for_recording_preserves_motion_axis_metadata() -> Non
 
 
 @pytest.mark.asyncio
+async def test_recording_inventory_preserves_physical_output_calibration() -> None:
+    manager = SessionManager()
+    output = {
+        "analog_inputs": {
+            "throttle": {
+                "type": "axis",
+                "axes": [{"evdev": "ABS_THROTTLE", "minimum": 0, "maximum": 255, "rest": 255}],
+            }
+        }
+    }
+    manager.client.send_command = AsyncMock(
+        return_value=Response(
+            status="ok",
+            data={
+                "devices": [
+                    {
+                        "path": "/dev/input/output",
+                        "device_type": "gamepad",
+                        "recording_kind": "keymasq_passthrough",
+                        "source_hardware_id": "046d:c215",
+                        "source_interface_id": "stick",
+                        "capabilities": ["EV_KEY_288", "EV_ABS_6"],
+                        "gamepad_output": output,
+                    }
+                ]
+            },
+        )
+    )
+    devices = await recording_device_selection_module.get_devices_for_recording(
+        manager, ["gamepad"]
+    )
+    assert devices[0]["gamepad_output"] == output
+    assert devices[0]["source_interface_id"] == "stick"
+
+
+@pytest.mark.asyncio
 async def test_get_devices_for_recording_logs_unexpected_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

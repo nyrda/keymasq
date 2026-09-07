@@ -77,34 +77,40 @@ class InputInventoryMixin:
     def _show_analog_relabel_dialog(self: Any, analog: AnalogInputDefinition) -> None:
         if self.hardware_manager is None:
             return
-        rename_dialogs.present_analog_relabel_dialog(
+        dialog = rename_dialogs.present_analog_relabel_dialog(
             parent=self.get_root(),
             analog=analog,
             on_delete_clicked=self._on_delete_analog_clicked,
-            on_save=self._rename_analog_label,
+            on_save=self._save_analog_properties,
             on_close_clicked=self._on_close_dialog_clicked,
         )
 
-    def _rename_analog_label(
-        self: Any,
-        analog: AnalogInputDefinition,
-        new_label: str,
-    ) -> bool:
-        new_label = new_label.strip()
-        if not new_label:
-            return False
+        def received(response: object) -> bool:
+            return dialog.update_device_inventory(response, self.device)
+
+        self._request_session_async(
+            {"command": "list_devices_for_recording", "include_other": True},
+            received,
+        )
+
+    def _save_analog_properties(self: Any, edited: AnalogInputDefinition) -> bool:
         if self.hardware_manager is None:
-            log.warning("Cannot rename analog input %s without a hardware manager", analog.id)
             return False
-        for item in self.device.analog_inputs:
-            if item.id == analog.id:
-                item.label = new_label
-                break
-        self.hardware_manager.save_hardware(self.device)
+        item = next((item for item in self.device.analog_inputs if item.id == edited.id), None)
+        if item is None:
+            return False
+        old_label, old_axes = item.label, item.axes
+        item.label, item.axes = edited.label, edited.axes
+        try:
+            self.hardware_manager.save_hardware(self.device)
+        except (OSError, ValueError):
+            item.label, item.axes = old_label, old_axes
+            log.exception("Cannot save analog input %s", edited.id)
+            return False
         self._request_session_async({"command": "reload"}, self._ignore_session_response)
-        widget = self._button_widgets.get(analog.id)
+        widget = self._button_widgets.get(edited.id)
         if widget:
-            widget._name_label.set_text(new_label)
+            widget._name_label.set_text(edited.label)
         return True
 
     def _on_delete_button_clicked(

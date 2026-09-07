@@ -35,11 +35,20 @@ releases the grab or stops.
 
 ## Button Mapping
 
-Keymasq uses an Xbox 360 controller as the template for game controllers.
-When you add a controller, buttons that the hardware reports are included
-automatically. Buttons the controller does not advertise are omitted — you
-can add extra buttons later from the device tab using the listen/capture
-flow.
+When you add a controller, Keymasq creates controls from its advertised
+capabilities, including joystick buttons, extra gamepad buttons, hats, and
+individual axes. Familiar gamepad controls keep their standard labels. Flight
+sticks use stick, twist, and throttle labels. Other controls use readable evdev
+names. Existing saved hardware configurations are not changed automatically.
+
+The device tab keeps the standard gamepad sections and lists remaining buttons
+under Additional Controls. In the key selector, grab a physical controller to
+load its available output controls and resolved axis calibration. Flight sticks
+use the flight-stick picker, with additional buttons in its searchable list.
+For hardware with multiple gamepad interfaces, the picker offers only controls
+on the first grabbed interface with a passthrough output, matching the output
+router. Choosing a different destination interface is not currently supported.
+Axes without known ranges are not offered.
 
 Remap any button from the device tab: click it in the grid and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
@@ -52,6 +61,10 @@ including rapidfire and tap (see [Actions](ACTIONS.md)).
 You can map any key or button to a gamepad axis value — useful for binding
 keyboard keys to stick or trigger output. The mapping sends a fixed axis
 value while the source is held and returns to neutral on release.
+Physical targets use their resolved center or rest value for release, tap,
+rapidfire, and cleanup. Percentage shortcuts use the same calibration, including
+the grab-time sample for an automatic rest. If rest is unavailable, percentage
+shortcuts are disabled and exact raw-value entry remains available.
 
 Triggers are analog axes, not buttons. Gamepad button mappings do not
 produce trigger output — use axis mappings instead.
@@ -70,13 +83,16 @@ the **Analog Controls** dialog (accessible from the main menu).
 
 ### Learning Analog Inputs
 
-The controller template already includes standard left and right stick
-inputs, so most controllers are ready for analog remapping out of the box.
-Use **Learn Analog** when your controller has additional or non-standard
-analog axes that the template does not cover. You can also delete a
-template stick and re-add its axes individually as 1D axes — useful when
-you want to remap a single stick direction to an analog trigger or other
-1D output.
+Setup pairs X/Y into a stick and, for gamepads, RX/RY into the right stick.
+Each complete hat X/Y pair becomes a two-axis control. Pairs must come from
+the same interface. Flight-stick rotation axes and all unmatched axes remain
+individual controls. Motion sensor axes are handled separately.
+
+Setup saves advertised minimum and maximum values. Centered sticks and
+flight-stick rotation axes use the range midpoint as an initial center.
+The current axis position is not saved as calibration. Use **Learn Analog**
+to adjust calibration or change grouping, for example by deleting a stick
+and re-adding its components as individual axes.
 
 1. Open the **Device** tab for your controller.
 2. Click **Learn Analog**.
@@ -91,6 +107,26 @@ you want to remap a single stick direction to an analog trigger or other
 
 Right-click a learned analog input label on the device tab to rename or
 delete it.
+
+### Editing an existing analog input
+
+Right-click an analog input's name in the device tab to open **Edit Analog Input**.
+You can rename it and edit each axis's minimum, maximum, and center for a stick
+or rest position for a single axis. Values are raw axis units; leaving a field
+blank removes that override and lets runtime calibration supply it. Minimum must
+be less than maximum, and an explicit center/rest must lie within the supplied
+bounds. Source interface and axis codes are shown for reference.
+
+Save preserves the input ID, axis assignments, and existing profile mappings.
+Cancel leaves the configuration unchanged. Delete remains available in the same
+dialog. To change stick grouping or source axes, use Learn Analog.
+
+Blank calibration fields display device-reported bounds when the connected
+interface can be identified. Automatic stick center shows the calculated
+midpoint of the effective bounds. Automatic single-axis rest shows the daemon's
+grab-time sample when available. The editor does not treat the current axis
+position as rest or estimate unavailable values. These hints are not saved as
+overrides unless you enter a value.
 
 ### Assigning an Analog Control
 

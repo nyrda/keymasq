@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from keymasq.common.controller_capabilities import is_flight_stick
 from keymasq.common.devices import is_gamepad_button_name
 from keymasq.common.virtual_device_templates import (
     VirtualDeviceConfig,
@@ -99,6 +100,14 @@ def _is_hardware_gamepad(config: object) -> bool:
 def _hardware_gamepad_output_label(config: object) -> str:
     hardware_id = str(getattr(config, "hardware_id", "") or "")
     name = str(getattr(config, "name", "") or "").strip()
+    names = [str(getattr(button, "evdev", "")) for button in getattr(config, "buttons", [])]
+    names.extend(
+        str(capability)
+        for device in getattr(config, "evdev_devices", [])
+        for capability in getattr(device, "capabilities", [])
+    )
+    if is_flight_stick(names):
+        name = f"{name or hardware_id} · Flight stick"
     if name and hardware_id:
         return f"{name} ({hardware_id})"
     return name or hardware_id

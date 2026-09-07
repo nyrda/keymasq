@@ -11,6 +11,10 @@ from typing import Any, Protocol, cast
 from keymasq.common.coercion import coerce_str
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.runtime.virtual_gamepads import (
+    physical_gamepad_output_device,
+    resolved_hardware_analog_inputs,
+)
 
 
 class InventoryDeviceInfo(Protocol):
@@ -67,6 +71,21 @@ def is_virtual_input(device: object) -> bool:
     return phys == "py-evdev-uinput" or name.startswith("keymasq-")
 
 
+def _analog_calibration_metadata(device: object) -> JsonObject:
+    result: JsonObject = {}
+    raw = getattr(device, "analog_axis_calibrations", {})
+    if not isinstance(raw, dict):
+        return result
+    calibrations = cast(dict[tuple[str, str], dict[str, object]], raw)
+    for (analog_id, role), values in calibrations.items():
+        result.setdefault(analog_id, {})[role] = {
+            field: value
+            for field, value in values.items()
+            if field in {"minimum", "maximum", "center", "rest"} and isinstance(value, int)
+        }
+    return {"analog_calibration": result} if result else {}
+
+
 def recording_virtual_device_metadata(
     output_state: object,
     grabbed_devices: Mapping[str, Sequence[object]],
@@ -104,6 +123,7 @@ def recording_virtual_device_metadata(
         }
 
     for devices in grabbed_devices.values():
+        output_device = physical_gamepad_output_device(devices)
         for grabbed in devices:
             path = uinput_device_path(getattr(grabbed, "uinput", None))
             if not path:
@@ -115,8 +135,14 @@ def recording_virtual_device_metadata(
                 "recording_kind": "keymasq_passthrough",
                 "source_hardware_id": hardware_id,
                 "source_interface_id": interface_id,
+                **_analog_calibration_metadata(grabbed),
                 "source_stable_path": str(getattr(grabbed, "stable_path", "") or ""),
                 "source_path": str(getattr(grabbed, "path", "") or ""),
+                **(
+                    {"gamepad_output": {"analog_inputs": resolved_hardware_analog_inputs(grabbed)}}
+                    if grabbed is output_device
+                    else {}
+                ),
             }
     return metadata
 
@@ -132,6 +158,7 @@ def recording_grabbed_source_metadata(
                 metadata[stable_path] = {
                     "source_hardware_id": str(getattr(grabbed, "hardware_id", "") or ""),
                     "source_interface_id": str(getattr(grabbed, "interface_id", "") or ""),
+                    **_analog_calibration_metadata(grabbed),
                 }
     return metadata
 

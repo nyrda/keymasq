@@ -290,6 +290,8 @@ async def get_devices_for_recording(
                 "device_types": resolved_types,
                 "capabilities": [str(value) for value in json_list(d.get("capabilities"))],
                 "abs_info": json_object(d.get("abs_info")) or {},
+                "analog_calibration": json_object(d.get("analog_calibration")) or {},
+                "gamepad_output": json_object(d.get("gamepad_output")),
                 "driver": coerce_str(d.get("driver"), ""),
                 "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),
                 "recording_kind": coerce_str(d.get("recording_kind"), "physical"),

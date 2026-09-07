@@ -117,3 +117,115 @@ def test_hardware_axis_can_use_cached_range_without_calibration() -> None:
     assert target is not None and target.output_axes
     axis = target.output_axes[0]
     assert (axis.minimum, axis.maximum, axis.neutral) == (100, 900, 100)
+
+
+@pytest.mark.parametrize("mode", ["release", "tap", "rapidfire", "cleanup"])
+def test_physical_axis_action_returns_to_calibrated_neutral(mode):
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.keymasqd.runtime.action.outputs import execute_gamepad_axis_action
+
+    device = _hardware(
+        {"role": "x", "evdev": "ABS_RZ", "minimum": 0, "maximum": 255, "rest": 127},
+        absinfo=evdev.AbsInfo(127, 0, 255, 0, 0, 0),
+    )
+    target = _router_target(device)
+    device._gamepad_output_resolver = lambda *_args: target
+    device.running = True
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS,
+        target="abs_rz",
+        axis_value=255,
+        output_id="hardware",
+        tap_enabled=mode == "tap",
+        rapidfire_enabled=mode == "rapidfire",
+        tap_hold_ms=1,
+        rapidfire_hold_ms=1,
+        rapidfire_wait_ms=1,
+    )
+    tasks = []
+
+    def start(coro, _label):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    deps = ActionExecutionDeps(
+        asyncio_mod=asyncio,
+        evdev_mod=evdev,
+        uinput_writer=identity_uinput_writer,
+        fire_and_observe_fn=start,
+    )
+
+    async def run():
+        await execute_gamepad_axis_action(
+            device,
+            action,
+            SimpleNamespace(value=1),
+            "key_a",
+            deps=deps,
+        )
+        if mode == "tap":
+            await asyncio.gather(*tasks)
+        elif mode == "rapidfire":
+            # Wait for an actual pulse before releasing, without relying on sleep timing.
+            async with asyncio.timeout(1):
+                while len(device.uinput.events) < 2:
+                    await asyncio.sleep(0)
+            await execute_gamepad_axis_action(
+                device,
+                action,
+                SimpleNamespace(value=0),
+                "key_a",
+                deps=deps,
+            )
+        elif mode == "cleanup":
+            device.release_tracked_outputs()
+        else:
+            await execute_gamepad_axis_action(
+                device,
+                action,
+                SimpleNamespace(value=0),
+                "key_a",
+                deps=deps,
+            )
+
+    asyncio.run(run())
+    values = [value for _type, code, value in device.uinput.events if code == evdev.ecodes.ABS_RZ]
+    assert values[0] == 255
+    assert values[-1] == 127
+    assert set(values) == {127, 255}
+
+
+@pytest.mark.parametrize("primary_type", [DeviceType.GAMEPAD, DeviceType.KEYBOARD])
+def test_physical_output_inventory_matches_router_interface_and_calibration(primary_type):
+    from keymasq.keymasqd.device_inventory import recording_virtual_device_metadata
+
+    first = _hardware(
+        {"role": "x", "evdev": "ABS_THROTTLE", "minimum": 0, "maximum": 255},
+        absinfo=evdev.AbsInfo(255, 0, 255, 0, 0, 0),
+    )
+    second = _hardware(
+        {"role": "x", "evdev": "ABS_RZ"}, absinfo=evdev.AbsInfo(127, 0, 255, 0, 0, 0)
+    )
+    first.device_type = primary_type
+    first.device_types = [primary_type.value, "gamepad"]
+    first.interface_id, second.interface_id = "one", "two"
+    first.uinput.device = SimpleNamespace(path="/dev/input/first-output")
+    second.uinput.device = SimpleNamespace(path="/dev/input/second-output")
+    first.analog_inputs["other"] = {
+        "source": "two",
+        "type": "axis",
+        "axes": [{"role": "x", "evdev": "ABS_RZ", "minimum": 0, "maximum": 255, "rest": 127}],
+    }
+    grabbed = {"hardware": [first, second]}
+    target = GamepadOutputRouter(logging.getLogger(__name__)).resolve(
+        SimpleNamespace(), grabbed, "hardware"
+    )
+    metadata = recording_virtual_device_metadata(SimpleNamespace(), grabbed)
+    assert target.uinput is first.uinput
+    assert "gamepad_output" not in metadata["/dev/input/second-output"]
+    analogs = metadata["/dev/input/first-output"]["gamepad_output"]["analog_inputs"]
+    assert "other" not in analogs
+    assert analogs["left_trigger"]["axes"][0]["rest"] == 255
+    assert target.axis_rest_values[evdev.ecodes.ABS_THROTTLE] == 255

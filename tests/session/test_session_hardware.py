@@ -763,3 +763,15 @@ def test_hardware_manager_saves_gamepad_layout_type(temp_config_dir) -> None:
     assert 'type = "gamepad"' in text
     assert "evdev_code = 304" in text
     assert HardwareManager().get_hardware("9999:0001") == config
+
+
+@pytest.mark.parametrize("field", ["vendor_id", "product_id"])
+@pytest.mark.parametrize("value", ["", "not-hex", "-1", "10000"])
+def test_invalid_hardware_identifiers_are_not_cached(temp_config_dir, field, value):
+    config_path = temp_config_dir / "hardware" / "invalid-id.toml"
+    identifiers = {"vendor_id": "1234", "product_id": "5678", field: value}
+    _write_minimal_hardware_config(config_path, name="Invalid", **identifiers)
+    manager = HardwareManager()
+    assert manager.list_hardware() == []
+    with pytest.raises(ValueError, match=f"{field} must contain"):
+        manager._load_config(config_path)

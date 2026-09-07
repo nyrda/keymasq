@@ -193,11 +193,16 @@ async def play_macro_task(
                                 deps=deps,
                             )
                         if pause is not None:
-                            await timeline.wait_until(macro_duration_us, nominal_end=True)
+                            await _await_with_parallel_errors(
+                                timeline.wait_until(macro_duration_us, nominal_end=True),
+                                parallel_tasks,
+                            )
                         else:
-                            await asyncio_mod.sleep(remaining)
+                            await _await_with_parallel_errors(
+                                asyncio_mod.sleep(remaining), parallel_tasks
+                            )
 
-                await _join_parallel_tasks(parallel_tasks, asyncio_mod=asyncio_mod)
+                await _join_parallel_tasks(parallel_tasks)
                 if pause is not None:
                     await pause.wait_running()
             finally:
@@ -296,6 +301,10 @@ async def _play_iteration(
     """Replay one source iteration; return true when a semantic move aborts it."""
 
     asyncio_mod = deps.asyncio_mod
+
+    async def wait[T](awaitable: Awaitable[T]) -> T:
+        return await _await_with_parallel_errors(awaitable, parallel_tasks)
+
     index = 0
     async for event in events.iter_macro_source_events(
         macro_event_source,
@@ -316,17 +325,17 @@ async def _play_iteration(
         timestamp_us = deps.int_value_fn(event.get("t_us"), 0)
         remaining = timeline.event_delay(timestamp_us, now_s=event_loop.time())
         if timeline.pause is not None:
-            await timeline.wait_until(timestamp_us)
+            await wait(timeline.wait_until(timestamp_us))
             _raise_finished_parallel_errors(parallel_tasks)
         elif remaining >= 0.0005:
-            await asyncio_mod.sleep(remaining)
+            await wait(asyncio_mod.sleep(remaining))
             _raise_finished_parallel_errors(parallel_tasks)
 
         action_type = str(event.get("macro_action", "") or "")
         if action_type in _MACRO_CALL_ACTIONS:
             await asyncio_mod.sleep(0)
             if timeline.pause is not None:
-                await timeline.pause.wait_running()
+                await wait(timeline.pause.wait_running())
             child_name = deps.str_value_fn(event.get("macro_name"), "").strip()
             try:
                 child_task = await manager.start_macro_child(
@@ -345,7 +354,7 @@ async def _play_iteration(
             if action_type == "macro_sync":
                 started_at = event_loop.time()
                 pause_before = timeline.pause_offset(started_at)
-                await _await_child(child_task, asyncio_mod=asyncio_mod)
+                await wait(_await_child(child_task, asyncio_mod=asyncio_mod))
                 finished_at = event_loop.time()
                 timeline.extend_for_blocking_action(
                     finished_at - started_at - (timeline.pause_offset(finished_at) - pause_before)
@@ -367,26 +376,30 @@ async def _play_iteration(
             _raise_finished_parallel_errors(parallel_tasks)
             continue
         if action_type in _SEMANTIC_MOUSE_ACTIONS:
-            should_stop = await _run_semantic_mouse_action(
-                manager,
-                event,
-                action_type=action_type,
-                block_mouse_movement=block_mouse_movement,
-                timeline=timeline,
-                event_loop=event_loop,
-                deps=deps,
-                renew_mouse_suppression_fn=renew_mouse_suppression_fn,
+            should_stop = await wait(
+                _run_semantic_mouse_action(
+                    manager,
+                    event,
+                    action_type=action_type,
+                    block_mouse_movement=block_mouse_movement,
+                    timeline=timeline,
+                    event_loop=event_loop,
+                    deps=deps,
+                    renew_mouse_suppression_fn=renew_mouse_suppression_fn,
+                )
             )
             if should_stop:
                 return True
             continue
         if action_type:
             pause_before = timeline.pause_offset(event_loop.time())
-            elapsed_s = await control_action_fn(
-                manager,
-                event,
-                renew_mouse_suppression=block_mouse_movement,
-                deps=deps,
+            elapsed_s = await wait(
+                control_action_fn(
+                    manager,
+                    event,
+                    renew_mouse_suppression=block_mouse_movement,
+                    deps=deps,
+                )
             )
             timeline.extend_for_blocking_action(
                 elapsed_s - (timeline.pause_offset(event_loop.time()) - pause_before)
@@ -453,20 +466,30 @@ async def _await_child(child: asyncio.Task[None], *, asyncio_mod: Any) -> None:
             raise
 
 
-async def _join_parallel_tasks(
-    tasks: set[asyncio.Task[Any]],
-    *,
-    asyncio_mod: Any,
-) -> None:
+async def _await_with_parallel_errors[T](
+    awaitable: Awaitable[T], tasks: set[asyncio.Task[Any]]
+) -> T:
+    """Interrupt a playback wait when a parallel task fails, ignoring child cancellation."""
     if not tasks:
-        return
-    results = await asyncio_mod.gather(*tuple(tasks), return_exceptions=True)
-    tasks.clear()
-    for result in results:
-        if isinstance(result, asyncio_mod.CancelledError):
-            continue
-        if isinstance(result, BaseException):
-            raise result
+        return await awaitable
+    pending = asyncio.ensure_future(awaitable)
+    try:
+        while True:
+            _raise_finished_parallel_errors(tasks)
+            if pending.done():
+                return await pending
+            await asyncio.wait({pending, *tasks}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+
+
+async def _join_parallel_tasks(tasks: set[asyncio.Task[Any]]) -> None:
+    while tasks:
+        _raise_finished_parallel_errors(tasks)
+        if tasks:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
 
 async def _cancel_parallel_tasks(

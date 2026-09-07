@@ -509,8 +509,11 @@ finished or been cancelled is not restarted by resuming its parent.
 
 Child names are resolved when the marker is reached, so edits to a saved child
 take effect without rebuilding the parent. Renaming or deleting a child does
-not rewrite callers. A missing or failed child aborts the parent call tree and
-logs the full call chain. If a macro tries to call a name already present in
+not rewrite callers. A missing or failed child aborts the parent call tree,
+even while a parent is paused, releases the remaining children's held outputs,
+and logs the full call chain. A child's discard-timeout cancellation is not a
+playback failure; the parent and siblings retain their own policies.
+If a macro tries to call a name already present in
 its active parent chain, Keymasq stops the call tree and logs the attempted
 cycle. This runtime check does not scan or rewrite saved macros.
 

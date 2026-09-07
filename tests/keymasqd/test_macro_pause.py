@@ -10,6 +10,7 @@ import pytest
 
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
+from keymasq.keymasqd.runtime.macro.state import MacroEventSource
 from keymasq.keymasqd.runtime.macro.timing import MacroPauseState, MacroPlaybackTimeline
 
 
@@ -241,6 +242,94 @@ async def test_parent_pause_leaves_ordinary_child_and_its_outputs_running(manage
     await trigger(manager, 1)
     await until(lambda: not manager.macro_state.tasks)
     assert writes(manager)[-2:] == [(1, 48, 1), (1, 48, 0)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("waiting_at", ["event", "duration", "join", "wait", "child", "move"])
+async def test_parallel_child_failure_aborts_paused_parent_and_releases_sibling(
+    manager, monkeypatch, caplog, waiting_at
+) -> None:
+    manager.broadcast_callback = AsyncMock()
+    manager.macro_store.create(
+        {
+            "name": "failing",
+            "events": [
+                {"t_us": 0, "macro_action": "exec_sync", "command": "barrier", "timeout_ms": 5000},
+                {"t_us": 0, "macro_action": "macro_sync", "macro_name": "missing"},
+            ],
+        }
+    )
+    manager.macro_store.create({"name": "sibling", "events": [key(30, 1), key(30, 0, 10_000_000)]})
+    move_started, move_cancelled = asyncio.Event(), asyncio.Event()
+
+    async def move(*_args):
+        move_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            move_cancelled.set()
+
+    monkeypatch.setattr(manager, "move_cursor_natural", move)
+    events = [
+        {"t_us": 0, "macro_action": "macro_parallel", "macro_name": "sibling"},
+        {"t_us": 0, "macro_action": "macro_parallel", "macro_name": "failing"},
+        key(48, 1),
+        key(48, 0),
+    ]
+    if waiting_at == "wait":
+        events.append({"t_us": 0, "macro_action": "wait", "duration_us": 10_000_000})
+    elif waiting_at == "child":
+        manager.macro_store.create(
+            {"name": "blocking", "events": [key(32, 1), key(32, 0, 10_000_000)]}
+        )
+        events.append({"t_us": 0, "macro_action": "macro_sync", "macro_name": "blocking"})
+    elif waiting_at == "move":
+        events.append({"t_us": 0, "macro_action": "mouse_move_natural_abs", "x": 100, "y": 200})
+    if waiting_at not in {"duration", "join"}:
+        deadline = 10_000_000 if waiting_at == "event" else 0
+        events.extend([key(46, 1, deadline), key(46, 0, deadline)])
+    source = MacroEventSource(
+        event_count=len(events),
+        duration_us=10_000_000 if waiting_at == "duration" else 0,
+        iter_events=lambda: iter(events),
+    )
+    try:
+        await trigger(
+            manager,
+            1,
+            loop_stop_behavior="pause_run",
+            pause_timeout_s=0,
+            macro_event_source=source,
+        )
+        await until(
+            lambda: (1, 48, 0) in writes(manager) and bool(manager.macro_state.exec_waiters)
+        )
+        if waiting_at == "move":
+            await until(move_started.is_set)
+        elif waiting_at == "child":
+            await until(lambda: (1, 32, 1) in writes(manager))
+        failed_id = next(
+            i
+            for i, meta in manager.macro_state.instance_meta.items()
+            if meta["macro_name"] == "failing"
+        )
+        failed_task = manager.macro_state.tasks[failed_id]
+        await trigger(manager, 0)
+        assert (1, 30, 0) not in writes(manager)
+        # Deliver command completion only after release, so the child fails while paused.
+        next(iter(manager.macro_state.exec_waiters.values())).set_result(0)
+        await until(failed_task.done)
+        assert failed_task.exception() is not None
+        await until(lambda: not manager.macro_state.tasks)
+        assert (1, 30, 0) in writes(manager)
+        assert (1, 46, 1) not in writes(manager)
+        assert "parent -> failing -> missing" in caplog.text
+        assert not manager.macro_state.pauses
+        assert not manager.macro_state.held_refcount
+        if waiting_at == "move":
+            assert move_cancelled.is_set()
+    finally:
+        await manager.cancel_macro_playback()
 
 
 @pytest.mark.asyncio

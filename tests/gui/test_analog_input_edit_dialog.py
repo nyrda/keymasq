@@ -198,3 +198,24 @@ def test_automatic_rest_uses_grab_sample_not_current_position():
     new_dialog = make_dialog(analog, [])
     new_dialog.update_device_inventory({"devices": [other]}, hardware)
     assert new_dialog.axis_entries[0]["rest"].get_placeholder_text() == "On next grab"
+
+
+@pytest.mark.parametrize("kind,neutral", [("stick", "center"), ("axis", "rest")])
+def test_editor_validates_against_detected_bounds_without_saving_them(kind, neutral):
+    analog = make_analog(kind)
+    for axis in analog.axes:
+        axis.minimum = axis.maximum = axis.center = axis.rest = None
+    saved = []
+    dialog = make_dialog(analog, saved)
+    dialog._detected = {"0": {"minimum": 0, "maximum": 255}}
+    row = dialog.axis_entries[0]
+    row[neutral].set_text("1000")
+    dialog.save_button.emit("clicked")
+    assert not saved
+    assert dialog.error_label.get_visible()
+    row[neutral].set_text("100")
+    dialog.save_button.emit("clicked")
+    assert len(saved) == 1
+    assert saved[0].axes[0].minimum is None
+    assert saved[0].axes[0].maximum is None
+    assert getattr(saved[0].axes[0], neutral) == 100

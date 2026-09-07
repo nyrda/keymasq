@@ -192,7 +192,15 @@ class AnalogInputEditDialog(Adw.Dialog):
             if value is not None and not -2147483648 <= value <= 2147483647:
                 raise ValueError(f"{axis.evdev}: {field} is outside the supported integer range.")
             values[field] = value
+        code = axis.evdev_code if axis.evdev_code is not None else resolve_evdev_code(axis.evdev)
+        detected = self._detected.get(str(code), {})
+        if not isinstance(detected, dict):
+            detected = {}
         minimum, maximum = values["minimum"], values["maximum"]
+        if minimum is None and isinstance(detected.get("minimum"), int):
+            minimum = detected["minimum"]
+        if maximum is None and isinstance(detected.get("maximum"), int):
+            maximum = detected["maximum"]
         neutral = values.get("center", values.get("rest"))
         if minimum is not None and maximum is not None and minimum >= maximum:
             raise ValueError(f"{axis.evdev}: minimum must be less than maximum.")

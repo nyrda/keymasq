@@ -102,6 +102,26 @@ and re-adding its components as individual axes.
 Right-click a learned analog input label on the device tab to rename or
 delete it.
 
+### Editing an existing analog input
+
+Right-click an analog input's name in the device tab to open **Edit Analog Input**.
+You can rename it and edit each axis's minimum, maximum, and center for a stick
+or rest position for a single axis. Values are raw axis units; leaving a field
+blank removes that override and lets runtime calibration supply it. Minimum must
+be less than maximum, and an explicit center/rest must lie within the supplied
+bounds. Source interface and axis codes are shown for reference.
+
+Save preserves the input ID, axis assignments, and existing profile mappings.
+Cancel leaves the configuration unchanged. Delete remains available in the same
+dialog. To change stick grouping or source axes, use Learn Analog.
+
+Blank calibration fields display device-reported bounds when the connected
+interface can be identified. Automatic stick center shows the calculated
+midpoint of the effective bounds. Automatic single-axis rest shows the daemon's
+grab-time sample when available. The editor does not treat the current axis
+position as rest or estimate unavailable values. These hints are not saved as
+overrides unless you enter a value.
+
 ### Assigning an Analog Control
 
 Open the **Device** tab and select the analog input. The mapping dialog opens
@@ -584,23 +604,3 @@ Button positions are based on physical location, not labels.
   analog control configs
 - [Actions](ACTIONS.md)
 - [Super Keys](SUPERKEYS.md)
-
-### Editing an existing analog input
-
-Right-click an analog input's name in the device tab to open **Edit Analog Input**.
-You can rename it and edit each axis's minimum, maximum, and center for a stick
-or rest position for a single axis. Values are raw axis units; leaving a field
-blank removes that override and lets runtime calibration supply it. Minimum must
-be less than maximum, and an explicit center/rest must lie within the supplied
-bounds. Source interface and axis codes are shown for reference.
-
-Save preserves the input ID, axis assignments, and existing profile mappings.
-Cancel leaves the configuration unchanged. Delete remains available in the same
-dialog. To change stick grouping or source axes, use Learn Analog.
-
-Blank calibration fields display device-reported bounds when the connected
-interface can be identified. Automatic stick center shows the calculated
-midpoint of the effective bounds. Automatic single-axis rest shows the daemon's
-grab-time sample when available. The editor does not treat the current axis
-position as rest or estimate unavailable values. These hints are not saved as
-overrides unless you enter a value.

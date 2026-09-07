@@ -101,6 +101,9 @@ class HardwareManager:
         hw = cast(dict[str, Any], data["hardware"])
         vendor_id = str(hw["vendor_id"])
         product_id = str(hw["product_id"])
+        for field, value in (("vendor_id", vendor_id), ("product_id", product_id)):
+            if re.fullmatch(r"[0-9a-fA-F]{1,4}", value) is None:
+                raise ValueError(f"{field} must contain one to four hexadecimal digits")
         model_id = f"{vendor_id}:{product_id}"
         hardware_id = str(hw.get("hardware_id", "") or "")
         if hardware_id and not _valid_hardware_id_for_model(hardware_id, model_id):

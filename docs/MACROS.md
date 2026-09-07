@@ -190,9 +190,15 @@ keystrokes, and Keymasq builds the macro automatically.
 
 If the text contains Unicode or formatted characters, the dialog shows an
 optional Unicode input mode. When enabled, unsupported characters are emitted
-with the Linux `Ctrl+Shift+U`, hexadecimal codepoint, `Enter` sequence. This is
+by pressing `Ctrl+Shift+U`, releasing all three keys, typing the hexadecimal
+codepoint, then pressing `Space` to confirm. Space avoids sending Enter if the
+target does not recognize Unicode input. This is
 best-effort: it works in many text fields, but some apps, games, terminals,
 remote sessions, or input method setups may not accept it.
+
+Previously saved macros keep their compiled key events. Recreate a type macro
+to use this sequence, or edit its events to release the activation chord before
+the codepoint and use Space to confirm.
 
 **How to create one:**
 

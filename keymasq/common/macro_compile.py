@@ -633,6 +633,11 @@ def _append_unicode_char_events(
     t_us += down_ms * 1000
     _append_key_event(events, "keyboard", evdev.ecodes.KEY_U, 0, t_us)
     t_us += modifier_settle_us
+    # Finish the activation chord before entering the codepoint as plain keys.
+    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
+    t_us += modifier_settle_us
+    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
+    t_us += modifier_settle_us
 
     for hex_digit in f"{ord(ch):x}":
         code, needs_shift = char_to_key(hex_digit)
@@ -645,7 +650,8 @@ def _append_unicode_char_events(
             modifier_settle_us,
         )
 
-    code, needs_shift = char_to_key("\n")
+    # Space confirms Unicode input without sending Enter to an unsupported app.
+    code, needs_shift = char_to_key(" ")
     t_us = _append_direct_key_events(
         events,
         code,
@@ -654,10 +660,6 @@ def _append_unicode_char_events(
         down_ms,
         modifier_settle_us,
     )
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
     return t_us
 
 

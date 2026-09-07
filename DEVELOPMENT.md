@@ -7,7 +7,7 @@ Use the Nix dev shell for normal Keymasq development.
 - use `nix develop` for all local work
 - run the source checkout directly from the repository
 - do not use a Python virtualenv for the standard dev flow
-- if Keymasq is already installed on the host, stop the installed services and run your local source changes manually
+- use `./scripts/dev.sh` to run and restart your local source checkout
 
 ## Enter The Dev Shell
 
@@ -21,7 +21,16 @@ and `basedpyright`.
 ## Recommended Runtime Flow
 
 If the machine already has the normal Keymasq install and permissions set up,
-use one terminal per process:
+open the tmux dev workspace in one terminal:
+
+```bash
+./scripts/dev.sh
+```
+
+The workspace shows daemon, session, and GUI logs with restart controls in
+the header. Run `./scripts/dev.sh --help` for command-line options.
+
+You can also run the individual launchers in separate terminals:
 
 **Terminal 1 - keymasqd from source as `keymasq`:**
 ```bash

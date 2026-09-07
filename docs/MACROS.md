@@ -339,6 +339,48 @@ pressing a toggle trigger again lets the current macro pass complete and only
 prevents the next repeat. When it is disabled, stop input cancels playback
 immediately.
 
+**Pause on release** is available for Once, Count, and While Held. Releasing
+the trigger pauses the timeline and releases this instance's held keys,
+mouse buttons, and gamepad controls. Holding the same trigger again resumes
+the saved position. Outputs released by cleanup are not pressed again, and
+their corresponding later release events are skipped. A fresh press event
+for the same output starts a new hold normally.
+
+Ordinary timeline gaps retain their remaining duration. An explicit wait
+already in progress keeps counting real time while paused. For example, a
+10-second wait paused after 2 seconds and resumed 5 seconds later has 3
+seconds left. A wait not yet reached receives no credit for earlier pauses.
+Active commands and natural mouse moves continue, including command timeouts;
+finishing them does not advance a paused timeline until the trigger is held
+again. Cancel All still cancels playback, including paused instances and
+waitable commands.
+
+Once finishes after one pass; Count preserves its repetition count; While
+Held continues repeating while held. After completion, the next press starts
+fresh. Toggle does not offer pause on release. Playback without a trigger
+lifecycle, such as GUI or CLI playback, ignores pause on release.
+
+With pause enabled, **Discard paused playback after** sets a timeout in
+seconds. **Never** disables expiry. Newly enabling pause starts with 60
+seconds; existing pause configurations without a timeout retain Never.
+
+The timeout counts real time from trigger release, including time spent in
+an active wait, command, or mouse move. Resuming clears it; another release
+starts a fresh timer. Expiry discards that instance's progress and cancels it
+and its descendants, including their active natural mouse moves and waitable
+commands. Its parent, siblings, and unrelated invocations keep their own
+behavior. After a top-level macro expires, the next press starts fresh.
+
+Each child call can set its own timeout. If a child expires while its parent
+is paused with Never, the parent stays paused and retains its position. On
+resume, a synchronous parent continues after the expired child call without
+restarting it. An ordinary parent without pause enabled can continue as soon
+as its synchronous child expires. Never disables an instance's own timeout;
+it does not protect children from cancellation when their ancestor expires.
+A child reached after release counts from that release,
+not from when the child was created. The JSON field is `pause_timeout_s`, with
+`0` meaning Never; mapping payloads use `macro_pause_timeout_s` internally.
+
 Macro duration is the minimum timeline length of one pass. If the pass reaches
 the end of its events before `duration_us`, playback waits until that duration
 has elapsed before looping or finishing. This trailing duration is scaled by
@@ -355,10 +397,12 @@ the version with which it started.
 Multiple macros can run at the same time. Here's how overlapping playback
 works:
 
-- **Once** and **Count** macros can overlap freely with other running macros.
+- **Once** and **Count** macros can overlap with other running macros. If the
+  same mapping has paused playback, including a paused child, pressing it
+  resumes those invocations instead of starting another copy.
 - **While Held** macros will not start a second copy from the same trigger while one
-  is already running. Releasing the trigger either finishes the current run or
-  cancels it immediately, depending on the macro's loop stop behavior.
+  is already running. Releasing the trigger finishes, cancels, or pauses the
+  current run, depending on the macro's release behavior.
 - **Toggle** macros use the trigger as an on/off switch — pressing it while
   the macro is running either finishes the current run or cancels it
   immediately, depending on the macro's loop stop behavior.
@@ -448,6 +492,20 @@ may wait for the child or run it in parallel. See the
   key lifecycle, such as playback from the GUI or CLI, While Held runs once.
 - A child configured to cancel its current run also cancels its descendants.
   Emergency macro cancellation cancels and reaps the entire call tree.
+
+Child calls can select **Pause and resume** under **On release**, independently
+of the parent's setting. Every child shares the original trigger's state and
+applies its own release behavior. Pausing the parent does not pause ordinary
+children or release their outputs. A synchronous parent waits for its child;
+a parallel parent can continue its timeline but still joins its children at
+the end of the pass. A child with pause enabled that is reached after release
+starts paused instead of being skipped.
+
+Pressing the original mapping again resumes all its invocations with paused
+instances, including paused children of ordinary parents. That press does not
+also start another parent. A pause requested during an active command or mouse
+move also reserves the next press for resumption. A child that has already
+finished or been cancelled is not restarted by resuming its parent.
 
 Child names are resolved when the marker is reached, so edits to a saved child
 take effect without rebuilding the parent. Renaming or deleting a child does

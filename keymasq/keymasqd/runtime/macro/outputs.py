@@ -107,6 +107,16 @@ def emit_macro_event(
     if output is None:
         return False
 
+    released = manager.macro_state.pause_released.get(instance_id, set())
+    key = (output.output_class, event_type, event_code)
+    if key in released:
+        if event_value == 0:
+            released.discard(key)
+            return False
+        if event_type == deps.evdev_mod.ecodes.EV_KEY and event_value == 2:
+            return False
+        released.discard(key)
+
     output.writer.write(event_type, event_code, event_value)
     syn_if_passthrough_frame_closed(output.raw_uinput, output.writer)
     if event_type == deps.evdev_mod.ecodes.EV_KEY:
@@ -124,6 +134,17 @@ def emit_macro_event(
             deps=deps,
         )
     return True
+
+
+def pause_macro_outputs(manager: MacroManager, instance_id: int, *, deps: MacroRuntimeDeps) -> None:
+    """Release this instance's outputs, remembering releases still in its timeline."""
+    state = manager.macro_state
+    released = state.pause_released.setdefault(instance_id, set())
+    for output_class, code in state.instance_held.get(instance_id, set()):
+        released.add((output_class, deps.evdev_mod.ecodes.EV_KEY, code))
+    for output_class, code in state.instance_held_abs.get(instance_id, set()):
+        released.add((output_class, deps.evdev_mod.ecodes.EV_ABS, code))
+    release_macro_held_for_instance(manager, instance_id, deps=deps)
 
 
 def emit_relative_mouse_move(

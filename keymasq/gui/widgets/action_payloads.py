@@ -71,6 +71,12 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
             _first_value(action_data, "loop_stop_behavior", "macro_loop_stop_behavior")
         ),
+        macro_pause_timeout_s=max(
+            0.0,
+            coerce_float(
+                _first_value(action_data, "pause_timeout_s", "macro_pause_timeout_s"), 0.0
+            ),
+        ),
         macro_move_to_start=bool_value(
             _first_value(action_data, "move_to_start", "macro_move_to_start")
         ),

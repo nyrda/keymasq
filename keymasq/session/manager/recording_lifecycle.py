@@ -6,7 +6,7 @@ from datetime import datetime
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
-from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
+from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
 from keymasq.common.model.actions import (
     DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
@@ -456,6 +456,7 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
         "loop_mode": "none",
         "loop_count": 1,
         "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+        "pause_timeout_s": 0.0,
         "block_mouse_movement": coerce_bool(pending_data.get("block_mouse_movement"), False),
         "source_device": str(data.get("source_device", "") or ""),
         "source_button": str(data.get("source_button", "") or ""),
@@ -515,6 +516,16 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Jso
                     data.get("loop_count", (macro or {}).get("loop_count")),
                 ),
                 1,
+            ),
+            "pause_timeout_s": max(
+                0.0,
+                coerce_float(
+                    data.get(
+                        "macro_pause_timeout_s",
+                        data.get("pause_timeout_s", (macro or {}).get("pause_timeout_s")),
+                    ),
+                    0.0,
+                ),
             ),
             "loop_stop_behavior": normalize_macro_loop_stop_behavior(
                 data.get(

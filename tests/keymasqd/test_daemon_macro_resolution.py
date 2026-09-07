@@ -35,6 +35,17 @@ async def _resolve_macro_actions(macro_store, resolver_kind, actions):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resolver_kind", ["mapping", "combo"])
+async def test_macro_pause_timeout_is_resolved_from_saved_defaults(daemon_testbed, resolver_kind):
+    _daemon, _devices, _recording, store, _capture = daemon_testbed
+    store.get_meta.return_value = {**macro_meta(), "pause_timeout_s": 120}
+    actions = await _resolve_macro_actions(
+        store, resolver_kind, [{"action": "macro", "macro_name": "combo"}]
+    )
+    assert actions[0]["macro_pause_timeout_s"] == 120
+
+
+@pytest.mark.asyncio
 async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 

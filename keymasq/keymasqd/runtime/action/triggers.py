@@ -114,6 +114,7 @@ def build_macro_playback_request(
         "speed": action.macro_speed,
         "loop_mode": action.macro_loop_mode,
         "loop_count": action.macro_loop_count,
+        "pause_timeout_s": action.macro_pause_timeout_s,
         "loop_stop_behavior": normalize_macro_loop_stop_behavior(action.macro_loop_stop_behavior),
         "move_to_start": action.macro_move_to_start,
         "start_x": action.macro_start_x,
@@ -126,7 +127,10 @@ def build_macro_playback_request(
 
 
 def is_hold_macro_action(action: MappingAction) -> bool:
-    return str(action.macro_loop_mode or "none").lower() == "hold"
+    return (
+        str(action.macro_loop_mode or "none").lower() == "hold"
+        or action.macro_loop_stop_behavior == "pause_run"
+    )
 
 
 def dispatch_action_trigger(

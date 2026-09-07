@@ -59,6 +59,7 @@ class _ParsedActionFields:
     macro_loop_mode: str
     macro_loop_count: int
     macro_loop_stop_behavior: str
+    macro_pause_timeout_s: float
     macro_move_to_start: bool
     macro_start_x: int
     macro_start_y: int
@@ -128,6 +129,7 @@ def _parse_shared_action_fields(
         macro_speed=coerce_float(action_data.get("macro_speed"), 1.0),
         macro_loop_mode=coerce_str(action_data.get("macro_loop_mode"), "none") or "none",
         macro_loop_count=coerce_int(action_data.get("macro_loop_count"), 1),
+        macro_pause_timeout_s=max(0.0, coerce_float(action_data.get("macro_pause_timeout_s"), 0.0)),
         macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
             action_data.get("macro_loop_stop_behavior")
         ),
@@ -254,6 +256,7 @@ def parse_action(
         macro_loop_mode=shared.macro_loop_mode,
         macro_loop_count=shared.macro_loop_count,
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
+        macro_pause_timeout_s=shared.macro_pause_timeout_s,
         macro_move_to_start=shared.macro_move_to_start,
         macro_start_x=shared.macro_start_x,
         macro_start_y=shared.macro_start_y,
@@ -661,6 +664,7 @@ def parse_superkey_action(
         macro_loop_mode=shared.macro_loop_mode,
         macro_loop_count=shared.macro_loop_count,
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
+        macro_pause_timeout_s=shared.macro_pause_timeout_s,
         macro_move_to_start=shared.macro_move_to_start,
         macro_start_x=shared.macro_start_x,
         macro_start_y=shared.macro_start_y,

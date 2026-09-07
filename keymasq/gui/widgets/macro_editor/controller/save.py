@@ -359,6 +359,7 @@ class SaveControllerMixin:
             loop_mode=self._macro_loop_mode,
             loop_count=self._macro_loop_count,
             loop_stop_behavior=self._macro_loop_stop_behavior,
+            pause_timeout_s=self._macro_pause_timeout_s,
         )
         return document.to_payload(
             name,
@@ -368,8 +369,13 @@ class SaveControllerMixin:
                 "none",
             ),
             loop_count=int(self._macro_loop_count_spin.get_value()),
+            pause_timeout_s=self._macro_pause_timeout.get_timeout(),
             loop_stop_behavior=(
-                "finish_run" if self._macro_loop_finish_check.get_active() else "cancel_run"
+                "pause_run"
+                if self._macro_pause_check.get_active() and self._macro_loop_mode != "toggle"
+                else "finish_run"
+                if self._macro_loop_finish_check.get_active()
+                else "cancel_run"
             ),
             move_to_start=self._macro_move_to_start_check.get_active(),
             start_x=int(self._macro_start_x_spin.get_value()),

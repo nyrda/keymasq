@@ -120,6 +120,27 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"exec_async","command":"notify-send done"}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_sync","macro_name":"child","loop_mode":"none","loop_count":1,"loop_stop_behavior":"finish_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_parallel","macro_name":"child","loop_mode":"hold","loop_count":1,"loop_stop_behavior":"cancel_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
+
+loop_stop_behavior also accepts "pause_run" for none/count/hold playback and
+child calls. Release cleans up this instance's held outputs and freezes its
+timeline; pressing the same trigger resumes without restarting. Later releases
+already emitted by cleanup are skipped. Active waits count real time while
+paused; commands and natural mouse moves finish normally. Child calls inherit
+trigger state, not the parent's release policy. A press resumes all paused
+invocations of that mapping instead of starting another root. Parallel children
+remain joined at the end of the parent pass. Without a trigger, pause is ignored.
+
+pause_timeout_s is the maximum paused duration in real seconds since trigger
+release; 0 or omitted means Never. Resume clears the timer; each later release
+starts a new one. Each pause-enabled child call can supply its own timeout.
+Expiry cancels that instance and its descendants, including their active mouse
+moves and waitable commands. Parents and siblings keep their own policies: a
+paused parent stays paused, while an ordinary synchronous parent can continue
+after the expired call. Never does not prevent cancellation by an ancestor.
+After a top-level expiry, the next press starts fresh. Newly enabled pause in
+the GUI defaults to 60 seconds; older saved
+pause configurations retain Never. Profile TOML uses pause_timeout_s; internal
+mapping payloads use macro_pause_timeout_s.
 ```
 
 Recorded macro start positioning is represented as the first

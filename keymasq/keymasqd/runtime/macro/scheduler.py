@@ -91,6 +91,7 @@ async def play_macro_task(
         (macro_duration_us / speed_factor) / 1_000_000.0 + 1.0,
     )
     event_loop = asyncio_mod.get_running_loop()
+    pause = manager.macro_state.pauses.get(instance_id)
     loop_state = MacroLoopStateMachine(loop_mode, loop_count)
     diagnostic_initial_load_us = macro_event_source.diagnostic_initial_load_us
     cached_events = macro_event_source.cached_events
@@ -100,17 +101,32 @@ async def play_macro_task(
         if cached_events is None and macro_event_source.begin_cache_candidate is not None
         else None
     )
+    owns_mouse_inhibit = False
+
+    def inhibit_mouse() -> None:
+        nonlocal owns_mouse_inhibit
+        if block_mouse_movement and not owns_mouse_inhibit:
+            acquire_mouse_inhibit(manager, timeout_s=suppression_timeout_s, deps=deps)
+            owns_mouse_inhibit = True
+
+    def uninhibit_mouse() -> None:
+        nonlocal owns_mouse_inhibit
+        if owns_mouse_inhibit:
+            release_mouse_inhibit(manager)
+            owns_mouse_inhibit = False
+
+    if pause is not None:
+        pause.on_pause = uninhibit_mouse
+        pause.on_resume = inhibit_mouse
     try:
-        if block_mouse_movement:
-            acquire_mouse_inhibit(
-                manager,
-                timeout_s=suppression_timeout_s,
-                deps=deps,
-            )
+        if pause is None or not pause.paused:
+            inhibit_mouse()
 
         while True:
             if instance_id in manager.macro_state.cancel_instance_ids:
                 break
+            if pause is not None:
+                await pause.wait_running()
             iteration_started_ns = (
                 time.perf_counter_ns()
                 if cache_candidate is not None
@@ -129,7 +145,13 @@ async def play_macro_task(
             if move_to_start:
                 await manager.set_cursor_position(int(start_x), int(start_y))
 
-            timeline = MacroPlaybackTimeline(event_loop.time(), speed_factor)
+            now_s = event_loop.time()
+            timeline = MacroPlaybackTimeline(
+                now_s,
+                speed_factor,
+                pause=pause,
+                pause_baseline_s=pause.total(now_s) if pause is not None else 0.0,
+            )
             parallel_tasks: set[asyncio.Task[Any]] = set()
             try:
                 stop_current_run = await _play_iteration(
@@ -163,16 +185,21 @@ async def play_macro_task(
                         macro_duration_us,
                         now_s=event_loop.time(),
                     )
-                    if remaining >= 0.0005:
-                        if block_mouse_movement:
+                    if remaining >= 0.0005 or pause is not None:
+                        if block_mouse_movement and (pause is None or not pause.paused):
                             renew_mouse_suppression(
                                 manager,
                                 timeout_s=remaining + 1.0,
                                 deps=deps,
                             )
-                        await asyncio_mod.sleep(remaining)
+                        if pause is not None:
+                            await timeline.wait_until(macro_duration_us, nominal_end=True)
+                        else:
+                            await asyncio_mod.sleep(remaining)
 
                 await _join_parallel_tasks(parallel_tasks, asyncio_mod=asyncio_mod)
+                if pause is not None:
+                    await pause.wait_running()
             finally:
                 await _cancel_parallel_tasks(parallel_tasks, asyncio_mod=asyncio_mod)
 
@@ -241,8 +268,7 @@ async def play_macro_task(
         manager.macro_state.cancel_instance_ids.discard(instance_id)
         release_held(manager, instance_id, deps=deps)
         manager.macro_state.forget_instance(instance_id)
-        if block_mouse_movement:
-            release_mouse_inhibit(manager)
+        uninhibit_mouse()
         if manager.verbosity >= 1:
             deps.log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
 
@@ -289,13 +315,18 @@ async def _play_iteration(
 
         timestamp_us = deps.int_value_fn(event.get("t_us"), 0)
         remaining = timeline.event_delay(timestamp_us, now_s=event_loop.time())
-        if remaining >= 0.0005:
+        if timeline.pause is not None:
+            await timeline.wait_until(timestamp_us)
+            _raise_finished_parallel_errors(parallel_tasks)
+        elif remaining >= 0.0005:
             await asyncio_mod.sleep(remaining)
             _raise_finished_parallel_errors(parallel_tasks)
 
         action_type = str(event.get("macro_action", "") or "")
         if action_type in _MACRO_CALL_ACTIONS:
             await asyncio_mod.sleep(0)
+            if timeline.pause is not None:
+                await timeline.pause.wait_running()
             child_name = deps.str_value_fn(event.get("macro_name"), "").strip()
             try:
                 child_task = await manager.start_macro_child(
@@ -313,8 +344,12 @@ async def _play_iteration(
                 continue
             if action_type == "macro_sync":
                 started_at = event_loop.time()
+                pause_before = timeline.pause_offset(started_at)
                 await _await_child(child_task, asyncio_mod=asyncio_mod)
-                timeline.extend_for_blocking_action(event_loop.time() - started_at)
+                finished_at = event_loop.time()
+                timeline.extend_for_blocking_action(
+                    finished_at - started_at - (timeline.pause_offset(finished_at) - pause_before)
+                )
             else:
                 parallel_tasks.add(child_task)
             continue
@@ -346,13 +381,15 @@ async def _play_iteration(
                 return True
             continue
         if action_type:
+            pause_before = timeline.pause_offset(event_loop.time())
+            elapsed_s = await control_action_fn(
+                manager,
+                event,
+                renew_mouse_suppression=block_mouse_movement,
+                deps=deps,
+            )
             timeline.extend_for_blocking_action(
-                await control_action_fn(
-                    manager,
-                    event,
-                    renew_mouse_suppression=block_mouse_movement,
-                    deps=deps,
-                )
+                elapsed_s - (timeline.pause_offset(event_loop.time()) - pause_before)
             )
             continue
 
@@ -468,6 +505,7 @@ async def _run_semantic_mouse_action(
         return False
 
     started_at = event_loop.time()
+    pause_before = timeline.pause_offset(started_at)
     result: dict[str, object] = {
         "status": "error",
         "message": "Natural mouse movement is unavailable",
@@ -491,5 +529,8 @@ async def _run_semantic_mouse_action(
             deps.int_value_fn(event.get("tolerance"), 2),
             max_duration_ms,
         )
-    timeline.extend_for_blocking_action(event_loop.time() - started_at)
+    finished_at = event_loop.time()
+    timeline.extend_for_blocking_action(
+        finished_at - started_at - (timeline.pause_offset(finished_at) - pause_before)
+    )
     return coerce_bool(event.get("stop_on_failure"), False) and result.get("status") != "ok"

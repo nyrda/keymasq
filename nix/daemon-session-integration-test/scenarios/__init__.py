@@ -27,6 +27,7 @@ from . import (
     held_output_profile_change,
     hotplug_replug,
     macro_lifecycle,
+    macro_pause,
     macro_playback,
     mouse_output,
     multi_source_combo,
@@ -62,6 +63,8 @@ SCENARIOS = [
     ScenarioCase("macro playback", macro_playback.run),
     ScenarioCase("cancel macro playback", cancel_macro_playback.run),
     ScenarioCase("macro lifecycle", macro_lifecycle.run),
+    ScenarioCase("macro pause resume", macro_pause.run_resume),
+    ScenarioCase("macro child pause expiry", macro_pause.run_child_expiry),
     ScenarioCase("superkey tap", superkey_tap.run),
     ScenarioCase(
         "superkey overload multi-action press/release",

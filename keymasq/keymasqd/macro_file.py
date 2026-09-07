@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from keymasq.common.coercion import require_json_object
+from keymasq.common.coercion import coerce_float, require_json_object
 from keymasq.common.config_files import write_config_atomically
 from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
@@ -103,6 +103,7 @@ class MacroFileMeta:
     loop_mode: str = "none"
     loop_count: int = 1
     loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    pause_timeout_s: float = 0.0
     type_binding: bool = False
     type_text: str = ""
     type_down_ms: int = 0
@@ -125,6 +126,7 @@ class MacroFileMeta:
             block_mouse_movement=bool(payload.get("block_mouse_movement", False)),
             loop_mode=macro_payload_str(payload, "loop_mode", "none") or "none",
             loop_count=macro_payload_int(payload, "loop_count", 1),
+            pause_timeout_s=max(0.0, coerce_float(payload.get("pause_timeout_s"), 0.0)),
             loop_stop_behavior=macro_payload_str(
                 payload,
                 "loop_stop_behavior",
@@ -150,6 +152,7 @@ class MacroFileMeta:
             "loop_mode": self.loop_mode,
             "loop_count": int(self.loop_count),
             "loop_stop_behavior": self.loop_stop_behavior,
+            "pause_timeout_s": self.pause_timeout_s,
         }
         if self.has_legacy_move_to_start:
             payload["move_to_start"] = bool(self.move_to_start)

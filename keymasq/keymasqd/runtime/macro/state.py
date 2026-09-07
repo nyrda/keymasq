@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from keymasq.keymasqd.runtime.macro.cache import MacroCacheCandidate, MacroReplayCache
+from keymasq.keymasqd.runtime.macro.timing import MacroPauseState
 
 type IntValueFn = Callable[[object, int], int]
 type StrValueFn = Callable[[object, str], str]
@@ -51,6 +52,9 @@ class MacroRuntimeState:
     mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None
     replay_cache: MacroReplayCache = field(default_factory=MacroReplayCache)
     instance_children: dict[int, set[int]] = field(default_factory=dict)
+    pauses: dict[int, MacroPauseState] = field(default_factory=dict)
+    pause_released: dict[int, set[tuple[str, int, int]]] = field(default_factory=dict)
+    trigger_locks: dict[tuple[str, str], asyncio.Lock] = field(default_factory=dict)
 
     def allocate_instance(
         self,
@@ -103,6 +107,8 @@ class MacroRuntimeState:
                 meta.get("source_device") == source_key[0]
                 and meta.get("source_button") == source_key[1]
             ):
+                if meta.get("source_lifecycle_active", True):
+                    meta["source_released_at_s"] = asyncio.get_running_loop().time()
                 meta["source_lifecycle_active"] = False
 
     def source_lifecycle(self, instance_id: int) -> tuple[bool, bool]:
@@ -169,6 +175,10 @@ class MacroRuntimeState:
         if isinstance(raw_parent, int):
             self.instance_children.get(raw_parent, set()).discard(instance_id)
         self.instance_children.pop(instance_id, None)
+        pause = self.pauses.pop(instance_id, None)
+        if pause is not None:
+            pause.clear_timeout()
+        self.pause_released.pop(instance_id, None)
 
 
 @dataclass(frozen=True)

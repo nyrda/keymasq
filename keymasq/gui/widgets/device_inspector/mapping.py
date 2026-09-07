@@ -146,6 +146,10 @@ class MappingMixin:
                 self._control_widgets[text(analog.get("id"))] = widget
             self._mapping_box.append(grid)
 
+        motion_sensors = list_of_dicts(snapshot.get("motion_sensors"))
+        if motion_sensors:
+            self._append_flow_section("Motion Sensors", motion_sensors, is_keyboard=False)
+
     def _render_keyboard_buttons(self: Any, buttons: list[Payload]) -> None:
         buttons_by_id = {text(button.get("id")): button for button in buttons}
         used_ids: set[str] = set()
@@ -277,6 +281,8 @@ class MappingMixin:
         return describe_mapping_action_compact(mapping, include_state=True)
 
     def _passthrough_label(self: Any, control: Payload) -> str:
+        if text(control.get("kind")) == "motion":
+            return "Motion passthrough"
         if text(control.get("kind")) == "analog":
             if text(control.get("type")) == "axis":
                 return "Axis passthrough"

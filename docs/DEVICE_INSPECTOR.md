@@ -13,6 +13,7 @@ original hardware events.
 - the profiles that produced those final mappings
 - raw events from the inspected device, in an evtest-style stream
 - configured analog inputs, such as sticks and triggers, with live values
+- configured motion sensors, with a live controller preview and rotation speeds
 
 The mapping view is read-only. To change a mapping, close the inspector, edit
 the device tab, then open the inspector again.
@@ -25,6 +26,31 @@ The raw event stream shows buttons and keys by default. Axes, mouse movement,
 and `EV_SYN` reports can be enabled from the filter buttons in the inspector.
 The window keeps the most recent 100 events per filter category and displays
 the most recent 100 events that match the active filters.
+
+## Motion preview
+
+Configured motion sensors appear in both Resolved Mapping and Live Inputs.
+The live-input column scrolls to keep sticks, triggers, and motion sensors
+accessible in smaller windows.
+
+Each sensor has a shaded controller preview with a green mark at its front.
+The preview estimates orientation from calibrated gyro and accelerometer samples.
+Gyro-only sensors show relative rotation; accelerometer-only sensors show tilt.
+Heading is relative and can drift. **Recenter preview** uses the current pose as
+the visual reference without changing sensor calibration, mappings, or output.
+Profile changes preserve that reference when the sensor configuration is unchanged.
+
+Signed pitch, yaw, and roll bars show rotation speeds in degrees per second.
+The bars span −360 to +360 °/s; the numeric readings retain speeds beyond that
+range. **Sensor details** expands to show calibrated gyro values in rad/s,
+accelerometer values in m/s², and their original raw counts.
+
+The preview updates independently of the raw-event filters and continues while
+output is suppressed. It waits for sensor samples before showing a live state,
+dims after a second without frames, and resets when monitoring stops or the daemon
+disconnects. Dropped event frames discard the old estimate and incomplete samples.
+Accelerometer correction waits for all three axes and ignores readings far from
+normal gravity, such as free fall or a strong shake.
 
 ## Suppression Mode
 

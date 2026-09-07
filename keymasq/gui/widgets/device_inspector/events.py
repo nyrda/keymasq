@@ -17,6 +17,9 @@ class EventsMixin:
     def _on_inspector_event(self: Any, event: Payload) -> bool:
         if text(event.get("hardware_id")) != self._hardware_id:
             return False
+        if self._session.closing:
+            return False
+        self._update_motion_event(event)
         self._store_event(event)
 
         control_id = text(event.get("control_id"))

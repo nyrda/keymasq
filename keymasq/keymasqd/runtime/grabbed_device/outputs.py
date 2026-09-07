@@ -113,14 +113,45 @@ def track_abs_state(
     value: int,
     *,
     bucket: str | None,
+    release_value: int = 0,
 ) -> None:
     if not bucket:
         return
     held = device_runtime.state.held_output_abs.setdefault(bucket, set())
-    if int(value) != 0:
+    if int(value) != int(release_value):
         held.add(int(axis_code))
     else:
         held.discard(int(axis_code))
+
+
+def gamepad_axis_release_value(
+    device_runtime: ActionRuntime,
+    bucket: str,
+    axis_code: int,
+) -> int:
+    if bucket == "gamepad":
+        output_id: str | None = None
+    elif bucket.startswith("gamepad:"):
+        output_id = bucket.removeprefix("gamepad:")
+    else:
+        return 0
+    resolver = getattr(device_runtime, "resolve_gamepad_output", None)
+    if not callable(resolver):
+        return 0
+    target = resolver(
+        output_id,
+        f"resolve rest value for axis {axis_code}",
+    )
+    return target_axis_release_value(target, axis_code)
+
+
+def target_axis_release_value(target: object | None, axis_code: int) -> int:
+    raw_values = getattr(target, "axis_rest_values", None)
+    if not isinstance(raw_values, dict):
+        return 0
+    values = cast(dict[int, int], raw_values)
+    value = values.get(int(axis_code), 0)
+    return int(value)
 
 
 def track_refcounted_held_output(
@@ -188,6 +219,7 @@ def write_abs_axis(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
     bucket: str | None = None,
+    release_value: int = 0,
     defer_syn_to_passthrough_frame: bool = True,
 ) -> None:
     writer = uinput_writer(uinput_dev)
@@ -202,7 +234,13 @@ def write_abs_axis(
         )
     else:
         writer.syn()
-    track_abs_state(device_runtime, int(axis_code), int(value), bucket=bucket)
+    track_abs_state(
+        device_runtime,
+        int(axis_code),
+        int(value),
+        bucket=bucket,
+        release_value=release_value,
+    )
 
 
 def write_key(
@@ -251,8 +289,13 @@ def track_superkey_abs_output(
     axis_code: int,
     value: int,
     *,
-    release_value: int = 0,
+    release_value: int | None = None,
 ) -> bool:
+    resolved_release_value = (
+        gamepad_axis_release_value(device_runtime, bucket, axis_code)
+        if release_value is None
+        else int(release_value)
+    )
     return track_refcounted_output_bucket(
         device_runtime.state.superkey_abs_refcounts,
         device_runtime.state.held_output_abs,
@@ -260,7 +303,7 @@ def track_superkey_abs_output(
         axis_code,
         value,
         pressed_value=None,
-        release_value=release_value,
+        release_value=resolved_release_value,
     )
 
 
@@ -328,6 +371,7 @@ def ensure_abs_axis_released(
             evdev_mod=evdev_mod,
             uinput_writer=uinput_writer,
             bucket=bucket,
+            release_value=release_value,
         )
     except OSError as exc:
         log.debug(
@@ -435,15 +479,22 @@ def release_all_keys(
     for state in device_runtime.state.rapidfire_outputs.values():
         if state.kind == "axis" and state.bucket:
             devices.setdefault(state.bucket, state.uinput)
+    axis_rest_values: dict[str, dict[int, int]] = {}
     for bucket in set(device_runtime.state.held_output_keys) | set(
         device_runtime.state.held_output_abs
     ):
-        if bucket.startswith("gamepad:") and bucket not in devices:
+        if bucket.startswith("gamepad:"):
             target = device_runtime.resolve_gamepad_output(
                 bucket.removeprefix("gamepad:"),
                 f"release tracked {bucket}",
             )
-            devices[bucket] = getattr(target, "uinput", None) if target is not None else None
+            devices.setdefault(
+                bucket,
+                getattr(target, "uinput", None) if target is not None else None,
+            )
+            raw_rest_values = getattr(target, "axis_rest_values", None)
+            if isinstance(raw_rest_values, dict):
+                axis_rest_values[bucket] = cast(dict[int, int], raw_rest_values)
     for bucket, uinput_dev in devices.items():
         writer = uinput_writer(uinput_dev)
         if writer is None:
@@ -491,7 +542,11 @@ def release_all_keys(
         try:
             axes = held_abs or {evdev_mod.ecodes.ABS_Z, evdev_mod.ecodes.ABS_RZ}
             for axis_code in sorted(axes):
-                writer.write(evdev_mod.ecodes.EV_ABS, int(axis_code), 0)
+                writer.write(
+                    evdev_mod.ecodes.EV_ABS,
+                    int(axis_code),
+                    int(axis_rest_values.get(bucket, {}).get(int(axis_code), 0)),
+                )
             writer.syn()
         except OSError as exc:
             log.debug(

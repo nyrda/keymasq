@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import evdev
 
+from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
+
 
 @dataclass(frozen=True)
 class GamepadAxisRange:
@@ -74,12 +76,20 @@ def gamepad_axis_max_value(target: object) -> int:
     return axis_range.maximum if axis_range is not None else 0
 
 
-def clamp_gamepad_axis_value(target: object, value: object) -> int:
+def clamp_gamepad_axis_value(target: object, value: object, *, output_id: str | None = None) -> int:
     axis_range = gamepad_axis_range(target)
     try:
         raw_value = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         raw_value = axis_range.maximum if axis_range is not None else 0
+    if output_id and not is_virtual_gamepad_output_id(output_id):
+        # Named outputs may use different ranges for standard ABS codes. Their
+        # capabilities are only available when the daemon resolves the output.
+        return (
+            max(-2147483648, min(2147483647, raw_value))
+            if normalize_gamepad_axis_target(target)
+            else 0
+        )
     if axis_range is None:
         # Custom axes have no known range; pass the value through unclamped.
         return raw_value if normalize_gamepad_axis_target(target) else 0

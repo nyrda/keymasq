@@ -293,8 +293,10 @@ controller diagram. It accepts an evdev button name (such as `btn_c` or
 `btn_trigger_happy1`) or a numeric key code (decimal or `0x`-prefixed), and
 routes through the same output selected above. This is an advanced option: the
 chosen output must actually support the button code for it to emit. Hardware
-gamepad outputs expose whatever buttons the physical device advertises, while
-the virtual gamepad outputs advertise the standard Xbox 360 button set.
+gamepad outputs expose whatever buttons the physical device advertises. The
+built-in Xbox outputs advertise the standard Xbox 360 button set, while
+template-backed outputs advertise their declared buttons and show their
+control labels in the mapper.
 
 Gamepad actions can route to a specific output with `output_id`. Use
 `virtual-gamepad-1` through `virtual-gamepad-4` for configured virtual Xbox
@@ -304,17 +306,22 @@ exists. Explicit targets never fall back: if the daemon cannot route to the
 configured output, it logs a warning and drops the gamepad event.
 
 Analog axis actions use `action = "gamepad_axis"`, a target such as `abs_x`
-or `abs_rz`, and a raw evdev `value`. Stick axes accept `-32768..32767`;
-trigger axes accept `0..255`. Releasing the source input returns the axis to
-neutral `0`. LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad`
-actions are button-only.
+or `abs_rz`, and a raw evdev `value`. Built-in Xbox stick axes accept
+`-32768..32767`; trigger axes accept `0..255`. Other virtual outputs use their
+template's ranges. Releasing the source input returns a virtual axis to the
+selected output's declared rest value. The built-in Xbox axes declare `0`.
+Direct axis actions targeting physical hardware currently release to `0`;
+using learned or advertised target metadata is supported by
+[analog-control mappings](GAMEPAD.md#analog-output).
+LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad` actions are button-only.
 
 To target an axis outside the template, pick **Custom** in the axis dropdown
 and enter an evdev axis name (such as `abs_hat0x`, `abs_hat0y`, `abs_throttle`,
 or `abs_rudder`) or a numeric code, then enter the raw value to send. As with
 custom buttons, the chosen output must support the axis for it to emit; the
-virtual gamepad outputs include the standard stick, trigger, and `abs_hat0`
-axes.
+built-in Xbox outputs include the standard stick, trigger, and `abs_hat0`
+axes. Template-backed outputs include exactly the axes declared by their
+template.
 
 ## Analog Controls
 

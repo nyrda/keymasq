@@ -11,6 +11,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, AnalogControlConfig
+from keymasq.common.virtual_device_templates import (
+    XBOX_360_TEMPLATE_ID,
+    resolve_virtual_devices,
+    template_analog_inputs,
+)
 from keymasq.common.virtual_devices import (
     is_virtual_gamepad_output_id,
     virtual_gamepad_output_id,
@@ -92,6 +97,7 @@ class MotionControlEditorView(Gtk.Box):
         self._output_target_items: list[tuple[str, str | None]] = []
         self._output_target_buttons: dict[str, Gtk.ToggleButton] = {}
         self._hardware_output_configs: dict[str, object] = {}
+        self._virtual_output_analog_inputs: dict[str, dict[str, object]] = {}
         self._refreshing_outputs = False
         initial = MotionControlDraft.new()
         self._mouse_draft = initial.mouse
@@ -817,6 +823,13 @@ class MotionControlEditorView(Gtk.Box):
         selected = self._selected_output_id
         helper_selected = None if selected == SAME_DEVICE_OUTPUT_ID else selected
         choice_set = self._output_choices_loader(helper_selected)
+        self._virtual_output_analog_inputs = {
+            device.output_id: template_analog_inputs(device.template)
+            for device in resolve_virtual_devices(
+                choice_set.count, choice_set.virtual_device_config
+            )
+            if device.template.id != XBOX_360_TEMPLATE_ID
+        }
         self._hardware_output_configs = {
             str(getattr(config, "hardware_id", "") or ""): config
             for config in choice_set.hardware_configs
@@ -881,6 +894,13 @@ class MotionControlEditorView(Gtk.Box):
 
     def _output_target_choices(self) -> list[tuple[str, str | None, str]]:
         selected = self._selected_output_id
+        virtual_analogs = self._virtual_output_analog_inputs.get(selected or "")
+        if virtual_analogs is not None:
+            return [
+                ("analog", analog_id, str(analog.get("label", analog_id)))
+                for analog_id, analog in virtual_analogs.items()
+                if isinstance(analog, dict) and analog.get("type") == "stick"
+            ]
         hardware = (
             self._hardware_output_configs.get(selected or "")
             if selected and not is_virtual_gamepad_output_id(selected)

@@ -25,6 +25,12 @@ from keymasq.common.model.motion import (
     MotionMouseConfig,
     MotionTiltConfig,
 )
+from keymasq.common.virtual_device_templates import (
+    LOGITECH_EXTREME_3D_TEMPLATE,
+    VirtualDeviceConfig,
+    VirtualDeviceInstance,
+    template_analog_inputs,
+)
 from keymasq.gui.widgets.gamepad_output_choices import GamepadOutputChoiceSet
 from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.gui.widgets.managed_editor.shell import ManagedEditorShell
@@ -324,6 +330,30 @@ def test_motion_controller_output_routes_to_a_learned_physical_stick() -> None:
     assert draft.gamepad.output_id == "1234:5678"
     assert draft.gamepad.target == "analog"
     assert draft.gamepad.target_analog_id == "right_stick"
+
+
+def test_motion_editor_routes_to_flight_stick_controls():
+    template = LOGITECH_EXTREME_3D_TEMPLATE
+    choices = GamepadOutputChoiceSet(
+        choices=[(None, "Virtual Gamepad 1"), ("flight-test", "Flight stick")],
+        count=1,
+        hardware_configs=[],
+        virtual_device_config=VirtualDeviceConfig(
+            devices=(VirtualDeviceInstance("flight-test", template.id),)
+        ),
+    )
+    view = MotionControlEditorView(
+        on_modified=lambda: None,
+        output_choices_loader=lambda _selected: choices,
+    )
+    view.load(MotionControlDraft.from_config(MotionControlConfig(name="Flight", mode="gamepad")))
+    view.gamepad_output.gamepad_output_dropdown.set_selected(2)
+    analog_id = next(iter(template_analog_inputs(template)))
+    assert list(view.output_target_buttons) == [f"analog:{analog_id}"]
+    draft = view.draft()
+    assert draft.gamepad.output_id == "flight-test"
+    assert draft.gamepad.target == "analog"
+    assert draft.gamepad.target_analog_id == analog_id
 
 
 def test_motion_selector_allows_multiple_controls(temp_config_dir) -> None:

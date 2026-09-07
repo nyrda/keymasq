@@ -18,9 +18,11 @@ querying the physical device during output resolution. Axes with neither saved n
 runtime-resolved valid ranges are omitted.
 
 Output providers populate `GamepadOutputTarget.output_axes`. An empty tuple
-means no supported axes. A future virtual-device template provider can supply
-its own tuple of `OutputAxis` objects using the capabilities advertised when
-creating its uinput device. The editor should use the same descriptions.
+means no supported axes. Virtual-device templates supply their advertised axes
+through `template_output_axes()`. The editor and runtime use the same labels,
+ranges, and neutral values, including individual stick components and custom
+axes. A flight stick therefore offers twist and throttle without advertising
+unsupported standard-gamepad axes.
 
 Axis selection and range conversion must use the destination's metadata.
 An evdev code being valid does not mean every output supports it.

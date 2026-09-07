@@ -6,6 +6,7 @@ from typing import cast
 from keymasq.common.gamepad_axes import normalize_gamepad_axis_target
 from keymasq.common.model.actions import MappingAction, normalize_output_id
 from keymasq.common.model.core import ActionType
+from keymasq.common.virtual_devices import SAME_DEVICE_OUTPUT_ID as SAME_DEVICE_OUTPUT_ID
 
 ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
     action_type
@@ -21,7 +22,6 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 
 ANALOG_MOUSE_DIRECTIONS = frozenset({"left", "right", "up", "down", "horizontal", "vertical"})
 ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
-SAME_DEVICE_OUTPUT_ID = "same-device"
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog", "axis"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1

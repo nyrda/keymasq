@@ -1902,3 +1902,67 @@ def test_analog_control_dialog_groups_saved_controls_by_input_type() -> None:
         ("1D Axes / Triggers", ["Axis Control"]),
         ("Sticks", ["Stick Control"]),
     ]
+
+
+@pytest.mark.parametrize(
+    "axis, neutral", [("ABS_X", 511), ("ABS_RZ", 127), ("ABS_THROTTLE", 255), ("ABS_BRAKE", 100)]
+)
+def test_custom_template_axis_picker_uses_advertised_axes_and_neutrals(
+    temp_config_dir, axis, neutral
+):
+    from dataclasses import replace
+
+    from gi.repository import Gtk
+
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        VirtualAxis,
+        VirtualDeviceConfig,
+        VirtualDeviceInstance,
+    )
+    from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
+    from keymasq.session.virtual_devices import save_virtual_device_config
+
+    template = replace(
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        id="custom-flight",
+        builtin=False,
+        axes=(
+            *LOGITECH_EXTREME_3D_TEMPLATE.axes,
+            VirtualAxis("brake", "Brake", "abs_brake", 10, 900, 100),
+        ),
+    )
+    save_virtual_device_config(
+        VirtualDeviceConfig(
+            templates=(template,), devices=(VirtualDeviceInstance("flight-test", template.id),)
+        )
+    )
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.editor.name_entry.set_text("Flight Axis")
+    _select_input_type(dialog, "axis")
+    _select_mode(dialog, "gamepad")
+    output_index = dialog.editor._output_ids.index("flight-test")
+    dialog.editor.gamepad.gamepad_output_dropdown.set_selected(output_index)
+    _select_output_axis(dialog, axis)
+    assert dialog.editor.gamepad.gamepad_output_rest_row.get_value() == neutral
+    dropdown = dialog.editor.gamepad.gamepad_output_target_box.get_first_child()
+    model = dropdown.get_model()
+    labels = [model.get_string(index) for index in range(model.get_n_items())]
+    assert "Stick X · ABS_X" in labels
+    assert "Brake · ABS_BRAKE" in labels
+    assert not any(label.endswith("· ABS_Z") or label.endswith("· ABS_RX") for label in labels)
+    assert not dialog.editor.gamepad.gamepad_output_warning_row.get_visible()
+    assert dialog._save_current()
+    reloaded = AnalogControlDialog(Gtk.Window())
+    draft = reloaded.editor.draft()
+    assert draft.gamepad.output_id == "flight-test"
+    assert draft.gamepad.target_axis == axis.lower()
+    assert draft.gamepad.output_rest is None
+    assert reloaded.editor.gamepad.gamepad_output_rest_row.get_value() == neutral
+
+    # Switching destinations preserves the selected axis and warns if unsupported.
+    reloaded.editor.gamepad.gamepad_output_dropdown.set_selected(1)
+    assert reloaded.editor.draft().gamepad.target_axis == axis.lower()
+    assert reloaded.editor.gamepad.gamepad_output_warning_row.get_visible() == (
+        axis in {"ABS_THROTTLE", "ABS_BRAKE"}
+    )

@@ -4,12 +4,17 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from keymasq.common.devices import is_gamepad_button_name
+from keymasq.common.virtual_device_templates import (
+    VirtualDeviceConfig,
+    resolve_virtual_devices,
+)
 from keymasq.common.virtual_devices import (
     is_virtual_gamepad_output_id,
     virtual_gamepad_output_id,
 )
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.settings import load_virtual_gamepad_count
+from keymasq.session.virtual_devices import load_virtual_device_config
 
 log = logging.getLogger("keymasq.gui.widgets.gamepad_output_choices")
 
@@ -19,6 +24,7 @@ class GamepadOutputChoiceSet:
     choices: list[tuple[str | None, str]]
     count: int
     hardware_configs: list[object]
+    virtual_device_config: VirtualDeviceConfig = VirtualDeviceConfig()
 
 
 class HardwareManagerLike(Protocol):
@@ -37,6 +43,14 @@ def virtual_gamepad_count() -> int:
     except Exception:
         log.exception("Unable to load virtual gamepad count; using default of 1")
         return 1
+
+
+def virtual_device_config() -> VirtualDeviceConfig:
+    try:
+        return load_virtual_device_config()
+    except Exception:
+        log.exception("Unable to load virtual device configuration; using built-ins only")
+        return VirtualDeviceConfig()
 
 
 def _virtual_gamepad_index(output_id: str | None) -> int | None:
@@ -100,12 +114,23 @@ def gamepad_output_choices_for(
     selected_id: str | None,
     count: int,
     hardware_configs: Sequence[object],
+    device_config: VirtualDeviceConfig | None = None,
 ) -> list[tuple[str | None, str]]:
+    if device_config is None:
+        device_config = VirtualDeviceConfig()
     default_label = "Virtual Gamepad 1" if count > 0 else "Default output unavailable"
     choices: list[tuple[str | None, str]] = [(None, default_label)]
     for index in range(2, count + 1):
         output_id = virtual_gamepad_output_id(index)
         choices.append((output_id, f"Virtual Gamepad {index}"))
+
+    for device in resolve_virtual_devices(count, device_config)[count:]:
+        choices.append(
+            (
+                device.output_id,
+                f"{device.template.label} ({device.output_id})",
+            )
+        )
 
     for config in hardware_configs:
         if _is_hardware_gamepad(config):
@@ -141,27 +166,38 @@ def gamepad_output_choices(
     *,
     count: int | None = None,
     hardware_configs: Sequence[object] | None = None,
+    device_config: VirtualDeviceConfig | None = None,
     hardware_manager_factory: Callable[[], HardwareManagerLike] = HardwareManager,
 ) -> list[tuple[str | None, str]]:
     if count is None:
         count = virtual_gamepad_count()
     if hardware_configs is None:
         hardware_configs = load_gamepad_output_hardware_configs(hardware_manager_factory)
-    return gamepad_output_choices_for(selected_id, count, hardware_configs)
+    if device_config is None:
+        device_config = virtual_device_config()
+    return gamepad_output_choices_for(selected_id, count, hardware_configs, device_config)
 
 
 def load_gamepad_output_choices(
     selected_id: str | None,
     *,
     count_loader: Callable[[], int] = virtual_gamepad_count,
+    config_loader: Callable[[], VirtualDeviceConfig] = virtual_device_config,
     hardware_manager_factory: Callable[[], HardwareManagerLike] = HardwareManager,
 ) -> GamepadOutputChoiceSet:
     count = count_loader()
     hardware_configs = load_gamepad_output_hardware_configs(hardware_manager_factory)
+    device_config = config_loader()
     return GamepadOutputChoiceSet(
-        choices=gamepad_output_choices_for(selected_id, count, hardware_configs),
+        choices=gamepad_output_choices_for(
+            selected_id,
+            count,
+            hardware_configs,
+            device_config,
+        ),
         count=count,
         hardware_configs=hardware_configs,
+        virtual_device_config=device_config,
     )
 
 

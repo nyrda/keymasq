@@ -136,6 +136,10 @@ per-control flags.
 
 Virtual Xbox gamepads also accept the legacy left/right stick and trigger
 targets. Their individual axes can be selected with `target = "axis"`.
+Template-backed virtual devices expose paired X/Y or RX/RY sticks through
+`target_analog_id`. For 1D controls, each advertised template axis is available
+through `target = "axis"`, including individual stick components, twist,
+throttle, hats, and custom axes. Existing named axis targets remain readable.
 
 ### Individual axis routing
 
@@ -144,7 +148,9 @@ The editor's **Output Axis** dropdown lists axes on the selected destination.
 raw rest override. Saved unavailable selections remain visible and are not
 silently replaced. With the default same-device output, the editor offers
 standard axes; availability and neutral are resolved against the bound device
-at runtime. Select a specific hardware output to choose its custom axes.
+at runtime. Select a specific hardware or template output to choose its custom
+axes. Template outputs use their configured ranges and rest values. For example,
+the built-in flight stick centers Stick X at 511 and releases Throttle at 255.
 
 For example, a trigger can drive the negative half of a stick:
 

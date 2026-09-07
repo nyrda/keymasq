@@ -3022,6 +3022,132 @@ class TestGrabbedDeviceHelpers:
         ]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("requested", "expected"), [(65535, 65535), (70000, 65535), (-10, 0)])
+    async def test_template_axis_action_uses_target_range(self, monkeypatch, requested, expected):
+        from keymasq.common.virtual_device_templates import (
+            XBOX_360_TEMPLATE,
+            config_from_json,
+            resolve_virtual_devices,
+            template_to_data,
+        )
+        from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputRouter
+
+        template = template_to_data(XBOX_360_TEMPLATE)
+        template["id"] = "wide-stick"
+        template_axes = cast(list[dict[str, object]], template["axes"])
+        template_axes[0].update(minimum=0, maximum=65535, rest=32767)
+        config = config_from_json(
+            {
+                "templates": [template],
+                "devices": [{"output_id": "wide-output", "template": "wide-stick"}],
+            }
+        )
+        spec = resolve_virtual_devices(0, config)[0]
+        gamepad = FakeUInput()
+        state = SimpleNamespace(
+            virtual_gamepad_uinputs={"wide-output": gamepad},
+            virtual_device_specs={"wide-output": spec},
+        )
+        router = GamepadOutputRouter(logging.getLogger(__name__))
+        device = make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        device._gamepad_output_resolver = lambda output_id, context: router.resolve(
+            state, {}, output_id
+        )
+        action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_x",
+            axis_value=requested,
+            output_id="wide-output",
+        )
+        for value in (1, 0):
+            await actions.execute_action(
+                device,
+                action,
+                SimpleNamespace(value=value),
+                "axis_btn",
+                deps=pipeline.build_action_execution_deps(
+                    fire_and_observe_fn=pipeline.fire_and_observe
+                ),
+            )
+        assert gamepad.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, expected),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_template_axis_action_uses_declared_rest_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        gamepad = FakeUInput()
+        device = make_grabbed_device(monkeypatch, gamepad_uinput=gamepad)
+        device._gamepad_output_resolver = lambda output_id, context: SimpleNamespace(  # type: ignore[method-assign, reportPrivateUsage]
+            output_id=output_id,
+            uinput=gamepad,
+            bucket="gamepad:flight-stick",
+            is_virtual=True,
+            axis_rest_values={evdev.ecodes.ABS_X: 511},
+        )
+        action = MappingAction(
+            action_type=ActionType.GAMEPAD_AXIS,
+            target="abs_x",
+            axis_value=1023,
+            output_id="flight-stick",
+        )
+
+        for value in (1, 0):
+            await actions.execute_action(
+                device,
+                action,
+                evdev.InputEvent(
+                    0,
+                    0,
+                    evdev.ecodes.EV_KEY,
+                    evdev.ecodes.BTN_SOUTH,
+                    value,
+                ),
+                "axis_btn",
+                deps=pipeline.build_action_execution_deps(
+                    fire_and_observe_fn=pipeline.fire_and_observe
+                ),
+            )
+
+        assert (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 1023) in gamepad.writes
+        assert gamepad.writes[-1] == (
+            evdev.ecodes.EV_ABS,
+            evdev.ecodes.ABS_X,
+            511,
+        )
+        assert device.state.held_output_abs["gamepad:flight-stick"] == set()
+
+        await actions.execute_action(
+            device,
+            action,
+            evdev.InputEvent(
+                0,
+                0,
+                evdev.ecodes.EV_KEY,
+                evdev.ecodes.BTN_SOUTH,
+                1,
+            ),
+            "axis_btn",
+            deps=pipeline.build_action_execution_deps(
+                fire_and_observe_fn=pipeline.fire_and_observe
+            ),
+        )
+        device_outputs.release_all_keys(
+            device,
+            evdev_mod=evdev,
+            uinput_writer=lambda output: cast(adapters.WritableUInput | None, output),
+        )
+
+        assert gamepad.writes[-1] == (
+            evdev.ecodes.EV_ABS,
+            evdev.ecodes.ABS_X,
+            511,
+        )
+
+    @pytest.mark.asyncio
     async def test_gamepad_axis_tap_uses_configured_value(
         self,
         monkeypatch: pytest.MonkeyPatch,

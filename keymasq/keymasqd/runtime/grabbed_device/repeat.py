@@ -247,6 +247,7 @@ async def rapidfire_abs_axis(
                     evdev_mod=evdev_mod,
                     uinput_writer=uinput_writer,
                     bucket=bucket,
+                    release_value=release_value,
                 )
             pressed = True
             if not started_set:
@@ -274,6 +275,7 @@ async def rapidfire_abs_axis(
                         evdev_mod=evdev_mod,
                         uinput_writer=uinput_writer,
                         bucket=bucket,
+                        release_value=release_value,
                     )
                 pressed = False
             if not device_runtime.state.rapidfire_active.get(event_name, False):
@@ -321,6 +323,7 @@ async def tap_abs_axis(
             evdev_mod=evdev_mod,
             uinput_writer=uinput_writer,
             bucket=bucket,
+            release_value=release_value,
         )
         pressed = True
         _mark_started(started)
@@ -334,6 +337,7 @@ async def tap_abs_axis(
             evdev_mod=evdev_mod,
             uinput_writer=uinput_writer,
             bucket=bucket,
+            release_value=release_value,
         )
         pressed = False
     finally:

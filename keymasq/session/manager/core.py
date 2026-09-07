@@ -32,6 +32,7 @@ from keymasq.session.mpris import MprisController, MprisDBusError
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.settings import load_global_settings
 from keymasq.session.superkeys import SuperkeyManager
+from keymasq.session.virtual_devices import load_virtual_device_config
 
 from . import compositor, events, recording_device_selection
 from .common import JsonObject
@@ -83,6 +84,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self.hardware = HardwareManager()
         settings = load_global_settings()
         self.virtual_gamepad_count = settings.virtual_gamepad_count
+        self.virtual_device_config = load_virtual_device_config()
         self.action_handler: ActionHandler | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()

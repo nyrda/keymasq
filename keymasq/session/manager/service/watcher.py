@@ -15,8 +15,10 @@ from keymasq.common.paths import (
     PROFILES_DIR,
     SETTINGS_PATH,
     SUPERKEYS_DIR,
+    VIRTUAL_DEVICES_PATH,
 )
 from keymasq.session.settings import load_global_settings
+from keymasq.session.virtual_devices import load_virtual_device_config
 
 log = logging.getLogger("keymasq-session")
 CONFIG_RELOAD_DEBOUNCE_S = 0.5
@@ -56,6 +58,7 @@ class ConfigWatcherMixin:
             profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
             hardware_snapshot = self.hardware.snapshot_hardware()
             old_virtual_gamepad_count = self.virtual_gamepad_count
+            old_virtual_device_config = self.virtual_device_config
 
             try:
                 self.superkeys.reload()
@@ -65,6 +68,7 @@ class ConfigWatcherMixin:
                 self.hardware.reload()
                 settings = load_global_settings(strict=True)
                 self.virtual_gamepad_count = settings.virtual_gamepad_count
+                self.virtual_device_config = load_virtual_device_config(strict=True)
             except Exception:
                 self.superkeys.restore_superkeys(superkeys_snapshot)
                 self.analog_controls.restore_analog_controls(analog_controls_snapshot)
@@ -72,6 +76,7 @@ class ConfigWatcherMixin:
                 self.profiles.restore_profiles(profiles_snapshot)
                 self.hardware.restore_hardware(hardware_snapshot)
                 self.virtual_gamepad_count = old_virtual_gamepad_count
+                self.virtual_device_config = old_virtual_device_config
                 raise
 
     def _start_config_watcher(self: Any) -> None:
@@ -167,7 +172,7 @@ class ConfigWatcherMixin:
         self: Any, watched_path: Path, name: str, mask: int
     ) -> bool:
         if watched_path == CONFIG_DIR:
-            if name == SETTINGS_PATH.name:
+            if name in {SETTINGS_PATH.name, VIRTUAL_DEVICES_PATH.name}:
                 return True
             return bool(mask & IN_ISDIR) and name in {
                 PROFILES_DIR.name,

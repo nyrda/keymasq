@@ -22,6 +22,11 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.common.virtual_device_templates import (
+    config_from_json,
+    config_to_json,
+    resolve_virtual_devices,
+)
 from keymasq.common.virtual_devices import (
     clamp_virtual_gamepad_count,
 )
@@ -196,8 +201,18 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     def shutdown_output_devices(self) -> None:
         outputs.destroy_global_uinputs(cast(Any, self), log=log)
 
-    async def set_virtual_gamepads(self, count: object) -> JsonObject:
+    async def set_virtual_gamepads(
+        self,
+        count: object,
+        virtual_devices: object | None = None,
+    ) -> JsonObject:
         clamped_count = clamp_virtual_gamepad_count(count)
+        config = (
+            config_from_json(virtual_devices)
+            if virtual_devices is not None
+            else self.output_state.virtual_device_config
+        )
+        configuration_changed = config != self.output_state.virtual_device_config
         async with self._op_lock:
 
             async def clear_runtime() -> None:
@@ -213,9 +228,10 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     evdev_mod=evdev,  # pyright: ignore[reportArgumentType]
                     log=log,
                     uinput_writer=adapters.identity_uinput_writer,
+                    config=config,
                 )
 
-            return await virtual_gamepads.reconfigure_virtual_gamepads(
+            result = await virtual_gamepads.reconfigure_virtual_gamepads(
                 count=clamped_count,
                 current_count=self.output_state.virtual_gamepad_count,
                 output_devices_active=self.output_state.device_count > 0,
@@ -226,7 +242,17 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     self.output_state, "virtual_gamepad_count", value
                 ),
                 logger=log,
+                configuration_changed=configuration_changed,
             )
+            if self.output_state.device_count == 0 and configuration_changed:
+                self.output_state.virtual_device_config = config
+                self.output_state.virtual_device_specs = {
+                    device.output_id: device
+                    for device in resolve_virtual_devices(clamped_count, config)
+                }
+            if virtual_devices is not None:
+                result["virtual_devices"] = config_to_json(config)
+            return result
 
     def resolve_gamepad_output(
         self,

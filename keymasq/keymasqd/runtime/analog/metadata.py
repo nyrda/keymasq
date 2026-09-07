@@ -1,5 +1,6 @@
 """Target-device and axis metadata resolution for analog output routing."""
 
+from dataclasses import replace
 from typing import cast
 
 from keymasq.common.devices import capability_name, resolve_evdev_code
@@ -129,6 +130,46 @@ def target_analog_input(
     raw_analog = typed_analog_inputs.get(target_analog_id)
     analog = _typed_analog_input(raw_analog, expected_type=expected_type)
     return analog
+
+
+def resolve_virtual_output_config(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+    target: object,
+) -> AnalogControlConfig | None:
+    """Resolve implicit routing by event code before applying template ranges."""
+    # 1D routing resolves explicit and legacy targets through OutputAxis metadata.
+    if config.input_type == "axis" or config.gamepad_output.target == "analog":
+        return config
+    if not getattr(target, "axis_ranges", None):
+        return config
+    if config.input_type == "stick":
+        codes = _stick_outputaxis_codes(device_runtime, source_id, config, deps=deps)
+        roles = ("x", "y")
+    else:
+        code = trigger_outputaxis_code(device_runtime, source_id, config, deps=deps)
+        codes = (code,) if code is not None else None
+        roles = ("x",)
+    if codes is None:
+        return None
+    for analog_id, raw_analog in (target_analog_inputs(target) or {}).items():
+        analog = _typed_analog_input(raw_analog, expected_type=config.input_type)
+        if analog is None:
+            continue
+        if all(
+            (axis := target_axis(analog, role)) is not None and axis_evdev_code(axis) == code
+            for role, code in zip(roles, codes, strict=True)
+        ):
+            return replace(
+                config,
+                gamepad_output=replace(
+                    config.gamepad_output, target="analog", target_analog_id=analog_id
+                ),
+            )
+    return None
 
 
 def target_analog_inputs(target: object) -> dict[str, object] | None:
@@ -277,8 +318,6 @@ def _standard_stick_output_analog(
     config: AnalogControlConfig,
     target: object,
 ) -> dict[str, object] | None:
-    if bool(getattr(target, "is_virtual", False)):
-        return None
     analog_inputs = target_analog_inputs(target)
     if analog_inputs is None:
         return None

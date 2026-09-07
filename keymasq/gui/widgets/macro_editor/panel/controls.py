@@ -534,6 +534,9 @@ class ControlEditorMixin:
         control.macro_loop_mode = {0: "none", 1: "count", 2: "hold"}.get(
             dropdown.get_selected(), "none"
         )
+        supported = {value for value, _label in _release_options(control.macro_loop_mode)}
+        if control.macro_loop_stop_behavior not in supported:
+            control.macro_loop_stop_behavior = "finish_run"
         self._refresh_after_control_change(control)
 
     def _on_control_macro_count_changed(self, spin: Gtk.SpinButton) -> None:

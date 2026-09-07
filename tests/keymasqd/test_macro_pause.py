@@ -236,7 +236,7 @@ async def test_parent_pause_leaves_ordinary_child_and_its_outputs_running(manage
     await until(lambda: bool(writes(manager)))
     await trigger(manager, 0)
     assert writes(manager) == [(1, 30, 1)]
-    await asyncio.sleep(0.12)
+    await until(lambda: (1, 30, 0) in writes(manager))
     assert writes(manager) == [(1, 30, 1), (1, 30, 0)]
     await trigger(manager, 1)
     await until(lambda: not manager.macro_state.tasks)

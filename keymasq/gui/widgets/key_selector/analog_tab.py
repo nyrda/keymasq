@@ -43,40 +43,31 @@ class AnalogTabMixin:
     def _build_analog_presets_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        intro = Gtk.Label(
-            label="Pick what this control does — one click sets it up. "
-            "Fine-tune it any time under Analog Controls."
-        )
+        intro = Gtk.Label(label="Choose a preset. Fine-tune it in Analog Controls.")
         intro.add_css_class("dim-label")
         intro.set_wrap(True)
         intro.set_justify(Gtk.Justification.CENTER)
         intro.set_halign(Gtk.Align.CENTER)
-        intro.set_margin_top(16)
+        intro.set_margin_top(10)
         intro.set_margin_start(16)
         intro.set_margin_end(16)
-        intro.set_margin_bottom(12)
+        intro.set_margin_bottom(8)
         outer.append(intro)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
 
-        flow = Gtk.FlowBox()
-        flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        flow.set_max_children_per_line(2)
-        flow.set_min_children_per_line(2)
-        flow.set_homogeneous(True)
-        flow.set_column_spacing(12)
-        flow.set_row_spacing(12)
-        flow.set_margin_start(16)
-        flow.set_margin_end(16)
-        flow.set_margin_bottom(16)
-        flow.set_valign(Gtk.Align.START)
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        rows.set_margin_start(16)
+        rows.set_margin_end(16)
+        rows.set_margin_bottom(8)
+        rows.set_valign(Gtk.Align.START)
 
         for preset in analog_control_presets(self._analog_input_type):
-            flow.append(self._build_analog_preset_card(preset))
+            rows.append(self._build_analog_preset_card(preset))
 
-        scrolled.set_child(flow)
+        scrolled.set_child(rows)
         outer.append(scrolled)
 
         link_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -100,16 +91,17 @@ class AnalogTabMixin:
         button.connect("clicked", self._on_analog_preset_clicked, preset)
 
         content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
+        content.set_margin_top(6)
+        content.set_margin_bottom(6)
         content.set_margin_start(12)
         content.set_margin_end(12)
 
         icon = Gtk.Image.new_from_icon_name(preset.icon_name)
-        icon.set_pixel_size(28)
+        icon.set_pixel_size(24)
         content.append(icon)
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        text_box.set_hexpand(True)
         text_box.set_valign(Gtk.Align.CENTER)
         title = Gtk.Label(label=preset.label)
         title.set_halign(Gtk.Align.START)
@@ -117,6 +109,7 @@ class AnalogTabMixin:
         text_box.append(title)
         subtitle = Gtk.Label(label=preset.description)
         subtitle.set_halign(Gtk.Align.START)
+        subtitle.set_xalign(0)
         subtitle.set_wrap(True)
         subtitle.add_css_class("dim-label")
         subtitle.add_css_class("caption")

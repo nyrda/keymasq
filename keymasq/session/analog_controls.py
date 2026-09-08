@@ -586,6 +586,19 @@ def analog_control_mouse_area_preset(name: str) -> AnalogControlConfig:
     )
 
 
+def analog_control_touchpad_mouse_preset(name: str) -> AnalogControlConfig:
+    return AnalogControlConfig(
+        name=name,
+        description="Slide a finger to move the pointer; lift to reposition without jumping",
+        input_type="stick",
+        mouse_motion=AnalogMouseMotionConfig(
+            enabled=True,
+            mode="touchpad",
+            deadzone=0.0,
+        ),
+    )
+
+
 def analog_control_scroll_wheel_preset(name: str) -> AnalogControlConfig:
     return AnalogControlConfig(
         name=name,
@@ -662,7 +675,7 @@ _STICK_PRESETS: tuple[AnalogControlPreset, ...] = (
     AnalogControlPreset(
         preset_id="mouse_move",
         label="Mouse Move",
-        description="Move the cursor with the stick",
+        description="Tilt to move the pointer",
         icon_name="input-mouse-symbolic",
         input_type="stick",
         default_name="Mouse Move",
@@ -671,16 +684,25 @@ _STICK_PRESETS: tuple[AnalogControlPreset, ...] = (
     AnalogControlPreset(
         preset_id="mouse_area",
         label="Mouse Area",
-        description="Stick position controls cursor position",
+        description="Stick position sets pointer position",
         icon_name="view-restore-symbolic",
         input_type="stick",
         default_name="Mouse Area",
         build=analog_control_mouse_area_preset,
     ),
     AnalogControlPreset(
+        preset_id="mouse_touchpad",
+        label="Touchpad Mouse",
+        description="Slide to move, lift to reposition",
+        icon_name="input-mouse-symbolic",
+        input_type="stick",
+        default_name="Touchpad Mouse",
+        build=analog_control_touchpad_mouse_preset,
+    ),
+    AnalogControlPreset(
         preset_id="scroll_wheel",
         label="Scroll Wheel",
-        description="Scroll up/down and side-scroll with the stick",
+        description="Scroll vertically and horizontally",
         icon_name="go-up-symbolic",
         input_type="stick",
         default_name="Scroll Wheel",
@@ -689,7 +711,7 @@ _STICK_PRESETS: tuple[AnalogControlPreset, ...] = (
     AnalogControlPreset(
         preset_id="wasd",
         label="WASD Keys",
-        description="Map the stick to W/A/S/D",
+        description="Turn stick directions into W/A/S/D",
         icon_name="input-keyboard-symbolic",
         input_type="stick",
         default_name="WASD",

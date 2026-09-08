@@ -656,6 +656,53 @@ def test_stick_mouse_area_exposes_radius_and_start_capture(
     assert saved.mouse_motion.area_start_y == 480
 
 
+def test_touchpad_mouse_settings_save_and_switch_back_to_area(temp_config_dir) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
+    from keymasq.gui.widgets.analog_control.options import mode_items_for_input_type
+
+    dialog = AnalogControlDialog(Gtk.Window())
+    dialog.editor.name_entry.set_text("Controller Touchpad")
+    _select_mode(dialog, "mouse_touchpad")
+    mouse = dialog.editor.mouse
+    assert mouse.group.get_visible()
+    assert mouse.area_radius_x_row.get_visible()
+    assert mouse.area_radius_x_row.get_title() == "Horizontal Movement Scale"
+    assert mouse.area_radius_y_row.get_title() == "Vertical Movement Scale"
+    for row in (
+        mouse.speed_x_row,
+        mouse.speed_y_row,
+        mouse.deadzone_row,
+        mouse.mouse_sensitivity_row,
+        mouse.mouse_response_curve_row,
+        mouse.mouse_curve_row,
+        mouse.area_start_enabled_row,
+        mouse.area_start_position_row,
+        mouse.area_start_capture_row,
+    ):
+        assert not row.get_visible()
+    mouse.area_radius_x_row.set_value(700)
+    mouse.invert_y_btn.set_active(True)
+    assert dialog._save_current()
+    saved = dialog.manager.get_analog_control("Controller Touchpad")
+    assert saved is not None
+    assert saved.mouse_motion.mode == "touchpad"
+    assert saved.mouse_motion.enabled
+    assert saved.mouse_motion.area_radius_x == 700
+    assert saved.mouse_motion.area_radius_y == 700
+    assert saved.mouse_motion.invert_y
+    dialog.editor.load(dialog.editor.draft())
+    assert dialog.editor.current_mode() == "mouse_touchpad"
+
+    _select_mode(dialog, "mouse_area")
+    assert mouse.area_radius_x_row.get_title() == "Horizontal Radius"
+    assert mouse.area_start_enabled_row.get_visible()
+    assert mouse.deadzone_row.get_visible()
+    assert mouse.mouse_curve_row.get_visible()
+    assert "mouse_touchpad" not in mode_items_for_input_type("axis")
+
+
 def test_mouse_area_capture_is_cancelled_when_selection_changes(
     temp_config_dir,
     monkeypatch,

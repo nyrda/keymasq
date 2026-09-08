@@ -27,6 +27,8 @@ def mode_for_config(config: AnalogControlConfig) -> str:
         return "gamepad"
     if config.mouse_motion.enabled and config.mouse_motion.mode == "area":
         return "mouse_area"
+    if config.mouse_motion.enabled and config.mouse_motion.mode == "touchpad":
+        return "mouse_touchpad"
     if config.thresholds:
         return "digital"
     return "mouse"
@@ -72,8 +74,8 @@ class MouseDraft:
 
     def to_config(self, *, input_type: str, mode: str) -> AnalogMouseMotionConfig:
         return AnalogMouseMotionConfig(
-            enabled=mode in {"mouse", "mouse_area"},
-            mode="area" if mode == "mouse_area" else "velocity",
+            enabled=mode in {"mouse", "mouse_area", "mouse_touchpad"},
+            mode={"mouse_area": "area", "mouse_touchpad": "touchpad"}.get(mode, "velocity"),
             speed=self.speed,
             speed_x=self.speed_x,
             speed_y=self.speed_y,

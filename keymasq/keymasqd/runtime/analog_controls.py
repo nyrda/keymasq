@@ -9,7 +9,11 @@ from keymasq.keymasqd.runtime.analog.binding_state import (
     record_axis_value,
 )
 from keymasq.keymasqd.runtime.analog.gamepad import emit_gamepad_output
-from keymasq.keymasqd.runtime.analog.mouse import emit_mouse_area_motion, ensure_mouse_task
+from keymasq.keymasqd.runtime.analog.mouse import (
+    emit_mouse_area_motion,
+    emit_mouse_touchpad_motion,
+    ensure_mouse_task,
+)
 from keymasq.keymasqd.runtime.analog.thresholds import evaluate_thresholds
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
@@ -47,6 +51,9 @@ async def process_analog_event(
     for index, config in enumerate(configs):
         state_key = control_state_key(analog_id, index, len(configs))
         mode = analog_control_primary_mode(config)
+        touchpad = mode == "mouse" and config.mouse_motion.mode == "touchpad"
+        if touchpad and device_runtime.state.analog_mouse_touchpad_resyncing:
+            continue
         record_axis_value(
             device_runtime,
             state_key,
@@ -55,6 +62,9 @@ async def process_analog_event(
             int(event.value),
             config,
         )
+        if touchpad:
+            device_runtime.state.analog_mouse_touchpad_pending[state_key] = config
+            continue
         await _process_analog_values(
             device_runtime,
             state_key,
@@ -66,6 +76,37 @@ async def process_analog_event(
             deps=deps,
         )
     return True
+
+
+async def process_analog_syn_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    """Flush touchpad motion only after both axes in a report have been recorded."""
+    state = device_runtime.state
+    if int(event.code) == int(deps.evdev_mod.ecodes.SYN_DROPPED):
+        affected = (
+            state.analog_mouse_touchpad_positions.keys()
+            | state.analog_mouse_touchpad_pending.keys()
+        )
+        state.analog_mouse_touchpad_needs_release.update(affected)
+        for state_key in affected:
+            state.analog_mouse_accumulators.pop(state_key, None)
+        state.analog_mouse_touchpad_positions.clear()
+        state.analog_mouse_touchpad_pending.clear()
+        state.analog_mouse_touchpad_resyncing = True
+        return
+    if int(event.code) != 0:  # SYN_REPORT
+        return
+    if state.analog_mouse_touchpad_resyncing:
+        state.analog_mouse_touchpad_resyncing = False
+        return
+    pending = list(state.analog_mouse_touchpad_pending.items())
+    state.analog_mouse_touchpad_pending.clear()
+    for state_key, config in pending:
+        await emit_mouse_touchpad_motion(device_runtime, state_key, config, deps=deps)
 
 
 async def process_normalized_analog_values(
@@ -136,7 +177,9 @@ async def _process_analog_values(
             deps=deps,
         )
     elif mode == "mouse":
-        if not await emit_mouse_area_motion(
+        if config.mouse_motion.mode == "touchpad" and config.input_type == "stick":
+            await emit_mouse_touchpad_motion(device_runtime, state_key, config, deps=deps)
+        elif not await emit_mouse_area_motion(
             device_runtime,
             state_key,
             config,

@@ -133,8 +133,8 @@ overrides unless you enter a value.
 Open the **Device** tab and select the analog input. The mapping dialog opens
 on the **Presets** tab when no analog controls exist yet.
 
-**Quick start (presets):** Click a preset card — for sticks: Mouse Move, Mouse
-Area, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
+**Quick start (presets):** Click a preset row. For sticks: Mouse Move, Mouse
+Area, Touchpad Mouse, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
 Right Click, Trigger Scroll Up, or Trigger Scroll Down. The preset is saved as a
 normal analog control, mapped to the input, and the dialog closes. Reopen the
 input later to fine-tune it or pick others.
@@ -205,6 +205,24 @@ right and the cursor moves right, release and it returns to the origin.
 - **Deadzone**, **Sensitivity**, **Response Curve** — same as Mouse
   Movement
 - **Invert Axes** — flip X or Y
+
+#### Touchpad Mouse (paired analog axes)
+
+Choose **Touchpad Mouse** for a controller touchpad whose axes return to exactly
+normalized `(0.0, 0.0)` on release. Keymasq lists paired hat axes under **Sticks**;
+select the pad's existing analog input and apply the Touchpad Mouse preset or mode.
+
+Touching establishes a reference without moving the pointer. Slide a finger to
+move it, then lift and touch elsewhere to continue without a jump. Holding still
+keeps the pointer still. Release produces no return movement or inertia.
+
+- **Horizontal Movement Scale** / **Vertical Movement Scale** control how far
+  the pointer moves for the same finger movement. These can be linked or split.
+- **Invert Axes** reverses X or Y movement.
+
+This mode uses linear movement without a stick-center deadzone, response curve,
+or start-position anchor. Assign a separate button for clicks and dragging.
+It supports controller pads exposed as analog axes, not multitouch gestures.
 
 #### Digital Actions
 
@@ -600,7 +618,9 @@ Button positions are based on physical location, not labels.
 
 ## Limitations
 
-- **Touchpads**: controller touchpads are not supported for remapping yet.
+- **Touchpads**: Touchpad Mouse supports controller pads exposed as paired analog
+  axes that return to normalized zero on release. Separate touchpad interfaces
+  and multitouch gestures are not supported for remapping.
 - **Dedicated drivers**: vendor-specific features may still need their
   native driver or Steam Input.
 

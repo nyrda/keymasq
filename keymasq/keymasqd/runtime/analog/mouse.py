@@ -22,7 +22,7 @@ def ensure_mouse_task(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    if not config.mouse_motion.enabled or config.mouse_motion.mode == "area":
+    if not config.mouse_motion.enabled or config.mouse_motion.mode in {"area", "touchpad"}:
         return
 
     task = device_runtime.state.analog_mouse_tasks.get(state_key)
@@ -146,6 +146,43 @@ def motion_delta(
     return (
         direction_x * scaled * max(0.0, speed_x) * dt,
         direction_y * scaled * max(0.0, speed_y) * dt,
+    )
+
+
+async def emit_mouse_touchpad_motion(
+    device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
+    config: AnalogControlConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    """Consume one complete normalized touchpad position, with zero meaning release."""
+    state = device_runtime.state
+    values = state.analog_axis_values.get(state_key, {})
+    x, y = float(values.get("x", 0.0)), float(values.get("y", 0.0))
+    if x == 0.0 and y == 0.0:
+        state.analog_mouse_touchpad_positions.pop(state_key, None)
+        state.analog_mouse_accumulators.pop(state_key, None)
+        state.analog_mouse_touchpad_needs_release.discard(state_key)
+        return
+    if state_key in state.analog_mouse_touchpad_needs_release:
+        return
+
+    previous = state.analog_mouse_touchpad_positions.get(state_key)
+    state.analog_mouse_touchpad_positions[state_key] = (x, y)
+    if previous is None:
+        state.analog_mouse_accumulators.pop(state_key, None)
+        return
+
+    motion = config.mouse_motion
+    dx = (x - previous[0]) * motion.area_radius_x
+    dy = (y - previous[1]) * motion.area_radius_y
+    await _emit_mouse_delta(
+        device_runtime,
+        state_key,
+        -dx if motion.invert_x else dx,
+        -dy if motion.invert_y else dy,
+        deps=deps,
     )
 
 

@@ -17,6 +17,7 @@ import evdev
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import AnalogControlConfig
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime.adapters import (
@@ -238,6 +239,10 @@ class GrabbedDeviceState:
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_mouse_area_active: set[str] = field(default_factory=set)
+    analog_mouse_touchpad_positions: dict[str, tuple[float, float]] = field(default_factory=dict)
+    analog_mouse_touchpad_pending: dict[str, AnalogControlConfig] = field(default_factory=dict)
+    analog_mouse_touchpad_needs_release: set[str] = field(default_factory=set)
+    analog_mouse_touchpad_resyncing: bool = False
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
     motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     motion_resyncing: bool = False

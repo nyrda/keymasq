@@ -34,12 +34,12 @@ input_type = "stick"         # "stick" (2D) or "axis" (1D)
 ```toml
 [mouse_motion]
 enabled = true
-mode = "velocity"            # "velocity" or "area" (area is stick-only)
+mode = "velocity"            # "velocity", "area", or "touchpad" (last two require 2D stick input)
 speed = 900.0                # pixels/sec (axis, or stick fallback)
 speed_x = 900.0              # stick only; defaults to speed
 speed_y = 900.0              # stick only; defaults to speed
-area_radius_x = 400.0        # area mode only
-area_radius_y = 400.0        # area mode only
+area_radius_x = 400.0        # area radius, or touchpad movement scale
+area_radius_y = 400.0        # area radius, or touchpad movement scale
 area_start_enabled = false   # area mode: jump to start position first
 area_start_x = 0
 area_start_y = 0
@@ -73,6 +73,42 @@ Each event emits only the relative delta from the previous target.
 Returning to rest brings the pointer back to the origin. When
 `area_start_enabled = true`, the daemon moves the cursor to
 `area_start_x`/`area_start_y` when the stick first leaves rest.
+
+### Touchpad mode (2D stick input)
+
+Use `mode = "touchpad"` for controller touchpads exposed as paired analog axes
+that return to exactly normalized `(0.0, 0.0)` when released. Existing axis
+detection and normalization apply; no separate touch button is required.
+
+The first nonzero position establishes a reference without moving the pointer.
+Each subsequent input report emits relative mouse movement:
+
+```text
+dx = (x - previous_x) * area_radius_x
+dy = (y - previous_y) * area_radius_y
+```
+
+The shared `area_radius_x` and `area_radius_y` fields appear as **Horizontal
+Movement Scale** and **Vertical Movement Scale** in the editor. A value of 400
+produces 800 relative mouse units across the full normalized range from -1 to 1.
+Desktop pointer settings can further affect the displayed distance.
+`invert_x` and `invert_y` reverse the corresponding movement.
+
+Returning to exactly `(0.0, 0.0)` ends the touch without emitting movement and
+clears the reference and fractional remainder. The next touch can start anywhere
+without jumping. Either axis alone may be zero while the other remains nonzero.
+Holding still produces no movement and has no timeout. A touch that actually
+reports the exact zero pair also ends the stroke.
+
+X and Y updates are collected through `SYN_REPORT` so a partial release cannot
+move the pointer. Fractional movement accumulates during a touch. Stick deadzone,
+sensitivity, response curve, velocity, tick interval, and area start-position
+settings do not affect this mode. There is no inertia or automatic clicking;
+map a separate button for clicks or dragging.
+
+Changed or removed mappings clear their touch state; unchanged controls retain
+it during profile updates. After `SYN_DROPPED`, movement waits for release before
+accepting a new touch.
 
 ## Gamepad Output
 

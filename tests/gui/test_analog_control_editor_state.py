@@ -14,13 +14,14 @@ from keymasq.gui.widgets.analog_control.persistence import AnalogControlPersiste
 from keymasq.gui.widgets.analog_control.thresholds import ThresholdState
 
 
-def test_control_draft_round_trips_area_mode_and_tick_interval() -> None:
+@pytest.mark.parametrize("mode", ["area", "touchpad"])
+def test_control_draft_round_trips_position_modes_and_tick_interval(mode: str) -> None:
     config = AnalogControlConfig(
         name="Area",
         description="description",
         mouse_motion=AnalogMouseMotionConfig(
             enabled=True,
-            mode="area",
+            mode=mode,
             area_radius_x=640,
             area_radius_y=480,
             tick_ms=12,
@@ -30,9 +31,9 @@ def test_control_draft_round_trips_area_mode_and_tick_interval() -> None:
     draft = ControlDraft.from_config(config)
     restored = draft.to_config()
 
-    assert draft.mode == "mouse_area"
+    assert draft.mode == f"mouse_{mode}"
     assert restored.mouse_motion.enabled is True
-    assert restored.mouse_motion.mode == "area"
+    assert restored.mouse_motion.mode == mode
     assert restored.mouse_motion.area_radius_x == 640
     assert restored.mouse_motion.tick_ms == 12
 

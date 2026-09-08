@@ -426,14 +426,20 @@ def test_analog_control_mouse_zero_split_speed_round_trips(temp_config_dir) -> N
     assert loaded.mouse_motion.speed_y == 700
 
 
-def test_analog_control_mouse_area_round_trips(temp_config_dir) -> None:
+@pytest.mark.parametrize("mode", ["area", "touchpad"])
+def test_analog_control_mouse_position_modes_round_trip(temp_config_dir, mode) -> None:
+    from types import SimpleNamespace
+
+    from keymasq.keymasqd.runtime.action_parser import parse_analog_control_config
+    from keymasq.session.manager.payload.analog import serialize, serialize_signature
+
     manager = AnalogControlManager()
     manager.save_analog_control(
         AnalogControlConfig(
             name="Mouse Area",
             mouse_motion=AnalogMouseMotionConfig(
                 enabled=True,
-                mode="area",
+                mode=mode,
                 area_radius_x=640,
                 area_radius_y=360,
                 area_start_enabled=True,
@@ -445,12 +451,16 @@ def test_analog_control_mouse_area_round_trips(temp_config_dir) -> None:
 
     loaded = AnalogControlManager().get_analog_control("Mouse Area")
     assert loaded is not None
-    assert loaded.mouse_motion.mode == "area"
+    assert loaded.mouse_motion.mode == mode
     assert loaded.mouse_motion.area_radius_x == 640
     assert loaded.mouse_motion.area_radius_y == 360
     assert loaded.mouse_motion.area_start_enabled is True
     assert loaded.mouse_motion.area_start_x == 100
     assert loaded.mouse_motion.area_start_y == 200
+    payload = serialize(SimpleNamespace(), loaded, "hardware")
+    assert parse_analog_control_config(SimpleNamespace(), payload, json_object=None) == loaded
+    signature = serialize_signature(SimpleNamespace(), loaded, "hardware")
+    assert signature["mouse_motion"]["mode"] == mode
 
 
 def test_analog_control_gamepad_output_learned_target_round_trips(temp_config_dir) -> None:
@@ -654,6 +664,7 @@ def test_analog_control_presets_filtered_by_input_type() -> None:
     assert {p.preset_id for p in stick} == {
         "mouse_move",
         "mouse_area",
+        "mouse_touchpad",
         "scroll_wheel",
         "wasd",
     }
@@ -672,6 +683,7 @@ def test_analog_control_presets_none_returns_all() -> None:
     assert {p.preset_id for p in every} == {
         "mouse_move",
         "mouse_area",
+        "mouse_touchpad",
         "scroll_wheel",
         "wasd",
         "trigger_left_click",
@@ -697,11 +709,21 @@ def test_analog_control_mouse_move_preset_uses_velocity_mouse_motion() -> None:
     assert config.mouse_motion.mode == "velocity"
 
 
-def test_analog_control_mouse_area_preset_uses_area_mode() -> None:
-    preset = next(p for p in analog_control_presets("stick") if p.preset_id == "mouse_area")
+@pytest.mark.parametrize("mode", ["area", "touchpad"])
+def test_analog_control_position_presets_use_requested_mode(mode) -> None:
+    preset = next(p for p in analog_control_presets("stick") if p.preset_id == f"mouse_{mode}")
     config = preset.build("Mouse Area")
     assert config.mouse_motion.enabled is True
-    assert config.mouse_motion.mode == "area"
+    assert config.mouse_motion.mode == mode
+
+
+def test_touchpad_mode_rejects_1d_input() -> None:
+    with pytest.raises(ValueError, match="touchpad mode requires a stick"):
+        AnalogControlConfig(
+            name="Touchpad",
+            input_type="axis",
+            mouse_motion=AnalogMouseMotionConfig(enabled=True, mode="touchpad"),
+        )
 
 
 def test_analog_control_trigger_presets_cover_clicks_and_scroll() -> None:

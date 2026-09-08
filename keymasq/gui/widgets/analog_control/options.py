@@ -47,6 +47,7 @@ INPUT_TYPE_OPTIONS = (
 _MODE_OPTIONS = (
     SelectOption("mouse", "Mouse Movement", "stick"),
     SelectOption("mouse_area", "Mouse Area", "stick"),
+    SelectOption("mouse_touchpad", "Touchpad Mouse", "stick"),
     SelectOption("digital", "Digital Actions", "stick"),
     SelectOption("gamepad", "Analog Output", "stick"),
     SelectOption("digital", "Digital Actions", "axis"),

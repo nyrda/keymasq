@@ -595,15 +595,44 @@ class AnalogControlEditorView(Gtk.Box):
         input_type = self.current_input_type()
         mode = self.current_mode()
         is_axis = input_type == "axis"
-        mouse_visible = mode in {"mouse", "mouse_area"}
+        mouse_visible = mode in {"mouse", "mouse_area", "mouse_touchpad"}
         area_visible = mode == "mouse_area" and not is_axis
-        velocity_visible = mouse_visible and not area_visible
+        touchpad_visible = mode == "mouse_touchpad" and not is_axis
+        velocity_visible = mode == "mouse"
         self.mouse.group.set_visible(mouse_visible)
+        self.mouse.group.set_title("Touchpad Mouse" if touchpad_visible else "Mouse Movement")
+        self.mouse.group.set_description(
+            "Slide a finger to move the pointer. Lift and touch elsewhere to continue."
+            if touchpad_visible
+            else None
+        )
         self.mouse.speed_row.set_visible(velocity_visible and is_axis)
         self.mouse.speed_x_row.set_visible(velocity_visible and not is_axis)
         self.mouse.speed_y_row.set_visible(velocity_visible and not is_axis)
-        self.mouse.area_radius_x_row.set_visible(area_visible)
-        self.mouse.area_radius_y_row.set_visible(area_visible)
+        self.mouse.area_radius_x_row.set_visible(area_visible or touchpad_visible)
+        self.mouse.area_radius_y_row.set_visible(area_visible or touchpad_visible)
+        self.mouse.area_radius_x_row.set_title(
+            "Horizontal Movement Scale" if touchpad_visible else "Horizontal Radius"
+        )
+        self.mouse.area_radius_y_row.set_title(
+            "Vertical Movement Scale" if touchpad_visible else "Vertical Radius"
+        )
+        for row, axis in (
+            (self.mouse.area_radius_x_row, "Horizontal"),
+            (self.mouse.area_radius_y_row, "Vertical"),
+        ):
+            row.set_subtitle(
+                "Higher values move the pointer farther for the same finger movement"
+                if touchpad_visible
+                else f"{axis} radius from the start point"
+            )
+        for row in (
+            self.mouse.deadzone_row,
+            self.mouse.mouse_sensitivity_row,
+            self.mouse.mouse_response_curve_row,
+            self.mouse.mouse_curve_row,
+        ):
+            row.set_visible(mouse_visible and not touchpad_visible)
         self.mouse.mouse_direction_row.set_visible(velocity_visible and is_axis)
         self.mouse.invert_axes_row.set_title("Invert Axis" if is_axis else "Invert Axes")
         self.mouse.invert_axes_row.set_visible(mouse_visible)

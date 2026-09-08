@@ -21,7 +21,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
 )
 
 ANALOG_MOUSE_DIRECTIONS = frozenset({"left", "right", "up", "down", "horizontal", "vertical"})
-ANALOG_MOUSE_MODES = frozenset({"velocity", "area"})
+ANALOG_MOUSE_MODES = frozenset({"velocity", "area", "touchpad"})
 ANALOG_GAMEPAD_OUTPUT_TARGETS = frozenset({"same", "left", "right", "analog", "axis"})
 ANALOG_GAMEPAD_OUTPUT_DIRECTIONS = frozenset({"min", "max", "both"})
 MIN_ANALOG_GAMEPAD_OUTPUT_SENSITIVITY = 0.1
@@ -220,8 +220,8 @@ def validate_analog_control_config(config: AnalogControlConfig) -> None:
         raise ValueError("analog control name is required")
     if config.input_type not in {"stick", "axis"}:
         raise ValueError("analog control input_type must be 'stick' or 'axis'")
-    if config.input_type == "axis" and config.mouse_motion.mode == "area":
-        raise ValueError("analog mouse area mode requires a stick control")
+    if config.input_type == "axis" and config.mouse_motion.mode in {"area", "touchpad"}:
+        raise ValueError(f"analog mouse {config.mouse_motion.mode} mode requires a stick control")
     if config.gamepad_output.target == "axis" and config.input_type != "axis":
         raise ValueError("an individual output axis requires a 1D axis control")
     for index, threshold in enumerate(config.thresholds, start=1):

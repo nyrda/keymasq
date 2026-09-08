@@ -397,8 +397,12 @@ systemctl --user restart keymasq-session
 Current behavior:
 
 - touchpads are detected but intentionally hidden from the Add Device flow
-- Keymasq does not support touchpad remapping yet, so the GUI will not offer a
-  touchpad as addable hardware
+- Keymasq does not support remapping separate touchpad interfaces, so the GUI
+  will not offer a touchpad as addable hardware
+
+Controller pads exposed as paired analog axes are different. Use the controller's
+existing analog input with [Touchpad Mouse](GAMEPAD.md#touchpad-mouse-paired-analog-axes)
+when the pad returns to normalized `(0.0, 0.0)` on release.
 
 ### Polkit or capture unlock problems
 

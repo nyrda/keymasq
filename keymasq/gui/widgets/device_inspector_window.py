@@ -60,7 +60,7 @@ class DeviceInspectorWindow(
         self._control_widgets: dict[str, Gtk.Widget] = {}
         self._event_history = EventHistory(
             motion_sources={
-                interface.id
+                interface.id.strip().lower()
                 for interface in device.evdev_devices
                 if interface.device_type == DeviceType.MOTION and interface.id
             }

@@ -341,7 +341,10 @@ def test_device_inspector_window_starts_and_renders_snapshot(inspector_harness) 
     assert trigger_viewer.value_labels["x"].get_text() == "x: raw      0 | norm +0.000"
 
 
-def test_motion_events_before_start_response_use_move_filter(monkeypatch) -> None:
+@pytest.mark.parametrize("configured_source", ["imu", "IMU", " ImU "])
+def test_motion_events_before_start_response_use_move_filter(
+    monkeypatch, configured_source
+) -> None:
     from gi.repository import Gtk
 
     from keymasq.common.model.core import DeviceType
@@ -350,10 +353,10 @@ def test_motion_events_before_start_response_use_move_filter(monkeypatch) -> Non
 
     device = _device()
     device.evdev_devices.append(
-        EvdevDevice(path="/dev/input/event11", device_type=DeviceType.MOTION, id="imu")
+        EvdevDevice(path="/dev/input/event11", device_type=DeviceType.MOTION, id=configured_source)
     )
     snapshot = _snapshot()
-    snapshot["interfaces"].append({"id": "imu", "type": "motion"})
+    snapshot["interfaces"].append({"id": configured_source, "type": "motion"})
 
     def request_handler(payload, callback, _timeout):
         if payload.get("command") == "start_device_inspector":
@@ -386,12 +389,14 @@ def test_motion_events_before_start_response_use_move_filter(monkeypatch) -> Non
         window._on_destroy()
 
 
+@pytest.mark.parametrize("configured_source", ["imu", "IMU", " ImU "])
 def test_motion_interface_axes_use_move_filter_without_evicting_regular_axes(
     inspector_harness,
+    configured_source,
 ) -> None:
     window = inspector_harness.window
     snapshot = _snapshot()
-    snapshot["interfaces"].append({"id": "imu", "type": "motion"})
+    snapshot["interfaces"].append({"id": configured_source, "type": "motion"})
     window._apply_snapshot(snapshot)
     assert not window._event_filter_buttons["mousemove"].get_active()
     window._event_filter_buttons["axis"].set_active(True)

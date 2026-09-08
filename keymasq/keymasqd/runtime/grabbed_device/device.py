@@ -292,6 +292,7 @@ class GrabbedDevice:
         self.event_binding_to_button: dict[tuple[int, int, int | None], str] = {}
         self.event_code_to_button: dict[tuple[int, int], str] = {}
         self.device: ManagedInputDevice | None = None
+        self.state = GrabbedDeviceState()
         self.uinput: evdev.UInput | None = None
         self.output_feedback_proxy: force_feedback.PassthroughFeedbackProxy | None = None
         self.update_button_map(button_map, button_codes, button_values)
@@ -357,7 +358,6 @@ class GrabbedDevice:
         self.running = False
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
-        self.state = GrabbedDeviceState()
 
     def update_button_map(
         self,
@@ -385,6 +385,7 @@ class GrabbedDevice:
                 self.event_code_to_button[(int(event_type), int(code))] = button_id
 
     def update_analog_inputs(self, analog_inputs: dict[str, object]) -> None:
+        self.state.analog_source_axis_values.clear()
         self.analog_inputs = dict(analog_inputs)
         self.analog_axis_bindings = {}
         self.analog_axis_output_codes = {}
@@ -533,6 +534,8 @@ class GrabbedDevice:
                 log.exception("Unexpected failure restoring hidden source after failed grab")
 
     async def grab(self) -> None:
+        self.state.analog_source_axis_values.clear()
+        self.state.analog_mouse_touchpad_resyncing = False
         self.resolved_event_path = os.path.realpath(self.path)
         self.source_hidden_kernel_names = []
         self.device = _device_input(self.path)
@@ -687,6 +690,8 @@ class GrabbedDevice:
 
     async def release(self) -> None:
         await self.stop_event_loop()
+        self.state.analog_source_axis_values.clear()
+        self.state.analog_mouse_touchpad_resyncing = False
         await self.reset_analog_controls()
         await self.reset_superkeys()
         pipeline.observe_profile_trigger_end_for_held_sources(self)

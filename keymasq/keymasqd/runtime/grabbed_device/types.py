@@ -228,6 +228,8 @@ class GrabbedDeviceState:
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
     held_profile_trigger_events: set[str] = field(default_factory=set)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Physical coordinates survive per-control resets; evdev reports only changes.
+    analog_source_axis_values: dict[tuple[int, int], int] = field(default_factory=dict)
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[
         str,
@@ -240,7 +242,9 @@ class GrabbedDeviceState:
     analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
     analog_mouse_area_active: set[str] = field(default_factory=set)
     analog_mouse_touchpad_positions: dict[str, tuple[float, float]] = field(default_factory=dict)
-    analog_mouse_touchpad_pending: dict[str, AnalogControlConfig] = field(default_factory=dict)
+    analog_mouse_touchpad_pending: dict[str, tuple[str, AnalogControlConfig]] = field(
+        default_factory=dict
+    )
     analog_mouse_touchpad_needs_release: set[str] = field(default_factory=set)
     analog_mouse_touchpad_resyncing: bool = False
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)

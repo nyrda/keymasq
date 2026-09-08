@@ -159,7 +159,9 @@ async def emit_mouse_touchpad_motion(
     """Consume one complete normalized touchpad position, with zero meaning release."""
     state = device_runtime.state
     values = state.analog_axis_values.get(state_key, {})
-    x, y = float(values.get("x", 0.0)), float(values.get("y", 0.0))
+    if "x" not in values or "y" not in values:
+        return
+    x, y = float(values["x"]), float(values["y"])
     if x == 0.0 and y == 0.0:
         state.analog_mouse_touchpad_positions.pop(state_key, None)
         state.analog_mouse_accumulators.pop(state_key, None)

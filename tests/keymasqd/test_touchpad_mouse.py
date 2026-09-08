@@ -1,5 +1,6 @@
 from dataclasses import replace
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import evdev
 import pytest
@@ -56,11 +57,23 @@ def touchpad(monkeypatch):
             }
         },
     )
+    axis_values = {evdev.ecodes.ABS_HAT1X: 0, evdev.ecodes.ABS_HAT1Y: 0}
+    device.device = SimpleNamespace(
+        axis_values=axis_values,
+        absinfo=Mock(
+            side_effect=lambda code: evdev.AbsInfo(axis_values[code], -32768, 32768, 0, 0, 0)
+        ),
+        active_keys=lambda: [],
+    )
+    device.update_analog_inputs(device.analog_inputs)
+    device.device.absinfo.reset_mock()
     device.cursor_position_setter = AsyncMock()
     return device, mouse, config
 
 
 async def _event(device, event_type, code, value=0):
+    if event_type == evdev.ecodes.EV_ABS:
+        device.device.axis_values[code] = value
     await process_event(
         device,
         evdev.InputEvent(0, 0, event_type, code, value),
@@ -161,7 +174,7 @@ async def test_dropped_report_waits_for_release_before_resuming(touchpad):
     await _report(device, mouse, 8192, 8192)
     await _event(device, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT1X, 16384)
     await _event(device, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_DROPPED)
-    await _report(device, mouse, 0, 0)  # Incomplete report is ignored.
+    await _report(device, mouse, 16384, 8192)  # Snapshot still shows a held touch.
     await _report(device, mouse, -8192, -8192)
     await _report(device, mouse, 8192, 8192)
     assert mouse.writes == []
@@ -172,6 +185,109 @@ async def test_dropped_report_waits_for_release_before_resuming(touchpad):
         (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100),
         (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("released_at_snapshot", [False, True])
+async def test_dropped_release_recovers_unchanged_zero_axis(touchpad, released_at_snapshot):
+    device, mouse, _ = touchpad
+    await _report(device, mouse, 8192, 8192)
+    await _event(device, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_DROPPED)
+    # Y changes to zero in the discarded report and is never sent again.
+    await _report(device, mouse, x=0 if released_at_snapshot else None, y=0)
+    assert device.device.absinfo.call_count == 2
+    assert mouse.writes == []
+    if not released_at_snapshot:
+        await _report(device, mouse, x=0)
+    await _report(device, mouse, x=-16384)
+    assert mouse.writes == []
+    await _report(device, mouse, x=-8192)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed_mapping", [False, True])
+async def test_mapping_reset_retains_unchanged_physical_axis(touchpad, changed_mapping):
+    device, mouse, config = touchpad
+    await _report(device, mouse, 8192, 16384)
+    mapping = device.mapping_getter()
+    previous_mapping = dict(mapping)
+    if changed_mapping:
+        mapping["pad"] = MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=replace(config, name="Changed touchpad"),
+        )
+    await device.reset_mapping_runtime_state(previous_mapping=previous_mapping)
+    await _report(device, mouse, x=16384)
+    assert mouse.writes == (
+        [] if changed_mapping else [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+    )
+    await _report(device, mouse, y=24576)
+    assert mouse.writes[-1] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50)
+    device.device.absinfo.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action_type", [ActionType.SUPPRESS, ActionType.PASSTHROUGH])
+async def test_touchpad_enabled_after_sparse_unmapped_input(touchpad, action_type):
+    device, mouse, _ = touchpad
+    mapping = device.mapping_getter()
+    touchpad_action = mapping["pad"]
+    mapping["pad"] = MappingAction(action_type=action_type)
+    await _report(device, mouse, 8192, 16384)
+    mapping["pad"] = touchpad_action
+    await device.reset_mapping_runtime_state()
+    await _report(device, mouse, x=16384)
+    assert mouse.writes == []
+    await _report(device, mouse, y=24576)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50)]
+
+
+@pytest.mark.asyncio
+async def test_initial_sparse_report_queries_held_axis(touchpad):
+    device, mouse, _ = touchpad
+    device.device.axis_values[evdev.ecodes.ABS_HAT1Y] = 16384
+    await _report(device, mouse, x=8192)
+    assert mouse.writes == []
+    device.device.absinfo.assert_called_once_with(evdev.ecodes.ABS_HAT1Y)
+    await _report(device, mouse, y=24576)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50)]
+
+
+@pytest.mark.asyncio
+async def test_dropped_release_is_recovered_while_input_is_paused(touchpad):
+    device, mouse, _ = touchpad
+    await _report(device, mouse, 8192, 8192)
+    device.input_paused_getter = lambda: True
+    await _event(device, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_DROPPED)
+    await _report(device, mouse, 0, 0)
+    assert mouse.writes == []
+    device.input_paused_getter = lambda: False
+    await _report(device, mouse, x=8192)
+    assert mouse.writes == []
+    await _report(device, mouse, x=16384)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+async def test_failed_resync_does_not_treat_unknown_axes_as_release(touchpad):
+    device, mouse, _ = touchpad
+    await _report(device, mouse, 8192, 8192)
+    read_axis = device.device.absinfo.side_effect
+    device.device.absinfo.side_effect = OSError("Device state unavailable")
+    await _event(device, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_DROPPED)
+    await _report(device, mouse, 0, 0)
+    await _report(device, mouse, 8192, 8192)
+    assert mouse.writes == []
+    assert device.state.analog_mouse_touchpad_resyncing
+    device.device.absinfo.side_effect = read_axis
+    await _report(device, mouse)
+    await _report(device, mouse, x=16384)
+    assert mouse.writes == []
+    await _report(device, mouse, 0, 0)
+    await _report(device, mouse, x=8192)
+    await _report(device, mouse, x=16384)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
 
 
 @pytest.mark.asyncio

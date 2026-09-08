@@ -216,6 +216,12 @@ Touching establishes a reference without moving the pointer. Slide a finger to
 move it, then lift and touch elsewhere to continue without a jump. Holding still
 keeps the pointer still. Release produces no return movement or inertia.
 
+Changing the mapping starts a new stroke reference while retaining the pad's
+current coordinates. If the input stream loses events, Keymasq reads the current
+axes from the device. A finger still touching the pad must be lifted before
+movement resumes; a release found during recovery allows the next touch to start
+normally.
+
 - **Horizontal Movement Scale** / **Vertical Movement Scale** control how far
   the pointer moves for the same finger movement. These can be linked or split.
 - **Invert Axes** reverses X or Y movement.

@@ -20,6 +20,8 @@ coverage. It verifies that the core runtime classes still work together:
 - macro create/update/rename/delete plus loop count
 - macro pause/resume with exact cleanup and continuation events
 - child pause expiry while a parent configured with Never retains its progress
+- parallel-child failure aborts a parent paused with Never and releases a sibling's
+  held key without another trigger press; the next press starts a fresh invocation
 - superkey tap
 - overloaded superkey with multiple press and release actions
 - chord, multi-step, prefix-shadowing, overlapping, negative, and multi-source combos
@@ -73,6 +75,7 @@ scenarios when chasing flakes:
 ./scripts/integration.sh daemon-session --scenario hotplug-replug
 ./scripts/integration.sh daemon-session --scenario profile-lifetime-direct-actions,hotplug-replug --repeat 10
 ./scripts/integration.sh daemon-session --scenario macro-pause-resume,macro-child-pause-expiry --repeat 3
+./scripts/integration.sh daemon-session --scenario macro-paused-parent-child-failure --repeat 3
 ```
 
 This is equivalent to running the Nix check directly:

@@ -104,7 +104,7 @@ from runner import _scenario_key, selected_scenarios
 from scenarios import SCENARIOS
 
 keys = [_scenario_key(scenario.name) for scenario in SCENARIOS]
-assert len(SCENARIOS) == 51
+assert len(SCENARIOS) == 52
 assert len(keys) == len(set(keys))
 assert all(key and key.replace('-', '').isalnum() for key in keys)
 assert _scenario_key('simple 1->1 remap') == 'simple-1-1-remap'
@@ -145,7 +145,8 @@ def test_runner_lists_all_registered_scenarios_without_starting_context() -> Non
 
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 51
+    assert len(lines) == 52
+    assert "macro-paused-parent-child-failure\tmacro paused parent child failure" in lines
     assert "macro-pause-resume\tmacro pause resume" in lines
     assert "macro-child-pause-expiry\tmacro child pause expiry" in lines
     assert (

@@ -10,6 +10,7 @@ from support import HARDWARE_ID, ScenarioContext
 PROFILE_NAME = "Integration Macro Pause"
 PARENT_NAME = "integration-pause-parent"
 CHILD_NAME = "integration-pause-child"
+FAILING_NAME = "integration-pause-failing-child"
 TRIGGER = evdev.ecodes.KEY_F13
 OPENING = evdev.ecodes.KEY_1
 CHILD_HELD = evdev.ecodes.KEY_2
@@ -163,3 +164,84 @@ def run_child_expiry(ctx: ScenarioContext) -> None:
         _expect_exact_keys(ctx, [(PARENT_END, 1), (PARENT_END, 0)])
         ctx.expect_no_keyboard_events(timeout_s=0.6)
         _verify_next_press_starts_fresh(ctx)
+
+
+def run_child_failure(ctx: ScenarioContext) -> None:
+    with _mapped_macros(ctx):
+        try:
+            ctx.request(
+                {
+                    "command": "create_macro",
+                    "macro": {
+                        "name": FAILING_NAME,
+                        "events": [
+                            {
+                                "t_us": 0,
+                                "macro_action": "wait",
+                                "duration_us": 1_000_000,
+                            },
+                            {
+                                "t_us": 0,
+                                "macro_action": "macro_sync",
+                                "macro_name": "integration-pause-deliberately-missing",
+                            },
+                        ],
+                    },
+                }
+            )
+            ctx.request(
+                {
+                    "command": "update_macro",
+                    "name": CHILD_NAME,
+                    "macro": {
+                        "name": CHILD_NAME,
+                        "events": [_key(CHILD_HELD, 1), _key(CHILD_HELD, 0, 30_000_000)],
+                    },
+                }
+            )
+            ctx.request(
+                {
+                    "command": "update_macro",
+                    "name": PARENT_NAME,
+                    "macro": {
+                        "name": PARENT_NAME,
+                        "loop_stop_behavior": "pause_run",
+                        "pause_timeout_s": 0,
+                        "events": [
+                            _key(OPENING, 1),
+                            {
+                                "t_us": 0,
+                                "macro_action": "macro_parallel",
+                                "macro_name": FAILING_NAME,
+                            },
+                            {
+                                "t_us": 0,
+                                "macro_action": "macro_sync",
+                                "macro_name": CHILD_NAME,
+                            },
+                            _key(OPENING, 0),
+                            _key(PARENT_END, 1),
+                            _key(PARENT_END, 0),
+                        ],
+                    },
+                }
+            )
+            ctx.source_key(TRIGGER, 1)
+            _expect_exact_keys(ctx, [(OPENING, 1), (CHILD_HELD, 1)])
+            ctx.source_key(TRIGGER, 0)
+            # The parent's cleanup release acknowledges pause, without releasing its child.
+            _expect_exact_keys(ctx, [(OPENING, 0)])
+            ctx.expect_no_keyboard_events(timeout_s=0.1)
+            # The child normally holds for 30 seconds. Only failure cleanup can release
+            # it within this deadline, without a repress or Cancel All request.
+            _expect_exact_keys(ctx, [(CHILD_HELD, 0)], timeout_s=5.0)
+            ctx.expect_no_keyboard_events(timeout_s=0.2)
+            # Failure must discard the paused parent, so a later press starts fresh.
+            ctx.source_key(TRIGGER, 1)
+            _expect_exact_keys(ctx, [(OPENING, 1), (CHILD_HELD, 1)])
+            ctx.source_key(TRIGGER, 0)
+            _expect_exact_keys(ctx, [(OPENING, 0)])
+            _expect_exact_keys(ctx, [(CHILD_HELD, 0)], timeout_s=5.0)
+            ctx.expect_no_keyboard_events(timeout_s=0.2)
+        finally:
+            ctx.request({"command": "delete_macro", "name": FAILING_NAME}, ok=False)

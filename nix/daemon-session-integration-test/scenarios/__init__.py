@@ -65,6 +65,7 @@ SCENARIOS = [
     ScenarioCase("macro lifecycle", macro_lifecycle.run),
     ScenarioCase("macro pause resume", macro_pause.run_resume),
     ScenarioCase("macro child pause expiry", macro_pause.run_child_expiry),
+    ScenarioCase("macro paused parent child failure", macro_pause.run_child_failure),
     ScenarioCase("superkey tap", superkey_tap.run),
     ScenarioCase(
         "superkey overload multi-action press/release",

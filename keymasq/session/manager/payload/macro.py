@@ -12,6 +12,7 @@ def add_inspector_fields(data: dict[str, object], action: MappingAction) -> None
     data["loop_mode"] = action.macro_loop_mode
     data["loop_count"] = int(action.macro_loop_count)
     data["loop_stop_behavior"] = action.macro_loop_stop_behavior
+    data["pause_timeout_s"] = action.macro_pause_timeout_s
     data["move_to_start"] = bool(action.macro_move_to_start)
     data["start_x"] = int(action.macro_start_x)
     data["start_y"] = int(action.macro_start_y)
@@ -34,6 +35,7 @@ def add_runtime_fields(
     data["macro_loop_mode"] = action.macro_loop_mode
     data["macro_loop_count"] = int(action.macro_loop_count)
     data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
+    data["macro_pause_timeout_s"] = action.macro_pause_timeout_s
     data["macro_move_to_start"] = bool(action.macro_move_to_start)
     data["macro_start_x"] = int(action.macro_start_x)
     data["macro_start_y"] = int(action.macro_start_y)

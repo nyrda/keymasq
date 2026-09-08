@@ -72,16 +72,14 @@ class LoadControllerMixin:
         if not self._create_new:
             try:
                 response = (
-                    self._session_request({"command": "get_macro", "name": self._macro_name})
-                    or {}
+                    self._session_request({"command": "get_macro", "name": self._macro_name}) or {}
                 )
                 loaded_macro = response.get("macro")
                 if response.get("status") == "ok" and isinstance(loaded_macro, dict):
                     macro = loaded_macro
                 else:
                     macro_load_error = str(
-                        response.get("message", "Failed to load macro")
-                        or "Failed to load macro"
+                        response.get("message", "Failed to load macro") or "Failed to load macro"
                     )
             except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 macro_load_error = str(exc).strip() or exc.__class__.__name__
@@ -100,11 +98,7 @@ class LoadControllerMixin:
         load_error = payload.get("macro_load_error")
         if result.error is not None:
             load_error = str(result.error).strip() or result.error.__class__.__name__
-        if (
-            not self._create_new
-            and not isinstance(payload.get("macro"), dict)
-            and not load_error
-        ):
+        if not self._create_new and not isinstance(payload.get("macro"), dict) and not load_error:
             load_error = "The macro response did not contain a valid macro"
         if isinstance(load_error, str) and load_error:
             self._show_macro_load_error(load_error)
@@ -192,3 +186,4 @@ class LoadControllerMixin:
         self._macro_loop_mode = document.loop_mode
         self._macro_loop_count = document.loop_count
         self._macro_loop_stop_behavior = document.loop_stop_behavior
+        self._macro_pause_timeout_s = document.pause_timeout_s

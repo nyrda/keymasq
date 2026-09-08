@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from keymasq.keymasqd.runtime.macro import controls, mouse, outputs
@@ -11,6 +12,34 @@ from keymasq.keymasqd.runtime.macro.state import MacroRuntimeDeps
 type MacroManager = Any
 type ReleaseHeldOutputs = Callable[..., None]
 type EndMouseSuppression = Callable[..., None]
+
+
+def expire_paused_instance(
+    manager: MacroManager, expired_id: int, *, deps: MacroRuntimeDeps
+) -> None:
+    """Cancel the expired instance and its descendants, leaving ancestors and siblings alone."""
+    state = manager.macro_state
+    if expired_id in state.cancel_instance_ids or expired_id not in state.instance_meta:
+        return
+    ids = state.descendant_instance_ids([expired_id])
+    state.cancel_instance_ids.update(ids)
+    for instance_id in ids:
+        pause = state.pauses.get(instance_id)
+        if pause is not None:
+            pause.clear_timeout()
+        outputs.release_macro_held_for_instance(manager, instance_id, deps=deps)
+        task = state.tasks.get(instance_id)
+        if task is not None and not task.done():
+            task.cancel()
+            # Also reap instances cancelled before their scheduler starts.
+            task.add_done_callback(partial(_forget_cancelled_instance, state, instance_id))
+        else:
+            state.forget_instance(instance_id)
+    deps.log.debug("Discarded paused macro instance %s after its timeout", expired_id)
+
+
+def _forget_cancelled_instance(state: Any, instance_id: int, _task: object) -> None:
+    state.forget_instance(instance_id)
 
 
 async def cancel_macro_instances(

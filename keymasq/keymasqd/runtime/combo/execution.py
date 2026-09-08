@@ -10,7 +10,6 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.combo_engine import RuntimeComboBinding
 from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
-from keymasq.keymasqd.runtime.action.triggers import is_hold_macro_action
 from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
 from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps, EvdevModule
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
@@ -121,7 +120,8 @@ def action_needs_release(action: MappingAction) -> bool:
     }:
         return bool(action.tap_enabled or action.rapidfire_enabled)
     if action.action_type == ActionType.MACRO:
-        return is_hold_macro_action(action)
+        # Even a Once parent can contain children that follow trigger release.
+        return True
     return action.action_type in {
         ActionType.EXEC,
         ActionType.COMPOSITOR_DISPATCH,

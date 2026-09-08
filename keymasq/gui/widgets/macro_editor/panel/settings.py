@@ -10,6 +10,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
+
 _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("none", "Once"),
     ("count", "Count"),
@@ -132,7 +134,18 @@ class MacroSettingsMixin:
             self._on_macro_loop_stop_toggled,
         )
         loop_row.append(self._macro_loop_finish_check)
+        self._macro_pause_check = Gtk.CheckButton(label="Pause on release")
+        self._macro_pause_check.set_active(self._macro_loop_stop_behavior == "pause_run")
+        self._macro_pause_check.set_tooltip_text(
+            "Release held outputs and pause the timeline. Hold the trigger again to resume. "
+            "Active waits, commands, and mouse moves continue. Requires a held trigger."
+        )
+        self._macro_pause_check.connect("toggled", self._on_macro_pause_toggled)
+        loop_row.append(self._macro_pause_check)
         outer.append(loop_row)
+        self._macro_pause_timeout = PauseTimeoutControl(self._on_macro_pause_timeout_changed)
+        self._macro_pause_timeout.set_timeout(self._macro_pause_timeout_s)
+        outer.append(self._macro_pause_timeout)
 
         self._exec_summary_label = Gtk.Label()
         self._exec_summary_label.add_css_class("dim-label")
@@ -233,6 +246,7 @@ class MacroSettingsMixin:
         loop_mode = self._macro_loop_mode
         loop_count = self._macro_loop_count
         loop_stop_behavior = self._macro_loop_stop_behavior
+        pause_timeout_s = self._macro_pause_timeout_s
         move_to_start = self._macro_move_to_start
         start_x = self._macro_start_x
         start_y = self._macro_start_y
@@ -246,6 +260,10 @@ class MacroSettingsMixin:
         )
         self._macro_loop_count_spin.set_value(loop_count)
         self._macro_loop_finish_check.set_active(loop_stop_behavior == "finish_run")
+        # The finish checkbox may emit while the old pause checkbox is still off.
+        self._macro_loop_stop_behavior = loop_stop_behavior
+        self._macro_pause_check.set_active(loop_stop_behavior == "pause_run")
+        self._macro_pause_timeout.set_timeout(pause_timeout_s)
         self._macro_move_to_start_check.set_active(move_to_start)
         self._macro_start_x_spin.set_value(start_x)
         self._macro_start_y_spin.set_value(start_y)
@@ -267,7 +285,30 @@ class MacroSettingsMixin:
         self._sync_close_guard()
 
     def _on_macro_loop_stop_toggled(self, check: Gtk.CheckButton) -> None:
-        self._macro_loop_stop_behavior = "finish_run" if check.get_active() else "cancel_run"
+        if not self._macro_pause_check.get_active():
+            self._macro_loop_stop_behavior = "finish_run" if check.get_active() else "cancel_run"
+        self._sync_close_guard()
+
+    def _on_macro_pause_toggled(self, check: Gtk.CheckButton) -> None:
+        if (
+            check.get_active()
+            and self._macro_loop_stop_behavior != "pause_run"
+            and self._macro_pause_timeout_s == 0
+        ):
+            self._macro_pause_timeout_s = 60.0
+            self._macro_pause_timeout.set_timeout(60)
+        self._macro_loop_stop_behavior = (
+            "pause_run"
+            if check.get_active()
+            else "finish_run"
+            if self._macro_loop_finish_check.get_active()
+            else "cancel_run"
+        )
+        self._update_loop_controls()
+        self._sync_close_guard()
+
+    def _on_macro_pause_timeout_changed(self, seconds: float) -> None:
+        self._macro_pause_timeout_s = seconds
         self._sync_close_guard()
 
     def _update_loop_controls(self) -> None:
@@ -275,6 +316,13 @@ class MacroSettingsMixin:
         self._macro_loop_count_label.set_visible(state.show_count)
         self._macro_loop_count_spin.set_visible(state.show_count)
         self._macro_loop_finish_check.set_visible(state.show_stop_behavior)
+        self._macro_pause_check.set_visible(self._macro_loop_mode != "toggle")
+        self._macro_pause_timeout.set_visible(
+            self._macro_loop_mode != "toggle" and self._macro_pause_check.get_active()
+        )
+        self._macro_loop_finish_check.set_sensitive(
+            self._macro_loop_mode == "toggle" or not self._macro_pause_check.get_active()
+        )
 
     def _on_macro_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_move_to_start = check.get_active()

@@ -68,6 +68,7 @@ class MacroPlaybackRequest(TypedDict):
     loop_mode: str
     loop_count: int
     loop_stop_behavior: str
+    pause_timeout_s: float
     move_to_start: bool
     start_x: int
     start_y: int

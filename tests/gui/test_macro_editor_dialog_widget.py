@@ -851,6 +851,91 @@ def test_macro_editor_delayed_abs_move_capture_ignores_stale_response(monkeypatc
     assert dialog._move_y_spin.get_value_as_int() == 400
 
 
+def test_macro_editor_pause_setting_saves_and_reloads(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._macro_pause_check.set_active(True)
+    payload = dialog._build_macro_payload("paused")
+    assert payload["loop_stop_behavior"] == "pause_run"
+    assert payload["pause_timeout_s"] == 60
+    dialog._macro_pause_timeout.seconds.set_value(120)
+    payload = dialog._build_macro_payload("paused")
+    assert payload["pause_timeout_s"] == 120
+    dialog._apply_macro_state(payload)
+    assert dialog._macro_pause_check.get_active() is True
+    assert dialog._macro_pause_timeout.get_timeout() == 120
+    dialog._macro_pause_timeout.never.set_active(True)
+    assert dialog._build_macro_payload("paused")["pause_timeout_s"] == 0
+    assert dialog._build_macro_payload("paused")["loop_stop_behavior"] == "pause_run"
+    _set_dropdown_selected_id(dialog._macro_loop_mode_combo, _LOOP_MODE_OPTIONS, "toggle")
+    assert dialog._macro_pause_check.get_visible() is False
+    assert dialog._build_macro_payload("paused")["loop_stop_behavior"] != "pause_run"
+
+
+def test_macro_editor_legacy_paused_macro_keeps_never_timeout(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    payload = dialog._build_macro_payload("legacy")
+    payload["loop_stop_behavior"] = "pause_run"
+    payload.pop("pause_timeout_s")
+    dialog._apply_macro_state(payload)
+    assert dialog._macro_pause_timeout.never.get_active() is True
+    assert dialog._build_macro_payload("legacy")["pause_timeout_s"] == 0
+
+
+def test_macro_editor_child_pause_is_available_for_once_and_hold(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    child = EditableControl(mode="macro_sync", t_us=0, macro_name="child")
+    dialog._control_events = [child]
+    dialog._timeline._selected = child
+    dialog._on_selection_changed(child)
+    assert dialog._control_macro_stop_row.get_visible() is True
+    dialog._control_macro_stop_dropdown.set_selected(1)
+    assert child.macro_loop_stop_behavior == "pause_run"
+    assert child.macro_pause_timeout_s == 60
+    dialog._control_macro_pause_timeout.seconds.set_value(180)
+    dialog._control_macro_loop_dropdown.set_selected(2)
+    assert child.macro_loop_mode == "hold"
+    assert dialog._control_macro_stop_dropdown.get_selected() == 2
+    payload = dialog._build_macro_payload("parent")
+    call = next(event for event in payload["events"] if event.get("macro_name") == "child")
+    assert call["loop_stop_behavior"] == "pause_run"
+    assert call["pause_timeout_s"] == 180
+    dialog._control_macro_pause_timeout.never.set_active(True)
+    assert child.macro_pause_timeout_s == 0
+
+
+@pytest.mark.parametrize("loop_index,loop_mode", [(0, "none"), (1, "count")])
+@pytest.mark.parametrize("stop_behavior", ["cancel_run", "pause_run"])
+def test_macro_editor_child_loop_change_saves_displayed_stop_behavior(
+    monkeypatch, loop_index, loop_mode, stop_behavior
+) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    child = EditableControl(
+        mode="macro_sync",
+        t_us=0,
+        macro_name="child",
+        macro_loop_mode="hold",
+        macro_loop_stop_behavior=stop_behavior,
+        macro_pause_timeout_s=180,
+    )
+    dialog._control_events = [child]
+    dialog._timeline._selected = child
+    dialog._on_selection_changed(child)
+
+    dialog._control_macro_loop_dropdown.set_selected(loop_index)
+
+    expected = "finish_run" if stop_behavior == "cancel_run" else "pause_run"
+    payload = dialog._build_macro_payload("parent")
+    call = next(event for event in payload["events"] if event.get("macro_name") == "child")
+    assert call["loop_mode"] == loop_mode
+    assert call["loop_stop_behavior"] == expected
+    assert call["pause_timeout_s"] == 180
+    assert dialog._control_macro_stop_dropdown.get_selected() == (
+        1 if expected == "pause_run" else 0
+    )
+    dialog._apply_macro_state(payload)
+    assert dialog._control_events[0].macro_loop_stop_behavior == expected
+
+
 def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     dialog._timeline._selected = None

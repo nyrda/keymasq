@@ -14,6 +14,17 @@ from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     _describe_compositor_control,
 )
+from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
+
+
+def _release_options(mode: str) -> tuple[tuple[str, str], ...]:
+    if mode == "hold":
+        return (
+            ("finish_run", "Finish current run"),
+            ("cancel_run", "Cancel current run"),
+            ("pause_run", "Pause and resume"),
+        )
+    return (("finish_run", "Continue playback"), ("pause_run", "Pause and resume"))
 
 
 @dataclass(frozen=True)
@@ -47,6 +58,7 @@ class ControlEditorState:
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
     macro_loop_stop_behavior: str = "finish_run"
+    macro_pause_timeout_s: float = 0.0
     macro_speed: float = 1.0
     macro_replay_mouse_movement: bool = True
     macro_replay_mouse_clicks: bool = True
@@ -138,6 +150,7 @@ def control_editor_state(
             macro_loop_mode=control.macro_loop_mode,
             macro_loop_count=max(1, int(control.macro_loop_count)),
             macro_loop_stop_behavior=control.macro_loop_stop_behavior,
+            macro_pause_timeout_s=control.macro_pause_timeout_s,
             macro_speed=max(0.01, float(control.macro_speed)),
             macro_replay_mouse_movement=bool(control.macro_replay_mouse_movement),
             macro_replay_mouse_clicks=bool(control.macro_replay_mouse_clicks),
@@ -281,13 +294,17 @@ class ControlEditorMixin:
         macro_stop_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         macro_stop_row.append(Gtk.Label(label="On release:"))
         self._control_macro_stop_dropdown = Gtk.DropDown.new_from_strings(
-            ["Finish current run", "Cancel current run"]
+            ["Finish current run", "Cancel current run", "Pause and resume"]
         )
         self._control_macro_stop_dropdown.connect(
             "notify::selected", self._on_control_macro_stop_changed
         )
         macro_stop_row.append(self._control_macro_stop_dropdown)
         control_row.append(macro_stop_row)
+        self._control_macro_pause_timeout = PauseTimeoutControl(
+            self._on_control_macro_pause_timeout_changed
+        )
+        control_row.append(self._control_macro_pause_timeout)
 
         panel.append(control_row)
         self._control_row = control_row
@@ -345,9 +362,11 @@ class ControlEditorMixin:
             self._control_timeout_hint_label.set_visible(state.show_timeout_hint)
             self._control_macro_call_row.set_visible(state.show_macro)
             self._control_macro_options_row.set_visible(state.show_macro)
-            self._control_macro_stop_row.set_visible(
-                state.show_macro and state.macro_loop_mode == "hold"
+            self._control_macro_stop_row.set_visible(state.show_macro)
+            self._control_macro_pause_timeout.set_visible(
+                state.show_macro and state.macro_loop_stop_behavior == "pause_run"
             )
+            self._control_macro_pause_timeout.set_timeout(state.macro_pause_timeout_s)
             if state.show_command:
                 _set_entry_text_if_needed(self._control_cmd_entry, state.command)
             if state.show_exec_mode:
@@ -366,8 +385,24 @@ class ControlEditorMixin:
                 )
                 self._control_macro_count_spin.set_visible(state.macro_loop_mode == "count")
                 self._control_macro_count_spin.set_value(state.macro_loop_count)
+                release_options = _release_options(state.macro_loop_mode)
+                release_labels = [label for _, label in release_options]
+                release_model = self._control_macro_stop_dropdown.get_model()
+                if (
+                    not isinstance(release_model, Gtk.StringList)
+                    or [release_model.get_string(i) for i in range(release_model.get_n_items())]
+                    != release_labels
+                ):
+                    self._control_macro_stop_dropdown.set_model(Gtk.StringList.new(release_labels))
                 self._control_macro_stop_dropdown.set_selected(
-                    1 if state.macro_loop_stop_behavior == "cancel_run" else 0
+                    next(
+                        (
+                            i
+                            for i, (value, _) in enumerate(release_options)
+                            if value == state.macro_loop_stop_behavior
+                        ),
+                        0,
+                    )
                 )
                 self._control_macro_speed_spin.set_value(state.macro_speed)
                 self._control_macro_movement_check.set_active(state.macro_replay_mouse_movement)
@@ -499,6 +534,9 @@ class ControlEditorMixin:
         control.macro_loop_mode = {0: "none", 1: "count", 2: "hold"}.get(
             dropdown.get_selected(), "none"
         )
+        supported = {value for value, _label in _release_options(control.macro_loop_mode)}
+        if control.macro_loop_stop_behavior not in supported:
+            control.macro_loop_stop_behavior = "finish_run"
         self._refresh_after_control_change(control)
 
     def _on_control_macro_count_changed(self, spin: Gtk.SpinButton) -> None:
@@ -510,9 +548,24 @@ class ControlEditorMixin:
     def _on_control_macro_stop_changed(self, dropdown: Gtk.DropDown, _param) -> None:
         if self._updating_props or (control := self._selected_macro_control()) is None:
             return
+        options = _release_options(control.macro_loop_mode)
+        selected = dropdown.get_selected()
+        previous = control.macro_loop_stop_behavior
         control.macro_loop_stop_behavior = (
-            "cancel_run" if dropdown.get_selected() == 1 else "finish_run"
+            options[selected][0] if selected < len(options) else "finish_run"
         )
+        if (
+            previous != "pause_run"
+            and control.macro_loop_stop_behavior == "pause_run"
+            and control.macro_pause_timeout_s == 0
+        ):
+            control.macro_pause_timeout_s = 60.0
+        self._refresh_after_control_change(control)
+
+    def _on_control_macro_pause_timeout_changed(self, seconds: float) -> None:
+        if self._updating_props or (control := self._selected_macro_control()) is None:
+            return
+        control.macro_pause_timeout_s = seconds
         self._refresh_after_control_change(control)
 
     def _on_control_macro_speed_changed(self, spin: Gtk.SpinButton) -> None:

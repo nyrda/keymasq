@@ -164,6 +164,7 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         MappingAction(
             action_type=ActionType.MACRO,
             macro_name="paste",
+            macro_pause_timeout_s=120,
             macro_replay_mouse_movement=False,
             macro_speed=1.5,
             macro_loop_mode="count",
@@ -175,6 +176,7 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
     ) == {
         "action": "macro",
         "target": "paste",
+        "pause_timeout_s": 120,
         "replay_mouse_movement": False,
         "replay_mouse_clicks": True,
         "speed": 1.5,

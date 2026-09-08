@@ -3,31 +3,47 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/dev.sh"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${KEYMASQ_DEV_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/dev.sh [--detached]
+Usage: ./scripts/dev.sh [--detached] [switch [PATH]]
        ./scripts/dev.sh restart [both|daemon|session|gui|all]
        ./scripts/dev.sh stop
 
 Open or reattach to the Keymasq tmux workspace. Daemon and session start
 immediately; F8 starts the GUI. --detached starts without attaching.
+Opening from another worktree gracefully stops the old processes and switches
+to this checkout. A running GUI reopens from the new checkout too.
 
+F4 choose worktree (type to filter, Enter to switch, Esc to cancel)
 F5 restart both    F6 restart daemon    F7 restart session
 F8 start/restart GUI    F9 detach    F10 stop everything
 
-The header buttons perform the same actions. Only one checkout can own the
-workspace at a time because the dev processes use the installed sockets.
+switch opens the picker, or selects PATH directly. Worktrees are newest first,
+using filesystem creation time, or .git modification time if unavailable.
+Restart and stop operate on the active workspace, from any checkout.
+The header buttons perform the same actions. A switch waits for all old
+processes to exit; if one will not stop, the switch is cancelled.
+The workspace reuses its initial Nix dev shell across worktrees. Stop and
+reopen the workspace after changing Nix dependencies.
 EOF
 }
 
+DETACHED=0
+if [[ "${1:-}" == --detached ]]; then
+  DETACHED=1
+  shift
+fi
 ACTION="${1:-open}"
 TARGET="${2:-both}"
 case "${ACTION}" in
   -h|--help) usage; exit 0 ;;
-  open|--detached|stop)
+  open|stop)
     if (( $# > 1 )); then usage >&2; exit 2; fi
+    ;;
+  switch)
+    if (( $# > 2 )); then usage >&2; exit 2; fi
     ;;
   restart)
     if (( $# > 2 )); then usage >&2; exit 2; fi
@@ -40,15 +56,19 @@ case "${ACTION}" in
 esac
 
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
-  exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
+  # Preserve --detached after parsing it above.
+  args=()
+  if (( DETACHED )); then args+=(--detached); fi
+  exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "${args[@]}" "$@"
 fi
 
-if [[ "${ACTION}" == open && ( ! -t 0 || ! -t 1 ) ]]; then
+if [[ "${ACTION}" == open || "${ACTION}" == switch ]] \
+  && (( ! DETACHED )) && [[ ! -t 0 || ! -t 1 ]]; then
   echo "Open dev.sh in a terminal, or use --detached." >&2
   exit 1
 fi
 
-for tool in tmux flock timeout; do
+for tool in tmux flock timeout fzf; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
     echo "${tool} is missing. Re-enter the updated Nix dev shell." >&2
     exit 1
@@ -68,12 +88,67 @@ message() {
   tmux_dev set-option -t "${SESSION}" @dev_message "$*" 2>/dev/null || true
 }
 
+success() {
+  printf '%s\n' "$*"
+  tmux_dev set-option -t "${SESSION}" @dev_message ''
+}
+
 fail() {
   message "$*" >&2
   exit 1
 }
 
-# Ignore overlapping clicks instead of queuing a series of unwanted restarts.
+choose_worktree() {
+  local field path="" branch="" head="" active created modified row selection index
+  local -a paths=() rows=()
+  active="$(tmux_dev show-option -qv -t "${SESSION}" @dev_root 2>/dev/null || true)"
+  while IFS= read -r -d '' field; do
+    case "${field}" in
+      'worktree '*) path="${field#worktree }" ;;
+      'branch '*) branch="${field#branch refs/heads/}" ;;
+      'HEAD '*) head="${field#HEAD }" ;;
+      '')
+        if [[ -f "${path}/flake.nix" && -e "${path}/.git" ]]; then
+          read -r created modified < <(stat -c '%W %Y' -- "${path}/.git")
+          if (( created == 0 )); then created="${modified}"; fi
+          # Keep raw paths in an array, separate from escaped display text.
+          printf -v row '%s\t%s\t%s %s\t%q' "${created}" "${#paths[@]}" \
+            "$([[ "${path}" == "${active}" ]] && printf '*' || printf ' ')" \
+            "${branch:-detached @ ${head:0:8}}" "${path}"
+          rows+=("${row}")
+          paths+=("${path}")
+        fi
+        path=""; branch=""; head=""
+        ;;
+    esac
+  done < <(git -C "${REPO_ROOT}" worktree list --porcelain -z)
+
+  (( ${#paths[@]} )) || fail "No available worktrees found."
+  if ! selection="$(printf '%s\0' "${rows[@]}" | sort -z -t $'\t' -k1,1nr \
+    | FZF_DEFAULT_OPTS='' FZF_DEFAULT_OPTS_FILE='' fzf --read0 --no-sort \
+      --delimiter=$'\t' --with-nth=3.. --layout=reverse --border \
+      --prompt='Worktree > ' --header='Newest first | * active | Enter switch | Esc cancel')"; then
+    exit 0
+  fi
+  selection="${selection#*$'\t'}"
+  index="${selection%%$'\t'*}"
+  REPO_ROOT="${paths[index]}"
+}
+
+if [[ "${ACTION}" == switch ]]; then
+  if [[ -n "${2:-}" ]]; then
+    requested_root="$(cd -- "$2" && pwd)" || fail "Worktree not found: $2"
+    common="$(git -C "${REPO_ROOT}" rev-parse --path-format=absolute --git-common-dir)"
+    requested_common="$(git -C "${requested_root}" rev-parse --path-format=absolute --git-common-dir)" \
+      || fail "Not a Git worktree: ${requested_root}"
+    [[ "${common}" == "${requested_common}" ]] || fail "Choose a worktree of this repository."
+    REPO_ROOT="${requested_root}"
+  else
+    choose_worktree
+  fi
+fi
+
+# Choose first so leaving a picker open does not block restart/stop controls.
 # The server and pane children must not inherit this lock.
 exec 9>"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/keymasq-dev-${UID}.lock"
 flock -n 9 || fail "Another dev action is still running."
@@ -139,27 +214,60 @@ start_pane() {
     session) launcher=dev-session.sh; args=(-v) ;;
     gui) launcher=dev-gui.sh ;;
   esac
-  # Respawn only exited panes. Reusing the launcher refreshes the daemon's
-  # staged source and preserves the established user and Nix environment.
+  # Reuse the tmux server's Nix dev shell. Only the source checkout changes;
+  # remove its old Python imports before the launcher sets the new path.
   tmux_dev respawn-pane -t "$(pane_for "${role}")" -c "${REPO_ROOT}" \
-    "${BASH}" "${SCRIPT_DIR}/${launcher}" "${args[@]}"
+    env -u PYTHONPATH REPO_ROOT="${REPO_ROOT}" \
+    PYTHONUNBUFFERED=1 KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=0 \
+    "${BASH}" "${REPO_ROOT}/scripts/${launcher}" "${args[@]}"
+}
+
+validate_worktree() {
+  local file
+  for file in flake.nix scripts/dev-keymasqd.sh scripts/dev-session.sh scripts/dev-gui.sh; do
+    [[ -f "${REPO_ROOT}/${file}" ]] || fail "Missing ${file} in ${REPO_ROOT}."
+  done
+}
+
+configure_workspace() {
+  local controller control branch file
+  tmux_dev source-file "${SCRIPT_DIR}/dev.tmux.conf"
+  tmux_dev set-option -g default-shell "${BASH}"
+  tmux_dev set-option -t "${SESSION}" @dev_root "${REPO_ROOT}"
+  branch="$(git -C "${REPO_ROOT}" symbolic-ref --short -q HEAD \
+    || git -C "${REPO_ROOT}" rev-parse --short HEAD)"
+  tmux_dev set-option -t "${SESSION}" @dev_branch "${branch}"
+  # Keep the controller outside Git worktrees: the previous checkout may be
+  # deleted, and an older selected checkout may not have a worktree picker.
+  controller="$(tmux_dev show-option -qv -t "${SESSION}" @dev_controller)"
+  if [[ -z "${controller}" ]]; then
+    controller="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/keymasq-dev-control.XXXXXXXX")"
+    tmux_dev set-option -t "${SESSION}" @dev_controller "${controller}"
+  fi
+  if [[ "${controller}" != "${SCRIPT_DIR}" ]]; then
+    for file in dev.sh dev.tmux.conf; do
+      cp -- "${SCRIPT_DIR}/${file}" "${controller}/${file}.new"
+      mv -- "${controller}/${file}.new" "${controller}/${file}"
+    done
+  fi
+  # Retain the controller's tools without depending on its checkout's flake.
+  # Replace files atomically so a running picker can finish during an update.
+  printf '#!/usr/bin/env bash\nexec env PATH=%s IN_NIX_SHELL=impure KEYMASQ_DEV_ROOT=%s %s %s "$@"\n' \
+    "$(shell_quote "${PATH}")" "$(shell_quote "${REPO_ROOT}")" \
+    "$(shell_quote "${BASH}")" "$(shell_quote "${controller}/dev.sh")" \
+    > "${controller}/control.sh.new"
+  mv -- "${controller}/control.sh.new" "${controller}/control.sh"
+  control="$(shell_quote "${BASH}") $(shell_quote "${controller}/control.sh")"
+  tmux_dev set-option -t "${SESSION}" @dev_control "${control}"
+  tmux_dev set-option -t "${SESSION}" @dev_scripts "${controller}"
 }
 
 create_workspace() {
-  local daemon_pane session_pane gui_pane control
-  export REPO_ROOT
-  export PYTHONUNBUFFERED=1
-  export KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=0
-
+  local daemon_pane session_pane gui_pane
   daemon_pane="$(tmux_dev new-session -d -P -F '#{pane_id}' \
     -s "${SESSION}" -n runtime -x 120 -y 36 -c "${REPO_ROOT}" \
     "${BASH}" -c 'printf "Starting daemon...\n"')"
-  tmux_dev set-option -g default-shell "${BASH}"
-  tmux_dev set-option -t "${SESSION}" @dev_root "${REPO_ROOT}"
-  # run-shell uses /bin/sh. Quote each argument for that shell, including
-  # checkout paths containing spaces, quotes, or shell metacharacters.
-  control="$(shell_quote "${BASH}") $(shell_quote "${SCRIPT_PATH}")"
-  tmux_dev set-option -t "${SESSION}" @dev_control "${control}"
+  configure_workspace
 
   gui_pane="$(tmux_dev split-window -d -v -l 25% -P -F '#{pane_id}' \
     -t "${daemon_pane}" -c "${REPO_ROOT}" \
@@ -178,15 +286,29 @@ create_workspace() {
   stop_panes session daemon
   start_pane daemon
   start_pane session
-  message "Daemon and session launched. F8 starts the GUI."
+  success "Daemon and session launched. F8 starts the GUI."
 }
 
 if tmux_dev has-session -t "${SESSION}" 2>/dev/null; then
   owner="$(tmux_dev show-option -qv -t "${SESSION}" @dev_root)"
-  if [[ "${owner}" != "${REPO_ROOT}" ]]; then
-    fail "Dev workspace belongs to ${owner:-another checkout}. Stop it from that checkout first."
+  if [[ "${ACTION}" == restart || "${ACTION}" == stop ]]; then
+    REPO_ROOT="${owner}"
+  elif [[ "${owner}" != "${REPO_ROOT}" ]]; then
+    validate_worktree
+    restart_gui=0
+    if ! pane_dead "$(pane_for gui)"; then restart_gui=1; fi
+    message "Stopping old processes before switching..."
+    stop_panes gui session daemon
+    configure_workspace
+    start_pane daemon
+    start_pane session
+    if (( restart_gui )); then start_pane gui; fi
+    success "Switched worktree. Check panes for startup errors."
+  else
+    configure_workspace
   fi
-elif [[ "${ACTION}" == open || "${ACTION}" == --detached ]]; then
+elif [[ "${ACTION}" == open || "${ACTION}" == switch ]]; then
+  validate_worktree
   create_workspace
 elif [[ "${ACTION}" == stop ]]; then
   message "No dev workspace is running."
@@ -196,14 +318,14 @@ else
 fi
 
 case "${ACTION}" in
-  open)
+  open|switch)
+    if (( DETACHED )); then exit 0; fi
     flock -u 9
     exec 9>&-
     # Explicit socket targeting lets this also work from inside another tmux.
     unset TMUX
     exec tmux -L "${TMUX_NAME}" attach-session -t "${SESSION}"
     ;;
-  --detached) ;;
   restart)
     message "Restarting ${TARGET}..."
     case "${TARGET}" in
@@ -213,11 +335,16 @@ case "${ACTION}" in
     esac
     stop_panes "${roles[@]}"
     for role in "${starts[@]}"; do start_pane "${role}"; done
-    message "Launched ${TARGET}. Check panes for startup errors."
+    success "Launched ${TARGET}. Check panes for startup errors."
     ;;
   stop)
     message "Stopping GUI, session, and daemon..."
     stop_panes gui session daemon
+    controller="$(tmux_dev show-option -qv -t "${SESSION}" @dev_controller)"
     tmux_dev kill-session -t "${SESSION}"
+    if [[ -n "${controller}" ]]; then
+      rm -f -- "${controller}/dev.sh" "${controller}/dev.tmux.conf" "${controller}/control.sh"
+      rmdir -- "${controller}"
+    fi
     ;;
 esac

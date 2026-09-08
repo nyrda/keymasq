@@ -215,6 +215,8 @@ class DeviceInspectorWindow(
         for filter_id, label, active in EVENT_FILTERS:
             button = Gtk.ToggleButton(label=label)
             button.add_css_class("inspector-event-filter-button")
+            if filter_id == "mousemove":
+                button.set_tooltip_text("Mouse movement and motion sensor axes")
             button.set_active(active)
             button.connect("toggled", self._on_event_filter_toggled)
             filter_box.append(button)

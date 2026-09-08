@@ -341,6 +341,35 @@ def test_device_inspector_window_starts_and_renders_snapshot(inspector_harness) 
     assert trigger_viewer.value_labels["x"].get_text() == "x: raw      0 | norm +0.000"
 
 
+def test_motion_interface_axes_use_move_filter_without_evicting_regular_axes(
+    inspector_harness,
+) -> None:
+    window = inspector_harness.window
+    snapshot = _snapshot()
+    snapshot["interfaces"].append({"id": "imu", "type": "motion"})
+    window._apply_snapshot(snapshot)
+    assert not window._event_filter_buttons["mousemove"].get_active()
+    window._event_filter_buttons["axis"].set_active(True)
+
+    inspector_harness.emit_event(
+        {"type_name": "ev_abs", "code_name": "abs_x", "source": "pad", "value": 42}
+    )
+    for value in range(105):
+        inspector_harness.emit_event(
+            {"type": 3, "code_name": "abs_x", "source": "imu", "value": value}
+        )
+
+    assert [event["source"] for event in window._visible_event_history()] == ["pad"]
+    assert "source=pad" in window._visible_event_export_text()
+    assert "source=imu" not in window._visible_event_export_text()
+
+    window._event_filter_buttons["axis"].set_active(False)
+    window._event_filter_buttons["mousemove"].set_active(True)
+    assert len(window._visible_event_history()) == 100
+    assert all(event["source"] == "imu" for event in window._visible_event_history())
+    assert "source=imu" in window._visible_event_export_text()
+
+
 def test_device_inspector_axes_section_tracks_snapshot_analogs(inspector_harness) -> None:
     window = inspector_harness.window
 

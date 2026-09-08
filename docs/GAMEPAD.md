@@ -209,7 +209,7 @@ right and the cursor moves right, release and it returns to the origin.
 #### Touchpad Mouse (paired analog axes)
 
 Choose **Touchpad Mouse** for a controller touchpad whose axes return to exactly
-normalized `(0.0, 0.0)` on release. Keymasq lists paired hat axes under **Sticks**;
+normalized `(0.0, 0.0)` on release. Keymasq lists paired analog axes under **Sticks**;
 select the pad's existing analog input and apply the Touchpad Mouse preset or mode.
 
 Touching establishes a reference without moving the pointer. Slide a finger to

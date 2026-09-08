@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="${SCRIPT_DIR}/dev.sh"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${KEYMASQ_DEV_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 usage() {
   cat <<'EOF'
@@ -227,19 +227,36 @@ prepare_worktree() {
 }
 
 configure_workspace() {
-  local control branch
+  local controller control branch file
   tmux_dev source-file "${SCRIPT_DIR}/dev.tmux.conf"
   tmux_dev set-option -g default-shell "${BASH}"
   tmux_dev set-option -t "${SESSION}" @dev_root "${REPO_ROOT}"
   branch="$(git -C "${REPO_ROOT}" symbolic-ref --short -q HEAD \
     || git -C "${REPO_ROOT}" rev-parse --short HEAD)"
   tmux_dev set-option -t "${SESSION}" @dev_branch "${branch}"
-  # run-shell uses /bin/sh. Quote each argument for that shell, including
-  # checkout paths containing spaces, quotes, or shell metacharacters.
-  # An existing server may still carry another worktree's Nix environment.
-  control="env -u IN_NIX_SHELL $(shell_quote "${BASH}") $(shell_quote "${SCRIPT_PATH}")"
+  # Keep the controller outside Git worktrees: the previous checkout may be
+  # deleted, and an older selected checkout may not have a worktree picker.
+  controller="$(tmux_dev show-option -qv -t "${SESSION}" @dev_controller)"
+  if [[ -z "${controller}" ]]; then
+    controller="$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/keymasq-dev-control.XXXXXXXX")"
+    tmux_dev set-option -t "${SESSION}" @dev_controller "${controller}"
+  fi
+  if [[ "${controller}" != "${SCRIPT_DIR}" ]]; then
+    for file in dev.sh dev.tmux.conf; do
+      cp -- "${SCRIPT_DIR}/${file}" "${controller}/${file}.new"
+      mv -- "${controller}/${file}.new" "${controller}/${file}"
+    done
+  fi
+  # Retain the controller's tools without depending on its checkout's flake.
+  # Replace files atomically so a running picker can finish during an update.
+  printf '#!/usr/bin/env bash\nexec env PATH=%s IN_NIX_SHELL=impure KEYMASQ_DEV_ROOT=%s %s %s "$@"\n' \
+    "$(shell_quote "${PATH}")" "$(shell_quote "${REPO_ROOT}")" \
+    "$(shell_quote "${BASH}")" "$(shell_quote "${controller}/dev.sh")" \
+    > "${controller}/control.sh.new"
+  mv -- "${controller}/control.sh.new" "${controller}/control.sh"
+  control="$(shell_quote "${BASH}") $(shell_quote "${controller}/control.sh")"
   tmux_dev set-option -t "${SESSION}" @dev_control "${control}"
-  tmux_dev set-option -t "${SESSION}" @dev_scripts "${SCRIPT_DIR}"
+  tmux_dev set-option -t "${SESSION}" @dev_scripts "${controller}"
 }
 
 create_workspace() {
@@ -320,6 +337,11 @@ case "${ACTION}" in
   stop)
     message "Stopping GUI, session, and daemon..."
     stop_panes gui session daemon
+    controller="$(tmux_dev show-option -qv -t "${SESSION}" @dev_controller)"
     tmux_dev kill-session -t "${SESSION}"
+    if [[ -n "${controller}" ]]; then
+      rm -f -- "${controller}/dev.sh" "${controller}/dev.tmux.conf" "${controller}/control.sh"
+      rmdir -- "${controller}"
+    fi
     ;;
 esac

@@ -88,6 +88,11 @@ message() {
   tmux_dev set-option -t "${SESSION}" @dev_message "$*" 2>/dev/null || true
 }
 
+success() {
+  printf '%s\n' "$*"
+  tmux_dev set-option -t "${SESSION}" @dev_message ''
+}
+
 fail() {
   message "$*" >&2
   exit 1
@@ -281,7 +286,7 @@ create_workspace() {
   stop_panes session daemon
   start_pane daemon
   start_pane session
-  message "Daemon and session launched. F8 starts the GUI."
+  success "Daemon and session launched. F8 starts the GUI."
 }
 
 if tmux_dev has-session -t "${SESSION}" 2>/dev/null; then
@@ -298,7 +303,7 @@ if tmux_dev has-session -t "${SESSION}" 2>/dev/null; then
     start_pane daemon
     start_pane session
     if (( restart_gui )); then start_pane gui; fi
-    message "Switched worktree. Check panes for startup errors."
+    success "Switched worktree. Check panes for startup errors."
   else
     configure_workspace
   fi
@@ -330,7 +335,7 @@ case "${ACTION}" in
     esac
     stop_panes "${roles[@]}"
     for role in "${starts[@]}"; do start_pane "${role}"; done
-    message "Launched ${TARGET}. Check panes for startup errors."
+    success "Launched ${TARGET}. Check panes for startup errors."
     ;;
   stop)
     message "Stopping GUI, session, and daemon..."

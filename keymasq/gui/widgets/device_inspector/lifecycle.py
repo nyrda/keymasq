@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import GLib  # pyright: ignore[reportAttributeAccessIssue]
 
-from .model import Payload, text
+from .model import Payload, list_of_dicts, text
 
 
 class LifecycleMixin:
@@ -37,6 +37,11 @@ class LifecycleMixin:
 
     def _apply_snapshot(self: Any, snapshot: Payload) -> None:
         self._snapshot = dict(snapshot)
+        self._event_history.motion_sources = {
+            text(interface.get("id")).strip().lower()
+            for interface in list_of_dicts(snapshot.get("interfaces"))
+            if interface.get("type") == "motion" and interface.get("id")
+        }
         self._sync_status(snapshot)
         self._render_mapping(snapshot)
         self._render_axes(snapshot)

@@ -7,6 +7,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.session_client import (
@@ -57,7 +58,13 @@ class DeviceInspectorWindow(
         self._device_kind = resolve_device_layout_kind(device)
         self._has_live_column = self._device_kind == "gamepad" or bool(device.motion_sensors)
         self._control_widgets: dict[str, Gtk.Widget] = {}
-        self._event_history = EventHistory()
+        self._event_history = EventHistory(
+            motion_sources={
+                interface.id.strip().lower()
+                for interface in device.evdev_devices
+                if interface.device_type == DeviceType.MOTION and interface.id
+            }
+        )
         self._event_rows: list[Gtk.ListBoxRow] = []
         self._event_filter_buttons: dict[str, Gtk.ToggleButton] = {}
         self._event_render_source_id = 0
@@ -215,6 +222,8 @@ class DeviceInspectorWindow(
         for filter_id, label, active in EVENT_FILTERS:
             button = Gtk.ToggleButton(label=label)
             button.add_css_class("inspector-event-filter-button")
+            if filter_id == "mousemove":
+                button.set_tooltip_text("Mouse movement and motion sensor axes")
             button.set_active(active)
             button.connect("toggled", self._on_event_filter_toggled)
             filter_box.append(button)

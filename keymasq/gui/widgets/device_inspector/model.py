@@ -29,9 +29,12 @@ class EventHistory:
         default_factory=lambda: {filter_id: [] for filter_id, _label, _active in EVENT_FILTERS}
     )
     order: int = 0
+    motion_sources: set[str] = field(default_factory=set)
 
     def add(self, event: Payload) -> str:
-        category = event_category(event)
+        category = event_category(
+            event, is_motion_source=text(event.get("source")) in self.motion_sources
+        )
         self.order += 1
         stored = dict(event)
         stored["_inspector_order"] = self.order
@@ -88,7 +91,7 @@ def ellipsize_middle(value: str, max_chars: int) -> str:
     return f"{value[:head]}...{value[-tail:]}"
 
 
-def event_category(event: Payload) -> str:
+def event_category(event: Payload, *, is_motion_source: bool = False) -> str:
     event_type = text(event.get("type_name"), text(event.get("type"))).lower()
     code_name = text(event.get("code_name"), text(event.get("code"))).lower()
     if event_type in {"ev_key", "1"}:
@@ -98,7 +101,7 @@ def event_category(event: Payload) -> str:
     ):
         return "syn"
     if event_type in {"ev_abs", "3"}:
-        return "axis"
+        return "mousemove" if is_motion_source else "axis"
     if event_type in {"ev_rel", "2"}:
         if code_name in {"rel_x", "rel_y"}:
             return "mousemove"

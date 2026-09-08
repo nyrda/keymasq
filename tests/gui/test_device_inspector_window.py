@@ -341,6 +341,51 @@ def test_device_inspector_window_starts_and_renders_snapshot(inspector_harness) 
     assert trigger_viewer.value_labels["x"].get_text() == "x: raw      0 | norm +0.000"
 
 
+def test_motion_events_before_start_response_use_move_filter(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice
+    from keymasq.gui.widgets import device_inspector_window as inspector_module
+
+    device = _device()
+    device.evdev_devices.append(
+        EvdevDevice(path="/dev/input/event11", device_type=DeviceType.MOTION, id="imu")
+    )
+    snapshot = _snapshot()
+    snapshot["interfaces"].append({"id": "imu", "type": "motion"})
+
+    def request_handler(payload, callback, _timeout):
+        if payload.get("command") == "start_device_inspector":
+            for source in ("pad", "imu"):
+                session.emit(
+                    "device_inspector_event",
+                    {
+                        "hardware_id": device.hardware_id,
+                        "type_name": "ev_abs",
+                        "code_name": "abs_x",
+                        "source": source,
+                        "value": 42,
+                    },
+                )
+            callback(snapshot)
+        else:
+            callback({"status": "ok"})
+
+    session = SessionIpcHarness(request_handler=request_handler).install(
+        monkeypatch, inspector_module
+    )
+    window = inspector_module.DeviceInspectorWindow(Gtk.Window(), device)
+    try:
+        window._event_filter_buttons["axis"].set_active(True)
+        assert [event["source"] for event in window._visible_event_history()] == ["pad"]
+        window._event_filter_buttons["axis"].set_active(False)
+        window._event_filter_buttons["mousemove"].set_active(True)
+        assert [event["source"] for event in window._visible_event_history()] == ["imu"]
+    finally:
+        window._on_destroy()
+
+
 def test_motion_interface_axes_use_move_filter_without_evicting_regular_axes(
     inspector_harness,
 ) -> None:

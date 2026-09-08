@@ -25,6 +25,8 @@ using filesystem creation time, or .git modification time if unavailable.
 Restart and stop operate on the active workspace, from any checkout.
 The header buttons perform the same actions. A switch waits for all old
 processes to exit; if one will not stop, the switch is cancelled.
+The workspace reuses its initial Nix dev shell across worktrees. Stop and
+reopen the workspace after changing Nix dependencies.
 EOF
 }
 
@@ -207,23 +209,19 @@ start_pane() {
     session) launcher=dev-session.sh; args=(-v) ;;
     gui) launcher=dev-gui.sh ;;
   esac
-  # Enter the selected checkout's shell even when the tmux server was started
-  # from another worktree. In particular, never inherit its Python imports.
+  # Reuse the tmux server's Nix dev shell. Only the source checkout changes;
+  # remove its old Python imports before the launcher sets the new path.
   tmux_dev respawn-pane -t "$(pane_for "${role}")" -c "${REPO_ROOT}" \
-    env -u IN_NIX_SHELL -u PYTHONPATH REPO_ROOT="${REPO_ROOT}" \
+    env -u PYTHONPATH REPO_ROOT="${REPO_ROOT}" \
     PYTHONUNBUFFERED=1 KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=0 \
-    nix develop "${REPO_ROOT}" -c bash "${REPO_ROOT}/scripts/${launcher}" "${args[@]}"
+    "${BASH}" "${REPO_ROOT}/scripts/${launcher}" "${args[@]}"
 }
 
-prepare_worktree() {
+validate_worktree() {
   local file
   for file in flake.nix scripts/dev-keymasqd.sh scripts/dev-session.sh scripts/dev-gui.sh; do
     [[ -f "${REPO_ROOT}/${file}" ]] || fail "Missing ${file} in ${REPO_ROOT}."
   done
-  message "Preparing ${REPO_ROOT}..."
-  # Resolve/build the target shell before interrupting the old processes.
-  env -u IN_NIX_SHELL -u PYTHONPATH nix develop "${REPO_ROOT}" -c true \
-    || fail "Could not prepare ${REPO_ROOT}; current processes left running."
 }
 
 configure_workspace() {
@@ -291,7 +289,7 @@ if tmux_dev has-session -t "${SESSION}" 2>/dev/null; then
   if [[ "${ACTION}" == restart || "${ACTION}" == stop ]]; then
     REPO_ROOT="${owner}"
   elif [[ "${owner}" != "${REPO_ROOT}" ]]; then
-    prepare_worktree
+    validate_worktree
     restart_gui=0
     if ! pane_dead "$(pane_for gui)"; then restart_gui=1; fi
     message "Stopping old processes before switching..."
@@ -305,7 +303,7 @@ if tmux_dev has-session -t "${SESSION}" 2>/dev/null; then
     configure_workspace
   fi
 elif [[ "${ACTION}" == open || "${ACTION}" == switch ]]; then
-  prepare_worktree
+  validate_worktree
   create_workspace
 elif [[ "${ACTION}" == stop ]]; then
   message "No dev workspace is running."

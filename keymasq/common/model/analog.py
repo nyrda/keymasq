@@ -64,6 +64,7 @@ class AnalogMouseMotionConfig:
     speed: float = 900.0
     speed_x: float | None = None
     speed_y: float | None = None
+    area_input_style: str = "stick"
     area_radius_x: float = 400.0
     area_radius_y: float = 400.0
     area_start_enabled: bool = False
@@ -81,6 +82,9 @@ class AnalogMouseMotionConfig:
         self.mode = str(self.mode or "velocity").lower()
         if self.mode not in ANALOG_MOUSE_MODES:
             self.mode = "velocity"
+        self.area_input_style = str(self.area_input_style or "stick").lower()
+        if self.area_input_style not in {"stick", "touchpad"}:
+            self.area_input_style = "stick"
         self.speed = max(0.0, float(self.speed))
         self.speed_x = self.speed if self.speed_x is None else max(0.0, float(self.speed_x))
         self.speed_y = self.speed if self.speed_y is None else max(0.0, float(self.speed_y))

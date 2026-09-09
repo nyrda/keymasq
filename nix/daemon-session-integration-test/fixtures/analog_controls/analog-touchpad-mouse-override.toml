@@ -1,0 +1,10 @@
+name = "Integration Touchpad Mouse Override"
+input_type = "stick"
+
+[mouse_motion]
+enabled = true
+mode = "area"
+area_input_style = "touchpad"
+area_radius_x = 800.0
+area_radius_y = 400.0
+invert_y = true

@@ -133,8 +133,8 @@ overrides unless you enter a value.
 Open the **Device** tab and select the analog input. The mapping dialog opens
 on the **Presets** tab when no analog controls exist yet.
 
-**Quick start (presets):** Click a preset card — for sticks: Mouse Move, Mouse
-Area, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
+**Quick start (presets):** Click a preset row. For sticks: Mouse Move, Mouse
+Area, Touchpad Mouse, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
 Right Click, Trigger Scroll Up, or Trigger Scroll Down. The preset is saved as a
 normal analog control, mapped to the input, and the dialog closes. Reopen the
 input later to fine-tune it or pick others.
@@ -189,9 +189,14 @@ faster.
   (0.25–4.0); below 1.0 is faster near center, above 1.0 is slower near
   center
 
-#### Mouse Area (stick only)
+#### Mouse Area (paired analog axes)
 
-Maps the stick position directly to a cursor position within a 2D area.
+Choose **Input Style: Stick** for a physical stick or **Touchpad** for a
+controller touchpad. Both use the same position-based mouse movement.
+
+##### Stick input style
+
+Stick style maps the stick position directly to a cursor position within a 2D area.
 Instead of controlling speed, the stick controls where the cursor is — push
 right and the cursor moves right, release and it returns to the origin.
 
@@ -205,6 +210,31 @@ right and the cursor moves right, release and it returns to the origin.
 - **Deadzone**, **Sensitivity**, **Response Curve** — same as Mouse
   Movement
 - **Invert Axes** — flip X or Y
+
+##### Touchpad input style
+
+Choose **Touchpad** style for a controller touchpad whose axes return to exactly
+normalized `(0.0, 0.0)` on release. Keymasq lists paired analog axes under **Sticks**;
+select the pad's existing analog input and choose **Mouse Area → Input Style:
+Touchpad**, or apply the **Touchpad Mouse** preset to select those settings.
+
+Touching establishes a reference without moving the pointer. Slide a finger to
+move it, then lift and touch elsewhere to continue without a jump. Holding still
+keeps the pointer still. Release produces no return movement or inertia.
+
+Changing the mapping starts a new stroke reference while retaining the pad's
+current coordinates. If the input stream loses events, Keymasq reads the current
+axes from the device. A finger still touching the pad must be lifted before
+movement resumes; a release found during recovery allows the next touch to start
+normally.
+
+- **Horizontal Movement Scale** / **Vertical Movement Scale** control how far
+  the pointer moves for the same finger movement. These can be linked or split.
+- **Invert Axes** reverses X or Y movement.
+
+Touchpad style uses linear movement without a stick-center deadzone, response curve,
+or start-position anchor. Assign a separate button for clicks and dragging.
+It supports controller pads exposed as analog axes, not multitouch gestures.
 
 #### Digital Actions
 
@@ -600,7 +630,9 @@ Button positions are based on physical location, not labels.
 
 ## Limitations
 
-- **Touchpads**: controller touchpads are not supported for remapping yet.
+- **Touchpads**: Mouse Area with Touchpad style supports controller pads exposed as paired analog
+  axes that return to normalized zero on release. Separate touchpad interfaces
+  and multitouch gestures are not supported for remapping.
 - **Dedicated drivers**: vendor-specific features may still need their
   native driver or Steam Input.
 

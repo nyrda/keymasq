@@ -1,7 +1,7 @@
 import asyncio
 import logging
+from collections import deque
 from collections.abc import (
-    AsyncIterator,
     Awaitable,
     Callable,
     Coroutine,
@@ -17,6 +17,7 @@ import evdev
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import AnalogControlConfig
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime.adapters import (
@@ -78,8 +79,6 @@ class ManagedInputDevice(Protocol):
 
     def capabilities(self) -> dict[int, Sequence[object]]: ...
 
-    def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
-
     def fileno(self) -> int: ...
 
     def read_one(self) -> evdev.InputEvent | None: ...
@@ -87,6 +86,8 @@ class ManagedInputDevice(Protocol):
     def active_keys(self) -> Sequence[int]: ...
 
     def absinfo(self, code: int) -> object: ...
+
+    def set_absinfo(self, axis_num: int, *, fuzz: int) -> None: ...
 
     def input_props(self) -> Iterable[int]: ...
 
@@ -227,6 +228,14 @@ class GrabbedDeviceState:
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
     held_profile_trigger_events: set[str] = field(default_factory=set)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Physical coordinates survive per-control resets; evdev reports only changes.
+    analog_source_axis_values: dict[tuple[int, int], int] = field(default_factory=dict)
+    input_event_buffer: deque[InputEventLike] = field(default_factory=deque)
+    analog_snapshot_boundary: InputEventLike | None = None
+    analog_deferred_keys: list[InputEventLike] = field(default_factory=list)
+    analog_original_fuzz: dict[int, int] = field(default_factory=dict)
+    analog_fuzz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    analog_fuzz_releasing: bool = False
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[
         str,
@@ -236,8 +245,12 @@ class GrabbedDeviceState:
     analog_threshold_abs_refcounts: dict[str, dict[int, int]] = field(default_factory=dict)
     analog_mouse_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     analog_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
-    analog_mouse_area_offsets: dict[str, tuple[float, float]] = field(default_factory=dict)
-    analog_mouse_area_active: set[str] = field(default_factory=set)
+    analog_mouse_area_positions: dict[str, tuple[float, float]] = field(default_factory=dict)
+    analog_mouse_area_pending: dict[str, tuple[str, AnalogControlConfig]] = field(
+        default_factory=dict
+    )
+    analog_mouse_area_needs_release: set[str] = field(default_factory=set)
+    analog_mouse_area_resyncing: bool = False
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
     motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     motion_resyncing: bool = False

@@ -72,6 +72,7 @@ def _serialize_control(
         "mouse_motion": {
             "enabled": bool(config.mouse_motion.enabled),
             "mode": config.mouse_motion.mode,
+            "area_input_style": config.mouse_motion.area_input_style,
             "speed": float(config.mouse_motion.speed),
             "speed_x": float(
                 config.mouse_motion.speed_x

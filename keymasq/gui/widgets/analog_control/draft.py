@@ -48,6 +48,7 @@ class MouseDraft:
     direction: str
     invert_x: bool
     invert_y: bool
+    area_input_style: str = "stick"
     tick_ms: int = 8
 
     @classmethod
@@ -67,6 +68,7 @@ class MouseDraft:
             direction=config.direction,
             invert_x=config.invert_x,
             invert_y=config.invert_y,
+            area_input_style=config.area_input_style,
             tick_ms=config.tick_ms,
         )
 
@@ -74,6 +76,7 @@ class MouseDraft:
         return AnalogMouseMotionConfig(
             enabled=mode in {"mouse", "mouse_area"},
             mode="area" if mode == "mouse_area" else "velocity",
+            area_input_style=self.area_input_style,
             speed=self.speed,
             speed_x=self.speed_x,
             speed_y=self.speed_y,

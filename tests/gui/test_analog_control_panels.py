@@ -48,11 +48,24 @@ def test_mouse_panel_operates_with_only_its_explicit_dependencies() -> None:
             curve_changed=lambda: events.append("curve"),
             invert_axis_toggled=lambda _button, axis: events.append(f"invert:{axis}"),
             area_start_enabled_changed=lambda: events.append("area-enabled"),
+            input_style_changed=lambda: events.append("input-style"),
             begin_capture=lambda: events.append("capture"),
         )
     )
 
     panel.speed_x_row.set_value(1000)
+    assert panel.stick_style_btn.get_active()
+    assert not panel.touchpad_style_btn.get_active()
+    panel.touchpad_style_btn.emit("clicked")
+    assert panel.touchpad_style_btn.get_active()
+    assert not panel.stick_style_btn.get_active()
+    panel.touchpad_style_btn.emit("clicked")
+    assert panel.touchpad_style_btn.get_active()
+    assert events.count("input-style") == 1
+    panel.stick_style_btn.emit("clicked")
+    assert panel.stick_style_btn.get_active()
+    assert not panel.touchpad_style_btn.get_active()
+    assert events.count("input-style") == 2
     panel.area_radius_y_row.set_value(500)
     panel.deadzone_row.set_value(0.2)
     panel.invert_x_btn.set_active(True)
@@ -60,6 +73,7 @@ def test_mouse_panel_operates_with_only_its_explicit_dependencies() -> None:
     panel.area_start_capture_btn.emit("clicked")
 
     assert {
+        "input-style",
         "modified",
         "speed:x",
         "radius:y",

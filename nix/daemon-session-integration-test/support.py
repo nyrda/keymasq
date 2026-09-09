@@ -112,6 +112,9 @@ class ScenarioContext:
                 "Integration Analog Override",
                 "Integration Analog Mouse Velocity",
                 "Integration Analog Mouse Area",
+                "Integration Analog Mouse Area Shaped",
+                "Integration Touchpad Mouse Override",
+                "Integration Touchpad Mouse",
                 "Integration Analog Multi",
                 "Integration Analog Threshold",
                 "Integration Analog Signed Axis Threshold",
@@ -221,6 +224,10 @@ class ScenarioContext:
                     (evdev.ecodes.ABS_Y, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
                     (evdev.ecodes.ABS_RX, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
                     (evdev.ecodes.ABS_Z, evdev.AbsInfo(0, 0, 255, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT1X, evdev.AbsInfo(0, -32768, 32767, 256, 0, 0)),
+                    (evdev.ecodes.ABS_HAT1Y, evdev.AbsInfo(0, -32768, 32767, 256, 0, 0)),
+                    (evdev.ecodes.ABS_HAT2X, evdev.AbsInfo(0, -32768, 32767, 256, 0, 0)),
+                    (evdev.ecodes.ABS_HAT2Y, evdev.AbsInfo(0, -32768, 32767, 256, 0, 0)),
                 ],
             },
             name=name,
@@ -357,11 +364,14 @@ class ScenarioContext:
         )
         for fixture_name in (
             "analog-stick-gamepad.toml",
+            "analog-touchpad-mouse.toml",
+            "analog-touchpad-mouse-override.toml",
             "analog-stick-gamepad-invert.toml",
             "analog-trigger-deadzone.toml",
             "analog-threshold.toml",
             "analog-signed-axis-threshold.toml",
             "analog-mouse-area.toml",
+            "analog-mouse-area-shaped.toml",
             "analog-mouse-velocity.toml",
             "analog-signed-axis-mouse.toml",
         ):
@@ -372,11 +382,14 @@ class ScenarioContext:
             )
         for fixture_name in (
             "analog-gamepad.toml",
+            "analog-touchpad-mouse.toml",
+            "analog-touchpad-mouse-override.toml",
             "analog-gamepad-invert.toml",
             "analog-threshold.toml",
             "analog-signed-axis-threshold.toml",
             "analog-multi.toml",
             "analog-mouse-area.toml",
+            "analog-mouse-area-shaped.toml",
             "analog-mouse-velocity.toml",
             "analog-signed-axis-mouse.toml",
             "analog-override.toml",
@@ -683,6 +696,37 @@ type = "key"
             raise AssertionError("source device is not available")
         self.source.write(evdev.ecodes.EV_ABS, code, value)
         self.source.syn()
+
+    def source_abs_report(self, values: list[tuple[int, int]]) -> None:
+        """Write a complete paired-axis report; evdev filters unchanged values."""
+        if self.source is None:
+            raise AssertionError("source device is not available")
+        for code, value in values:
+            self.source.write(evdev.ecodes.EV_ABS, code, value)
+        self.source.syn()
+
+    def expect_mouse_motion(self, x: int = 0, y: int = 0) -> None:
+        """Check exact displacement, rejecting extra movement and trailing events."""
+        expected = [
+            (evdev.ecodes.EV_REL, code, value)
+            for code, value in ((evdev.ecodes.REL_X, x), (evdev.ecodes.REL_Y, y))
+            if value
+        ]
+        if self.mouse_output is None:
+            raise AssertionError("mouse output is not available")
+        observed: list[tuple[int, int, int]] = []
+        deadline = time.monotonic() + EVENT_TIMEOUT_S
+        while observed != expected and time.monotonic() < deadline:
+            observed.extend(
+                (event.type, event.code, event.value)
+                for event in self.read_output_events(self.mouse_output)
+                if event.type != evdev.ecodes.EV_SYN
+            )
+            assert observed == expected[:len(observed)], (expected, observed)
+            if observed != expected:
+                time.sleep(0.01)
+        assert observed == expected, (expected, observed)
+        self.expect_no_mouse_events()
 
     def secondary_key(self, code: int, value: int) -> None:
         if self.secondary_source is None:

@@ -4,7 +4,11 @@ import asyncio
 import math
 import time
 
-from keymasq.common.model.analog import AnalogControlConfig, analog_gamepad_output_distance
+from keymasq.common.model.analog import (
+    AnalogControlConfig,
+    AnalogMouseMotionConfig,
+    analog_gamepad_output_distance,
+)
 from keymasq.keymasqd.runtime.analog.curves import (
     apply_control_axis_output_curve,
     apply_signed_axis_output_curve,
@@ -149,84 +153,78 @@ def motion_delta(
     )
 
 
+def mouse_area_position(
+    x: float,
+    y: float,
+    motion: AnalogMouseMotionConfig,
+) -> tuple[float, float]:
+    """Transform a source position before calculating displacement."""
+    if motion.area_input_style == "stick":
+        x = apply_signed_axis_output_curve(
+            x,
+            deadzone=motion.deadzone,
+            sensitivity=motion.sensitivity,
+            response_curve=motion.response_curve,
+        )
+        y = apply_signed_axis_output_curve(
+            y,
+            deadzone=motion.deadzone,
+            sensitivity=motion.sensitivity,
+            response_curve=motion.response_curve,
+        )
+    return (
+        x * motion.area_radius_x * (-1 if motion.invert_x else 1),
+        y * motion.area_radius_y * (-1 if motion.invert_y else 1),
+    )
+
+
 async def emit_mouse_area_motion(
     device_runtime: GrabbedDeviceRuntime,
     state_key: str,
     config: AnalogControlConfig,
     *,
     deps: ActionExecutionDeps,
-) -> bool:
-    if (
-        not config.mouse_motion.enabled
-        or config.mouse_motion.mode != "area"
-        or config.input_type != "stick"
-    ):
-        return False
+) -> None:
+    """Consume one complete position with stick or touchpad contact semantics."""
+    state = device_runtime.state
+    values = state.analog_axis_values.get(state_key, {})
+    if "x" not in values or "y" not in values:
+        return
+    x, y = values["x"], values["y"]
+    motion = config.mouse_motion
+    touchpad = motion.area_input_style == "touchpad"
+    if touchpad and x == 0.0 and y == 0.0:
+        state.analog_mouse_area_positions.pop(state_key, None)
+        state.analog_mouse_accumulators.pop(state_key, None)
+        state.analog_mouse_area_needs_release.discard(state_key)
+        return
+    if state_key in state.analog_mouse_area_needs_release:
+        return
 
-    target_x, target_y = _mouse_area_offset(device_runtime, state_key, config)
-    active_sources = device_runtime.state.analog_mouse_area_active
-    was_active = state_key in active_sources
-    is_active = target_x != 0.0 or target_y != 0.0
+    target = mouse_area_position(x, y, motion)
+    previous = state.analog_mouse_area_positions.get(state_key)
+    if touchpad and previous is None:
+        state.analog_mouse_area_positions[state_key] = target
+        state.analog_mouse_accumulators.pop(state_key, None)
+        return
+    if previous is None:
+        previous = (0.0, 0.0)
     if (
-        is_active
-        and not was_active
-        and config.mouse_motion.area_start_enabled
+        not touchpad
+        and target != (0.0, 0.0)
+        and previous == (0.0, 0.0)
+        and motion.area_start_enabled
         and device_runtime.cursor_position_setter is not None
     ):
-        await device_runtime.cursor_position_setter(
-            int(config.mouse_motion.area_start_x),
-            int(config.mouse_motion.area_start_y),
-        )
-        device_runtime.state.analog_mouse_area_offsets[state_key] = (0.0, 0.0)
-        device_runtime.state.analog_mouse_accumulators[state_key] = (0.0, 0.0)
-
-    old_x, old_y = device_runtime.state.analog_mouse_area_offsets.get(
-        state_key,
-        (0.0, 0.0),
-    )
-    device_runtime.state.analog_mouse_area_offsets[state_key] = (target_x, target_y)
-    if is_active:
-        active_sources.add(state_key)
-    else:
-        active_sources.discard(state_key)
-
+        await device_runtime.cursor_position_setter(motion.area_start_x, motion.area_start_y)
+        state.analog_mouse_accumulators.pop(state_key, None)
+    state.analog_mouse_area_positions[state_key] = target
     await _emit_mouse_delta(
         device_runtime,
         state_key,
-        target_x - old_x,
-        target_y - old_y,
+        target[0] - previous[0],
+        target[1] - previous[1],
         deps=deps,
-    )
-    return True
-
-
-def _mouse_area_offset(
-    device_runtime: GrabbedDeviceRuntime,
-    state_key: str,
-    config: AnalogControlConfig,
-) -> tuple[float, float]:
-    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
-    x = float(axis_values.get("x", 0.0))
-    y = float(axis_values.get("y", 0.0))
-    if config.mouse_motion.invert_x:
-        x = -x
-    if config.mouse_motion.invert_y:
-        y = -y
-    x = apply_signed_axis_output_curve(
-        x,
-        deadzone=float(config.mouse_motion.deadzone),
-        sensitivity=float(config.mouse_motion.sensitivity),
-        response_curve=float(config.mouse_motion.response_curve),
-    )
-    y = apply_signed_axis_output_curve(
-        y,
-        deadzone=float(config.mouse_motion.deadzone),
-        sensitivity=float(config.mouse_motion.sensitivity),
-        response_curve=float(config.mouse_motion.response_curve),
-    )
-    return (
-        x * max(0.0, float(config.mouse_motion.area_radius_x)),
-        y * max(0.0, float(config.mouse_motion.area_radius_y)),
     )
 
 

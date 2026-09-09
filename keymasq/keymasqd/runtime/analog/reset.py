@@ -117,13 +117,18 @@ async def reset_analog_controls(
         state_key_prefix,
     )
     _discard_reset_state_keys(
-        device_runtime.state.analog_mouse_area_offsets,
+        device_runtime.state.analog_mouse_area_positions,
         preserved,
         state_key_prefix,
     )
-    for state_key in list(device_runtime.state.analog_mouse_area_active):
+    _discard_reset_state_keys(
+        device_runtime.state.analog_mouse_area_pending,
+        preserved,
+        state_key_prefix,
+    )
+    for state_key in list(device_runtime.state.analog_mouse_area_needs_release):
         if _should_reset_state_key(state_key, preserved, state_key_prefix):
-            device_runtime.state.analog_mouse_area_active.discard(state_key)
+            device_runtime.state.analog_mouse_area_needs_release.discard(state_key)
     _discard_reset_state_keys(
         device_runtime.state.analog_gamepad_outputs,
         preserved,

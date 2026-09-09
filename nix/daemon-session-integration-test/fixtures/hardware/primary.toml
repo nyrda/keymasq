@@ -14,6 +14,24 @@ type = "keyboard"
 $PRIMARY_BUTTONS
 
 [[hardware.layout.analogs]]
+id = "touchpad_1"
+label = "Touchpad 1"
+type = "stick"
+axes = [
+  { role = "x", evdev = "abs_hat1x", minimum = -32768, maximum = 32767, center = 0 },
+  { role = "y", evdev = "abs_hat1y", minimum = -32768, maximum = 32767, center = 0 },
+]
+
+[[hardware.layout.analogs]]
+id = "touchpad_2"
+label = "Touchpad 2"
+type = "stick"
+axes = [
+  { role = "x", evdev = "abs_hat2x", minimum = -32768, maximum = 32767, center = 0 },
+  { role = "y", evdev = "abs_hat2y", minimum = -32768, maximum = 32767, center = 0 },
+]
+
+[[hardware.layout.analogs]]
 id = "left_stick"
 label = "Left Stick"
 type = "stick"

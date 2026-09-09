@@ -138,6 +138,7 @@ class AnalogControlEditorView(Gtk.Box):
                 curve_changed=self._on_mouse_curve_changed,
                 invert_axis_toggled=self._on_invert_axis_toggled,
                 area_start_enabled_changed=self._on_area_start_enabled_changed,
+                input_style_changed=self._on_area_input_style_changed,
                 begin_capture=self.begin_area_capture,
             )
         )
@@ -243,6 +244,9 @@ class AnalogControlEditorView(Gtk.Box):
                 direction=self.current_mouse_direction(),
                 invert_x=self.mouse.invert_x_btn.get_active(),
                 invert_y=self.mouse.invert_y_btn.get_active(),
+                area_input_style="touchpad"
+                if self.mouse.touchpad_style_btn.get_active()
+                else "stick",
                 tick_ms=self._tick_ms,
             ),
             gamepad=GamepadDraft(
@@ -326,6 +330,12 @@ class AnalogControlEditorView(Gtk.Box):
         self.thresholds.sync_for_input_type(axis_control=self.current_input_type() == "axis")
 
     def _load_mouse(self, draft: MouseDraft) -> None:
+        style_button = (
+            self.mouse.touchpad_style_btn
+            if draft.area_input_style == "touchpad"
+            else self.mouse.stick_style_btn
+        )
+        style_button.set_active(True)
         self._syncing_mouse_speed = True
         self._syncing_area_radius = True
         try:
@@ -597,19 +607,56 @@ class AnalogControlEditorView(Gtk.Box):
         is_axis = input_type == "axis"
         mouse_visible = mode in {"mouse", "mouse_area"}
         area_visible = mode == "mouse_area" and not is_axis
-        velocity_visible = mouse_visible and not area_visible
+        touchpad_visible = area_visible and self.mouse.touchpad_style_btn.get_active()
+        velocity_visible = mode == "mouse"
         self.mouse.group.set_visible(mouse_visible)
+        self.mouse.group.set_title("Mouse Area" if area_visible else "Mouse Movement")
+        self.mouse.input_style_row.set_visible(area_visible)
+        self.mouse.group.set_description(
+            "Slide a finger to move the pointer. Lift and touch elsewhere to continue."
+            if touchpad_visible
+            else None
+        )
         self.mouse.speed_row.set_visible(velocity_visible and is_axis)
         self.mouse.speed_x_row.set_visible(velocity_visible and not is_axis)
         self.mouse.speed_y_row.set_visible(velocity_visible and not is_axis)
         self.mouse.area_radius_x_row.set_visible(area_visible)
         self.mouse.area_radius_y_row.set_visible(area_visible)
+        self.mouse.area_radius_x_row.set_title(
+            "Horizontal Movement Scale" if touchpad_visible else "Horizontal Radius"
+        )
+        self.mouse.area_radius_y_row.set_title(
+            "Vertical Movement Scale" if touchpad_visible else "Vertical Radius"
+        )
+        for row, axis in (
+            (self.mouse.area_radius_x_row, "Horizontal"),
+            (self.mouse.area_radius_y_row, "Vertical"),
+        ):
+            row.set_subtitle(
+                "Higher values move the pointer farther for the same finger movement"
+                if touchpad_visible
+                else f"{axis} radius from the start point"
+            )
+        self.mouse.mouse_sensitivity_row.set_subtitle(
+            "How quickly movement reaches the full area radius"
+            if area_visible
+            else "How quickly movement reaches full speed"
+        )
+        for row in (
+            self.mouse.deadzone_row,
+            self.mouse.mouse_sensitivity_row,
+            self.mouse.mouse_response_curve_row,
+            self.mouse.mouse_curve_row,
+        ):
+            row.set_visible(mouse_visible and not touchpad_visible)
         self.mouse.mouse_direction_row.set_visible(velocity_visible and is_axis)
         self.mouse.invert_axes_row.set_title("Invert Axis" if is_axis else "Invert Axes")
         self.mouse.invert_axes_row.set_visible(mouse_visible)
         self.mouse.invert_y_btn.set_visible(not is_axis)
-        self.mouse.area_start_enabled_row.set_visible(area_visible)
-        show_start = area_visible and self.mouse.area_start_enabled_row.get_active()
+        self.mouse.area_start_enabled_row.set_visible(area_visible and not touchpad_visible)
+        show_start = (
+            area_visible and not touchpad_visible and self.mouse.area_start_enabled_row.get_active()
+        )
         self.mouse.area_start_position_row.set_visible(show_start)
         self.mouse.area_start_capture_row.set_visible(show_start)
         if not show_start and self.capture_active():
@@ -787,6 +834,12 @@ class AnalogControlEditorView(Gtk.Box):
     def _on_invert_axis_toggled(self, _button: Gtk.ToggleButton, _axis: str) -> None:
         if not self._syncing_invert_axes:
             self._on_modified()
+
+    def _on_area_input_style_changed(self) -> None:
+        if self._loading:
+            return
+        self.update_mode_visibility()
+        self._on_modified()
 
     def _on_area_start_enabled_changed(self) -> None:
         self.update_mode_visibility()

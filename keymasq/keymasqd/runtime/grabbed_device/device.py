@@ -29,6 +29,7 @@ from keymasq.keymasqd.runtime import adapters, force_feedback, source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
+from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
 from keymasq.keymasqd.runtime.grabbed_device import grab, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.grabbed_device.types import (
@@ -325,6 +326,7 @@ class GrabbedDevice:
         self.event_binding_to_button: dict[tuple[int, int, int | None], str] = {}
         self.event_code_to_button: dict[tuple[int, int], str] = {}
         self.device: ManagedInputDevice | None = None
+        self.state = GrabbedDeviceState()
         self.uinput: evdev.UInput | None = None
         self.output_feedback_proxy: force_feedback.PassthroughFeedbackProxy | None = None
         self.update_button_map(button_map, button_codes, button_values)
@@ -390,7 +392,6 @@ class GrabbedDevice:
         self.running = False
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
-        self.state = GrabbedDeviceState()
 
     def update_button_map(
         self,
@@ -418,6 +419,7 @@ class GrabbedDevice:
                 self.event_code_to_button[(int(event_type), int(code))] = button_id
 
     def update_analog_inputs(self, analog_inputs: dict[str, object]) -> None:
+        self.state.analog_source_axis_values.clear()
         self.analog_inputs = dict(analog_inputs)
         self.analog_axis_bindings = {}
         self.analog_axis_output_codes = {}
@@ -512,6 +514,7 @@ class GrabbedDevice:
         initialize_motion_state(self, self.mapping_getter())
         await self.reset_superkeys()
         grab.seed_startup_held_actions(self)
+        await update_touchpad_fuzz(self)
 
     async def reset_superkeys(self) -> None:
         for machine in self.state.superkey_machines.values():
@@ -541,6 +544,7 @@ class GrabbedDevice:
         self.state.motion_tilt_centers.clear()
 
     async def _cleanup_failed_grab(self) -> None:
+        await update_touchpad_fuzz(self, releasing=True)
         await self._stop_output_feedback_proxy()
         uinput = self.uinput
         if uinput is not None:
@@ -556,6 +560,7 @@ class GrabbedDevice:
             except Exception:
                 log.exception("Unexpected failure closing input device after failed grab")
         self.device = None
+        self.state.analog_original_fuzz.clear()
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
         self.source_pending_hidden_kernel_names = []
@@ -566,6 +571,11 @@ class GrabbedDevice:
                 log.exception("Unexpected failure restoring hidden source after failed grab")
 
     async def grab(self) -> None:
+        self.state.analog_source_axis_values.clear()
+        self.state.analog_mouse_area_resyncing = False
+        self.state.input_event_buffer.clear()
+        self.state.analog_snapshot_boundary = None
+        self.state.analog_deferred_keys.clear()
         self.resolved_event_path = os.path.realpath(self.path)
         self.source_hidden_kernel_names = []
         self.device = (
@@ -573,6 +583,7 @@ class GrabbedDevice:
             if self.path.startswith(SOURCE_PREFIX)
             else _device_input(self.path)
         )
+        self.state.analog_fuzz_releasing = False
         initialize_motion_state(self, self.mapping_getter())
 
         if self.access_mode is InputAccessMode.OBSERVE:
@@ -683,6 +694,7 @@ class GrabbedDevice:
                 active_key_idle_log_interval_s=ACTIVE_KEY_IDLE_LOG_INTERVAL_S,
             )
             self.device.grab()
+            await update_touchpad_fuzz(self)
             if is_gamepad_passthrough:
                 self.source_hidden_kernel_names = []
                 self.source_pending_hidden_kernel_names = source_hiding.node_kernel_names(
@@ -730,6 +742,12 @@ class GrabbedDevice:
 
     async def release(self) -> None:
         await self.stop_event_loop()
+        await update_touchpad_fuzz(self, releasing=True)
+        self.state.input_event_buffer.clear()
+        self.state.analog_snapshot_boundary = None
+        self.state.analog_deferred_keys.clear()
+        self.state.analog_source_axis_values.clear()
+        self.state.analog_mouse_area_resyncing = False
         await self.reset_analog_controls()
         await self.reset_superkeys()
         pipeline.observe_profile_trigger_end_for_held_sources(self)
@@ -773,6 +791,7 @@ class GrabbedDevice:
 
         self.device = None
         self.uinput = None
+        self.state.analog_original_fuzz.clear()
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
         self.source_pending_hidden_kernel_names = []

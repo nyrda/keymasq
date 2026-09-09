@@ -34,13 +34,14 @@ input_type = "stick"         # "stick" (2D) or "axis" (1D)
 ```toml
 [mouse_motion]
 enabled = true
-mode = "velocity"            # "velocity" or "area" (area is stick-only)
+mode = "velocity"            # "velocity" or "area" (area requires 2D input)
+area_input_style = "stick"  # area only: "stick" or "touchpad"; defaults to "stick"
 speed = 900.0                # pixels/sec (axis, or stick fallback)
 speed_x = 900.0              # stick only; defaults to speed
 speed_y = 900.0              # stick only; defaults to speed
-area_radius_x = 400.0        # area mode only
-area_radius_y = 400.0        # area mode only
-area_start_enabled = false   # area mode: jump to start position first
+area_radius_x = 400.0        # area radius, or touchpad movement scale
+area_radius_y = 400.0        # area radius, or touchpad movement scale
+area_start_enabled = false   # area Stick style: jump to start position first
 area_start_x = 0
 area_start_y = 0
 deadzone = 0.15              # 0.0–0.95
@@ -60,19 +61,73 @@ Analog input controls movement speed. Stick controls use `speed_x` and
 `vertical` map both positive and negative source values to opposite
 mouse directions.
 
-### Area mode (stick only)
+### Area mode (paired analog axes)
 
-Stick position maps directly to a cursor position within a 2D area:
+Area Mouse uses one position-based implementation with two input styles.
+Select **Stick** or **Touchpad** under **Input Style** in the editor.
+Existing area configurations without `area_input_style` use `"stick"`.
+
+For Stick style, position maps directly to an offset within a 2D area:
 
 ```text
 target_x = shaped_x * area_radius_x
 target_y = shaped_y * area_radius_y
 ```
 
-Each event emits only the relative delta from the previous target.
+Each complete input report emits the relative delta from the previous target.
+The first displacement from center and the last displacement back to center
+both count, including during fast stick flicks. The single `deadzone` setting
+applies independently to X and Y before sensitivity and response shaping.
+Jitter inside the deadzone produces no movement.
 Returning to rest brings the pointer back to the origin. When
 `area_start_enabled = true`, the daemon moves the cursor to
 `area_start_x`/`area_start_y` when the stick first leaves rest.
+
+#### Touchpad input style
+
+Use `mode = "area"` and `area_input_style = "touchpad"` for controller touchpads
+exposed as paired analog axes
+that return to exactly normalized `(0.0, 0.0)` when released. Existing axis
+detection and normalization apply; no separate touch button is required.
+The daemon temporarily sets kernel fuzz to zero on these axes so filtering cannot
+prevent an exact zero release. It restores the original fuzz when the touchpad
+mapping is removed or the device is released.
+
+The first nonzero position establishes a reference without moving the pointer.
+Each subsequent input report emits relative mouse movement:
+
+```text
+dx = (x - previous_x) * area_radius_x
+dy = (y - previous_y) * area_radius_y
+```
+
+The shared `area_radius_x` and `area_radius_y` fields appear as **Horizontal
+Movement Scale** and **Vertical Movement Scale** in the editor. A value of 400
+produces 800 relative mouse units across the full normalized range from -1 to 1.
+Desktop pointer settings can further affect the displayed distance.
+`invert_x` and `invert_y` reverse the corresponding movement.
+
+Returning to exactly `(0.0, 0.0)` ends the touch without emitting movement and
+clears the reference and fractional remainder. The next touch can start anywhere
+without jumping. Either axis alone may be zero while the other remains nonzero.
+Holding still produces no movement and has no timeout. A touch that actually
+reports the exact zero pair also ends the stroke.
+
+X and Y updates are collected through `SYN_REPORT` before movement is calculated
+from the complete pair. Fractional movement accumulates during a touch. Stick deadzone,
+sensitivity, response curve, velocity, tick interval, and area start-position
+settings do not affect Touchpad style. There is no inertia or automatic clicking;
+map a separate button for clicks or dragging.
+Buttons following area axes in a report are dispatched after its complete X/Y
+movement, so a drag release uses the final pointer position.
+
+Changed or removed mappings clear their touch state; unchanged controls retain
+it during profile updates. Physical coordinates survive control resets.
+After `SYN_DROPPED`, the daemon ignores the damaged report and reads the current
+axes from the device. Reports older than that snapshot cannot emit area movement.
+A held touch must be released before movement resumes;
+a recovered zero pair permits a new touch immediately. Stick style rebases to
+the recovered position and follows subsequent movement without requiring release.
 
 ## Gamepad Output
 

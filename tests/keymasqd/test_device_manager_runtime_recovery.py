@@ -111,10 +111,9 @@ class TestEventLoopRecovery:
             SimpleNamespace(type=evdev.ecodes.EV_SYN, code=0, value=0),
         ]
 
-        class _FakeInputDevice:
-            async def async_read_loop(self):
-                for event in events:
-                    yield event
+        async def fake_read_events(_runtime):
+            for event in events:
+                yield event
 
         original_build_event_processing_deps = pipeline.build_event_processing_deps
         built_deps: list[EventProcessingDeps] = []
@@ -142,7 +141,8 @@ class TestEventLoopRecovery:
             fake_build_event_processing_deps,
         )
         monkeypatch.setattr(pipeline, "process_event", fake_process_event)
-        device.device = _FakeInputDevice()  # type: ignore[assignment]
+        monkeypatch.setattr(pipeline, "read_events", fake_read_events)
+        device.device = SimpleNamespace()  # type: ignore[assignment]
 
         await pipeline.event_loop(
             device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
@@ -171,13 +171,12 @@ class TestEventLoopRecovery:
             running=True,
         )
 
-        class _FakeInputDevice:
-            async def async_read_loop(self):
-                yield SimpleNamespace(
-                    type=evdev.ecodes.EV_KEY,
-                    code=evdev.ecodes.KEY_F5,
-                    value=1,
-                )
+        async def fake_read_events(_runtime):
+            yield SimpleNamespace(
+                type=evdev.ecodes.EV_KEY,
+                code=evdev.ecodes.KEY_F5,
+                value=1,
+            )
 
         sleep_calls: list[float] = []
         original_execute_action = device_actions.execute_action
@@ -200,7 +199,8 @@ class TestEventLoopRecovery:
         monkeypatch.setattr(device_actions, "execute_action", fail_after_press)
         monkeypatch.setattr(grabbed_device.asyncio, "sleep", fake_sleep)
 
-        device.device = _FakeInputDevice()  # type: ignore[assignment]
+        monkeypatch.setattr(pipeline, "read_events", fake_read_events)
+        device.device = SimpleNamespace()  # type: ignore[assignment]
 
         await pipeline.event_loop(
             device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
@@ -228,12 +228,12 @@ class TestEventLoopRecovery:
             running=True,
         )
 
-        class _FakeInputDevice:
-            async def async_read_loop(self):
-                raise OSError(errno.ENODEV, "No such device")
-                yield
+        async def fake_read_events(_runtime):
+            raise OSError(errno.ENODEV, "No such device")
+            yield
 
-        device.device = _FakeInputDevice()  # type: ignore[assignment]
+        monkeypatch.setattr(pipeline, "read_events", fake_read_events)
+        device.device = SimpleNamespace()  # type: ignore[assignment]
 
         await pipeline.event_loop(
             device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log

@@ -338,6 +338,41 @@ def test_native_adapter_does_not_open_or_grab_evdev(monkeypatch):
     device.close()
 
 
+async def test_runtime_reader_consumes_native_frames_without_evdev_fd(monkeypatch):
+    from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import read_events
+    from tests.keymasqd.device_manager_support import make_grabbed_device
+
+    closed = asyncio.Event()
+
+    async def reader(_path):
+        try:
+            yield CAPTURED_REPORT
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    shared = SourceManager(reader)
+    monkeypatch.setattr(
+        "keymasq.keymasqd.input_sources.evdev_adapter.source_manager", lambda: shared
+    )
+    source = binding()
+    runtime = make_grabbed_device(monkeypatch, running=True)
+    runtime.device = NativeInputDevice(source.path, binding=source)
+    stream = read_events(runtime)
+    axes = {}
+    try:
+        async with asyncio.timeout(2):
+            async for event in stream:
+                if event.type == evdev.ecodes.EV_ABS:
+                    axes[event.code] = event.value
+                elif event.code == evdev.ecodes.SYN_REPORT and axes:
+                    break
+    finally:
+        await stream.aclose()
+    assert axes == {0: -445, 1: 4, 2: 4111, 3: 3, 4: 23, 5: 2}
+    assert closed.is_set()
+
+
 @pytest.mark.parametrize("include_gamepad", [False, True])
 async def test_calibration_shares_runtime_reader_and_closes_its_subscription(
     monkeypatch, include_gamepad

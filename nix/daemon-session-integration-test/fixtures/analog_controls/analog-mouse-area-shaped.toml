@@ -1,0 +1,12 @@
+name = "Integration Analog Mouse Area Shaped"
+input_type = "stick"
+
+[mouse_motion]
+enabled = true
+mode = "area"
+area_input_style = "stick"
+area_radius_x = 160.0
+area_radius_y = 80.0
+deadzone = 0.25
+sensitivity = 0.5
+response_curve = 2.0

@@ -52,6 +52,12 @@ resolved mapping and the raw events coming from that device. Enable suppression
 inside the inspector to test inputs without emitting remapped output. Press
 Escape on any grabbed keyboard to turn suppression off.
 
+The raw event **Move** filter includes mouse movement and absolute axes from
+motion interfaces, including gyro and accelerometer events. It is off by default.
+Use **Axes** for regular stick, trigger, and wheel events. Hidden motion events
+do not displace regular axes from their history, and copying events respects the
+selected filters. The live motion preview updates regardless of these filters.
+
 Unknown raw axis events appear in the event stream. Add the relevant event names
 and codes to the hardware setup, then reopen the inspector to see them in the
 configured axes viewer.

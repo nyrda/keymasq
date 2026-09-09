@@ -61,7 +61,7 @@ def find_matching_macro_instances(
 ) -> list[int]:
     ids: list[int] = []
     for instance_id, task in state.tasks.items():
-        if task.done():
+        if task.done() or instance_id in state.cancel_instance_ids:
             continue
         meta = state.instance_meta.get(instance_id, {})
         if loop_mode is not None and meta.get("loop_mode") != loop_mode:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast
 
+from keymasq.common.coercion import coerce_float
 from keymasq.common.model.actions import normalize_macro_loop_stop_behavior
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
@@ -37,6 +38,7 @@ class MacroDocument:
     loop_mode: str
     loop_count: int
     loop_stop_behavior: str
+    pause_timeout_s: float = 0.0
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "MacroDocument":
@@ -66,6 +68,7 @@ class MacroDocument:
             block_mouse_movement=bool(source.get("block_mouse_movement", False)),
             loop_mode=str(source.get("loop_mode", "none") or "none"),
             loop_count=max(1, int(source.get("loop_count", 1) or 1)),
+            pause_timeout_s=max(0.0, coerce_float(source.get("pause_timeout_s"), 0.0)),
             loop_stop_behavior=normalize_macro_loop_stop_behavior(source.get("loop_stop_behavior")),
         )
 
@@ -80,6 +83,7 @@ class MacroDocument:
         start_x: int,
         start_y: int,
         block_mouse_movement: bool,
+        pause_timeout_s: float | None = None,
     ) -> dict[str, Any]:
         raw_events = reconstruct_events(
             self.events,
@@ -106,6 +110,9 @@ class MacroDocument:
                 "loop_mode": loop_mode,
                 "loop_count": max(1, int(loop_count)),
                 "loop_stop_behavior": loop_stop_behavior,
+                "pause_timeout_s": self.pause_timeout_s
+                if pause_timeout_s is None
+                else pause_timeout_s,
                 "block_mouse_movement": bool(block_mouse_movement),
             }
         )

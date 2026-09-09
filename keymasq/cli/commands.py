@@ -563,6 +563,7 @@ def _macro_definition_from_json_input(name: str, json_parts: list[str]) -> JsonO
         "loop_mode",
         "loop_count",
         "loop_stop_behavior",
+        "pause_timeout_s",
         "move_to_start",
         "start_x",
         "start_y",

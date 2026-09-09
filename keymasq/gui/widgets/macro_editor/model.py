@@ -171,6 +171,7 @@ class EditableControl:
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
     macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    macro_pause_timeout_s: float = 0.0
     original_order: int | None = None
 
 
@@ -327,6 +328,7 @@ def parse_events(
                     macro_speed=max(0.01, coerce_float(ev.get("speed"), 1.0)),
                     macro_loop_mode=str(ev.get("loop_mode", "none") or "none"),
                     macro_loop_count=max(1, coerce_int(ev.get("loop_count"), 1)),
+                    macro_pause_timeout_s=max(0.0, coerce_float(ev.get("pause_timeout_s"), 0.0)),
                     macro_loop_stop_behavior=str(
                         ev.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
                         or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
@@ -516,6 +518,8 @@ def reconstruct_events(
             control_event["speed"] = max(0.01, float(control.macro_speed))
             control_event["loop_mode"] = str(control.macro_loop_mode)
             control_event["loop_count"] = max(1, int(control.macro_loop_count))
+            if control.macro_pause_timeout_s > 0 or control.macro_loop_stop_behavior == "pause_run":
+                control_event["pause_timeout_s"] = max(0.0, control.macro_pause_timeout_s)
             control_event["loop_stop_behavior"] = str(
                 control.macro_loop_stop_behavior or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
             )

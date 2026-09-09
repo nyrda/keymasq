@@ -208,6 +208,7 @@ def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
             macro_loop_mode="count",
             macro_loop_count=3,
             macro_loop_stop_behavior="cancel_run",
+            macro_pause_timeout_s=120,
             macro_move_to_start=True,
             macro_start_x=10,
             macro_start_y=20,
@@ -221,6 +222,7 @@ def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
     assert macro.macro_speed == 1.5
     assert macro.macro_loop_count == 3
     assert macro.macro_loop_stop_behavior == "cancel_run"
+    assert macro.macro_pause_timeout_s == 120
     assert macro.macro_move_to_start is True
     assert macro.macro_start_x == 10
     assert macro.macro_start_y == 20

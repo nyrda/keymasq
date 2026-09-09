@@ -28,7 +28,9 @@ open the tmux dev workspace in one terminal:
 ```
 
 The workspace shows daemon, session, and GUI logs with restart controls in
-the header. Run `./scripts/dev.sh --help` for command-line options.
+the header. F4 opens a searchable worktree picker. Opening `dev.sh` from another
+worktree also switches over, gracefully stopping the old processes first.
+Run `./scripts/dev.sh --help` for command-line options.
 
 You can also run the individual launchers in separate terminals:
 

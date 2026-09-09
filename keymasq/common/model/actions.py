@@ -91,7 +91,7 @@ DEFAULT_NATURAL_MOUSE_MOVE_CURVE = "natural"
 DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE = 2
 DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS = 3000
 
-MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run"})
+MACRO_LOOP_STOP_BEHAVIORS = frozenset({"finish_run", "cancel_run", "pause_run"})
 DEFAULT_MACRO_LOOP_STOP_BEHAVIOR = "finish_run"
 MAX_MACRO_RECORDING_SLOTS = 4
 
@@ -355,6 +355,7 @@ class MappingAction:
     macro_loop_mode: str = "none"
     macro_loop_count: int = 1
     macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
+    macro_pause_timeout_s: float = 0.0
     macro_move_to_start: bool = False
     macro_start_x: int = 0
     macro_start_y: int = 0

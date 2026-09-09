@@ -1289,6 +1289,7 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
     assert sent_command.data == {
         "pending_recording_id": "recording-4",
         "macro_name": "recording-slot-4",
+        "pause_timeout_s": 0.0,
         "replay_mouse_movement": True,
         "replay_mouse_clicks": True,
         "speed": 1.0,

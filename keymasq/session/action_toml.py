@@ -136,6 +136,7 @@ def mapping_action_from_toml(
             macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
             macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
             macro_speed=coerce_float(action_data.get("speed"), 1.0),
+            macro_pause_timeout_s=max(0.0, coerce_float(action_data.get("pause_timeout_s"), 0.0)),
             macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
             macro_loop_count=coerce_int(action_data.get("loop_count"), 1),
             macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
@@ -294,6 +295,7 @@ def mapping_action_to_toml(
         action_data["loop_mode"] = action.macro_loop_mode
         action_data["loop_count"] = int(action.macro_loop_count)
         action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
+        action_data["pause_timeout_s"] = action.macro_pause_timeout_s
         action_data["move_to_start"] = bool(action.macro_move_to_start)
         action_data["start_x"] = int(action.macro_start_x)
         action_data["start_y"] = int(action.macro_start_y)

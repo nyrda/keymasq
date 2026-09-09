@@ -100,6 +100,10 @@ class MacroPlaybackOptions:
             runtime_default=True,
         ),
     )
+    pause_timeout_s: float = field(
+        default=0.0,
+        metadata=_playback_metadata(_parse_playback_float, runtime_default=True),
+    )
     move_to_start: bool = field(
         default=False,
         metadata=_playback_metadata(_parse_playback_bool, runtime_default=True),

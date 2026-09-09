@@ -63,9 +63,27 @@ class MacroManagerMixin:
         elif playback_kwargs:
             raise TypeError("playback kwargs cannot be combined with playback_options")
 
+        source_key = (playback_options.source_device, playback_options.source_button)
+        if any(source_key):
+            # A release must not overtake the first press while its file is loading.
+            lock = self.macro_state.trigger_locks.setdefault(source_key, asyncio.Lock())
+            async with lock:
+                return await self._play_macro_request(playback_options, macro_event_source)
+        return await self._play_macro_request(playback_options, macro_event_source)
+
+    async def _play_macro_request(
+        self,
+        playback_options: MacroPlaybackOptions,
+        macro_event_source: MacroEventSource | None,
+    ) -> JsonObject:
         deps = self._macro_runtime_deps_factory()
+        if int(playback_options.trigger_value) == 1 and self.runtime_input_paused():
+            return {"status": "error", "message": "Runtime input is paused"}
+        if playback.resume_paused_macro(self, playback_options, deps=deps):
+            return {"status": "ok", "resumed": True}
         if (
             playback_options.load_stored_macro
+            and int(playback_options.trigger_value) == 1
             and macro_event_source is None
             and playback_options.macro_name
             and not playback_options.macro_events
@@ -179,6 +197,7 @@ class MacroManagerMixin:
                 )
                 or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
             ),
+            pause_timeout_s=max(0.0, coerce_float(event.get("pause_timeout_s"), 0.0)),
             move_to_start=coerce_bool(meta.get("move_to_start"), False),
             start_x=coerce_int(meta.get("start_x"), 0),
             start_y=coerce_int(meta.get("start_y"), 0),

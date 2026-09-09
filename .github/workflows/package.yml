@@ -834,10 +834,22 @@ jobs:
           name: appimage-package
           path: dist/
 
+      - name: Normalize prerelease download filenames
+        run: |
+          set -euo pipefail
+          # GitHub replaces tildes in release asset names with periods.
+          # Keep package contents unchanged, including their native versions.
+          for artifact in dist/*~*; do
+            [[ -f "$artifact" ]] || continue
+            normalized="${artifact//\~/.}"
+            test ! -e "$normalized"
+            mv -- "$artifact" "$normalized"
+          done
+
       - name: Generate prerelease checksums
         run: |
           cd dist
-          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz ./*.pkg.tar.* > SHA256SUMS
+          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz ./*.pkg.tar.* ./*.changes ./*.buildinfo > SHA256SUMS
 
       - name: Generate prerelease artifact attestations
         if: ${{ github.event.repository.private == false }}
@@ -880,6 +892,19 @@ jobs:
             dist/*.tar.gz
             dist/*.pkg.tar.*
             dist/SHA256SUMS
+
+      - name: Verify uploaded nightly downloads
+        if: startsWith(needs.version-metadata.outputs.release_tag, 'nightly-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.version-metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          verification_dir="$(mktemp -d "$RUNNER_TEMP/nightly-downloads.XXXXXX")"
+          gh release download "$RELEASE_TAG" --dir "$verification_dir"
+          cd "$verification_dir"
+          sha256sum --check --strict SHA256SUMS
 
       - name: Publish complete nightly
         if: startsWith(needs.version-metadata.outputs.release_tag, 'nightly-')

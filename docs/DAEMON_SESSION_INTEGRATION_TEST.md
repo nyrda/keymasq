@@ -28,6 +28,7 @@ coverage. It verifies that the core runtime classes still work together:
   superkeys, combos, and combo-bound overload superkeys
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output
 - gamepad button and analog axis output
+- controller touchpad mouse strokes, sparse axis reports, profile changes, and held-touch restart
 - emergency reset
 - capture, combo capture, recording save, and playback
 - session restart, daemon restart, and secondary device hotplug/replug
@@ -84,6 +85,43 @@ scenario files.
 
 The test is VM-heavy. A Linux host with KVM acceleration is strongly
 recommended.
+
+## Touchpad mouse scenario
+
+Run the touchpad scenario independently:
+
+```bash
+./scripts/integration.sh daemon-session --scenario analog-touchpad-mouse
+```
+
+The virtual source exposes `ABS_HAT1X/Y` and `ABS_HAT2X/Y` with the Steam
+Controller's signed 16-bit axis range. TOML fixtures define paired analog inputs,
+Touchpad Mouse controls, and two layered profiles. The real session broker loads
+the configuration and applies profile changes through daemon IPC. Assertions read
+the daemon's mouse output through evdev; runtime state and output methods are not
+mocked. The kernel filters unchanged ABS values, exercising sparse reports.
+
+| Case | Required output |
+| --- | --- |
+| Touch either pad away from center | No pointer movement |
+| Slide a quarter of each axis range | Exactly 100 horizontal and 50 vertical units |
+| Hold still | No additional movement |
+| One axis becomes zero | Continue the stroke |
+| X reaches zero before Y changes in the same report | Use the complete pair without a false release |
+| Both axes return to zero | No return movement |
+| Retouch elsewhere with Y remaining zero | Anchor silently, then move normally on an X-only report |
+| Higher-priority profile changes one pad's scale and inversion | Reanchor that pad using both current coordinates; apply the new scale and inversion |
+| The other pad's mapping remains unchanged | Preserve its existing stroke across the same profile update |
+| Remove the override | Reanchor and restore the original scale without losing the unchanged coordinate |
+| Restart the daemon with a finger held down | Recover the unreported axis from the real device state and resume without a jump |
+
+Every output assertion rejects unexpected movement as well as incorrect deltas,
+and checks for trailing events. Both pads return to zero and the scenario disables
+its profiles during cleanup. Use `--repeat 3` to check repeated execution.
+
+This scenario does not emulate the Steam Controller firmware or force an evdev
+queue overflow. `SYN_DROPPED` recovery and failed device-state reads remain covered
+by the focused daemon tests. Physical touch feel still needs hardware testing.
 
 ## Debugging Failures
 

@@ -1,0 +1,11 @@
+name = "Integration Touchpad Mouse"
+input_type = "stick"
+
+[mouse_motion]
+enabled = true
+mode = "touchpad"
+area_radius_x = 400.0
+area_radius_y = 200.0
+deadzone = 0.9
+sensitivity = 2.0
+response_curve = 4.0

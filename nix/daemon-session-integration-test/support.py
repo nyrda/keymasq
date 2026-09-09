@@ -112,6 +112,8 @@ class ScenarioContext:
                 "Integration Analog Override",
                 "Integration Analog Mouse Velocity",
                 "Integration Analog Mouse Area",
+                "Integration Touchpad Mouse Override",
+                "Integration Touchpad Mouse",
                 "Integration Analog Multi",
                 "Integration Analog Threshold",
                 "Integration Analog Signed Axis Threshold",
@@ -221,6 +223,10 @@ class ScenarioContext:
                     (evdev.ecodes.ABS_Y, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
                     (evdev.ecodes.ABS_RX, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
                     (evdev.ecodes.ABS_Z, evdev.AbsInfo(0, 0, 255, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT1X, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT1Y, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT2X, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT2Y, evdev.AbsInfo(0, -32768, 32767, 0, 0, 0)),
                 ],
             },
             name=name,
@@ -357,6 +363,8 @@ class ScenarioContext:
         )
         for fixture_name in (
             "analog-stick-gamepad.toml",
+            "analog-touchpad-mouse.toml",
+            "analog-touchpad-mouse-override.toml",
             "analog-stick-gamepad-invert.toml",
             "analog-trigger-deadzone.toml",
             "analog-threshold.toml",
@@ -372,6 +380,8 @@ class ScenarioContext:
             )
         for fixture_name in (
             "analog-gamepad.toml",
+            "analog-touchpad-mouse.toml",
+            "analog-touchpad-mouse-override.toml",
             "analog-gamepad-invert.toml",
             "analog-threshold.toml",
             "analog-signed-axis-threshold.toml",

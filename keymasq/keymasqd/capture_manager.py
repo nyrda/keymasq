@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import errno
 import logging
 import os
@@ -89,6 +90,7 @@ class CaptureSession:
     motion_dropped_frames: int = 0
     motion_discontinuities: int = 0
     motion_reader_error: str = ""
+    native_task: asyncio.Task[None] | None = None
     motion_stats_lock: threading.Lock = field(default_factory=threading.Lock)
     mode: str = "button"
 
@@ -102,6 +104,89 @@ class CaptureManager:
     def __init__(self) -> None:
         self._sessions: dict[str, CaptureSession] = {}
         self._combo_capture_authorizations: set[str] = set()
+
+    async def begin_native(
+        self,
+        hardware_id: str,
+        interfaces: list[JsonObject],
+        axis_codes: list[int],
+    ) -> JsonObject:
+        from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX, binding_for_path
+        from keymasq.keymasqd.input_sources.evdev_adapter import channel_codes
+        from keymasq.keymasqd.input_sources.manager import source_manager
+
+        if not axis_codes:
+            raise ValueError("Motion capture requires axis codes")
+        resolved = await asyncio.to_thread(
+            device_path_resolver.resolve_evdev_interfaces,
+            interfaces,
+            deps=_device_path_resolver_deps(),
+            hardware_id=hardware_id,
+        )
+        if len(resolved) != 1 or not resolved[0].path.startswith(SOURCE_PREFIX):
+            raise ValueError("Native motion source is unavailable or ambiguous")
+        interface = resolved[0]
+        binding = await asyncio.to_thread(binding_for_path, interface.path)
+        codes = channel_codes(binding)
+        if not set(axis_codes).issubset(codes.values()):
+            raise ValueError("Requested axes are not supplied by this input driver")
+        token = str(uuid.uuid4())
+        session = CaptureSession(
+            token=token,
+            hardware_id=hardware_id,
+            devices=[],
+            started_at=time.time(),
+            mode="motion",
+            motion_axis_codes=tuple(axis_codes),
+            motion_frame_queue=queue.Queue(maxsize=_MOTION_FRAME_QUEUE_SIZE),
+        )
+        ready = asyncio.get_running_loop().create_future()
+
+        async def consume() -> None:
+            try:
+                async with source_manager().subscribe(binding) as subscriber:
+                    while True:
+                        frame = await subscriber.read()
+                        if frame.discontinuity:
+                            with session.motion_stats_lock:
+                                session.motion_discontinuities += 1
+                        self._queue_motion_frame(
+                            session,
+                            {
+                                "timestamp_ns": frame.sample_ns,
+                                "path": interface.path,
+                                "source": interface.interface_id,
+                                "values": {
+                                    str(codes[name]): value
+                                    for name, value in frame.values.items()
+                                    if codes[name] in axis_codes
+                                },
+                                "estimated_time": frame.estimated_time,
+                            },
+                        )
+                        if not ready.done():
+                            ready.set_result(None)
+            except OSError as exc:
+                self._set_motion_reader_error(session, str(exc))
+                if not ready.done():
+                    ready.set_exception(exc)
+
+        self._sessions[token] = session
+        session.native_task = asyncio.create_task(consume())
+        try:
+            await asyncio.wait_for(ready, 2.0)
+        except BaseException:
+            await self.stop_native(token)
+            self.end(token)
+            raise
+        return {"token": token, "hardware_id": hardware_id, "warnings": []}
+
+    async def stop_native(self, token: str) -> None:
+        session = self._sessions.get(token)
+        if session is not None and session.native_task is not None:
+            session.native_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await session.native_task
 
     def begin(
         self,
@@ -373,6 +458,9 @@ class CaptureManager:
         session = self._sessions.pop(token, None)
         if session is None:
             return {"status": "ok", "ended": False}
+
+        if session.native_task is not None and not session.native_task.done():
+            session.native_task.get_loop().call_soon_threadsafe(session.native_task.cancel)
 
         if session.stop_event is not None:
             session.stop_event.set()

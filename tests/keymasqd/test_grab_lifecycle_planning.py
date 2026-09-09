@@ -21,6 +21,17 @@ from keymasq.keymasqd.runtime.grab.state import (
 )
 
 
+def test_native_source_removal_does_not_wait_for_evdev_release_grace(monkeypatch):
+    native = SimpleNamespace(path="/dev/keymasq-sources/test/instance/hidraw7")
+    existing = SimpleNamespace(path="/dev/input/event26")
+    plan = SimpleNamespace(existing_devices=[native, existing], requested_claim_paths=set())
+    schedule = Mock()
+    monkeypatch.setattr(acquisition, "schedule_interface_release", schedule)
+    acquisition.reconcile_existing_interface_releases(_manager(), "2dc8:6012", plan, _deps())
+    assert schedule.call_args_list[0].kwargs["grace_s"] == 0
+    assert "grace_s" not in schedule.call_args_list[1].kwargs
+
+
 def _manager(
     *,
     grabbed_devices: dict[str, list[object]] | None = None,
@@ -389,9 +400,7 @@ async def test_failed_multi_interface_grab_does_not_update_existing_device_metad
     monkeypatch.setattr(acquisition, "update_existing_devices", update_existing_devices)
     monkeypatch.setattr(acquisition, "reconcile_existing_interface_releases", Mock())
     monkeypatch.setattr(acquisition, "build_runtime_callbacks", Mock(return_value=object()))
-    grab_one_interface = AsyncMock(
-        side_effect=[None, RuntimeError("second interface failed")]
-    )
+    grab_one_interface = AsyncMock(side_effect=[None, RuntimeError("second interface failed")])
     monkeypatch.setattr(
         acquisition,
         "grab_one_interface",

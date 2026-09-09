@@ -214,9 +214,10 @@ def schedule_interface_release(
     *,
     asyncio_mod: adapters.AsyncioRuntimeAdapter,
     log: logging.Logger,
+    grace_s: float | None = None,
 ) -> None:
     cancel_pending_interface_release(manager, hardware_id, path)
-    delay = manager.grab_state.release_grace_s
+    delay = manager.grab_state.release_grace_s if grace_s is None else max(0.0, grace_s)
     manager.grab_state.pending_interface_release[(hardware_id, path)] = asyncio_mod.create_task(
         delayed_interface_release(
             manager,

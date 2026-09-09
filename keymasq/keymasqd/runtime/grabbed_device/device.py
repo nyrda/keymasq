@@ -21,6 +21,8 @@ from keymasq.common.devices import (
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
+from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters, force_feedback, source_hiding
@@ -75,6 +77,8 @@ class _PassthroughUInputKwargs(TypedDict):
 
 
 def _device_input(path: str) -> ManagedInputDevice:
+    if path.startswith(SOURCE_PREFIX):
+        return cast(ManagedInputDevice, cast(object, NativeInputDevice(path)))
     device = cast(object, evdev.InputDevice(path))
     set_evdev_clock_monotonic(device, device_path=path, logger=log)
     return cast(ManagedInputDevice, device)
@@ -211,6 +215,24 @@ def _passthrough_uinput_kwargs(
     if supports_max_effects:
         kwargs["max_effects"] = ff_max_effects
     return kwargs
+
+
+async def _create_passthrough_uinput(create: Callable[[], evdev.UInput]) -> evdev.UInput:
+    # UI_DEV_CREATE and discovery of the resulting event node can wait on the
+    # kernel. Keep other grabbed devices running during creation and rollback.
+    task = asyncio.create_task(asyncio.to_thread(create))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Cancelling to_thread cannot stop creation. Retain ownership until the
+        # worker finishes so an interrupted profile switch cannot leak a device.
+        try:
+            uinput = await task
+        except Exception:  # noqa: BLE001 - preserve cancellation if the worker also failed.
+            log.debug("Passthrough creation failed after cancellation", exc_info=True)
+        else:
+            await asyncio.to_thread(_close_passthrough_uinput, uinput, context="cancelled grab")
+        raise
 
 
 def _close_passthrough_uinput(
@@ -511,7 +533,7 @@ class GrabbedDevice:
         await self._stop_output_feedback_proxy()
         uinput = self.uinput
         if uinput is not None:
-            _close_passthrough_uinput(uinput, context="failed grab")
+            await asyncio.to_thread(_close_passthrough_uinput, uinput, context="failed grab")
         self.uinput = None
 
         device = self.device
@@ -535,7 +557,11 @@ class GrabbedDevice:
     async def grab(self) -> None:
         self.resolved_event_path = os.path.realpath(self.path)
         self.source_hidden_kernel_names = []
-        self.device = _device_input(self.path)
+        self.device = (
+            await asyncio.to_thread(_device_input, self.path)
+            if self.path.startswith(SOURCE_PREFIX)
+            else _device_input(self.path)
+        )
         initialize_motion_state(self, self.mapping_getter())
 
         if self.access_mode is InputAccessMode.OBSERVE:
@@ -615,7 +641,9 @@ class GrabbedDevice:
                     ),
                 )
 
-            self.uinput = make_passthrough_uinput(ff_max_effects)
+            self.uinput = await _create_passthrough_uinput(
+                lambda: make_passthrough_uinput(ff_max_effects)
+            )
             if force_feedback.has_passthrough_output_feedback(caps):
                 try:
                     self._start_output_feedback_proxy()
@@ -625,11 +653,15 @@ class GrabbedDevice:
                         self.path,
                         exc_info=True,
                     )
-                    _close_passthrough_uinput(self.uinput, context="output-feedback retry")
+                    await asyncio.to_thread(
+                        _close_passthrough_uinput, self.uinput, context="output-feedback retry"
+                    )
                     self.uinput = None
                     force_feedback.disable_passthrough_output_feedback(caps)
                     ff_max_effects = 0
-                    self.uinput = make_passthrough_uinput(ff_max_effects)
+                    self.uinput = await _create_passthrough_uinput(
+                        lambda: make_passthrough_uinput(ff_max_effects)
+                    )
 
             await grab.wait_for_active_keys_to_clear(
                 self,
@@ -704,6 +736,8 @@ class GrabbedDevice:
         await self._stop_output_feedback_proxy()
 
         if self.device:
+            if isinstance(self.device, NativeInputDevice):
+                await self.device.aclose()
             if self.access_mode is InputAccessMode.EXCLUSIVE:
                 try:
                     self.device.ungrab()
@@ -719,7 +753,8 @@ class GrabbedDevice:
                 log.exception("Unexpected failure closing input device %s", self.path)
 
         if self.uinput:
-            _close_passthrough_uinput(
+            await asyncio.to_thread(
+                _close_passthrough_uinput,
                 self.uinput,
                 context=f"release {self.path}",
                 close_error_log_level=logging.WARNING,

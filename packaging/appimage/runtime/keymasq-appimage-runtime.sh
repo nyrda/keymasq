@@ -675,6 +675,7 @@ reload_udev_rules() {
 	fi
 	udevadm trigger --subsystem-match=input --action=add || true
 	udevadm trigger --subsystem-match=misc --action=add || true
+	udevadm trigger --subsystem-match=hidraw --action=change --settle || true
 }
 
 clear_keymasq_udev_state() {
@@ -711,7 +712,8 @@ clear_keymasq_udev_state() {
 		for keymasq_device in \
 			"$(root_path /dev/uinput)" \
 			"$(root_path /dev/input)"/event* \
-			"$(root_path /dev/input)"/js*; do
+			"$(root_path /dev/input)"/js* \
+			"$(root_path /dev)"/hidraw*; do
 			[ -e "$keymasq_device" ] || continue
 			if ! setfacl -x u:keymasq "$keymasq_device" 2>/dev/null; then
 				warn "could not remove the Keymasq ACL from $keymasq_device"
@@ -807,6 +809,7 @@ Before starting the daemon, grant device ACLs:
   install -d -o keymasq -g keymasq -m 0755 /run/keymasq
   install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq
   setfacl -m u:keymasq:rw /dev/uinput
+  udevadm trigger --subsystem-match=hidraw --action=change --settle
   for p in /dev/input/event*; do [ -e "\$p" ] && setfacl -m u:keymasq:rw "\$p"; done
 
 The per-user session manager was installed as an XDG autostart entry for:

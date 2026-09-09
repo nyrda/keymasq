@@ -503,6 +503,10 @@ def _hardware_evdev_interfaces(manager: "SessionManager", hardware_id: str) -> l
     hardware = manager.hardware.get_hardware(hardware_id)
     if hardware is None:
         return []
+    if getattr(hardware, "input_sources", []):
+        from .profile.grab_plan import configured_interface_descriptors
+
+        return configured_interface_descriptors(hardware, None)
     interfaces: list[JsonObject] = []
     for device in getattr(hardware, "evdev_devices", []):
         device_id = coerce_str(getattr(device, "id", ""), "")

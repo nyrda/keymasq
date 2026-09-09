@@ -1,5 +1,6 @@
 import logging
 import math
+import struct
 import tomllib
 from types import SimpleNamespace
 
@@ -38,6 +39,53 @@ from keymasq.session.manager.profile import grab_plan
 from keymasq.session.motion_controls import MotionControlManager
 from keymasq.session.profile.codec import ProfileCodec
 from keymasq.session.profile.types import ResolvedDeviceProfile
+
+
+@pytest.mark.asyncio
+async def test_native_reports_use_existing_bias_and_smoothing_pipeline():
+    from keymasq.keymasqd.input_sources.drivers.eightbitdo_ultimate2 import Ultimate2Driver
+    from keymasq.keymasqd.input_sources.evdev_adapter import frame_events, motion_axes
+    from keymasq.keymasqd.input_sources.types import Binding, Endpoint, InputFrame
+    from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+
+    binding = Binding(Ultimate2Driver(), Endpoint("raw", "hid", "usb", 3, 0x2DC8, 0x6012, b""))
+    displacements = []
+    for smoothing, bias in ((0.0, 0.0), (0.8, 0.0), (0.0, 16384.0)):
+        runtime = _Runtime()
+        runtime.interface_id = "imu"
+        axes = motion_axes(binding)
+        axes["gyro_axes"][2]["offset"] = bias
+        GrabbedDevice.update_motion_sensors(runtime, {"motion_1": {"source": "imu", **axes}})
+        mapping = {
+            "motion_1": MappingAction(
+                action_type=ActionType.MOTION_CONTROL,
+                motion_control_config=MotionControlConfig(
+                    name="Native aim", mouse=MotionMouseConfig(smoothing=smoothing, deadzone_dps=0)
+                ),
+            )
+        }
+        for index in range(11):
+            packet = bytearray(34)
+            packet[0] = 1
+            yaw = 0 if index == 0 and bias == 0 else 16384
+            struct.pack_into("<6h", packet, 15, 0, 0, 4096, 0, 0, yaw)
+            values = binding.driver.decode(bytes(packet))
+            assert values is not None
+            timestamp = 1_000_000_000 + index * 10_000_000
+            for event in frame_events(binding, InputFrame(values, timestamp, timestamp)):
+                await dispatch_motion_event(
+                    runtime, event, mapping, deps=build_action_execution_deps()
+                )
+        displacements.append(
+            sum(
+                value
+                for kind, code, value in runtime.mouse_uinput.events
+                if kind == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_X
+            )
+        )
+    assert abs(displacements[0]) >= 799
+    assert 0 < abs(displacements[1]) < abs(displacements[0])
+    assert displacements[2] == 0
 
 
 class _Writer:

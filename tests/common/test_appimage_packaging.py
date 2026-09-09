@@ -1100,12 +1100,14 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     assert "install -d -o keymasq -g keymasq -m 0755 /run/keymasq" in instructions
     assert "install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq" in instructions
     assert "setfacl -m u:keymasq:rw /dev/uinput" in instructions
+    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" in instructions
     assert current_user in instructions
     assert "systemd was not detected" in result.stderr
     assert "could not reload udev rules" in result.stderr
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "udevadm control --reload-rules" in command_log
     assert "systemctl" not in command_log
+    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" in command_log
     assert "systemd-sysusers" not in command_log
     assert "systemd-tmpfiles" not in command_log
 
@@ -1210,10 +1212,12 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     uinput = fake_root / "dev/uinput"
     event = fake_root / "dev/input/event0"
     joystick = fake_root / "dev/input/js0"
+    hidraw = fake_root / "dev/hidraw7"
     event.parent.mkdir(parents=True)
     uinput.touch()
     event.touch()
     joystick.touch()
+    hidraw.touch()
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
@@ -1244,6 +1248,7 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert f"setfacl -x u:keymasq {uinput}" in command_log
     assert f"setfacl -x u:keymasq {event}" in command_log
     assert f"setfacl -x u:keymasq {joystick}" in command_log
+    assert f"setfacl -x u:keymasq {hidraw}" in command_log
 
 
 def test_appimage_runtime_exports_gtk_introspection_environment(tmp_path: Path) -> None:

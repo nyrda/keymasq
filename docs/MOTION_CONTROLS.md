@@ -176,3 +176,26 @@ higher-priority mapping.
 Games and other apps can still read the controller's motion sensor while a Motion Control is
 active. Keymasq adds the configured mouse, gamepad, or digital-action output. It does not hide
 sensor input from other apps.
+
+## Ultimate 2 Wireless motion through hidraw
+
+The Ultimate 2 Wireless can provide motion in DInput dongle mode through the
+bundled `8bitdo-ultimate2` driver. Its active USB identity is `2dc8:6012`, and it
+must send the extended 34-byte input reports. The idle receiver identity
+`2dc8:6013` is not a motion source. Bluetooth and other Ultimate models are not
+covered by this driver.
+
+New hardware setup attaches the discovered motion source to the controller.
+For an existing hardware configuration, use its hardware settings to add the
+motion interface from device discovery. Native sources appear in hardware
+settings with an enable switch. Map the resulting motion sensor to a Motion
+Control and calibrate its gyro as usual. Buttons and sticks continue through
+evdev, including the four extra buttons.
+
+Native motion uses the existing bias calibration, noise threshold, smoothing,
+and mouse/stick/analog output processing. DInput calibration is separate from
+Nintendo-mode calibration. Report times are estimated from monotonic arrival
+time; repeated sensor values are retained.
+
+See [Native input drivers](INPUT_DRIVER_DESIGN.md) for configuration and extension
+points.

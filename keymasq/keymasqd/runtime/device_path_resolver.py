@@ -230,6 +230,8 @@ def resolve_evdev_interfaces(
     }
 
     for descriptor in interfaces:
+        if descriptor.get("backend") == "hidraw":
+            continue
         configured_path = str(descriptor.get("path", "") or "").strip()
         if not configured_path:
             continue
@@ -284,7 +286,91 @@ def resolve_evdev_interfaces(
                 capabilities=sorted(configured_caps),
             )
         )
-    return resolved
+    return resolved + _resolve_native_interfaces(
+        interfaces,
+        resolved,
+        deps=deps,
+        hardware_id=hardware_id,
+        excluded_paths=normalized_excluded_paths,
+        preferred_paths=normalized_preferred_paths,
+    )
+
+
+def _resolve_native_interfaces(
+    interfaces: list[JsonObject],
+    resolved: list[ResolvedInterface],
+    *,
+    deps: DevicePathResolverDeps,
+    hardware_id: str | None,
+    excluded_paths: set[str],
+    preferred_paths: set[str],
+) -> list[ResolvedInterface]:
+    from keymasq.keymasqd.input_sources.discovery import companion_binding, discover_bindings
+
+    native = [item for item in interfaces if item.get("backend") == "hidraw"]
+    if not native:
+        return []
+    bindings = discover_bindings()
+    excluded_anchors = excluded_paths | {
+        path
+        for binding in bindings
+        if binding.path in excluded_paths
+        for path in binding.companions
+    }
+    preferred_anchors = preferred_paths | {
+        path
+        for binding in bindings
+        if binding.path in preferred_paths
+        for path in binding.companions
+    }
+    result: list[ResolvedInterface] = []
+    for descriptor in native:
+        driver_id = str(descriptor.get("driver", ""))
+        raw_anchor = descriptor.get("anchor")
+        anchor = cast(JsonObject, raw_anchor) if isinstance(raw_anchor, dict) else None
+        binding = None
+        if anchor is not None and anchor.get("backend") != "hidraw":
+            anchor_id = str(anchor.get("id", ""))
+            matches = [item for item in resolved if item.interface_id == anchor_id]
+            if not matches:
+                matches = resolve_evdev_interfaces(
+                    [anchor],
+                    deps=deps,
+                    hardware_id=hardware_id,
+                    excluded_paths=excluded_anchors,
+                    preferred_paths=preferred_anchors,
+                    match_model_gamepads=True,
+                )
+            if len(matches) == 1:
+                binding = companion_binding(bindings, driver_id, matches[0].path)
+        elif not descriptor.get("companion_of"):
+            model = parse_hardware_model_id(hardware_id)
+            candidates = [
+                item
+                for item in bindings
+                if item.driver.id == driver_id
+                and model == (f"{item.endpoint.vendor:04x}", f"{item.endpoint.product:04x}")
+                and (not descriptor.get("phys") or item.endpoint.phys == descriptor["phys"])
+                and item.path not in excluded_paths
+            ]
+            if len(candidates) == 1:
+                binding = candidates[0]
+        if (
+            binding is None
+            or binding.path in excluded_paths
+            or any(item.path == binding.path for item in result)
+        ):
+            continue
+        result.append(
+            ResolvedInterface(
+                path=binding.path,
+                configured_path=str(descriptor.get("path", "")),
+                interface_id=str(descriptor.get("id", "")),
+                device_type=DeviceType.MOTION,
+                capabilities=[],
+            )
+        )
+    return result
 
 
 def _resolve_keymasq_paths(

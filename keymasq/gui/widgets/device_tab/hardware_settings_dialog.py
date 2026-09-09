@@ -14,8 +14,9 @@ from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue
 from keymasq import __version__
 from keymasq.common.devices import is_keymasq_device_path
 from keymasq.common.model.core import DeviceType
-from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+from keymasq.common.model.hardware import EvdevDevice, HardwareConfig, NativeInputSource
 from keymasq.common.model.motion import MotionSensorDefinition
+from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.device_tab.motion_calibration_dialog import (
     MotionCalibrationDialog,
 )
@@ -93,10 +94,42 @@ def append_evdev_device_selection(
             source_ids[original_source] = source_id
         added += 1
 
+    if isinstance(evdev_devices, EvdevDeviceSelection):
+        used_ids.update(source.id for source in hardware_config.input_sources)
+        for source in evdev_devices.input_sources:
+            companion = source_ids.get(source.companion_of or "", source.companion_of)
+            if companion is None:
+                candidates = [
+                    device
+                    for device in hardware_config.evdev_devices
+                    if device.id and source.phys and device.phys == source.phys
+                ]
+                if not candidates and len(hardware_config.evdev_devices) == 1:
+                    candidates = hardware_config.evdev_devices
+                if len(candidates) == 1:
+                    companion = candidates[0].id
+            existing = next(
+                (
+                    item
+                    for item in hardware_config.input_sources
+                    if item.driver == source.driver
+                    and item.companion_of == companion
+                    and item.phys == source.phys
+                ),
+                None,
+            )
+            if existing is not None:
+                source_ids[source.id] = existing.id
+                continue
+            appended_source = deepcopy(source)
+            appended_source.id = _dedupe_interface_id(source.id, used_ids)
+            appended_source.companion_of = companion
+            hardware_config.input_sources.append(appended_source)
+            source_ids[source.id] = appended_source.id
+            added += 1
+
     selected_motion_sensors = (
-        evdev_devices.motion_sensors
-        if isinstance(evdev_devices, EvdevDeviceSelection)
-        else []
+        evdev_devices.motion_sensors if isinstance(evdev_devices, EvdevDeviceSelection) else []
     )
     used_motion_ids = {
         _normalize_interface_id(sensor.id) for sensor in hardware_config.motion_sensors
@@ -261,7 +294,7 @@ class HardwareSettingsDialog(Adw.Dialog):
             self._interfaces_group.remove(row)
         self._interface_rows = []
 
-        if not self._hardware_config.evdev_devices:
+        if not self._hardware_config.evdev_devices and not self._hardware_config.input_sources:
             row = Adw.ActionRow(
                 title="No event devices attached",
                 subtitle="Add an event device to make this hardware ID match live input.",
@@ -292,6 +325,25 @@ class HardwareSettingsDialog(Adw.Dialog):
             row.add_suffix(delete_btn)
             self._interfaces_group.add(row)
             self._interface_rows.append(row)
+
+        for source in self._hardware_config.input_sources:
+            native_row = Adw.SwitchRow(
+                title=f"{source.id}: {source.driver}",
+                subtitle=f"Native input source, paired with {source.companion_of}"
+                if source.companion_of
+                else "Native input source",
+                active=source.enabled,
+            )
+            native_row.connect("notify::active", self._on_native_source_toggled, source)
+            self._interfaces_group.add(native_row)
+            self._interface_rows.append(native_row)
+
+    def _on_native_source_toggled(
+        self, row: Adw.SwitchRow, _param: object, source: NativeInputSource
+    ) -> None:
+        source.enabled = row.get_active()
+        self._hardware_manager.save_hardware(self._hardware_config)
+        session_request_async({"command": "reload"}, lambda _result: False)
 
     def _refresh_motion_rows(self) -> None:
         if self._motion_group is None:
@@ -414,7 +466,9 @@ class HardwareSettingsDialog(Adw.Dialog):
         ]
         selection: list[EvdevDevice] | EvdevDeviceSelection = devices
         if isinstance(raw_devices, EvdevDeviceSelection):
-            selection = EvdevDeviceSelection(devices, raw_devices.motion_sensors)
+            selection = EvdevDeviceSelection(
+                devices, raw_devices.motion_sensors, raw_devices.input_sources
+            )
         _added, message, error = self._on_add_devices(selection)
         self._refresh_interface_rows()
         self._refresh_motion_rows()

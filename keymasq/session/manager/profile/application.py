@@ -581,6 +581,13 @@ async def apply_resolved_device_profile(
     )
     grab_signature = grab_device_payload_signature(grab_payload)
     if not new_interfaces and not inspector_active:
+        if hardware_id in manager.profile_state.grabbed_devices:
+            await operations.deactivate_profile(
+                manager,
+                hardware_id,
+                immediate=True,
+                generation=generation,
+            )
         if manager.profile_state.last_sent_grab_signatures.get(hardware_id) != grab_signature:
             log.warning(
                 (

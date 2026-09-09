@@ -106,11 +106,20 @@ class _ManagedInputDevice(Protocol):
 
 
 def _device_input(path: str) -> _ManagedInputDevice:
+    from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+    from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
+
+    if path.startswith(SOURCE_PREFIX):
+        return cast(_ManagedInputDevice, cast(object, NativeInputDevice(path)))
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
 
 def _device_paths() -> list[str]:
-    return cast(Callable[[], list[str]], evdev.list_devices)()
+    from keymasq.keymasqd.input_sources.discovery import discover_bindings
+
+    return cast(Callable[[], list[str]], evdev.list_devices)() + [
+        binding.path for binding in discover_bindings()
+    ]
 
 
 def _topology_runtime_deps() -> topology.TopologyRuntimeDeps:

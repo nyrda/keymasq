@@ -917,6 +917,8 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
     original_sleep = grabbed_device.asyncio.sleep
 
     def fake_create_task(coro):
+        if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+            return original_create_task(coro)
         coro.close()
         return original_create_task(original_sleep(0))
 
@@ -1020,6 +1022,8 @@ async def test_grab_retries_without_output_feedback_when_proxy_start_fails(
     original_sleep = grabbed_device.asyncio.sleep
 
     def fake_create_task(coro):
+        if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+            return original_create_task(coro)
         coro.close()
         return original_create_task(original_sleep(0))
 

@@ -28,6 +28,7 @@ from keymasq.common.model.hardware import (
     AnalogInputDefinition,
     ButtonDefinition,
     EvdevDevice,
+    NativeInputSource,
 )
 from keymasq.common.model.motion import (
     MOTION_NORMALIZATION_VERSION,
@@ -96,6 +97,8 @@ def interfaces_have_capability(
 def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice]:
     evdev_devices = []
     for iface in interfaces:
+        if iface.get("backend") == "hidraw":
+            continue
         stable_path = str(iface.get("stable_path", "") or "")
         config_path = str(iface.get("config_path", "") or "")
         event_path = str(iface.get("path", "") or "")
@@ -115,6 +118,23 @@ def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice
             )
         )
     return evdev_devices
+
+
+def build_input_sources(interfaces: Sequence[InterfaceInfo]) -> list[NativeInputSource]:
+    by_path = {str(iface.get("path", "")): str(iface.get("id", "")) for iface in interfaces}
+    return [
+        NativeInputSource(
+            id=str(iface["id"]),
+            driver=str(iface["driver"]),
+            companion_of=next(
+                (by_path[path] for path in iface.get("companion_paths", []) if path in by_path),
+                None,
+            ),
+            phys=str(iface.get("phys", "")) or None,
+        )
+        for iface in interfaces
+        if iface.get("backend") == "hidraw" and iface.get("id")
+    ]
 
 
 def build_standard_mouse_buttons(
@@ -381,6 +401,24 @@ def build_motion_sensors(interfaces: Sequence[InterfaceInfo]) -> list[MotionSens
             continue
         source_id = str(iface.get("id", "") or "")
         if not source_id:
+            continue
+        native_axes = iface.get("native_motion_axes")
+        if iface.get("backend") == "hidraw" and isinstance(native_axes, dict):
+            sensors.append(
+                MotionSensorDefinition(
+                    id=f"motion_{len(sensors) + 1}",
+                    label=str(iface.get("name") or "Motion Sensor"),
+                    source=source_id,
+                    driver=str(iface.get("driver", "")),
+                    gyro_axes=[
+                        MotionAxisDefinition(**axis) for axis in native_axes.get("gyro_axes", [])
+                    ],
+                    accelerometer_axes=[
+                        MotionAxisDefinition(**axis)
+                        for axis in native_axes.get("accelerometer_axes", [])
+                    ],
+                )
+            )
             continue
         raw_capabilities = iface.get("raw_capabilities") or {}
         if not isinstance(raw_capabilities, dict):

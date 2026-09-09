@@ -167,6 +167,8 @@ class TestRapidfireRelease:
             return True
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(original_sleep(0))
             created_tasks.append(task)
@@ -200,7 +202,7 @@ class TestRapidfireRelease:
         await original_sleep(0)
 
         assert wait_timeouts == [pytest.approx(grabbed_device.ACTIVE_KEY_IDLE_LOG_INTERVAL_S)]
-        assert [call[0] for call in to_thread_calls] == [
+        assert [call[0] for call in to_thread_calls[1:]] == [
             fake_input.active_keys,
             fake_input.active_keys,
         ]
@@ -237,6 +239,8 @@ class TestRapidfireRelease:
         original_sleep = asyncio.sleep
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             return original_create_task(original_sleep(0))
 
@@ -318,7 +322,7 @@ class TestRapidfireRelease:
             return monotonic_last["value"]
 
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device, "time", SimpleNamespace(monotonic=fake_monotonic))
         monkeypatch.setattr(
             grab,
             "wait_for_active_key_activity",
@@ -479,7 +483,7 @@ class TestRapidfireRelease:
             return monotonic_last["value"]
 
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device, "time", SimpleNamespace(monotonic=fake_monotonic))
         monkeypatch.setattr(
             grab,
             "wait_for_active_key_activity",
@@ -560,7 +564,7 @@ class TestRapidfireRelease:
         monkeypatch.setattr(grabbed_device.evdev, "InputDevice", lambda _path: _FakeInputDevice())
         monkeypatch.setattr(grabbed_device.evdev, "UInput", fake_uinput)
         monkeypatch.setattr(grabbed_device.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(grabbed_device.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(grabbed_device, "time", SimpleNamespace(monotonic=fake_monotonic))
 
         device = GrabbedDevice(
             path="/dev/input/event-test",
@@ -608,6 +612,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(0))
             created_tasks.append(task)
@@ -687,6 +693,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(0))
             created_tasks.append(task)
@@ -757,6 +765,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(0))
             created_tasks.append(task)
@@ -844,6 +854,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(0))
             created_tasks.append(task)
@@ -936,6 +948,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(60))
             created_tasks.append(task)
@@ -1114,6 +1128,8 @@ class TestRapidfireRelease:
             return func(*args, **kwargs)
 
         def fake_create_task(coro):
+            if coro.cr_code is not grabbed_device.pipeline.event_loop.__code__:
+                return original_create_task(coro)
             coro.close()
             task = original_create_task(asyncio.sleep(60))
             created_tasks.append(task)

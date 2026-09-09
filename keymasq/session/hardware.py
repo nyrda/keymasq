@@ -18,6 +18,7 @@ from keymasq.common.model.hardware import (
     ButtonDefinition,
     EvdevDevice,
     HardwareConfig,
+    NativeInputSource,
 )
 from keymasq.common.model.motion import (
     MOTION_NORMALIZATION_VERSION,
@@ -226,6 +227,7 @@ class HardwareManager:
             motion_sensors=motion_sensors,
             image=hw.get("image"),
             id=hardware_id or None,
+            input_sources=[NativeInputSource(**source) for source in hw.get("input_sources", [])],
         )
 
     @staticmethod
@@ -559,6 +561,18 @@ class HardwareManager:
 
         if config.id:
             data["hardware"]["hardware_id"] = config.hardware_id
+
+        if config.input_sources:
+            data["hardware"]["input_sources"] = [
+                {
+                    "id": source.id,
+                    "driver": source.driver,
+                    **({"enabled": False} if not source.enabled else {}),
+                    **({"companion_of": source.companion_of} if source.companion_of else {}),
+                    **({"phys": source.phys} if source.phys else {}),
+                }
+                for source in config.input_sources
+            ]
 
         if config.image:
             data["hardware"]["image"] = config.image

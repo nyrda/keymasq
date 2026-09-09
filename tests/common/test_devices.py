@@ -100,6 +100,26 @@ def test_resolve_stable_path_returns_original_when_by_id_dir_missing(
     clear_device_path_cache()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/dev/keymasq-sources/8bitdo-ultimate2/0003:2DC8:6012.0052/hidraw7",
+        "/dev/keymasq-sources/future-driver/instance/event7",
+        "keymasq-source:imu",
+    ],
+)
+def test_stable_path_preserves_native_addresses(monkeypatch, path):
+    symlink = Path("/dev/input/by-id/usb-8BitDo-hidraw")
+    clear_device_path_cache()
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    monkeypatch.setattr(Path, "iterdir", lambda self: iter([symlink]))
+    monkeypatch.setattr(Path, "is_symlink", lambda self: True)
+    monkeypatch.setattr(os, "readlink", lambda _path: f"../../{Path(path).name}")
+
+    assert resolve_stable_path(path) == path
+    clear_device_path_cache()
+
+
 def test_resolve_stable_path_skips_symlink_read_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     by_id_dir = Path("/dev/input/by-id")
     symlink = by_id_dir / "usb-Example-event-kbd"

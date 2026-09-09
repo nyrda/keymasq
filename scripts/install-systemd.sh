@@ -70,6 +70,7 @@ install -Dm644 "${REPO_ROOT}/udev/99-keymasq-hide-grabbed.rules" /etc/udev/rules
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=input --action=add
 udevadm trigger --subsystem-match=misc --action=add
+udevadm trigger --subsystem-match=hidraw --action=change --settle
 
 install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
 
@@ -97,6 +98,8 @@ User=keymasq
 Group=keymasq
 SupplementaryGroups=input
 Nice=-5
+# Apply native-driver ACLs to controllers already connected at startup.
+ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
 ExecStart=/usr/local/bin/keymasqd-wrapper
 Restart=on-failure
 RestartSec=5

@@ -84,7 +84,12 @@ def _motion_requires_gamepad_output(
     hardware: HardwareConfig,
     resolved: ResolvedDeviceProfile,
 ) -> bool:
+    disabled_sources = {
+        source.id for source in getattr(hardware, "input_sources", []) if not source.enabled
+    }
     for sensor in getattr(hardware, "motion_sensors", ()):
+        if sensor.source in disabled_sources:
+            continue
         action = resolved.mappings.get(sensor.id)
         if action is None or action.action_type != ActionType.MOTION_CONTROL:
             continue
@@ -123,6 +128,10 @@ def all_configured_interfaces(hardware_config: HardwareConfig) -> dict[str, str]
         device.id: device.path
         for device in hardware_config.evdev_devices
         if device.id and str(device.path or "").strip()
+    } | {
+        source.id: source.path
+        for source in getattr(hardware_config, "input_sources", [])
+        if source.enabled
     }
 
 
@@ -146,6 +155,32 @@ def configured_interface_descriptors(
                 "type": getattr(getattr(device, "device_type", None), "value", "other"),
                 "phys": str(getattr(device, "phys", "") or ""),
                 "capabilities": list(getattr(device, "capabilities", []) or []),
+            }
+        )
+    anchors = {str(item["id"]): item for item in descriptors}
+    # A motion-only profile still needs the evdev selector to identify its
+    # physical companion, without acquiring that companion's ordinary inputs.
+    if selected_sources is not None:
+        anchors = {
+            str(item["id"]): item
+            for item in configured_interface_descriptors(hardware_config, None)
+            if item.get("backend") != "hidraw"
+        }
+    for source in getattr(hardware_config, "input_sources", []):
+        if not source.enabled:
+            continue
+        if selected_sources is not None and source.id not in selected_sources:
+            continue
+        descriptors.append(
+            {
+                "id": source.id,
+                "path": source.path,
+                "type": "motion",
+                "backend": "hidraw",
+                "driver": source.driver,
+                "phys": source.phys or "",
+                "anchor": anchors.get(source.companion_of or ""),
+                "companion_of": source.companion_of or "",
             }
         )
     return descriptors

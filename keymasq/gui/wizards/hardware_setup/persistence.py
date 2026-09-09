@@ -144,6 +144,7 @@ class PersistenceMixin:
                 buttons=self._build_gamepad_buttons(gamepad_interfaces),
                 analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),
                 motion_sensors=self._build_motion_sensors(motion_interfaces),
+                input_sources=templates.build_input_sources(interfaces),
                 id=self._selected_config_id(selected_device),
             )
         )

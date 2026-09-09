@@ -13,6 +13,7 @@ from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttrib
 from keymasq.common.devices import find_all_interfaces, resolve_stable_path
 from keymasq.gui.session_client import GuiTaskResult, run_gui_task
 from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
+from keymasq.gui.wizards.hardware_setup import templates
 from keymasq.gui.wizards.hardware_setup.flow import DiscoveryMixin
 from keymasq.gui.wizards.hardware_setup.persistence import PersistenceMixin
 from keymasq.gui.wizards.hardware_setup.selection import SelectionMixin
@@ -307,13 +308,15 @@ class HardwareSetupDialog(
     def _emit_selected_evdev_devices(self) -> None:
         interfaces = list(self._discovery_state.discovered_interfaces.values())
         evdev_devices = self._build_evdev_devices(interfaces)
-        if not evdev_devices:
+        input_sources = templates.build_input_sources(interfaces)
+        if not evdev_devices and not input_sources:
             return
         self.emit(
             "evdev-devices-selected",
             EvdevDeviceSelection(
                 evdev_devices,
                 self._build_motion_sensors(interfaces),
+                input_sources,
             ),
         )
         self.close()

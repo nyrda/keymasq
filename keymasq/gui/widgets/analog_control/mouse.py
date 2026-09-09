@@ -38,12 +38,14 @@ class MousePanelConfig:
     curve_changed: Callable[[], None]
     invert_axis_toggled: Callable[[Gtk.ToggleButton, str], None]
     area_start_enabled_changed: Callable[[], None]
+    input_style_changed: Callable[[], None]
     begin_capture: Callable[[], None]
 
 
 @dataclass(slots=True)
 class MouseGroupHandle:
     group: Adw.PreferencesGroup
+    input_style_row: Adw.ComboRow
     speed_row: Adw.SpinRow
     speed_x_row: Adw.SpinRow
     speed_y_row: Adw.SpinRow
@@ -91,7 +93,14 @@ def build_mouse_group(config: MousePanelConfig) -> MouseGroupHandle:
     def begin_capture(*_args: object) -> None:
         config.begin_capture()
 
+    def input_style_changed(*_args: object) -> None:
+        config.input_style_changed()
+
     group = Adw.PreferencesGroup(title="Mouse Movement")
+    input_style_row = Adw.ComboRow(title="Input Style")
+    input_style_row.set_model(Gtk.StringList.new(["Stick", "Touchpad"]))
+    input_style_row.connect("notify::selected", input_style_changed)
+    group.add(input_style_row)
 
     speed_row = spin_row(
         "Speed",
@@ -337,6 +346,7 @@ def build_mouse_group(config: MousePanelConfig) -> MouseGroupHandle:
     group.add(area_start_capture_row)
     return MouseGroupHandle(
         group=group,
+        input_style_row=input_style_row,
         speed_row=speed_row,
         speed_x_row=speed_x_row,
         speed_y_row=speed_y_row,

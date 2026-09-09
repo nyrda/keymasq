@@ -388,6 +388,7 @@ def parse_analog_control_config(
     mouse = AnalogMouseMotionConfig(
         enabled=bool(mouse_config_data.get("enabled", False)),
         mode=coerce_str(mouse_config_data.get("mode"), "velocity") or "velocity",
+        area_input_style=coerce_str(mouse_config_data.get("area_input_style"), "stick") or "stick",
         speed=coerce_float(mouse_config_data.get("speed"), 900.0),
         speed_x=(
             coerce_float(mouse_config_data.get("speed_x"), 900.0)

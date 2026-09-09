@@ -17,6 +17,10 @@ import evdev
 from keymasq.common.devices import classify_event_device_type
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
+from keymasq.keymasqd.runtime.analog_controls import (
+    observe_analog_source_event,
+    process_analog_syn_event,
+)
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.event.analog import dispatch_analog_event
 from keymasq.keymasqd.runtime.grabbed_device.event.classification import (
@@ -295,6 +299,11 @@ async def process_event(
         event,
         evdev_mod=evdev_mod,
     )
+    analog_drop = (
+        event_class is EventClass.SYNCHRONIZATION
+        and int(event.code) == int(evdev_mod.ecodes.SYN_DROPPED)
+    )
+    await observe_analog_source_event(device_runtime, event, deps=deps.action_deps)
     if motion_drop_handled:
         # Stream loss invalidates held motion state even while actions are suppressed.
         await dispatch_motion_event(
@@ -365,6 +374,9 @@ async def process_event(
             deps=deps,
         )
         return
+
+    if event_class is EventClass.SYNCHRONIZATION and not analog_drop:
+        await process_analog_syn_event(device_runtime, event, deps=deps.action_deps)
 
     if device_runtime.motion_axis_bindings:
         motion_axis_event = (int(event.type), int(event.code)) in (

@@ -81,7 +81,8 @@ Nightlies appear only as GitHub prereleases with tags such as
 openSUSE, source archive, and checksums. RPMs are unsigned. GitHub records build
 attestations separately; see [Build attestations](SECURITY.md#build-attestations)
 for `gh attestation verify` instructions.
-The release stays a draft until all files have uploaded. Nightlies never update
+The release stays a draft until all files have uploaded and downloaded copies
+pass checksum verification. Nightlies never update
 AUR, COPR, the project package repositories, the stable AppImage update manifest,
 or GitHub's latest stable release.
 
@@ -90,7 +91,9 @@ UTC build timestamp. For stable `0.19.0`, a nightly uses
 `0.19.1.dev20260909100000` in Python and the AppImage,
 `0.19.1~dev20260909100000` in Debian/RPM, and
 `0.19.1dev20260909100000` in Arch. Each format sorts after `0.19.0` and before
-`0.19.1`. Version rewrites happen only in the build checkout.
+`0.19.1`. Version rewrites happen only in the build checkout. GitHub download
+filenames replace `~` with `.` before checksums are generated because GitHub
+normalizes asset names. The versions inside Debian and RPM packages retain `~`.
 
 Development versions link to <https://keymasq.tools/docs/master/> in the app
 and release notes. These docs follow current master, including when reading

@@ -226,12 +226,23 @@ async def _create_passthrough_uinput(create: Callable[[], evdev.UInput]) -> evde
     except asyncio.CancelledError:
         # Cancelling to_thread cannot stop creation. Retain ownership until the
         # worker finishes so an interrupted profile switch cannot leak a device.
-        try:
-            uinput = await task
-        except Exception:  # noqa: BLE001 - preserve cancellation if the worker also failed.
-            log.debug("Passthrough creation failed after cancellation", exc_info=True)
-        else:
-            await asyncio.to_thread(_close_passthrough_uinput, uinput, context="cancelled grab")
+        async def settle() -> None:
+            try:
+                uinput = await task
+            except Exception:  # noqa: BLE001 - preserve cancellation if creation failed.
+                log.debug("Passthrough creation failed after cancellation", exc_info=True)
+            else:
+                await asyncio.to_thread(_close_passthrough_uinput, uinput, context="cancelled grab")
+
+        cleanup = asyncio.create_task(settle())
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # Profile cancellation may be followed by shutdown cancellation.
+                # Neither may cancel the worker or discard its eventual result.
+                continue
+        cleanup.result()
         raise
 
 

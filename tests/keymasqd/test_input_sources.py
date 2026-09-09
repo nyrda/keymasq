@@ -175,7 +175,7 @@ def test_resolver_keeps_two_identical_controllers_together(monkeypatch):
             item.companions[0],
             "2dc8",
             "6012",
-            "",
+            item.companions[0],
             DeviceType.GAMEPAD,
             {"ev_key_304"},
             False,
@@ -208,11 +208,39 @@ def test_resolver_keeps_two_identical_controllers_together(monkeypatch):
         [native], deps=deps, hardware_id="2dc8:6012@2", excluded_paths=[devices[0].path]
     )
     assert [item.path for item in second] == [devices[1].path]
+    for requested in ([anchor], [anchor, native]):
+        second = resolver.resolve_evdev_interfaces(
+            requested,
+            deps=deps,
+            hardware_id="2dc8:6012@2",
+            excluded_paths=[devices[1].path],
+            match_model_gamepads=True,
+        )
+        expected = ["/dev/input/event8"]
+        if native in requested:
+            expected.append(devices[0].path)
+        assert [item.path for item in second] == expected
+    mixed = resolver.resolve_evdev_interfaces(
+        [anchor, native],
+        deps=deps,
+        hardware_id="2dc8:6012",
+        preferred_paths=[devices[0].path],
+        match_model_gamepads=True,
+    )
+    assert [item.path for item in mixed] == ["/dev/input/event8", devices[0].path]
     devices.reverse()
     again = resolver.resolve_evdev_interfaces(
         [native], deps=deps, hardware_id="2dc8:6012", preferred_paths=[first[-1].path]
     )
     assert again[0].path == first[-1].path
+    # Calibration respects the same physical selector as ordinary evdev capture.
+    anchor["phys"] = "/dev/input/event8"
+    capture = resolver.resolve_evdev_interfaces(
+        [native],
+        deps=deps,
+        hardware_id="2dc8:6012",
+    )
+    assert [item.path for item in capture] == [first[-1].path]
     native["anchor"] = {"id": "missing", "path": "keymasq:ffff:ffff"}
     assert not resolver.resolve_evdev_interfaces([native], deps=deps, hardware_id="2dc8:6012")
 
@@ -466,3 +494,28 @@ def test_transport_rejects_recycled_hidraw_number_before_open(monkeypatch):
     monkeypatch.setattr(hidraw.os, "open", unexpected_open)
     with pytest.raises(OSError, match="connection changed"):
         hidraw._open("/dev/hidraw999999", "/sys/devices/old-connection")
+
+
+async def test_valid_sample_timeout_wakes_existing_and_new_subscribers():
+    closed = asyncio.Event()
+
+    async def reader(_path: str) -> AsyncGenerator[bytes]:
+        try:
+            yield CAPTURED_REPORT
+            while True:
+                await asyncio.sleep(0.005)
+                yield CAPTURED_REPORT[:12]
+        finally:
+            closed.set()
+
+    manager = SourceManager(reader)
+    async with manager.subscribe(binding()) as first, manager.subscribe(binding()) as second:
+        await first.read()
+        await second.read()
+        for subscriber in (first, second):
+            with pytest.raises(OSError, match="Native input unavailable"):
+                await asyncio.wait_for(subscriber.read(), 1.5)
+        assert closed.is_set()
+        async with manager.subscribe(binding()) as late:
+            with pytest.raises(OSError, match="Native input unavailable"):
+                await asyncio.wait_for(late.read(), 0.1)

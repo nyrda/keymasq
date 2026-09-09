@@ -85,19 +85,21 @@ class SourceManager:
             if self._reader is not None
             else reports(endpoint.path, hid_parent=endpoint.hid_parent)
         )
-        started_ns = time.monotonic_ns()
+        last_valid_ns = time.monotonic_ns()
         try:
             async with contextlib.aclosing(stream):
                 while True:
-                    report = await asyncio.wait_for(anext(stream), 1.0)
+                    remaining = 1.0 - (time.monotonic_ns() - last_valid_ns) / 1_000_000_000
+                    report = await asyncio.wait_for(anext(stream), max(0.0, remaining))
                     now = time.monotonic_ns()
                     values = session.binding.driver.decode(report)
                     if values is None:
-                        if session.latest is None and now - started_ns > 1_000_000_000:
+                        if now - last_valid_ns > 1_000_000_000:
                             raise OSError(
                                 errno.ENOTSUP, "Input reports do not support this driver's channels"
                             )
                         continue
+                    last_valid_ns = now
                     gap = (
                         session.latest is not None and now - session.latest.arrival_ns > 100_000_000
                     )

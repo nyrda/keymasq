@@ -352,7 +352,8 @@ async def test_mouse_events_continue_during_controller_uinput_io(monkeypatch, ph
 
 
 @pytest.mark.asyncio
-async def test_cancelled_passthrough_creation_closes_worker_result(monkeypatch):
+@pytest.mark.parametrize("cancellations", [1, 2, 3])
+async def test_cancelled_passthrough_creation_closes_worker_result(monkeypatch, cancellations):
     started = asyncio.Event()
     finish = threading.Event()
     loop = asyncio.get_running_loop()
@@ -366,8 +367,9 @@ async def test_cancelled_passthrough_creation_closes_worker_result(monkeypatch):
     task = asyncio.create_task(grabbed_device._create_passthrough_uinput(create))
     try:
         await asyncio.wait_for(started.wait(), 1)
-        task.cancel()
-        await asyncio.sleep(0)
+        for _ in range(cancellations):
+            task.cancel()
+            await asyncio.sleep(0)
     finally:
         finish.set()
     with pytest.raises(asyncio.CancelledError):

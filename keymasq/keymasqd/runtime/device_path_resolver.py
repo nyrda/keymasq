@@ -20,6 +20,9 @@ from keymasq.common.devices import (
 )
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.input_sources import discovery as native_discovery
+from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+from keymasq.keymasqd.input_sources.types import Binding
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -229,6 +232,23 @@ def resolve_evdev_interfaces(
         path for value in preferred_paths or [] if (path := str(value or "").strip())
     }
 
+    # A native-only owner still owns its controller's evdev companions. Expand
+    # claims before resolving any interface, including evdev-only requests.
+    bindings = (
+        native_discovery.discover_bindings()
+        if any(item.get("backend") == "hidraw" for item in interfaces)
+        or any(
+            path.startswith(SOURCE_PREFIX)
+            for path in normalized_excluded_paths | normalized_preferred_paths
+        )
+        else []
+    )
+    for binding in bindings:
+        if binding.path in normalized_excluded_paths:
+            normalized_excluded_paths.update(binding.companions)
+        if binding.path in normalized_preferred_paths:
+            normalized_preferred_paths.update(binding.companions)
+
     for descriptor in interfaces:
         if descriptor.get("backend") == "hidraw":
             continue
@@ -289,6 +309,8 @@ def resolve_evdev_interfaces(
     return resolved + _resolve_native_interfaces(
         interfaces,
         resolved,
+        bindings=bindings,
+        match_model_gamepads=match_model_gamepads,
         deps=deps,
         hardware_id=hardware_id,
         excluded_paths=normalized_excluded_paths,
@@ -300,29 +322,18 @@ def _resolve_native_interfaces(
     interfaces: list[JsonObject],
     resolved: list[ResolvedInterface],
     *,
+    bindings: list[Binding],
+    match_model_gamepads: bool,
     deps: DevicePathResolverDeps,
     hardware_id: str | None,
     excluded_paths: set[str],
     preferred_paths: set[str],
 ) -> list[ResolvedInterface]:
-    from keymasq.keymasqd.input_sources.discovery import companion_binding, discover_bindings
+    from keymasq.keymasqd.input_sources.discovery import companion_binding
 
     native = [item for item in interfaces if item.get("backend") == "hidraw"]
     if not native:
         return []
-    bindings = discover_bindings()
-    excluded_anchors = excluded_paths | {
-        path
-        for binding in bindings
-        if binding.path in excluded_paths
-        for path in binding.companions
-    }
-    preferred_anchors = preferred_paths | {
-        path
-        for binding in bindings
-        if binding.path in preferred_paths
-        for path in binding.companions
-    }
     result: list[ResolvedInterface] = []
     for descriptor in native:
         driver_id = str(descriptor.get("driver", ""))
@@ -337,9 +348,13 @@ def _resolve_native_interfaces(
                     [anchor],
                     deps=deps,
                     hardware_id=hardware_id,
-                    excluded_paths=excluded_anchors,
-                    preferred_paths=preferred_anchors,
-                    match_model_gamepads=True,
+                    excluded_paths={
+                        path for path in excluded_paths if not path.startswith(SOURCE_PREFIX)
+                    },
+                    preferred_paths={
+                        path for path in preferred_paths if not path.startswith(SOURCE_PREFIX)
+                    },
+                    match_model_gamepads=match_model_gamepads,
                 )
             if len(matches) == 1:
                 binding = companion_binding(bindings, driver_id, matches[0].path)

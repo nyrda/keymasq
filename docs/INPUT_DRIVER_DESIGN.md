@@ -30,7 +30,10 @@ then binds to that instance. A motion-only profile uses the evdev selector as an
 anchor without grabbing buttons. When both sources are active, they reuse the
 same resolved anchor. Other hardware configurations cannot claim its companion
 independently. Neither a serial number nor a permanent USB port assignment is
-required to select the driver.
+required to select the driver. Native ownership and live-device preferences apply
+to the evdev companions before selection, even for button-only requests or when
+a motion-only profile adds buttons. Calibration retains the evdev selector's
+physical-device preference.
 
 Association rules are declared by drivers. Shared helpers support the same HID
 ancestor or separate HID interfaces under the same USB device. The Ultimate 2
@@ -88,7 +91,9 @@ closes it. The Ultimate 2 driver sends no device commands.
 
 Subscribers have bounded queues. Overflow discards stale backlog and marks the
 next complete frame as discontinuous. Disconnects discard queued samples and
-wake subscribers with an error. Long arrival gaps also mark discontinuities so
+wake subscribers with an error. A source also fails if no valid sample arrives
+for one second, even if unrelated or malformed reports keep arriving. Valid
+samples reset this deadline. Long arrival gaps also mark discontinuities so
 the motion runtime resets its filters and outputs. Failed native motion does
 not release independent evdev button interfaces. Calibration reports missing
 sources, malformed streams, and reader failures through its existing errors.
@@ -96,7 +101,9 @@ sources, malformed streams, and reader failures through its existing errors.
 Native runtime addresses remain distinct from evdev paths, including when udev
 provides a `by-id` symlink to the underlying hidraw node. Passthrough virtual
 device creation and destruction run in workers so controller acquisition,
-rollback, and release do not block mouse event processing.
+rollback, and release do not block mouse event processing. Cancelled creation
+retains ownership of the worker result until it has been closed, including
+when cancellation repeats during cleanup.
 
 Sample timestamps currently use monotonic report arrival time and are explicitly
 estimated. No hardware clock or sequence counter has been established for this

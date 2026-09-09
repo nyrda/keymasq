@@ -89,6 +89,9 @@ Use `mode = "area"` and `area_input_style = "touchpad"` for controller touchpads
 exposed as paired analog axes
 that return to exactly normalized `(0.0, 0.0)` when released. Existing axis
 detection and normalization apply; no separate touch button is required.
+The daemon temporarily sets kernel fuzz to zero on these axes so filtering cannot
+prevent an exact zero release. It restores the original fuzz when the touchpad
+mapping is removed or the device is released.
 
 The first nonzero position establishes a reference without moving the pointer.
 Each subsequent input report emits relative mouse movement:
@@ -115,11 +118,14 @@ move the pointer. Fractional movement accumulates during a touch. Stick deadzone
 sensitivity, response curve, velocity, tick interval, and area start-position
 settings do not affect Touchpad style. There is no inertia or automatic clicking;
 map a separate button for clicks or dragging.
+Buttons following area axes in a report are dispatched after its complete X/Y
+movement, so a drag release uses the final pointer position.
 
 Changed or removed mappings clear their touch state; unchanged controls retain
 it during profile updates. Physical coordinates survive control resets.
 After `SYN_DROPPED`, the daemon ignores the damaged report and reads the current
-axes from the device. A held touch must be released before movement resumes;
+axes from the device. Reports older than that snapshot cannot emit area movement.
+A held touch must be released before movement resumes;
 a recovered zero pair permits a new touch immediately. Stick style rebases to
 the recovered position and follows subsequent movement without requiring release.
 

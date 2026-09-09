@@ -75,15 +75,87 @@ def _restart(ctx: ScenarioContext) -> None:
     ctx.expect_mouse_motion()
 
 
+def _fuzz(ctx: ScenarioContext, expected: int) -> None:
+    assert ctx.source is not None and ctx.source.device is not None
+    for axes in PADS:
+        for code in axes:
+            info = ctx.source.device.absinfo(code)
+            assert info is not None and info.fuzz == expected, (code, info)
+    info = ctx.source.device.absinfo(evdev.ecodes.ABS_X)
+    assert info is not None and info.fuzz == 0  # Stick metadata remains unchanged.
+
+
+def _kernel_fuzz_probe(ctx: ScenarioContext) -> None:
+    _fuzz(ctx, 256)
+    _report(ctx, 0, 1000, 0)
+    _report(ctx, 0, 200, 0)
+    for _ in range(3):
+        _report(ctx, 0, 0, 0)
+    assert ctx.source is not None and ctx.source.device is not None
+    info = ctx.source.device.absinfo(PADS[0][0])
+    assert info is not None and info.value == 112, info
+    # A large excursion allows the unmodified kernel filter to reach zero.
+    _report(ctx, 0, 1000, 0)
+    _report(ctx, 0, 0, 0)
+    ctx.expect_mouse_motion()
+
+
+def _near_center_release(ctx: ScenarioContext) -> None:
+    _fuzz(ctx, 0)
+    for pad in range(2):
+        _report(ctx, pad, 200, 0)
+        ctx.expect_mouse_motion()
+        _report(ctx, pad, 0, 0)
+        ctx.expect_mouse_motion()
+        assert ctx.source is not None and ctx.source.device is not None
+        info = ctx.source.device.absinfo(PADS[pad][0])
+        assert info is not None and info.value == 0, info
+        _report(ctx, pad, -24576, 0)
+        ctx.expect_mouse_motion()
+        _report(ctx, pad, -16384, 0)
+        ctx.expect_mouse_motion(100)
+        _report(ctx, pad, 0, 0)
+        ctx.expect_mouse_motion()
+
+
+def _drag(ctx: ScenarioContext) -> None:
+    assert ctx.source is not None
+    ec = evdev.ecodes
+    _report(ctx, 0, -24576, -16384)
+    ctx.expect_mouse_motion()
+    for x, y, pressed in [(-16384, -8192, 1), (-8192, 0, 0)]:
+        ctx.source.write(ec.EV_ABS, PADS[0][0], x)
+        ctx.source.write(ec.EV_ABS, PADS[0][1], y)
+        ctx.source.write(ec.EV_KEY, ec.KEY_F23, pressed)
+        ctx.source.syn()
+        ctx.expect_mouse_events(
+            [
+                (ec.EV_REL, ec.REL_X, 100),
+                (ec.EV_REL, ec.REL_Y, 50),
+                (ec.EV_KEY, ec.BTN_LEFT, pressed),
+            ]
+        )
+        ctx.expect_no_mouse_events()
+    _report(ctx, 0, 0, 0)
+    ctx.expect_mouse_motion()
+
+
 def run(ctx: ScenarioContext) -> None:
     try:
+        ctx.subtest("kernel fuzz suppresses a near-center release", lambda: _kernel_fuzz_probe(ctx))
         ctx.set_profile_enabled(PROFILE, enabled=True)
+        ctx.subtest(
+            "exact near-center release with touchpad fuzz disabled",
+            lambda: _near_center_release(ctx),
+        )
         ctx.subtest("HAT1 touch, slide, hold, release, retouch", lambda: _stroke(ctx, 0))
         ctx.subtest("HAT2 touch, slide, hold, release, retouch", lambda: _stroke(ctx, 1))
         ctx.subtest("changed and unchanged touchpad mappings", lambda: _profile_change(ctx))
         ctx.subtest("daemon restart with a held touch", lambda: _restart(ctx))
+        ctx.subtest("axis movement precedes drag button transitions", lambda: _drag(ctx))
     finally:
         for pad in range(2):
             _report(ctx, pad, 0, 0)
         ctx.set_profile_enabled(OVERRIDE, enabled=False)
         ctx.set_profile_enabled(PROFILE, enabled=False)
+        _fuzz(ctx, 256)

@@ -17,6 +17,7 @@ import evdev
 from keymasq.common.devices import classify_event_device_type
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
+from keymasq.keymasqd.runtime.analog.source_state import read_missing_source_axes
 from keymasq.keymasqd.runtime.analog_controls import (
     observe_analog_source_event,
     process_analog_syn_event,
@@ -44,6 +45,7 @@ from keymasq.keymasqd.runtime.grabbed_device.event.dispatch import (
     clear_released_source_action,
     process_wheel_event,
 )
+from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import read_events
 from keymasq.keymasqd.runtime.grabbed_device.event.inspector import (
     broadcast_inspector_event,
     intercept_inspector_suppression,
@@ -116,7 +118,10 @@ async def event_loop(
     deps = build_event_processing_deps(log=log)
 
     try:
-        async for event in device.async_read_loop():
+        if device_runtime.analog_axis_bindings:
+            # Establish unchanged coordinates before consuming any historical report.
+            await read_missing_source_axes(device_runtime, deps=deps.action_deps)
+        async for event in read_events(device_runtime):
             if not device_runtime.running:
                 break
             try:
@@ -152,6 +157,7 @@ async def event_loop(
 async def cleanup_runtime_failure(
     device_runtime: GrabbedDeviceRuntime, *, log: logging.Logger
 ) -> None:
+    device_runtime.state.analog_deferred_keys.clear()
     if device_runtime.runtime_cleanup_callback is not None:
         try:
             await device_runtime.runtime_cleanup_callback(
@@ -283,6 +289,39 @@ async def process_event(
     *,
     deps: EventProcessingDeps,
 ) -> None:
+    """Keep buttons after preceding area axes until their complete report is known."""
+    state = device_runtime.state
+    ecodes = deps.evdev_mod.ecodes
+    if int(event.type) == int(ecodes.EV_KEY) and (
+        state.analog_mouse_area_pending or state.analog_deferred_keys
+    ):
+        state.analog_deferred_keys.append(event)
+        return
+    await _process_event(device_runtime, event, deps=deps)
+    if int(event.type) == int(ecodes.EV_SYN) and int(event.code) in {
+        0,  # SYN_REPORT
+        int(ecodes.SYN_DROPPED),
+    }:
+        # SYN_DROPPED discards pending motion, but already received key releases
+        # still need dispatching so virtual buttons cannot remain held.
+        keys = list(state.analog_deferred_keys)
+        state.analog_deferred_keys.clear()
+        for key in keys:
+            await _process_event(device_runtime, key, deps=deps)
+        if keys:
+            outputs.flush_passthrough_frame(
+                device_runtime,
+                device_runtime.uinput,
+                uinput_writer=identity_uinput_writer,
+            )
+
+
+async def _process_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    deps: EventProcessingDeps,
+) -> None:
     """Run one input event through the ordered grabbed-device pipeline."""
 
     evdev_mod = deps.evdev_mod
@@ -299,9 +338,8 @@ async def process_event(
         event,
         evdev_mod=evdev_mod,
     )
-    analog_drop = (
-        event_class is EventClass.SYNCHRONIZATION
-        and int(event.code) == int(evdev_mod.ecodes.SYN_DROPPED)
+    analog_drop = event_class is EventClass.SYNCHRONIZATION and int(event.code) == int(
+        evdev_mod.ecodes.SYN_DROPPED
     )
     await observe_analog_source_event(device_runtime, event, deps=deps.action_deps)
     if motion_drop_handled:

@@ -1,7 +1,7 @@
 import asyncio
 import logging
+from collections import deque
 from collections.abc import (
-    AsyncIterator,
     Awaitable,
     Callable,
     Coroutine,
@@ -79,8 +79,6 @@ class ManagedInputDevice(Protocol):
 
     def capabilities(self) -> dict[int, Sequence[object]]: ...
 
-    def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
-
     def fileno(self) -> int: ...
 
     def read_one(self) -> evdev.InputEvent | None: ...
@@ -88,6 +86,8 @@ class ManagedInputDevice(Protocol):
     def active_keys(self) -> Sequence[int]: ...
 
     def absinfo(self, code: int) -> object: ...
+
+    def set_absinfo(self, axis_num: int, *, fuzz: int) -> None: ...
 
     def input_props(self) -> Iterable[int]: ...
 
@@ -230,6 +230,10 @@ class GrabbedDeviceState:
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
     # Physical coordinates survive per-control resets; evdev reports only changes.
     analog_source_axis_values: dict[tuple[int, int], int] = field(default_factory=dict)
+    input_event_buffer: deque[InputEventLike] = field(default_factory=deque)
+    analog_snapshot_boundary: InputEventLike | None = None
+    analog_deferred_keys: list[InputEventLike] = field(default_factory=list)
+    analog_original_fuzz: dict[int, int] = field(default_factory=dict)
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[
         str,

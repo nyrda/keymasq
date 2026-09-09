@@ -87,6 +87,12 @@ async def observe_analog_source_event(
 ) -> None:
     """Track physical state even while mappings or input dispatch are suppressed."""
     state = device_runtime.state
+    if state.analog_snapshot_boundary is not None:
+        # These reports precede the ioctl snapshot. Other controls and buttons
+        # still receive them, but area motion must not replay their coordinates.
+        if event is not state.analog_snapshot_boundary:
+            return
+        state.analog_snapshot_boundary = None
     binding = (int(event.type), int(event.code))
     if binding in device_runtime.analog_axis_bindings:
         if not state.analog_mouse_area_resyncing:

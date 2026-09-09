@@ -32,7 +32,8 @@ coverage. It verifies that the core runtime classes still work together:
   superkeys, combos, and combo-bound overload superkeys
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output
 - gamepad button and analog axis output
-- controller touchpad mouse strokes, sparse axis reports, profile changes, and held-touch restart
+- controller touchpad strokes, sparse reports, profile changes, held-touch restart,
+  near-center release with kernel fuzz, fuzz restoration, and movement before drag buttons
 - emergency reset
 - capture, combo capture, recording save, and playback
 - session restart, daemon restart, and secondary device hotplug/replug

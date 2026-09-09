@@ -1,6 +1,8 @@
+import os
+from collections import deque
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import evdev
 import pytest
@@ -8,6 +10,8 @@ import pytest
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
 from keymasq.common.model.core import ActionType
+from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
+from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import read_events
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import process_event
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
@@ -65,6 +69,7 @@ def area_mouse(monkeypatch):
             side_effect=lambda code: evdev.AbsInfo(axis_values[code], -32768, 32768, 0, 0, 0)
         ),
         active_keys=lambda: [],
+        read_one=lambda: None,
     )
     device.update_analog_inputs(device.analog_inputs)
     device.device.absinfo.reset_mock()
@@ -219,6 +224,7 @@ async def test_mapping_reset_retains_unchanged_physical_axis(area_mouse, changed
             analog_control_config=replace(config, name="Changed touchpad"),
         )
     await device.reset_mapping_runtime_state(previous_mapping=previous_mapping)
+    device.device.absinfo.reset_mock()  # Fuzz setup may inspect metadata during the reset.
     await _report(device, mouse, x=16384)
     assert mouse.writes == (
         [] if changed_mapping else [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
@@ -250,7 +256,9 @@ async def test_initial_sparse_report_queries_held_axis(area_mouse):
     device.device.axis_values[evdev.ecodes.ABS_HAT1Y] = 16384
     await _report(device, mouse, x=8192)
     assert mouse.writes == []
-    device.device.absinfo.assert_called_once_with(evdev.ecodes.ABS_HAT1Y)
+    device.device.absinfo.assert_has_calls(
+        [call(evdev.ecodes.ABS_HAT1X), call(evdev.ecodes.ABS_HAT1Y)], any_order=True
+    )
     await _report(device, mouse, y=24576)
     assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50)]
 
@@ -400,3 +408,162 @@ async def test_stick_recovers_dropped_report_without_touch_release_gate(stick_ar
     assert mouse.writes[-1] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)
     await _report(device, mouse, x=0)
     assert mouse.writes[-1] == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -300)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dropped", [False, True])
+async def test_snapshot_does_not_replay_reports_older_than_ioctl_state(area_mouse, dropped):
+    device, mouse, _ = area_mouse
+    ec = evdev.ecodes
+    if dropped:
+        await _report(device, mouse, 8192, 8192)
+        await _event(device, ec.EV_SYN, ec.SYN_DROPPED)
+    else:
+        await _event(device, ec.EV_ABS, ec.ABS_HAT1X, 8192)
+    # The kernel has already processed the entire queue when EVIOCGABS runs.
+    queued = deque(
+        evdev.InputEvent(0, 0, kind, code, value)
+        for kind, code, value in [
+            (ec.EV_ABS, ec.ABS_HAT1X, 8192 if dropped else 0),
+            (ec.EV_SYN, ec.SYN_REPORT, 0),
+            (ec.EV_ABS, ec.ABS_HAT1Y, 8192),
+            (ec.EV_SYN, ec.SYN_REPORT, 0),
+            *(
+                [
+                    (ec.EV_ABS, ec.ABS_HAT1X, 16384),
+                    (ec.EV_ABS, ec.ABS_HAT1Y, 16384),
+                    (ec.EV_SYN, ec.SYN_REPORT, 0),
+                    (ec.EV_ABS, ec.ABS_HAT1X, 0),
+                    (ec.EV_ABS, ec.ABS_HAT1Y, 0),
+                    (ec.EV_SYN, ec.SYN_REPORT, 0),
+                ]
+                if dropped
+                else []
+            ),
+        ]
+    )
+    device.device.axis_values.update({ec.ABS_HAT1X: 0, ec.ABS_HAT1Y: 0 if dropped else 8192})
+    # Recovery must retain button transitions even when their report's area
+    # coordinates are too old to use. Exercise the real reader's shared queue.
+    queued.appendleft(evdev.InputEvent(0, 0, ec.EV_KEY, ec.KEY_A, 1))
+    queued.extend([
+        evdev.InputEvent(0, 0, ec.EV_KEY, ec.KEY_A, 0),
+        evdev.InputEvent(0, 0, ec.EV_SYN, ec.SYN_REPORT, 0),
+    ])
+    device.device.read_one = lambda: queued.popleft() if queued else None
+    await _event(device, ec.EV_SYN, ec.SYN_REPORT)
+    read_fd, write_fd = os.pipe()
+    device.device.fileno = lambda: read_fd
+    device.running = True
+    stream = read_events(device)
+    device.event_callback.reset_mock()
+    try:
+        while device.state.input_event_buffer or queued:
+            event = await anext(stream)
+            await process_event(device, event, deps=grabbed_event_processing_deps())
+    finally:
+        await stream.aclose()
+        os.close(read_fd)
+        os.close(write_fd)
+    assert [
+        args.args[4] for args in device.event_callback.await_args_list
+        if args.args[2:4] == (ec.EV_KEY, ec.KEY_A)
+    ] == [1, 0]
+    assert mouse.writes == []
+    await _report(device, mouse, 0, 0)
+    await _report(device, mouse, 8192, 0)
+    await _report(device, mouse, 16384, 0)
+    assert mouse.writes == [(ec.EV_REL, ec.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("button_value", [1, 0])
+@pytest.mark.parametrize("button_between_axes", [False, True])
+async def test_area_motion_precedes_button_in_same_report(
+    area_mouse, button_value, button_between_axes
+):
+    device, mouse, _ = area_mouse
+    ec = evdev.ecodes
+    device.mapping_getter()["key_a"] = MappingAction(
+        action_type=ActionType.MOUSE, target="btn_left"
+    )
+    device.update_button_map({"key_a": "key_a"})
+    await _report(device, mouse, 8192, 8192)
+    if button_value == 0:
+        await _event(device, ec.EV_KEY, ec.KEY_A, 1)
+        mouse.writes.clear()
+    await _event(device, ec.EV_ABS, ec.ABS_HAT1X, 16384)
+    if button_between_axes:
+        await _event(device, ec.EV_KEY, ec.KEY_A, button_value)
+    await _event(device, ec.EV_ABS, ec.ABS_HAT1Y, 16384)
+    if not button_between_axes:
+        await _event(device, ec.EV_KEY, ec.KEY_A, button_value)
+    assert mouse.writes == []
+    await _event(device, ec.EV_SYN, ec.SYN_REPORT)
+    assert mouse.writes == [
+        (ec.EV_REL, ec.REL_X, 100),
+        (ec.EV_REL, ec.REL_Y, 50),
+        (ec.EV_KEY, ec.BTN_LEFT, button_value),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remove_mapping", [False, True])
+async def test_touchpad_fuzz_is_disabled_and_restored_on_style_change(area_mouse, remove_mapping):
+    device, _, config = area_mouse
+    ec = evdev.ecodes
+    fuzz = {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+    device.device.absinfo.side_effect = lambda code: evdev.AbsInfo(
+        device.device.axis_values[code], -32768, 32768, fuzz[code], 0, 0
+    )
+    device.device.set_absinfo = Mock(side_effect=lambda code, *, fuzz: update_fuzz(code, fuzz))
+
+    def update_fuzz(code, value):
+        fuzz[code] = value
+
+    await device.reset_mapping_runtime_state()
+    assert fuzz == {ec.ABS_HAT1X: 0, ec.ABS_HAT1Y: 0}
+    assert device.state.analog_original_fuzz == {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+    # Profile reapplication must not replace the saved original with zero.
+    await device.reset_mapping_runtime_state()
+    assert device.device.set_absinfo.call_count == 2
+    if remove_mapping:
+        device.mapping_getter().clear()
+    else:
+        config.mouse_motion.area_input_style = "stick"
+    await device.reset_mapping_runtime_state()
+    assert fuzz == {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+    assert device.state.analog_original_fuzz == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_fuzz_setup_can_retry_and_restore_partial_changes(area_mouse):
+    device, _, _ = area_mouse
+    device.device.absinfo.side_effect = lambda code: evdev.AbsInfo(0, -32768, 32768, 256, 0, 0)
+    device.device.set_absinfo = Mock(side_effect=[None, OSError("write failed")])
+    with pytest.raises(OSError, match="write failed"):
+        await update_touchpad_fuzz(device)
+    assert len(device.state.analog_original_fuzz) == 1
+    device.device.set_absinfo.side_effect = None
+    await update_touchpad_fuzz(device)
+    assert len(device.state.analog_original_fuzz) == 2
+    await update_touchpad_fuzz(device, releasing=True)
+    assert device.state.analog_original_fuzz == {}
+    assert device.device.set_absinfo.call_args_list[-2:] == [
+        call(code, fuzz=256) for code in sorted([evdev.ecodes.ABS_HAT1X, evdev.ecodes.ABS_HAT1Y])
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deferred_passthrough_button_is_synced_without_another_report(area_mouse):
+    device, mouse, _ = area_mouse
+    ec = evdev.ecodes
+    device.uinput = FakeUInput()
+    device.uinput.syn = Mock()
+    await _report(device, mouse, 8192, 8192)
+    await _event(device, ec.EV_ABS, ec.ABS_HAT1X, 16384)
+    await _event(device, ec.EV_KEY, ec.KEY_A, 1)
+    assert device.uinput.writes == []
+    await _event(device, ec.EV_SYN, ec.SYN_REPORT)
+    assert device.uinput.writes == [(ec.EV_KEY, ec.KEY_A, 1)]
+    device.uinput.syn.assert_called_once()

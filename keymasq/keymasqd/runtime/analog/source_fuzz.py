@@ -39,6 +39,8 @@ async def _update_touchpad_fuzz_locked(runtime: GrabbedDeviceRuntime) -> None:
     if runtime.state.analog_fuzz_releasing or runtime.access_mode is not InputAccessMode.EXCLUSIVE:
         desired.clear()
     original = runtime.state.analog_original_fuzz
+    if desired == original.keys():
+        return
 
     def configure() -> None:
         for code in original.keys() - desired:

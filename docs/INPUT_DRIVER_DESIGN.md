@@ -32,7 +32,10 @@ same resolved anchor. Other hardware configurations cannot claim its companion
 independently. Neither a serial number nor a permanent USB port assignment is
 required to select the driver. Native ownership and live-device preferences apply
 to the evdev companions before selection, even for button-only requests or when
-a motion-only profile adds buttons. Calibration retains the evdev selector's
+a motion-only profile adds buttons. Explicit event paths and their `by-id` or
+`by-path` aliases obey the same ownership checks. An explicitly selected
+controller that is already claimed stays unavailable; selection does not fall
+back to another controller. Calibration retains the evdev selector's
 physical-device preference.
 
 Association rules are declared by drivers. Shared helpers support the same HID

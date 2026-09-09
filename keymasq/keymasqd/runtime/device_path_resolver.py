@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -249,6 +250,11 @@ def resolve_evdev_interfaces(
         if binding.path in normalized_preferred_paths:
             normalized_preferred_paths.update(binding.companions)
 
+    # Compare event-node identities as well as the supplied aliases. Keep the
+    # original paths for stable selectors and internal native source addresses.
+    normalized_excluded_paths |= {os.path.realpath(path) for path in normalized_excluded_paths}
+    normalized_preferred_paths |= {os.path.realpath(path) for path in normalized_preferred_paths}
+
     for descriptor in interfaces:
         if descriptor.get("backend") == "hidraw":
             continue
@@ -270,6 +276,12 @@ def resolve_evdev_interfaces(
         if model_path is not None and _same_keymasq_model_path(configured_path, model_path):
             resolution_phys = ""
         if not is_keymasq_device_path(configured_path):
+            if normalized_excluded_paths and _path_matches_resolved(
+                configured_path,
+                _candidate_order_path(configured_path, deps),
+                normalized_excluded_paths,
+            ):
+                continue
             resolved.append(
                 ResolvedInterface(
                     path=configured_path,
@@ -534,7 +546,12 @@ def _path_matches_resolved(
 ) -> bool:
     if not paths:
         return False
-    return path in paths or resolved_path in paths
+    return (
+        path in paths
+        or resolved_path in paths
+        or os.path.realpath(path) in paths
+        or os.path.realpath(resolved_path) in paths
+    )
 
 
 def _candidate_order_path(path: str, deps: DevicePathResolverDeps) -> str:

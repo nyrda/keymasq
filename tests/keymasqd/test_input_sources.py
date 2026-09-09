@@ -519,3 +519,79 @@ async def test_valid_sample_timeout_wakes_existing_and_new_subscribers():
         async with manager.subscribe(binding()) as late:
             with pytest.raises(OSError, match="Native input unavailable"):
                 await asyncio.wait_for(late.read(), 0.1)
+
+
+@pytest.mark.parametrize("selection", ["event", "by-id", "by-path"])
+@pytest.mark.parametrize("owner", ["native", "event", "by-id", "by-path"])
+@pytest.mark.parametrize("requested_kind", ["evdev", "mixed", "native"])
+def test_explicit_companion_claims_respect_aliases(
+    tmp_path, monkeypatch, selection, owner, requested_kind
+):
+    event = tmp_path / "event7"
+    event.touch()
+    aliases = {"event": str(event)}
+    for kind in ("by-id", "by-path"):
+        alias = tmp_path / kind / "controller"
+        alias.parent.mkdir()
+        alias.symlink_to("../event7")
+        aliases[kind] = str(alias)
+    claimed = replace(binding(7), companions=(str(event),))
+    free = replace(binding(8), companions=(str(tmp_path / "event8"),))
+    devices = [claimed, free]
+    monkeypatch.setattr(discovery, "discover_bindings", lambda: devices)
+    monkeypatch.setattr(
+        discovery,
+        "hid_parent",
+        lambda path: next(
+            item.endpoint.hid_parent
+            for item in devices
+            if str(Path(path).resolve()) in item.companions
+        ),
+    )
+    cache = resolver.DeviceCache()
+    cache._devices = {
+        item.companions[0]: resolver.CachedDeviceInfo(
+            item.companions[0],
+            "2dc8",
+            "6012",
+            "",
+            DeviceType.GAMEPAD,
+            {"ev_key_304"},
+            False,
+        )
+        for item in devices
+    }
+    deps = resolver.DevicePathResolverDeps(
+        device_paths_fn=lambda: list(cache._devices),
+        device_input_fn=lambda _path: None,
+        detect_input_classes_fn=lambda _dev: [],
+        primary_input_class_fn=lambda _types: DeviceType.GAMEPAD,
+        cache=cache,
+    )
+    anchor = {"id": "gamepad", "path": aliases[selection], "type": "gamepad"}
+    native = {
+        "id": "imu",
+        "path": "keymasq-source:imu",
+        "backend": "hidraw",
+        "driver": "8bitdo-ultimate2",
+        "anchor": anchor,
+        "companion_of": "gamepad",
+    }
+    interfaces = {"evdev": [anchor], "mixed": [anchor, native], "native": [native]}[requested_kind]
+    excluded = claimed.path if owner == "native" else aliases[owner]
+    assert (
+        resolver.resolve_evdev_interfaces(
+            interfaces,
+            deps=deps,
+            hardware_id="2dc8:6012@2",
+            excluded_paths=[excluded],
+            match_model_gamepads=True,
+        )
+        == []
+    )
+    # Removing the claim restores precisely the selected device, never the free sibling.
+    resolved = resolver.resolve_evdev_interfaces(interfaces, deps=deps, hardware_id="2dc8:6012")
+    expected = [] if requested_kind == "native" else [aliases[selection]]
+    if requested_kind != "evdev":
+        expected.append(claimed.path)
+    assert [item.path for item in resolved] == expected

@@ -867,7 +867,7 @@ jobs:
             Install these files manually. This build is not published to AUR, COPR,
             package repositories, or the stable AppImage updater.
 
-            Documentation: https://keymasq.tools/docs/${{ contains(needs.version-metadata.outputs.python_version, 'dev') && 'master' || format('v{0}', needs.version-metadata.outputs.python_version) }}/
+            Documentation: https://keymasq.tools/docs/master/
 
             Commit: https://github.com/${{ github.repository }}/commit/${{ needs.version-metadata.outputs.checkout_sha }}
             Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

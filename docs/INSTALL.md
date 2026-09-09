@@ -473,8 +473,12 @@ For manual testing, download a `nightly-*` prerelease from
 for noon Europe/Berlin when master has changed since the last published nightly.
 Use the manual installation instructions above for your package format.
 
-Nightlies replace your installed Keymasq and may contain unfinished changes.
-They are not distributed through AUR, COPR, package repositories, or the stable
-AppImage updater. Returning to an older stable release requires an explicit
-package downgrade. Nightly documentation follows
-[master](https://keymasq.tools/docs/master/).
+Nightlies may contain unfinished changes. They are not distributed through AUR,
+COPR, package repositories, or the stable AppImage updater. Nightly documentation
+follows [master](https://keymasq.tools/docs/master/).
+
+Native packages replace your installed package. To return to an older stable
+release, explicitly downgrade with your package manager. Installing a nightly
+AppImage replaces the installed AppImage; return to the stable updater's release
+with `keymasq --self-update --allow-downgrade`. If you installed from a source
+archive, rebuild or reinstall from the desired stable source archive.

@@ -200,10 +200,12 @@ Defined in `pyproject.toml` under `[project.optional-dependencies]`:
 - `speedups`
   - `uvloop`
 - `test`
+  - `packaging>=24.0`
   - `pytest>=8.0.0`
   - `pytest-asyncio>=0.23.0`
   - `pytest-cov>=5.0.0`
 - `dev`
+  - `packaging>=24.0`
   - `basedpyright>=1.38.2`
   - `pytest>=8.0.0`
   - `pytest-asyncio>=0.23.0`

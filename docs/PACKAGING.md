@@ -78,7 +78,9 @@ master without publishing, so workflow changes can be verified before merging.
 
 Nightlies appear only as GitHub prereleases with tags such as
 `nightly-20260909100000`. Downloads include the AppImage, Debian, Arch, Fedora,
-openSUSE, source archive, checksums, and artifact attestations. RPMs are unsigned.
+openSUSE, source archive, and checksums. RPMs are unsigned. GitHub records build
+attestations separately; see [Build attestations](SECURITY.md#build-attestations)
+for `gh attestation verify` instructions.
 The release stays a draft until all files have uploaded. Nightlies never update
 AUR, COPR, the project package repositories, the stable AppImage update manifest,
 or GitHub's latest stable release.
@@ -92,11 +94,13 @@ UTC build timestamp. For stable `0.19.0`, a nightly uses
 
 Development versions link to <https://keymasq.tools/docs/master/> in the app
 and release notes. These docs follow current master, including when reading
-from an older nightly. Installing a nightly replaces the installed Keymasq;
-returning to the previous stable version requires an explicit downgrade.
+from an older nightly. Native packages replace the installed package; returning
+to an older stable release requires a package-manager downgrade. Installing the
+nightly AppImage replaces the installed AppImage; use
+`keymasq --self-update --allow-downgrade` to return to the stable updater's
+release. Source-archive users must rebuild or reinstall the desired stable source.
 
 ## Release checklist
-
 
 Before tagging a stable `v*` release, run the manual VM gates from
 [VM_TESTING.md](VM_TESTING.md) in full, regardless of what changed since the

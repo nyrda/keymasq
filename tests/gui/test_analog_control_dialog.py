@@ -666,7 +666,7 @@ def test_touchpad_mouse_settings_save_and_switch_back_to_area(temp_config_dir) -
     dialog.editor.name_entry.set_text("Controller Touchpad")
     _select_mode(dialog, "mouse_area")
     dialog.editor.mouse.deadzone_row.set_value(0.25)
-    dialog.editor.mouse.input_style_row.set_selected(1)
+    dialog.editor.mouse.touchpad_style_btn.set_active(True)
     mouse = dialog.editor.mouse
     assert mouse.group.get_visible()
     assert mouse.area_radius_x_row.get_visible()
@@ -697,9 +697,9 @@ def test_touchpad_mouse_settings_save_and_switch_back_to_area(temp_config_dir) -
     assert saved.mouse_motion.invert_y
     dialog.editor.load(dialog.editor.draft())
     assert dialog.editor.current_mode() == "mouse_area"
-    assert mouse.input_style_row.get_selected() == 1
+    assert mouse.touchpad_style_btn.get_active()
 
-    mouse.input_style_row.set_selected(0)
+    mouse.stick_style_btn.set_active(True)
     assert mouse.area_radius_x_row.get_title() == "Horizontal Radius"
     assert mouse.area_start_enabled_row.get_visible()
     assert mouse.deadzone_row.get_visible()
@@ -779,7 +779,7 @@ def test_mouse_area_capture_is_cancelled_when_selection_changes(
         dialog.shell.list_box.select_row(beta_row)
         expected_name, expected_position = "Beta", ("10", "20")
     else:
-        dialog.editor.mouse.input_style_row.set_selected(1)
+        dialog.editor.mouse.touchpad_style_btn.set_active(True)
         expected_name, expected_position = "Alpha", ("0", "0")
 
     assert dialog._current_name == expected_name

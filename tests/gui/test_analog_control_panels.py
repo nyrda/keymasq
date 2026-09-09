@@ -54,7 +54,18 @@ def test_mouse_panel_operates_with_only_its_explicit_dependencies() -> None:
     )
 
     panel.speed_x_row.set_value(1000)
-    panel.input_style_row.set_selected(1)
+    assert panel.stick_style_btn.get_active()
+    assert not panel.touchpad_style_btn.get_active()
+    panel.touchpad_style_btn.emit("clicked")
+    assert panel.touchpad_style_btn.get_active()
+    assert not panel.stick_style_btn.get_active()
+    panel.touchpad_style_btn.emit("clicked")
+    assert panel.touchpad_style_btn.get_active()
+    assert events.count("input-style") == 1
+    panel.stick_style_btn.emit("clicked")
+    assert panel.stick_style_btn.get_active()
+    assert not panel.touchpad_style_btn.get_active()
+    assert events.count("input-style") == 2
     panel.area_radius_y_row.set_value(500)
     panel.deadzone_row.set_value(0.2)
     panel.invert_x_btn.set_active(True)

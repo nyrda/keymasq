@@ -45,7 +45,9 @@ class MousePanelConfig:
 @dataclass(slots=True)
 class MouseGroupHandle:
     group: Adw.PreferencesGroup
-    input_style_row: Adw.ComboRow
+    input_style_row: Adw.ActionRow
+    stick_style_btn: Gtk.ToggleButton
+    touchpad_style_btn: Gtk.ToggleButton
     speed_row: Adw.SpinRow
     speed_x_row: Adw.SpinRow
     speed_y_row: Adw.SpinRow
@@ -93,13 +95,23 @@ def build_mouse_group(config: MousePanelConfig) -> MouseGroupHandle:
     def begin_capture(*_args: object) -> None:
         config.begin_capture()
 
-    def input_style_changed(*_args: object) -> None:
-        config.input_style_changed()
+    def input_style_changed(button: Gtk.ToggleButton) -> None:
+        if button.get_active():
+            config.input_style_changed()
 
     group = Adw.PreferencesGroup(title="Mouse Movement")
-    input_style_row = Adw.ComboRow(title="Input Style")
-    input_style_row.set_model(Gtk.StringList.new(["Stick", "Touchpad"]))
-    input_style_row.connect("notify::selected", input_style_changed)
+    input_style_row = Adw.ActionRow(title="Input Style")
+    input_style_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+    input_style_buttons.add_css_class("linked")
+    input_style_buttons.set_valign(Gtk.Align.CENTER)
+    stick_style_btn = Gtk.ToggleButton(label="Stick")
+    touchpad_style_btn = Gtk.ToggleButton(label="Touchpad")
+    touchpad_style_btn.set_group(stick_style_btn)
+    stick_style_btn.set_active(True)
+    for button in (stick_style_btn, touchpad_style_btn):
+        button.connect("toggled", input_style_changed)
+        input_style_buttons.append(button)
+    input_style_row.add_suffix(input_style_buttons)
     group.add(input_style_row)
 
     speed_row = spin_row(
@@ -347,6 +359,8 @@ def build_mouse_group(config: MousePanelConfig) -> MouseGroupHandle:
     return MouseGroupHandle(
         group=group,
         input_style_row=input_style_row,
+        stick_style_btn=stick_style_btn,
+        touchpad_style_btn=touchpad_style_btn,
         speed_row=speed_row,
         speed_x_row=speed_x_row,
         speed_y_row=speed_y_row,

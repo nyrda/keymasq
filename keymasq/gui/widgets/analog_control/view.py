@@ -245,7 +245,7 @@ class AnalogControlEditorView(Gtk.Box):
                 invert_x=self.mouse.invert_x_btn.get_active(),
                 invert_y=self.mouse.invert_y_btn.get_active(),
                 area_input_style="touchpad"
-                if self.mouse.input_style_row.get_selected() == 1
+                if self.mouse.touchpad_style_btn.get_active()
                 else "stick",
                 tick_ms=self._tick_ms,
             ),
@@ -330,7 +330,12 @@ class AnalogControlEditorView(Gtk.Box):
         self.thresholds.sync_for_input_type(axis_control=self.current_input_type() == "axis")
 
     def _load_mouse(self, draft: MouseDraft) -> None:
-        self.mouse.input_style_row.set_selected(1 if draft.area_input_style == "touchpad" else 0)
+        style_button = (
+            self.mouse.touchpad_style_btn
+            if draft.area_input_style == "touchpad"
+            else self.mouse.stick_style_btn
+        )
+        style_button.set_active(True)
         self._syncing_mouse_speed = True
         self._syncing_area_radius = True
         try:
@@ -602,7 +607,7 @@ class AnalogControlEditorView(Gtk.Box):
         is_axis = input_type == "axis"
         mouse_visible = mode in {"mouse", "mouse_area"}
         area_visible = mode == "mouse_area" and not is_axis
-        touchpad_visible = area_visible and self.mouse.input_style_row.get_selected() == 1
+        touchpad_visible = area_visible and self.mouse.touchpad_style_btn.get_active()
         velocity_visible = mode == "mouse"
         self.mouse.group.set_visible(mouse_visible)
         self.mouse.group.set_title("Mouse Area" if area_visible else "Mouse Movement")

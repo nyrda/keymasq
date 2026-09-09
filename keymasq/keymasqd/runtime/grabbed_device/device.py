@@ -510,11 +510,11 @@ class GrabbedDevice:
             else set[str]()
         )
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
-        await update_touchpad_fuzz(self)
         self.reset_motion_controls()
         initialize_motion_state(self, self.mapping_getter())
         await self.reset_superkeys()
         grab.seed_startup_held_actions(self)
+        await update_touchpad_fuzz(self)
 
     async def reset_superkeys(self) -> None:
         for machine in self.state.superkey_machines.values():
@@ -583,6 +583,7 @@ class GrabbedDevice:
             if self.path.startswith(SOURCE_PREFIX)
             else _device_input(self.path)
         )
+        self.state.analog_fuzz_releasing = False
         initialize_motion_state(self, self.mapping_getter())
 
         if self.access_mode is InputAccessMode.OBSERVE:

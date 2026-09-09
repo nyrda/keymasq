@@ -234,6 +234,8 @@ class GrabbedDeviceState:
     analog_snapshot_boundary: InputEventLike | None = None
     analog_deferred_keys: list[InputEventLike] = field(default_factory=list)
     analog_original_fuzz: dict[int, int] = field(default_factory=dict)
+    analog_fuzz_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    analog_fuzz_releasing: bool = False
     analog_active_thresholds: dict[str, set[str]] = field(default_factory=dict)
     analog_active_threshold_actions: dict[
         str,

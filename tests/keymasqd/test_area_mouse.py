@@ -1,4 +1,6 @@
+import asyncio
 import os
+import threading
 from collections import deque
 from dataclasses import replace
 from types import SimpleNamespace
@@ -567,3 +569,66 @@ async def test_deferred_passthrough_button_is_synced_without_another_report(area
     await _event(device, ec.EV_SYN, ec.SYN_REPORT)
     assert device.uinput.writes == [(ec.EV_KEY, ec.KEY_A, 1)]
     device.uinput.syn.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_setup", [False, True])
+async def test_fuzz_release_waits_for_setup_and_blocks_late_updates(area_mouse, cancel_setup):
+    device, _, _ = area_mouse
+    ec = evdev.ecodes
+    fuzz_values = {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+    entered = asyncio.Event()
+    finish_write = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def set_fuzz(code, *, fuzz):
+        fuzz_values[code] = fuzz
+        if not entered.is_set():
+            loop.call_soon_threadsafe(entered.set)
+            assert finish_write.wait(5), "Test did not unblock the fuzz worker"
+
+    device.device.absinfo.side_effect = lambda code: evdev.AbsInfo(
+        0, -32768, 32768, fuzz_values[code], 0, 0
+    )
+    device.device.set_absinfo = Mock(side_effect=set_fuzz)
+    setup = asyncio.create_task(update_touchpad_fuzz(device))
+    tasks = [setup]
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if cancel_setup:
+            setup.cancel()
+        release = asyncio.create_task(update_touchpad_fuzz(device, releasing=True))
+        tasks.append(release)
+        await asyncio.sleep(0)
+        late_update = asyncio.create_task(update_touchpad_fuzz(device))
+        tasks.append(late_update)
+        await asyncio.sleep(0.02)
+        assert not release.done(), "Release must wait for the in-flight ioctl"
+        assert not late_update.done(), "Mapping updates must use the same lock"
+    finally:
+        finish_write.set()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    assert results[1:] == [None, None]
+    if cancel_setup:
+        assert isinstance(results[0], asyncio.CancelledError)
+    else:
+        assert results[0] is None
+    assert fuzz_values == {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+    assert device.state.analog_original_fuzz == {}
+    # A mapping update arriving after restoration must not disable fuzz again.
+    await update_touchpad_fuzz(device)
+    assert fuzz_values == {ec.ABS_HAT1X: 256, ec.ABS_HAT1Y: 128}
+
+
+@pytest.mark.asyncio
+async def test_fuzz_error_does_not_skip_motion_and_superkey_cleanup(area_mouse):
+    device, _, _ = area_mouse
+    machine = SimpleNamespace(stop=AsyncMock())
+    device.state.superkey_machines["held"] = machine
+    device.state.motion_mouse_accumulators["old"] = (0.5, 0.5)
+    device.device.absinfo.side_effect = OSError("device disconnected")
+    with pytest.raises(OSError, match="device disconnected"):
+        await device.reset_mapping_runtime_state()
+    machine.stop.assert_awaited_once()
+    assert device.state.superkey_machines == {}
+    assert device.state.motion_mouse_accumulators == {}

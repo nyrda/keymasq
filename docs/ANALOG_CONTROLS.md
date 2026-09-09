@@ -113,8 +113,8 @@ without jumping. Either axis alone may be zero while the other remains nonzero.
 Holding still produces no movement and has no timeout. A touch that actually
 reports the exact zero pair also ends the stroke.
 
-X and Y updates are collected through `SYN_REPORT` so a partial release cannot
-move the pointer. Fractional movement accumulates during a touch. Stick deadzone,
+X and Y updates are collected through `SYN_REPORT` before movement is calculated
+from the complete pair. Fractional movement accumulates during a touch. Stick deadzone,
 sensitivity, response curve, velocity, tick interval, and area start-position
 settings do not affect Touchpad style. There is no inertia or automatic clicking;
 map a separate button for clicks or dragging.

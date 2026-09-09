@@ -11,6 +11,13 @@ log = logging.getLogger("keymasqd.devices")
 
 
 async def update_touchpad_fuzz(runtime: GrabbedDeviceRuntime, *, releasing: bool = False) -> None:
+    async with runtime.state.analog_fuzz_lock:
+        if releasing:
+            runtime.state.analog_fuzz_releasing = True
+        await _update_touchpad_fuzz_locked(runtime)
+
+
+async def _update_touchpad_fuzz_locked(runtime: GrabbedDeviceRuntime) -> None:
     device = runtime.device
     if device is None:
         return
@@ -29,7 +36,7 @@ async def update_touchpad_fuzz(runtime: GrabbedDeviceRuntime, *, releasing: bool
         for (_, code), (analog_id, _) in runtime.analog_axis_bindings.items()
         if analog_id in touchpads
     }
-    if releasing or runtime.access_mode is not InputAccessMode.EXCLUSIVE:
+    if runtime.state.analog_fuzz_releasing or runtime.access_mode is not InputAccessMode.EXCLUSIVE:
         desired.clear()
     original = runtime.state.analog_original_fuzz
 

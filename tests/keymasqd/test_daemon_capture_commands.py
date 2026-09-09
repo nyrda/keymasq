@@ -598,7 +598,8 @@ async def test_capture_begin_forwards_evdev_interfaces(daemon_testbed):
 
 
 @pytest.mark.asyncio
-async def test_native_capture_filters_evdev_siblings(daemon_testbed):
+@pytest.mark.parametrize("mode", ["motion", "MOTION", " motion "])
+async def test_native_capture_filters_evdev_siblings(daemon_testbed, mode):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     capture_manager.begin_native = AsyncMock(return_value={"token": "native-token"})
     gamepad = {"id": "gamepad", "path": "keymasq:2dc8:6012", "type": "gamepad"}
@@ -608,7 +609,7 @@ async def test_native_capture_filters_evdev_siblings(daemon_testbed):
         {
             "hardware_id": "2dc8:6012",
             "evdev_interfaces": [gamepad, native],
-            "mode": "motion",
+            "mode": mode,
             "motion_axis_codes": [3, 4, 5],
         },
     )

@@ -107,7 +107,7 @@ async def handle_capture_command(
         hardware_id = str(data.get("hardware_id", ""))
         evdev_paths = cast(list[str], data.get("evdev_paths", []))
         evdev_interfaces = cast(JsonObjectList, data.get("evdev_interfaces", []))
-        mode = str(data.get("mode", "button") or "button")
+        mode = str(data.get("mode", "button") or "button").strip().lower()
         motion_axis_codes = [
             int(code)
             for code in cast(list[object], data.get("motion_axis_codes", []))

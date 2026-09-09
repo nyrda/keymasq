@@ -470,7 +470,7 @@ grep 'keymasq_.*_all.deb' SHA256SUMS
 
 For manual testing, download a `nightly-*` prerelease from
 [GitHub Releases](https://github.com/nyrda/keymasq/releases). Builds are scheduled
-for noon Europe/Berlin when master has changed since the last published nightly.
+for 12:17 Europe/Berlin when master has changed since the last published nightly.
 Use the manual installation instructions above for your package format.
 
 Nightlies may contain unfinished changes. They are not distributed through AUR,

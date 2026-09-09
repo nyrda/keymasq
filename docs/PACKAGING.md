@@ -63,7 +63,7 @@ The repository uses three packaging channels:
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
 
-- Nightlies run through the `Nightly` workflow at 12:00 Europe/Berlin daily,
+- Nightlies run through the `Nightly` workflow at 12:17 Europe/Berlin daily,
   including daylight-saving changes. GitHub may delay scheduled runs. A manual
   dispatch uses the same change detection. A build runs only when master's SHA
   differs from the last successfully published nightly. Failed builds and draft

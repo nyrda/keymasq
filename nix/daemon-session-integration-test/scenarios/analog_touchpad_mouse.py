@@ -158,4 +158,4 @@ def run(ctx: ScenarioContext) -> None:
             _report(ctx, pad, 0, 0)
         ctx.set_profile_enabled(OVERRIDE, enabled=False)
         ctx.set_profile_enabled(PROFILE, enabled=False)
-        _fuzz(ctx, 256)
+    ctx.subtest("touchpad fuzz restored after profile teardown", lambda: _fuzz(ctx, 256))

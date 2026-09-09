@@ -1,0 +1,60 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+      timezone: Europe/Berlin
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly.yml
+      - .github/workflows/package.yml
+      - scripts/nightly-metadata.py
+      - tests/common/test_nightly_metadata.py
+
+concurrency:
+  group: nightly-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.meta.outputs.build }}
+      sha: ${{ steps.meta.outputs.sha }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare master with the last published nightly
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VALIDATE_ONLY: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GH_REPO/commits/master" --jq .sha)"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          python3 scripts/nightly-metadata.py "$sha" "$RUNNER_TEMP/releases.json" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+      packages: read
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      prerelease_version: ${{ needs.prepare.outputs.version }}
+      prerelease_tag: ${{ needs.prepare.outputs.tag }}
+      publish: ${{ github.event_name != 'pull_request' }}

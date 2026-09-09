@@ -53,7 +53,7 @@ Drivers that send device commands need an explicit write-access policy.
 
 ## Release channels
 
-The repository uses two packaging channels:
+The repository uses three packaging channels:
 
 - Stable releases are created from stable `v*` tags. These are the only runs
   that sign RPMs, publish GitHub release artifacts as the official release, and
@@ -63,7 +63,40 @@ The repository uses two packaging channels:
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
 
+- Nightlies run through the `Nightly` workflow at 12:00 Europe/Berlin daily,
+  including daylight-saving changes. GitHub may delay scheduled runs. A manual
+  dispatch uses the same change detection. A build runs only when master's SHA
+  differs from the last successfully published nightly. Failed builds and draft
+  releases do not advance that marker, so a later run retries pending changes.
+
+### Nightly builds
+
+The nightly workflow snapshots master's full commit SHA and calls the shared
+`Package` workflow. All package builds and installation checks use that same
+commit. Pull requests affecting the nightly setup run the same builds against
+master without publishing, so workflow changes can be verified before merging.
+
+Nightlies appear only as GitHub prereleases with tags such as
+`nightly-20260909100000`. Downloads include the AppImage, Debian, Arch, Fedora,
+openSUSE, source archive, checksums, and artifact attestations. RPMs are unsigned.
+The release stays a draft until all files have uploaded. Nightlies never update
+AUR, COPR, the project package repositories, the stable AppImage update manifest,
+or GitHub's latest stable release.
+
+Versions use the next patch after the highest published stable version, with a
+UTC build timestamp. For stable `0.19.0`, a nightly uses
+`0.19.1.dev20260909100000` in Python and the AppImage,
+`0.19.1~dev20260909100000` in Debian/RPM, and
+`0.19.1dev20260909100000` in Arch. Each format sorts after `0.19.0` and before
+`0.19.1`. Version rewrites happen only in the build checkout.
+
+Development versions link to <https://keymasq.tools/docs/master/> in the app
+and release notes. These docs follow current master, including when reading
+from an older nightly. Installing a nightly replaces the installed Keymasq;
+returning to the previous stable version requires an explicit downgrade.
+
 ## Release checklist
+
 
 Before tagging a stable `v*` release, run the manual VM gates from
 [VM_TESTING.md](VM_TESTING.md) in full, regardless of what changed since the

@@ -465,3 +465,16 @@ Or verify a single artifact:
 sha256sum keymasq_*_all.deb
 grep 'keymasq_.*_all.deb' SHA256SUMS
 ```
+
+## Nightly development builds
+
+For manual testing, download a `nightly-*` prerelease from
+[GitHub Releases](https://github.com/nyrda/keymasq/releases). Builds are scheduled
+for noon Europe/Berlin when master has changed since the last published nightly.
+Use the manual installation instructions above for your package format.
+
+Nightlies replace your installed Keymasq and may contain unfinished changes.
+They are not distributed through AUR, COPR, package repositories, or the stable
+AppImage updater. Returning to an older stable release requires an explicit
+package downgrade. Nightly documentation follows
+[master](https://keymasq.tools/docs/master/).

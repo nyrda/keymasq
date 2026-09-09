@@ -2739,6 +2739,7 @@ class TestListDevices:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager(topology_poll_s=0.01)
+        deps = device_manager._topology_runtime_deps()
         snapshot = {
             "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
@@ -2769,14 +2770,14 @@ class TestListDevices:
 
         with pytest.raises(asyncio.CancelledError):
             await topology.topology_watch_loop(
-                manager, log=device_manager.log, deps=device_manager._topology_runtime_deps()
+                manager, log=device_manager.log, deps=deps
             )
 
         schedule_topology_reconcile.assert_called_once_with(
             manager,
             snapshot,
             log=device_manager.log,
-            deps=device_manager._topology_runtime_deps(),
+            deps=deps,
         )
 
     @pytest.mark.asyncio
@@ -2786,6 +2787,7 @@ class TestListDevices:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         manager = DeviceManager(topology_poll_s=0.01)
+        deps = device_manager._topology_runtime_deps()
         snapshot = {
             "/dev/input/by-id/test-mouse": topology.LiveInterfaceInfo(
                 hardware_id="1234:5678",
@@ -2820,7 +2822,7 @@ class TestListDevices:
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
             with pytest.raises(asyncio.CancelledError):
                 await topology.topology_watch_loop(
-                    manager, log=device_manager.log, deps=device_manager._topology_runtime_deps()
+                    manager, log=device_manager.log, deps=deps
                 )
 
         assert "Topology scan failed: scan boom" in caplog.text
@@ -2828,7 +2830,7 @@ class TestListDevices:
             manager,
             snapshot,
             log=device_manager.log,
-            deps=device_manager._topology_runtime_deps(),
+            deps=deps,
         )
 
     def test_scan_live_interfaces_logs_snapshot_device_failures(

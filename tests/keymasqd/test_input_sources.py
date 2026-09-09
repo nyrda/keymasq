@@ -5,6 +5,7 @@ import struct
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
 import evdev
 import pytest
@@ -309,7 +310,10 @@ def test_native_adapter_does_not_open_or_grab_evdev(monkeypatch):
     device.close()
 
 
-async def test_calibration_shares_runtime_reader_and_closes_its_subscription(monkeypatch):
+@pytest.mark.parametrize("include_gamepad", [False, True])
+async def test_calibration_shares_runtime_reader_and_closes_its_subscription(
+    monkeypatch, include_gamepad
+):
     from keymasq.keymasqd.capture_manager import CaptureManager
 
     packets: asyncio.Queue[bytes] = asyncio.Queue()
@@ -332,17 +336,31 @@ async def test_calibration_shares_runtime_reader_and_closes_its_subscription(mon
     monkeypatch.setattr(
         resolver,
         "resolve_evdev_interfaces",
-        lambda *_args, **_kwargs: [
-            resolver.ResolvedInterface(
-                source.path, "keymasq-source:imu", "imu", DeviceType.MOTION, []
+        lambda *_args, **_kwargs: (
+            (
+                [
+                    resolver.ResolvedInterface(
+                        "/dev/input/event7", "keymasq:2dc8:6012", "gamepad", DeviceType.GAMEPAD, []
+                    )
+                ]
+                if include_gamepad
+                else []
             )
-        ],
+            + [
+                resolver.ResolvedInterface(
+                    source.path, "keymasq-source:imu", "imu", DeviceType.MOTION, []
+                )
+            ]
+        ),
     )
     captures = CaptureManager()
     async with shared.subscribe(source) as runtime:
         await packets.put(CAPTURED_REPORT)
         await runtime.read()
-        result = await captures.begin_native("2dc8:6012", [], [3, 4, 5])
+        gamepad = {"id": "gamepad", "path": "keymasq:2dc8:6012", "type": "gamepad"}
+        native = {"id": "imu", "path": "keymasq-source:imu", "backend": "hidraw", "anchor": gamepad}
+        interfaces = [gamepad, native] if include_gamepad else [native]
+        result = await captures.begin_native("2dc8:6012", interfaces, [3, 4, 5])
         token = result["token"]
         frames = captures.read(token)["frames"]
         assert frames[0]["values"] == {"3": 3, "4": 23, "5": 2}
@@ -355,6 +373,31 @@ async def test_calibration_shares_runtime_reader_and_closes_its_subscription(mon
         await runtime.read()
     assert closed == 1
     assert not captures._sessions
+
+
+def test_inventory_scan_reuses_bindings_and_refreshes_each_scan(monkeypatch):
+    from keymasq.keymasqd import device_manager
+
+    first, second, reconnected = binding(7), binding(8), binding(9)
+    discover = Mock(side_effect=[[first, second], [reconnected], [reconnected]])
+    monkeypatch.setattr(discovery, "discover_bindings", discover)
+    monkeypatch.setattr(device_manager, "_device_paths", lambda: [])
+    scan = device_manager._InputDeviceScan()
+    assert scan.paths() == [first.path, second.path]
+    assert scan.open(first.path).info.vendor == 0x2DC8
+    assert scan.open(second.path).info.product == 0x6012
+    assert discover.call_count == 1
+
+    other_scan = device_manager._InputDeviceScan()
+    assert other_scan.paths() == [reconnected.path]
+    assert scan.open(first.path).path == first.path
+    assert discover.call_count == 2
+
+    assert scan.paths() == [reconnected.path]
+    with pytest.raises(FileNotFoundError):
+        scan.open(first.path)
+    assert scan.open(reconnected.path).path == reconnected.path
+    assert discover.call_count == 3
 
 
 async def test_cancelled_calibration_start_releases_native_reader(monkeypatch):

@@ -61,8 +61,10 @@ def frame_events(binding: Binding, frame: InputFrame) -> list[evdev.InputEvent]:
 
 
 class NativeInputDevice:
-    def __init__(self, path: str) -> None:
-        self.binding = binding_for_path(path)
+    def __init__(self, path: str, *, binding: Binding | None = None) -> None:
+        self.binding = binding if binding is not None else binding_for_path(path)
+        if self.binding.path != path:
+            raise ValueError("Native input binding does not match its source address")
         self.path = path
         self.name = self.binding.driver.label
         self.phys = self.binding.endpoint.phys

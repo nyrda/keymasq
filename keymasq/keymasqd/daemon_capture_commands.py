@@ -113,9 +113,10 @@ async def handle_capture_command(
             for code in cast(list[object], data.get("motion_axis_codes", []))
             if isinstance(code, int) and not isinstance(code, bool) and code >= 0
         ]
-        if mode == "motion" and any(item.get("backend") == "hidraw" for item in evdev_interfaces):
+        native_interfaces = [item for item in evdev_interfaces if item.get("backend") == "hidraw"]
+        if mode == "motion" and native_interfaces:
             return await daemon.capture_manager.begin_native(
-                hardware_id, evdev_interfaces, motion_axis_codes
+                hardware_id, native_interfaces, motion_axis_codes
             )
         return await asyncio.to_thread(
             daemon.capture_manager.begin,

@@ -31,6 +31,9 @@ from keymasq.common.virtual_devices import (
     clamp_virtual_gamepad_count,
 )
 from keymasq.keymasqd import device_inventory
+from keymasq.keymasqd.input_sources import discovery as native_discovery
+from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
+from keymasq.keymasqd.input_sources.types import Binding
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -106,28 +109,41 @@ class _ManagedInputDevice(Protocol):
 
 
 def _device_input(path: str) -> _ManagedInputDevice:
-    from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
-    from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
-
-    if path.startswith(SOURCE_PREFIX):
+    if path.startswith(native_discovery.SOURCE_PREFIX):
         return cast(_ManagedInputDevice, cast(object, NativeInputDevice(path)))
     return cast(_ManagedInputDevice, evdev.InputDevice(path))
 
 
 def _device_paths() -> list[str]:
-    from keymasq.keymasqd.input_sources.discovery import discover_bindings
+    return cast(Callable[[], list[str]], evdev.list_devices)()
 
-    return cast(Callable[[], list[str]], evdev.list_devices)() + [
-        binding.path for binding in discover_bindings()
-    ]
+
+class _InputDeviceScan:
+    """Reuse one HID discovery snapshot while probing a scan's device paths."""
+
+    def __init__(self) -> None:
+        self.bindings: dict[str, Binding] = {}
+
+    def paths(self) -> list[str]:
+        self.bindings = {item.path: item for item in native_discovery.discover_bindings()}
+        return _device_paths() + list(self.bindings)
+
+    def open(self, path: str) -> _ManagedInputDevice:
+        if path.startswith(native_discovery.SOURCE_PREFIX):
+            binding = self.bindings.get(path)
+            if binding is None:
+                raise FileNotFoundError(errno.ENODEV, "Native source is absent from scan", path)
+            return cast(_ManagedInputDevice, cast(object, NativeInputDevice(path, binding=binding)))
+        return _device_input(path)
 
 
 def _topology_runtime_deps() -> topology.TopologyRuntimeDeps:
+    scan = _InputDeviceScan()
     return topology.TopologyRuntimeDeps(
         asyncio_mod=adapters.ASYNCIO_RUNTIME,
         clear_device_path_cache_fn=clear_device_path_cache,
-        device_paths_fn=_device_paths,
-        device_input_fn=_device_input,
+        device_paths_fn=scan.paths,
+        device_input_fn=scan.open,
         detect_input_classes_fn=detect_input_classes,
         primary_input_class_fn=primary_input_class,
         resolve_stable_path_fn=resolve_stable_path,
@@ -685,10 +701,11 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             )
 
     def _list_devices_sync(self) -> JsonObject:
+        scan = _InputDeviceScan()
         deps = device_inventory.InventoryScanDeps(
             clear_path_cache=clear_device_path_cache,
-            device_paths=_device_paths,
-            open_device=cast(Any, _device_input),
+            device_paths=scan.paths,
+            open_device=cast(Any, scan.open),
             resolve_stable_path=resolve_stable_path,
             get_interface_id=get_interface_id,
             detect_device_types=cast(Any, self._detect_device_types),

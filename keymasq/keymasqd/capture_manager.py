@@ -123,9 +123,10 @@ class CaptureManager:
             deps=_device_path_resolver_deps(),
             hardware_id=hardware_id,
         )
-        if len(resolved) != 1 or not resolved[0].path.startswith(SOURCE_PREFIX):
+        native = [item for item in resolved if item.path.startswith(SOURCE_PREFIX)]
+        if len(native) != 1:
             raise ValueError("Native motion source is unavailable or ambiguous")
-        interface = resolved[0]
+        interface = native[0]
         binding = await asyncio.to_thread(binding_for_path, interface.path)
         codes = channel_codes(binding)
         if not set(axis_codes).issubset(codes.values()):

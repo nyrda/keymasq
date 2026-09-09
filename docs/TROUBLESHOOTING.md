@@ -208,6 +208,16 @@ What to verify:
 - no other input remapping tool has already grabbed the device — only one program can exclusively
   hold a device at a time
 
+### Native gyro reports permission denied
+
+Native motion reads `/dev/hidrawN` as the daemon user `keymasq`. Access granted
+only to your desktop user is insufficient. Check the node named in the daemon
+log with `getfacl /dev/hidrawN`; hidraw devices should have a `user:keymasq:r--`
+entry. Install the updated package rules, or rebuild the NixOS configuration
+with the updated Keymasq module/package, then restart the daemon. The startup
+hook reapplies native ACLs to connected controllers. Reconnecting also applies
+the rule. A manual ACL is temporary and disappears when the device is recreated.
+
 ### Missing CAP_DAC_OVERRIDE capability
 
 `keymasqd` needs the `CAP_DAC_OVERRIDE` capability for gamepad source

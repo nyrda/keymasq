@@ -111,6 +111,9 @@ def config_path_for_detected_interface(
 
 def interface_source_fields(dev: Mapping[str, Any]) -> dict[str, object]:
     fields: dict[str, object] = {}
+    for key in ("backend", "native_motion_axes", "companion_paths"):
+        if key in dev:
+            fields[key] = dev[key]
     if bool(dev.get("grabbed_by_keymasq", False)):
         fields["grabbed_by_keymasq"] = True
     for key in (

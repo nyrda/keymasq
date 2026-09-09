@@ -369,6 +369,11 @@ class HardwareSettingsMixin:
         if not source:
             return []
 
+        companions = {item.id for item in self.device.input_sources if item.companion_of == source}
+        self.device.input_sources = [
+            item for item in self.device.input_sources if item.id not in companions
+        ]
+
         removed_button_ids = [
             button.id for button in self.device.buttons if button.source == source
         ]
@@ -376,7 +381,9 @@ class HardwareSettingsMixin:
             analog.id for analog in self.device.analog_inputs if analog.source == source
         ]
         removed_motion_ids = [
-            sensor.id for sensor in self.device.motion_sensors if sensor.source == source
+            sensor.id
+            for sensor in self.device.motion_sensors
+            if sensor.source in {source, *companions}
         ]
         if removed_button_ids:
             self.device.buttons = [
@@ -388,7 +395,9 @@ class HardwareSettingsMixin:
             ]
         if removed_motion_ids:
             self.device.motion_sensors = [
-                sensor for sensor in self.device.motion_sensors if sensor.source != source
+                sensor
+                for sensor in self.device.motion_sensors
+                if sensor.source not in {source, *companions}
             ]
         return [*removed_button_ids, *removed_analog_ids, *removed_motion_ids]
 

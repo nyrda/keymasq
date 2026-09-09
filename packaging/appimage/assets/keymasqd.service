@@ -13,6 +13,8 @@ SupplementaryGroups=input
 Nice=-5
 ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
 ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
+# Apply native-driver ACLs to controllers already connected at startup.
+ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
 ExecStart=/opt/keymasq/bin/keymasqd
 Restart=on-failure
 RestartSec=5

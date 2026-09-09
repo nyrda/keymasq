@@ -11,6 +11,7 @@ import evdev
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
+from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.combo.state import ComboRuntimeDeps
@@ -73,7 +74,7 @@ async def grab_device_unlocked(
     device_path_resolver.clear_cached_devices()
     cancel_pending_hardware_release(manager, request.hardware_id)
 
-    plan = build_grab_plan(manager, request, deps)
+    plan = await adapters.ASYNCIO_RUNTIME.to_thread(build_grab_plan, manager, request, deps)
     if request.update_desired:
         persist_desired_grab(manager, request, plan, deps)
     log_grab_request(plan)
@@ -116,6 +117,7 @@ def reconcile_existing_interface_releases(
             device.path,
             asyncio_mod=adapters.ASYNCIO_RUNTIME,
             log=log,
+            **({"grace_s": 0.0} if device.path.startswith(SOURCE_PREFIX) else {}),
         )
 
 

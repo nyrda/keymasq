@@ -34,6 +34,23 @@ The repository currently maintains these package outputs:
 | openSUSE RPM | openSUSE systems | `packaging/rpm/` | `.opensuse.x86_64.rpm` |
 | AnyLinux AppImage | SteamOS and other systemd distros without a native package | `packaging/appimage/` | `Keymasq-<version>-x86_64.AppImage` |
 
+## Native driver permissions
+
+All maintained packages ship `udev/91-keymasq-acl.rules`. It grants the
+`keymasq` daemon user read access to hidraw devices, preserving existing
+ownership and desktop-user access. The driver registry decides which devices
+to open. Device IDs and protocol matching stay in the drivers.
+
+Debian, RPM, Arch/AUR, source, and AppImage install/upgrade hooks retrigger
+hidraw devices and wait for udev to apply the ACLs. Systemd units and the NixOS
+module do this before daemon startup too, covering already-connected devices.
+AppImage's non-systemd instructions include the same step, and its uninstall
+removes the daemon's hidraw ACLs. Installing the Nix package alone does not
+activate system services or udev rules; NixOS users must enable the module.
+
+Adding another read-only native driver requires no packaging changes.
+Drivers that send device commands need an explicit write-access policy.
+
 ## Release channels
 
 The repository uses two packaging channels:

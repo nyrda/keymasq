@@ -1,5 +1,6 @@
 import asyncio
 import os
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,6 +16,12 @@ from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device import outputs, repeat
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    grabbed_event_processing_deps,
+    make_grabbed_device,
+)
 
 
 async def _wait_for_uinput_events(
@@ -267,6 +274,107 @@ async def test_grab_failure_closes_opened_input_device(monkeypatch):
     passthrough_uinput.close.assert_called_once_with()
     assert grabbed.device is None
     assert grabbed.uinput is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["create", "rollback", "release"])
+async def test_mouse_events_continue_during_controller_uinput_io(monkeypatch, phase):
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    finish = threading.Event()
+    stalled = []
+
+    def slow_kernel_operation():
+        loop.call_soon_threadsafe(started.set)
+        if not finish.wait(2):
+            stalled.append(True)
+
+    output = MagicMock()
+    if phase != "create":
+        output.close.side_effect = slow_kernel_operation
+
+    def create_output(**kwargs):
+        if phase == "create":
+            slow_kernel_operation()
+        return output
+
+    source = SimpleNamespace(
+        name="controller",
+        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        capabilities=lambda: {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]},
+        close=MagicMock(),
+        grab=MagicMock(),
+        ungrab=MagicMock(),
+    )
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda path: source)
+    monkeypatch.setattr(grabbed_device.evdev, "UInput", create_output)
+    preflight = AsyncMock()
+    if phase == "rollback":
+        preflight.side_effect = PermissionError("controller unavailable")
+    monkeypatch.setattr(grabbed_device.grab, "wait_for_active_keys_to_clear", preflight)
+
+    async def idle_event_loop(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(pipeline, "event_loop", idle_event_loop)
+    controller = make_grabbed_device(monkeypatch, hardware_id="2dc8:6012")
+    mouse_output = FakeUInput()
+    mouse = make_grabbed_device(
+        monkeypatch,
+        hardware_id="test:mouse",
+        device_type=DeviceType.MOUSE,
+        passthrough_uinput=mouse_output,
+        running=True,
+    )
+    if phase == "release":
+        await controller.grab()
+    operation = asyncio.create_task(
+        controller.release() if phase == "release" else controller.grab()
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        await pipeline.process_event(
+            mouse,
+            evdev.InputEvent(0, 0, evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 7),
+            deps=grabbed_event_processing_deps(),
+        )
+        assert mouse_output.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 7)]
+        assert not stalled, "controller I/O blocked mouse processing"
+        assert not operation.done()
+    finally:
+        finish.set()
+        if phase == "rollback":
+            with pytest.raises(PermissionError, match="controller unavailable"):
+                await operation
+        else:
+            await operation
+        await controller.release()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancellations", [1, 2, 3])
+async def test_cancelled_passthrough_creation_closes_worker_result(monkeypatch, cancellations):
+    started = asyncio.Event()
+    finish = threading.Event()
+    loop = asyncio.get_running_loop()
+    output = MagicMock()
+
+    def create():
+        loop.call_soon_threadsafe(started.set)
+        assert finish.wait(2)
+        return output
+
+    task = asyncio.create_task(grabbed_device._create_passthrough_uinput(create))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        for _ in range(cancellations):
+            task.cancel()
+            await asyncio.sleep(0)
+    finally:
+        finish.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    output.close.assert_called_once_with()
 
 
 @pytest.mark.asyncio

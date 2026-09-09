@@ -171,7 +171,10 @@ class DiscoveryMixin:
                 stable_path,
             )
             config_path = str(iface.get("config_path") or default_config_path)
-            capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
+            if iface.get("backend") == "hidraw":
+                capability_names, raw_capabilities = [], {}
+            else:
+                capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)
             raw_capabilities = merge_inventory_abs_info(
                 raw_capabilities,
                 iface.get("abs_info"),

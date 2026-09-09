@@ -220,6 +220,17 @@ def scan_devices(
                     **(grabbed_source or {}),
                 }
             )
+            from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice, motion_axes
+
+            if isinstance(device, NativeInputDevice):
+                devices[-1].update(
+                    {
+                        "backend": "hidraw",
+                        "driver": device.binding.driver.id,
+                        "native_motion_axes": motion_axes(device.binding),
+                        "companion_paths": list(device.binding.companions),
+                    }
+                )
         except OSError as exc:
             if deps.is_permission_error(exc):
                 deps.logger.warning(

@@ -79,9 +79,7 @@ def _session_device_sort_key(
     dtype_raw = str(dev.get("device_type", "other") or "other")
     device_types = normalize_input_classes(dev.get("device_types"), dtype_raw)
     motion_only = (
-        motion_siblings_last
-        and "motion" in device_types
-        and "gamepad" not in device_types
+        motion_siblings_last and "motion" in device_types and "gamepad" not in device_types
     )
     return (
         str(dev.get("vendor_id", "") or "").lower(),
@@ -299,6 +297,12 @@ def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None
             for iface in motion_interfaces
             if iface.get("phys")
         }
+        native_companions = {
+            str(path)
+            for iface in motion_interfaces
+            if iface.get("backend") == "hidraw"
+            for path in iface.get("companion_paths", [])
+        }
         candidates: list[DetectedDevice] = []
         for key, candidate in detected_devices.items():
             if key == motion_key or candidate.get("model_id") != motion_device.get("model_id"):
@@ -314,7 +318,12 @@ def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None
                 for iface in candidate_interfaces
                 if iface.get("phys")
             }
-            if motion_phys and motion_phys.intersection(candidate_phys):
+            candidate_paths = {str(iface.get("path", "")) for iface in candidate_interfaces}
+            if (
+                native_companions.intersection(candidate_paths)
+                if native_companions
+                else motion_phys and motion_phys.intersection(candidate_phys)
+            ):
                 candidates.append(candidate)
         if len(candidates) != 1:
             continue

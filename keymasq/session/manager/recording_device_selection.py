@@ -293,6 +293,15 @@ async def get_devices_for_recording(
                 "analog_calibration": json_object(d.get("analog_calibration")) or {},
                 "gamepad_output": json_object(d.get("gamepad_output")),
                 "driver": coerce_str(d.get("driver"), ""),
+                **(
+                    {
+                        "backend": "hidraw",
+                        "native_motion_axes": json_object(d.get("native_motion_axes")) or {},
+                        "companion_paths": json_list(d.get("companion_paths")),
+                    }
+                    if d.get("backend") == "hidraw"
+                    else {}
+                ),
                 "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),
                 "recording_kind": coerce_str(d.get("recording_kind"), "physical"),
                 "grabbed_by_keymasq": is_grabbed,

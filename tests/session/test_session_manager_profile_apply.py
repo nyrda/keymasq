@@ -30,6 +30,43 @@ from keymasq.session.profile.types import (
 
 
 @pytest.mark.asyncio
+async def test_disabling_last_native_source_releases_active_motion_immediately(monkeypatch):
+    from keymasq.common.model.core import DeviceType
+    from keymasq.common.model.hardware import EvdevDevice, HardwareConfig, NativeInputSource
+    from keymasq.common.model.motion import MotionControlConfig, MotionSensorDefinition
+
+    hardware = HardwareConfig(
+        "2dc8",
+        "6012",
+        "Ultimate 2",
+        [EvdevDevice("keymasq:2dc8:6012", DeviceType.GAMEPAD, "gamepad")],
+        [],
+        motion_sensors=[MotionSensorDefinition("motion_1", "Motion", "imu")],
+        input_sources=[NativeInputSource("imu", "8bitdo-ultimate2", "gamepad", enabled=False)],
+    )
+    manager = SessionManager()
+    monkeypatch.setattr(manager.hardware, "get_hardware", lambda _id: hardware)
+    manager.profile_state.grabbed_devices.add(hardware.hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware.hardware_id] = {"imu": "keymasq-source:imu"}
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={}))
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware.hardware_id,
+        active_profile_names=["Aim"],
+        mappings={
+            "motion_1": MappingAction(
+                action_type=ActionType.MOTION_CONTROL,
+                motion_control_config=MotionControlConfig(name="Aim", mode="gamepad"),
+            )
+        },
+    )
+    await coordinator.apply_resolved_device_profile(manager, hardware.hardware_id, resolved)
+    command = manager.client.send_command.await_args.args[0]
+    assert command.command == CommandType.RELEASE_DEVICE
+    assert command.data["immediate"] is True
+    assert hardware.hardware_id not in manager.profile_state.grabbed_devices
+
+
+@pytest.mark.asyncio
 async def test_reevaluate_profiles_skips_unchanged_mapping_and_combos() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

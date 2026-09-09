@@ -38,6 +38,7 @@ post_install() {
     udevadm control --reload-rules
     udevadm trigger --subsystem-match=input --action=add
     udevadm trigger --subsystem-match=misc --action=add
+    udevadm trigger --subsystem-match=hidraw --action=change --settle
 
     if [ -f /etc/systemd/system/keymasqd.service ]; then
         echo ""
@@ -75,6 +76,7 @@ post_upgrade() {
     udevadm control --reload-rules
     udevadm trigger --subsystem-match=input --action=add
     udevadm trigger --subsystem-match=misc --action=add
+    udevadm trigger --subsystem-match=hidraw --action=change --settle
 
     if [ -f /etc/systemd/system/keymasqd.service ]; then
         echo ""

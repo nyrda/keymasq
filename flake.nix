@@ -429,6 +429,7 @@
                 SupplementaryGroups = [ "input" ];
                 Nice = -5;
                 ExecStartPre = [
+                  "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle"
                   "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
                   "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];

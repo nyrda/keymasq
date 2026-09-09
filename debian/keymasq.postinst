@@ -15,6 +15,7 @@ case "$1" in
             udevadm control --reload-rules >/dev/null 2>&1 || true
             udevadm trigger --subsystem-match=input --action=add >/dev/null 2>&1 || true
             udevadm trigger --subsystem-match=misc --action=add >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=hidraw --action=change --settle >/dev/null 2>&1 || true
         fi
 
         if command -v systemctl >/dev/null 2>&1; then

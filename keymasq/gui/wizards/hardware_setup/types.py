@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, TypedDict
 
-from keymasq.common.model.hardware import EvdevDevice
+from keymasq.common.model.hardware import EvdevDevice, NativeInputSource
 from keymasq.common.model.motion import MotionSensorDefinition
 
 
@@ -12,12 +12,17 @@ class EvdevDeviceSelection(list[EvdevDevice]):
         self,
         devices: Sequence[EvdevDevice],
         motion_sensors: Sequence[MotionSensorDefinition] = (),
+        input_sources: Sequence[NativeInputSource] = (),
     ) -> None:
         super().__init__(devices)
         self.motion_sensors = list(motion_sensors)
+        self.input_sources = list(input_sources)
 
 
 class DetectedInterface(TypedDict, total=False):
+    backend: str
+    companion_paths: list[str]
+    native_motion_axes: dict[str, object]
     id: str
     path: str
     stable_path: str

@@ -16,6 +16,21 @@ class EvdevDevice:
 
 
 @dataclass
+class NativeInputSource:
+    """A bundled driver's logical source, optionally paired with an evdev interface."""
+
+    id: str
+    driver: str
+    companion_of: str | None = None
+    phys: str | None = None
+    enabled: bool = True
+
+    @property
+    def path(self) -> str:
+        return f"keymasq-source:{self.id}"
+
+
+@dataclass
 class ButtonDefinition:
     id: str
     label: str
@@ -61,6 +76,7 @@ class HardwareConfig:
     motion_sensors: list[MotionSensorDefinition] = field(default_factory=list)
     image: str | None = None
     id: str | None = None
+    input_sources: list[NativeInputSource] = field(default_factory=list)
 
     @property
     def hardware_id(self) -> str:

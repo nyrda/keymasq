@@ -9,6 +9,7 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || tr
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger --subsystem-match=input --action=add 2>/dev/null || true
 udevadm trigger --subsystem-match=misc --action=add 2>/dev/null || true
+udevadm trigger --subsystem-match=hidraw --action=change --settle 2>/dev/null || true
 
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true

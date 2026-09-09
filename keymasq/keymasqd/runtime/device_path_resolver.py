@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -20,6 +21,9 @@ from keymasq.common.devices import (
 )
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.input_sources import discovery as native_discovery
+from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+from keymasq.keymasqd.input_sources.types import Binding
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -229,7 +233,31 @@ def resolve_evdev_interfaces(
         path for value in preferred_paths or [] if (path := str(value or "").strip())
     }
 
+    # A native-only owner still owns its controller's evdev companions. Expand
+    # claims before resolving any interface, including evdev-only requests.
+    bindings = (
+        native_discovery.discover_bindings()
+        if any(item.get("backend") == "hidraw" for item in interfaces)
+        or any(
+            path.startswith(SOURCE_PREFIX)
+            for path in normalized_excluded_paths | normalized_preferred_paths
+        )
+        else []
+    )
+    for binding in bindings:
+        if binding.path in normalized_excluded_paths:
+            normalized_excluded_paths.update(binding.companions)
+        if binding.path in normalized_preferred_paths:
+            normalized_preferred_paths.update(binding.companions)
+
+    # Compare event-node identities as well as the supplied aliases. Keep the
+    # original paths for stable selectors and internal native source addresses.
+    normalized_excluded_paths |= {os.path.realpath(path) for path in normalized_excluded_paths}
+    normalized_preferred_paths |= {os.path.realpath(path) for path in normalized_preferred_paths}
+
     for descriptor in interfaces:
+        if descriptor.get("backend") == "hidraw":
+            continue
         configured_path = str(descriptor.get("path", "") or "").strip()
         if not configured_path:
             continue
@@ -248,6 +276,12 @@ def resolve_evdev_interfaces(
         if model_path is not None and _same_keymasq_model_path(configured_path, model_path):
             resolution_phys = ""
         if not is_keymasq_device_path(configured_path):
+            if normalized_excluded_paths and _path_matches_resolved(
+                configured_path,
+                _candidate_order_path(configured_path, deps),
+                normalized_excluded_paths,
+            ):
+                continue
             resolved.append(
                 ResolvedInterface(
                     path=configured_path,
@@ -284,7 +318,86 @@ def resolve_evdev_interfaces(
                 capabilities=sorted(configured_caps),
             )
         )
-    return resolved
+    return resolved + _resolve_native_interfaces(
+        interfaces,
+        resolved,
+        bindings=bindings,
+        match_model_gamepads=match_model_gamepads,
+        deps=deps,
+        hardware_id=hardware_id,
+        excluded_paths=normalized_excluded_paths,
+        preferred_paths=normalized_preferred_paths,
+    )
+
+
+def _resolve_native_interfaces(
+    interfaces: list[JsonObject],
+    resolved: list[ResolvedInterface],
+    *,
+    bindings: list[Binding],
+    match_model_gamepads: bool,
+    deps: DevicePathResolverDeps,
+    hardware_id: str | None,
+    excluded_paths: set[str],
+    preferred_paths: set[str],
+) -> list[ResolvedInterface]:
+    from keymasq.keymasqd.input_sources.discovery import companion_binding
+
+    native = [item for item in interfaces if item.get("backend") == "hidraw"]
+    if not native:
+        return []
+    result: list[ResolvedInterface] = []
+    for descriptor in native:
+        driver_id = str(descriptor.get("driver", ""))
+        raw_anchor = descriptor.get("anchor")
+        anchor = cast(JsonObject, raw_anchor) if isinstance(raw_anchor, dict) else None
+        binding = None
+        if anchor is not None and anchor.get("backend") != "hidraw":
+            anchor_id = str(anchor.get("id", ""))
+            matches = [item for item in resolved if item.interface_id == anchor_id]
+            if not matches:
+                matches = resolve_evdev_interfaces(
+                    [anchor],
+                    deps=deps,
+                    hardware_id=hardware_id,
+                    excluded_paths={
+                        path for path in excluded_paths if not path.startswith(SOURCE_PREFIX)
+                    },
+                    preferred_paths={
+                        path for path in preferred_paths if not path.startswith(SOURCE_PREFIX)
+                    },
+                    match_model_gamepads=match_model_gamepads,
+                )
+            if len(matches) == 1:
+                binding = companion_binding(bindings, driver_id, matches[0].path)
+        elif not descriptor.get("companion_of"):
+            model = parse_hardware_model_id(hardware_id)
+            candidates = [
+                item
+                for item in bindings
+                if item.driver.id == driver_id
+                and model == (f"{item.endpoint.vendor:04x}", f"{item.endpoint.product:04x}")
+                and (not descriptor.get("phys") or item.endpoint.phys == descriptor["phys"])
+                and item.path not in excluded_paths
+            ]
+            if len(candidates) == 1:
+                binding = candidates[0]
+        if (
+            binding is None
+            or binding.path in excluded_paths
+            or any(item.path == binding.path for item in result)
+        ):
+            continue
+        result.append(
+            ResolvedInterface(
+                path=binding.path,
+                configured_path=str(descriptor.get("path", "")),
+                interface_id=str(descriptor.get("id", "")),
+                device_type=DeviceType.MOTION,
+                capabilities=[],
+            )
+        )
+    return result
 
 
 def _resolve_keymasq_paths(
@@ -433,7 +546,12 @@ def _path_matches_resolved(
 ) -> bool:
     if not paths:
         return False
-    return path in paths or resolved_path in paths
+    return (
+        path in paths
+        or resolved_path in paths
+        or os.path.realpath(path) in paths
+        or os.path.realpath(resolved_path) in paths
+    )
 
 
 def _candidate_order_path(path: str, deps: DevicePathResolverDeps) -> str:

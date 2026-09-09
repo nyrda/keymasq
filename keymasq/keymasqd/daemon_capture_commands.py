@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Protocol, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
@@ -45,6 +46,12 @@ class _CaptureCommandRecordingManager(Protocol):
 
 
 class _CaptureCommandCaptureManager(Protocol):
+    async def begin_native(
+        self, hardware_id: str, interfaces: JsonObjectList, axis_codes: list[int]
+    ) -> JsonObject: ...
+
+    async def stop_native(self, token: str) -> None: ...
+
     def begin(
         self,
         hardware_id: str,
@@ -100,23 +107,24 @@ async def handle_capture_command(
         hardware_id = str(data.get("hardware_id", ""))
         evdev_paths = cast(list[str], data.get("evdev_paths", []))
         evdev_interfaces = cast(JsonObjectList, data.get("evdev_interfaces", []))
-        mode = str(data.get("mode", "button") or "button")
+        mode = str(data.get("mode", "button") or "button").strip().lower()
         motion_axis_codes = [
             int(code)
             for code in cast(list[object], data.get("motion_axis_codes", []))
             if isinstance(code, int) and not isinstance(code, bool) and code >= 0
         ]
+        native_interfaces = [item for item in evdev_interfaces if item.get("backend") == "hidraw"]
+        if mode == "motion" and native_interfaces:
+            return await daemon.capture_manager.begin_native(
+                hardware_id, native_interfaces, motion_axis_codes
+            )
         return await asyncio.to_thread(
             daemon.capture_manager.begin,
             hardware_id=hardware_id,
             evdev_paths=evdev_paths or None,
             evdev_interfaces=evdev_interfaces or None,
             mode=mode,
-            **(
-                {"motion_axis_codes": motion_axis_codes}
-                if motion_axis_codes
-                else {}
-            ),
+            **({"motion_axis_codes": motion_axis_codes} if motion_axis_codes else {}),
         )
 
     if command_type == CommandType.CAPTURE_READ:
@@ -125,6 +133,9 @@ async def handle_capture_command(
 
     if command_type == CommandType.CAPTURE_END:
         token = str(data.get("token", ""))
+        stop_native = getattr(daemon.capture_manager, "stop_native", None)
+        if callable(stop_native):
+            await cast(Callable[[str], Awaitable[None]], stop_native)(token)
         return await asyncio.to_thread(daemon.capture_manager.end, token)
 
     if command_type == CommandType.CAPTURE_COMBO:

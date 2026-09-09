@@ -598,22 +598,23 @@ def _resolve_stable_path_cached(event_path: str) -> str:
         or the original path if no by-id symlink exists
     """
     path = Path(event_path)
-    if path.name.startswith("event"):
-        full_path = Path("/dev/input") / path.name
-    else:
-        full_path = path
+    # Only evdev node addresses participate in this lookup. Native source
+    # addresses may end in hidrawN, but must never become raw-device symlinks.
+    if path.parent not in {Path("."), Path("/dev/input")} or not re.fullmatch(
+        r"event\d+", path.name
+    ):
+        return event_path
+    full_path = Path("/dev/input") / path.name
 
     by_id_dir = Path("/dev/input/by-id")
     if not by_id_dir.exists():
         return event_path
 
-    target_name = full_path.name
-
     for symlink in by_id_dir.iterdir():
         try:
             if symlink.is_symlink():
                 link_target = os.readlink(symlink)
-                if link_target.endswith(target_name) or link_target == f"../{target_name}":
+                if os.path.normpath(by_id_dir / link_target) == str(full_path):
                     return str(symlink)
         except OSError:
             continue

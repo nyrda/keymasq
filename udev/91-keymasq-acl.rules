@@ -6,3 +6,7 @@ ACTION=="add|change", KERNEL=="uinput", GROUP="input", MODE="0660", RUN+="/usr/b
 
 # input event devices across all drivers (including vendor-managed groups)
 ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", RUN+="/usr/bin/setfacl -m u:keymasq:rw /dev/input/%k"
+
+# Native input drivers: transport access is generic; the driver registry
+# decides which endpoints to open. Preserve existing ownership and user ACLs.
+ACTION=="add|change", SUBSYSTEM=="hidraw", KERNEL=="hidraw*", RUN+="/usr/bin/setfacl -m u:keymasq:r /dev/%k"

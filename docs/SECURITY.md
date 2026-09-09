@@ -193,6 +193,13 @@ distinct per mechanism, so a missing input ACL, missing uinput access, and a
 missing capability are directly distinguishable in the logs (see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
 
+Native motion drivers also use explicit ACLs in `91-keymasq-acl.rules`.
+The daemon user gets read access to hidraw nodes, including devices with no
+registered driver. The registry controls which endpoints Keymasq actually
+opens; it is not a permission boundary. The rule does not grant write access
+or change device ownership. The Ultimate 2 driver opens its node read-only
+and sends no commands. Future drivers that write need an explicit access policy.
+
 The containment around the capability is retained deliberately: dedicated
 service user, `NoNewPrivileges`, bounding set limited to this single
 capability, protected system and home paths, and writable directories

@@ -408,14 +408,6 @@ systemctl --user daemon-reload
 systemctl --user restart keymasq-session
 ```
 
-### Touchpad does not appear in Add Device
-
-Current behavior:
-
-- touchpads are detected but intentionally hidden from the Add Device flow
-- Keymasq does not support touchpad remapping yet, so the GUI will not offer a
-  touchpad as addable hardware
-
 ### Polkit or capture unlock problems
 
 Symptoms:

@@ -34,8 +34,27 @@ on:
       - "tests/**"
       - "tmpfiles.d/**"
       - "udev/**"
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      prerelease_tag:
+        required: true
+        type: string
+      prerelease_version:
+        required: true
+        type: string
+      publish:
+        description: Publish the tested artifacts to GitHub
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
+      publish:
+        description: Publish the tested artifacts to GitHub
+        type: boolean
+        default: true
       ref:
         description: Git ref to build the prerelease from
         required: true
@@ -58,7 +77,7 @@ permissions:
   contents: read
 
 env:
-  KEYMASQ_CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+  KEYMASQ_CHECKOUT_REF: ${{ inputs.ref || github.ref }}
 
 jobs:
   version-metadata:
@@ -107,13 +126,13 @@ jobs:
           release_tag=""
           release_name=""
 
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ -n "$PRERELEASE_VERSION" ]]; then
             if [[ -z "$PRERELEASE_TAG" || -z "$PRERELEASE_VERSION" ]]; then
               echo "workflow_dispatch requires prerelease_tag and prerelease_version" >&2
               exit 1
             fi
-            if [[ "$PRERELEASE_TAG" != v* ]]; then
-              echo "prerelease_tag must start with 'v'" >&2
+            if [[ "$PRERELEASE_TAG" != v* && "$PRERELEASE_TAG" != nightly-* ]]; then
+              echo "prerelease_tag must start with 'v' or 'nightly-'" >&2
               exit 1
             fi
 
@@ -135,8 +154,8 @@ jobs:
           PY
             )"
             rpm_version="$debian_version"
-            pkgver="$PRERELEASE_VERSION"
-            source_version="$PRERELEASE_VERSION"
+            pkgver="${PRERELEASE_VERSION/.dev/dev}"
+            source_version="$pkgver"
             release_tag="$PRERELEASE_TAG"
             release_name="Keymasq prerelease ${PRERELEASE_TAG#v}"
             is_manual_prerelease=true
@@ -179,7 +198,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Apply prerelease Python version
@@ -215,7 +234,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Download source tarball
@@ -264,7 +283,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Download Arch package
@@ -298,7 +317,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Apply prerelease Python version
@@ -340,7 +359,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Apply prerelease Debian build metadata
@@ -396,7 +415,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Download Debian artifacts
@@ -431,7 +450,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Apply prerelease RPM build metadata
@@ -491,7 +510,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Apply prerelease RPM build metadata
@@ -562,7 +581,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Install RPM signing tools
@@ -655,7 +674,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Test RPM
@@ -759,6 +778,7 @@ jobs:
         always() &&
         !cancelled() &&
         github.actor != 'nektos/act' &&
+        inputs.publish != false &&
         needs.version-metadata.outputs.is_manual_prerelease == 'true' &&
         needs.build-source-tarball.result == 'success' &&
         needs.build-pacman-arch.result == 'success' &&
@@ -781,6 +801,12 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: source-tarball
+          path: dist/
+
+      - name: Download Arch package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pacman-arch-package
           path: dist/
 
       - name: Download Debian artifacts
@@ -811,7 +837,7 @@ jobs:
       - name: Generate prerelease checksums
         run: |
           cd dist
-          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz > SHA256SUMS
+          sha256sum ./*.AppImage ./*.deb ./*.rpm ./*.tar.gz ./*.pkg.tar.* > SHA256SUMS
 
       - name: Generate prerelease artifact attestations
         if: ${{ github.event.repository.private == false }}
@@ -822,6 +848,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.pkg.tar.*
             dist/SHA256SUMS
 
       - name: Create GitHub prerelease
@@ -831,10 +858,16 @@ jobs:
           target_commitish: ${{ needs.version-metadata.outputs.checkout_sha }}
           name: ${{ needs.version-metadata.outputs.release_name }}
           prerelease: true
+          draft: ${{ startsWith(needs.version-metadata.outputs.release_tag, 'nightly-') }}
           make_latest: false
           generate_release_notes: false
           body: |
-            Manual prerelease build from `${{ needs.version-metadata.outputs.checkout_ref }}`.
+            Development prerelease build from `${{ needs.version-metadata.outputs.checkout_ref }}`.
+
+            Install these files manually. This build is not published to AUR, COPR,
+            package repositories, or the stable AppImage updater.
+
+            Documentation: https://keymasq.tools/docs/master/
 
             Commit: https://github.com/${{ github.repository }}/commit/${{ needs.version-metadata.outputs.checkout_sha }}
             Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -845,7 +878,16 @@ jobs:
             dist/*.buildinfo
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.pkg.tar.*
             dist/SHA256SUMS
+
+      - name: Publish complete nightly
+        if: startsWith(needs.version-metadata.outputs.release_tag, 'nightly-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.version-metadata.outputs.release_tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest=false
 
   publish-repos:
     needs:
@@ -865,7 +907,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Install repo tools
@@ -919,7 +961,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Download source tarball
@@ -974,7 +1016,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.version-metadata.outputs.checkout_ref }}
+          ref: ${{ needs.version-metadata.outputs.checkout_sha }}
           persist-credentials: false
 
       - name: Download source tarball

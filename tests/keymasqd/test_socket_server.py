@@ -14,6 +14,7 @@ from keymasq.common.ipc import (
     decode_response,
     encode_command,
 )
+from keymasq.common.security import PeerCredentials
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from tests.async_fakes import (
     FakeStreamWriter as _BroadcastWriter,
@@ -552,6 +553,44 @@ class TestSocketServer:
         writer.close()
         await writer.wait_closed()
         await server.stop()
+
+    async def test_response_timeout_disconnects_owner_and_stops_buffered_commands(
+        self, temp_socket_dir, monkeypatch
+    ):
+        handler = MockCommandHandler()
+        disconnect = MockDisconnectHandler()
+        server = SocketServer(
+            str(paths.SOCKET_PATH),
+            handler.handle,
+            disconnect.handle,
+            single_owner=True,
+            response_drain_timeout_s=0.01,
+        )
+        monkeypatch.setattr(
+            server, "_extract_peer", lambda _writer: PeerCredentials(pid=100, uid=1000, gid=1000)
+        )
+        reader = asyncio.StreamReader()
+        command = encode_command(Command(command=CommandType.PING, data={}))
+        reader.feed_data(command + command)
+        writer = _BroadcastWriter(drain_waiter=asyncio.Event())
+        task = asyncio.create_task(server._serve_client(reader, writer))  # type: ignore[arg-type]
+        try:
+            done, _pending = await asyncio.wait({task}, timeout=1.0)
+            assert task in done, "Stalled response did not disconnect the client"
+            await task
+            assert len(handler.commands_received) == 1
+            assert len(writer.writes) == 1
+            assert writer.closed
+            assert writer.wait_closed_calls == 1
+            assert disconnect.disconnect_called
+            assert server.owner_context is None
+            assert not server.clients
+            assert not server._buffer
+            assert not server._client_context
+            assert not server._active_command_tasks
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def test_broadcast_event_does_not_block_on_slow_client(
         self,

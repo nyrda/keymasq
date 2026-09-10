@@ -54,6 +54,7 @@ class SocketServer:
         broadcast_drain_timeout_s: float = 0.25,
         close_timeout_s: float = 0.25,
         handler_drain_timeout_s: float = 2.0,
+        response_drain_timeout_s: float = 0.25,
     ) -> None:
         self.socket_path = socket_path
         self.command_handler = command_handler
@@ -64,6 +65,7 @@ class SocketServer:
         self.broadcast_drain_timeout_s = max(0.01, float(broadcast_drain_timeout_s))
         self.close_timeout_s = max(0.01, float(close_timeout_s))
         self.handler_drain_timeout_s = max(0.01, float(handler_drain_timeout_s))
+        self.response_drain_timeout_s = max(0.01, float(response_drain_timeout_s))
         self.server: asyncio.Server | None = None
         self.clients: set[asyncio.StreamWriter] = set()
         self._buffer: dict[asyncio.StreamWriter, bytes] = {}
@@ -415,7 +417,7 @@ class SocketServer:
     ) -> None:
         response = await self._process_command(cmd, context)
         writer.write(encode_response(response))
-        await writer.drain()
+        await asyncio.wait_for(writer.drain(), timeout=self.response_drain_timeout_s)
 
     async def _process_command(self, cmd: Command, context: ClientContext) -> Response:
         if self._quiescing:

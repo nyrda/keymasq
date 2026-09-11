@@ -13,6 +13,7 @@ from typing import BinaryIO, cast
 
 from keymasq.common.coercion import coerce_float, require_json_object
 from keymasq.common.config_files import write_config_atomically
+from keymasq.common.macro_rapidfire import macro_event_end_us
 from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
 
@@ -305,13 +306,8 @@ def _event_count(payload: JsonObject) -> int:
     return len(cast(list[object], events)) if isinstance(events, list) else 0
 
 
-def _event_t_us(event: MacroEvent) -> int:
-    value = event.get("t_us", 0)
-    return value if isinstance(value, int) else 0
-
-
 def _duration_us(events: list[MacroEvent]) -> int:
-    return max((_event_t_us(event) for event in events), default=0)
+    return max((macro_event_end_us(event) for event in events), default=0)
 
 
 def _device_types(events: list[MacroEvent]) -> list[str]:

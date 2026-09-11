@@ -605,6 +605,11 @@ in a continuous cycle: press → hold → release → wait → press → hold �
 
 This continues for as long as the key is physically held down.
 
+The macro editor also uses this selector's Rapidfire option for keys and buttons.
+Inside a macro, the block's duration controls the pulse lifetime, and Keymasq
+adjusts the gaps to place the final release at the block's end. See
+[macro rapidfire](MACRO_EDITOR.md#rapidfire-keys-and-buttons).
+
 | Setting | What it controls | Default | Range |
 |---|---|---|---|
 | **Hold (ms)** | How long each pulse is held. | 20 ms | 0–1000 ms |

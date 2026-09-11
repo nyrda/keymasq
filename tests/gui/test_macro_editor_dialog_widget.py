@@ -964,7 +964,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
 
     dialog._on_key_selected_for_insert(
         None,
-        type("Action", (), {"action_type": ActionType.KEYBOARD, "target": "key_b"})(),
+        MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
         12000,
     )
 
@@ -974,7 +974,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
 
     dialog._on_key_selected_for_insert(
         None,
-        type("Action", (), {"action_type": ActionType.KEYBOARD, "target": "key_b"})(),
+        MappingAction(action_type=ActionType.KEYBOARD, target="key_b"),
         12000,
     )
     dialog._control_events = [EditableControl(mode="wait", t_us=5000, duration_us=80_000)]
@@ -1924,6 +1924,9 @@ def test_macro_editor_add_key_dialog_starts_on_requested_device_type(monkeypatch
     class DummyDialog:
         def __init__(self, _parent, _label, current_action=None, **_kwargs):
             captured_actions.append(current_action)
+            assert _kwargs["allow_rapidfire"] is True
+            self.rapidfire_check = Gtk.CheckButton()
+            self.wait_spin = Gtk.SpinButton()
 
         def connect(self, _signal_name, _callback, default_t_us):
             captured_times.append(default_t_us)

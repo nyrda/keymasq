@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import heapq
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 
+from keymasq.common.coercion import coerce_int
+from keymasq.common.macro_rapidfire import macro_event_end_us, macro_rapidfire_events
 from keymasq.keymasqd.runtime.macro.state import (
-    IntValueFn,
     MacroEventSource,
     MacroRuntimeDeps,
 )
@@ -13,12 +15,10 @@ from keymasq.keymasqd.runtime.macro.state import (
 
 def list_macro_event_source(
     macro_events: list[dict[str, object]],
-    *,
-    int_value_fn: IntValueFn,
 ) -> MacroEventSource:
     return MacroEventSource(
         event_count=len(macro_events),
-        duration_us=max((int_value_fn(event.get("t_us"), 0) for event in macro_events), default=0),
+        duration_us=max((macro_event_end_us(event) for event in macro_events), default=0),
         iter_events=lambda: iter(macro_events),
     )
 
@@ -38,6 +38,43 @@ class MacroBatchReader:
             except StopIteration:
                 break
         return batch
+
+
+async def expand_macro_rapidfire(
+    source: AsyncIterator[dict[str, object]],
+    *,
+    observe: Callable[[dict[str, object]], None] | None = None,
+) -> AsyncIterator[dict[str, object]]:
+    """Merge active pulse streams with source events, preserving equal-time source order.
+
+    Keep only the next edge of each active block. Cache the original source,
+    never its generated pulses, so cache size stays proportional to stored data.
+    """
+    pending: list[tuple[int, int, dict[str, object], Iterator[dict[str, object]]]] = []
+
+    def advance(order: int, pulses: Iterator[dict[str, object]]) -> None:
+        event = next(pulses, None)
+        if event is not None:
+            heapq.heappush(pending, (coerce_int(event.get("t_us"), 0), order, event, pulses))
+
+    order = 0
+    async for event in source:
+        if observe is not None:
+            observe(event)
+        timestamp = coerce_int(event.get("t_us"), 0)
+        while pending and pending[0][:2] <= (timestamp, order):
+            _, pulse_order, pulse, pulses = heapq.heappop(pending)
+            yield pulse
+            advance(pulse_order, pulses)
+        if event.get("macro_action") == "macro_rapidfire":
+            advance(order, macro_rapidfire_events(event))
+        else:
+            yield event
+        order += 1
+    while pending:
+        _, pulse_order, pulse, pulses = heapq.heappop(pending)
+        yield pulse
+        advance(pulse_order, pulses)
 
 
 async def iter_macro_source_events(

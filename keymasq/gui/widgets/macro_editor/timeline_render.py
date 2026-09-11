@@ -1,9 +1,11 @@
 """Cairo rendering helpers for the macro editor timeline."""
 
 from dataclasses import dataclass
+from math import ceil
 
 import evdev
 
+from keymasq.common.macro_rapidfire import plan_macro_rapidfire
 from keymasq.gui.widgets.macro_editor.gaps import TimelineGap
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
@@ -327,6 +329,27 @@ def _draw_event_rect(
     cr.rectangle(x1 + 0.5, rect_y + 0.5, max(w - 1, 0), max(rect_h - 1, 0))
     cr.stroke()
 
+    if ev.rapidfire_enabled:
+        plan = plan_macro_rapidfire(
+            ev.release_t_us - ev.press_t_us, ev.rapidfire_hold_ms, ev.rapidfire_wait_ms
+        )
+        # Limit drawing to visible pulses and at most one mark per three pixels.
+        span = max(x2 - x1, 1)
+        step = max(1, ceil(plan.count * 3 / span))
+        first = max(0, int((state.LABEL_WIDTH - x1) / span * (plan.count - 1)) - 1)
+        last = min(plan.count, int((width - x1) / span * (plan.count - 1)) + 2)
+        cr.save()
+        cr.rectangle(max(x1 + 1, state.LABEL_WIDTH), rect_y + 1, min(w - 2, width), rect_h - 2)
+        cr.clip()
+        cr.set_source_rgba(*border[:3], 0.7)
+        for index in range(first, last, step):
+            press, release = plan.pulse(index)
+            left = state._time_to_x(ev.press_t_us + press)
+            right = state._time_to_x(ev.press_t_us + release)
+            cr.rectangle(left, rect_y + rect_h * 0.6, max(1, right - left), rect_h * 0.4)
+        cr.fill()
+        cr.restore()
+
     # Label (only if wide and tall enough)
     if w > 28 and rect_h > 10:
         name = (
@@ -334,6 +357,8 @@ def _draw_event_rect(
             if ev.ev_type == evdev.ecodes.EV_KEY
             else _get_event_name(ev.ev_type, ev.code)
         )
+        if ev.rapidfire_enabled:
+            name += " RF"
         cr.select_font_face("sans", 0, 0)
         cr.set_font_size(min(9.0, rect_h * 0.65))
         extents = cr.text_extents(name)

@@ -110,6 +110,7 @@ Raw key/button event fields:
 Semantic macro control events:
 
 ```json
+{"device_type":"keyboard","type":1,"code":30,"value":0,"t_us":0,"macro_action":"macro_rapidfire","duration_us":100000,"rapidfire_hold_ms":10,"rapidfire_wait_ms":10}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait","duration_us":10000}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"wait_random","min_us":10000,"max_us":50000}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"mouse_move_abs","x":100,"y":200}
@@ -121,6 +122,11 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_sync","macro_name":"child","loop_mode":"none","loop_count":1,"loop_stop_behavior":"finish_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_parallel","macro_name":"child","loop_mode":"hold","loop_count":1,"loop_stop_behavior":"cancel_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
 ```
+
+macro_rapidfire pulses a keyboard, mouse, or gamepad button for duration_us.
+Use type=1 and the target code; gamepads can specify output_id. Set
+rapidfire_hold_ms and rapidfire_wait_ms. Gaps adjust so
+the final release lands at the block's end.
 
 loop_stop_behavior also accepts "pause_run" for none/count/hold playback and
 child calls. Release cleans up this instance's held outputs and freezes its

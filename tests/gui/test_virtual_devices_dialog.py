@@ -296,11 +296,41 @@ def test_custom_template_editor_preserves_layout_and_adds_batch(dialog_module):
         template, lambda value: saved.append(value) or True, creating=True
     )
     assert dialog._layout_row.get_selected() == 1
-    dialog._append_numbered_buttons(20)
+    assert dialog._numbered_button_capacity() == 40
+    dialog._append_numbered_buttons(40)
     dialog._save(None)
     assert saved[0].layout == "flight-stick"
-    assert len(saved[0].buttons) == 32
+    assert len(saved[0].buttons) == 52
     assert [button.evdev for button in saved[0].buttons[12:]] == [
-        f"btn_trigger_happy{i}" for i in range(1, 21)
+        f"btn_trigger_happy{i}" for i in range(1, 41)
     ]
     assert saved[0].buttons[:12] == LOGITECH_EXTREME_3D_TEMPLATE.buttons
+
+
+def test_numbered_button_availability_updates_on_edit_and_removal(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    dialog = dialog_module.VirtualTemplateEditorDialog(template, lambda value: True)
+    dialog._append_numbered_buttons(40)
+    assert not dialog._batch_button.get_sensitive()
+    assert dialog._add_button.get_sensitive()
+
+    row = dialog._button_rows[-1]
+    row.code_row.set_selected(row.codes.index("btn_0"))
+    assert dialog._batch_button.get_sensitive()
+    assert dialog._numbered_button_capacity() == 1
+    dialog._append_numbered_buttons(1)
+    assert dialog._button_rows[-1].to_data()["evdev"] == "btn_trigger_happy40"
+    assert not dialog._batch_button.get_sensitive()
+
+    # An alias still occupies the first TriggerHappy code.
+    first = dialog._button_rows[12]
+    first.code_row.set_selected(first.codes.index("btn_trigger_happy"))
+    assert not dialog._batch_button.get_sensitive()
+    dialog._remove_control(first)
+    assert dialog._batch_button.get_sensitive()
+    assert dialog._numbered_button_capacity() == 1
+    dialog._append_numbered_buttons(1)
+    assert dialog._button_rows[-1].to_data()["evdev"] == "btn_trigger_happy1"
+    assert not dialog._batch_button.get_sensitive()

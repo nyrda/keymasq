@@ -489,8 +489,10 @@ ID. Changing it preserves the configured buttons, axes, and device identity.
 The template editor has **Identity**, **Buttons**, and **Axes** tabs. Expand a
 control to edit its label and select a Linux code from a searchable list. Axis
 controls remain available in the mapping picker's axis selector. **Add numbered
-buttons** adds a batch of buttons using unused `BTN_TRIGGER_HAPPY*` codes, up to
-the template's 40-button total. Rename these buttons to describe their purpose.
+buttons** adds a batch of buttons using unused `BTN_TRIGGER_HAPPY*` codes. All
+40 TriggerHappy codes are available independently of ordinary buttons. The editor
+counts unused codes, including changes made by editing or removing buttons.
+Rename these buttons to describe their purpose.
 Axis rows include minimum, maximum, and rest fields. Control IDs, fuzz, flat, and
 resolution are under **Advanced**; the Linux device name, USB IDs, and bus type are under **Device
 identity**. Validation errors keep the editor open with your changes intact.
@@ -504,7 +506,9 @@ A template defines:
 
 - a template ID, display label, Linux device name, bus type, vendor ID,
   product ID, and version
-- 1–40 named buttons, each bound to a Linux `BTN_*` code
+- One or more named buttons, each bound to a distinct Linux `BTN_*` code.
+  Capacity is the number of distinct supported button codes, with aliases counted
+  once. Ordinary buttons and the 40 TriggerHappy buttons can be used together.
 - 2–8 named axes, each bound to an `ABS_*` code with minimum, maximum, rest,
   fuzz, flat, and resolution values
 

@@ -15,7 +15,13 @@ from keymasq.common.virtual_devices import (
 )
 
 MAX_USER_VIRTUAL_DEVICES = 4
-MAX_TEMPLATE_BUTTONS = 40
+TEMPLATE_BUTTON_CODES = {
+    name.lower(): code
+    for name, code in vars(evdev.ecodes).items()
+    if name.startswith("BTN_") and isinstance(code, int) and code in evdev.ecodes.keys
+}
+# Aliases name the same input and do not provide additional button capacity.
+MAX_TEMPLATE_BUTTONS = len(set(TEMPLATE_BUTTON_CODES.values()))
 MAX_TEMPLATE_AXES = 8
 XBOX_360_TEMPLATE_ID = "xbox-360"
 LOGITECH_EXTREME_3D_TEMPLATE_ID = "logitech-extreme-3d-pro"
@@ -599,6 +605,15 @@ def config_from_json(value: object) -> VirtualDeviceConfig:
     return virtual_device_config_from_toml(_dict(value, "virtual device config"))
 
 
+def unused_numbered_button_codes(button_codes: Collection[str]) -> tuple[str, ...]:
+    used = {TEMPLATE_BUTTON_CODES[code] for code in button_codes}
+    return tuple(
+        code
+        for index in range(1, 41)
+        if TEMPLATE_BUTTON_CODES[code := f"btn_trigger_happy{index}"] not in used
+    )
+
+
 def numbered_button_batch(
     buttons: Sequence[VirtualButton], count: int, *, reserved_ids: Collection[str] = ()
 ) -> tuple[VirtualButton, ...]:
@@ -607,13 +622,13 @@ def numbered_button_batch(
         raise VirtualDeviceConfigError(
             f"A template can contain at most {MAX_TEMPLATE_BUTTONS} buttons"
         )
-    codes = {int(getattr(evdev.ecodes, button.evdev.upper())) for button in buttons}
+    available = unused_numbered_button_codes([button.evdev for button in buttons])
+    if count > len(available):
+        raise VirtualDeviceConfigError("Not enough unused TriggerHappy codes")
     used_ids = {button.id for button in buttons} | set(reserved_ids)
     added: list[VirtualButton] = []
-    for index in range(1, 41):
-        code = f"btn_trigger_happy{index}"
-        if int(getattr(evdev.ecodes, code.upper())) in codes:
-            continue
+    for code in available[:count]:
+        index = code.removeprefix("btn_trigger_happy")
         base = f"extra-button-{index}"
         control_id = base
         suffix = 2
@@ -622,6 +637,4 @@ def numbered_button_batch(
             suffix += 1
         used_ids.add(control_id)
         added.append(VirtualButton(control_id, f"Button {len(buttons) + len(added) + 1}", code))
-        if len(added) == count:
-            return tuple(added)
-    raise VirtualDeviceConfigError("Not enough unused TriggerHappy codes")
+    return tuple(added)

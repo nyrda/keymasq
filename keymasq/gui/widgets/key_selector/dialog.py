@@ -77,6 +77,21 @@ class KeySelectorDialog(
         return MappingAction(action_type=action_type, **kwargs)
 
     def _emit_selected_action(self, action: MappingAction | None) -> None:
+        if (
+            action is not None
+            and action.action_type == ActionType.GAMEPAD_AXIS
+            and action.rapidfire_enabled
+            and not self._allow_gamepad_axis_rapidfire
+        ):
+            dialog = Adw.AlertDialog(
+                heading="Rapidfire is unavailable for axes",
+                body="Turn off Rapidfire to select an axis, or choose a gamepad button.",
+            )
+            dialog.add_response("ok", "OK")
+            dialog.set_default_response("ok")
+            dialog.set_close_response("ok")
+            dialog.present(self)
+            return
         self.emit("key-selected", action)
         self.close()
 
@@ -93,6 +108,7 @@ class KeySelectorDialog(
         allow_superkey: bool = True,
         allow_repeat: bool = True,
         allow_rapidfire: bool = True,
+        allow_gamepad_axis_rapidfire: bool = True,
         allow_tap: bool = True,
         allow_macro_options: bool = True,
         macro_library_only: bool = False,
@@ -120,6 +136,7 @@ class KeySelectorDialog(
         self._allow_superkey = allow_superkey
         self._allow_repeat = allow_repeat
         self._allow_rapidfire = allow_rapidfire
+        self._allow_gamepad_axis_rapidfire = allow_gamepad_axis_rapidfire
         self._allow_tap = allow_tap
         self._allow_macro_options = allow_macro_options
         self._macro_library_only = bool(macro_library_only)

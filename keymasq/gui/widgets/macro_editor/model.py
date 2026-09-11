@@ -13,7 +13,11 @@ from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_SPEED,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
+    DEFAULT_RAPIDFIRE_HOLD_MS,
+    DEFAULT_RAPIDFIRE_WAIT_MS,
     MappingAction,
+    clamp_rapidfire_hold_ms,
+    clamp_rapidfire_wait_ms,
     normalize_natural_mouse_move_curve,
 )
 from keymasq.common.model.core import ActionType
@@ -134,6 +138,14 @@ class EditableEvent:
     output_id: str | None = None
     original_press_order: int | None = None
     original_release_order: int | None = None
+    rapidfire_enabled: bool = False
+    rapidfire_hold_ms: int = DEFAULT_RAPIDFIRE_HOLD_MS
+    rapidfire_wait_ms: int = DEFAULT_RAPIDFIRE_WAIT_MS
+
+    def apply_rapidfire(self, action: MappingAction) -> None:
+        self.rapidfire_enabled = self.ev_type == evdev.ecodes.EV_KEY and action.rapidfire_enabled
+        self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(action.rapidfire_hold_ms)
+        self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(action.rapidfire_wait_ms)
 
 
 @dataclass
@@ -285,6 +297,32 @@ def parse_events(
 
     for original_order, ev in enumerate(raw_events):
         macro_action = str(ev.get("macro_action", "") or "")
+        if (
+            macro_action == "macro_rapidfire"
+            and ev.get("type") == ev_key
+            and ev.get("device_type") in {"keyboard", "mouse", "gamepad"}
+        ):
+            start = coerce_int(ev.get("t_us"), 0)
+            editable.append(
+                EditableEvent(
+                    device_type=str(ev["device_type"]),
+                    ev_type=ev_key,
+                    code=int(ev["code"]),
+                    press_t_us=start,
+                    release_t_us=start + max(0, coerce_int(ev.get("duration_us"), 0)),
+                    output_id=str(ev.get("output_id", "") or "").strip() or None,
+                    original_press_order=original_order,
+                    original_release_order=original_order,
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=clamp_rapidfire_hold_ms(
+                        coerce_int(ev.get("rapidfire_hold_ms"), DEFAULT_RAPIDFIRE_HOLD_MS)
+                    ),
+                    rapidfire_wait_ms=clamp_rapidfire_wait_ms(
+                        coerce_int(ev.get("rapidfire_wait_ms"), DEFAULT_RAPIDFIRE_WAIT_MS)
+                    ),
+                )
+            )
+            continue
         if macro_action in {"mouse_move_abs", "mouse_move_rel", "mouse_move_natural_abs"}:
             editable_moves.append(
                 EditableMove(
@@ -424,6 +462,24 @@ def reconstruct_events(
     raw: list[MacroEvent] = []
 
     for ev in editable:
+        if ev.rapidfire_enabled and ev.ev_type == evdev.ecodes.EV_KEY:
+            rapidfire_event: MacroEvent = {
+                "macro_action": "macro_rapidfire",
+                "device_type": ev.device_type,
+                "type": ev.ev_type,
+                "code": ev.code,
+                "value": 0,
+                "t_us": ev.press_t_us,
+                "duration_us": max(0, ev.release_t_us - ev.press_t_us),
+                "rapidfire_hold_ms": ev.rapidfire_hold_ms,
+                "rapidfire_wait_ms": ev.rapidfire_wait_ms,
+            }
+            if ev.device_type == "gamepad" and ev.output_id:
+                rapidfire_event["output_id"] = ev.output_id
+            if ev.original_press_order is not None:
+                rapidfire_event = _with_editor_order(rapidfire_event, ev.original_press_order)
+            raw.append(rapidfire_event)
+            continue
         if ev.ev_type == evdev.ecodes.EV_KEY:
             press_event: MacroEvent = {
                 "device_type": ev.device_type,

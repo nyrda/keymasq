@@ -92,6 +92,19 @@ button, edit **Press**, **Duration**, and **Release** in milliseconds. Use
 and configuration fields. Properties edit the selected action immediately;
 [saving](#save-and-undo-changes) writes the changes to the macro library.
 
+### Rapidfire keys and buttons
+
+Enable **Rapidfire** in the key selector when adding a keyboard key, mouse
+button, or gamepad button, or use **Change Key…** on an existing action.
+The pulses stay in one editable timeline block. **Edit Rapidfire…** reopens
+the selector; disabling Rapidfire restores a continuous hold.
+
+**Hold** sets each press's duration and **Wait** sets the preferred gap.
+Keymasq spaces the pulses evenly, adjusting the gaps so the final release
+lands at the block's end. Resizing the block recalculates the pulses.
+If two pulses cannot fit, one hold spans the block. The properties panel
+shows the pulse count and fitted gap.
+
 ### Mouse movement
 
 **Add Mouse Move** opens the mouse-action picker. Choose a natural move to a

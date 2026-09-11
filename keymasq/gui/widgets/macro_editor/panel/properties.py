@@ -13,6 +13,7 @@ from keymasq.common.gamepad_axes import (
     clamp_gamepad_axis_value,
     gamepad_axis_range,
 )
+from keymasq.common.macro_rapidfire import plan_macro_rapidfire
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -390,9 +391,20 @@ class EventPropertiesMixin:
             return
 
         name = _get_key_name(ev.code)
-        self._prop_title.set_label(name)
+        self._prop_title.set_label(f"{name} Rapidfire" if ev.rapidfire_enabled else name)
         output_suffix = f" @ {ev.output_id}" if ev.device_type == "gamepad" and ev.output_id else ""
-        self._key_info_label.set_label(f"{name} (code {ev.code}){output_suffix}")
+        detail = f"{name} (code {ev.code}){output_suffix}"
+        if ev.rapidfire_enabled:
+            plan = plan_macro_rapidfire(
+                ev.release_t_us - ev.press_t_us, ev.rapidfire_hold_ms, ev.rapidfire_wait_ms
+            )
+            detail += (
+                f" · {plan.count} pulses · Hold {plan.hold_us / 1000:g} ms"
+                f" · Fitted wait {plan.wait_us / 1000:.3f} ms"
+                if plan.count > 1
+                else " · One hold spanning the duration"
+            )
+        self._key_info_label.set_label(detail)
         self._press_label.set_label("Press:")
         self._duration_text_label.set_visible(True)
         self._duration_spin.set_visible(True)
@@ -401,7 +413,9 @@ class EventPropertiesMixin:
         self._release_spin.set_visible(True)
         self._release_unit_label.set_visible(True)
         self._change_key_btn.set_visible(True)
-        self._change_key_btn.set_label("Change Key...")
+        self._change_key_btn.set_label(
+            "Edit Rapidfire..." if ev.rapidfire_enabled else "Change Key..."
+        )
         self._move_row.set_visible(False)
 
         self._updating_props = True
@@ -578,6 +592,10 @@ class EventPropertiesMixin:
                     output_id=ev.output_id,
                 )
 
+        current_action.rapidfire_enabled = ev.rapidfire_enabled
+        current_action.rapidfire_hold_ms = ev.rapidfire_hold_ms
+        current_action.rapidfire_wait_ms = ev.rapidfire_wait_ms
+
         dialog = KeySelectorDialog(
             self._parent,
             dialog_label,
@@ -587,7 +605,8 @@ class EventPropertiesMixin:
             allow_suppress=False,
             allow_superkey=False,
             allow_repeat=False,
-            allow_rapidfire=False,
+            allow_rapidfire=True,
+            allow_gamepad_axis_rapidfire=False,
             allow_tap=False,
             allowed_tabs={
                 "gamepad"
@@ -607,6 +626,13 @@ class EventPropertiesMixin:
             include_mpris_controls=False,
             include_mouse_move_controls=False,
             include_mouse_scroll_controls=(False if ev.device_type == "mouse" else True),
+        )
+        dialog.rapidfire_check.set_tooltip_text(
+            "Pulse this input within its macro duration. The gaps adjust so the last release "
+            "lands at the configured end."
+        )
+        dialog.wait_spin.set_tooltip_text(
+            "Preferred gap between pulses; adjusted to fit the duration."
         )
         dialog.connect("key-selected", self._on_key_selected_for_edit)
         dialog.present(self._parent)
@@ -665,6 +691,7 @@ class EventPropertiesMixin:
 
         if ev.ev_type == evdev.ecodes.EV_KEY and ev.release_t_us <= ev.press_t_us + 1:
             ev.release_t_us = ev.press_t_us + 50000
+        ev.apply_rapidfire(action)
         self._on_selection_changed(ev)
         self._timeline.queue_draw()
         self._sync_close_guard()

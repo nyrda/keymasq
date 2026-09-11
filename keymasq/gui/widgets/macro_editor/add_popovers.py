@@ -485,13 +485,21 @@ class MacroEditorAddPopoversMixin:
             allow_suppress=False,
             allow_superkey=False,
             allow_repeat=False,
-            allow_rapidfire=False,
+            allow_rapidfire=True,
+            allow_gamepad_axis_rapidfire=False,
             allow_tap=False,
             allowed_tabs=allowed_tabs,
             initial_tab=device_type if device_type in {"mouse", "gamepad"} else "keyboard",
             include_mpris_controls=False,
             include_mouse_move_controls=False,
             include_mouse_scroll_controls=False if device_type == "mouse" else True,
+        )
+        dialog.rapidfire_check.set_tooltip_text(
+            "Pulse this input within its macro duration. The gaps adjust so the last release "
+            "lands at the configured end."
+        )
+        dialog.wait_spin.set_tooltip_text(
+            "Preferred gap between pulses; adjusted to fit the duration."
         )
         dialog.connect(
             "key-selected",
@@ -554,6 +562,7 @@ class MacroEditorAddPopoversMixin:
                 if action.action_type == ActionType.GAMEPAD
                 else None,
             )
+        ev.apply_rapidfire(action)
         self._events.append(ev)
         self._events.sort(key=lambda item: item.press_t_us)
         self._timeline._selected = ev

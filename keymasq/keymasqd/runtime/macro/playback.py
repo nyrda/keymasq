@@ -128,7 +128,6 @@ async def play_macro(
 
     event_source = macro_event_source or list_macro_event_source(
         playback_options.macro_events,
-        int_value_fn=deps.int_value_fn,
     )
     if event_source.event_count <= 0:
         if playback_options.playback_id:

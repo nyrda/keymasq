@@ -78,7 +78,6 @@ async def play_macro_task(
     if macro_event_source is None:
         macro_event_source = events.list_macro_event_source(
             macro_events,
-            int_value_fn=deps.int_value_fn,
         )
 
     if manager.verbosity >= 1:
@@ -306,18 +305,19 @@ async def _play_iteration(
         return await _await_with_parallel_errors(awaitable, parallel_tasks)
 
     index = 0
-    async for event in events.iter_macro_source_events(
+    source = events.iter_macro_source_events(
         macro_event_source,
         deps=deps,
         diagnostic_initial_load_us=diagnostic_initial_load_us,
         cached_events=cached_events,
         verify_cached_revision=verify_cached_revision,
+    )
+    async for event in events.expand_macro_rapidfire(
+        source, observe=cache_candidate.observe if cache_candidate is not None else None
     ):
         _raise_finished_parallel_errors(parallel_tasks)
         if instance_id in manager.macro_state.cancel_instance_ids:
             break
-        if cache_candidate is not None:
-            cache_candidate.observe(event)
         if (index & 127) == 127:
             await asyncio_mod.sleep(0)
         index += 1

@@ -606,6 +606,7 @@ class EventPropertiesMixin:
             allow_superkey=False,
             allow_repeat=False,
             allow_rapidfire=True,
+            allow_gamepad_axis_rapidfire=False,
             allow_tap=False,
             allowed_tabs={
                 "gamepad"

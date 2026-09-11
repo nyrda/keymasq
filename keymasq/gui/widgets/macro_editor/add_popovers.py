@@ -486,6 +486,7 @@ class MacroEditorAddPopoversMixin:
             allow_superkey=False,
             allow_repeat=False,
             allow_rapidfire=True,
+            allow_gamepad_axis_rapidfire=False,
             allow_tap=False,
             allowed_tabs=allowed_tabs,
             initial_tab=device_type if device_type in {"mouse", "gamepad"} else "keyboard",

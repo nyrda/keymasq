@@ -312,6 +312,7 @@ def parse_events(
                     release_t_us=start + max(0, coerce_int(ev.get("duration_us"), 0)),
                     output_id=str(ev.get("output_id", "") or "").strip() or None,
                     original_press_order=original_order,
+                    original_release_order=original_order,
                     rapidfire_enabled=True,
                     rapidfire_hold_ms=clamp_rapidfire_hold_ms(
                         coerce_int(ev.get("rapidfire_hold_ms"), DEFAULT_RAPIDFIRE_HOLD_MS)

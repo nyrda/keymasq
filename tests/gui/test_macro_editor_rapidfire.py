@@ -82,6 +82,7 @@ def test_edit_reopens_shared_selector_with_saved_rapidfire_settings(monkeypatch)
     assert action.rapidfire_enabled
     assert action.rapidfire_hold_ms == action.rapidfire_wait_ms == 10
     assert factory.call_args.kwargs["allow_rapidfire"] is True
+    assert factory.call_args.kwargs["allow_gamepad_axis_rapidfire"] is False
     assert factory.call_args.kwargs["allow_tap"] is False
     factory.return_value.connect.assert_called_once_with(
         "key-selected", dialog._on_key_selected_for_edit
@@ -132,3 +133,123 @@ def test_selector_result_creates_edits_and_disables_rapidfire(
     assert not event.rapidfire_enabled
     raw = reconstruct_events(dialog._events, [], [], [], [])
     assert [(e["t_us"], e["value"]) for e in raw] == [(50_000, 1), (150_000, 0)]
+
+
+@pytest.mark.parametrize(
+    ("device_type", "code", "action_type", "output_id"),
+    [
+        ("keyboard", evdev.ecodes.KEY_A, ActionType.KEYBOARD, None),
+        ("mouse", evdev.ecodes.BTN_LEFT, ActionType.MOUSE, None),
+        ("gamepad", evdev.ecodes.BTN_SOUTH, ActionType.GAMEPAD, "virtual-gamepad-3"),
+    ],
+)
+def test_disable_saved_rapidfire_releases_before_adjacent_same_target_hold(
+    device_type: str,
+    code: int,
+    action_type: ActionType,
+    output_id: str | None,
+) -> None:
+    target = {"device_type": device_type, "type": evdev.ecodes.EV_KEY, "code": code}
+    if output_id is not None:
+        target["output_id"] = output_id
+    raw = [
+        {
+            **target,
+            "value": 0,
+            "t_us": 0,
+            "macro_action": "macro_rapidfire",
+            "duration_us": 100_000,
+            "rapidfire_hold_ms": 10,
+            "rapidfire_wait_ms": 10,
+        },
+        {**target, "value": 1, "t_us": 100_000},
+        {**target, "value": 0, "t_us": 200_000},
+    ]
+    reopened = parse_events(json.loads(json.dumps(raw)))
+    reopened[0][0].apply_rapidfire(MappingAction(action_type=action_type, rapidfire_enabled=False))
+    expected = [
+        {**target, "value": 1, "t_us": 0},
+        {**target, "value": 0, "t_us": 100_000},
+        {**target, "value": 1, "t_us": 100_000},
+        {**target, "value": 0, "t_us": 200_000},
+    ]
+    assert reconstruct_events(*reopened) == expected
+    holds = parse_events(expected)[0]
+    assert [(hold.press_t_us, hold.release_t_us) for hold in holds] == [
+        (0, 100_000),
+        (100_000, 200_000),
+    ]
+
+
+@pytest.mark.parametrize("editing", [False, True])
+@pytest.mark.parametrize("choose_button", [False, True])
+def test_macro_selector_rejects_axis_rapidfire_and_allows_correction(
+    monkeypatch,
+    editing: bool,
+    choose_button: bool,
+) -> None:
+    from keymasq.gui.widgets.key_selector import dialog as selector_module
+
+    selector_class = selector_module.KeySelectorDialog
+    selectors = []
+
+    def create_selector(*args, **kwargs):
+        picker = selector_class(*args, **kwargs)
+        monkeypatch.setattr(picker, "present", MagicMock())
+        monkeypatch.setattr(picker, "close", MagicMock())
+        selectors.append(picker)
+        return picker
+
+    monkeypatch.setattr(selector_module, "KeySelectorDialog", create_selector)
+    alert = MagicMock()
+    monkeypatch.setattr(selector_module.Adw, "AlertDialog", alert)
+    editor = _build_macro_dialog(monkeypatch)
+    if editing:
+        axis = EditableEvent("gamepad", evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0, 1, value=100)
+        editor._events = [axis]
+        editor._timeline._selected = axis
+        editor._on_change_key_clicked(None)
+    else:
+        editor._present_add_key_dialog(default_t_us=0, device_type="gamepad")
+    picker = selectors[0]
+    picker.rapidfire_check.set_active(True)
+    picker._on_gamepad_axis_clicked(None, "abs_x", 32767)
+
+    alert.assert_called_once()
+    assert "Turn off Rapidfire" in alert.call_args.kwargs["body"]
+    alert.return_value.present.assert_called_once_with(picker)
+    picker.close.assert_not_called()
+    assert len(editor._events) == int(editing)
+    if editing:
+        assert editor._events[0].value == 100
+
+    if choose_button:
+        picker._on_gamepad_clicked(None, "btn_south")
+    else:
+        picker.rapidfire_check.set_active(False)
+        picker._on_gamepad_axis_clicked(None, "abs_x", 32767)
+    picker.close.assert_called_once()
+    assert len(editor._events) == 1
+    event = editor._events[0]
+    assert event.rapidfire_enabled is choose_button
+    assert event.ev_type == (evdev.ecodes.EV_KEY if choose_button else evdev.ecodes.EV_ABS)
+    assert event.code == (evdev.ecodes.BTN_SOUTH if choose_button else evdev.ecodes.ABS_X)
+    if not choose_button:
+        assert event.value == 32767
+
+
+def test_regular_selector_still_supports_axis_rapidfire(monkeypatch) -> None:
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+    picker = KeySelectorDialog(Gtk.Box(), "Gamepad", allowed_tabs={"gamepad"})
+    monkeypatch.setattr(picker, "close", MagicMock())
+    selected = []
+    picker.connect("key-selected", lambda _picker, action: selected.append(action))
+    picker.rapidfire_check.set_active(True)
+    picker._on_gamepad_axis_clicked(None, "abs_x", 32767)
+    assert len(selected) == 1
+    assert selected[0].action_type == ActionType.GAMEPAD_AXIS
+    assert selected[0].rapidfire_enabled
+    picker.close.assert_called_once()

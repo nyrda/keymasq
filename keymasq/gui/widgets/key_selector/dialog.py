@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import gi
@@ -31,6 +32,7 @@ from keymasq.gui.widgets.compositor_actions import (
     compositor_action_tab_name,
 )
 from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+from keymasq.gui.widgets.input_picker_shared import mark_bound_target
 from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
@@ -389,6 +391,7 @@ class KeySelectorDialog(
                 self.stack.add_titled(self._build_profile_tab(), "profile", "Profile")
 
         self._set_initial_tab()
+        self._mark_current_target(self.stack)
 
         frame = Gtk.Frame()
         frame.set_vexpand(True)
@@ -476,6 +479,11 @@ class KeySelectorDialog(
         self.map_btn.connect("clicked", self._on_map_clicked)
         footer.append(self.map_btn)
 
+        self.save_changes_btn = Gtk.Button(label="Save changes")
+        self.save_changes_btn.add_css_class("suggested-action")
+        self.save_changes_btn.connect("clicked", self._on_save_changes_clicked)
+        footer.append(self.save_changes_btn)
+
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", self._on_cancel_clicked)
         footer.append(cancel_btn)
@@ -491,6 +499,51 @@ class KeySelectorDialog(
 
         self.stack.connect("notify::visible-child", self._on_tab_changed)
         self._on_tab_changed(self.stack, None)
+
+    def _mark_current_target(self, widget: Gtk.Widget) -> None:
+        action = self._current_action
+        if action is None or action.action_type not in {
+            ActionType.KEYBOARD,
+            ActionType.MOUSE,
+            ActionType.GAMEPAD,
+        }:
+            return
+        if isinstance(widget, Gtk.Button) and getattr(widget, "_evdev_name", None) == action.target:
+            mark_bound_target(widget)
+        child = widget.get_first_child()
+        while child is not None:
+            self._mark_current_target(child)
+            child = child.get_next_sibling()
+
+    def _can_save_current_input(self) -> bool:
+        action = self._current_action
+        if action is None:
+            return False
+        tabs = {
+            ActionType.KEYBOARD: {"keyboard", "navigation"},
+            ActionType.MOUSE: {"mouse"},
+            ActionType.GAMEPAD: {"gamepad"},
+        }
+        return (
+            self.stack.get_visible_child_name() in tabs.get(action.action_type, set())
+            and (self._allow_rapidfire or self._allow_tap)
+            and action.target not in MEDIA_KEY_TARGETS
+        )
+
+    def _on_save_changes_clicked(self, _button: Gtk.Button) -> None:
+        if not self._can_save_current_input() or self._current_action is None:
+            return
+        action = replace(
+            self._current_action,
+            rapidfire_enabled=self._allow_rapidfire and self._rapidfire_enabled,
+            rapidfire_hold_ms=int(self.hold_spin.get_value()),
+            rapidfire_wait_ms=int(self.wait_spin.get_value()),
+            tap_enabled=self._allow_tap and self._tap_enabled,
+            tap_hold_ms=int(self.tap_spin.get_value()),
+        )
+        if action.action_type == ActionType.GAMEPAD:
+            action.output_id = self._selected_gamepad_output_id
+        self._emit_selected_action(action)
 
     def _on_search_key_pressed(
         self,
@@ -636,6 +689,7 @@ class KeySelectorDialog(
         self.options_box.set_sensitive(show_options)
         self.options_box.set_visible(show_options)
         self._update_options_visibility()
+        self.save_changes_btn.set_visible(self._can_save_current_input())
         self.map_btn.set_visible(
             is_superkey
             or is_analog_control

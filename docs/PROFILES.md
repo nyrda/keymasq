@@ -7,6 +7,14 @@ Keymasq can activate more than one profile at the same time, then merge those
 profiles into the final mapping for each device based on profile type,
 priority, and active window rules.
 
+When editing an existing key or button mapping, the selector highlights the
+bound target. Adjust Rapidfire or Tap options and click **Save changes** to keep
+that target. Selecting another key or button still replaces the mapping directly.
+Gamepad axes use their existing **Map Analog** or **Map axis** button to commit
+the displayed axis value and options. Bound buttons are also highlighted in
+template and physical-output pickers, including controls loaded after opening
+the selector.
+
 > **Profiles are global, not per-device.** A single profile can contain
 > mappings for your keyboard, mouse, and gamepad together.
 

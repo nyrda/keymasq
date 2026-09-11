@@ -15,7 +15,7 @@ from keymasq.common.virtual_device_templates import (
     VirtualDeviceTemplate,
 )
 from keymasq.gui.widgets.flight_stick_artwork import FlightStickDrawing
-from keymasq.gui.widgets.input_picker_shared import _get_gamepad_image_path
+from keymasq.gui.widgets.input_picker_shared import _get_gamepad_image_path, mark_bound_target
 
 
 def axis_percent_value(axis: VirtualAxis, percent: float) -> int:
@@ -41,6 +41,7 @@ class VirtualDevicePicker(Gtk.Box):
         self.set_halign(Gtk.Align.CENTER)
         self._on_button = on_button
         self._on_axis = on_axis
+        self._current_target = current_target
         self._axes = {axis.evdev: axis for axis in template.axes}
         self._template = template
         self._unknown_rest_axes = unknown_rest_axes
@@ -256,6 +257,7 @@ class VirtualDevicePicker(Gtk.Box):
                 else f"{number} · {control.label}"
             )
             button = Gtk.Button(label=label, tooltip_text=f"{control.id} · {control.evdev}")
+            self._identify_button(button, control.evdev)
             button.set_size_request(-1, 40)
             button.set_hexpand(True)
             button.connect("clicked", self._on_button, control.evdev)
@@ -301,6 +303,11 @@ class VirtualDevicePicker(Gtk.Box):
         box.append(label)
         return box
 
+    def _identify_button(self, button: Gtk.Button, code: str) -> None:
+        button._evdev_name = code
+        if code == self._current_target:
+            mark_bound_target(button)
+
     def _button(self, label: str, code: str, tooltip: str) -> Gtk.Widget:
         numeric_code = int(getattr(evdev.ecodes, code.upper()))
         control = self._buttons.get(numeric_code)
@@ -322,6 +329,7 @@ class VirtualDevicePicker(Gtk.Box):
         button.add_css_class("key-button")
         button.set_size_request(36, 34)
         button.set_tooltip_text(f"{control.label} · {tooltip} · {code}")
+        self._identify_button(button, code)
         button.connect("clicked", self._on_button, code)
         return button
 

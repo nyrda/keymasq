@@ -95,6 +95,35 @@ def test_reopening_exact_axis_value_does_not_round_it_to_a_percentage():
     assert selected == [("abs_x", 673)]
 
 
+@pytest.mark.parametrize("target", ["btn_trigger", "btn_trigger_happy1"])
+def test_template_marks_bound_buttons_including_extras(target):
+    from dataclasses import replace
+
+    from keymasq.common.virtual_device_templates import VirtualButton
+    from keymasq.gui.widgets.input_picker_shared import mark_bound_target
+
+    template = replace(
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        buttons=(
+            *LOGITECH_EXTREME_3D_TEMPLATE.buttons,
+            VirtualButton("gear", "Landing gear", "btn_trigger_happy1"),
+        ),
+    )
+    widget = VirtualDevicePicker(
+        template,
+        lambda *args: None,
+        lambda *args: None,
+        current_target=target,
+    )
+    marked = [button for button in buttons(widget) if button.has_css_class("bound-target")]
+    assert len(marked) == 1
+    assert marked[0]._evdev_name == target
+    tooltip = marked[0].get_tooltip_text()
+    mark_bound_target(marked[0])
+    assert marked[0].get_tooltip_text() == tooltip
+    assert tooltip.count("Currently bound") == 1
+
+
 @pytest.mark.parametrize("layout", ["flight-stick", "gamepad"])
 def test_custom_template_layout_maps_only_configured_buttons(picker, layout):
     from dataclasses import replace

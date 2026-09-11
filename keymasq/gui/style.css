@@ -249,6 +249,11 @@ button.key-button {
   min-height: 0;
 }
 
+button.bound-target {
+  background-color: alpha(@accent_color, 0.2);
+  box-shadow: inset 0 0 0 2px @accent_color;
+}
+
 /* Macro Controls: compact slot cards with tinted record/play glyphs */
 .macro-slot-card {
   min-width: 104px;

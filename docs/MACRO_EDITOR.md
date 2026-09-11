@@ -97,7 +97,9 @@ and configuration fields. Properties edit the selected action immediately;
 Enable **Rapidfire** in the key selector when adding a keyboard key, mouse
 button, or gamepad button, or use **Change Key…** on an existing action.
 The pulses stay in one editable timeline block. **Edit Rapidfire…** reopens
-the selector; disabling Rapidfire restores a continuous hold.
+the selector, with the current key or button highlighted. Adjust the timings
+and click **Save changes** to keep that target without selecting it again.
+Disabling Rapidfire and saving restores a continuous hold.
 
 **Hold** sets each press's duration and **Wait** sets the preferred gap.
 Keymasq spaces the pulses evenly, adjusting the gaps so the final release

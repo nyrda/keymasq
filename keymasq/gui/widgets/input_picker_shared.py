@@ -352,6 +352,7 @@ def build_numpad_grid(owner) -> Gtk.Fixed:
         w = key_size * col_span + gap * (col_span - 1)
         h = key_size * row_span + gap * (row_span - 1)
         btn = Gtk.Button(label=label)
+        btn._evdev_name = evdev
         btn.add_css_class("key-button")
         btn.add_css_class("square-key-button")
         btn.set_can_shrink(True)

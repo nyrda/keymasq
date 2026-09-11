@@ -15,6 +15,7 @@ from keymasq.common.virtual_device_templates import (
     MAX_TEMPLATE_AXES,
     MAX_TEMPLATE_BUTTONS,
     MAX_USER_VIRTUAL_DEVICES,
+    TEMPLATE_BUTTON_CODES,
     XBOX_360_TEMPLATE_ID,
     VirtualAxis,
     VirtualButton,
@@ -29,6 +30,7 @@ from keymasq.common.virtual_device_templates import (
     numbered_button_batch,
     template_from_data,
     template_to_data,
+    unused_numbered_button_codes,
 )
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.virtual_template_controls import TemplateControlRow, event_names
@@ -188,6 +190,7 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         else:
             self._button_rows.append(row)
             self._buttons_group.add(row)
+            row.code_row.connect("notify::selected", self._update_control_limits)
         self._update_control_limits()
 
     def _remove_control(self, row: TemplateControlRow) -> None:
@@ -197,9 +200,16 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         group.remove(row)
         self._update_control_limits()
 
-    def _update_control_limits(self) -> None:
+    def _numbered_button_capacity(self) -> int:
+        codes = [row.codes[int(row.code_row.get_selected())] for row in self._button_rows]
+        return min(
+            MAX_TEMPLATE_BUTTONS - len(self._button_rows),
+            len(unused_numbered_button_codes(codes)),
+        )
+
+    def _update_control_limits(self, *_args: object) -> None:
         self._add_button.set_sensitive(len(self._button_rows) < MAX_TEMPLATE_BUTTONS)
-        self._batch_button.set_sensitive(len(self._button_rows) < MAX_TEMPLATE_BUTTONS)
+        self._batch_button.set_sensitive(self._numbered_button_capacity() > 0)
         self._add_axis.set_sensitive(len(self._axis_rows) < MAX_TEMPLATE_AXES)
         self._buttons_group.set_title(f"Buttons · {len(self._button_rows)}")
         self._axes_group.set_title(f"Axes · {len(self._axis_rows)}")
@@ -208,7 +218,7 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self._new_control(axis=False)
 
     def _add_numbered_buttons(self, _button: Gtk.Button) -> None:
-        remaining = MAX_TEMPLATE_BUTTONS - len(self._button_rows)
+        remaining = self._numbered_button_capacity()
         if remaining <= 0:
             return
         dialog = Adw.Dialog(title="Add numbered buttons", content_width=420)
@@ -272,6 +282,9 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
     def _new_control(self, *, axis: bool) -> None:
         rows = self._axis_rows if axis else self._button_rows
         used_codes = {row.to_data()["evdev"] for row in rows}
+        used_button_codes = (
+            {TEMPLATE_BUTTON_CODES[str(code)] for code in used_codes} if not axis else set()
+        )
         used_ids = {row.id_row.get_text() for row in (*self._button_rows, *self._axis_rows)}
         preferred = (
             ("abs_x", "abs_y", "abs_z", "abs_rx", "abs_ry", "abs_rz", "abs_hat0x", "abs_hat0y")
@@ -279,7 +292,10 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
             else ("btn_trigger", "btn_thumb", "btn_thumb2", "btn_top", "btn_top2", "btn_pinkie")
         )
         code = next(
-            code for code in (*preferred, *event_names(axis=axis)) if code not in used_codes
+            code
+            for code in (*preferred, *event_names(axis=axis))
+            if code not in used_codes
+            and (axis or TEMPLATE_BUTTON_CODES[code] not in used_button_codes)
         )
         control_id = code.replace("_", "-")
         index = 2

@@ -188,8 +188,52 @@ def test_numbered_batch_avoids_existing_codes_and_control_ids():
     ]
     assert len({button.id for button in (*existing, *added)}) == 4
     assert "extra-button-3" not in {button.id for button in added}
-    with pytest.raises(VirtualDeviceConfigError, match="at most"):
-        numbered_button_batch(XBOX_360_TEMPLATE.buttons, 24)
+    with pytest.raises(VirtualDeviceConfigError, match="unused TriggerHappy"):
+        numbered_button_batch(XBOX_360_TEMPLATE.buttons, 41)
+
+
+def test_full_trigger_happy_bank_round_trips_with_ordinary_buttons():
+    from dataclasses import replace
+
+    from keymasq.common.virtual_device_templates import (
+        VirtualButton,
+        VirtualDeviceConfig,
+        VirtualDeviceInstance,
+        numbered_button_batch,
+    )
+
+    # The flight-sim setup needs about 61 buttons per output, including all 40
+    # TriggerHappy codes. Its ordinary joystick buttons must not consume that bank.
+    ordinary = LOGITECH_EXTREME_3D_TEMPLATE.buttons + tuple(
+        VirtualButton(f"button-{index}", str(index), f"btn_{index}") for index in range(9)
+    )
+    buttons = ordinary + numbered_button_batch(ordinary, 40)
+    template = replace(LOGITECH_EXTREME_3D_TEMPLATE, id="flight", builtin=False, buttons=buttons)
+    config = VirtualDeviceConfig(
+        templates=(template,),
+        devices=tuple(VirtualDeviceInstance(f"flight-{index}", "flight") for index in range(2)),
+    )
+    restored = config_from_json(config_to_json(config))
+    assert restored == config
+    assert [len(device.template.buttons) for device in resolve_virtual_devices(0, restored)] == [
+        61,
+        61,
+    ]
+    with pytest.raises(VirtualDeviceConfigError, match="unused TriggerHappy"):
+        numbered_button_batch(buttons, 1)
+
+
+def test_numbered_batch_counts_aliases_and_reuses_freed_codes():
+    from keymasq.common.virtual_device_templates import VirtualButton, numbered_button_batch
+
+    alias = VirtualButton("first", "First", "btn_trigger_happy")
+    remaining = numbered_button_batch((alias,), 39)
+    assert [button.evdev for button in remaining] == [
+        f"btn_trigger_happy{index}" for index in range(2, 41)
+    ]
+    with pytest.raises(VirtualDeviceConfigError, match="unused TriggerHappy"):
+        numbered_button_batch((alias, *remaining), 1)
+    assert numbered_button_batch(remaining, 1)[0].evdev == "btn_trigger_happy1"
 
 
 @pytest.mark.parametrize("field", ["minimum", "maximum", "rest", "fuzz", "flat", "resolution"])

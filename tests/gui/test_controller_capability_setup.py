@@ -182,6 +182,52 @@ def test_motion_interfaces_are_excluded():
     assert not config.analog_inputs
 
 
+def test_physical_selector_highlights_buttons_after_inventory_arrives(monkeypatch):
+    from types import SimpleNamespace
+
+    from gi.repository import Gtk
+
+    import keymasq.gui.widgets.key_selector.tabs as tabs
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType
+    from keymasq.common.virtual_device_templates import VirtualDeviceConfig
+    from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+    from tests.gui.support import collect_widgets
+
+    config = hardware_from_interfaces([controller_interface(LOGITECH_EXTREME_3D_TEMPLATE)])
+    monkeypatch.setattr(tabs, "virtual_gamepad_count", lambda: 1)
+    monkeypatch.setattr(tabs, "virtual_device_config", VirtualDeviceConfig)
+    monkeypatch.setattr(
+        tabs, "HardwareManager", lambda: SimpleNamespace(list_hardware=lambda: [config])
+    )
+    callbacks = []
+    monkeypatch.setattr(
+        tabs, "session_request_async", lambda _request, callback: callbacks.append(callback)
+    )
+    dialog = KeySelectorDialog(
+        Gtk.Box(),
+        "Source",
+        MappingAction(
+            action_type=ActionType.GAMEPAD,
+            target="btn_trigger",
+            output_id=config.hardware_id,
+        ),
+    )
+    assert len(callbacks) == 1
+    assert not collect_widgets(dialog._template_gamepad_picker, Gtk.Button)
+    callbacks[0]({"devices": [output_inventory(config)]})
+    for _ in range(2):
+        marked = [
+            button
+            for button in collect_widgets(dialog._template_gamepad_picker, Gtk.Button)
+            if button.has_css_class("bound-target")
+        ]
+        assert len(marked) == 1
+        assert marked[0]._evdev_name == "btn_trigger"
+        assert marked[0].get_tooltip_text().count("Currently bound") == 1
+        dialog._refresh_virtual_device_picker()
+
+
 def test_physical_selector_uses_saved_flight_controls_and_ranges(monkeypatch):
     from types import SimpleNamespace
 

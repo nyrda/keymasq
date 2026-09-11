@@ -17,6 +17,16 @@ log = logging.getLogger("keymasq.gui.widgets.input_picker_shared")
 
 RAW_TRANSPORT_KEY_GROUP_TITLES = frozenset({"Playback"})
 
+
+def mark_bound_target(button: Gtk.Button) -> None:
+    """Mark an established target without duplicating its tooltip on refresh."""
+    if button.has_css_class("bound-target"):
+        return
+    button.add_css_class("bound-target")
+    tooltip = button.get_tooltip_text()
+    button.set_tooltip_text(f"{tooltip} · Currently bound" if tooltip else "Currently bound")
+
+
 GAMEPAD_BUTTONS: dict[str, str] = {
     "A": "btn_south",
     "B": "btn_east",

@@ -238,6 +238,39 @@ def test_macro_selector_rejects_axis_rapidfire_and_allows_correction(
         assert event.value == 32767
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_save_selector_options_updates_real_macro_block(monkeypatch, enabled) -> None:
+    from keymasq.gui.widgets.key_selector import dialog as selector_module
+
+    selector_class = selector_module.KeySelectorDialog
+    selectors = []
+
+    def create_selector(*args, **kwargs):
+        picker = selector_class(*args, **kwargs)
+        monkeypatch.setattr(picker, "present", MagicMock())
+        selectors.append(picker)
+        return picker
+
+    monkeypatch.setattr(selector_module, "KeySelectorDialog", create_selector)
+    editor = _build_macro_dialog(monkeypatch)
+    event = rapidfire()
+    editor._events = [event]
+    editor._timeline._selected = event
+    editor._on_change_key_clicked(None)
+    picker = selectors[0]
+    picker.rapidfire_check.set_active(enabled)
+    picker.hold_spin.set_value(15)
+    picker.wait_spin.set_value(25)
+    picker.save_changes_btn.emit("clicked")
+    assert editor._events == [event]
+    assert event.code == evdev.ecodes.BTN_SOUTH
+    assert event.output_id == "virtual-gamepad-3"
+    assert (event.press_t_us, event.release_t_us) == (50_000, 150_000)
+    assert event.rapidfire_enabled is enabled
+    assert event.rapidfire_hold_ms == 15
+    assert event.rapidfire_wait_ms == 25
+
+
 def test_regular_selector_still_supports_axis_rapidfire(monkeypatch) -> None:
     from gi.repository import Gtk
 

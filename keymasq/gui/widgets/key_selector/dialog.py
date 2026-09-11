@@ -32,6 +32,7 @@ from keymasq.gui.widgets.compositor_actions import (
     compositor_action_tab_name,
 )
 from keymasq.gui.widgets.fuzzy_search import start_search_from_keypress
+from keymasq.gui.widgets.input_picker_shared import mark_bound_target
 from keymasq.gui.widgets.mouse_move_units import speed_kpx_s_to_px_s
 from keymasq.gui.widgets.position_capture import PositionCallback, PositionCaptureController
 
@@ -508,11 +509,7 @@ class KeySelectorDialog(
         }:
             return
         if isinstance(widget, Gtk.Button) and getattr(widget, "_evdev_name", None) == action.target:
-            widget.add_css_class("bound-target")
-            tooltip = widget.get_tooltip_text()
-            widget.set_tooltip_text(
-                f"{tooltip} · Currently bound" if tooltip else "Currently bound"
-            )
+            mark_bound_target(widget)
         child = widget.get_first_child()
         while child is not None:
             self._mark_current_target(child)
@@ -526,7 +523,6 @@ class KeySelectorDialog(
             ActionType.KEYBOARD: {"keyboard", "navigation"},
             ActionType.MOUSE: {"mouse"},
             ActionType.GAMEPAD: {"gamepad"},
-            ActionType.GAMEPAD_AXIS: {"gamepad"},
         }
         return (
             self.stack.get_visible_child_name() in tabs.get(action.action_type, set())
@@ -545,7 +541,7 @@ class KeySelectorDialog(
             tap_enabled=self._allow_tap and self._tap_enabled,
             tap_hold_ms=int(self.tap_spin.get_value()),
         )
-        if action.action_type in {ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS}:
+        if action.action_type == ActionType.GAMEPAD:
             action.output_id = self._selected_gamepad_output_id
         self._emit_selected_action(action)
 

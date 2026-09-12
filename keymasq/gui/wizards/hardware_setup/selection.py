@@ -167,6 +167,7 @@ class SelectionMixin:
         self.mouse_mode_info.set_visible(mode == "mouse")
         self.mouse_keyboard_mode_info.set_visible(mode == "mouse_keyboard")
         self.gamepad_mode_info.set_visible(mode == "gamepad")
+        self.controller_output.set_visible(mode == "gamepad")
         self.custom_mode_info.set_visible(mode == "custom")
         subtitle = {
             "gamepad": "Review the detected controller controls",

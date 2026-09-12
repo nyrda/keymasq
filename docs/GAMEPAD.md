@@ -13,7 +13,7 @@ stick clicks, digital D-pad) are added when the controller reports them.
 Third-party uinput controllers and wheels are shown in the picker when they
 report gamepad capabilities; Keymasq's own virtual output devices stay hidden.
 
-When Keymasq grabs a physical gamepad, it creates a passthrough uinput clone
+By default, when Keymasq grabs a physical gamepad, it creates a passthrough uinput clone
 for unmapped events. That clone reuses the source controller name and input
 IDs, so Steam and other tools see it as the same controller model.
 
@@ -32,6 +32,58 @@ and leaves the passthrough clone visible. This prevents Steam, SDL games, and
 controller pickers from showing two identical controllers where one is the
 grabbed-but-silent original. The physical source is restored when Keymasq
 releases the grab or stops.
+
+## Default controller output
+
+Choose **Controller output → Default output** during hardware setup or in
+**Hardware Settings**, directly below the hardware name. Choose passthrough or
+a configured virtual controller, including custom template instances. Setup
+starts with passthrough; choosing a virtual destination opts this hardware into
+routing. Existing hardware configurations retain passthrough.
+
+The destination belongs to the hardware and stays the same across profiles.
+Routing remains active with no profiles enabled.
+
+Selecting a virtual output grabs the controller interfaces even without
+explicit mappings. Those interfaces do not create passthrough clones.
+Other interfaces on a composite device retain their normal behavior. The virtual
+controller keeps its configured identity and capabilities.
+
+Unmapped buttons use the same numeric evdev button code on the destination.
+Unmapped absolute axes use the same axis code, with linear conversion between
+the source and destination minimum and maximum values. Saved source bounds
+override device-reported bounds. Inputs with no matching destination code, or
+axes without usable source bounds, produce no output. Relative and miscellaneous
+events are not forwarded to the controller output.
+
+Routing does not infer control roles or convert between buttons and axes. For
+example, a digital `BTN_TL2` remains `BTN_TL2`; it does not drive `ABS_Z`.
+`ABS_RZ` remains `ABS_RZ` even when one device calls it twist and another calls
+it a trigger. Use ordinary mappings for these exceptions.
+
+Input cards show the default destination or **No matching output**. Click an
+input to override it. Explicit mappings retain their own actions and output
+destinations. A passthrough mapping cancels a lower-priority mapping and returns
+the input to the default route. Physical-controller and `same-device` output
+actions still require a passthrough clone; select the virtual destination when
+overriding controls on a routed controller.
+
+In the hardware config:
+
+```toml
+[hardware]
+# Existing identity and layout fields remain here.
+default_output = "virtual-gamepad-1"
+```
+
+Omit `default_output` or set it to `"passthrough"` for normal passthrough.
+Profiles only override individual inputs; they do not change this destination.
+
+An unavailable virtual destination drops default output until it is configured
+again. It does not fall back to a passthrough clone. Changing the route releases
+the previous output and reopens the affected controller interfaces. Disconnects
+and virtual-output reconfiguration also release tracked buttons and axes.
+Default routing does not add force feedback to virtual controllers.
 
 ## Button Mapping
 

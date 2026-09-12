@@ -145,6 +145,7 @@ def persist_desired_grab(
         analog_inputs=dict(plan.analog_inputs),
         motion_sensors=dict(plan.motion_sensors),
         force_grab_unmapped=bool(request.force_grab_unmapped),
+        default_output=request.default_output,
         evdev_interfaces=list(plan.raw_interfaces) if plan.evdev_interfaces_provided else [],
     )
 
@@ -416,9 +417,10 @@ def motion_input_bindings(
             if not isinstance(axes, list):
                 continue
             for value in cast(list[object], axes):
-                if isinstance(value, dict) and (
-                    code := _axis_code(cast(dict[str, object], value))
-                ) is not None:
+                if (
+                    isinstance(value, dict)
+                    and (code := _axis_code(cast(dict[str, object], value))) is not None
+                ):
                     bindings.add((int(evdev.ecodes.EV_ABS), int(code)))
     return bindings
 

@@ -214,3 +214,12 @@ target = "key_1"
 Here `046d:c08b` is the hardware ID and `btn_back` is the button ID — event
 device paths never appear as profile keys. See [Profiles](PROFILES.md) for
 layering and merge behavior.
+
+## Controller output
+
+Choose passthrough or a virtual controller during setup or in Hardware Settings.
+In `[hardware]`, `default_output` defaults to `"passthrough"` and accepts virtual
+output IDs such as `"virtual-gamepad-1"`. This setting applies across profiles,
+even with none active. Virtual routing forwards
+matching button and axis codes, scales axis bounds, and drops unsupported inputs.
+Mappings override individual inputs. See [Controller output](GAMEPAD.md#default-controller-output).

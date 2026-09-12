@@ -395,7 +395,17 @@ def remember_passthrough_event(
     if event_type == int(evdev_mod.ecodes.EV_KEY):
         if event_value != 1:
             return
-        if normalized_name.startswith("key_"):
+        route_id = getattr(device_runtime, "default_output", None)
+        if isinstance(route_id, str):
+            target = device_runtime.resolve_gamepad_output(route_id, "remember default output")
+            if event_code not in getattr(target, "button_codes", ()):
+                return
+            action = MappingAction(
+                action_type=ActionType.GAMEPAD,
+                target=normalized_name,
+                output_id=route_id,
+            )
+        elif normalized_name.startswith("key_"):
             action = MappingAction(action_type=ActionType.KEYBOARD, target=normalized_name)
         elif normalized_name.startswith("btn_"):
             if _device_is_gamepad(device_runtime):
@@ -417,6 +427,8 @@ def remember_passthrough_event(
         )
         return
 
+    if getattr(device_runtime, "default_output", None) is not None:
+        return
     if event_type != int(evdev_mod.ecodes.EV_REL):
         return
 

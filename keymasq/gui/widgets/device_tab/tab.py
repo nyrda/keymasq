@@ -15,6 +15,7 @@ from keymasq.common.model.hardware import HardwareConfig
 from keymasq.gui.session_client import JsonDict, session_request_async
 from keymasq.gui.widgets.device_tab.capture import CaptureMixin
 from keymasq.gui.widgets.device_tab.commit import DeferredCommitState, SelectorCommitMixin
+from keymasq.gui.widgets.device_tab.default_output import DefaultOutputMixin
 from keymasq.gui.widgets.device_tab.hardware import HardwareSettingsMixin
 from keymasq.gui.widgets.device_tab.hardware_settings_dialog import HardwareSettingsDialog
 from keymasq.gui.widgets.device_tab.inputs import InputInventoryMixin
@@ -31,6 +32,7 @@ SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS = 500
 
 
 class DeviceTab(
+    DefaultOutputMixin,
     InventoryMixin,
     InputInventoryMixin,
     MappingMixin,
@@ -95,6 +97,8 @@ class DeviceTab(
         current_action: MappingAction | None,
         **kwargs: Any,
     ) -> KeySelectorDialog:
+        if self.device.default_output != "passthrough":
+            kwargs.setdefault("default_gamepad_output_id", self.device.default_output)
         return KeySelectorDialog(parent, title, current_action, **kwargs)
 
     def _schedule_selector_commit(self, callback: Callable[[], bool]) -> int:

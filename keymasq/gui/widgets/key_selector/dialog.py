@@ -118,6 +118,7 @@ class KeySelectorDialog(
         analog_input_type: str | None = None,
         allowed_tabs: set[str] | list[str] | tuple[str, ...] | None = None,
         initial_tab: str | None = None,
+        default_gamepad_output_id: str | None = None,
         include_mpris_controls: bool = True,
         include_mouse_button_controls: bool = True,
         include_mouse_scroll_controls: bool = True,
@@ -145,6 +146,7 @@ class KeySelectorDialog(
         self._source_type = str(source_type or "button")
         self._allowed_tabs = set(allowed_tabs) if allowed_tabs is not None else None
         self._initial_tab = initial_tab
+        self._default_gamepad_output_id = default_gamepad_output_id
         self._include_mpris_controls = include_mpris_controls
         self._include_mouse_button_controls = include_mouse_button_controls
         self._include_mouse_scroll_controls = include_mouse_scroll_controls
@@ -209,7 +211,7 @@ class KeySelectorDialog(
             current_action.output_id
             if current_action
             and current_action.action_type in (ActionType.GAMEPAD, ActionType.GAMEPAD_AXIS)
-            else None
+            else default_gamepad_output_id
         )
         self._gamepad_output_ids: list[str | None] = []
         self._gamepad_output_dropdown: Gtk.DropDown | None = None
@@ -888,6 +890,16 @@ class KeySelectorDialog(
                 self.stack.set_visible_child_name("motion_control")
             else:
                 self.stack.set_visible_child_name("motion_presets")
+            return
+        if (
+            self._default_gamepad_output_id
+            and (
+                self._current_action is None
+                or self._current_action.action_type == ActionType.PASSTHROUGH
+            )
+            and self._tab_allowed("gamepad")
+        ):
+            self.stack.set_visible_child_name("gamepad")
             return
         if not self._current_action:
             return

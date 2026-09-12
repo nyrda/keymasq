@@ -315,6 +315,12 @@ def passthrough(
     uinput_writer: UInputWriter,
     sync: bool = True,
 ) -> None:
+    from keymasq.keymasqd.runtime.default_controller_route import controller_route
+
+    route = controller_route(device_runtime)
+    if route is not None:
+        route.emit(device_runtime, event, sync=sync)
+        return
     if (
         device_runtime.suppress_rel_getter
         and event.type == evdev_mod.ecodes.EV_REL
@@ -470,6 +476,11 @@ def release_all_keys(
     evdev_mod: EvdevModule,
     uinput_writer: UInputWriter,
 ) -> None:
+    from keymasq.keymasqd.runtime.default_controller_route import controller_route
+
+    route = controller_route(device_runtime)
+    if route is not None:
+        route.release_axes(device_runtime)
     devices: dict[str, object | None] = {
         "passthrough": device_runtime.uinput,
         "keyboard": device_runtime.keyboard_uinput,

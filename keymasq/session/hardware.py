@@ -228,6 +228,7 @@ class HardwareManager:
             image=hw.get("image"),
             id=hardware_id or None,
             input_sources=[NativeInputSource(**source) for source in hw.get("input_sources", [])],
+            default_output=str(hw.get("default_output") or "passthrough").strip() or "passthrough",
         )
 
     @staticmethod
@@ -573,6 +574,8 @@ class HardwareManager:
                 }
                 for source in config.input_sources
             ]
+        if config.default_output != "passthrough":
+            data["hardware"]["default_output"] = config.default_output
 
         if config.image:
             data["hardware"]["image"] = config.image

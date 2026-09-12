@@ -13,6 +13,7 @@ from keymasq.common.model.core import DeviceType
 from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis, learned_output_axes
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
+    XBOX_360_TEMPLATE,
     ResolvedVirtualDevice,
     template_analog_inputs,
     template_output_axes,
@@ -32,6 +33,7 @@ class GamepadOutputTarget:
     output_axes: tuple[OutputAxis, ...] | None = None
     axis_rest_values: dict[int, int] = field(default_factory=dict)
     axis_ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
+    button_codes: frozenset[int] = frozenset()
 
 
 type ClearComboRuntime = Callable[[], Awaitable[None]]
@@ -208,6 +210,14 @@ class GamepadOutputRouter:
                 uinput=uinput,
                 bucket=f"gamepad:{resolved_id}",
                 is_virtual=True,
+                button_codes=frozenset(
+                    int(getattr(evdev.ecodes, button.evdev.upper()))
+                    for button in (
+                        spec.template
+                        if isinstance(spec, ResolvedVirtualDevice)
+                        else XBOX_360_TEMPLATE
+                    ).buttons
+                ),
                 stick_output=previous[1],
                 output_axes=(
                     template_output_axes(spec.template)

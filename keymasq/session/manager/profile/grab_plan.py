@@ -4,6 +4,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, cast
 
+from keymasq.common.controller_routing import is_controller_interface
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, analog_control_primary_mode
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import HardwareConfig
@@ -41,6 +42,12 @@ def get_interfaces_to_grab(
     )
 
     sources_to_grab: set[str] = set()
+    if getattr(hardware_config, "default_output", "passthrough") not in {None, "passthrough"}:
+        sources_to_grab.update(
+            device.id
+            for device in hardware_config.evdev_devices
+            if device.id and is_controller_interface(device)
+        )
     for button_id, action in resolved.mappings.items():
         if action.action_type != ActionType.PASSTHROUGH:
             source = button_to_source.get(button_id)
@@ -214,6 +221,7 @@ def build_grab_device_payload(
     selected_sources = set(interfaces.keys())
     return {
         "hardware_id": hardware_id,
+        "default_output": getattr(hardware_config, "default_output", "passthrough"),
         "evdev_paths": list(interfaces.values()),
         "evdev_interfaces": configured_interface_descriptors(
             hardware_config,
@@ -268,6 +276,8 @@ def build_grab_device_payload(
         },
         "force_grab_unmapped": (
             bool(force_grab_unmapped)
+            or getattr(hardware_config, "default_output", "passthrough")
+            not in {None, "passthrough"}
             or bool(resolved.combo_event_count)
             or _motion_requires_gamepad_output(manager, hardware_config, resolved)
         ),
@@ -277,6 +287,7 @@ def build_grab_device_payload(
 def grab_device_payload_signature(payload: JsonObject) -> str:
     """Create a stable signature for fields that affect an active grab."""
     signature_payload = {
+        "default_output": payload.get("default_output"),
         "evdev_paths": sorted(str(path) for path in json_list(payload.get("evdev_paths"))),
         "evdev_interfaces": _signature_evdev_interfaces(payload.get("evdev_interfaces")),
         "button_map": payload.get("button_map", {}),

@@ -380,6 +380,9 @@ class MappingMixin:
         )
 
     def _describe_passthrough_output(self: Any, button: ButtonDefinition) -> str:
+        routed = self._default_output_description(button)
+        if routed is not None:
+            return routed
         return mapping_display.describe_passthrough_output(
             button,
             label_from_evdev=self._label_from_evdev,
@@ -396,4 +399,5 @@ class MappingMixin:
             describe_mapping_for_button=self._describe_mapping,
             describe_passthrough=self._describe_passthrough_output,
             action_summary_chars=self._mapping_action_summary_chars(),
+            describe_analog_passthrough=self._default_output_description,
         )

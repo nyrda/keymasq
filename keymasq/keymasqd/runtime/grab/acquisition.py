@@ -218,6 +218,7 @@ def construct_grabbed_device(
         event_callback=callbacks.event_callback,
         device_type=detected_type,
         device_types=detected_types,
+        default_output=request.default_output,
         verbosity=manager.verbosity,
         keyboard_uinput=manager.output_state.keyboard_uinput,
         mouse_uinput=manager.output_state.mouse_uinput,
@@ -433,6 +434,10 @@ async def finalize_grab(
     # Existing interfaces continue running their old decoding tables until all
     # newly requested interfaces have been acquired successfully.
     update_existing_devices(plan, request, deps)
+    for device in plan.existing_devices:
+        update_default_output = getattr(device, "update_default_output", None)
+        if callable(update_default_output):
+            await cast(Awaitable[None], update_default_output(request.default_output))
 
     return {
         "grabbed": True,

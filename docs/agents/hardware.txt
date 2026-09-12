@@ -183,3 +183,11 @@ Virtual output IDs are `virtual-gamepad-1` through `virtual-gamepad-4`.
 Hardware gamepad output IDs are the configured hardware IDs, for example
 `045e:028e` or `045e:028e@2`. Explicit output routes are strict and do not
 fall back if unavailable.
+
+## Controller output
+
+Optional `[hardware] default_output`: `"passthrough"` by default, or a virtual
+output ID such as `"virtual-gamepad-1"`. Applies with or without active profiles.
+Virtual routing replaces the clone, forwards same-code buttons/axes, and scales
+axis bounds. Unsupported codes or unavailable outputs drop events. Explicit
+mappings override individual inputs. See GAMEPAD.md for details.

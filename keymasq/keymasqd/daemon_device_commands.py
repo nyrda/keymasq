@@ -18,6 +18,7 @@ class _DeviceCommandManager(Protocol):
         analog_inputs: JsonObject | None = None,
         motion_sensors: JsonObject | None = None,
         force_grab_unmapped: bool = False,
+        default_output: str | None = None,
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject: ...
 
@@ -103,6 +104,7 @@ async def handle_device_command(
             analog_inputs=cast(JsonObject, data.get("analog_inputs", {})),
             motion_sensors=cast(JsonObject, data.get("motion_sensors", {})),
             force_grab_unmapped=bool(data.get("force_grab_unmapped", False)),
+            default_output=coerce_str(data.get("default_output"), None),
             evdev_interfaces=cast(JsonObjectList, data.get("evdev_interfaces", [])),
         )
 

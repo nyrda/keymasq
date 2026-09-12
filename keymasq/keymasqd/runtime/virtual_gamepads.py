@@ -212,7 +212,7 @@ class GamepadOutputRouter:
                     for axis in spec.template.axes
                 }
                 if isinstance(spec, ResolvedVirtualDevice)
-                else {}
+                else {axis.code: axis.neutral for axis in STANDARD_OUTPUT_AXES}
             )
             target = GamepadOutputTarget(
                 output_id=resolved_id,
@@ -236,7 +236,7 @@ class GamepadOutputRouter:
                 analog_inputs=(
                     template_analog_inputs(spec.template)
                     if isinstance(spec, ResolvedVirtualDevice)
-                    else {}
+                    else template_analog_inputs(XBOX_360_TEMPLATE)
                 ),
                 axis_rest_values=axis_rest_values,
                 axis_ranges=(
@@ -245,7 +245,7 @@ class GamepadOutputRouter:
                         for axis in spec.template.axes
                     }
                     if isinstance(spec, ResolvedVirtualDevice)
-                    else {}
+                    else {axis.code: (axis.minimum, axis.maximum) for axis in STANDARD_OUTPUT_AXES}
                 ),
             )
 

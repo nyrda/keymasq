@@ -10,6 +10,7 @@ import pytest
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
 from keymasq.common.model.core import ActionType, DeviceType
+from keymasq.common.output_axes import STANDARD_OUTPUT_AXES
 from keymasq.common.virtual_device_templates import (
     VirtualDeviceConfig,
     VirtualDeviceInstance,
@@ -186,6 +187,27 @@ async def test_missing_target_drops_output_without_clone_fallback(routed):
     await send(device, E.EV_ABS, E.ABS_X, 255)
     assert writer.writes == []
     assert device.uinput.writes == []
+
+
+@pytest.mark.parametrize("missing_specs_attribute", [False, True])
+async def test_output_without_spec_routes_axes_and_releases_to_standard_neutral(
+    routed, missing_specs_attribute
+):
+    device, writer, _, state = routed
+    if missing_specs_attribute:
+        del state.virtual_device_specs
+    else:
+        state.virtual_device_specs.pop("virtual-gamepad-1")
+    target = device.resolve_gamepad_output("virtual-gamepad-1", "test")
+    assert target.axis_ranges == {
+        axis.code: (axis.minimum, axis.maximum) for axis in STANDARD_OUTPUT_AXES
+    }
+    assert target.axis_rest_values == {axis.code: axis.neutral for axis in STANDARD_OUTPUT_AXES}
+    await send(device, E.EV_ABS, E.ABS_X, 255)
+    await send(device, E.EV_SYN, E.SYN_REPORT, 0)
+    assert writer.packets == [[(E.EV_ABS, E.ABS_X, 32767)]]
+    device.default_route.release_axes(device)
+    assert writer.packets[-1] == [(E.EV_ABS, E.ABS_X, 0)]
 
 
 @pytest.mark.parametrize("failed_operation", ["write", "syn"])

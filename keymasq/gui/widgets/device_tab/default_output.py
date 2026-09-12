@@ -33,6 +33,13 @@ class DefaultOutputMixin:
         self: Any,
         control: ButtonDefinition | AnalogInputDefinition,
     ) -> str | None:
+        presentation = self._default_output_presentation(control)
+        return presentation[1] if presentation is not None else None
+
+    def _default_output_presentation(
+        self: Any,
+        control: ButtonDefinition | AnalogInputDefinition,
+    ) -> tuple[str, str] | None:
         sources = {
             device.id for device in self.device.evdev_devices if is_controller_interface(device)
         }
@@ -43,7 +50,7 @@ class DefaultOutputMixin:
             return None
         template = getattr(self, "_default_output_templates", {}).get(output_id)
         if template is None:
-            return f"Default → {output_id} (unavailable)"
+            return "Unavailable", f"Default → {output_id} (unavailable)"
         if isinstance(control, ButtonDefinition):
             names = [control.evdev]
             supported = {resolve_evdev_code(button.evdev) for button in template.buttons}
@@ -52,6 +59,17 @@ class DefaultOutputMixin:
             supported = {resolve_evdev_code(axis.evdev) for axis in template.axes}
         matched = [name.upper() for name in names if resolve_evdev_code(name) in supported]
         if not matched:
-            return "No matching output"
+            return "No output", f"No matching output on {output_id}"
         suffix = " · some axes unmatched" if len(matched) != len(names) else ""
-        return f"Default → {output_id} · {', '.join(matched)}{suffix}"
+        if isinstance(control, ButtonDefinition):
+            target = next(
+                button for button in template.buttons
+                if resolve_evdev_code(button.evdev) == resolve_evdev_code(control.evdev)
+            )
+            summary = f"→ {target.label}"
+        else:
+            summary = f"→ {', '.join(name.removeprefix('ABS_') for name in matched)}"
+        return (
+            "Partial output" if suffix else summary,
+            f"Default → {output_id} · {', '.join(matched)}{suffix}",
+        )

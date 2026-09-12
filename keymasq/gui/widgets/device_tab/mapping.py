@@ -400,4 +400,5 @@ class MappingMixin:
             describe_passthrough=self._describe_passthrough_output,
             action_summary_chars=self._mapping_action_summary_chars(),
             describe_analog_passthrough=self._default_output_description,
+            describe_default_output=self._default_output_presentation,
         )

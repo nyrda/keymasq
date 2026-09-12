@@ -64,8 +64,9 @@ example, a digital `BTN_TL2` remains `BTN_TL2`; it does not drive `ABS_Z`.
 `ABS_RZ` remains `ABS_RZ` even when one device calls it twist and another calls
 it a trigger. Use ordinary mappings for these exceptions.
 
-Input cards show the default destination or **No matching output**. Click an
-input to override it. Explicit mappings retain their own actions and output
+Input cards show matching output controls or **No output**. Hover over the output
+label for the destination and evdev codes. Click an input to override it.
+Explicit mappings retain their own actions and output
 destinations. A passthrough mapping cancels a lower-priority mapping and returns
 the input to the default route. Physical-controller and `same-device` output
 actions still require a passthrough clone; select the virtual destination when

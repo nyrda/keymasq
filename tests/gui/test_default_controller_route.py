@@ -54,9 +54,16 @@ def test_hardware_route_descriptions_do_not_depend_on_profile():
         assert "Default → virtual-gamepad-1" in tab._describe_passthrough_output(
             hardware.buttons[0]
         )
-        assert tab._describe_passthrough_output(hardware.buttons[1]) == "No matching output"
+        assert "No matching output" in tab._describe_passthrough_output(hardware.buttons[1])
         assert "ABS_X, ABS_Y" in (tab._default_output_description(hardware.analog_inputs[0]) or "")
         assert not hasattr(tab, "_default_output_row")
+        tab._update_button_display("south")
+        label = tab._button_widgets["south"]._action_label
+        assert label.get_text() == "→ A"
+        assert "virtual-gamepad-1" in label.get_tooltip_text()
+        assert "BTN_SOUTH" in label.get_tooltip_text()
+        tab._update_button_display("stick")
+        assert tab._button_widgets["stick"]._action_label.get_text() == "→ X, Y"
     hardware.default_output = "missing-pad"
     assert "unavailable" in (tab._default_output_description(hardware.buttons[0]) or "")
 

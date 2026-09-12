@@ -98,6 +98,12 @@ individual axes. Familiar gamepad controls keep their standard labels. Flight
 sticks use stick, twist, and throttle labels. Other controls use readable evdev
 names. Existing saved hardware configurations are not changed automatically.
 
+For masked or otherwise unreadable input nodes, setup uses the daemon's
+capability inventory. Numeric names such as `EV_KEY_304` and symbolic names
+such as `btn_south` describe the same button. Standard gamepad buttons take
+precedence over extra joystick-style buttons when choosing the controller
+layout, so the Steam Deck retains its gamepad layout and stick labels.
+
 The device tab keeps the standard gamepad sections and lists remaining buttons
 under Additional Controls. In the key selector, grab a physical controller to
 load its available output controls and resolved axis calibration. Flight sticks

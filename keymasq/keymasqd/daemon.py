@@ -42,6 +42,7 @@ from keymasq.keymasqd import (
 )
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.hardware_masking import MASK_COMMANDS, HardwareMasking
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import source_hiding
@@ -74,13 +75,15 @@ def sd_notify(state: str) -> None:
 class Daemon:
     def __init__(self, verbosity: int = 0) -> None:
         self.device_manager = DeviceManager(verbosity=verbosity)
+        self.hardware_masking = HardwareMasking(self.device_manager)
+        self.device_manager.masking_recovery = self.hardware_masking.restore
         self.recording_manager = RecordingManager()
         self.macro_store = MacroStore(STATE_DIR / "macros")
         self.capture_manager = CaptureManager()
         self.sleep_coordinator = LogindSleepCoordinator(
-            self.device_manager.neutralize_runtime,
+            self.prepare_for_sleep,
             pause_runtime=self.device_manager.pause_runtime_input,
-            resume_runtime=self.device_manager.resume_runtime_input,
+            resume_runtime=self.resume_after_sleep,
         )
         self.socket_server: SocketServer | None = None
         self.running = False
@@ -93,6 +96,14 @@ class Daemon:
         self._unlock_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._macro_recording_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
+
+    async def prepare_for_sleep(self) -> None:
+        await self.hardware_masking.suspend()
+        await self.device_manager.neutralize_runtime()
+
+    def resume_after_sleep(self) -> None:
+        self.device_manager.resume_runtime_input()
+        self.hardware_masking.resume()
 
     async def start(self) -> None:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -158,6 +169,7 @@ class Daemon:
         log.info("Stopping keymasqd")
         self.running = False
 
+        await self._run_async_cleanup("restore hardware masks", self.hardware_masking.close)
         await self._run_async_cleanup(
             "stop logind sleep coordination",
             self.sleep_coordinator.stop,
@@ -256,6 +268,11 @@ class Daemon:
         if self.verbosity >= 1:
             log.debug(f"Command: {command_type.value} -> {self._log_view(data)}")
 
+        if command_type in MASK_COMMANDS:
+            if client is None:
+                raise PermissionError("Hardware masking requires an authenticated user session")
+            return await self.hardware_masking.handle(command_type, data, uid=client.uid)
+
         device_result = await daemon_device_commands.handle_device_command(
             cast(daemon_device_commands.DeviceCommandDaemon, self),
             command_type,
@@ -320,6 +337,10 @@ class Daemon:
 
         policy = self.security_policy
         tier1_commands = {
+            CommandType.MASK_HARDWARE,
+            CommandType.KEEP_HARDWARE_MASK,
+            CommandType.RESUME_HARDWARE,
+            CommandType.SET_HARDWARE_MASK_PERSISTENCE,
             CommandType.CAPTURE_BEGIN,
             CommandType.CAPTURE_READ,
             CommandType.CAPTURE_END,
@@ -738,6 +759,9 @@ class Daemon:
         return view
 
     async def _on_client_disconnect(self, client: ClientContext | None = None) -> None:
+        await self._run_async_cleanup(
+            "restore hardware after owner loss", self.hardware_masking.close
+        )
         if client is None and self.socket_server is not None:
             client = self.socket_server.owner_context
 

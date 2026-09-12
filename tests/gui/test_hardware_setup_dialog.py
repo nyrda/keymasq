@@ -772,7 +772,8 @@ class TestHardwareSetupDialog:
         assert dialog._should_show_interface_expander([{}]) is False
         assert dialog._should_show_interface_expander([{}, {}]) is False
 
-    def test_selecting_in_use_raw_row_disables_next(self, monkeypatch):
+    @pytest.mark.parametrize("reserved", [False, True])
+    def test_selecting_owned_raw_row_allows_unconfigured_reservation(self, monkeypatch, reserved):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 
@@ -792,6 +793,7 @@ class TestHardwareSetupDialog:
                     {
                         "path": "/dev/input/event20",
                         "grabbed_by_keymasq": True,
+                        "reserved_for_masking": reserved,
                         "source_hardware_id": "045e:02a1",
                         "source_interface_id": "gamepad",
                     }
@@ -837,10 +839,10 @@ class TestHardwareSetupDialog:
         if on_done:
             on_done()
 
-        assert dialog.next_btn.get_sensitive() is False
+        assert dialog.next_btn.get_sensitive() is reserved
         assert dialog._template_state.values == ["gamepad"]
         assert dialog._device_in_use_summary(dialog._discovery_state.selected_device) == (
-            "In use by 045e:02a1 (gamepad)"
+            "Masked · Available to add" if reserved else "In use by 045e:02a1 (gamepad)"
         )
 
     def test_device_in_use_summary_ignores_non_dict_interfaces(self):

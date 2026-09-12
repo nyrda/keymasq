@@ -99,6 +99,10 @@ post_upgrade() {
     echo "  systemctl --user restart keymasq-session"
 }
 
+pre_remove() {
+    systemctl stop keymasqd.service keymasq-maskd.service 2>/dev/null || true
+}
+
 post_remove() {
     echo ""
     echo "Keymasq has been removed."

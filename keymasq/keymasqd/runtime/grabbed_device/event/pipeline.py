@@ -127,6 +127,8 @@ async def event_loop(
             if not device_runtime.running:
                 break
             try:
+                if device_runtime.capture_stream.feed(event):
+                    continue
                 await process_event(device_runtime, event, deps=deps)
                 error_backoff = 0.01
             except Exception:

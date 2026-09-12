@@ -114,6 +114,7 @@ find %{buildroot}%{python3_sitelib} -type f -name '*.py[co]' -delete
 sed -i '/__pycache__/d; /\\.py[co]/d' %{pyproject_files}
 
 install -Dpm0644 systemd/keymasqd.service %{buildroot}%{_unitdir}/keymasqd.service
+install -Dpm0644 systemd/keymasq-maskd.service %{buildroot}%{_unitdir}/keymasq-maskd.service
 install -Dpm0644 systemd/keymasq-session.service %{buildroot}%{_userunitdir}/keymasq-session.service
 install -Dpm0644 sysusers.d/keymasq.conf %{buildroot}%{_sysusersdir}/keymasq.conf
 install -Dpm0644 tmpfiles.d/keymasq.conf %{buildroot}%{_tmpfilesdir}/keymasq.conf
@@ -158,8 +159,10 @@ cat <<'SPEC_TAIL'
 %{_bindir}/keymasq
 %{_bindir}/keymasqd
 %{_bindir}/keymasq-record
+%{_bindir}/keymasq-maskd
 %{_bindir}/keymasq-session
 %{_unitdir}/keymasqd.service
+%{_unitdir}/keymasq-maskd.service
 %{_userunitdir}/keymasq-session.service
 %{_sysusersdir}/keymasq.conf
 %{_tmpfilesdir}/keymasq.conf

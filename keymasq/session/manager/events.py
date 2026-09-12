@@ -866,6 +866,18 @@ def handle_macro_playback_cancelled_event(
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
     device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
+    if data.get("reason") == "hardware_mask_ready":
+        runtime_state.invalidate_grabbed_state(manager)
+        await coordinator.reevaluate_profiles(manager, reason="masked controller ready")
+        return
+    if data.get("reason") == "hardware_mask_recovery":
+        runtime_state.invalidate_grabbed_state(manager)
+        manager.profile_state.runtime_profile_activations.clear()
+        manager.send_notification(
+            "Keymasq: Hardware restored",
+            "Remapping is paused. Resume it from Settings > Hardware masking.",
+        )
+        return
     manager.send_notification(
         "Keymasq: Emergency Reset",
         "Released all grabbed devices. Reapplying active profiles.",

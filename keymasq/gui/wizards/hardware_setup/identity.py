@@ -116,6 +116,8 @@ def interface_source_fields(dev: Mapping[str, Any]) -> dict[str, object]:
             fields[key] = dev[key]
     if bool(dev.get("grabbed_by_keymasq", False)):
         fields["grabbed_by_keymasq"] = True
+    if bool(dev.get("reserved_for_masking", False)):
+        fields["reserved_for_masking"] = True
     for key in (
         "source_hardware_id",
         "source_interface_id",

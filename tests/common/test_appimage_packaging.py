@@ -608,6 +608,7 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
     for name in (
         "keymasq",
         "keymasqd",
+        "keymasq-maskd",
         "keymasq-session",
         "keymasq-record",
         "slurp",
@@ -700,7 +701,7 @@ case "${1:-}" in
   --help)
     exit 0
     ;;
-  keymasq|keymasq-record)
+  keymasq|keymasq-record|keymasq-maskd)
     if [[ "${2:-}" = "--help" ]]; then
       exit 0
     fi

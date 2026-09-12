@@ -419,8 +419,9 @@
               after = [
                 "systemd-udevd.service"
                 "systemd-udev-trigger.service"
+                "keymasq-maskd.service"
               ];
-              wants = [ "systemd-udev-trigger.service" ];
+              wants = [ "systemd-udev-trigger.service" "keymasq-maskd.service" ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";
@@ -451,6 +452,37 @@
                 RuntimeDirectoryMode = "0755";
                 StateDirectory = "keymasq";
                 ReadWritePaths = [ "/run/keymasq" "/var/lib/keymasq" ];
+              };
+            };
+
+            systemd.services.keymasq-maskd = {
+              description = "Keymasq Hardware Masking and Recovery";
+              after = [ "systemd-udevd.service" "systemd-udev-trigger.service" ];
+              before = [ "keymasqd.service" ];
+              path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
+              restartTriggers = [ cfg.package ];
+              serviceConfig = {
+                Type = "notify";
+                ExecStart = "${cfg.package}/bin/keymasq-maskd";
+                WatchdogSec = 20;
+                ExecStopPost = "${cfg.package}/bin/keymasq-maskd --recover-offline";
+                Restart = "on-failure";
+                RestartSec = 2;
+                TimeoutStopSec = 20;
+                User = "root";
+                NoNewPrivileges = true;
+                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" "CAP_CHOWN" "CAP_FOWNER" "CAP_KILL" "CAP_SYS_PTRACE" ];
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateTmp = true;
+                RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" ];
+                RuntimeDirectory = "keymasq-masking";
+                RuntimeDirectoryMode = "0755";
+                RuntimeDirectoryPreserve = "yes";
+                StateDirectory = "keymasq-masking";
+                StateDirectoryMode = "0755";
+                # keymasqd can recreate its runtime directory after a crash.
+                ReadWritePaths = [ "/run" "/var/lib/keymasq-masking" ];
               };
             };
 

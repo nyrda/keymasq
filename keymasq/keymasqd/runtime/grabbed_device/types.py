@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.adapters import (
     DeviceInfo,
     UInputWriter,
 )
+from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
@@ -315,6 +316,7 @@ class ActionRuntime(Protocol):
 class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     def restore_default_output_axes(self) -> None: ...
 
+    capture_stream: InputCaptureStream
     @property
     def access_mode(self) -> InputAccessMode: ...
 

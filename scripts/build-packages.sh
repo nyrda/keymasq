@@ -131,6 +131,8 @@ stage_rpm_support_files() {
 
     cp -f "$REPO_DIR/systemd/keymasqd.service" \
         "$staging_dir/usr/lib/systemd/system/keymasqd.service"
+    cp -f "$REPO_DIR/systemd/keymasq-maskd.service" \
+        "$staging_dir/usr/lib/systemd/system/keymasq-maskd.service"
     cp -f "$REPO_DIR/systemd/keymasq-session.service" \
         "$staging_dir/usr/lib/systemd/user/keymasq-session.service"
     cp -f "$REPO_DIR/sysusers.d/keymasq.conf" \

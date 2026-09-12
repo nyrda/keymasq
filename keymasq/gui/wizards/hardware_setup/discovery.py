@@ -164,7 +164,9 @@ def detect_devices_via_session(
         if not show_raw_evdev_devices and configured_hardware_id:
             continue
         source_fields = interface_source_fields(dev)
-        is_grabbed = bool(source_fields.get("grabbed_by_keymasq", False))
+        is_grabbed = bool(source_fields.get("grabbed_by_keymasq", False)) and not bool(
+            source_fields.get("reserved_for_masking", False)
+        )
         source_hardware_id = str(source_fields.get("source_hardware_id", "") or "")
         if show_raw_evdev_devices and is_grabbed and source_hardware_id:
             hardware_id = source_hardware_id

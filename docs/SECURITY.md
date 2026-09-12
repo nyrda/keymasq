@@ -425,6 +425,36 @@ is not recommended unless you intentionally need that exact trigger.
 
 ## Socket Paths
 
+Hardware masking adds a separate root service, `keymasq-maskd`. It accepts
+one connection from the dedicated `keymasq` account through
+`/run/keymasq-masking/socket`, mode `0660`, with `SO_PEERCRED` checks.
+Root connections can only request recovery. The session and input daemon
+apply the existing unlock policy to Mask, Keep, Resume and startup preference
+changes; recovery remains
+available after unlock expires. No separate Polkit action is added.
+
+Keep saves the confirmed hardware identity and startup preference in root-owned
+state, bound to the desktop UID obtained from the daemon client's credentials.
+This authorizes automatic takeover for that user's subsequent sessions without
+another unlock. GUI-supplied UIDs cannot select the owner. Automatic takeover
+still requires a working replacement within the acquisition deadline. Recovery
+pauses automatic masking across reboots; normal shutdown preserves the saved
+preference for the next session.
+
+The companion owns temporary udev rules, permission snapshots, a rollback
+journal, trial deadlines and the daemon lease. Its bounded capabilities allow
+root-owned device and sysfs access, ownership and ACL restoration, termination
+of an unresponsive owning daemon, and inspection of `/proc/*/fd` links to
+detect raw handles the supported rebind cannot revoke. It does not inspect
+input content. Its writable filesystem state includes `/run` and its own
+persistent state directory. Recovery needs the current `/run/keymasq` after
+daemon restarts, which can replace that directory; a bind mount of the old
+directory cannot restore the new source-hiding markers. Netlink access lets
+`udevadm` wait for device policy updates.
+`keymasqd` retains its existing capability set. See
+[Hardware masking](HARDWARE_MASKING.md) for scope, default passthrough and
+independent recovery behavior.
+
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)
 - session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)
 

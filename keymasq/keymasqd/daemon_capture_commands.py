@@ -1,17 +1,26 @@
 import asyncio
 import logging
+import os
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Protocol, cast
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Protocol, TypedDict, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject, JsonObjectList
+from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
+from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import cleanup_runtime_failure
+from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 
 MIN_CAPTURE_TIMEOUT_S = 1.0
 MAX_CAPTURE_TIMEOUT_S = 15.0
 log = logging.getLogger("keymasqd.capture")
+
+
+class _CaptureBeginExtras(TypedDict, total=False):
+    motion_axis_codes: list[int]
+    borrowed_streams: Mapping[str, InputCaptureStream]
 
 
 class _GrabbedDeviceRef(Protocol):
@@ -59,6 +68,7 @@ class _CaptureCommandCaptureManager(Protocol):
         evdev_interfaces: JsonObjectList | None = None,
         mode: str = "button",
         motion_axis_codes: list[int] | None = None,
+        borrowed_streams: Mapping[str, InputCaptureStream] | None = None,
     ) -> JsonObject: ...
 
     def read(self, token: str) -> JsonObject: ...
@@ -118,14 +128,35 @@ async def handle_capture_command(
             return await daemon.capture_manager.begin_native(
                 hardware_id, native_interfaces, motion_axis_codes
             )
-        return await asyncio.to_thread(
+        reserved = getattr(daemon.device_manager, "masked_hardware_paths", {})
+        borrowed = {
+            os.path.realpath(device.path): cast(GrabbedDevice, device)
+            for hid, devices in daemon.device_manager.grabbed_devices.items()
+            if hid in reserved and mode != "motion"
+            for device in devices
+        }
+        extras: _CaptureBeginExtras = {}
+        if borrowed:
+            extras["borrowed_streams"] = {
+                path: device.capture_stream for path, device in borrowed.items()
+            }
+        if motion_axis_codes:
+            extras["motion_axis_codes"] = motion_axis_codes
+        result = await asyncio.to_thread(
             daemon.capture_manager.begin,
             hardware_id=hardware_id,
             evdev_paths=evdev_paths or None,
             evdev_interfaces=evdev_interfaces or None,
             mode=mode,
-            **({"motion_axis_codes": motion_axis_codes} if motion_axis_codes else {}),
+            **extras,
         )
+        try:
+            for path in cast(list[str], result.pop("borrowed_paths", [])):
+                await cleanup_runtime_failure(borrowed[os.path.realpath(path)], log=log)
+        except BaseException:
+            daemon.capture_manager.end(str(result["token"]))
+            raise
+        return result
 
     if command_type == CommandType.CAPTURE_READ:
         token = str(data.get("token", ""))

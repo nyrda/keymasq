@@ -29,6 +29,10 @@ def is_sensitive_session_command(
         return True
 
     if policy.recording_unlock_required and command in {
+        "mask_hardware",
+        "keep_hardware_mask",
+        "set_hardware_mask_persistence",
+        "resume_hardware",
         "begin_capture",
         "capture_read",
         "end_capture",

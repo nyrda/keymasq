@@ -71,6 +71,7 @@ keymasqd = "keymasq.keymasqd.__main__:main"
 keymasq-session = "keymasq.session.__main__:main"
 keymasq = "keymasq.__main__:main"
 keymasq-record = "keymasq.record:main"
+keymasq-maskd = "keymasq.masking.service:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

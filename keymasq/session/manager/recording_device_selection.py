@@ -305,6 +305,7 @@ async def get_devices_for_recording(
                 "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),
                 "recording_kind": coerce_str(d.get("recording_kind"), "physical"),
                 "grabbed_by_keymasq": is_grabbed,
+                "reserved_for_masking": bool(d.get("reserved_for_masking", False)),
                 "source_hardware_id": coerce_str(d.get("source_hardware_id"), ""),
                 "source_interface_id": coerce_str(d.get("source_interface_id"), ""),
                 "source_stable_path": coerce_str(d.get("source_stable_path"), ""),

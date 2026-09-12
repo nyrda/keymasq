@@ -6,6 +6,12 @@ from typing import Any
 
 
 class CommandType(Enum):
+    HARDWARE_INVENTORY = "hardware_inventory"
+    MASK_HARDWARE = "mask_hardware"
+    KEEP_HARDWARE_MASK = "keep_hardware_mask"
+    RESTORE_HARDWARE = "restore_hardware"
+    RESUME_HARDWARE = "resume_hardware"
+    SET_HARDWARE_MASK_PERSISTENCE = "set_hardware_mask_persistence"
     GRAB_DEVICE = "grab_device"
     RELEASE_DEVICE = "release_device"
     SET_MAPPING = "set_mapping"

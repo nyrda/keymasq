@@ -54,6 +54,9 @@ class DaemonConnectionMixin:
                 log.info("Connected to keymasqd")
                 self._broadcast_keymasqd_status(True)
                 await self._sync_virtual_gamepads_to_daemon()
+                # Establish masking ownership even when no GUI is running.
+                # The daemon supplies the authenticated UID to the root helper.
+                await self.client.send_command(Command(CommandType.HARDWARE_INVENTORY))
 
                 try:
                     await coordinator.activate_initial_profiles(self)

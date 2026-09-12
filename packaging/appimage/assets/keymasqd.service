@@ -1,8 +1,8 @@
 [Unit]
 Description=Keymasq Input Remapping Daemon
 Documentation=https://keymasq.tools/docs/latest/
-After=systemd-udevd.service systemd-udev-trigger.service
-Wants=systemd-udev-trigger.service
+After=systemd-udevd.service systemd-udev-trigger.service keymasq-maskd.service
+Wants=systemd-udev-trigger.service keymasq-maskd.service
 
 [Service]
 Type=notify

@@ -8,6 +8,7 @@ from . import recording_unlock
 from .command.capture import handle_capture_commands
 from .command.compositor import handle_compositor_commands
 from .command.diagnostics import handle_set_diagnostics
+from .command.hardware_masking import handle_hardware_masking_commands
 from .command.inspector import handle_device_inspector_commands
 from .command.macro import handle_macro_commands
 from .command.profile import handle_profile_commands
@@ -43,6 +44,10 @@ async def handle_session_request(
         }
 
     result = await handle_profile_commands(manager, command, request)
+    if result is not None:
+        return result
+
+    result = await handle_hardware_masking_commands(manager, command, request)
     if result is not None:
         return result
 

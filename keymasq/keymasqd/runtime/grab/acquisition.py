@@ -219,6 +219,7 @@ def construct_grabbed_device(
         device_type=detected_type,
         device_types=detected_types,
         default_output=request.default_output,
+        source_reserved=request.hardware_id in getattr(manager, "masked_hardware_paths", {}),
         verbosity=manager.verbosity,
         keyboard_uinput=manager.output_state.keyboard_uinput,
         mouse_uinput=manager.output_state.mouse_uinput,

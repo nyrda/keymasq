@@ -30,6 +30,10 @@ from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
 from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
+from keymasq.keymasqd.runtime.default_controller_route import (
+    DefaultControllerRoute,
+    source_axis_ranges,
+)
 from keymasq.keymasqd.runtime.grabbed_device import grab, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.grabbed_device.types import (
@@ -315,6 +319,7 @@ class GrabbedDevice:
         motion_sensors: dict[str, object] | None = None,
         interface_id: str | None = None,
         access_mode: InputAccessMode | None = None,
+        default_output: str | None = None,
     ) -> None:
         self.path = path
         self.resolved_event_path = os.path.realpath(path)
@@ -392,6 +397,14 @@ class GrabbedDevice:
         self.running = False
         self.source_hidden_kernel_names: list[str] = []
         self.source_pending_hidden_kernel_names: list[str] = []
+        self.default_output = (
+            default_output
+            if default_output not in {None, "passthrough"}
+            and _is_gamepad_passthrough(self.device_type, self.device_types)
+            else None
+        )
+        self.default_route: DefaultControllerRoute | None = None
+        self._default_output_change_pending = False
 
     def update_button_map(
         self,
@@ -458,6 +471,7 @@ class GrabbedDevice:
                 if calibration:
                     self.analog_axis_calibrations[(str(analog_id), role)] = calibration
         self._refresh_analog_axis_ranges()
+        self._refresh_default_route_ranges()
 
     def update_motion_sensors(self, motion_sensors: dict[str, object]) -> None:
         self.motion_sensors = dict(motion_sensors)
@@ -492,6 +506,51 @@ class GrabbedDevice:
                         coerce_float(axis.get("noise"), 0.0),
                     )
 
+    def _refresh_default_route_ranges(self) -> None:
+        route = getattr(self, "default_route", None)
+        if route is not None:
+            route.axis_ranges = dict(route.device_axis_ranges)
+            for binding, bounds in self.analog_axis_ranges.items():
+                code = self.analog_axis_output_codes.get(binding)
+                if code is not None:
+                    route.axis_ranges[code] = bounds
+
+    def restore_default_output_axes(self) -> None:
+        route = self.default_route
+        if route is None or route.snapshot_boundary is not None:
+            return
+        if self.input_paused_getter and self.input_paused_getter():
+            return
+        if self.inspector_suppression_getter and self.inspector_suppression_getter(
+            self.hardware_id
+        ):
+            return
+        mapping = self.mapping_getter()
+        for code, value in route.source_values.items():
+            binding = (int(evdev.ecodes.EV_ABS), code)
+            analog = self.analog_axis_bindings.get(binding)
+            motion = self.motion_axis_bindings.get(binding)
+            control_id = motion[0] if motion else analog[0] if analog else None
+            action = mapping.get(control_id) if control_id else None
+            if action is not None and action.action_type != ActionType.PASSTHROUGH:
+                continue
+            route.emit(self, evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, code, value), sync=False)
+        outputs.flush_passthrough_frame(
+            self, self.state.passthrough_frame_output, uinput_writer=identity_uinput_writer
+        )
+
+    async def update_default_output(self, output_id: str | None) -> None:
+        if not _is_gamepad_passthrough(self.device_type, self.device_types):
+            return
+        output_id = output_id if output_id not in {None, "passthrough"} else None
+        if self.default_output == output_id and not self._default_output_change_pending:
+            return
+        self._default_output_change_pending = True
+        await self.release()
+        self.default_output = output_id
+        await self.grab()
+        self._default_output_change_pending = False
+
     async def reset_mapping_runtime_state(
         self,
         previous_mapping: dict[str, MappingAction] | None = None,
@@ -509,6 +568,15 @@ class GrabbedDevice:
             if previous_mapping is not None
             else set[str]()
         )
+        if self.default_route is not None:
+            mapping = self.mapping_getter()
+            consumed_axes = {
+                code
+                for (_, code), (analog_id, _) in self.analog_axis_bindings.items()
+                if (action := mapping.get(analog_id)) is not None
+                and action.action_type != ActionType.PASSTHROUGH
+            }
+            self.default_route.release_axes(self, consumed_axes)
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
         self.reset_motion_controls()
         initialize_motion_state(self, self.mapping_getter())
@@ -600,90 +668,98 @@ class GrabbedDevice:
 
         try:
             self._refresh_analog_axis_ranges()
-            caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
             is_gamepad_passthrough = _is_gamepad_passthrough(
                 self.device_type,
                 self.device_types,
             )
-
-            passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
-                _passthrough_name(
-                    self.device,
-                    self.hardware_id,
-                    self.interface_id,
-                    is_gamepad=is_gamepad_passthrough,
-                ),
-                "passthrough",
-                test_name=f"passthrough-{self.hardware_id}",
-            )
-            passthrough_vendor = _int_u16(passthrough_vendor)
-            passthrough_product = _int_u16(passthrough_product)
-            passthrough_version: int | None = None
-            passthrough_bustype: int | None = None
-            passthrough_input_props = None
-            if is_gamepad_passthrough and (
-                passthrough_vendor is None or passthrough_product is None
-            ):
-                (
-                    passthrough_vendor,
-                    passthrough_product,
-                    passthrough_version,
-                    passthrough_bustype,
-                ) = _passthrough_input_id(self.device, self.hardware_id)
-                passthrough_input_props = _passthrough_input_props(self.device)
-
-            if passthrough_vendor is None or passthrough_product is None:
-                passthrough_version = None
-                passthrough_bustype = None
-                passthrough_input_props = None
-
-            supports_max_effects = uinput_supports_max_effects(evdev.UInput)
-            if ff_max_effects > 0 and not supports_max_effects:
-                log.debug(
-                    "python-evdev UInput does not support max_effects; "
-                    "using evdev's default force-feedback capacity for %s",
-                    self.path,
+            if self.default_output is not None:
+                self.default_route = DefaultControllerRoute(
+                    self.default_output, source_axis_ranges(self.device.capabilities())
                 )
+                self._refresh_default_route_ranges()
+            else:
+                self.default_route = None
+                caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
 
-            def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
-                return create_uinput_with_permission_hint(
-                    "passthrough",
-                    lambda: evdev.UInput(
-                        **_passthrough_uinput_kwargs(
-                            caps=caps,
-                            passthrough_name=passthrough_name,
-                            passthrough_vendor=passthrough_vendor,
-                            passthrough_product=passthrough_product,
-                            passthrough_version=passthrough_version,
-                            passthrough_bustype=passthrough_bustype,
-                            passthrough_input_props=passthrough_input_props,
-                            ff_max_effects=max_effects,
-                            supports_max_effects=supports_max_effects,
-                        )
+                passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
+                    _passthrough_name(
+                        self.device,
+                        self.hardware_id,
+                        self.interface_id,
+                        is_gamepad=is_gamepad_passthrough,
                     ),
+                    "passthrough",
+                    test_name=f"passthrough-{self.hardware_id}",
                 )
+                passthrough_vendor = _int_u16(passthrough_vendor)
+                passthrough_product = _int_u16(passthrough_product)
+                passthrough_version: int | None = None
+                passthrough_bustype: int | None = None
+                passthrough_input_props = None
+                if is_gamepad_passthrough and (
+                    passthrough_vendor is None or passthrough_product is None
+                ):
+                    (
+                        passthrough_vendor,
+                        passthrough_product,
+                        passthrough_version,
+                        passthrough_bustype,
+                    ) = _passthrough_input_id(self.device, self.hardware_id)
+                    passthrough_input_props = _passthrough_input_props(self.device)
 
-            self.uinput = await _create_passthrough_uinput(
-                lambda: make_passthrough_uinput(ff_max_effects)
-            )
-            if force_feedback.has_passthrough_output_feedback(caps):
-                try:
-                    self._start_output_feedback_proxy()
-                except Exception:  # noqa: BLE001 - retry without advertised feedback support.
-                    log.warning(
-                        "Disabling passthrough output feedback for %s after proxy start failure",
+                if passthrough_vendor is None or passthrough_product is None:
+                    passthrough_version = None
+                    passthrough_bustype = None
+                    passthrough_input_props = None
+
+                supports_max_effects = uinput_supports_max_effects(evdev.UInput)
+                if ff_max_effects > 0 and not supports_max_effects:
+                    log.debug(
+                        "python-evdev UInput does not support max_effects; "
+                        "using evdev's default force-feedback capacity for %s",
                         self.path,
-                        exc_info=True,
                     )
-                    await asyncio.to_thread(
-                        _close_passthrough_uinput, self.uinput, context="output-feedback retry"
+
+                def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
+                    return create_uinput_with_permission_hint(
+                        "passthrough",
+                        lambda: evdev.UInput(
+                            **_passthrough_uinput_kwargs(
+                                caps=caps,
+                                passthrough_name=passthrough_name,
+                                passthrough_vendor=passthrough_vendor,
+                                passthrough_product=passthrough_product,
+                                passthrough_version=passthrough_version,
+                                passthrough_bustype=passthrough_bustype,
+                                passthrough_input_props=passthrough_input_props,
+                                ff_max_effects=max_effects,
+                                supports_max_effects=supports_max_effects,
+                            )
+                        ),
                     )
-                    self.uinput = None
-                    force_feedback.disable_passthrough_output_feedback(caps)
-                    ff_max_effects = 0
-                    self.uinput = await _create_passthrough_uinput(
-                        lambda: make_passthrough_uinput(ff_max_effects)
-                    )
+
+                self.uinput = await _create_passthrough_uinput(
+                    lambda: make_passthrough_uinput(ff_max_effects)
+                )
+                if force_feedback.has_passthrough_output_feedback(caps):
+                    try:
+                        self._start_output_feedback_proxy()
+                    except Exception:  # noqa: BLE001 - retry without advertised feedback support.
+                        log.warning(
+                            "Disabling passthrough output feedback for %s "
+                            "after proxy start failure",
+                            self.path,
+                            exc_info=True,
+                        )
+                        await asyncio.to_thread(
+                            _close_passthrough_uinput, self.uinput, context="output-feedback retry"
+                        )
+                        self.uinput = None
+                        force_feedback.disable_passthrough_output_feedback(caps)
+                        ff_max_effects = 0
+                        self.uinput = await _create_passthrough_uinput(
+                            lambda: make_passthrough_uinput(ff_max_effects)
+                        )
 
             await grab.wait_for_active_keys_to_clear(
                 self,
@@ -850,6 +926,16 @@ class GrabbedDevice:
 
     def _combo_binding_output(self, evdev_name: str) -> tuple[object, int, str] | None:
         held_action = cast(MappingAction | None | object, self._combo_binding_action(evdev_name))
+        if self.default_route is not None and (
+            held_action is None
+            or isinstance(held_action, MappingAction)
+            and held_action.action_type == ActionType.PASSTHROUGH
+        ):
+            target = self.default_route.target(self)
+            code = resolve_output_code(evdev_name)
+            if target is None or code not in target.button_codes:
+                return None
+            return (target.uinput, int(code), target.bucket)
         if held_action is None:
             if not self.uinput:
                 return None
@@ -928,7 +1014,9 @@ class GrabbedDevice:
             uinput_writer=identity_uinput_writer,
             bucket=bucket,
         )
-        if bucket == "passthrough":
+        if bucket == "passthrough" or (
+            self.default_route is not None and self._combo_binding_action(evdev_name) is None
+        ):
             self.state.combo_passthrough_held.add(str(evdev_name or "").lower())
 
     def combo_passthrough_binding_active(self, evdev_name: str) -> bool:

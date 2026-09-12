@@ -32,6 +32,7 @@ class DesiredGrabConfig:
     motion_sensors: dict[str, object] = field(default_factory=dict)
     force_grab_unmapped: bool = False
     evdev_interfaces: list[JsonObject] = field(default_factory=list)
+    default_output: str | None = None
 
 
 @dataclass
@@ -78,6 +79,7 @@ class GrabRequest:
     force_grab_unmapped: bool = False
     evdev_interfaces: list[JsonObject] | None = None
     update_desired: bool = True
+    default_output: str | None = None
 
 
 @dataclass(frozen=True)

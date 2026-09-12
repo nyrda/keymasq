@@ -152,6 +152,10 @@ def update_button_display(
     describe_mapping_for_button: Callable[[MappingAction, ButtonDefinition | None], str],
     describe_passthrough: Callable[[ButtonDefinition], str],
     action_summary_chars: int,
+    describe_analog_passthrough: Callable[[AnalogInputDefinition], str | None] | None = None,
+    describe_default_output: Callable[
+        [ButtonDefinition | AnalogInputDefinition], tuple[str, str] | None
+    ] | None = None,
 ) -> None:
     widget = button_widgets.get(button_id)
     if not widget:
@@ -194,6 +198,12 @@ def update_button_display(
 
     if mapping:
         description = describe_mapping_for_button(mapping, button)
+        if (
+            mapping.action_type == ActionType.PASSTHROUGH
+            and analog is not None
+            and describe_analog_passthrough is not None
+        ):
+            description = describe_analog_passthrough(analog) or description
         set_action_label_text(
             action_label,
             description,
@@ -225,6 +235,8 @@ def update_button_display(
             describe_passthrough,
             motion=motion is not None,
         )
+        if analog is not None and describe_analog_passthrough is not None:
+            passthrough_label = describe_analog_passthrough(analog) or passthrough_label
         set_action_label_text(
             action_label,
             passthrough_label,
@@ -241,6 +253,16 @@ def update_button_display(
         else:
             widget.set_tooltip_text(None)
 
+    if describe_default_output is not None and (
+        mapping is None or mapping.action_type == ActionType.PASSTHROUGH
+    ):
+        control = button or analog
+        presentation = describe_default_output(control) if control is not None else None
+        if presentation is not None:
+            summary, detail = presentation
+            set_action_label_text(action_label, summary, max_chars=action_summary_chars)
+            action_label.set_tooltip_text(detail)
+
 
 def _passthrough_label(
     button: ButtonDefinition | None,
@@ -251,8 +273,6 @@ def _passthrough_label(
 ) -> str:
     if button is not None:
         return describe_passthrough(button)
-    if analog is not None and analog.type == "axis":
-        return "Axis passthrough"
     if motion:
         return "Motion passthrough"
-    return "Analog passthrough"
+    return "Passthrough"

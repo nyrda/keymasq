@@ -12,11 +12,13 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq import __version__
+from keymasq.common.controller_routing import is_controller_interface
 from keymasq.common.devices import is_keymasq_device_path
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig, NativeInputSource
 from keymasq.common.model.motion import MotionSensorDefinition
-from keymasq.gui.session_client import session_request_async
+from keymasq.gui.session_client import GuiTaskResult, run_gui_task, session_request_async
+from keymasq.gui.widgets.controller_output import ControllerOutputGroup
 from keymasq.gui.widgets.device_tab.motion_calibration_dialog import (
     MotionCalibrationDialog,
 )
@@ -164,6 +166,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         on_rename_device: RenameDeviceCallback,
         *,
         can_delete_profile_mappings: bool,
+        on_output_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(
             title="Hardware Settings",
@@ -173,6 +176,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         if hasattr(self, "set_modal"):
             self.set_modal(True)
 
+        self._on_output_changed = on_output_changed
         self._parent = parent
         self._hardware_config = hardware_config
         self._hardware_manager = hardware_manager
@@ -191,6 +195,26 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._updating_detection_method = False
 
         self._setup_ui()
+
+    def _save_output(self, output_id: str) -> None:
+        config = deepcopy(self._hardware_config)
+        config.default_output = output_id
+        self.set_sensitive(False)
+        self.set_can_close(False)
+
+        def saved(result: GuiTaskResult[None]) -> None:
+            self.set_sensitive(True)
+            self.set_can_close(True)
+            if result.error is not None:
+                self._output_group.restore_output(self._hardware_config.default_output)
+                self._status_label.set_label(f"Could not save controller output: {result.error}")
+                return
+            self._hardware_config.default_output = output_id
+            self._status_label.set_label("Controller output saved.")
+            if self._on_output_changed is not None:
+                self._on_output_changed()
+
+        run_gui_task(lambda: self._hardware_manager.save_hardware(config), saved)
 
     def _setup_ui(self) -> None:
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -222,6 +246,11 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._identity_row = identity_row
         identity_group.add(identity_row)
         box.append(identity_group)
+
+        self._output_group = ControllerOutputGroup(
+            self._hardware_config.default_output, self._save_output
+        )
+        box.append(self._output_group)
 
         self._interfaces_group = Adw.PreferencesGroup(title="Attached Event Devices")
         box.append(self._interfaces_group)
@@ -290,6 +319,9 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._refresh_motion_rows()
 
     def _refresh_interface_rows(self) -> None:
+        self._output_group.set_visible(
+            any(is_controller_interface(device) for device in self._hardware_config.evdev_devices)
+        )
         for row in self._interface_rows:
             self._interfaces_group.remove(row)
         self._interface_rows = []

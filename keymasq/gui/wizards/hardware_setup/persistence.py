@@ -16,6 +16,8 @@ from . import templates
 
 class PersistenceMixin:
     def _persist_config(self: Any, config: HardwareConfig) -> None:
+        if self._template_state.current == "gamepad":
+            config.default_output = self.controller_output.output_id
         self.hardware_manager.save_hardware(config)
         self.emit("device-created", config)
         self.close()

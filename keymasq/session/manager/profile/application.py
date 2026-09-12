@@ -475,7 +475,7 @@ async def _send_set_mapping_command(
                     "hardware_id": hardware_id,
                     "mapping": prepared.payload,
                 },
-            )
+            ),
         )
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
@@ -483,12 +483,10 @@ async def _send_set_mapping_command(
             if cancelled:
                 raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
-            manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
-                mapping.signature(
-                    manager,
-                    resolved,
-                    hardware_id,
-                )
+            manager.profile_state.last_sent_mapping_signatures[hardware_id] = mapping.signature(
+                manager,
+                resolved,
+                hardware_id,
             )
             log.info(
                 "Activated resolved profiles %s for %s",
@@ -548,7 +546,11 @@ async def apply_resolved_device_profile(
             resolved,
         )
 
-    if not resolved.has_effective_mapping and not inspector_active:
+    hardware_route_active = getattr(hardware_config, "default_output", "passthrough") not in {
+        None,
+        "passthrough",
+    }
+    if not resolved.has_effective_mapping and not inspector_active and not hardware_route_active:
         operations.cancel_grab_retry(manager, hardware_id)
         manager.profile_state.grab_waiting_devices.discard(hardware_id)
         manager.profile_state.grab_status.pop(hardware_id, None)
@@ -754,7 +756,7 @@ async def update_combos(
             Command(
                 command=CommandType.SET_COMBOS,
                 data={"combos": payload},
-            )
+            ),
         )
         if result.status != "ok":
             if cancelled:
@@ -822,7 +824,7 @@ async def update_mapping(
                     "hardware_id": hardware_id,
                     "mapping": serialized_mapping,
                 },
-            )
+            ),
         )
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)

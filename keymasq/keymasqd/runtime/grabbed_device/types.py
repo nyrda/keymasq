@@ -313,6 +313,8 @@ class ActionRuntime(Protocol):
 
 
 class GrabbedDeviceRuntime(ActionRuntime, Protocol):
+    def restore_default_output_axes(self) -> None: ...
+
     @property
     def access_mode(self) -> InputAccessMode: ...
 

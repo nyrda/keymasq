@@ -61,6 +61,7 @@ class ProfilePresentationMixin:
         container.append(grab_group)
 
     def _update_extra_profile_settings(self: Any) -> None:
+        self._refresh_default_output_templates()
         self._sync_always_grab_device_list()
         for hardware_id, switch_row in self.always_grab_checks.items():
             layer = self._profile_layer_for_hardware(hardware_id)

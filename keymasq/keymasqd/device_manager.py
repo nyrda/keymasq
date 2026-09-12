@@ -315,6 +315,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         analog_inputs: dict[str, object] | None = None,
         motion_sensors: dict[str, object] | None = None,
         force_grab_unmapped: bool = False,
+        default_output: str | None = None,
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
         async with self._op_lock:
@@ -327,6 +328,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 analog_inputs=analog_inputs,
                 motion_sensors=motion_sensors,
                 force_grab_unmapped=force_grab_unmapped,
+                default_output=default_output,
                 evdev_interfaces=evdev_interfaces,
                 update_desired=True,
             )

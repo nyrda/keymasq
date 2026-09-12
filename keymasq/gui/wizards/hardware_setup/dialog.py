@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttrib
 
 from keymasq.common.devices import find_all_interfaces, resolve_stable_path
 from keymasq.gui.session_client import GuiTaskResult, run_gui_task
+from keymasq.gui.widgets.controller_output import ControllerOutputGroup
 from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
 from keymasq.gui.wizards.hardware_setup import templates
 from keymasq.gui.wizards.hardware_setup.flow import DiscoveryMixin
@@ -259,7 +260,13 @@ class HardwareSetupDialog(
             "Custom profile saves the selected raw evdev interface without preset "
             "buttons. Add controls later with Learn Buttons."
         )
-        self.stack.add_titled(box, "describe", "Describe Device")
+        self.controller_output = ControllerOutputGroup()
+        self.controller_output.set_visible(False)
+        box.append(self.controller_output)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_child(box)
+        self.stack.add_titled(scrolled, "describe", "Describe Device")
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()

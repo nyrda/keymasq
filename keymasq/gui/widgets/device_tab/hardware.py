@@ -47,10 +47,15 @@ class HardwareSettingsMixin:
             self._stable_detection_status_for_evdev_device,
             self._show_device_rename_dialog,
             can_delete_profile_mappings=self.profile_manager is not None,
+            on_output_changed=self._on_hardware_output_changed,
         )
         dialog.connect("closed", self._on_hardware_settings_dialog_closed)
         self._hardware_settings_dialog = dialog
         self._present_hardware_settings_dialog(dialog, parent)
+
+    def _on_hardware_output_changed(self: Any) -> None:
+        self._request_session_async({"command": "reload"}, self._ignore_session_response)
+        self._refresh_default_output_templates()
 
     def _hardware_settings_parent(self: Any) -> Gtk.Window | None:
         root = self.main_window or self.get_root()

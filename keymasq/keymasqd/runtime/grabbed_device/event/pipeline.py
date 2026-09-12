@@ -22,6 +22,7 @@ from keymasq.keymasqd.runtime.analog_controls import (
     observe_analog_source_event,
     process_analog_syn_event,
 )
+from keymasq.keymasqd.runtime.default_controller_route import controller_route
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.event.analog import dispatch_analog_event
 from keymasq.keymasqd.runtime.grabbed_device.event.classification import (
@@ -118,7 +119,7 @@ async def event_loop(
     deps = build_event_processing_deps(log=log)
 
     try:
-        if device_runtime.analog_axis_bindings:
+        if device_runtime.analog_axis_bindings or controller_route(device_runtime) is not None:
             # Establish unchanged coordinates before consuming any historical report.
             await read_missing_source_axes(device_runtime, deps=deps.action_deps)
         async for event in read_events(device_runtime):
@@ -289,6 +290,26 @@ async def process_event(
     *,
     deps: EventProcessingDeps,
 ) -> None:
+    route = controller_route(device_runtime)
+    if route is not None and route.snapshot_boundary is None:
+        if int(event.type) == int(deps.evdev_mod.ecodes.EV_ABS):
+            route.source_values[int(event.code)] = int(event.value)
+        elif int(event.type) == int(deps.evdev_mod.ecodes.EV_SYN) and int(event.code) == int(
+            deps.evdev_mod.ecodes.SYN_DROPPED
+        ):
+            route.source_values.clear()
+    await _process_ordered_event(device_runtime, event, deps=deps)
+    if route is not None and route.snapshot_boundary is event:
+        route.snapshot_boundary = None
+        device_runtime.restore_default_output_axes()
+
+
+async def _process_ordered_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    deps: EventProcessingDeps,
+) -> None:
     """Keep buttons after preceding area axes until their complete report is known."""
     state = device_runtime.state
     ecodes = deps.evdev_mod.ecodes
@@ -311,7 +332,7 @@ async def process_event(
         if keys:
             outputs.flush_passthrough_frame(
                 device_runtime,
-                device_runtime.uinput,
+                state.passthrough_frame_output,
                 uinput_writer=identity_uinput_writer,
             )
 

@@ -31,6 +31,12 @@ class DefaultControllerRoute:
     output_id: str
     axis_ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
     axes: dict[int, GamepadOutputTarget] = field(default_factory=dict)
+    device_axis_ranges: dict[int, tuple[int, int]] = field(init=False)
+    source_values: dict[int, int] = field(default_factory=dict)
+    snapshot_boundary: InputEventLike | None = None
+
+    def __post_init__(self) -> None:
+        self.device_axis_ranges = dict(self.axis_ranges)
 
     def target(self, runtime: ActionRuntime) -> GamepadOutputTarget | None:
         target = runtime.resolve_gamepad_output(self.output_id, "default controller route")
@@ -44,6 +50,8 @@ class DefaultControllerRoute:
         )
 
     def emit(self, runtime: ActionRuntime, event: InputEventLike, *, sync: bool) -> None:
+        if event.type == evdev.ecodes.EV_ABS and self.snapshot_boundary is not None:
+            return
         target = self.target(runtime)
         if target is None:
             return

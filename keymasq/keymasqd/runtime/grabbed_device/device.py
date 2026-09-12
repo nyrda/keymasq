@@ -509,10 +509,35 @@ class GrabbedDevice:
     def _refresh_default_route_ranges(self) -> None:
         route = getattr(self, "default_route", None)
         if route is not None:
+            route.axis_ranges = dict(route.device_axis_ranges)
             for binding, bounds in self.analog_axis_ranges.items():
                 code = self.analog_axis_output_codes.get(binding)
                 if code is not None:
                     route.axis_ranges[code] = bounds
+
+    def restore_default_output_axes(self) -> None:
+        route = self.default_route
+        if route is None or route.snapshot_boundary is not None:
+            return
+        if self.input_paused_getter and self.input_paused_getter():
+            return
+        if self.inspector_suppression_getter and self.inspector_suppression_getter(
+            self.hardware_id
+        ):
+            return
+        mapping = self.mapping_getter()
+        for code, value in route.source_values.items():
+            binding = (int(evdev.ecodes.EV_ABS), code)
+            analog = self.analog_axis_bindings.get(binding)
+            motion = self.motion_axis_bindings.get(binding)
+            control_id = motion[0] if motion else analog[0] if analog else None
+            action = mapping.get(control_id) if control_id else None
+            if action is not None and action.action_type != ActionType.PASSTHROUGH:
+                continue
+            route.emit(self, evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, code, value), sync=False)
+        outputs.flush_passthrough_frame(
+            self, self.state.passthrough_frame_output, uinput_writer=identity_uinput_writer
+        )
 
     async def update_default_output(self, output_id: str | None) -> None:
         if not _is_gamepad_passthrough(self.device_type, self.device_types):

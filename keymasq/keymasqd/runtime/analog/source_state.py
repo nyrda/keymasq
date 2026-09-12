@@ -1,5 +1,6 @@
 """Physical axis coordinates, independent of mappings and stroke references."""
 
+from keymasq.keymasqd.runtime.default_controller_route import controller_route
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -14,8 +15,14 @@ async def read_missing_source_axes(
 ) -> bool:
     """Replace coordinates at a drained input boundary, never mix ioctl and history."""
     values = device_runtime.state.analog_source_axis_values
-    bindings = dict(device_runtime.analog_axis_bindings)
-    missing = bindings.keys() - values.keys()
+    analog_bindings = dict(device_runtime.analog_axis_bindings)
+    bindings = set(analog_bindings)
+    route = controller_route(device_runtime)
+    if route is not None:
+        bindings.update(
+            (int(deps.evdev_mod.ecodes.EV_ABS), code) for code in route.device_axis_ranges
+        )
+    missing = bindings - values.keys()
     if not missing:
         return True
     device = device_runtime.device
@@ -72,9 +79,16 @@ async def read_missing_source_axes(
     if (
         snapshot is None
         or device_runtime.device is not device
-        or device_runtime.analog_axis_bindings != bindings
+        or device_runtime.analog_axis_bindings != analog_bindings
+        or controller_route(device_runtime) is not route
     ):
         return False
     values.clear()
     values.update(snapshot)
+    if route is not None:
+        route.source_values = {code: value for (_, code), value in snapshot.items()}
+        pending = device_runtime.state.input_event_buffer
+        route.snapshot_boundary = pending[-1] if pending else None
+        if route.snapshot_boundary is None:
+            device_runtime.restore_default_output_axes()
     return not drained_axes

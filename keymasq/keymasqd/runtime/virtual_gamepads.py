@@ -147,6 +147,11 @@ async def reconfigure_virtual_gamepads(
 
     if output_devices_active:
         configure_outputs(count)
+        for devices in grabbed_devices.values():
+            for device in devices:
+                restore_axes = getattr(device, "restore_default_output_axes", None)
+                if callable(restore_axes):
+                    restore_axes()
     else:
         set_inactive_count(count)
     logger.info("Configured %d virtual gamepad output(s)", count)

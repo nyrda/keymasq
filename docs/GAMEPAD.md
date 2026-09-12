@@ -55,6 +55,9 @@ the source and destination minimum and maximum values. Saved source bounds
 override device-reported bounds. Inputs with no matching destination code, or
 axes without usable source bounds, produce no output. Relative and miscellaneous
 events are not forwarded to the controller output.
+Current axis positions are sent when routing starts or the virtual output is
+recreated, even if the physical axes have not moved. Mapped axes keep their
+explicit actions. Removing saved axis bounds restores the device-reported bounds.
 
 Routing does not infer control roles or convert between buttons and axes. For
 example, a digital `BTN_TL2` remains `BTN_TL2`; it does not drive `ABS_Z`.

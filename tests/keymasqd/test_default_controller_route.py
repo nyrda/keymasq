@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import deque
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -7,6 +8,7 @@ import evdev
 import pytest
 
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.virtual_device_templates import (
     VirtualDeviceConfig,
@@ -15,6 +17,7 @@ from keymasq.common.virtual_device_templates import (
 )
 from keymasq.keymasqd.runtime.default_controller_route import DefaultControllerRoute
 from keymasq.keymasqd.runtime.grabbed_device import device as device_module
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import process_event
 from keymasq.keymasqd.runtime.virtual_gamepads import (
     GamepadOutputRouter,
@@ -34,9 +37,13 @@ class Output(FakeUInput):
         super().__init__()
         self.frames = 0
         self.closed = False
+        self.packets = []
+        self._flushed = 0
 
     def syn(self):
         self.frames += 1
+        self.packets.append(self.writes[self._flushed:])
+        self._flushed = len(self.writes)
 
     def close(self):
         self.closed = True
@@ -168,7 +175,7 @@ async def test_output_replacement_releases_old_state_and_uses_new_instance(route
     assert (E.EV_KEY, E.BTN_SOUTH, 0) in writer.writes
     assert (E.EV_ABS, E.ABS_X, 0) in writer.writes
     await send(device, E.EV_ABS, E.ABS_X, 0)
-    assert replacement.writes == [(E.EV_ABS, E.ABS_X, -32768)]
+    assert replacement.writes == [(E.EV_ABS, E.ABS_X, 32767), (E.EV_ABS, E.ABS_X, -32768)]
 
 
 async def test_missing_target_drops_output_without_clone_fallback(routed):
@@ -264,3 +271,129 @@ async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch
     finally:
         await device.release()
     assert not writer.closed
+
+
+async def test_deferred_routed_release_is_flushed_in_its_source_report(routed):
+    device, writer, mapping, _ = routed
+    device.device = SimpleNamespace(
+        absinfo=lambda code: evdev.AbsInfo(128, 0, 255, 0, 0, 0),
+        read_one=lambda: None,
+    )
+    device.update_analog_inputs({
+        "stick": {"type": "stick", "axes": [
+            {"role": "x", "evdev": "abs_x"},
+            {"role": "y", "evdev": "abs_y"},
+        ]},
+    })
+    mapping["stick"] = MappingAction(
+        action_type=ActionType.ANALOG_CONTROL,
+        analog_control_config=AnalogControlConfig(
+            name="Area", mouse_motion=AnalogMouseMotionConfig(enabled=True, mode="area")
+        ),
+    )
+    await send(device, E.EV_KEY, E.BTN_SOUTH, 1)
+    await send(device, E.EV_SYN, E.SYN_REPORT, 0)
+    await send(device, E.EV_ABS, E.ABS_X, 128)
+    await send(device, E.EV_KEY, E.BTN_SOUTH, 0)
+    assert device.state.analog_deferred_keys
+    assert (E.EV_KEY, E.BTN_SOUTH, 0) not in writer.writes
+    await send(device, E.EV_SYN, E.SYN_REPORT, 0)
+    assert any((E.EV_KEY, E.BTN_SOUTH, 0) in packet for packet in writer.packets)
+    assert device.state.passthrough_frame_output is None
+
+
+@pytest.mark.parametrize("action_type", [None, ActionType.PASSTHROUGH, ActionType.SUPPRESS])
+async def test_startup_and_replacement_publish_unchanged_axes(monkeypatch, routed, action_type):
+    device, writer, mapping, state = routed
+    device.default_route = DefaultControllerRoute("virtual-gamepad-1", {E.ABS_X: (0, 255)})
+    device.device = SimpleNamespace(
+        absinfo=lambda code: evdev.AbsInfo(255, 0, 255, 0, 0, 0),
+        read_one=lambda: None,
+    )
+    if action_type is None:
+        # Raw axes need initialization even without saved analog definitions.
+        device.update_analog_inputs({})
+    else:
+        mapping["stick"] = MappingAction(action_type=action_type)
+
+    async def no_new_events(runtime):
+        while runtime.state.input_event_buffer:
+            yield runtime.state.input_event_buffer.popleft()
+
+    monkeypatch.setattr(pipeline, "read_events", no_new_events)
+    device.running = True
+    await pipeline.event_loop(device, asyncio_mod=asyncio, log=logging.getLogger(__name__))
+    expected = [] if action_type == ActionType.SUPPRESS else [(E.EV_ABS, E.ABS_X, 32767)]
+    assert writer.writes == expected
+    assert writer.packets == ([expected] if expected else [])
+    replacement = Output()
+    await reconfigure_virtual_gamepads(
+        count=1, current_count=1, output_devices_active=True,
+        grabbed_devices={device.hardware_id: [device]},
+        clear_combo_runtime=AsyncMock(),
+        configure_outputs=lambda _: state.virtual_gamepad_uinputs.update(
+            {"virtual-gamepad-1": replacement}
+        ),
+        set_inactive_count=Mock(), logger=logging.getLogger(__name__),
+        configuration_changed=True,
+    )
+    assert replacement.writes == expected
+    assert replacement.packets == ([expected] if expected else [])
+
+
+async def test_initial_snapshot_does_not_replay_older_queued_axes(monkeypatch, routed):
+    device, writer, _, _ = routed
+    device.default_route = DefaultControllerRoute("virtual-gamepad-1", {E.ABS_X: (0, 255)})
+    queued = deque(evdev.InputEvent(0, 0, kind, code, value) for kind, code, value in [
+        (E.EV_ABS, E.ABS_X, 32),
+        (E.EV_KEY, E.BTN_SOUTH, 1),
+        (E.EV_SYN, E.SYN_REPORT, 0),
+        (E.EV_ABS, E.ABS_X, 64),
+        (E.EV_KEY, E.BTN_SOUTH, 0),
+        (E.EV_SYN, E.SYN_REPORT, 0),
+    ])
+    device.device = SimpleNamespace(
+        absinfo=lambda code: evdev.AbsInfo(255, 0, 255, 0, 0, 0),
+        read_one=lambda: queued.popleft() if queued else None,
+    )
+
+    async def buffered_events(runtime):
+        while runtime.state.input_event_buffer:
+            yield runtime.state.input_event_buffer.popleft()
+
+    monkeypatch.setattr(pipeline, "read_events", buffered_events)
+    device.running = True
+    await pipeline.event_loop(device, asyncio_mod=asyncio, log=logging.getLogger(__name__))
+    assert writer.writes == [
+        (E.EV_KEY, E.BTN_SOUTH, 1), (E.EV_KEY, E.BTN_SOUTH, 0),
+        (E.EV_ABS, E.ABS_X, 32767),
+    ]
+    assert writer.packets[-1] == [(E.EV_ABS, E.ABS_X, 32767)]
+    assert device.default_route.source_values[E.ABS_X] == 255
+    await send(device, E.EV_ABS, E.ABS_X, 0)
+    assert writer.writes[-1] == (E.EV_ABS, E.ABS_X, -32768)
+
+
+@pytest.mark.parametrize("replacement_code", [None, "abs_rz"])
+async def test_removing_or_rebinding_saved_axis_restores_device_bounds(routed, replacement_code):
+    device, writer, _, _ = routed
+    route = device.default_route
+    device.device = SimpleNamespace(
+        absinfo=lambda code: evdev.AbsInfo(0, 0, 255 if code == E.ABS_X else 1023, 0, 0, 0)
+    )
+
+    def definition(code):
+        return {"stick": {"type": "axis", "axes": [
+            {"role": "x", "evdev": code, "minimum": 20, "maximum": 235},
+        ]}}
+
+    device.update_analog_inputs(definition("abs_x"))
+    assert route.axis_ranges[E.ABS_X] == (20, 235)
+    device.update_analog_inputs(definition(replacement_code) if replacement_code else {})
+    await device.update_default_output("virtual-gamepad-1")
+    assert device.default_route is route
+    assert route.axis_ranges[E.ABS_X] == (0, 255)
+    if replacement_code:
+        assert route.axis_ranges[E.ABS_RZ] == (20, 235)
+    await send(device, E.EV_ABS, E.ABS_X, 128)
+    assert writer.writes == [(E.EV_ABS, E.ABS_X, 128)]

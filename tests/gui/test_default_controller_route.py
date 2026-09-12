@@ -148,6 +148,27 @@ def test_setup_and_hardware_settings_save_stable_output(monkeypatch, tmp_path):
     assert "disk full" in settings._status_label.get_label()
     changed.assert_called_once()
 
+    pending = []
+    monkeypatch.setattr(
+        hardware_settings_dialog, "run_gui_task", lambda worker, cb: pending.append((worker, cb))
+    )
+    settings._output_group.row.set_selected(1)
+    assert not settings.get_sensitive()
+    assert not settings.get_can_close()
+    worker, callback = pending.pop()
+    callback(GuiTaskResult(value=worker()))
+    assert settings.get_sensitive()
+    assert settings.get_can_close()
+    assert hardware.default_output == "virtual-gamepad-1"
+
+    devices = list(hardware.evdev_devices)
+    hardware.evdev_devices.clear()
+    settings._refresh_interface_rows()
+    assert not settings._output_group.get_visible()
+    hardware.evdev_devices.extend(devices)
+    settings._refresh_interface_rows()
+    assert settings._output_group.get_visible()
+
 
 def test_unavailable_hardware_output_is_preserved(monkeypatch):
     from keymasq.gui.session_client import GuiTaskResult

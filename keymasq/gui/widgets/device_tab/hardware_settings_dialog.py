@@ -199,10 +199,12 @@ class HardwareSettingsDialog(Adw.Dialog):
     def _save_output(self, output_id: str) -> None:
         config = deepcopy(self._hardware_config)
         config.default_output = output_id
-        self._output_group.set_sensitive(False)
+        self.set_sensitive(False)
+        self.set_can_close(False)
 
         def saved(result: GuiTaskResult[None]) -> None:
-            self._output_group.set_sensitive(True)
+            self.set_sensitive(True)
+            self.set_can_close(True)
             if result.error is not None:
                 self._output_group.restore_output(self._hardware_config.default_output)
                 self._status_label.set_label(f"Could not save controller output: {result.error}")
@@ -247,9 +249,6 @@ class HardwareSettingsDialog(Adw.Dialog):
 
         self._output_group = ControllerOutputGroup(
             self._hardware_config.default_output, self._save_output
-        )
-        self._output_group.set_visible(
-            any(is_controller_interface(device) for device in self._hardware_config.evdev_devices)
         )
         box.append(self._output_group)
 
@@ -320,6 +319,9 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._refresh_motion_rows()
 
     def _refresh_interface_rows(self) -> None:
+        self._output_group.set_visible(
+            any(is_controller_interface(device) for device in self._hardware_config.evdev_devices)
+        )
         for row in self._interface_rows:
             self._interfaces_group.remove(row)
         self._interface_rows = []

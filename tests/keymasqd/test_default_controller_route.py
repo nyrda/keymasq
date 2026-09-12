@@ -181,6 +181,44 @@ async def test_missing_target_drops_output_without_clone_fallback(routed):
     assert device.uinput.writes == []
 
 
+@pytest.mark.parametrize("failed_operation", ["write", "syn"])
+async def test_closed_axis_output_does_not_interrupt_source_release(routed, failed_operation):
+    device, writer, _, _ = routed
+    await send(device, E.EV_ABS, E.ABS_X, 255)
+    physical = Mock()
+    device.device = physical
+    setattr(writer, failed_operation, Mock(side_effect=OSError("output closed")))
+    await device.release()
+    physical.ungrab.assert_called_once()
+    physical.close.assert_called_once()
+    assert device.device is None
+    assert not device.default_route.axes
+    assert not any(device.state.held_output_abs.values())
+
+
+def test_virtual_target_cache_tracks_output_and_template_replacement(routed):
+    device, writer, _, state = routed
+    def resolve():
+        return device.resolve_gamepad_output("virtual-gamepad-1", "test")
+
+    target = resolve()
+    assert resolve() is target
+    state.virtual_gamepad_uinputs["virtual-gamepad-1"] = Output()
+    replacement = resolve()
+    assert replacement is not target
+    assert replacement.uinput is not writer
+    assert replacement.stick_output is not target.stick_output
+    state.virtual_device_specs["virtual-gamepad-1"] = state.virtual_device_specs["flight"]
+    changed_template = resolve()
+    assert changed_template is not replacement
+    assert changed_template.stick_output is replacement.stick_output
+    assert changed_template.axis_ranges[E.ABS_X] == (0, 1023)
+    state.virtual_gamepad_uinputs.clear()
+    assert resolve() is None
+    state.virtual_gamepad_uinputs["virtual-gamepad-1"] = replacement.uinput
+    assert resolve() is not changed_template
+
+
 async def test_flight_axis_keeps_code_and_uses_target_range_and_release(routed):
     device, _, _, state = routed
     device.default_output = "flight"

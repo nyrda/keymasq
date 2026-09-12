@@ -1,5 +1,6 @@
 """Same-code fallback output for a grabbed controller."""
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
@@ -9,6 +10,8 @@ import evdev
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device.types import ActionRuntime, InputEventLike
 from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputTarget
+
+log = logging.getLogger(__name__)
 
 
 def source_axis_ranges(capabilities: Mapping[int, Sequence[object]]) -> dict[int, tuple[int, int]]:
@@ -89,12 +92,15 @@ class DefaultControllerRoute:
             writer = identity_uinput_writer(target.uinput)
             if writer is not None:
                 neutral = target.axis_rest_values.get(code, 0)
-                writer.write(
-                    evdev.ecodes.EV_ABS,
-                    code,
-                    target.stick_output.write_base(runtime.hardware_id, code, neutral),
-                )
-                writer.syn()
+                try:
+                    writer.write(
+                        evdev.ecodes.EV_ABS,
+                        code,
+                        target.stick_output.write_base(runtime.hardware_id, code, neutral),
+                    )
+                    writer.syn()
+                except OSError as exc:
+                    log.warning("Failed to release axis %s on %s: %s", code, target.output_id, exc)
             runtime.state.held_output_abs.get(target.bucket, set()).discard(code)
             if not runtime.state.held_output_abs.get(target.bucket):
                 runtime.state.held_output_abs.pop(target.bucket, None)

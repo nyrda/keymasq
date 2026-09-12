@@ -165,7 +165,7 @@ class GamepadOutputRouter:
         self._logger = logger
         self._monotonic = monotonic
         self._warning_at: dict[tuple[str, str], float] = {}
-        self._virtual_stick_outputs: dict[str, tuple[object, StickOutputState]] = {}
+        self._virtual_targets: dict[str, tuple[object, GamepadOutputTarget]] = {}
 
     def resolve(
         self,
@@ -189,14 +189,18 @@ class GamepadOutputRouter:
         ):
             uinput = outputs.get(resolved_id)
             if uinput is None:
-                self._virtual_stick_outputs.pop(resolved_id, None)
+                self._virtual_targets.pop(resolved_id, None)
                 self._warn(resolved_id, "virtual output is not configured", context, explicit)
                 return None
-            previous = self._virtual_stick_outputs.get(resolved_id)
-            if previous is None or previous[0] is not uinput:
-                previous = (uinput, StickOutputState())
-                self._virtual_stick_outputs[resolved_id] = previous
             spec = specs.get(resolved_id)
+            previous = self._virtual_targets.get(resolved_id)
+            if previous is not None and previous[1].uinput is uinput and previous[0] is spec:
+                return previous[1]
+            stick_output = (
+                previous[1].stick_output
+                if previous is not None and previous[1].uinput is uinput
+                else StickOutputState()
+            )
             axis_rest_values = (
                 {
                     int(getattr(evdev.ecodes, axis.evdev.upper())): axis.rest
@@ -205,7 +209,7 @@ class GamepadOutputRouter:
                 if isinstance(spec, ResolvedVirtualDevice)
                 else {}
             )
-            return GamepadOutputTarget(
+            target = GamepadOutputTarget(
                 output_id=resolved_id,
                 uinput=uinput,
                 bucket=f"gamepad:{resolved_id}",
@@ -218,7 +222,7 @@ class GamepadOutputRouter:
                         else XBOX_360_TEMPLATE
                     ).buttons
                 ),
-                stick_output=previous[1],
+                stick_output=stick_output,
                 output_axes=(
                     template_output_axes(spec.template)
                     if isinstance(spec, ResolvedVirtualDevice)
@@ -240,6 +244,10 @@ class GamepadOutputRouter:
                 ),
             )
 
+            self._virtual_targets[resolved_id] = (spec, target)
+            return target
+
+        self._virtual_targets.pop(resolved_id, None)
         devices = grabbed_devices.get(resolved_id)
         if not devices:
             self._warn(resolved_id, "target hardware is not grabbed", context, explicit)

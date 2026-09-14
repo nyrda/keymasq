@@ -3966,6 +3966,7 @@ class TestReleaseScheduling:
         manager = DeviceManager(held_release_retry_s=0.001)
         fake_device = type("Device", (), {})()
         fake_device.release = AsyncMock()
+        fake_device.reset_mapping_runtime_state = AsyncMock()
 
         holds = {"count": 0}
 
@@ -3991,5 +3992,6 @@ class TestReleaseScheduling:
         task = manager.grab_state.pending_hardware_release["hw"]
         await task
 
+        fake_device.reset_mapping_runtime_state.assert_awaited_once_with(previous_mapping={})
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2

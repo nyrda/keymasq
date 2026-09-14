@@ -5,7 +5,8 @@ import evdev
 import pytest
 
 from keymasq.common.model.actions import MappingAction
-from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
+from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice, log
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import (
@@ -13,6 +14,7 @@ from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import (
     process_event,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
+from tests.keymasqd.device_manager_support import make_combo_grabbed_device
 
 
 class _FakeUInput:
@@ -38,6 +40,9 @@ class _DummyGrabbedDevice:
         self.cleaned = True
 
     async def stop_event_loop(self) -> None:
+        return
+
+    async def reset_mapping_runtime_state(self, previous_mapping=None) -> None:
         return
 
     async def release(self) -> None:
@@ -347,4 +352,143 @@ async def test_pattern_second_press_uses_original_gesture_after_switch(empty_map
         assert device.state.superkey_machines == {}
         assert device.state.held_source_actions == {}
     finally:
+        await device.reset_superkeys()
+
+
+@pytest.mark.asyncio
+async def test_deferred_release_stops_analog_motion_while_button_remains_held():
+    manager = DeviceManager(release_grace_s=0.01, held_release_retry_s=0.01)
+    hardware_id = "1234:5678"
+    manager.active_mappings[hardware_id] = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Stick Mouse",
+                mouse_motion=AnalogMouseMotionConfig(
+                    enabled=True, speed=10000, deadzone=0.0, tick_ms=1
+                ),
+            ),
+        ),
+        "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_a"),
+    }
+    mouse = _FakeUInput()
+    keyboard = _FakeUInput()
+    device = GrabbedDevice(
+        path="/dev/input/event-test",
+        hardware_id=hardware_id,
+        button_map={"btn_side": "btn_side"},
+        mapping_getter=lambda: manager.active_mappings.get(hardware_id, {}),
+        event_callback=_noop_event_callback,
+        keyboard_uinput=keyboard,
+        mouse_uinput=mouse,
+        device_type=DeviceType.GAMEPAD,
+        default_output="passthrough",
+        analog_inputs={
+            "left_stick": {
+                "type": "stick",
+                "axes": [{"role": "x", "evdev": "abs_x", "evdev_code": evdev.ecodes.ABS_X}],
+            }
+        },
+    )
+    device.uinput = _FakeUInput()
+    device.running = True
+    device.analog_axis_ranges = {("left_stick", "x"): (-32768, 32767)}
+    manager.grabbed_devices[hardware_id] = [device]
+    manager.grab_state.desired_paths[hardware_id] = {device.path}
+    try:
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+        )
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767)
+        )
+        await _wait_until(lambda: bool(mouse.events))
+        result = await manager.release_device(hardware_id, immediate=False)
+        assert result["scheduled"] is True
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0)
+        )
+        event_count = len(mouse.events)
+        await asyncio.sleep(0.04)
+        assert len(mouse.events) == event_count
+        assert hardware_id in manager.grabbed_devices
+        assert device.has_held_source_inputs()
+        assert not _has_key_event(keyboard, evdev.ecodes.KEY_A, 0)
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+        )
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_A, 0)
+        await _wait_until(lambda: hardware_id not in manager.grabbed_devices)
+    finally:
+        await manager.release_device(hardware_id, immediate=True)
+
+
+@pytest.mark.asyncio
+async def test_retained_pattern_second_press_precedes_replacement_combo(monkeypatch):
+    manager = DeviceManager()
+    keyboard = _FakeUInput()
+    manager.output_state.keyboard_uinput = keyboard
+    mapping_ref = {
+        "value": {
+            "key_a": MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name="Double Tap",
+                    double_tap_window_ms=500,
+                    double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+                ),
+            )
+        }
+    }
+    device = make_combo_grabbed_device(
+        monkeypatch,
+        manager,
+        button_map={"key_a": "key_a", "key_b": "key_b"},
+        mapping_getter=lambda: mapping_ref["value"],
+        keyboard_uinput=keyboard,
+    )
+
+    async def key(code, value):
+        await _process_event(device, evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, code, value))
+
+    try:
+        await key(evdev.ecodes.KEY_A, 1)
+        await key(evdev.ecodes.KEY_A, 0)
+        previous = mapping_ref["value"]
+        mapping_ref["value"] = {}
+        await device.reset_mapping_runtime_state(previous_mapping=previous)
+        await manager.set_combos(
+            [
+                {
+                    "id": "replacement",
+                    "name": "Replacement chord",
+                    "steps": [
+                        {
+                            "events": [
+                                {"hardware_id": device.hardware_id, "source": "kbd", "evdev": name}
+                                for name in ("key_b", "key_a")
+                            ]
+                        }
+                    ],
+                    "action": {"action": "keyboard", "target": "key_d"},
+                }
+            ]
+        )
+        await key(evdev.ecodes.KEY_B, 1)
+        await key(evdev.ecodes.KEY_A, 1)
+        await key(evdev.ecodes.KEY_A, 0)
+        await key(evdev.ecodes.KEY_B, 0)
+        assert keyboard.events == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 0),
+        ]
+        assert device.state.superkey_machines == {}
+        await key(evdev.ecodes.KEY_B, 1)
+        await key(evdev.ecodes.KEY_A, 1)
+        await key(evdev.ecodes.KEY_A, 0)
+        await key(evdev.ecodes.KEY_B, 0)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_D, 1)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_D, 0)
+    finally:
+        await manager.set_combos([])
         await device.reset_superkeys()

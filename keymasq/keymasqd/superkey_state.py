@@ -248,6 +248,10 @@ class SuperkeyMachine:
             gamepad_output_resolver=gamepad_output_resolver,
         )
 
+    @property
+    def is_retiring(self) -> bool:
+        return self._retire_callback is not None
+
     def retire_when_idle(self, callback: Callable[[], None]) -> None:
         self._retire_callback = callback
         if self.state == SuperkeyState.IDLE:

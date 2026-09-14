@@ -104,7 +104,10 @@ async def schedule_hardware_release_unlocked(
             )
         return {"released": True, "hardware_id": hardware_id}
 
+    previous_mapping = dict(manager.active_mappings.get(hardware_id, {}))
     manager.active_mappings[hardware_id] = {}
+    for device in devices:
+        await device.reset_mapping_runtime_state(previous_mapping=previous_mapping)
     manager.grab_state.desired_paths[hardware_id] = set()
     if desired_grab_requests_gamepad_source_hiding(desired_config):
         await disable_hardware_hotplug_hiding_if_unused_best_effort(

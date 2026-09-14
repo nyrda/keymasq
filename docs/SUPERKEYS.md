@@ -231,9 +231,12 @@ button comes up. Exec commands in On Release retain their original command
 binding; changing profiles does not replace or discard that command.
 
 Pattern super keys keep their hold and double-tap timers through profile changes.
-A pending second press completes the original gesture, and a pending single tap
-still fires when its double-tap window expires. The next gesture uses the new
-mapping. A deferred device ungrab waits for these pending gestures too.
+A pending second press completes the original gesture before replacement-profile
+combos can claim that press, and a pending single tap still fires when its
+double-tap window expires. The next gesture uses the new mapping and combos.
+A deferred device ungrab waits for these pending gestures too. Analog and motion
+controls whose mappings were removed stop immediately, even while held buttons
+delay the ungrab.
 
 This applies to normal profile changes, not forced runtime resets or device
 disconnects. Combo-triggered super keys still follow combo reconfiguration and

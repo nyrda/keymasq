@@ -111,6 +111,9 @@ def resolved_gamepad_output_id(
     config: AnalogControlConfig,
 ) -> str | None:
     if config.gamepad_output.output_id == SAME_DEVICE_OUTPUT_ID:
+        default_output = getattr(device_runtime, "default_output", None)
+        if default_output not in {None, "passthrough"}:
+            return default_output
         return device_runtime.hardware_id
     return config.gamepad_output.output_id
 

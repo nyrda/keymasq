@@ -202,8 +202,9 @@ The editor's **Output Axis** dropdown lists axes on the selected destination.
 **Use Axis Neutral** keeps the rest value automatic. Turn it off to enter a
 raw rest override. Saved unavailable selections remain visible and are not
 silently replaced. With the default same-device output, the editor offers
-standard axes; availability and neutral are resolved against the bound device
-at runtime. Select a specific hardware or template output to choose its custom
+standard axes; availability and neutral are resolved against the hardware's
+default output at runtime. With normal passthrough, it uses the source device's
+passthrough clone. Select a specific hardware or template output to choose its custom
 axes. Template outputs use their configured ranges and rest values. For example,
 the built-in flight stick centers Stick X at 511 and releases Throttle at 255.
 

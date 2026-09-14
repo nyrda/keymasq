@@ -2055,7 +2055,21 @@ async def test_reset_analog_controls_centers_previous_gamepad_output_after_mappi
 
 
 @pytest.mark.asyncio
-async def test_same_device_gamepad_output_resolves_to_source_hardware() -> None:
+@pytest.mark.parametrize("input_type", ["stick", "axis"])
+@pytest.mark.parametrize(
+    "output_id, default_output, expected_output",
+    [
+        (SAME_DEVICE_OUTPUT_ID, None, "1234:5678"),
+        (SAME_DEVICE_OUTPUT_ID, "passthrough", "1234:5678"),
+        (SAME_DEVICE_OUTPUT_ID, "virtual-gamepad-2", "virtual-gamepad-2"),
+        (SAME_DEVICE_OUTPUT_ID, "flight-test", "flight-test"),
+        ("virtual-gamepad-1", "virtual-gamepad-2", "virtual-gamepad-1"),
+        ("other-hardware", "virtual-gamepad-2", "other-hardware"),
+    ],
+)
+async def test_analog_gamepad_output_resolves_hardware_default(
+    input_type, output_id, default_output, expected_output
+) -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()
     resolved: list[str | None] = []
@@ -2064,28 +2078,45 @@ async def test_same_device_gamepad_output_resolves_to_source_hardware() -> None:
             action_type=ActionType.ANALOG_CONTROL,
             analog_control_config=AnalogControlConfig(
                 name="Route Stick",
+                input_type=input_type,
                 gamepad_output=AnalogGamepadOutputConfig(
                     enabled=True,
-                    output_id=SAME_DEVICE_OUTPUT_ID,
+                    output_id=output_id,
+                    target="right",
                 ),
             ),
         )
     }
     runtime = _runtime(mapping, keyboard)
+    runtime.default_output = default_output
+    if input_type == "axis":
+        runtime.analog_axis_ranges[("left_stick", "x")] = (0, 32767)
     runtime.resolve_gamepad_output = lambda output_id, _context: (  # noqa: E731
         resolved.append(output_id)
         or SimpleNamespace(uinput=gamepad, bucket=f"gamepad:{output_id or 'default'}")
     )
 
     assert await process_analog_event(runtime, FakeEvent(32767), "abs_x", mapping, deps=_deps())
+    assert gamepad.events == (
+        [(evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 255)]
+        if input_type == "axis"
+        else [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 32767),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0),
+        ]
+    )
     mapping.clear()
+    runtime.default_output = "replacement-output"
     await reset_analog_controls(runtime, deps=_deps())
 
-    assert resolved == ["1234:5678", "1234:5678"]
-    assert gamepad.events[-2:] == [
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
-        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 0),
-    ]
+    assert resolved == [expected_output, expected_output]
+    if input_type == "axis":
+        assert gamepad.events[-1] == (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 0)
+    else:
+        assert gamepad.events[-2:] == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RX, 0),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RY, 0),
+        ]
 
 
 @pytest.mark.asyncio

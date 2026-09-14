@@ -204,6 +204,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         )
         self._initialize_combo_runtime()
         self.repeat_state = repeat.RepeatRuntimeState()
+        from keymasq.keymasqd.runtime.exec_references import ExecReferenceRegistry
+
+        self.exec_references = ExecReferenceRegistry()
         self.profile_activation_tracker = ProfileActivationTracker(
             broadcast_deactivate_request=self._broadcast_profile_deactivate_requested,
         )

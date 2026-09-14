@@ -5,13 +5,14 @@ import evdev
 import pytest
 
 from keymasq.common.model.actions import MappingAction
-from keymasq.common.model.core import ActionType
+from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice, log
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import (
     build_event_processing_deps,
     process_event,
 )
+from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
 
 
 class _FakeUInput:
@@ -238,3 +239,112 @@ async def test_release_device_retries_when_source_button_is_held() -> None:
 
     assert dummy.released is True
     assert "1234:5678" not in manager.grabbed_devices
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("release_before_switch", [False, True])
+async def test_pattern_gesture_finishes_after_mapping_replacement(release_before_switch):
+    original = MappingAction(
+        action_type=ActionType.SUPERKEY,
+        superkey_config=SuperkeyConfig(
+            name="original",
+            mode=SuperkeyMode.PATTERN,
+            double_tap_window_ms=30,
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+            double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_c")],
+        ),
+    )
+    mapping_ref = {"value": {"btn_side": original}}
+    device, keyboard = _build_grabbed_device(mapping_ref)
+    down = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+    up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+    try:
+        await _process_event(device, down)
+        if release_before_switch:
+            await _process_event(device, up)
+        previous = mapping_ref["value"]
+        mapping_ref["value"] = {
+            "btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_b")
+        }
+        await device.reset_mapping_runtime_state(previous_mapping=previous)
+        assert device.has_held_source_inputs()
+        if not release_before_switch:
+            await _process_event(device, up)
+        await _wait_until(lambda: "btn_side" not in device.state.superkey_machines)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_A, 1)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_A, 0)
+        assert not device.has_held_source_inputs()
+        await _process_event(device, down)
+        await _process_event(device, up)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_B, 1)
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_B, 0)
+    finally:
+        await device.reset_superkeys()
+
+
+@pytest.mark.asyncio
+async def test_pattern_hold_survives_repeated_mapping_updates():
+    original = MappingAction(
+        action_type=ActionType.SUPERKEY,
+        superkey_config=SuperkeyConfig(
+            name="hold",
+            hold_threshold_ms=10,
+            hold_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        ),
+    )
+    mapping_ref = {"value": {"btn_side": original}}
+    device, keyboard = _build_grabbed_device(mapping_ref)
+    try:
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+        )
+        await _wait_until(lambda: _has_key_event(keyboard, evdev.ecodes.KEY_A, 1))
+        for _ in range(3):
+            previous = mapping_ref["value"]
+            mapping_ref["value"] = {}
+            await device.reset_mapping_runtime_state(previous_mapping=previous)
+            assert not _has_key_event(keyboard, evdev.ecodes.KEY_A, 0)
+        await _process_event(
+            device, evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+        )
+        assert _has_key_event(keyboard, evdev.ecodes.KEY_A, 0)
+        assert device.state.superkey_machines == {}
+    finally:
+        await device.reset_superkeys()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_mapping", [False, True])
+async def test_pattern_second_press_uses_original_gesture_after_switch(empty_mapping):
+    original = MappingAction(
+        action_type=ActionType.SUPERKEY,
+        superkey_config=SuperkeyConfig(
+            name="double",
+            double_tap_window_ms=500,
+            double_tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        ),
+    )
+    mapping_ref = {"value": {"btn_side": original}}
+    device, keyboard = _build_grabbed_device(mapping_ref)
+    down = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+    up = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+    try:
+        await _process_event(device, down)
+        await _process_event(device, up)
+        previous = mapping_ref["value"]
+        mapping_ref["value"] = (
+            {}
+            if empty_mapping
+            else {"btn_side": MappingAction(action_type=ActionType.KEYBOARD, target="key_b")}
+        )
+        await device.reset_mapping_runtime_state(previous_mapping=previous)
+        await _process_event(device, down)
+        await _process_event(device, up)
+        assert keyboard.events == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+        ]
+        assert device.state.superkey_machines == {}
+        assert device.state.held_source_actions == {}
+    finally:
+        await device.reset_superkeys()

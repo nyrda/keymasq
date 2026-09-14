@@ -20,6 +20,17 @@ from keymasq.keymasqd.runtime.action.state import (
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 
 
+class ExecTriggerPayload(dict[str, object]):
+    """Keep the reference alive until even deferred broadcasts finish writing it."""
+
+    def __init__(self, data: JsonObject, lease: object | None) -> None:
+        super().__init__(data)
+        self.lease = lease
+
+    def copy(self) -> ExecTriggerPayload:
+        return ExecTriggerPayload(self, self.lease)
+
+
 def build_action_trigger_payload(
     action: MappingAction,
     *,
@@ -39,7 +50,10 @@ def build_action_trigger_payload(
     if action.action_type == ActionType.EXEC:
         if action.exec_ref is None:
             return None
-        return {"action_type": "exec", "exec_ref": action.exec_ref, **base_payload}
+        return ExecTriggerPayload(
+            {"action_type": "exec", "exec_ref": action.exec_ref, **base_payload},
+            action.exec_ref_lease,
+        )
 
     if action.action_type == ActionType.COMPOSITOR_DISPATCH:
         return {

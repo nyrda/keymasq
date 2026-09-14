@@ -580,12 +580,20 @@ class GrabbedDevice:
         await self.reset_analog_controls(preserve_state_keys=preserve_analog_state_keys)
         self.reset_motion_controls()
         initialize_motion_state(self, self.mapping_getter())
-        await self.reset_superkeys()
+        if previous_mapping is None:
+            await self.reset_superkeys()
+        else:
+            for event_name, machine in list(self.state.superkey_machines.items()):
+
+                def forget_machine(name: str = event_name) -> None:
+                    self.state.superkey_machines.pop(name, None)
+
+                machine.retire_when_idle(forget_machine)
         grab.seed_startup_held_actions(self)
         await update_touchpad_fuzz(self)
 
     async def reset_superkeys(self) -> None:
-        for machine in self.state.superkey_machines.values():
+        for machine in list(self.state.superkey_machines.values()):
             await machine.stop()
         self.state.superkey_machines.clear()
 
@@ -1040,7 +1048,11 @@ class GrabbedDevice:
         self.state.combo_recalled_bindings.discard(normalize_combo_evdev(evdev_name))
 
     def has_held_source_inputs(self) -> bool:
-        return bool(self.state.held_source_keys)
+        from keymasq.keymasqd.superkey_state import SuperkeyState
+
+        return bool(self.state.held_source_keys) or any(
+            machine.state != SuperkeyState.IDLE for machine in self.state.superkey_machines.values()
+        )
 
     def combo_passthrough_held_modifiers(self) -> set[str]:
         return {

@@ -5,9 +5,12 @@ from keymasq.common.coercion import coerce_float, coerce_str
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.keymasqd import daemon_macro_commands
+from keymasq.keymasqd.runtime.exec_references import ExecReferenceRegistry
 
 
 class _DeviceCommandManager(Protocol):
+    exec_references: ExecReferenceRegistry
+
     async def grab_device(
         self,
         hardware_id: str,
@@ -94,6 +97,16 @@ async def handle_device_command(
     command_type: CommandType,
     data: JsonObject,
 ) -> JsonObject | None:
+    if command_type == CommandType.UNUSED_EXEC_REFS:
+        refs = data.get("exec_refs")
+        if not isinstance(refs, list) or any(
+            type(ref) is not int for ref in cast(list[object], refs)
+        ):
+            raise ValueError("exec_refs must be a list of integers")
+        return {
+            "unused_exec_refs": daemon.device_manager.exec_references.unused(cast(list[int], refs))
+        }
+
     if command_type == CommandType.GRAB_DEVICE:
         return await daemon.device_manager.grab_device(
             hardware_id=coerce_str(data["hardware_id"]),

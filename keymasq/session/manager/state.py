@@ -121,6 +121,8 @@ class ExecBinding:
 @dataclass
 class ExecRuntimeState:
     exec_refs: dict[int, ExecBinding] = field(default_factory=dict)
+    retired_exec_refs: dict[int, ExecBinding] = field(default_factory=dict)
+    retirement_task: asyncio.Task[None] | None = None
     next_exec_ref: int = 1
     device_exec_refs: dict[str, set[int]] = field(default_factory=dict)
     combo_exec_refs: set[int] = field(default_factory=set)

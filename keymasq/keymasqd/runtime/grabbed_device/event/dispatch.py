@@ -33,6 +33,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     GrabbedDeviceRuntime,
     InputEventLike,
 )
+from keymasq.keymasqd.superkey_state import SuperkeyState
 
 
 async def process_wheel_event(
@@ -106,6 +107,9 @@ async def apply_mapped_action_or_passthrough(
         mapping,
     )
     if event.type == evdev_mod.ecodes.EV_KEY:
+        machine = device_runtime.state.superkey_machines.get(event_name)
+        if machine is not None and machine.state != SuperkeyState.IDLE:
+            action = machine.source_action or action
         held_action = device_runtime.state.held_source_actions.get(event_name)
         if int(event.value) == 1 and event_name not in device_runtime.state.held_source_actions:
             device_runtime.state.held_source_actions[event_name] = action

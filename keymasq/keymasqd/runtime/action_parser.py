@@ -42,6 +42,7 @@ from keymasq.common.model.motion import (
 )
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import superkey_state
+from keymasq.keymasqd.runtime.exec_references import acquire_exec_reference
 
 log = logging.getLogger("keymasqd.runtime.action_parser")
 
@@ -239,6 +240,7 @@ def parse_action(
         keys=cast(list[str] | None, action_data.get("keys")),
         cmd=shared.cmd,
         exec_ref=shared.exec_ref,
+        exec_ref_lease=acquire_exec_reference(manager, shared.exec_ref),
         superkey_config=cast(superkeys.SuperkeyConfig | None, superkey_config),
         analog_control_name=coerce_str(action_data.get("analog_control_name"), None),
         analog_control_names=cast(list[str], action_data.get("analog_control_names") or []),
@@ -629,7 +631,7 @@ def parse_overload_action_bundle(
 
 
 def parse_superkey_action(
-    _manager: object,
+    manager: object,
     data: object | None,
     *,
     json_object: Callable[[object], JsonObject | None] | None,
@@ -658,6 +660,7 @@ def parse_superkey_action(
         output_id=shared.output_id,
         cmd=shared.cmd,
         exec_ref=shared.exec_ref,
+        exec_ref_lease=acquire_exec_reference(manager, shared.exec_ref),
         macro_name=shared.macro_name,
         macro_replay_mouse_movement=shared.macro_replay_mouse_movement,
         macro_replay_mouse_clicks=shared.macro_replay_mouse_clicks,

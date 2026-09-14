@@ -31,6 +31,7 @@ from .constants import (
     TOPOLOGY_REFRESH_DEBOUNCE_S,
     TOPOLOGY_REFRESH_RETRY_S,
 )
+from .payload import references
 from .profile import coordinator, runtime_state, runtime_status
 from .state import RuntimeProfileActivation
 
@@ -58,7 +59,7 @@ def prepare_event(
     exec_ref = coerce_int(exec_ref_raw, -1) if exec_ref_raw is not None else None
     if exec_ref is None:
         return prepared
-    binding = manager.exec_state.exec_refs.get(exec_ref)
+    binding = references.resolve(manager, exec_ref)
     if binding is None:
         return prepared
     prepared[_RESOLVED_EXEC_CMD] = binding.cmd
@@ -182,7 +183,7 @@ async def handle_event(
                     exec_data["hardware_id"] = hardware_id
                 create_event_task(manager, handle_exec_trigger(manager, exec_data), name="exec")
             else:
-                binding = manager.exec_state.exec_refs.get(exec_ref)
+                binding = references.resolve(manager, exec_ref)
                 if binding:
                     exec_data = dict(data)
                     exec_data["cmd"] = binding.cmd

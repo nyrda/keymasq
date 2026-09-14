@@ -222,6 +222,23 @@ held child output state. The Main Actions list still uses normal held child
 output state and wraps both press/release lists: it starts before On Press and
 releases after On Release.
 
+## Profile Changes
+
+A super key started by a device button keeps its original actions until its
+gesture finishes, even if a window change replaces or deactivates its profile.
+For Overload, Main Actions remain held and On Release runs once when the source
+button comes up. Exec commands in On Release retain their original command
+binding; changing profiles does not replace or discard that command.
+
+Pattern super keys keep their hold and double-tap timers through profile changes.
+A pending second press completes the original gesture, and a pending single tap
+still fires when its double-tap window expires. The next gesture uses the new
+mapping. A deferred device ungrab waits for these pending gestures too.
+
+This applies to normal profile changes, not forced runtime resets or device
+disconnects. Combo-triggered super keys still follow combo reconfiguration and
+cancellation rules.
+
 ## Using Super Keys
 
 Assign a saved super key from the **Device** tab:

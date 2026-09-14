@@ -135,6 +135,7 @@ def _commit_device_references(
     generation: int | None,
 ) -> None:
     if profile_apply_is_current(manager, generation):
+        references.retire_device(manager, hardware_id)
         references.restore_device(manager, hardware_id, staged_refs)
     else:
         references.retain_device(manager, hardware_id, staged_refs)
@@ -146,6 +147,7 @@ def _commit_combo_references(
     generation: int | None,
 ) -> None:
     if profile_apply_is_current(manager, generation):
+        references.retire_combos(manager)
         references.restore_combos(manager, staged_refs)
     else:
         references.retain_combos(manager, staged_refs)
@@ -559,7 +561,7 @@ async def apply_resolved_device_profile(
             await operations.deactivate_profile(
                 manager,
                 hardware_id,
-                immediate=True,
+                immediate=False,
                 generation=generation,
             )
         return
@@ -891,6 +893,5 @@ async def deactivate_profile(
         log.exception("Unexpected failure releasing device %s", hardware_id)
         return False
 
-    references.clear_device(manager, hardware_id)
     log.info("Deactivated grabbed mapping for %s", hardware_id)
     return True

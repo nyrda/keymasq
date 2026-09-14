@@ -66,6 +66,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
+from keymasq.keymasqd.superkey_state import SuperkeyState
 
 
 def fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -597,6 +598,10 @@ async def _process_event(
     mapping = device_runtime.mapping_getter()
     has_held_source_action = event_is_key and (
         event_name in device_runtime.state.held_source_actions
+        or (
+            (machine := device_runtime.state.superkey_machines.get(event_name)) is not None
+            and machine.state != SuperkeyState.IDLE
+        )
     )
     if event_class is EventClass.RELATIVE:
         wheel_diag_label = await process_wheel_event(

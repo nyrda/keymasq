@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from ..payload.references import clear_all, clear_device
+from ..payload.references import clear_all, retire_device
 
 if TYPE_CHECKING:
     from ..core import SessionManager
@@ -87,7 +87,7 @@ def clear_hardware_runtime_state(
     manager.profile_state.grab_status.pop(hardware_id, None)
     manager.profile_state.last_sent_grab_signatures.pop(hardware_id, None)
     manager.profile_state.last_sent_mapping_signatures.pop(hardware_id, None)
-    clear_device(manager, hardware_id)
+    retire_device(manager, hardware_id)
 
 
 def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:

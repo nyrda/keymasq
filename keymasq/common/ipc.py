@@ -10,6 +10,7 @@ class CommandType(Enum):
     RELEASE_DEVICE = "release_device"
     SET_MAPPING = "set_mapping"
     SET_COMBOS = "set_combos"
+    UNUSED_EXEC_REFS = "unused_exec_refs"
     LIST_DEVICES = "list_devices"
     DEVICE_RUNTIME_STATUS = "device_runtime_status"
     PING = "ping"

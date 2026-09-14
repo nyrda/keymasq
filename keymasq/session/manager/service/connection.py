@@ -122,6 +122,9 @@ class DaemonConnectionMixin:
         self.capture_state.locks.clear()
         self.capture_state.resume_profiles.clear()
         self.capture_state.owner_writer_ids.clear()
+        from keymasq.session.manager.payload.references import clear_retired
+
+        clear_retired(self)
         self.exec_state.exec_refs.clear()
         self.exec_state.device_exec_refs.clear()
         self.exec_state.combo_exec_refs.clear()

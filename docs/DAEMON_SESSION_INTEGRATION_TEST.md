@@ -28,6 +28,8 @@ coverage. It verifies that the core runtime classes still work together:
 - combo bound to a superkey
 - combo trigger-key recall and restore timing with a combo-bound superkey
 - profile toggle, priority override, passthrough override, and held-output profile change
+- superkey press/release Exec commands across mapping replacement and deferred ungrab,
+  plus pattern hold completion after profile deactivation
 - temporary profile activations across direct mappings, temporary toggles, superkeys, overload
   superkeys, combos, and combo-bound overload superkeys
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output

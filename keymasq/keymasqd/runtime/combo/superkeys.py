@@ -91,7 +91,7 @@ async def build_machine(
         manager.combo_state.superkey_machine_bindings.pop(combo_id, None)
 
     async def broadcast(data: dict[str, object]) -> None:
-        payload = dict(data)
+        payload = data.copy()
         action_type = str(payload.get("action_type", "") or "")
         if action_type == ActionType.CANCEL_MACRO_PLAYBACK.value:
             await cancel_macro_playback()

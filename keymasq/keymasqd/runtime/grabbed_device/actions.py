@@ -93,7 +93,7 @@ def _build_superkey_machine(
             source_button=event_name,
         )
 
-    return SuperkeyMachine(
+    machine = SuperkeyMachine(
         config=cast(SuperkeyConfig, action.superkey_config),
         event_name=event_name,
         keyboard_uinput=cast(WritableUInput, device_runtime.keyboard_uinput),
@@ -112,6 +112,8 @@ def _build_superkey_machine(
         action_deps=deps,
         repeat_path_recorder=repeat_path_recorder,
     )
+    machine.source_action = action
+    return machine
 
 
 async def execute_action(

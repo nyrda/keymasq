@@ -60,6 +60,7 @@ class SuperkeyActionData:
     output_id: str | None = None
     cmd: str | None = None
     exec_ref: int | None = None
+    exec_ref_lease: object | None = field(default=None, compare=False, repr=False, kw_only=True)
     macro_name: str | None = None
     macro_replay_mouse_movement: bool = True
     macro_replay_mouse_clicks: bool = True
@@ -223,6 +224,8 @@ class SuperkeyMachine:
         self._monotonic_clock = monotonic_clock
 
         self.state = SuperkeyState.IDLE
+        self.source_action: MappingAction | None = None
+        self._retire_callback: Callable[[], None] | None = None
         self._press_started_at: float | None = None
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
@@ -245,6 +248,27 @@ class SuperkeyMachine:
             gamepad_output_resolver=gamepad_output_resolver,
         )
 
+    @property
+    def is_retiring(self) -> bool:
+        return self._retire_callback is not None
+
+    def retire_when_idle(self, callback: Callable[[], None]) -> None:
+        self._retire_callback = callback
+        if self.state == SuperkeyState.IDLE:
+            self._become_idle()
+
+    def _become_idle(self) -> None:
+        self.state = SuperkeyState.IDLE
+        callback = self._retire_callback
+        if callback is not None:
+            self._retire_callback = None
+            self.source_action = None
+            self.repeat_path_recorder = None
+            # The runtime has a bound-method cycle. Drop retired configuration
+            # ownership now instead of waiting for cyclic garbage collection.
+            self.config = SuperkeyConfig(name=self.config.name)
+            callback()
+
     async def stop(self) -> None:
         self._running = False
         self._press_started_at = None
@@ -263,7 +287,7 @@ class SuperkeyMachine:
             await self._emit_hold_up()
         elif self.state == SuperkeyState.TAP_HOLDING:
             await self._emit_tap_hold_up()
-        self.state = SuperkeyState.IDLE
+        self._become_idle()
 
     async def on_down(self) -> None:
         if self.state == SuperkeyState.IDLE:
@@ -324,7 +348,7 @@ class SuperkeyMachine:
             self._hold_task = None
 
         if not is_tap:
-            self.state = SuperkeyState.IDLE
+            self._become_idle()
             return
 
         # Tap+hold uses the same second-press window as double tap. Without
@@ -335,9 +359,9 @@ class SuperkeyMachine:
             self._double_tap_task = asyncio.create_task(self._double_tap_timeout())
         elif self.config.tap_actions:
             await self._emit_tap()
-            self.state = SuperkeyState.IDLE
+            self._become_idle()
         else:
-            self.state = SuperkeyState.IDLE
+            self._become_idle()
 
     async def _double_tap_timeout(self) -> None:
         try:
@@ -349,7 +373,7 @@ class SuperkeyMachine:
             if self.state == SuperkeyState.UP_WAIT:
                 if self.config.tap_actions:
                     await self._emit_tap()
-                self.state = SuperkeyState.IDLE
+                self._become_idle()
 
         except asyncio.CancelledError:
             pass
@@ -379,7 +403,7 @@ class SuperkeyMachine:
             # already-recognized first tap instead of dropping both presses.
             await self._emit_tap()
 
-        self.state = SuperkeyState.IDLE
+        self._become_idle()
 
     def _release_qualifies_as_tap(self) -> bool:
         started_at = self._press_started_at
@@ -394,13 +418,13 @@ class SuperkeyMachine:
         self._rapidfire_active = False
         await self._stop_rapidfire_tasks()
         await self._emit_hold_up()
-        self.state = SuperkeyState.IDLE
+        self._become_idle()
 
     async def _on_tap_hold_release(self) -> None:
         self._rapidfire_active = False
         await self._stop_rapidfire_tasks()
         await self._emit_tap_hold_up()
-        self.state = SuperkeyState.IDLE
+        self._become_idle()
 
     async def _emit_tap(self) -> None:
         if self.config.tap_actions:
@@ -612,5 +636,6 @@ class SuperkeyMachine:
         action_kwargs["rapidfire_wait_ms"] = action.rapidfire_wait_ms
         return MappingAction(
             action_type=ActionType(action.action_type),
+            exec_ref_lease=action.exec_ref_lease,
             **action_kwargs,
         )

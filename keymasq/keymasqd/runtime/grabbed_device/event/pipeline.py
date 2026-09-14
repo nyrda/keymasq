@@ -66,6 +66,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
+from keymasq.keymasqd.superkey_state import SuperkeyState
 
 
 def fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
@@ -492,15 +493,25 @@ async def _process_event(
             )
         return
 
-    callback_result = await device_runtime.event_callback(
-        device_runtime.hardware_id,
-        device_runtime.path,
-        event.type,
-        event.code,
-        event.value,
-        device_runtime.stable_path,
-        device_runtime.interface_id,
+    retained_pattern_press = (
+        event_is_key
+        and int(event.value) != 0
+        and (machine := device_runtime.state.superkey_machines.get(event_name)) is not None
+        and machine.is_retiring
     )
+    callback_result = None
+    # Reserve the original gesture's next press before a replacement combo can
+    # execute. Releases still reach the engine to clear any prior held binding.
+    if not retained_pattern_press:
+        callback_result = await device_runtime.event_callback(
+            device_runtime.hardware_id,
+            device_runtime.path,
+            event.type,
+            event.code,
+            event.value,
+            device_runtime.stable_path,
+            device_runtime.interface_id,
+        )
     combo_route = route_combo_callback_result(
         callback_result,
         event_is_key=event_is_key,
@@ -597,6 +608,10 @@ async def _process_event(
     mapping = device_runtime.mapping_getter()
     has_held_source_action = event_is_key and (
         event_name in device_runtime.state.held_source_actions
+        or (
+            (machine := device_runtime.state.superkey_machines.get(event_name)) is not None
+            and machine.state != SuperkeyState.IDLE
+        )
     )
     if event_class is EventClass.RELATIVE:
         wheel_diag_label = await process_wheel_event(

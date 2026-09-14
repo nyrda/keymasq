@@ -337,6 +337,7 @@ class MappingAction:
     keys: list[str] | None = None
     cmd: str | None = None
     exec_ref: int | None = None
+    exec_ref_lease: object | None = field(default=None, compare=False, repr=False, kw_only=True)
     superkey_name: str | None = None
     superkey_config: "SuperkeyConfig | None" = None
     analog_control_name: str | None = None

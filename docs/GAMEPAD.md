@@ -68,9 +68,10 @@ Input cards show matching output controls or **No output**. Hover over the outpu
 label for the destination and evdev codes. Click an input to override it.
 Explicit mappings retain their own actions and output
 destinations. A passthrough mapping cancels a lower-priority mapping and returns
-the input to the default route. Physical-controller and `same-device` output
-actions still require a passthrough clone; select the virtual destination when
-overriding controls on a routed controller.
+the input to the default route. Analog controls using `same-device` follow the
+hardware's default output. With normal passthrough, they use the source
+controller's passthrough clone. Explicit physical-controller destinations still
+require a passthrough clone.
 
 In the hardware config:
 

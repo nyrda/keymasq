@@ -94,6 +94,48 @@ async def start(supervisor, attachment, *, keep=True, persist=True):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["acquiring", "disconnected", "no_masks"])
+async def test_emergency_reset_restores_masks_without_runtime_readers(supervisor, phase):
+    from keymasq.keymasqd.device_manager import DeviceManager
+    from keymasq.keymasqd.hardware_masking import HardwareMasking
+
+    attachment = supervisor.backend.inventory.scan()[0]
+    if phase == "acquiring":
+        data = {"id": attachment.identity, "generation": attachment.generation}
+        result = await supervisor.request({"command": "mask", **data})
+        token = selected(result, attachment.identity)["token"]
+        await supervisor.request({"command": "quiesced", "token": token, **data})
+        await supervisor.reservations[attachment.identity].apply_task
+        assert selected(supervisor.status(), attachment.identity)["state"] == "acquiring"
+    elif phase == "disconnected":
+        await start(supervisor, attachment)
+        supervisor.backend.inventory.attachments.remove(attachment)
+        await supervisor.monitor_once()
+        assert (
+            selected(supervisor.status(), attachment.identity)["reason"] == "hardware_disconnected"
+        )
+    backend = supervisor.reservations[attachment.identity].backend if phase != "no_masks" else None
+    if backend is not None:
+        assert await asyncio.to_thread(backend.early.exists)
+        assert await asyncio.to_thread(backend.late.exists)
+
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    masking.coordinator = supervisor
+    masking.initialized = True
+    manager.masking_recovery = masking.restore
+    assert not manager.masked_hardware_paths
+    await manager.emergency_reset()
+    assert manager.masking_suspended
+    assert supervisor.status()["remapping_suspended"]
+    if backend is not None:
+        assert not await asyncio.to_thread(backend.early.exists)
+        assert not await asyncio.to_thread(backend.late.exists)
+        assert not await asyncio.to_thread(backend.journal.exists)
+        assert selected(supervisor.status(), attachment.identity)["state"] == "restored"
+
+
+@pytest.mark.asyncio
 async def test_same_model_masks_restore_independently(supervisor):
     first, second, third = supervisor.backend.inventory.scan()
     data = await start(supervisor, first)

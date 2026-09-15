@@ -519,7 +519,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self._broadcast_runtime_event(CommandType.RUNTIME_RESET, {"reason": "hardware_mask_ready"})
 
     async def emergency_reset(self) -> JsonObject:
-        if self.masked_hardware_paths and self.masking_recovery is not None:
+        if self.masking_recovery is not None:
             await self.masking_recovery()
             return {"status": "ok", "reset": True, "reason": "hardware_mask_recovery"}
         await self.release_all_devices()

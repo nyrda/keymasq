@@ -107,10 +107,11 @@ automatic mask is retried when its hardware is present, without a GUI action.
 
 Global emergency recovery first prevents new grabs, neutralizes ordinary output,
 and releases input devices. A controller cleanup failure does not skip other
-devices, and physical masking recovery runs afterward. Per-device unmasking
-continues to leave unrelated remapping active. Before system suspend, ordinary
-output neutralization is attempted before masking cleanup; both steps run even
-if either fails.
+devices, and physical masking recovery runs afterward. Emergency recovery also
+restores masks with no runtime readers, including disconnected devices and masks
+still acquiring their replacements. Per-device unmasking leaves unrelated
+remapping active. Before system suspend, ordinary output neutralization is
+attempted before masking cleanup; both steps run even if either fails.
 
 **Unmask all devices** turns every mask off and disables those saved choices,
 without pausing ordinary remapping. Administrative recovery still provides the

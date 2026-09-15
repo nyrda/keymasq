@@ -703,10 +703,14 @@ async def test_releasing_one_raw_only_mask_leaves_the_other_ready():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reader_failure", [False, True])
-async def test_emergency_release_precedes_blocked_controller_recovery(monkeypatch, reader_failure):
+@pytest.mark.parametrize("readers_registered", [False, True])
+async def test_emergency_release_precedes_blocked_controller_recovery(
+    monkeypatch, reader_failure, readers_registered
+):
     manager = DeviceManager()
     masking = HardwareMasking(manager)
-    manager.masked_hardware_paths[RESERVATION_ID] = ["controller"]
+    if readers_registered:
+        manager.masked_hardware_paths[RESERVATION_ID] = ["controller"]
     manager.masking_recovery = masking.restore
     held = {"keyboard", "mouse"}
     entered, finish = asyncio.Event(), asyncio.Event()

@@ -1833,17 +1833,21 @@ exit 97
     assert "gpg " not in command_log
 
 
-def test_appimage_rejects_runtime_without_masking_helper(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_appimage_rejects_runtime_without_masking_helper(tmp_path: Path) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     source = tmp_path / "source.AppImage"
     source.write_text("appimage\n", encoding="utf-8")
     env = _env(tmp_path, fake_root, assets, source)
     (Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq-maskd").unlink()
-    result = subprocess.run(
-        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
-        env=env, capture_output=True, text=True,
+    result = await asyncio.create_subprocess_exec(
+        "sh", str(RUNTIME_SCRIPT), "--install", "--user", "root",
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
+    _, stderr = await result.communicate()
     assert result.returncode != 0
-    assert "missing keymasq-maskd launcher" in result.stderr
+    assert b"missing keymasq-maskd launcher" in stderr
     assert not (fake_root / "opt/keymasq/runtime/current").exists()

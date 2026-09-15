@@ -154,6 +154,40 @@ async def test_response_cannot_follow_a_replaced_request_path(request_file, tmp_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TypeError("invalid operation result"), RuntimeError("job bug")])
+async def test_unexpected_job_error_returns_diagnostics_on_pinned_inode(
+    request_file, tmp_path, monkeypatch, caplog, error
+):
+    root = LinuxMaskBackend(
+        runtime_dir=tmp_path / "run", state_dir=tmp_path / "state", rules_dir=tmp_path / "rules"
+    )
+    original = request_file.with_name("original")
+
+    async def execute(*_):
+        request_file.rename(original)
+        request_file.write_text("replacement")
+        raise error
+
+    monkeypatch.setattr(operations, "execute", execute)
+    await operations.run_request(TOKEN, root)
+    assert json.loads(original.read_text()) == {"status": "error", "message": str(error)}
+    assert request_file.read_text() == "replacement"
+    assert any(record.exc_info and record.exc_info[1] is error for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_job_does_not_report_an_ordinary_error(request_file, tmp_path, monkeypatch):
+    root = LinuxMaskBackend(
+        runtime_dir=tmp_path / "run", state_dir=tmp_path / "state", rules_dir=tmp_path / "rules"
+    )
+    original = request_file.read_text()
+    monkeypatch.setattr(operations, "execute", AsyncMock(side_effect=asyncio.CancelledError))
+    with pytest.raises(asyncio.CancelledError):
+        await operations.run_request(TOKEN, root)
+    assert request_file.read_text() == original
+
+
+@pytest.mark.asyncio
 async def test_new_job_opens_recreated_request_directory(request_file, tmp_path, monkeypatch):
     root = LinuxMaskBackend(
         runtime_dir=tmp_path / "run", state_dir=tmp_path / "state", rules_dir=tmp_path / "rules"

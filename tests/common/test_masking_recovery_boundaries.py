@@ -17,8 +17,42 @@ from keymasq.keymasqd.hardware_masking import HardwareMasking
 from keymasq.masking import backend as backend_module
 from keymasq.masking import permissions, usb
 from keymasq.masking.backend import LinuxMaskBackend, run_host, save_json
-from keymasq.masking.inventory import HardwareInventory
+from keymasq.masking.inventory import HardwareInventory, NoBoundInterfacesError
 from tests.common.test_hardware_masking import deck_sysfs, write
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_json_metadata_is_private_at_creation_and_before_writing(tmp_path, monkeypatch, existing):
+    path = tmp_path / "journal.json"
+    temporary = path.with_suffix(".new")
+    if existing:
+        temporary.touch(mode=0o666)
+        temporary.chmod(0o666)
+    original_open = os.open
+    original_dump = json.dump
+    created_modes = []
+
+    def open_file(name, flags, mode=0o777):
+        fd = original_open(name, flags, mode)
+        if name == temporary:
+            created_modes.append(stat.S_IMODE(os.fstat(fd).st_mode))
+        return fd
+
+    def dump(data, stream):
+        assert stat.S_IMODE(os.fstat(stream.fileno()).st_mode) == 0o600
+        return original_dump(data, stream)
+
+    monkeypatch.setattr(os, "open", open_file)
+    monkeypatch.setattr(json, "dump", dump)
+    previous_umask = os.umask(0)
+    try:
+        save_json(path, {"id": "private metadata"})
+    finally:
+        os.umask(previous_umask)
+    assert created_modes == [0o666 if existing else 0o600]
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text()) == {"id": "private metadata"}
+    assert not temporary.exists()
 
 
 @pytest.mark.asyncio
@@ -107,7 +141,7 @@ async def test_detached_deck_records_mode_before_mutation_and_rolls_back(
     monkeypatch.setattr(
         inventory,
         "bindings",
-        Mock(side_effect=ValueError("No bound input interfaces are available to reconnect")),
+        Mock(side_effect=NoBoundInterfacesError()),
     )
     monkeypatch.setattr(backend, "install_rules", AsyncMock())
     monkeypatch.setattr(backend, "trigger", AsyncMock())

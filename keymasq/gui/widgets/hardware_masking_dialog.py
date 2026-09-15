@@ -493,18 +493,21 @@ class HardwareMaskingPanel(Gtk.Box):
             apply()
         return bool(choices)
 
+    def _change_blocked(self, identity: str) -> bool:
+        return bool(
+            self._closed
+            or identity in self._pending
+            or "all" in self._pending
+            or (identity == "all" and self._pending)
+        )
+
     def _authorized_change(self, command: str, data: dict) -> None:
         if self.deferred and command in {"mask_hardware", "restore_hardware"}:
             self.choices[str(data["id"])] = command == "mask_hardware"
             self._render(self._state)
             return
         identity = str(data.get("id", "all"))
-        if (
-            self._closed
-            or identity in self._pending
-            or "all" in self._pending
-            or (identity == "all" and self._pending)
-        ):
+        if self._change_blocked(identity):
             return
         if command == "restore_hardware" or bool(
             getattr(self._parent, "_recording_unlocked", False)
@@ -522,12 +525,8 @@ class HardwareMaskingPanel(Gtk.Box):
 
     def _change(self, command: str, data: dict) -> None:
         identity = str(data.get("id", "all"))
-        if (
-            self._closed
-            or identity in self._pending
-            or "all" in self._pending
-            or (identity == "all" and self._pending)
-        ):
+        # Unlock callbacks can arrive after another operation starts or we close.
+        if self._change_blocked(identity):
             return
         self._pending.add(identity)
         self._errors.pop(identity, None)

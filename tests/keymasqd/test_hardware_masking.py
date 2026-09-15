@@ -1,4 +1,6 @@
 import asyncio
+import os
+import threading
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -601,12 +603,12 @@ async def test_failed_mask_recovers_without_resume_from_gui(tmp_path, monkeypatc
     monkeypatch.setattr(masking, "request", request)
     monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
     monkeypatch.setattr(manager, "broadcast_hardware_mask_ready", Mock())
-    await masking.recover_automatically(supervisor.status())
-    assert supervisor.status()["remapping_suspended"]
+    await masking.recover_automatically(await supervisor.status())
+    assert (await supervisor.status())["remapping_suspended"]
     manager.broadcast_hardware_recovery.assert_called_once_with(retrying=True)
     clock[0] += 2
-    await masking.recover_automatically(supervisor.status())
-    assert not supervisor.status()["remapping_suspended"]
+    await masking.recover_automatically(await supervisor.status())
+    assert not (await supervisor.status())["remapping_suspended"]
     assert not manager.masking_suspended
     manager.broadcast_hardware_mask_ready.assert_called_once()
     await supervisor.request({"command": "poll"})
@@ -683,7 +685,18 @@ async def test_failed_acquisition_finishes_its_own_recovery(monkeypatch):
     assert not manager.mask_registry.hardware_paths
 
 
-def test_registry_release_resolves_reconnected_aliases_and_preserves_other_reservations(tmp_path):
+@pytest.mark.asyncio
+async def test_registry_release_resolves_reconnected_aliases_and_preserves_other_reservations(
+    tmp_path,
+    monkeypatch,
+):
+    loop_thread = threading.get_ident()
+    original_realpath = os.path.realpath
+
+    def realpath(path, *args, **kwargs):
+        assert threading.get_ident() != loop_thread
+        return original_realpath(path, *args, **kwargs)
+
     first, second, replacement = (str(tmp_path / name) for name in ("event1", "event2", "event3"))
     alias = tmp_path / "controller"
     alias.symlink_to(first)
@@ -691,17 +704,41 @@ def test_registry_release_resolves_reconnected_aliases_and_preserves_other_reser
     registry.register("first", [str(alias)], "/usb/first")
     registry.register("second", [second], "/usb/second")
     registry.hardware_paths["shared"] = [first, second]
-    registry.release("first", set())
+    monkeypatch.setattr(os.path, "realpath", realpath)
+    await registry.release("first", set())
     assert registry.hardware_paths == {"second": [second], "shared": [second]}
 
     alias.unlink()
     alias.symlink_to(replacement)
     registry.register("first", [str(alias)], "/usb/first")
     registry.hardware_paths["shared"] = [replacement, second]
-    registry.release("first", set())
+    await registry.release("first", set())
     assert registry.hardware_paths == {"second": [second], "shared": [second]}
     assert registry.reservation_paths == {"second": [second]}
     assert registry.reservation_attachments == {"second": "/usb/second"}
+
+
+@pytest.mark.asyncio
+async def test_registry_release_includes_paths_registered_while_resolving(monkeypatch):
+    from keymasq.keymasqd import masking_registry as module
+
+    registry = MaskRegistry()
+    registry.register("first", ["/input/first"], "/usb/first")
+    resolve = module.resolve_paths
+    calls = 0
+
+    async def resolve_while_registering(paths):
+        nonlocal calls
+        calls += 1
+        resolved = await resolve(paths)
+        if calls == 1:
+            registry.register("second", ["/input/second"], "/usb/second")
+        return resolved
+
+    monkeypatch.setattr(module, "resolve_paths", resolve_while_registering)
+    await registry.release("first", set())
+    assert registry.hardware_paths == {"second": ["/input/second"]}
+    assert registry.reservation_paths == {"second": ["/input/second"]}
 
 
 @pytest.mark.asyncio

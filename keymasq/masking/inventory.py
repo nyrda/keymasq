@@ -15,6 +15,11 @@ HID_NAME = re.compile(r"[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\.[0-9A-Fa-f
 DRIVER_NAME = re.compile(r"[a-zA-Z0-9_-]+\Z")
 
 
+class NoBoundInterfacesError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("No bound input interfaces are available to reconnect")
+
+
 def read_attribute(path: Path) -> str:
     try:
         return path.read_text().strip()
@@ -237,7 +242,7 @@ class HardwareInventory:
                     raise ValueError("Invalid USB input driver")
                 result[f"usb:{interface.name}"] = target.name
         if not result:
-            raise ValueError("No bound input interfaces are available to reconnect")
+            raise NoBoundInterfacesError()
         return result
 
     def resolve(self, identity: str, generation: str) -> Attachment:

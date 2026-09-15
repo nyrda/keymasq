@@ -77,11 +77,11 @@ class MaskRuntime:
         self.retry_delay = INITIAL_RETRY_DELAY_S
         self.healthy_since: float | None = None
 
-    def owns(self, device: object, reserved_paths: set[str]) -> bool:
+    def owns(self, device: object, reserved_paths: set[str], resolved_path: str) -> bool:
         from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
         grabbed = cast(GrabbedDevice, device)
-        if os.path.realpath(grabbed.path) in reserved_paths:
+        if resolved_path in reserved_paths:
             return True
         if grabbed.path.startswith(SOURCE_PREFIX) and self.attachment_path:
             from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
@@ -91,6 +91,16 @@ class MaskRuntime:
                 source.binding.endpoint.hid_parent
             ).is_relative_to(self.attachment_path)
         return False
+
+    async def resolve_runtime_paths(self) -> dict[str, str]:
+        """Called under _op_lock; only copied paths are sent to the worker."""
+        from keymasq.keymasqd.masking_registry import resolve_paths
+
+        paths = set(self.manager.mask_registry.reservation_paths.get(self.reservation_id, []))
+        paths.update(
+            device.path for devices in self.manager.grabbed_devices.values() for device in devices
+        )
+        return await resolve_paths(paths)
 
     async def release_runtime(self) -> None:
         update = self.update_task
@@ -105,26 +115,27 @@ class MaskRuntime:
                 await task
         released: set[str] = set()
         async with self.manager._op_lock:  # pyright: ignore[reportPrivateUsage]
+            resolved = await self.resolve_runtime_paths()
             if (
                 self.reservation_id in self.manager.mask_registry.reservation_paths
                 or self.transition_active
             ):
                 self.reapply_after_restore = True
             paths = {
-                os.path.realpath(path)
+                resolved[path]
                 for path in self.manager.mask_registry.reservation_paths.get(
                     self.reservation_id, []
                 )
             }
             for hardware_id, devices in list(self.manager.grabbed_devices.items()):
                 for device in list(devices):
-                    if not self.owns(device, paths):
+                    if not self.owns(device, paths, resolved[device.path]):
                         continue
-                    released.add(os.path.realpath(device.path))
+                    released.add(resolved[device.path])
                     cancel_pending_hardware_release(self.manager, hardware_id)
                     cancel_pending_interface_release(self.manager, hardware_id, device.path)
                     await release_interface_unlocked(self.manager, hardware_id, device.path)
-            self.manager.mask_registry.release(self.reservation_id, released)
+            await self.manager.mask_registry.release(self.reservation_id, released)
         self.raw_only = False
         self.transition_active = False
         self.manager.mask_registry.blocked_attachments.discard(self.attachment_path)
@@ -179,7 +190,7 @@ class MaskRuntime:
                     else:
                         parent = (
                             Path("/sys/class/input")
-                            / Path(os.path.realpath(device.path)).name
+                            / Path(await asyncio.to_thread(os.path.realpath, device.path)).name
                             / "device"
                         )
                     if not (await asyncio.to_thread(parent.resolve)).is_relative_to(attachment):
@@ -261,21 +272,22 @@ class MaskRuntime:
         # Route changes and adoption hold this lock. Do not treat their stopped
         # readers or temporary output teardown as a failed reservation.
         async with self.manager._op_lock:  # pyright: ignore[reportPrivateUsage]
+            if not self.manager.mask_registry.reservation_paths.get(self.reservation_id):
+                return self.raw_only
+            resolved = await self.resolve_runtime_paths()
             expected = {
-                os.path.realpath(path)
+                resolved[path]
                 for path in self.manager.mask_registry.reservation_paths.get(
                     self.reservation_id, []
                 )
             }
-            if not expected:
-                return self.raw_only
             ready: set[str] = set()
             for devices in self.manager.grabbed_devices.values():
                 for device in devices:
-                    if not self.owns(device, expected):
+                    if not self.owns(device, expected, resolved[device.path]):
                         continue
                     if device.path.startswith(SOURCE_PREFIX):
-                        expected.add(os.path.realpath(device.path))
+                        expected.add(resolved[device.path])
                     if (
                         not device.running
                         or device.device is None
@@ -300,7 +312,7 @@ class MaskRuntime:
                                     continue
                         elif device.uinput is None:
                             continue
-                    ready.add(os.path.realpath(device.path))
+                    ready.add(resolved[device.path])
             return expected <= ready
 
 
@@ -647,20 +659,28 @@ async def release_masked_configuration(manager: DeviceManager, hardware_id: str)
         device.update_motion_sensors({})
         await device.update_default_output(None)
         if not hardware_id.startswith(RESERVATION_PREFIX):
-            reservation_id = reservation_for_device(manager, device)
+            reservation_id = await reservation_for_device(manager, device)
             if reservation_id is not None:
                 _move_reserved_interface(manager, device, reservation_id)
     return {"released": True, "reserved": True, "hardware_id": hardware_id}
 
 
-def reservation_for_device(manager: DeviceManager, device: object) -> str | None:
+async def reservation_for_device(manager: DeviceManager, device: object) -> str | None:
     from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
+    from keymasq.keymasqd.masking_registry import resolve_paths
     from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
     grabbed = cast(GrabbedDevice, device)
-    key = os.path.realpath(grabbed.path)
-    for identity, paths in manager.mask_registry.reservation_paths.items():
-        if key in {os.path.realpath(path) for path in paths}:
+    reservations = {
+        identity: paths.copy()
+        for identity, paths in manager.mask_registry.reservation_paths.items()
+    }
+    resolved = await resolve_paths(
+        {grabbed.path} | {path for paths in reservations.values() for path in paths}
+    )
+    key = resolved[grabbed.path]
+    for identity, paths in reservations.items():
+        if key in {resolved[path] for path in paths}:
             return identity
         source = grabbed.device
         attachment = manager.mask_registry.reservation_attachments.get(identity)

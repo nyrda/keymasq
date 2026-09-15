@@ -85,7 +85,9 @@ class MaskReservation:
 
     async def arm_saved_usb(self) -> None:
         selector = self.policy.get("usb_selector")
-        if isinstance(selector, dict) and not self.backend.armed:
+        if isinstance(selector, dict) and not await asyncio.to_thread(
+            getattr, self.backend, "armed"
+        ):
             attachment = await asyncio.to_thread(self.backend.inventory.from_selector, selector)
             await self.backend.install_rules(attachment)
 
@@ -93,14 +95,14 @@ class MaskReservation:
         if (
             self.active
             or self.recovery_lock.locked()
-            or self.backend.journal.exists()
+            or await asyncio.to_thread(self.backend.journal.exists)
             or not self.policy.get("persist")
             or self.session_uid is None
             or self.policy.get("owner_uid") != self.session_uid
         ):
             return
         suspended = self.backend.state_dir / "suspended"
-        if suspended.exists():
+        if await asyncio.to_thread(suspended.exists):
             reason = (await asyncio.to_thread(suspended.read_text)).strip()
             if reason not in {"lifecycle_stop", "service_stopped"}:
                 return
@@ -170,8 +172,12 @@ class MaskReservation:
         await self._restore("trial_expired")
         return True
 
-    def status(self) -> JsonObject:
-        paused = (self.backend.state_dir / "suspended").exists()
+    async def status(self) -> JsonObject:
+        paused = await asyncio.to_thread((self.backend.state_dir / "suspended").exists)
+        return self.status_with_pause(paused)
+
+    def status_with_pause(self, paused: bool) -> JsonObject:
+        """Build status on the event loop after reading the filesystem flags."""
         explicitly_stopped = paused and self.state.get("reason") in {
             "user_restore",
             "admin_restore",
@@ -197,7 +203,7 @@ class MaskReservation:
         """Dispatch while operation_lock is held; handlers never acquire it again."""
         command = message.get("command")
         if command == "status":
-            return self.status()
+            return await self.status()
         handlers = {
             "startup": self._startup,
             "poll": self._poll,
@@ -220,14 +226,14 @@ class MaskReservation:
             raise ValueError("An authenticated user ID is required")
         self.session_uid = uid
         await self.autostart()
-        return self.status()
+        return await self.status()
 
     async def _poll(self, _message: JsonObject) -> JsonObject:
         await self.autostart()
-        return self.status()
+        return await self.status()
 
     async def _inventory(self, _message: JsonObject) -> JsonObject:
-        result = self.status()
+        result = await self.status()
         attachments = await asyncio.to_thread(self.backend.inventory.scan)
         result["devices"] = [item.as_json() for item in attachments]
         if self.state.get("id") and not any(
@@ -243,14 +249,18 @@ class MaskReservation:
         return result
 
     async def _mask(self, message: JsonObject) -> JsonObject:
-        if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
+        if (
+            self.active
+            or self.recovery_lock.locked()
+            or await asyncio.to_thread(self.backend.journal.exists)
+        ):
             raise ValueError("This attachment already has a mask or pending recovery")
         attachment = await asyncio.to_thread(
             self.backend.inventory.resolve,
             str(message.get("id", "")),
             str(message.get("generation", "")),
         )
-        self.backend.inventory.validate(attachment)
+        await asyncio.to_thread(self.backend.inventory.validate, attachment)
         confirmed = (
             message.get("persist") is True
             and self.policy.get("id") == attachment.identity
@@ -281,7 +291,7 @@ class MaskReservation:
         self.apply_task = asyncio.create_task(
             self._apply(attachment), name="hardware-mask-activation"
         )
-        return self.status()
+        return await self.status()
 
     async def _apply(self, attachment: Attachment) -> None:
         try:
@@ -318,7 +328,7 @@ class MaskReservation:
             raise ValueError("This hardware trial has ended")
         self.state["quiesce_required"] = False
         self.quiesced.set()
-        return self.status()
+        return await self.status()
 
     async def _confirm(self, message: JsonObject) -> JsonObject:
         command = message.get("command")
@@ -345,7 +355,7 @@ class MaskReservation:
             await asyncio.to_thread(
                 save_json, self.backend.state_dir / "selection.json", self.state
             )
-        return self.status()
+        return await self.status()
 
     async def _persistence(self, message: JsonObject) -> JsonObject:
         if self.active:
@@ -360,7 +370,7 @@ class MaskReservation:
         if self.policy and self.policy.get("owner_uid") != self.session_uid:
             raise ValueError("This startup preference belongs to another user")
         await self.save_policy(message.get("persist"))
-        return self.status()
+        return await self.status()
 
     async def _restore_request(self, message: JsonObject) -> JsonObject:
         reason = "user_restore"
@@ -370,13 +380,17 @@ class MaskReservation:
             reason = "replacement_unavailable"
             self.state["error"] = "The replacement controller stopped; restoring hardware access"
         await self._restore(reason)
-        return self.status()
+        return await self.status()
 
     async def _resume(self, _message: JsonObject) -> JsonObject:
-        if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
+        if (
+            self.active
+            or self.recovery_lock.locked()
+            or await asyncio.to_thread(self.backend.journal.exists)
+        ):
             raise ValueError("Restore the current mask before resuming remapping")
         await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
-        return self.status()
+        return await self.status()
 
     async def restore(self, reason: str) -> None:
         async with self.operation_lock:
@@ -386,7 +400,11 @@ class MaskReservation:
         async with self.operation_lock:
             # A clean supervisor stop closes the daemon while recovery runs.
             # Recheck after that recovery finishes before classifying the loss.
-            if self.active or self.backend.journal.exists() or self.backend.armed:
+            if (
+                self.active
+                or await asyncio.to_thread(self.backend.journal.exists)
+                or await asyncio.to_thread(getattr, self.backend, "armed")
+            ):
                 await self._restore("daemon_disconnected")
 
     async def _restore(self, reason: str) -> None:
@@ -400,8 +418,8 @@ class MaskReservation:
                 reason = str(self.state.get("reason", reason))
             had_mask = (
                 self.active
-                or self.backend.journal.exists()
-                or self.backend.armed
+                or await asyncio.to_thread(self.backend.journal.exists)
+                or await asyncio.to_thread(getattr, self.backend, "armed")
                 or is_recovering(self.state.get("state"))
             )
             clean = reason in {"lifecycle_stop", "service_stopped"}
@@ -631,14 +649,24 @@ class MaskCoordinator:
                 await asyncio.to_thread(suspended.write_text, pause_reason + "\n")
                 item.state["reason"] = pause_reason
 
-    def status(self) -> JsonObject:
+    async def status(self) -> JsonObject:
+        reservations = list(self.reservations.values())
+        paths = [self.backend.state_dir / "suspended"] + [
+            item.backend.state_dir / "suspended" for item in reservations
+        ]
+        paused = await asyncio.to_thread(lambda: [path.exists() for path in paths])
         return {
-            "masks": [item.status() for item in self.reservations.values()],
-            "remapping_suspended": (self.backend.state_dir / "suspended").exists(),
+            "masks": [
+                item.status_with_pause(flag)
+                for item, flag in zip(reservations, paused[1:], strict=True)
+            ],
+            "remapping_suspended": paused[0],
         }
 
     async def autostart(self) -> None:
-        if self.session_uid is None or self.status()["remapping_suspended"]:
+        if self.session_uid is None or await asyncio.to_thread(
+            (self.backend.state_dir / "suspended").exists
+        ):
             return
         for item in list(self.reservations.values()):
             item.session_uid = self.session_uid
@@ -659,9 +687,9 @@ class MaskCoordinator:
             self.session_uid = uid
         if command in {"startup", "poll"}:
             await self.autostart()
-            return self.status()
+            return await self.status()
         if command in {"status", "inventory"}:
-            result = self.status()
+            result = await self.status()
             if command == "inventory":
                 attachments = await asyncio.to_thread(self.backend.inventory.scan)
                 devices = [item.as_json() for item in attachments]
@@ -696,7 +724,7 @@ class MaskCoordinator:
                     for result in results:
                         if isinstance(result, BaseException):
                             raise OSError(f"Some devices still need recovery: {result}") from result
-                    return self.status()
+                    return await self.status()
                 reason = (
                     "lifecycle_stop"
                     if message.get("reason") == "lifecycle_stop"
@@ -704,20 +732,20 @@ class MaskCoordinator:
                 )
                 await self.restore(reason)
             else:
-                if any(
-                    item.active or item.backend.journal.exists()
-                    for item in self.reservations.values()
-                ):
+                items = list(self.reservations.values())
+                journals = [item.backend.journal for item in items]
+                journaled = await asyncio.to_thread(lambda: any(path.exists() for path in journals))
+                if journaled or any(item.active for item in items):
                     raise ValueError("Hardware recovery is still in progress")
                 for item in self.reservations.values():
                     await item.request({"command": "resume"})
                 await asyncio.to_thread(
                     (self.backend.state_dir / "suspended").unlink, missing_ok=True
                 )
-            return self.status()
+            return await self.status()
         identity = str(message.get("id", ""))
         if command == "mask":
-            if self.status()["remapping_suspended"]:
+            if await asyncio.to_thread((self.backend.state_dir / "suspended").exists):
                 raise ValueError("Resume remapping after administrative recovery before masking")
             # A previously confirmed attachment can be enabled while unplugged.
             # Its saved identity authorizes takeover when it next appears.
@@ -732,13 +760,13 @@ class MaskCoordinator:
                         "Connect this device before enabling masking for the first time"
                     )
                 async with item.operation_lock:
-                    if item.active or item.backend.journal.exists():
+                    if item.active or await asyncio.to_thread(item.backend.journal.exists):
                         raise ValueError("This attachment already has a mask or pending recovery")
                     item.session_uid = self.session_uid
                     await item.save_policy(True)
                     await item._request({"command": "resume"})
                     await item.autostart()
-                return self.status()
+                return await self.status()
             # Resolve before creating any persistent paths from a client request.
             await asyncio.to_thread(
                 self.backend.inventory.resolve, identity, str(message.get("generation", ""))
@@ -782,7 +810,7 @@ class MaskCoordinator:
                             or nodes != item.state.get("event_nodes")
                         ):
                             item.refresh_interfaces(attachment)
-                            return self.status()
+                            return await self.status()
             if message.get("persist") is False:
                 async with item.operation_lock:
                     if item.policy and item.policy.get("owner_uid") == self.session_uid:
@@ -804,7 +832,7 @@ class MaskCoordinator:
                 item.recovery_task = asyncio.create_task(recover(), name=f"mask-recover-{identity}")
         else:
             await item.request(message)
-        return self.status()
+        return await self.status()
 
     async def restore(self, reason: str) -> None:
         if reason not in {

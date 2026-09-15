@@ -55,7 +55,7 @@ async def test_clean_stop_during_confirmed_reacquisition_does_not_suspend(tmp_pa
     fresh = await restart(supervisor)
     assert fresh.state["state"] == "acquiring"
     await fresh.restore(reason)
-    assert not fresh.status()["remapping_suspended"]
+    assert not (await fresh.status())["remapping_suspended"]
     resumed = await restart(fresh)
     assert resumed.state["state"] == "acquiring"
     await resumed.restore(reason)
@@ -70,7 +70,7 @@ async def test_startup_recovers_confirmed_mask_left_suspended_by_clean_shutdown(
     (supervisor.backend.state_dir / "suspended").write_text(reason)
     fresh = await restart(supervisor)
     assert fresh.state["state"] == "acquiring"
-    assert not fresh.status()["remapping_suspended"]
+    assert not (await fresh.status())["remapping_suspended"]
     await fresh.restore(reason)
 
 
@@ -82,7 +82,7 @@ async def test_unconfirmed_trial_never_creates_startup_intent(tmp_path: Path):
     fresh = await restart(supervisor)
     assert not fresh.active
     assert not fresh.policy
-    assert fresh.status()["remapping_suspended"] is True
+    assert (await fresh.status())["remapping_suspended"] is True
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_disabling_persistence_keeps_live_output_but_does_not_restart(tmp_
     await supervisor.restore("lifecycle_stop")
     fresh = await restart(supervisor)
     assert not fresh.active
-    assert fresh.status()["persist"] is False
+    assert (await fresh.status())["persist"] is False
 
 
 @pytest.mark.asyncio
@@ -122,8 +122,8 @@ async def test_escape_hatch_survives_restarts_with_persistence_enabled(tmp_path:
     fresh = await restart(supervisor)
     await fresh.request({"command": "poll"})
     assert not fresh.active
-    assert fresh.status()["persist"] is True
-    assert fresh.status()["remapping_suspended"] is True
+    assert (await fresh.status())["persist"] is True
+    assert (await fresh.status())["remapping_suspended"] is True
     # A normal service stop must not clear the emergency latch.
     await fresh.restore("service_stopped")
     assert not (await restart(fresh)).active
@@ -161,7 +161,7 @@ async def test_automatic_acquisition_timeout_pauses_until_explicit_resume(tmp_pa
     clock[0] += ACTIVATION_SECONDS
     await fresh.request({"command": "poll"})
     await fresh.monitor_once()
-    assert fresh.status()["remapping_suspended"] is True
+    assert (await fresh.status())["remapping_suspended"] is True
     assert not (await restart(fresh)).active
 
 
@@ -219,7 +219,7 @@ async def test_remembered_display_state_is_not_startup_authorization(tmp_path: P
     fresh = await restart(supervisor)
     assert not fresh.active
     await fresh.restore("admin_restore")
-    assert fresh.status()["remapping_suspended"] is True
+    assert (await fresh.status())["remapping_suspended"] is True
 
 
 @pytest.mark.asyncio
@@ -251,5 +251,5 @@ async def test_supervisor_stop_does_not_mistake_its_own_daemon_termination_for_f
         disconnected = asyncio.create_task(supervisor.owner_disconnected())
         await asyncio.sleep(0)
     await asyncio.gather(cleanup, disconnected)
-    assert supervisor.status()["remapping_suspended"] is False
+    assert (await supervisor.status())["remapping_suspended"] is False
     assert (await restart(supervisor)).active

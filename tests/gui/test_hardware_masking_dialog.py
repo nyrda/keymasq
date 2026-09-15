@@ -224,3 +224,22 @@ def test_cancelled_unlock_does_not_change_switch_or_send_mask_request(dialog, mo
     assert len(prompts) == 1
     assert not changes
     assert not dialog._rows["first"].switch.get_active()
+
+
+@pytest.mark.parametrize("block", ["same_device", "all_devices", "closed"])
+def test_unlock_callback_rechecks_pending_operations(dialog, monkeypatch, block):
+    prompts = []
+    requests = []
+    dialog._parent = SimpleNamespace(
+        _recording_unlocked=False, present_unlock_dialog=lambda **kwargs: prompts.append(kwargs)
+    )
+    monkeypatch.setattr(module, "session_request_async", lambda *a, **kw: requests.append(a))
+    dialog._render(response())
+    dialog._authorized_change("mask_hardware", {"id": "first"})
+    assert len(prompts) == 1
+    if block == "closed":
+        dialog.close()
+    else:
+        dialog._pending.add("first" if block == "same_device" else "all")
+    prompts[0]["on_success"]()
+    assert not requests

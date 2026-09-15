@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, finish_io
-from keymasq.masking.coordinator import ACTIVATION_SECONDS, TRIAL_SECONDS, MaskReservation
+from keymasq.masking.coordinator import (
+    ACTIVATION_SECONDS,
+    TRIAL_SECONDS,
+    MaskCoordinator,
+    MaskReservation,
+)
 from keymasq.masking.inventory import Attachment, HardwareInventory
 
 
@@ -160,6 +165,33 @@ async def begin(supervisor: MaskReservation) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("multiple", [False, True])
+async def test_status_reads_current_pause_markers_off_the_input_loop(
+    tmp_path, monkeypatch, multiple
+):
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskCoordinator(backend) if multiple else MaskReservation(backend)
+    if multiple:
+        await supervisor.reservation("a" * 24)
+    loop_thread = threading.get_ident()
+    original_exists = Path.exists
+    probes = []
+
+    def exists(path):
+        if path.name in {"suspended", "journal.json"}:
+            assert threading.get_ident() != loop_thread
+            probes.append(path)
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    assert not (await supervisor.status())["remapping_suspended"]
+    (backend.state_dir / "suspended").write_text("user_restore\n")
+    assert (await supervisor.status())["remapping_suspended"]
+    await supervisor.autostart()
+    assert probes
+
+
+@pytest.mark.asyncio
 async def test_slow_activation_leaves_a_full_confirmation_window(tmp_path, monkeypatch):
     clock = [100.0]
     backend = FakeBackend(tmp_path)
@@ -173,13 +205,13 @@ async def test_slow_activation_leaves_a_full_confirmation_window(tmp_path, monke
     monkeypatch.setattr(backend, "activate", slow_activate)
     started = await begin(supervisor)
     assert started["remaining_seconds"] == 0
-    assert supervisor.status()["remaining_seconds"] == 0
+    assert (await supervisor.status())["remaining_seconds"] == 0
     clock[0] += 19  # Replacement reader acquisition still fits the activation budget.
     ready = await supervisor.request({"command": "ready", "token": started["token"]})
     assert ready["state"] == "trial" and ready["remaining_seconds"] == 30
     clock[0] += 29
     await supervisor.monitor_once()
-    assert supervisor.status()["remaining_seconds"] == 1
+    assert (await supervisor.status())["remaining_seconds"] == 1
     kept = await supervisor.request({"command": "keep", "token": started["token"]})
     assert kept["state"] == "masked"
     await supervisor.restore("lifecycle_stop")
@@ -286,12 +318,12 @@ async def test_expired_confirmation_restores_and_latches_suspension(tmp_path: Pa
         await supervisor.request({"command": "keep", "token": result["token"]})
     await supervisor.monitor_once()
     assert backend.recoveries == 1
-    assert supervisor.status()["remapping_suspended"] is True
+    assert (await supervisor.status())["remapping_suspended"] is True
     assert supervisor.state["reason"] == "trial_expired"
     await supervisor.monitor_once()
     assert backend.recoveries == 1
     await supervisor.request({"command": "resume"})
-    assert supervisor.status()["remapping_suspended"] is False
+    assert (await supervisor.status())["remapping_suspended"] is False
 
 
 @pytest.mark.asyncio
@@ -304,7 +336,7 @@ async def test_reconnect_ends_the_reservation_without_remasking(tmp_path: Path) 
     await supervisor.monitor_once()
     assert backend.recoveries == 1
     assert supervisor.state["reason"] == "hardware_disconnected"
-    assert supervisor.status()["remapping_suspended"] is True
+    assert (await supervisor.status())["remapping_suspended"] is True
 
 
 @pytest.mark.asyncio

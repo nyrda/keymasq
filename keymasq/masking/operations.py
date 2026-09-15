@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import json
+import logging
 import os
 import pwd
 import re
@@ -25,6 +26,7 @@ REQUESTS = Path("/run/keymasq/hardware-requests")
 REQUEST_ID = re.compile(r"[0-9a-f]{32}\Z")
 ATTACHMENT_ID = re.compile(r"[0-9a-f]{24}\Z")
 MAX_REQUEST = 65536
+log = logging.getLogger("keymasq.masking")
 
 
 def open_request(token: str) -> int:
@@ -113,7 +115,8 @@ async def run_request(token: str, root: LinuxMaskBackend | None = None) -> None:
             if not isinstance(message, dict):
                 raise ValueError("Expected a hardware request object")
             result = {"status": "ok", **await execute(cast(JsonObject, message), backend)}
-        except (OSError, ValueError, KeyError) as exc:
+        except Exception as exc:
+            log.exception("Hardware operation failed")
             result = {"status": "error", "message": str(exc)}
             if isinstance(exc, DeviceInUseError):
                 result.update(

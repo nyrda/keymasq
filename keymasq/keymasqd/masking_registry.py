@@ -10,10 +10,19 @@ Acquisition registers paths synchronously on the event loop before calling
 grab_device(); it does not hold _op_lock across that public call. Path snapshots
 used while examining readers last only for the current locked operation, so a
 reconnected device's symlinks are resolved again on the next operation.
+Filesystem resolution awaits a worker while the caller retains _op_lock;
+workers receive copied paths and never inspect or mutate the registry.
 """
 
+import asyncio
 import os
 from dataclasses import dataclass, field
+
+
+async def resolve_paths(paths: set[str]) -> dict[str, str]:
+    """Resolve a copied path set without reading runtime state in the worker."""
+    snapshot = tuple(paths)
+    return await asyncio.to_thread(lambda: {path: os.path.realpath(path) for path in snapshot})
 
 
 @dataclass
@@ -38,13 +47,20 @@ class MaskRegistry:
         self.reservation_paths[reservation_id] = paths.copy()
         self.reservation_attachments[reservation_id] = attachment
 
-    def release(self, reservation_id: str, released: set[str]) -> None:
+    async def release(self, reservation_id: str, released: set[str]) -> None:
         """Remove a reservation's paths from every adopted hardware configuration."""
+        resolved: dict[str, str] = {}
+        while True:
+            all_paths = set(self.reservation_paths.get(reservation_id, []))
+            for reserved in self.hardware_paths.values():
+                all_paths.update(reserved)
+            missing = all_paths - resolved.keys()
+            if not missing:
+                break
+            # Acquisition can register paths before taking the manager lock.
+            # Include any additions made while filesystem resolution yields.
+            resolved.update(await resolve_paths(missing))
         reservation_paths = self.reservation_paths.pop(reservation_id, [])
-        all_paths = set(reservation_paths)
-        for reserved in self.hardware_paths.values():
-            all_paths.update(reserved)
-        resolved = {path: os.path.realpath(path) for path in all_paths}
         paths = {resolved[path] for path in reservation_paths}
         paths.update(released)
         for hardware_id, reserved in list(self.hardware_paths.items()):

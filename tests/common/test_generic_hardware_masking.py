@@ -11,6 +11,7 @@ import pytest
 from keymasq.masking import backend as backend_module
 from keymasq.masking.backend import LinuxMaskBackend, save_json
 from keymasq.masking.coordinator import MaskReservation
+from keymasq.masking.inventory import NoBoundInterfacesError
 from tests.common.test_hardware_masking import FakeBackend, deck_sysfs, write
 
 
@@ -50,6 +51,16 @@ def test_unknown_usb_vendor_and_driver_need_no_masking_registration(tmp_path):
     assert all('idVendor}=="abcd"' in match for match in matches)
     assert all('idProduct}=="9876"' in match for match in matches)
     assert not any("devnum" in match for match in matches)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_does_not_ignore_binding_errors_with_the_same_message(tmp_path, monkeypatch):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    failure = ValueError("No bound input interfaces are available to reconnect")
+    monkeypatch.setattr(inventory, "bindings", Mock(side_effect=failure))
+    with pytest.raises(ValueError) as error:
+        await LinuxMaskBackend(inventory).snapshot(attachment)
+    assert error.value is failure
 
 
 @pytest.mark.parametrize("escape", ["parent", "symlink"])
@@ -462,7 +473,7 @@ async def test_missing_bindings_after_usb_reconnect_still_restores_access(tmp_pa
     monkeypatch.setattr(
         inventory,
         "bindings",
-        Mock(side_effect=ValueError("No bound input interfaces are available to reconnect")),
+        Mock(side_effect=NoBoundInterfacesError()),
     )
     monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
     rebind, restored, triggered = AsyncMock(), AsyncMock(), AsyncMock()

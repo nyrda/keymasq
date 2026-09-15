@@ -103,7 +103,7 @@ async def test_usb_reconnect_journals_port_before_disconnect_and_tracks_new_gene
     assert record["generation"] == current.generation
     assert not record["usb_port"]["disabled"]
     assert isinstance(usb_module.run_host, AsyncMock)
-    usb_module.run_host.assert_awaited_once_with("udevadm", "settle", "--timeout=8")
+    usb_module.run_host.assert_awaited_once_with("udevadm", "settle", "--timeout=8", timeout=10.0)
 
 
 @pytest.mark.asyncio

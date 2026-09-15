@@ -531,6 +531,7 @@ class SocketServer:
         except Exception:
             log.exception("Failed while disconnecting daemon client")
 
+        # Without single-owner admission, cleanup runs when the last client leaves.
         if self.disconnect_handler and not is_owner and not self.clients:
             await self.disconnect_handler()
 

@@ -20,6 +20,7 @@ from keymasq.masking.inventory import (
     USB_INTERFACE_NAME,
     Attachment,
     HardwareInventory,
+    NoBoundInterfacesError,
 )
 from keymasq.masking.paths import RUNTIME_DIR, STATE_DIR, reservation_ids, validate_identity
 
@@ -27,6 +28,7 @@ log = logging.getLogger("keymasq.masking")
 HOST_COMMAND_TIMEOUT_S = 8.0
 ENDPOINT_WAIT_TIMEOUT_S = 8.0
 UDEV_SETTLE_TIMEOUT_S = 8
+UDEV_SETTLE_PROCESS_TIMEOUT_S = UDEV_SETTLE_TIMEOUT_S + 2.0
 UDEV_TRIGGER_TIMEOUT_S = 12.0
 
 
@@ -72,8 +74,9 @@ async def run_host(*args: str, timeout: float = HOST_COMMAND_TIMEOUT_S) -> str:
 
 def save_json(path: Path, data: JsonObject) -> None:
     temporary = path.with_suffix(".new")
-    with temporary.open("w") as stream:
-        os.chmod(temporary, 0o600)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        os.fchmod(stream.fileno(), 0o600)
         json.dump(data, stream)
         stream.flush()
         os.fsync(stream.fileno())
@@ -138,11 +141,8 @@ class LinuxMaskBackend:
         await self.check_deck_scope(attachment)
         try:
             bindings = await finish_io(self.inventory.bindings, attachment)
-        except ValueError as exc:
-            if (
-                attachment.transport != "usb"
-                or str(exc) != "No bound input interfaces are available to reconnect"
-            ):
+        except NoBoundInterfacesError:
+            if attachment.transport != "usb":
                 raise
             bindings = {}  # A direct USB client may have detached the kernel driver.
         for binding, driver_name in bindings.items():
@@ -428,7 +428,12 @@ class LinuxMaskBackend:
         """Adopt hotplugged input nodes without resetting an already masked receiver."""
         if not self.armed or not self.journal.exists():
             raise ValueError("The hardware mask is no longer active")
-        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
+        await run_host(
+            "udevadm",
+            "settle",
+            f"--timeout={UDEV_SETTLE_TIMEOUT_S}",
+            timeout=UDEV_SETTLE_PROCESS_TIMEOUT_S,
+        )
         current = await finish_io(
             self.inventory.resolve, attachment.identity, attachment.generation
         )
@@ -470,7 +475,12 @@ class LinuxMaskBackend:
             if children:
                 raise OSError("HID driver did not remove its raw endpoints")
         await finish_io((driver / "bind").write_text, main_hid)
-        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
+        await run_host(
+            "udevadm",
+            "settle",
+            f"--timeout={UDEV_SETTLE_TIMEOUT_S}",
+            timeout=UDEV_SETTLE_PROCESS_TIMEOUT_S,
+        )
 
     async def rebind_binding(
         self, attachment: Attachment, binding: str, driver_name: str, *, repair: bool = False
@@ -495,7 +505,12 @@ class LinuxMaskBackend:
             if await finish_io(lambda: list(interface.glob("input/input*"))):
                 raise OSError("USB input driver did not remove its endpoints")
         await finish_io((driver / "bind").write_text, name)
-        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
+        await run_host(
+            "udevadm",
+            "settle",
+            f"--timeout={UDEV_SETTLE_TIMEOUT_S}",
+            timeout=UDEV_SETTLE_PROCESS_TIMEOUT_S,
+        )
 
     async def recover(self, *, keep_rules: bool = False) -> None:
         from keymasq.masking.damaged_journal import read_journal, recover_damaged_journal
@@ -608,6 +623,11 @@ class LinuxMaskBackend:
         for rule in (self.early, self.late):
             await finish_io(rule.unlink, missing_ok=True)
         await run_host("udevadm", "control", "--reload-rules")
-        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
+        await run_host(
+            "udevadm",
+            "settle",
+            f"--timeout={UDEV_SETTLE_TIMEOUT_S}",
+            timeout=UDEV_SETTLE_PROCESS_TIMEOUT_S,
+        )
         if not preserve_record:
             await finish_io(self.armed_record.unlink, missing_ok=True)

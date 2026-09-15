@@ -465,6 +465,12 @@ confirmation tokens. Ordinary interface changes or trial expiry recover only the
 affected attachment. Persistent USB rules enforce access restrictions while
 hardware is disconnected, without a running privileged helper.
 
+Masking state is shared between users admitted by `daemon_allowed_uids`.
+The current daemon owner can see saved device names and identities from other
+users and request physical access restoration. Status tokens guard against stale
+requests; they are not authorization secrets. Automatic masking and changes to
+saved startup preferences still check the authenticated owner's UID.
+
 Root-owned journals and static permission baselines survive a daemon failure.
 The daemon's systemd cleanup hook stops all outstanding hardware jobs before
 restoring permissions. Per-attachment locks serialize mutations; a global

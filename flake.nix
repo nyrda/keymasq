@@ -547,6 +547,7 @@
             pkgs.mkShell {
               packages = [
                 (mkTestPython evdevPackage [ ])
+                pkgs.acl
               ];
             };
           mkCiGuiShell =
@@ -560,6 +561,7 @@
 
               packages = [
                 (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
+                pkgs.acl
                 pkgs.gobject-introspection
                 pkgs.gtk4
                 pkgs.libadwaita
@@ -620,6 +622,7 @@
                 # transitive deps.
                 mkdocs-material
               ]))
+              pkgs.acl
               pkgs.gobject-introspection
               pkgs.gtk4
               pkgs.libadwaita

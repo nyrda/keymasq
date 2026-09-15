@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import signal
 import stat
 import struct
@@ -208,7 +209,20 @@ async def test_detached_deck_still_rejects_other_steam_controllers(tmp_path):
 
 
 @pytest.fixture
-def permission_backend(tmp_path, monkeypatch):
+async def permission_backend(tmp_path, monkeypatch):
+    if any(shutil.which(tool) is None for tool in ("setfacl", "getfacl")):
+        pytest.skip("POSIX ACL tools are not installed")
+    probe = tmp_path / "acl-probe"
+    probe.touch()
+    try:
+        await run_host("setfacl", "-m", "u:32109:r--", str(probe))
+        acl = await run_host("getfacl", "-cn", str(probe))
+        if "user:32109:r--" not in acl:
+            pytest.skip("The temporary filesystem does not preserve extended ACLs")
+    except OSError as exc:
+        pytest.skip(f"POSIX ACL operations are unavailable: {exc}")
+    finally:
+        probe.unlink()
     inventory, _ = deck_sysfs(tmp_path)
     attachment = inventory.scan()[0]
     node = inventory.dev_root / "hidraw3"

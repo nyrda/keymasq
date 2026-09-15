@@ -78,13 +78,7 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
             return {}
         if operation == "arm":
             path = backend.state_dir / "selector.json"
-            selector = (
-                json.loads(await finish_io(path.read_text))
-                if path.exists()
-                else json.loads(await finish_io((backend.state_dir / "policy.json").read_text))[
-                    "usb_selector"
-                ]
-            )
+            selector = json.loads(await finish_io(path.read_text))
             attachment = await finish_io(backend.inventory.from_selector, selector)
             await backend.install_rules(attachment)
             return {}

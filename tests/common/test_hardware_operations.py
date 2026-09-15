@@ -228,10 +228,10 @@ async def test_listing_hardware_does_not_start_privileged_jobs(tmp_path, monkeyp
 @pytest.mark.asyncio
 async def test_systemd_backend_keeps_existing_policy_and_transaction_paths(tmp_path, monkeypatch):
     identity = "b" * 24
-    run, policy, legacy = (tmp_path / name for name in ("run", "policy", "legacy"))
+    run, policy, root_state = (tmp_path / name for name in ("run", "policy", "root-state"))
     monkeypatch.setattr(client, "RUNTIME_DIR", run)
     monkeypatch.setattr(client, "POLICY_DIR", policy)
-    monkeypatch.setattr(client, "STATE_DIR", legacy)
+    monkeypatch.setattr(client, "STATE_DIR", root_state)
     backend = client.SystemdMaskBackend()
     scoped = backend.for_attachment(identity)
     assert scoped.journal == run / "reservations" / identity / "journal.json"
@@ -244,25 +244,52 @@ async def test_systemd_backend_keeps_existing_policy_and_transaction_paths(tmp_p
         with pytest.raises(ValueError, match="Invalid attachment identity"):
             backend.for_attachment(invalid)
 
-    def prepare_legacy():
-        directory = legacy / "reservations" / identity
+    def prepare_root_state():
+        directory = root_state / "reservations" / identity
         directory.mkdir(parents=True)
+        (directory / "selector.json").write_text("{}")
         (directory / "policy.json").write_bytes(b'{"persist":true,"owner_uid":1000}\n')
         (directory / "selection.json").write_bytes(b'{"state":"restored"}\n')
 
-    await asyncio.to_thread(prepare_legacy)
+    await asyncio.to_thread(prepare_root_state)
     assert await asyncio.to_thread(backend.reservation_ids) == [identity]
     await asyncio.to_thread(scoped.prepare_directories)
     for name in ("policy.json", "selection.json"):
-        assert await asyncio.to_thread(
-            (scoped.state_dir / name).read_bytes
-        ) == await asyncio.to_thread((legacy / "reservations" / identity / name).read_bytes)
+        assert not await asyncio.to_thread((scoped.state_dir / name).exists)
     await asyncio.to_thread((scoped.state_dir / "policy.json").write_bytes, b'{"persist":false}\n')
     await asyncio.to_thread(scoped.prepare_directories)
     assert (
         await asyncio.to_thread((scoped.state_dir / "policy.json").read_bytes)
         == b'{"persist":false}\n'
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_selector", [False, True])
+async def test_offline_arm_requires_the_current_root_selector(tmp_path, monkeypatch, has_selector):
+    inventory, attachment, *_ = await asyncio.to_thread(generic_usb, tmp_path)
+    root = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    backend = root.for_attachment(attachment.identity)
+    selector = inventory.selector(attachment)
+
+    def prepare():
+        backend.prepare_directories()
+        (backend.state_dir / "policy.json").write_text(json.dumps({"usb_selector": selector}))
+        if has_selector:
+            (backend.state_dir / "selector.json").write_text(json.dumps(selector))
+
+    await asyncio.to_thread(prepare)
+    install = AsyncMock()
+    monkeypatch.setattr(LinuxMaskBackend, "install_rules", install)
+    request = {"operation": "arm", "id": attachment.identity}
+    if has_selector:
+        await operations.execute(request, root)
+        expected = await asyncio.to_thread(inventory.from_selector, selector)
+        install.assert_awaited_once_with(expected)
+    else:
+        with pytest.raises(FileNotFoundError):
+            await operations.execute(request, root)
+        install.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -94,13 +94,6 @@ class SystemdMaskBackend:
 
     def prepare_directories(self) -> None:
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        # Preserve existing development selections when switching architectures.
-        old = STATE_DIR / "reservations" / self.identity if self.identity else STATE_DIR
-        for name in ("policy.json", "selection.json"):
-            target = self.state_dir / name
-            if not target.exists() and (old / name).exists():
-                target.write_bytes((old / name).read_bytes())
-                target.chmod(0o600)
 
     def reservation_ids(self) -> list[str]:
         return reservation_ids(self.runtime_dir, self.state_dir, RUNTIME_DIR, STATE_DIR)

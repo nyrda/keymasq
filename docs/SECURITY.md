@@ -439,6 +439,8 @@ and current generations resolve through root's sysfs inventory. The daemon canno
 supply driver names, mutation paths, shell commands, or permission snapshots.
 The response is written through the pinned descriptor, not a reopened path.
 Offline arming reuses a selector previously discovered and stored by root.
+Saved selector paths are resolved before containment checks and hardware reads.
+They must remain inside the sysfs devices tree, including while devices are offline.
 
 Masking subprocesses and generated udev rules use the same trusted executable
 resolver. Nix packages pin commands to their dependency store paths. Other
@@ -448,8 +450,10 @@ are reported before arming restrictions, and a missing package-pinned executable
 does not fall back to another location.
 
 Hardware jobs allow filesystem writes to their own `RuntimeDirectory` and
-`StateDirectory`, the daemon's `/run/keymasq/hardware-requests` directory, and
-`/run/udev/rules.d`. They do not make the rest of `/run` writable. Tmpfiles creates
+`StateDirectory`, the daemon's `/run/keymasq/hardware-requests` directory,
+`/run/udev/rules.d`, and the legacy `/run/keymasq/hidden` and
+`/run/keymasq/hidden-hardware` directories when present, for recovery cleanup.
+They do not make the rest of `/run` writable. Tmpfiles creates
 the udev rules directory before jobs start. Each job opens the current request
 directory, while an admitted request's response stays on its validated inode if
 the daemon's runtime directory is replaced.
@@ -467,12 +471,18 @@ restoring permissions. Per-attachment locks serialize mutations; a global
 recovery lock excludes all hardware jobs. `ExecStopPost` restores every remaining
 reservation, and `ExecStartPre` requires recovery to succeed before remapping
 starts again. A 20-second systemd watchdog kills a blocked daemon, releasing all
-its grabs and outputs. Heartbeats run on the input loop and also check masking
-coordinator progress. This protects ordinary remapping as well as masking, but
+its grabs and outputs. Heartbeats run on the input loop; awaiting a bounded
+hardware job does not suppress them. This protects ordinary remapping as well as masking, but
 does not detect every logical error in a responsive loop.
 
 The short-lived job's bounded capabilities permit device/sysfs access, ownership
-and ACL restoration, and inspection of `/proc/*/fd` device identities. It does not
+and ACL restoration, and inspection of `/proc/*/fd` device identities.
+`CAP_SYS_PTRACE` is required for the kernel's ptrace access check on other users'
+FD targets. The scan selects USB reconnect when an application holds a direct
+USB handle, then checks for remaining handles after takeover. Ordinary driver
+rebind does not revoke an application's open usbfs handle. Inspection failures
+therefore fail the operation; inaccessible processes are not silently skipped.
+This capability belongs only to the short-lived root job. The scan does not
 inspect input content. USB reconnect records and validates the individual port's
 identity before changing it, refuses hubs and ganged power switching, and repairs
 an interrupted port operation during recovery. Current desktop grants come from

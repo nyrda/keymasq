@@ -52,6 +52,44 @@ def test_unknown_usb_vendor_and_driver_need_no_masking_registration(tmp_path):
     assert not any("devnum" in match for match in matches)
 
 
+@pytest.mark.parametrize("escape", ["parent", "symlink"])
+def test_saved_selector_rejects_escape_before_hardware_validation(tmp_path, monkeypatch, escape):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    devices = inventory.sys_root / "devices"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if escape == "parent":
+        path = devices / ".." / ".." / "outside" / attachment.kernel_name
+    else:
+        (devices / "escape").symlink_to(outside, target_is_directory=True)
+        path = devices / "escape" / attachment.kernel_name
+    selector = inventory.selector(attachment)
+    selector["path"] = str(path)
+    validate = Mock()
+    monkeypatch.setattr(inventory, "validate", validate)
+
+    with pytest.raises(ValueError, match="Invalid saved attachment path"):
+        inventory.from_selector(selector)
+    validate.assert_not_called()
+
+
+@pytest.mark.parametrize("offline", [False, True])
+def test_saved_selector_resolves_inside_symlinked_sysfs_root(tmp_path, offline):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    sys_alias = tmp_path / "sys-alias"
+    sys_alias.symlink_to(inventory.sys_root, target_is_directory=True)
+    inventory.sys_root = sys_alias
+    path = sys_alias / "devices" / "offline" if offline else attachment.syspath
+    selector = inventory.selector(attachment)
+    selector["path"] = str(path)
+
+    restored = inventory.from_selector(selector)
+
+    assert restored.syspath == path.resolve()
+    assert restored.identity == attachment.identity
+    assert restored.syspath.exists() is not offline
+
+
 def test_hid_descendants_do_not_make_a_shared_usb_hub_a_masking_candidate(tmp_path):
     inventory, attachment, _hid, _driver = generic_usb(tmp_path)
     hub = attachment.syspath.parent
@@ -285,6 +323,41 @@ def test_direct_usb_holder_is_detected_through_an_alias(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="Process 1234.*direct USB"):
         LinuxMaskBackend(inventory).reject_unrevoked_handles(attachment)
+
+
+@pytest.mark.parametrize("denied_at", ["directory", "descriptor"])
+def test_denied_fd_inspection_refuses_masking_with_clear_error(tmp_path, monkeypatch, denied_at):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    process = tmp_path / "proc/1234"
+    descriptors = process / "fd"
+    descriptors.mkdir(parents=True)
+    descriptor = descriptors / "7"
+    descriptor.touch()
+    original_iterdir = Path.iterdir
+    original_stat = Path.stat
+
+    def iterdir(path):
+        if path == Path("/proc"):
+            return iter([process])
+        if path == descriptors and denied_at == "directory":
+            raise PermissionError("FD directory denied")
+        return original_iterdir(path)
+
+    def stat(path, *args, **kwargs):
+        if path == descriptor and denied_at == "descriptor":
+            raise PermissionError("FD target denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    monkeypatch.setattr(Path, "stat", stat)
+
+    with pytest.raises(
+        PermissionError,
+        match="Cannot inspect existing device handles for process 1234; "
+        "masking cannot safely continue",
+    ) as failure:
+        LinuxMaskBackend(inventory).reject_unrevoked_handles(attachment)
+    assert isinstance(failure.value.__cause__, PermissionError)
 
 
 @pytest.mark.asyncio

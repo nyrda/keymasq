@@ -228,6 +228,13 @@ class LinuxMaskBackend:
                         raise DeviceInUseError(process.name, application)
             except (FileNotFoundError, ProcessLookupError):
                 continue
+            except PermissionError as error:
+                # This scan selects USB reconnect over driver rebind and checks
+                # that takeover revoked existing handles. It cannot be skipped.
+                raise PermissionError(
+                    f"Cannot inspect existing device handles for process {process.name}; "
+                    "masking cannot safely continue"
+                ) from error
 
     def rule_matches(self, attachment: Attachment) -> list[str]:
         self.inventory.validate(attachment)

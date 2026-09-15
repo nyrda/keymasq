@@ -321,6 +321,10 @@ class HardwareInventory:
         }
 
     def from_selector(self, selector: JsonObject) -> Attachment:
+        # Saved attachments may be offline, but must still resolve inside sysfs.
+        syspath = Path(str(selector["path"])).resolve(strict=False)
+        if not syspath.is_relative_to((self.sys_root / "devices").resolve(strict=False)):
+            raise ValueError("Invalid saved attachment path")
         attachment = Attachment(
             str(selector["id"]),
             "",
@@ -328,11 +332,9 @@ class HardwareInventory:
             str(selector["vendor"]),
             str(selector["product"]),
             str(selector["transport"]),
-            Path(str(selector["path"])),
+            syspath,
             str(selector["kernel_name"]),
             serial=str(selector.get("serial", "")),
         )
         self.validate(attachment)
-        if not attachment.syspath.is_relative_to(self.sys_root / "devices"):
-            raise ValueError("Invalid saved USB attachment path")
         return attachment

@@ -278,7 +278,7 @@ installed code:
 ```sh
 sudo rm -f /run/systemd/system/keymasqd.service.d/90-worktree.conf
 sudo rm -f /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf
-sudo rm -f /run/systemd/system/keymasqd.service /run/systemd/system/keymasq-hardware@.service
+sudo rm -f /run/systemd/system.control/keymasqd.service /run/systemd/system.control/keymasq-hardware@.service
 sudo rm -f /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules
 sudo systemctl daemon-reload
 sudo systemctl start keymasqd

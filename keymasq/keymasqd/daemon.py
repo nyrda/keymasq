@@ -791,7 +791,8 @@ class Daemon:
 
     async def _on_client_disconnect(self, client: ClientContext | None = None) -> None:
         await self._run_async_cleanup(
-            "restore hardware after owner loss", self.hardware_masking.close
+            "restore hardware after owner loss",
+            lambda: self.hardware_masking.close(restore_hardware=self.running),
         )
         if client is None and self.socket_server is not None:
             client = self.socket_server.owner_context

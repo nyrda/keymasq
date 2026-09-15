@@ -42,6 +42,7 @@ async def request(operation: str, identity: str, **data: object) -> JsonObject:
                 "systemctl",
                 "--no-ask-password",
                 "start",
+                "--job-mode=fail",
                 f"keymasq-hardware@{token}.service",
                 timeout=75,
             )

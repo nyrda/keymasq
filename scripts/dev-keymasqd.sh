@@ -39,9 +39,11 @@ if [[ "${1:-}" == --root ]]; then
     chmod 0755 "$stage_root/run-$name"
   done
   install -d /run/systemd/system/keymasqd.service.d /run/systemd/system/keymasq-hardware@.service.d
-  # Supply units for hosts whose installed version predates masking support.
-  cp "$source_root/systemd/keymasqd.service" /run/systemd/system/keymasqd.service
-  cp "$source_root/systemd/keymasq-hardware@.service" /run/systemd/system/keymasq-hardware@.service
+  # Use the runtime control directory, which precedes /etc units from NixOS.
+  # A drop-in cannot remove an installed Wants=keymasq-maskd dependency.
+  install -d /run/systemd/system.control
+  cp "$source_root/systemd/keymasqd.service" /run/systemd/system.control/keymasqd.service
+  cp "$source_root/systemd/keymasq-hardware@.service" /run/systemd/system.control/keymasq-hardware@.service
   cat > /run/systemd/system/keymasqd.service.d/90-worktree.conf <<UNIT
 [Service]
 Type=notify

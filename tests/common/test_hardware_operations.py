@@ -131,6 +131,7 @@ async def test_cancellation_waits_for_the_systemd_job_before_recovery(tmp_path, 
 
     async def systemctl(*args, **kwargs):
         assert args[:3] == ("systemctl", "--no-ask-password", "start")
+        assert "--job-mode=fail" in args
         started.set()
         await finish.wait()
         path = next((tmp_path / "requests").iterdir())

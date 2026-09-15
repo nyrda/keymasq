@@ -211,6 +211,118 @@ async def test_restore_acl_is_private_before_use_and_removed(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("damaged", [b"{broken", b"[]", b"{}", b"\xff"])
+@pytest.mark.parametrize("keep_rules", [False, True])
+async def test_damaged_journal_restores_independent_acl_but_retains_unknown_hardware_state(
+    permission_backend, monkeypatch, damaged, keep_rules
+):
+    backend, attachment, node = permission_backend
+
+    async def host(*args, **kwargs):
+        if args[0] == "udevadm":
+            return "TAGS=:uaccess:\n"
+        return await run_host(*args, **kwargs)
+
+    monkeypatch.setattr(permissions, "run_host", host)
+    await run_host("setfacl", "-m", "u:32101:rw-", str(node))
+    await permissions.capture(backend, attachment)
+    baseline = backend.permissions.read_bytes()
+    save_json(backend.armed_record, backend.inventory.selector(attachment))
+    armed = backend.armed_record.read_bytes()
+    backend.journal.write_bytes(damaged)
+    await run_host("setfacl", "-b", str(node))
+    node.chmod(0o660)
+    backend.early.write_text("mask")
+    backend.late.write_text("mask")
+    sibling_rule = backend.rules_dir / "72-keymasq-masking-other.rules"
+    sibling_rule.write_text("unrelated mask")
+    disabled_port = backend.inventory.sys_root / "devices/usb3-port3/disable"
+    write(disabled_port, "1\n")
+    rebind, markers = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(backend, "rebind_binding", rebind)
+    monkeypatch.setattr(backend, "clear_hidden_markers", markers)
+
+    async def current_policy(current, action):
+        assert current == attachment and action == "add"
+        assert not backend.early.exists() and not backend.late.exists()
+        acl = await run_host("getfacl", "-cn", str(node))
+        assert "group::r--" in acl and "user:32101:" not in acl
+        await run_host("setfacl", "-m", "u:32102:rw-", str(node))
+
+    monkeypatch.setattr(backend, "trigger", current_policy)
+    for _ in range(2):
+        with pytest.raises(OSError, match="full recovery remains incomplete"):
+            await backend.recover(keep_rules=keep_rules)
+        assert "user:32102:rw-" in await run_host("getfacl", "-cn", str(node))
+        assert backend.journal.read_bytes() == damaged
+        assert backend.permissions.read_bytes() == baseline
+        assert backend.armed_record.read_bytes() == armed
+        assert sibling_rule.read_text() == "unrelated mask"
+        assert disabled_port.read_text() == "1\n"
+    assert markers.await_count == 2
+    rebind.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identity_failure", ["missing", "conflicting", "other_reservation", "replacement"]
+)
+async def test_damaged_journal_cannot_apply_baseline_to_an_unverified_device(
+    permission_backend, monkeypatch, identity_failure
+):
+    backend, attachment, node = permission_backend
+    selector = backend.inventory.selector(attachment)
+    backend.reservation_id = attachment.identity
+    if identity_failure != "missing":
+        save_json(backend.armed_record, selector)
+    if identity_failure == "conflicting":
+        save_json(backend.state_dir / "selector.json", {**selector, "serial": "another device"})
+    if identity_failure == "other_reservation":
+        save_json(backend.armed_record, {**selector, "id": "a" * 24})
+    if identity_failure == "replacement":
+        # Even a path and identity match is insufficient if the model differs.
+        monkeypatch.setattr(
+            backend.inventory, "scan", lambda: [replace(attachment, product="ffff")]
+        )
+    backend.journal.write_text("null")
+    backend.early.write_text("mask")
+    before = node.stat().st_mode
+    trigger, restore, markers = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(backend, "trigger", trigger)
+    monkeypatch.setattr(permissions, "restore", restore)
+    monkeypatch.setattr(backend, "clear_hidden_markers", markers)
+    with pytest.raises(OSError, match="Damaged recovery journal retained"):
+        await backend.recover()
+    assert not backend.early.exists()
+    assert backend.journal.read_text() == "null"
+    assert node.stat().st_mode == before
+    trigger.assert_not_awaited()
+    restore.assert_not_awaited()
+    markers.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_damaged_journal_with_invalid_baseline_still_applies_current_policy(
+    permission_backend, monkeypatch
+):
+    backend, attachment, _node = permission_backend
+    selector = backend.inventory.selector(attachment)
+    save_json(backend.permissions, {"selector": selector, "nodes": []})
+    backend.journal.write_text("[]")
+    restore, trigger = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(permissions, "restore", restore)
+    monkeypatch.setattr(backend, "trigger", trigger)
+    monkeypatch.setattr(
+        backend, "clear_hidden_markers", AsyncMock(side_effect=OSError("marker failure"))
+    )
+    with pytest.raises(OSError, match="marker failure"):
+        await backend.recover()
+    restore.assert_not_awaited()
+    trigger.assert_awaited_once_with(attachment, "add")
+    assert backend.permissions.exists() and backend.journal.exists()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("prearmed,no_journal", [(False, False), (True, False), (True, True)])
 async def test_recovery_preserves_static_acl_and_current_seat_grants(
     permission_backend, monkeypatch, prearmed, no_journal

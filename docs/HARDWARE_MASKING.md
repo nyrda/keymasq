@@ -308,6 +308,19 @@ stopped:
 sudo keymasq-record recover-hardware
 ```
 
+If an undo journal is damaged, recovery still removes that reservation's runtime
+rules. Separately saved attachment records must agree and match the current
+physical device before recovery removes hidden markers, restores a valid saved
+permission baseline, or reapplies current udev policy. A missing or conflicting
+identity never authorizes changes to a replacement device.
+
+The damaged journal and supporting records remain in place for diagnosis and
+retry. Restoring access permissions does not establish the lost USB-port or
+original driver state, so recovery still reports an error and daemon startup
+remains blocked. The error identifies the journal and any access-restoration
+steps that failed. Do not delete the journal to bypass this check; it may contain
+the information needed to repair an interrupted hardware operation.
+
 For the installed AppImage, use `/opt/keymasq/bin/keymasq-record`.
 Restart `keymasqd` when ready to resume remapping. User profiles, hardware
 configurations, and confirmed masking preferences are preserved.

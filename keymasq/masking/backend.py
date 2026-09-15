@@ -98,6 +98,7 @@ class LinuxMaskBackend:
         self.runtime_dir = runtime_dir
         self.rules_dir = rules_dir
         self.state_dir = state_dir
+        self.reservation_id = reservation_id
         self.journal = runtime_dir / "journal.json"
         self.armed_record = runtime_dir / "armed.json"
         self.permissions = runtime_dir / "permissions.json"
@@ -490,6 +491,7 @@ class LinuxMaskBackend:
         await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
 
     async def recover(self, *, keep_rules: bool = False) -> None:
+        from keymasq.masking.damaged_journal import read_journal, recover_damaged_journal
         from keymasq.masking.permissions import restore
         from keymasq.masking.usb import enable_recorded_port
 
@@ -521,7 +523,12 @@ class LinuxMaskBackend:
                     "prearmed": True,
                 },
             )
-        data = cast(JsonObject, json.loads(await finish_io(self.journal.read_text)))
+        try:
+            data = await finish_io(read_journal, self.journal)
+            if self.reservation_id and data["id"] != self.reservation_id:
+                raise ValueError("Recovery journal belongs to another reservation")
+        except ValueError as exc:
+            await recover_damaged_journal(self, exc)
         await finish_io(enable_recorded_port, self, data)
         attachment: Attachment | None = None
         repair_error: Exception | None = None
@@ -567,19 +574,7 @@ class LinuxMaskBackend:
         if not keep_rules:
             await self.remove_rules()
         if attachment is not None and not keep_rules:
-            # Legacy evdev hiding must not undo recovery after a daemon crash.
-            for node in await finish_io(self.inventory.nodes, attachment):
-                if node.name.startswith(("event", "js")):
-                    await finish_io(
-                        (Path("/run/keymasq/hidden") / node.name).unlink, missing_ok=True
-                    )
-            await finish_io(
-                (
-                    Path("/run/keymasq/hidden-hardware")
-                    / f"{attachment.vendor}:{attachment.product}"
-                ).unlink,
-                missing_ok=True,
-            )
+            await self.clear_hidden_markers(attachment)
             await restore(self, attachment, data)
             # Current rules and logind own the final desktop grants. No saved
             # ACL may overwrite their result, including after a seat switch.
@@ -590,9 +585,22 @@ class LinuxMaskBackend:
         if not keep_rules:
             await finish_io(self.permissions.unlink, missing_ok=True)
 
-    async def remove_rules(self) -> None:
+    async def clear_hidden_markers(self, attachment: Attachment) -> None:
+        # Legacy evdev hiding must not undo recovery after a daemon crash.
+        for node in await finish_io(self.inventory.nodes, attachment):
+            if node.name.startswith(("event", "js")):
+                await finish_io((Path("/run/keymasq/hidden") / node.name).unlink, missing_ok=True)
+        await finish_io(
+            (
+                Path("/run/keymasq/hidden-hardware") / f"{attachment.vendor}:{attachment.product}"
+            ).unlink,
+            missing_ok=True,
+        )
+
+    async def remove_rules(self, *, preserve_record: bool = False) -> None:
         for rule in (self.early, self.late):
             await finish_io(rule.unlink, missing_ok=True)
         await run_host("udevadm", "control", "--reload-rules")
         await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
-        await finish_io(self.armed_record.unlink, missing_ok=True)
+        if not preserve_record:
+            await finish_io(self.armed_record.unlink, missing_ok=True)

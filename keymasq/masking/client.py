@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import cast
 
+from keymasq.common.masking import HARDWARE_JOB_TIMEOUT
 from keymasq.common.types import JsonObject
 from keymasq.masking.backend import DeviceInUseError, finish_io, run_host
 from keymasq.masking.inventory import Attachment, HardwareInventory
@@ -42,7 +43,7 @@ async def request(operation: str, identity: str, **data: object) -> JsonObject:
                 "start",
                 "--job-mode=fail",
                 f"keymasq-hardware@{token}.service",
-                timeout=75,
+                timeout=HARDWARE_JOB_TIMEOUT,
             )
             result = cast(JsonObject, json.loads(await finish_io(path.read_text)))
             if result.get("status") != "ok":

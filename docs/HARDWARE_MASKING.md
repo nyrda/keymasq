@@ -134,6 +134,12 @@ The job invokes the existing `keymasq-record hardware-operation` entry point,
 resolves the selected attachment again, records permissions and driver bindings,
 and installs runtime udev rules. The root process exits when the operation ends.
 Listing hardware and monitoring unchanged masks do not start privileged jobs.
+
+The daemon allows 75 seconds for a systemd job request. Session requests allow
+160 seconds so an in-flight job can finish before a recovery job runs; the GUI
+allows 165 seconds for the session response. Inventory requests use the same
+allowance because they can queue behind administrative work.
+
 The rules reserve the selected device's hidraw, usbfs, evdev and legacy joystick
 nodes for root and the dedicated `keymasq` account. They remove desktop ACLs and
 match the USB port, model and serial when present, or the specific non-USB HID

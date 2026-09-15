@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.masking import HARDWARE_COMMAND_TIMEOUT
 from keymasq.common.types import JsonObject
 
 if TYPE_CHECKING:
@@ -29,7 +30,9 @@ async def handle_hardware_masking_commands(
     if not manager.connected:
         return {"status": "error", "message": "The input daemon is disconnected"}
     data = {key: request[key] for key in ("id", "generation", "token", "persist") if key in request}
-    result = await manager.client.send_command(Command(operation, data=data), timeout=25)
+    result = await manager.client.send_command(
+        Command(operation, data=data), timeout=HARDWARE_COMMAND_TIMEOUT
+    )
     if result.status != "ok":
         return {"status": "error", "message": result.error or "Hardware masking failed"}
     if command == "resume_hardware":

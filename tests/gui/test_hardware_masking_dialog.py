@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from keymasq.common.masking import HARDWARE_COMMAND_TIMEOUT
 from keymasq.gui.widgets import hardware_masking_dialog as module
 
 
@@ -23,6 +24,36 @@ def response(*masks) -> dict:
         ],
         "masks": list(masks),
     }
+
+
+@pytest.mark.parametrize("command", ["mask_hardware", "restore_hardware"])
+def test_changes_and_followup_inventory_outwait_the_session(dialog, monkeypatch, command):
+    requests = []
+    monkeypatch.setattr(
+        module,
+        "session_request_async",
+        lambda payload, callback, *, timeout: requests.append((payload, callback, timeout)),
+    )
+    dialog._render(response())
+    dialog._change(command, {"id": "first"})
+    payload, changed, timeout = requests.pop()
+    assert payload["command"] == command
+    assert timeout > HARDWARE_COMMAND_TIMEOUT
+    assert "first" in dialog._pending
+    assert not dialog._errors
+
+    enabled = command == "mask_hardware"
+    result = response(
+        {"id": "first", "state": "masked" if enabled else "restored", "enabled": enabled}
+    )
+    changed(result)
+    assert "first" not in dialog._pending
+    assert not dialog._errors
+    payload, loaded, timeout = requests.pop()
+    assert payload["command"] == "hardware_inventory"
+    assert timeout > HARDWARE_COMMAND_TIMEOUT
+    loaded(result)
+    assert dialog._rows["first"].switch.get_active() is enabled
 
 
 def test_switches_control_only_their_device_and_countdowns_preserve_controls(dialog, monkeypatch):

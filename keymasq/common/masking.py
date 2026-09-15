@@ -1,6 +1,13 @@
-"""Masking phases shared by the daemon and GUI; values are persistent IPC data."""
+"""Shared masking phases and request budgets; phase values are persistent IPC data."""
 
 from enum import StrEnum
+
+# A restore can wait for an in-flight job before starting its own recovery job.
+# Leave transport headroom at each outer boundary, including inventory requests
+# queued behind serialized administrative work.
+HARDWARE_JOB_TIMEOUT = 75.0
+HARDWARE_COMMAND_TIMEOUT = 2 * HARDWARE_JOB_TIMEOUT + 10.0
+HARDWARE_GUI_TIMEOUT = HARDWARE_COMMAND_TIMEOUT + 5.0
 
 
 class MaskPhase(StrEnum):

@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.masking import MaskPhase, is_active, is_recovering
+from keymasq.common.masking import HARDWARE_GUI_TIMEOUT, MaskPhase, is_active, is_recovering
 from keymasq.gui.session_client import session_request_async
 
 Change = Callable[[str, dict], None]
@@ -393,7 +393,9 @@ class HardwareMaskingPanel(Gtk.Box):
                 self._render(response)
             return False
 
-        session_request_async({"command": "hardware_inventory"}, loaded, timeout=4)
+        session_request_async(
+            {"command": "hardware_inventory"}, loaded, timeout=HARDWARE_GUI_TIMEOUT
+        )
         return True
 
     def _render(self, response: dict | None) -> None:
@@ -542,7 +544,9 @@ class HardwareMaskingPanel(Gtk.Box):
             if self._closed:
                 self._pending.discard(identity)
                 return
-            session_request_async({"command": command, **data}, changed, timeout=28)
+            session_request_async(
+                {"command": command, **data}, changed, timeout=HARDWARE_GUI_TIMEOUT
+            )
 
         if self._remember is not None and identity != "all":
             self._remember(identity, send)

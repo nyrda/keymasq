@@ -451,14 +451,30 @@ class HardwareMasking:
                 pass
 
     async def restore(self, reason: str = "user_restore") -> None:
-        await self.release_runtime()
+        errors: list[Exception] = []
+
+        async def attempt(label: str, cleanup: Callable[[], Awaitable[object]]) -> None:
+            try:
+                await cleanup()
+            except Exception as exc:
+                errors.append(exc)
+                log.exception("Hardware recovery failed while %s", label)
+
+        global_stop = reason != "lifecycle_stop"
+        if global_stop:
+            self.manager.masking_suspended = True
+            await attempt("neutralizing ordinary input", self.manager.neutralize_runtime)
+            await attempt("releasing ordinary input", self.manager.release_all_devices)
         try:
-            await self.request("restore", {"reason": reason})
+            await attempt("releasing masked readers", self.release_runtime)
+            await attempt(
+                "restoring physical access", lambda: self.request("restore", {"reason": reason})
+            )
         finally:
-            if reason != "lifecycle_stop":
-                self.manager.masking_suspended = True
-                await self.manager.release_all_devices()
+            if global_stop:
                 self.manager.broadcast_hardware_recovery()
+        if errors:
+            raise errors[0]
 
     async def suspend(self) -> None:
         await self.stop_monitor()

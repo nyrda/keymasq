@@ -30,6 +30,18 @@ def static_acl(acl: str, *, uaccess: bool) -> str:
             if not entry.startswith("user:") or entry.startswith("user::")
         }
     if not any(entry.startswith(("user:", "group:")) and entry.split(":")[1] for entry in entries):
+        mask = next((entry.split(":")[-1] for entry in entries if entry.startswith("mask:")), None)
+        if mask is not None:
+            entries = {
+                "group::"
+                + "".join(
+                    right if right == limit else "-"
+                    for right, limit in zip(entry.split(":")[-1], mask, strict=True)
+                )
+                if entry.startswith("group::")
+                else entry
+                for entry in entries
+            }
         entries = {entry for entry in entries if not entry.startswith("mask:")}
     return "\n".join(sorted(entries)) + "\n"
 

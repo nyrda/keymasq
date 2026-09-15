@@ -100,8 +100,12 @@ class Daemon:
         self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
 
     async def prepare_for_sleep(self) -> None:
-        await self.hardware_masking.suspend()
-        await self.device_manager.neutralize_runtime()
+        await self._run_async_cleanup(
+            "neutralize input before sleep", self.device_manager.neutralize_runtime
+        )
+        await self._run_async_cleanup(
+            "restore hardware before sleep", self.hardware_masking.suspend
+        )
 
     def resume_after_sleep(self) -> None:
         self.device_manager.resume_runtime_input()
@@ -179,9 +183,7 @@ class Daemon:
 
         # Foreground daemons also restore access on a clean exit. The installed
         # service additionally runs privileged cleanup after crashes or hangs.
-        await self._run_async_cleanup(
-            "restore hardware masks", self.hardware_masking.close
-        )
+        await self._run_async_cleanup("restore hardware masks", self.hardware_masking.close)
         await self._run_async_cleanup(
             "stop logind sleep coordination",
             self.sleep_coordinator.stop,

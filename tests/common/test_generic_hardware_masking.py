@@ -4,7 +4,7 @@ import asyncio
 import json
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -362,3 +362,48 @@ async def test_usb_input_rebind_checks_scope_and_removes_existing_endpoints(tmp_
         await backend.rebind_binding(attachment, "usb:../../other", driver.name)
     with pytest.raises(ValueError, match="changed during takeover"):
         await backend.rebind_binding(attachment, "usb:1-9:1.0", driver.name)
+
+
+@pytest.mark.asyncio
+async def test_missing_bindings_after_usb_reconnect_still_restores_access(tmp_path, monkeypatch):
+    from keymasq.masking import permissions
+
+    inventory, attachment, hid, driver = generic_usb(tmp_path)
+    backend = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    backend.prepare_directories()
+    save_json(
+        backend.journal,
+        {
+            "id": attachment.identity,
+            "generation": attachment.generation,
+            "selector": backend.selector(attachment),
+            "usb_reconnect": True,
+            "bindings": {hid.name: driver.name},
+            "mode": "",
+            "nodes": {},
+        },
+    )
+    backend.early.write_text("deny")
+    backend.late.write_text("deny")
+    (attachment.syspath / "devnum").write_text("99")
+    monkeypatch.setattr(
+        inventory,
+        "bindings",
+        Mock(side_effect=ValueError("No bound input interfaces are available to reconnect")),
+    )
+    monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
+    rebind, restored, triggered = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(backend, "rebind_binding", rebind)
+    monkeypatch.setattr(permissions, "restore", restored)
+    monkeypatch.setattr(backend, "trigger", triggered)
+    with pytest.raises(ValueError, match="No bound input interfaces"):
+        await backend.recover()
+    assert not backend.early.exists() and not backend.late.exists()
+    restored.assert_awaited_once()
+    triggered.assert_awaited_once()
+    rebind.assert_not_awaited()
+    assert backend.journal.exists()
+    monkeypatch.setattr(inventory, "bindings", Mock(return_value={hid.name: driver.name}))
+    await backend.recover()
+    assert not backend.journal.exists()
+    rebind.assert_awaited_once()

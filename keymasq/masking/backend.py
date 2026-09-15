@@ -582,6 +582,7 @@ class LinuxMaskBackend:
         data = cast(JsonObject, json.loads(await finish_io(self.journal.read_text)))
         await finish_io(enable_recorded_port, self, data)
         attachment: Attachment | None = None
+        repair_error: Exception | None = None
         try:
             attachment = await finish_io(
                 self.inventory.resolve, str(data["id"]), str(data["generation"])
@@ -598,13 +599,15 @@ class LinuxMaskBackend:
                     None,
                 )
                 if attachment is not None:
-                    data["bindings"] = (
-                        await finish_io(self.inventory.bindings, attachment)
-                        if data.get("usb_reconnect")
-                        else {}
-                    )
+                    # Never apply the old generation's bindings to a replacement.
+                    # Missing drivers must not skip independent access restoration.
+                    data["bindings"] = {}
+                    if data.get("usb_reconnect"):
+                        try:
+                            data["bindings"] = await finish_io(self.inventory.bindings, attachment)
+                        except (OSError, ValueError) as exc:
+                            repair_error = exc
                     data["prearmed"] = True
-        repair_error: Exception | None = None
         if attachment is not None:
             for hid, driver in cast(dict[str, str], data["bindings"]).items():
                 try:

@@ -318,3 +318,40 @@ async def test_logind_unavailable_does_not_prevent_daemon_start() -> None:
 
     assert await coordinator.start() is False
     await coordinator.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_step", ["masking", "neutralize"])
+async def test_daemon_sleep_cleanup_attempts_both_steps_before_releasing_inhibitor(
+    monkeypatch, failed_step
+):
+    from keymasq.keymasqd.daemon import Daemon
+
+    daemon = Daemon()
+    manager = _FakeLoginManager()
+    order = []
+
+    async def neutralize():
+        order.append("neutralize")
+        if failed_step == "neutralize":
+            raise OSError("neutralization failed")
+
+    async def masking():
+        order.append("masking")
+        if failed_step == "masking":
+            raise OSError("masking recovery failed")
+
+    monkeypatch.setattr(daemon.device_manager, "neutralize_runtime", neutralize)
+    monkeypatch.setattr(daemon.hardware_masking, "suspend", masking)
+    coordinator = LogindSleepCoordinator(
+        daemon.prepare_for_sleep,
+        pause_runtime=daemon.device_manager.pause_runtime_input,
+        resume_runtime=daemon.resume_after_sleep,
+        bus_factory=lambda: _FakeBus(manager),
+        close_fd=lambda fd: order.append(f"close:{fd}"),
+    )
+    assert await coordinator.start()
+    manager.emit(True)
+    await _wait_until(lambda: "close:41" in order)
+    assert order == ["neutralize", "masking", "close:41"]
+    await coordinator.stop()

@@ -356,9 +356,7 @@ async def test_failed_output_change_keeps_source_reserved_until_recovery(
     reserved_runtime, monkeypatch, error
 ):
     manager, device, physical, _ = reserved_runtime
-    monkeypatch.setattr(
-        device, "_configure_default_output", AsyncMock(side_effect=error)
-    )
+    monkeypatch.setattr(device, "_configure_default_output", AsyncMock(side_effect=error))
     with pytest.raises(type(error)):
         await device.update_default_output("virtual-gamepad-1")
     mask = runtime(manager)
@@ -701,3 +699,75 @@ async def test_releasing_one_raw_only_mask_leaves_the_other_ready():
     assert not await first.runtime_ready()
     assert await second.runtime_ready()
     assert "@masked:second" in manager.mask_reservation_paths
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reader_failure", [False, True])
+async def test_emergency_release_precedes_blocked_controller_recovery(monkeypatch, reader_failure):
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    manager.masked_hardware_paths[RESERVATION_ID] = ["controller"]
+    manager.masking_recovery = masking.restore
+    held = {"keyboard", "mouse"}
+    entered, finish = asyncio.Event(), asyncio.Event()
+    order = []
+
+    async def neutralize():
+        assert manager.masking_suspended
+        order.append("neutralize")
+
+    async def release():
+        assert manager.masking_suspended
+        held.clear()
+        order.append("release")
+
+    async def physical(*_):
+        assert not held
+        assert order == ["neutralize", "release"]
+        entered.set()
+        await finish.wait()
+        return {}
+
+    monkeypatch.setattr(manager, "neutralize_runtime", neutralize)
+    monkeypatch.setattr(manager, "release_all_devices", release)
+    monkeypatch.setattr(
+        masking,
+        "release_runtime",
+        AsyncMock(side_effect=OSError("reader teardown failed") if reader_failure else None),
+    )
+    monkeypatch.setattr(masking, "request", physical)
+    task = asyncio.create_task(manager.emergency_reset())
+    await asyncio.wait_for(entered.wait(), 1)
+    assert not held
+    assert manager.masking_suspended
+    assert not task.done()
+    finish.set()
+    if reader_failure:
+        with pytest.raises(OSError, match="reader teardown failed"):
+            await task
+    else:
+        await task
+
+
+@pytest.mark.asyncio
+async def test_one_device_release_failure_does_not_skip_other_devices(monkeypatch):
+    from keymasq.keymasqd.runtime.grab import release as module
+
+    manager = DeviceManager()
+    manager.grabbed_devices.update({"keyboard": [], "mouse": [], "controller": []})
+    attempted = set()
+
+    async def release(_manager, hardware_id, **_):
+        attempted.add(hardware_id)
+        if hardware_id == "controller":
+            raise OSError("controller teardown failed")
+
+    monkeypatch.setattr(
+        manager, "cancel_macro_playback", AsyncMock(side_effect=OSError("macro teardown failed"))
+    )
+    monkeypatch.setattr(module, "stop_device_event_loops", AsyncMock())
+    monkeypatch.setattr(module.lifecycle, "clear_combo_runtime", AsyncMock())
+    monkeypatch.setattr(module, "release_device_unlocked", release)
+    with pytest.raises(OSError, match="macro teardown failed"):
+        await manager.release_all_devices()
+    assert attempted == {"keyboard", "mouse", "controller"}

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -326,13 +327,34 @@ async def release_all_devices(
     fire_and_observe_fn: FireAndObserve,
 ) -> None:
     async with manager._op_lock:
-        await manager.cancel_macro_playback()
+        errors: list[Exception] = []
+
+        async def attempt(label: str, cleanup: Callable[[], Awaitable[object]]) -> None:
+            try:
+                await cleanup()
+            except Exception as exc:
+                errors.append(exc)
+                log.exception("Device release failed while %s", label)
+
+        await attempt("cancelling macros", manager.cancel_macro_playback)
         for devices in list(manager.grabbed_devices.values()):
-            await stop_device_event_loops(devices)
-        await lifecycle.clear_combo_runtime(
-            manager,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            await attempt(
+                "stopping readers", lambda devices=devices: stop_device_event_loops(devices)
+            )
+        await attempt(
+            "clearing combos",
+            lambda: lifecycle.clear_combo_runtime(
+                manager,
+                deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            ),
         )
         hardware_ids = set(manager.grabbed_devices) | set(manager.grab_state.desired_grabs)
         for hardware_id in list(hardware_ids):
-            await release_device_unlocked(manager, hardware_id, log=log)
+            await attempt(
+                f"releasing {hardware_id}",
+                lambda hardware_id=hardware_id: release_device_unlocked(
+                    manager, hardware_id, log=log
+                ),
+            )
+        if errors:
+            raise errors[0]

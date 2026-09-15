@@ -103,6 +103,13 @@ failures increase the delay up to one minute, and thirty seconds of healthy
 masking resets it. The session reapplies its active configuration. A saved
 automatic mask is retried when its hardware is present, without a GUI action.
 
+Global emergency recovery first prevents new grabs, neutralizes ordinary output,
+and releases input devices. A controller cleanup failure does not skip other
+devices, and physical masking recovery runs afterward. Per-device unmasking
+continues to leave unrelated remapping active. Before system suspend, ordinary
+output neutralization is attempted before masking cleanup; both steps run even
+if either fails.
+
 **Unmask all devices** turns every mask off and disables those saved choices,
 without pausing ordinary remapping. Administrative recovery still provides the
 emergency stop for an unresponsive daemon. If that stop is active, the dialog
@@ -131,6 +138,8 @@ policy pass. On nodes tagged `uaccess`, named-user grants are managed by current
 desktop policy and are not replayed from the snapshot. Configure permanent user
 grants on those nodes through udev rules so they are reapplied during recovery.
 Static group ACLs and ACLs on nodes without `uaccess` are preserved.
+Removing a desktop grant also preserves any ACL mask restriction on the owning
+group's effective permissions.
 
 Nodes first created while a saved mask is already armed have no earlier permission
 record. Recovery resets them to `root:root`, mode `0600`, without extended ACLs,
@@ -138,6 +147,11 @@ then applies current udev policy. Permission restoration failures retain the
 recovery journal and report an error for retry. USB hubs, including composite
 devices with a hub interface, cannot be masked; discovery does not include input
 interfaces belonging to downstream USB devices.
+
+If a USB reconnect returns without its input drivers, recovery still attempts to
+remove masking rules, restore permissions, and apply current udev policy. The
+journal remains for retrying driver repair; bindings from the old connection are
+never applied to a replacement connection.
 
 Confirmed USB masks keep their rules armed while the device is unplugged.
 The next connection receives the restrictions during initial udev processing,

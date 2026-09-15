@@ -315,3 +315,19 @@ async def test_node_first_seen_while_armed_gets_clean_baseline_before_current_po
     acl = await run_host("getfacl", "-cn", str(node))
     assert "user:32102:rw-" in acl and "user:32101:" not in acl
     assert not backend.armed and not backend.journal.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mask,expected", [("r--", 0o040), ("---", 0)])
+async def test_static_acl_preserves_effective_owning_group_permissions(
+    permission_backend, mask, expected
+):
+    _backend, _attachment, node = permission_backend
+    original = f"user::rw-,user:32109:rw-,group::rw-,mask::{mask},other::---"
+    await run_host("setfacl", f"--set={original}", str(node))
+    assert node.stat().st_mode & 0o070 == expected
+    acl = await run_host("getfacl", "-cn", str(node))
+    baseline = permissions.static_acl(acl, uaccess=True)
+    await run_host("setfacl", "--set=" + ",".join(baseline.splitlines()), str(node))
+    assert node.stat().st_mode & 0o070 == expected
+    assert "user:32109:" not in await run_host("getfacl", "-cn", str(node))

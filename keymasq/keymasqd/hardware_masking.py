@@ -391,10 +391,7 @@ class HardwareMasking:
             result = await self.request(operation, data)
         except OSError:
             if operation != "inventory":
-                raise OSError(
-                    "Privileged hardware operations are unavailable; "
-                    "install the updated service units"
-                ) from None
+                raise
             attachments = await asyncio.to_thread(HardwareInventory().scan)
             self.start_monitor()
             return {

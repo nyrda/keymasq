@@ -263,23 +263,28 @@ configurations, and confirmed masking preferences are preserved.
 ## Trying a worktree build
 
 Run `./scripts/dev.sh`. Its daemon launcher requests sudo, stages the checkout in
-`/run/keymasq-dev-source`, and installs runtime systemd overrides for the daemon
-and its short-lived hardware jobs. The same watchdog and shutdown recovery apply
-to development. No separate masking launcher or resident root service is needed.
+`/run/keymasq-dev-source.*`, and runs the daemon in the foreground as `keymasq`.
+The development daemon has no systemd service or watchdog. Only its short-lived
+privileged hardware jobs use a temporary unit. On exit, the launcher restores
+hardware access, restores the previous job unit and Polkit rule, removes its
+staged source, and reloads systemd. This cleanup also runs when setup fails.
 
 Open Device masking, turn a device on, and try its controls during the first
 confirmation countdown. Without Keep masking, access restores automatically.
-Inspect daemon logs with `journalctl -fu keymasqd` and hardware job failures with
+Daemon logs appear directly in its terminal. Inspect hardware job failures with
 `journalctl -u 'keymasq-hardware@*'`.
 
-After stopping the development workspace, remove its overrides to return to the
-installed code:
+After stopping the development workspace, start `keymasqd` to use the installed
+code. Older development launchers left overrides behind. Remove those once
+before switching back to the installed build:
 
 ```sh
 sudo rm -f /run/systemd/system/keymasqd.service.d/90-worktree.conf
 sudo rm -f /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf
 sudo rm -f /run/systemd/system.control/keymasqd.service /run/systemd/system.control/keymasq-hardware@.service
+sudo rm -f /run/systemd/system/keymasqd.service /run/systemd/system/keymasq-hardware@.service
 sudo rm -f /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules
+sudo rm -rf /run/keymasq-dev-source
 sudo systemctl daemon-reload
 sudo systemctl start keymasqd
 ```

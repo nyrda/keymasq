@@ -7,13 +7,13 @@ import json
 import logging
 import os
 import pwd
-import shutil
 import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
 from keymasq.common.types import JsonObject
+from keymasq.masking.commands import SYSTEM_PATH, command_path, host_commands
 from keymasq.masking.inventory import (
     DRIVER_NAME,
     HID_NAME,
@@ -48,9 +48,9 @@ async def finish_io[T](function: Callable[..., T], *args: Any, **kwargs: Any) ->
 
 async def run_host(*args: str, timeout: float = 8.0) -> str:
     process = await asyncio.create_subprocess_exec(
-        shutil.which(args[0]) or args[0],
+        await finish_io(command_path, args[0]),
         *args[1:],
-        env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin", "LC_ALL": "C"},
+        env={"PATH": SYSTEM_PATH, "LC_ALL": "C"},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -277,6 +277,7 @@ class LinuxMaskBackend:
     async def install_rules(self, attachment: Attachment) -> None:
         from keymasq.masking.permissions import capture
 
+        commands = await finish_io(host_commands)
         # Early tag removal must precede seat-late's uaccess processing. The
         # final rule removes existing ACLs and applies to newly created nodes.
         matches = await finish_io(self.rule_matches, attachment)
@@ -290,8 +291,8 @@ class LinuxMaskBackend:
         # every event for a live node, not only its initial add/change.
         early = "\n".join(f'ACTION!="remove", {match}, TAG-="uaccess"' for match in matches)
         late_lines: list[str] = []
-        setfacl = shutil.which("setfacl") or "/usr/bin/setfacl"
-        chmod = shutil.which("chmod") or "/usr/bin/chmod"
+        setfacl = commands["setfacl"]
+        chmod = commands["chmod"]
         for match in matches:
             node = (
                 "/dev/bus/usb/$env{BUSNUM}/$env{DEVNUM}"

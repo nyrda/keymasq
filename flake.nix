@@ -120,6 +120,13 @@
             cat > keymasq/common/build_paths.py <<EOF
             KEYMASQ_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keymasq-record"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
+            MASKING_COMMAND_PATHS = {
+                "udevadm": "${pkgs.systemd}/bin/udevadm",
+                "systemctl": "${pkgs.systemd}/bin/systemctl",
+                "getfacl": "${pkgs.acl}/bin/getfacl",
+                "setfacl": "${pkgs.acl}/bin/setfacl",
+                "chmod": "${pkgs.coreutils}/bin/chmod",
+            }
             EOF
 
             substituteInPlace polkit/com.keymasq.record-macro.policy \
@@ -550,6 +557,7 @@
               packages = [
                 (mkTestPython evdevPackage [ ])
                 pkgs.acl
+                pkgs.systemd
               ];
             };
           mkCiGuiShell =
@@ -564,6 +572,7 @@
               packages = [
                 (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
                 pkgs.acl
+                pkgs.systemd
                 pkgs.gobject-introspection
                 pkgs.gtk4
                 pkgs.libadwaita
@@ -625,6 +634,7 @@
                 mkdocs-material
               ]))
               pkgs.acl
+              pkgs.systemd
               pkgs.gobject-introspection
               pkgs.gtk4
               pkgs.libadwaita

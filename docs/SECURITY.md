@@ -440,6 +440,13 @@ supply driver names, mutation paths, shell commands, or permission snapshots.
 The response is written through the pinned descriptor, not a reopened path.
 Offline arming reuses a selector previously discovered and stored by root.
 
+Masking subprocesses and generated udev rules use the same trusted executable
+resolver. Nix packages pin commands to their dependency store paths. Other
+packages and source checkouts search only `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`,
+and `/run/current-system/sw/bin`; the caller's `PATH` is ignored. Missing commands
+are reported before arming restrictions, and a missing package-pinned executable
+does not fall back to another location.
+
 The daemon binds confirmed startup preferences to its authenticated desktop UID
 and keeps per-attachment confirmation deadlines and recovery state. GUI-supplied
 UIDs cannot change ownership. Multiple masks have independent identities and

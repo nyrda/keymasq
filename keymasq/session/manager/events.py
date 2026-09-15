@@ -867,10 +867,6 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
     if not data.get("retrying"):
         device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
-    if data.get("reason") == "hardware_mask_ready":
-        runtime_state.invalidate_grabbed_state(manager)
-        await coordinator.reevaluate_profiles(manager, reason="masked controller ready")
-        return
     if data.get("reason") == "hardware_mask_recovery":
         runtime_state.invalidate_grabbed_state(manager)
         if not data.get("retrying"):
@@ -882,25 +878,35 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
             else "Remapping is paused. Resume it from Settings > Hardware masking.",
         )
         return
-    manager.send_notification(
-        "Keymasq: Emergency Reset",
-        "Released all grabbed devices. Reapplying active profiles.",
-    )
+    mask_ready = data.get("reason") == "hardware_mask_ready"
+    if not mask_ready:
+        manager.send_notification(
+            "Keymasq: Emergency Reset",
+            "Released all grabbed devices. Reapplying active profiles.",
+        )
     runtime_state.invalidate_grabbed_state(manager)
-    manager.profile_state.runtime_profile_activations.clear()
+    if not mask_ready:
+        manager.profile_state.runtime_profile_activations.clear()
+    failure_message = (
+        "Hardware masking completed, but active profiles could not be reapplied."
+        if mask_ready
+        else "Emergency reset completed, but active profiles could not be reapplied."
+    )
     try:
-        await coordinator.reevaluate_profiles(manager, reason="runtime reset")
+        await coordinator.reevaluate_profiles(
+            manager, reason="masked controller ready" if mask_ready else "runtime reset"
+        )
     except OSError as exc:
         log.warning("Failed to reapply profiles after runtime reset: %s", exc)
         manager.send_notification(
             "Keymasq: Reapply Failed",
-            "Emergency reset completed, but active profiles could not be reapplied.",
+            failure_message,
         )
     except Exception:
         log.exception("Unexpected failure reapplying profiles after runtime reset")
         manager.send_notification(
             "Keymasq: Reapply Failed",
-            "Emergency reset completed, but active profiles could not be reapplied.",
+            failure_message,
         )
 
 

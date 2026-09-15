@@ -12,6 +12,22 @@ from keymasq.session.profile.types import ResolvedProfiles
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [OSError("disconnected"), RuntimeError("invalid mapping")])
+async def test_mask_ready_reports_profile_reapply_failure(monkeypatch, error):
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()
+    manager.send_notification = Mock()
+    manager.profile_state.runtime_profile_activations = {"manual": Mock()}
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock(side_effect=error))
+    await events.handle_runtime_reset_event(manager, {"reason": "hardware_mask_ready"})
+    assert "manual" in manager.profile_state.runtime_profile_activations
+    manager.send_notification.assert_called_once_with(
+        "Keymasq: Reapply Failed",
+        "Hardware masking completed, but active profiles could not be reapplied.",
+    )
+
+
+@pytest.mark.asyncio
 async def test_mask_ready_reapplies_saved_output_without_profiles():
     manager = SessionManager()
     hardware = HardwareConfig(

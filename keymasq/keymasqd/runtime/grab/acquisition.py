@@ -277,19 +277,19 @@ async def grab_one_interface(
     state: GrabAcquisitionState,
     path: str,
 ) -> None:
-    blocked = cast(set[str], getattr(manager, "masking_blocked_attachments", set[str]()))
-    if blocked:
-        from keymasq.keymasqd.hardware_masking import input_attachment_path
-
-        parent = await adapters.ASYNCIO_RUNTIME.to_thread(input_attachment_path, path)
-        if any(parent.is_relative_to(attachment) for attachment in blocked):
-            return
     if path in plan.existing_by_claim_path:
         return
 
     raw_device: Any | None = None
     counted_available = False
     try:
+        blocked = cast(set[str], getattr(manager, "masking_blocked_attachments", set[str]()))
+        if blocked:
+            from keymasq.keymasqd.hardware_masking import input_attachment_path
+
+            parent = await adapters.ASYNCIO_RUNTIME.to_thread(input_attachment_path, path)
+            if any(parent.is_relative_to(attachment) for attachment in blocked):
+                return
         probe_device, caps = await adapters.ASYNCIO_RUNTIME.to_thread(
             probe_interface_device_sync,
             manager,

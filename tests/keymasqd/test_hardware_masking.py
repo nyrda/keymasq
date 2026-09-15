@@ -19,6 +19,23 @@ from keymasq.keymasqd.runtime.topology import reconcile_topology_unlocked
 RESERVATION_ID = "@masked:test"
 
 
+@pytest.mark.asyncio
+async def test_emergency_reset_releases_local_readers_when_helper_disconnected(monkeypatch):
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    manager.masked_hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
+    manager.masking_recovery = masking.restore
+    monkeypatch.setattr(masking, "release_runtime", AsyncMock())
+    monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
+    monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
+    with pytest.raises(OSError, match="recovery service is disconnected"):
+        await manager.emergency_reset()
+    masking.release_runtime.assert_awaited_once()
+    manager.release_all_devices.assert_awaited_once()
+    manager.broadcast_hardware_recovery.assert_called_once()
+    assert manager.masking_suspended
+
+
 def runtime(manager):
     manager.mask_reservation_paths.setdefault(
         RESERVATION_ID, list(manager.masked_hardware_paths.get(RESERVATION_ID, []))
@@ -334,18 +351,27 @@ async def test_readiness_waits_for_output_transaction(reserved_runtime):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [OSError("uinput failed"), asyncio.CancelledError()])
 async def test_failed_output_change_keeps_source_reserved_until_recovery(
-    reserved_runtime, monkeypatch
+    reserved_runtime, monkeypatch, error
 ):
     manager, device, physical, _ = reserved_runtime
     monkeypatch.setattr(
-        device, "_configure_default_output", AsyncMock(side_effect=OSError("uinput failed"))
+        device, "_configure_default_output", AsyncMock(side_effect=error)
     )
-    with pytest.raises(OSError, match="uinput failed"):
+    with pytest.raises(type(error)):
         await device.update_default_output("virtual-gamepad-1")
-    assert not await runtime(manager).runtime_ready()
+    mask = runtime(manager)
+    assert not await mask.runtime_ready()
     physical.ungrab.assert_not_called()
     physical.close.assert_not_called()
+    mask.request = AsyncMock(return_value={"state": "restored"})
+    await mask.update({"state": "masked", "token": "trial-token"})
+    physical.close.assert_called_once()
+    assert not any(device in devices for devices in manager.grabbed_devices.values())
+    mask.request.assert_awaited_once_with(
+        "restore", {"reason": "replacement_unavailable", "token": "trial-token"}
+    )
 
 
 @pytest.mark.asyncio

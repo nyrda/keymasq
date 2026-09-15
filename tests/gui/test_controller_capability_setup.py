@@ -11,11 +11,26 @@ from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE, XBOX_360_TEMPLATE
 from keymasq.gui.wizards.hardware_setup.flow import merge_inventory_abs_info
+from keymasq.gui.wizards.hardware_setup.rows import device_in_use, device_in_use_summary
 from keymasq.gui.wizards.hardware_setup.templates import (
     build_gamepad_analog_inputs,
     build_gamepad_buttons,
 )
 from keymasq.keymasqd.device_inventory import _abs_axis_info, _capability_names
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_reserved_interface_does_not_hide_another_interface_in_use(configured):
+    active = (
+        {"configured_hardware_id": "1234:5678"}
+        if configured
+        else {"grabbed_by_keymasq": True, "source_hardware_id": "1234:5678"}
+    )
+    device = {"interfaces": [{"reserved_for_masking": True}, active]}
+    assert device_in_use(device)
+    assert device_in_use_summary(device) == (
+        "Configured as 1234:5678" if configured else "In use by 1234:5678"
+    )
 
 
 def controller_interface(template):

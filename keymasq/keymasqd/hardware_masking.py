@@ -464,14 +464,18 @@ class HardwareMasking:
                 pass
 
     async def restore(self, reason: str = "user_restore") -> None:
-        if self.writer is None:
-            return
         await self.release_runtime()
-        await self.request("restore", {"reason": reason})
-        if reason != "lifecycle_stop":
-            self.manager.masking_suspended = True
-            await self.manager.release_all_devices()
-            self.manager.broadcast_hardware_recovery()
+        try:
+            if self.writer is None:
+                if reason != "lifecycle_stop":
+                    raise OSError("Hardware recovery service is disconnected; local input released")
+                return
+            await self.request("restore", {"reason": reason})
+        finally:
+            if reason != "lifecycle_stop":
+                self.manager.masking_suspended = True
+                await self.manager.release_all_devices()
+                self.manager.broadcast_hardware_recovery()
 
     async def suspend(self) -> None:
         await self.stop_monitor()

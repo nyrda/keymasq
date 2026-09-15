@@ -1546,6 +1546,9 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "systemctl reenable keymasqd.service" in command_log
     assert "systemctl --user reenable keymasq-session.service" in command_log
+    assert command_log.index("systemctl try-restart keymasq-maskd.service") < command_log.index(
+        "systemctl try-restart keymasqd.service"
+    )
 
 
 def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
@@ -1828,3 +1831,19 @@ exit 97
     assert (fake_root / f"opt/keymasq/runtime/{sha256}/bin/keymasq").is_file()
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "gpg " not in command_log
+
+
+def test_appimage_rejects_runtime_without_masking_helper(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source = tmp_path / "source.AppImage"
+    source.write_text("appimage\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source)
+    (Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq-maskd").unlink()
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        env=env, capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert "missing keymasq-maskd launcher" in result.stderr
+    assert not (fake_root / "opt/keymasq/runtime/current").exists()

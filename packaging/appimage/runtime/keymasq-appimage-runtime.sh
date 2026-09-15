@@ -271,6 +271,7 @@ validate_runtime_dir() {
 	keymasq_validate_dir=$1
 	[ -x "$keymasq_validate_dir/bin/keymasq" ] || die "extracted runtime missing keymasq launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasqd" ] || die "extracted runtime missing keymasqd launcher"
+	[ -x "$keymasq_validate_dir/bin/keymasq-maskd" ] || die "extracted runtime missing keymasq-maskd launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-record" ] || die "extracted runtime missing keymasq-record launcher"
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
@@ -1288,11 +1289,13 @@ self_update() {
 	) 9>"$lock_path"
 
 	restart_failed=0
-	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] && \
-		! systemctl try-restart keymasqd.service; then
-		warn "could not restart keymasqd.service after update"
-		restart_failed=1
-	fi
+	for unit in keymasq-maskd.service keymasqd.service; do
+		if [ -f "$(root_path "/etc/systemd/system/$unit")" ] && \
+			! systemctl try-restart "$unit"; then
+			warn "could not restart $unit after update"
+			restart_failed=1
+		fi
+	done
 	home=$(resolve_user_home "$target_user")
 	if [ -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")" ] && \
 		! run_user_systemctl "$target_user" try-restart keymasq-session.service; then

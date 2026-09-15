@@ -91,7 +91,9 @@ class CaptureSession:
     borrowed_streams: list[
         tuple[InputCaptureStream, Callable[[InputEventLike], None]]
     ] = field(default_factory=list)
-    borrowed_events: queue.Queue[JsonObject] = field(default_factory=lambda: queue.Queue(1024))
+    borrowed_events: queue.Queue[tuple[_CaptureInputDevice, InputEventLike]] = field(
+        default_factory=lambda: queue.Queue(1024)
+    )
     motion_axis_codes: tuple[int, ...] = ()
     motion_frame_queue: queue.Queue[JsonObject] | None = None
     motion_dropped_frames: int = 0
@@ -313,10 +315,14 @@ class CaptureManager:
         if session.mode == "motion":
             return self._read_motion_frames(session)
 
-        try:
-            return {"captured": session.borrowed_events.get_nowait()}
-        except queue.Empty:
-            pass
+        while True:
+            try:
+                device, event = session.borrowed_events.get_nowait()
+            except queue.Empty:
+                break
+            parsed = self._parse_event(device, event, session.mode, session.path_sources)
+            if parsed is not None:
+                return {"captured": parsed}
 
         for device in session.devices:
             if device.path in session.borrowed_paths:
@@ -336,11 +342,8 @@ class CaptureManager:
         self, session: CaptureSession, device: _CaptureInputDevice,
     ) -> Callable[[InputEventLike], None]:
         def consume(event: InputEventLike) -> None:
-            parsed = self._parse_event(device, event, session.mode, session.path_sources)
-            if parsed is None:
-                return
             try:
-                session.borrowed_events.put_nowait(parsed)
+                session.borrowed_events.put_nowait((device, event))
             except queue.Full:
                 # Setup polling may be slower than a controller's axis reports.
                 # Retain recent samples without blocking the input event loop.
@@ -348,7 +351,7 @@ class CaptureManager:
                     session.borrowed_events.get_nowait()
                 except queue.Empty:
                     pass
-                session.borrowed_events.put_nowait(parsed)
+                session.borrowed_events.put_nowait((device, event))
 
         return consume
 

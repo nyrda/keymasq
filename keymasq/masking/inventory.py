@@ -156,10 +156,14 @@ class HardwareInventory:
                 if properties.get("HID_UNIQ")
                 else str(real_path)
             )
+            try:
+                generation = f"{path.name}:{real_path.stat().st_ino}"
+            except OSError:
+                continue
             devices.append(
                 Attachment(
                     identity=hashlib.sha256(stable.encode()).hexdigest()[:24],
-                    generation=f"{path.name}:{real_path.stat().st_ino}",
+                    generation=generation,
                     name=properties.get("HID_NAME", "Bluetooth input device"),
                     vendor=vendor.lower(),
                     product=product.lower(),

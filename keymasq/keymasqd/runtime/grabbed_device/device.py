@@ -574,6 +574,9 @@ class GrabbedDevice:
             await asyncio.to_thread(_close_passthrough_uinput, self.uinput, context="route change")
             self.uinput = None
         self.default_output = output_id
+        # On failure, keep the grab until MaskRuntime detects the stopped reader
+        # and performs coordinated release and helper recovery. Closing it here
+        # would expose input before that recovery has begun.
         await self._configure_default_output()
         self.running = True
         self.task = asyncio.create_task(

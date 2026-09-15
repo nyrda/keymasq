@@ -146,7 +146,7 @@ those managed by `xpad`, use the same handshake, journal, and driver rebind on
 the USB bus. Discovery follows input ancestry rather than a model or driver
 allowlist. Sibling audio and storage interfaces are not rebound. This briefly
 interrupts the selected input hardware.
-The removed endpoints invalidate existing application handles; applications
+The removed endpoints invalidate existing application handles; ordinary applications
 cannot reopen the replacements. Unrelated readers keep running during takeover.
 The helper records every binding for recovery and verifies that the expected
 interfaces return. USB rules cover hidraw, usbfs, evdev, and legacy joystick

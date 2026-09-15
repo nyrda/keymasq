@@ -4033,3 +4033,20 @@ class TestReleaseScheduling:
         fake_device.reset_mapping_runtime_state.assert_awaited_once_with(previous_mapping={})
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_disconnected_binding_during_masking_check_waits_for_device(monkeypatch):
+    from keymasq.keymasqd import hardware_masking
+
+    manager = DeviceManager()
+    manager.masking_blocked_attachments.add("/sys/devices/receiver")
+    parent = Mock(side_effect=FileNotFoundError(errno.ENODEV, "source disappeared"))
+    monkeypatch.setattr(hardware_masking, "input_attachment_path", parent)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+    result = await manager.grab_device(
+        "1234:5678", ["/dev/input/event20"], {}, force_grab_unmapped=True
+    )
+    parent.assert_called_once_with("/dev/input/event20")
+    assert result["waiting_for_device"]
+    assert result["grabbed_count"] == 0

@@ -116,13 +116,19 @@ def test_masked_capture_uses_owned_stream_without_a_second_grab(monkeypatch, mod
     )
     token = str(result["token"])
     probe.grab.assert_not_called()
+    parse = Mock(wraps=manager._parse_event)
+    monkeypatch.setattr(manager, "_parse_event", parse)
     event = (
         evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
         if mode == "button"
         else evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 1234)
     )
+    assert stream.feed(evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, 0, 0)) is True
     assert stream.feed(event) is True
+    parse.assert_not_called()
     captured = manager.read(token)["captured"]
+    assert parse.call_count == 2
+    assert captured["device_path"] == probe.path
     assert captured["code"] == event.code
     if mode == "analog":
         assert captured["value"] == 1234

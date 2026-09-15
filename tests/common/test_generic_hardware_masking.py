@@ -96,6 +96,19 @@ def test_bluetooth_reconnect_preserves_selection_but_invalidates_generation(tmp_
         inventory.resolve(attachment.identity, attachment.generation)
 
 
+def test_disappearing_hid_does_not_abort_inventory_scan(tmp_path, monkeypatch):
+    inventory, attachment, _hid = bluetooth_hid(tmp_path)
+    original = Path.stat
+
+    def stat(path, *args, **kwargs):
+        if path == attachment.syspath:
+            raise FileNotFoundError("disconnected during scan")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    assert all(item.identity != attachment.identity for item in inventory.scan())
+
+
 @pytest.mark.parametrize("field,value", [("vendor", 'abcd", RUN+="bad'), ("kernel_name", "../bad")])
 def test_rule_generation_rejects_unsafe_values(tmp_path, field, value):
     inventory, attachment, _hid, _driver = generic_usb(tmp_path)

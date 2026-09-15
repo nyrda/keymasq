@@ -16,7 +16,11 @@ if [[ "${1:-}" == --root ]]; then
   stage_root=/run/keymasq-maskd-dev-source
   # Stop clients before replacing the helper. Its normal recovery restores any
   # existing reservation, and the journal handles interrupted transitions.
-  systemctl stop keymasqd.service keymasq-maskd.service
+  for unit in keymasqd.service keymasq-maskd.service; do
+    if systemctl cat "${unit}" >/dev/null 2>&1; then
+      systemctl stop "${unit}"
+    fi
+  done
   systemctl stop keymasq-maskd-dev.service 2>/dev/null || true
   install -d -m 0755 -o root -g root "${stage_root}"
   rm -rf "${stage_root}/keymasq"
@@ -26,6 +30,8 @@ if [[ "${1:-}" == --root ]]; then
   systemd-run --unit=keymasq-maskd-dev --collect \
     --service-type=notify \
     --property=WatchdogSec=20s \
+    --property=Restart=on-failure \
+    --property=RestartSec=2s \
     --property=TimeoutStopSec=30s \
     --property=KillMode=mixed \
     --property=NoNewPrivileges=yes \

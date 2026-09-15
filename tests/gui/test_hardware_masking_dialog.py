@@ -84,22 +84,25 @@ def test_saved_disconnected_device_stays_on_and_can_be_turned_off(dialog, monkey
     assert calls.pop() == ("mask_hardware", {"id": "first", "persist": True})
 
 
-def test_saved_mask_stopped_after_restart_cannot_look_active(dialog):
-    dialog._render(
-        response(
-            {
-                "id": "first",
-                "state": "restored",
-                "enabled": True,
-                "remapping_suspended": True,
-                "reason": "service_stopped",
-            }
-        )
+@pytest.mark.parametrize("globally_paused", [False, True])
+def test_saved_mask_stopped_after_restart_cannot_look_active(dialog, globally_paused):
+    state = response(
+        {
+            "id": "first",
+            "state": "restored",
+            "enabled": True,
+            "remapping_suspended": True,
+            "reason": "service_stopped",
+        }
     )
+    state["remapping_suspended"] = globally_paused
+    dialog._render(state)
     row = dialog._rows["first"]
-    assert row.switch.get_active()
-    assert row.status.get_visible()
-    assert row.status.get_text() == "Not masked"
+    assert row.switch.get_active() is not globally_paused
+    assert row.status.get_visible() is not globally_paused
+    assert row.status.get_text() == (
+        "Off · remapping stopped by recovery" if globally_paused else "Not masked"
+    )
     assert not row.failure.get_visible()
 
 

@@ -98,6 +98,9 @@ class SystemdMaskBackend:
     def reservation_ids(self) -> list[str]:
         return reservation_ids(self.runtime_dir, self.state_dir, RUNTIME_DIR, STATE_DIR)
 
+    def needs_recovery(self) -> bool:
+        return self.journal.exists() or self.armed or self.permissions.exists()
+
     async def install_rules(self, attachment: Attachment) -> None:
         await request("arm", self.identity)
 
@@ -113,5 +116,5 @@ class SystemdMaskBackend:
         return cast(list[str], result["event_nodes"])
 
     async def recover(self, *, keep_rules: bool = False) -> None:
-        if self.journal.exists() or self.armed or self.permissions.exists():
+        if await finish_io(self.needs_recovery):
             await request("recover", self.identity, keep_rules=keep_rules)

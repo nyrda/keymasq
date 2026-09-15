@@ -464,6 +464,30 @@ class MaskCoordinator:
             self.reservations[identity].state["id"] = identity
         return self.reservations[identity]
 
+    def _has_pending_reservations(self) -> bool:
+        return any(
+            item.active
+            or is_recovering(item.state.get("state"))
+            or any(
+                task is not None and not task.done()
+                for task in (item.apply_task, item.recovery_task)
+            )
+            for item in list(self.reservations.values())
+        )
+
+    async def needs_recovery(self) -> bool:
+        if self._has_pending_reservations():
+            return True
+        backends = {identity: item.backend for identity, item in self.reservations.items()}
+        for identity in await asyncio.to_thread(self.backend.reservation_ids):
+            if identity not in backends:
+                backends[identity] = self.backend.for_attachment(identity)
+        for backend in backends.values():
+            if await asyncio.to_thread(backend.needs_recovery):
+                return True
+        # Admission can advance while the filesystem probes yield.
+        return self._has_pending_reservations()
+
     async def initialize(self) -> None:
         await asyncio.to_thread(self.backend.prepare_directories)
         for identity in await asyncio.to_thread(self.backend.reservation_ids):

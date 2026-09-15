@@ -25,7 +25,7 @@ async def test_emergency_reset_releases_local_readers_when_helper_disconnected(m
     manager = DeviceManager()
     masking = HardwareMasking(manager)
     manager.mask_registry.hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
-    manager.masking_recovery = masking.restore
+    manager.masking_recovery = masking.recover_if_needed
     monkeypatch.setattr(masking, "release_runtime", AsyncMock())
     monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
     monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
@@ -704,15 +704,23 @@ async def test_releasing_one_raw_only_mask_leaves_the_other_ready():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reader_failure", [False, True])
-@pytest.mark.parametrize("readers_registered", [False, True])
+@pytest.mark.parametrize("recovery_state", ["readers", "records", "probe_error"])
 async def test_emergency_release_precedes_blocked_controller_recovery(
-    monkeypatch, reader_failure, readers_registered
+    monkeypatch, reader_failure, recovery_state
 ):
     manager = DeviceManager()
     masking = HardwareMasking(manager)
-    if readers_registered:
+    if recovery_state == "readers":
         manager.mask_registry.hardware_paths[RESERVATION_ID] = ["controller"]
-    manager.masking_recovery = masking.restore
+    monkeypatch.setattr(
+        masking.coordinator,
+        "needs_recovery",
+        AsyncMock(
+            return_value=True,
+            side_effect=OSError("state probe failed") if recovery_state == "probe_error" else None,
+        ),
+    )
+    manager.masking_recovery = masking.recover_if_needed
     held = {"keyboard", "mouse"}
     entered, finish = asyncio.Event(), asyncio.Event()
     order = []

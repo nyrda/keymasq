@@ -120,6 +120,9 @@ class LinuxMaskBackend:
     def reservation_ids(self) -> list[str]:
         return reservation_ids(self.runtime_dir, self.state_dir)
 
+    def needs_recovery(self) -> bool:
+        return self.journal.exists() or self.armed or self.permissions.exists()
+
     def prepare_directories(self) -> None:
         for path in (self.runtime_dir, self.state_dir):
             path.mkdir(mode=0o755, parents=True, exist_ok=True)

@@ -188,7 +188,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         from keymasq.masking.paths import STATE_DIR as MASK_STATE_DIR
 
         self.masking_suspended = (MASK_STATE_DIR / "suspended").exists()
-        self.masking_recovery: Callable[[], Awaitable[None]] | None = None
+        self.masking_recovery: Callable[[], Awaitable[bool]] | None = None
         self.verbosity = verbosity
         self.broadcast_callback = broadcast_callback
 
@@ -517,8 +517,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self._broadcast_runtime_event(CommandType.RUNTIME_RESET, {"reason": "hardware_mask_ready"})
 
     async def emergency_reset(self) -> JsonObject:
-        if self.masking_recovery is not None:
-            await self.masking_recovery()
+        if self.masking_recovery is not None and await self.masking_recovery():
             return {"status": "ok", "reset": True, "reason": "hardware_mask_recovery"}
         await self.release_all_devices()
         self._broadcast_runtime_event(

@@ -11,6 +11,15 @@ class MaskRegistry:
     reservation_attachments: dict[str, str] = field(default_factory=dict)
     blocked_attachments: set[str] = field(default_factory=set)
 
+    @property
+    def has_runtime_state(self) -> bool:
+        return bool(
+            self.hardware_paths
+            or self.reservation_paths
+            or self.reservation_attachments
+            or self.blocked_attachments
+        )
+
     def register(self, reservation_id: str, paths: list[str], attachment: str) -> None:
         """Record the physical reservation independently of its logical owners."""
         self.hardware_paths[reservation_id] = paths

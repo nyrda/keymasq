@@ -452,6 +452,20 @@ class HardwareMasking:
             except TimeoutError:
                 pass
 
+    async def recover_if_needed(self) -> bool:
+        """Leave an ordinary emergency reset ordinary when no masking state exists."""
+        try:
+            if (
+                not self.manager.mask_registry.has_runtime_state
+                and not await self.coordinator.needs_recovery()
+            ):
+                return False
+        except OSError:
+            # An unreadable recovery record must not prevent input release.
+            log.exception("Cannot inspect masking state; attempting emergency recovery")
+        await self.restore()
+        return True
+
     async def restore(self, reason: str = "user_restore") -> None:
         errors: list[Exception] = []
 

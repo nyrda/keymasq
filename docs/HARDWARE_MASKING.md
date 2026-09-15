@@ -105,13 +105,18 @@ failures increase the delay up to one minute, and thirty seconds of healthy
 masking resets it. The session reapplies its active configuration. A saved
 automatic mask is retried when its hardware is present, without a GUI action.
 
-Global emergency recovery first prevents new grabs, neutralizes ordinary output,
-and releases input devices. A controller cleanup failure does not skip other
-devices, and physical masking recovery runs afterward. Emergency recovery also
-restores masks with no runtime readers, including disconnected devices and masks
+When masking needs recovery, emergency reset first prevents new grabs,
+neutralizes ordinary output, and releases input devices. A controller cleanup
+failure does not skip other devices, and physical masking recovery runs afterward.
+Emergency recovery also restores masks with no runtime readers, including
+disconnected devices and masks
 still acquiring their replacements. Per-device unmasking leaves unrelated
 remapping active. Before system suspend, ordinary output neutralization is
 attempted before masking cleanup; both steps run even if either fails.
+
+With no active masking state or pending recovery records, emergency reset releases
+devices and the session reapplies profiles normally. Saved, inactive mask history
+alone does not pause remapping or require **Enable remapping**.
 
 **Unmask all devices** turns every mask off and disables those saved choices,
 without pausing ordinary remapping. Administrative recovery still provides the

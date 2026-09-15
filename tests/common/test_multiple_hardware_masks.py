@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -94,19 +95,35 @@ async def start(supervisor, attachment, *, keep=True, persist=True):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("phase", ["acquiring", "disconnected", "no_masks"])
-async def test_emergency_reset_restores_masks_without_runtime_readers(supervisor, phase):
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "applying",
+        "acquiring",
+        "disconnected",
+        "raw_only",
+        "journal",
+        "cold_journal",
+        "no_masks",
+        "inactive_history",
+    ],
+)
+async def test_emergency_reset_restores_masks_without_runtime_readers(
+    supervisor, phase, monkeypatch
+):
+    from keymasq.common.ipc import CommandType
     from keymasq.keymasqd.device_manager import DeviceManager
     from keymasq.keymasqd.hardware_masking import HardwareMasking
 
     attachment = supervisor.backend.inventory.scan()[0]
-    if phase == "acquiring":
+    if phase in {"applying", "acquiring"}:
         data = {"id": attachment.identity, "generation": attachment.generation}
         result = await supervisor.request({"command": "mask", **data})
         token = selected(result, attachment.identity)["token"]
-        await supervisor.request({"command": "quiesced", "token": token, **data})
-        await supervisor.reservations[attachment.identity].apply_task
-        assert selected(supervisor.status(), attachment.identity)["state"] == "acquiring"
+        if phase == "acquiring":
+            await supervisor.request({"command": "quiesced", "token": token, **data})
+            await supervisor.reservations[attachment.identity].apply_task
+        assert selected(supervisor.status(), attachment.identity)["state"] == phase
     elif phase == "disconnected":
         await start(supervisor, attachment)
         supervisor.backend.inventory.attachments.remove(attachment)
@@ -114,20 +131,47 @@ async def test_emergency_reset_restores_masks_without_runtime_readers(supervisor
         assert (
             selected(supervisor.status(), attachment.identity)["reason"] == "hardware_disconnected"
         )
-    backend = supervisor.reservations[attachment.identity].backend if phase != "no_masks" else None
-    if backend is not None:
+    elif phase in {"raw_only", "inactive_history"}:
+        await start(supervisor, attachment)
+        if phase == "inactive_history":
+            await supervisor.reservations[attachment.identity].restore("user_restore")
+    elif phase in {"journal", "cold_journal"}:
+        backend = supervisor.backend.for_attachment(attachment.identity)
+        await asyncio.to_thread(backend.prepare_directories)
+        await asyncio.to_thread(save_json, backend.journal, {"id": attachment.identity})
+        if phase == "journal":
+            await supervisor.reservation(attachment.identity)
+    backend = (
+        supervisor.backend.for_attachment(attachment.identity) if phase != "no_masks" else None
+    )
+    if phase in {"acquiring", "disconnected", "raw_only"}:
+        assert backend is not None
         assert await asyncio.to_thread(backend.early.exists)
         assert await asyncio.to_thread(backend.late.exists)
 
     manager = DeviceManager()
     masking = HardwareMasking(manager)
     masking.coordinator = supervisor
-    masking.initialized = True
-    manager.masking_recovery = masking.restore
+    masking.initialized = phase != "cold_journal"
+    manager.masking_recovery = masking.recover_if_needed
+    manager.masking_suspended = False
+    broadcast = Mock()
+    monkeypatch.setattr(manager, "_broadcast_runtime_event", broadcast)
     assert not manager.mask_registry.hardware_paths
     await manager.emergency_reset()
-    assert manager.masking_suspended
-    assert supervisor.status()["remapping_suspended"]
+    recovering = phase not in {"no_masks", "inactive_history"}
+    assert manager.masking_suspended == recovering
+    assert supervisor.status()["remapping_suspended"] == recovering
+    resets = [
+        call.args[1]
+        for call in broadcast.call_args_list
+        if call.args[0] == CommandType.RUNTIME_RESET
+    ]
+    assert resets == [
+        {"reason": "hardware_mask_recovery", "retrying": False}
+        if recovering
+        else {"reason": "emergency_reset"},
+    ]
     if backend is not None:
         assert not await asyncio.to_thread(backend.early.exists)
         assert not await asyncio.to_thread(backend.late.exists)

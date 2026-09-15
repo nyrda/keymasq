@@ -77,7 +77,7 @@ class Daemon:
     def __init__(self, verbosity: int = 0) -> None:
         self.device_manager = DeviceManager(verbosity=verbosity)
         self.hardware_masking = HardwareMasking(self.device_manager)
-        self.device_manager.masking_recovery = self.hardware_masking.restore
+        self.device_manager.masking_recovery = self.hardware_masking.recover_if_needed
         self.recording_manager = RecordingManager()
         self.macro_store = MacroStore(STATE_DIR / "macros")
         self.capture_manager = CaptureManager()

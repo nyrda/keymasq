@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from keymasq.masking.coordinator import TRIAL_SECONDS, MaskReservation
+from keymasq.masking.coordinator import ACTIVATION_SECONDS, MaskReservation
 from tests.common.test_hardware_masking import FakeBackend, begin
 
 
@@ -158,11 +158,29 @@ async def test_automatic_acquisition_timeout_pauses_until_explicit_resume(tmp_pa
     await confirm(supervisor)
     await supervisor.restore("lifecycle_stop")
     fresh = await restart(supervisor)
-    clock[0] += TRIAL_SECONDS
+    clock[0] += ACTIVATION_SECONDS
     await fresh.request({"command": "poll"})
     await fresh.monitor_once()
     assert fresh.status()["remapping_suspended"] is True
     assert not (await restart(fresh)).active
+
+
+@pytest.mark.asyncio
+async def test_automatic_start_gets_activation_budget_without_confirmation(tmp_path):
+    clock = [100.0]
+    supervisor = MaskReservation(FakeBackend(tmp_path), lambda: clock[0])
+    await confirm(supervisor)
+    await supervisor.restore("lifecycle_stop")
+    fresh = await restart(supervisor)
+    clock[0] += ACTIVATION_SECONDS - 1
+    result = await fresh.request({"command": "ready", "token": fresh.state["token"]})
+    assert result["state"] == "masked"
+    assert result["remaining_seconds"] == 0
+    assert fresh.confirmation_deadline is None
+    clock[0] += ACTIVATION_SECONDS
+    await fresh.monitor_once()
+    assert fresh.state["state"] == "masked"
+    await fresh.restore("lifecycle_stop")
 
 
 @pytest.mark.asyncio

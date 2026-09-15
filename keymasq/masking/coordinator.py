@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.masking import MaskPhase, is_active, is_recovering, is_transitional
+from keymasq.common.masking import HARDWARE_JOB_TIMEOUT, MaskPhase, is_active, is_recovering
 from keymasq.common.types import JsonObject
 from keymasq.masking.backend import DeviceInUseError, save_json
 from keymasq.masking.inventory import Attachment
@@ -20,6 +20,8 @@ from keymasq.masking.protocols import MaskBackend
 
 log = logging.getLogger("keymasq.masking")
 TRIAL_SECONDS = 30.0
+# One bounded job plus time for quiescing and starting replacement readers.
+ACTIVATION_SECONDS = HARDWARE_JOB_TIMEOUT + 15.0
 
 
 async def load_saved_object(path: Path) -> JsonObject:
@@ -39,7 +41,8 @@ class MaskReservation:
         self.backend = backend
         self.clock = clock
         self.state: JsonObject = {"state": MaskPhase.UNMASKED}
-        self.deadline = 0.0
+        self.activation_deadline = 0.0
+        self.confirmation_deadline: float | None = None
         self.apply_task: asyncio.Task[None] | None = None
         self.recovery_task: asyncio.Task[None] | None = None
         self.recovery_lock = asyncio.Lock()
@@ -130,6 +133,43 @@ class MaskReservation:
     def active(self) -> bool:
         return is_active(self.state.get("state"))
 
+    @property
+    def deadline(self) -> float:
+        if self.confirmation_deadline is None:
+            return self.activation_deadline
+        if self.state.get("state") == MaskPhase.TRIAL:
+            return self.confirmation_deadline
+        # Reacquiring interfaces during a manual trial must not extend the
+        # user's existing confirmation window.
+        return min(self.activation_deadline, self.confirmation_deadline)
+
+    @property
+    def activation_timed_out(self) -> bool:
+        return (
+            self.state.get("state") in {MaskPhase.APPLYING, MaskPhase.ACQUIRING}
+            and self.clock() >= self.activation_deadline
+            and (
+                self.confirmation_deadline is None
+                or self.activation_deadline < self.confirmation_deadline
+            )
+        )
+
+    def check_deadline(self) -> None:
+        if self.clock() >= self.deadline:
+            if self.activation_timed_out:
+                raise ValueError("Hardware activation timed out; access is being restored")
+            raise ValueError("The hardware trial expired; access is being restored")
+
+    async def restore_if_expired(self) -> bool:
+        if self.state.get("state") == MaskPhase.MASKED or self.clock() < self.deadline:
+            return False
+        if self.activation_timed_out:
+            self.state["error"] = "Device input did not become ready before activation timed out"
+        # Keep the existing terminal expiry reason; error text distinguishes
+        # activation failure from a missed confirmation.
+        await self._restore("trial_expired")
+        return True
+
     def status(self) -> JsonObject:
         paused = (self.backend.state_dir / "suspended").exists()
         explicitly_stopped = paused and self.state.get("reason") in {
@@ -141,7 +181,7 @@ class MaskReservation:
             **self.state,
             "enabled": self.active or bool(self.policy.get("persist") and not explicitly_stopped),
             "remaining_seconds": max(0, int(self.deadline - self.clock() + 0.999))
-            if is_transitional(self.state.get("state"))
+            if self.state.get("state") == MaskPhase.TRIAL
             else 0,
             "remapping_suspended": paused,
             "persist": self.policy.get("persist", True),
@@ -234,7 +274,8 @@ class MaskReservation:
             self.state["usb_selector"] = self.backend.inventory.selector(attachment)
         if confirmed:
             self.state["automatic"] = True
-        self.deadline = self.clock() + TRIAL_SECONDS
+        self.activation_deadline = self.clock() + ACTIVATION_SECONDS
+        self.confirmation_deadline = None
         self.quiesced.clear()
 
         self.apply_task = asyncio.create_task(
@@ -267,11 +308,10 @@ class MaskReservation:
                 self.state["error_code"] = "device_in_use"
                 self.state["blocking_application"] = exc.application
             # The daemon coordinator performs serialized recovery.
-            self.deadline = self.clock()
+            self.activation_deadline = self.clock()
 
     async def _quiesced(self, message: JsonObject) -> JsonObject:
-        if self.clock() >= self.deadline:
-            raise ValueError("The hardware trial expired; access is being restored")
+        self.check_deadline()
         if self.state.get("state") != MaskPhase.APPLYING or message.get("token") != self.state.get(
             "token"
         ):
@@ -284,8 +324,7 @@ class MaskReservation:
         command = message.get("command")
         if message.get("token") != self.state.get("token") or not self.active:
             raise ValueError("This hardware trial has ended")
-        if self.clock() >= self.deadline:
-            raise ValueError("The hardware trial expired; access is being restored")
+        self.check_deadline()
         expected = MaskPhase.ACQUIRING if command == "ready" else MaskPhase.TRIAL
         if self.state.get("state") != expected:
             raise ValueError("The replacement controller is not ready for confirmation")
@@ -298,6 +337,8 @@ class MaskReservation:
             if command == "keep" or self.state.get("automatic")
             else MaskPhase.TRIAL
         )
+        if self.state["state"] == MaskPhase.TRIAL and self.confirmation_deadline is None:
+            self.confirmation_deadline = self.clock() + TRIAL_SECONDS
         if self.state["state"] == MaskPhase.MASKED:
             if self.state.get("automatic") and self.policy:
                 await self.save_policy(self.policy.get("persist", True))
@@ -420,9 +461,11 @@ class MaskReservation:
 
     def refresh_interfaces(self, attachment: Attachment) -> None:
         """Quiesce and reacquire a receiver's readers while retaining its kernel drivers."""
+        if self.state.get("state") in {MaskPhase.MASKED, MaskPhase.TRIAL}:
+            self.activation_deadline = self.clock() + ACTIVATION_SECONDS
         if self.state.get("state") == MaskPhase.MASKED or self.state.get("automatic"):
             self.state["automatic"] = True
-            self.deadline = self.clock() + TRIAL_SECONDS
+            self.confirmation_deadline = None
         self.state.update(
             {"state": MaskPhase.APPLYING, "quiesce_required": True, "token": uuid.uuid4().hex}
         )
@@ -441,7 +484,7 @@ class MaskReservation:
             except Exception as exc:
                 log.exception("Masked hardware interface refresh failed")
                 self.state["error"] = str(exc)
-                self.deadline = self.clock()
+                self.activation_deadline = self.clock()
 
         self.apply_task = asyncio.create_task(refresh(), name="hardware-mask-refresh")
 
@@ -460,13 +503,10 @@ class MaskReservation:
             if self.state.get("error"):
                 await self._restore("activation_failed")
                 return
-            if self.state.get("state") == MaskPhase.APPLYING:
-                if self.clock() >= self.deadline:
-                    await self._restore("trial_expired")
-                return  # USB re-enumeration intentionally removes this generation.
-            if self.state.get("state") != MaskPhase.MASKED and self.clock() >= self.deadline:
-                await self._restore("trial_expired")
+            if await self.restore_if_expired():
                 return
+            if self.state.get("state") == MaskPhase.APPLYING:
+                return  # USB re-enumeration intentionally removes this generation.
             try:
                 attachment = await asyncio.to_thread(
                     self.backend.inventory.resolve,
@@ -489,9 +529,8 @@ class MaskReservation:
             )
             if others:
                 await self._restore("controller_scope_changed")
-            elif self.state.get("state") != MaskPhase.MASKED and self.clock() >= self.deadline:
-                failed = bool(self.state.get("error"))
-                await self._restore("activation_failed" if failed else "trial_expired")
+            else:
+                await self.restore_if_expired()
 
 
 class MaskCoordinator:

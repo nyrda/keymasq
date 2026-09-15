@@ -1,11 +1,12 @@
 import asyncio
 import threading
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, finish_io
-from keymasq.masking.coordinator import TRIAL_SECONDS, MaskReservation
+from keymasq.masking.coordinator import ACTIVATION_SECONDS, TRIAL_SECONDS, MaskReservation
 from keymasq.masking.inventory import Attachment, HardwareInventory
 
 
@@ -159,6 +160,101 @@ async def begin(supervisor: MaskReservation) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
+async def test_slow_activation_leaves_a_full_confirmation_window(tmp_path, monkeypatch):
+    clock = [100.0]
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend, lambda: clock[0])
+    activate = backend.activate
+
+    async def slow_activate(attachment):
+        clock[0] += 70
+        return await activate(attachment)
+
+    monkeypatch.setattr(backend, "activate", slow_activate)
+    started = await begin(supervisor)
+    assert started["remaining_seconds"] == 0
+    assert supervisor.status()["remaining_seconds"] == 0
+    clock[0] += 19  # Replacement reader acquisition still fits the activation budget.
+    ready = await supervisor.request({"command": "ready", "token": started["token"]})
+    assert ready["state"] == "trial" and ready["remaining_seconds"] == 30
+    clock[0] += 29
+    await supervisor.monitor_once()
+    assert supervisor.status()["remaining_seconds"] == 1
+    kept = await supervisor.request({"command": "keep", "token": started["token"]})
+    assert kept["state"] == "masked"
+    await supervisor.restore("lifecycle_stop")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["quiescing", "job", "acquiring"])
+async def test_activation_remains_bounded_before_confirmation(tmp_path, monkeypatch, phase):
+    clock = [100.0]
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend, lambda: clock[0])
+    entered = asyncio.Event()
+    if phase == "job":
+
+        async def blocked_activate(_attachment):
+            entered.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(backend, "activate", blocked_activate)
+    await supervisor.request({"command": "startup", "uid": 1000})
+    attachment = backend.inventory.scan()[0]
+    started = await supervisor.request(
+        {
+            "command": "mask",
+            "id": attachment.identity,
+            "generation": attachment.generation,
+        }
+    )
+    assert supervisor.apply_task is not None
+    if phase != "quiescing":
+        await supervisor.request({"command": "quiesced", "token": started["token"]})
+        if phase == "job":
+            await entered.wait()
+        else:
+            await supervisor.apply_task
+    clock[0] += ACTIVATION_SECONDS
+    await supervisor.monitor_once()
+    assert supervisor.state["state"] == "restored"
+    assert "activation timed out" in supervisor.state["error"]
+    assert backend.recoveries == 1
+    assert supervisor.apply_task.done()
+    assert supervisor.confirmation_deadline is None
+
+
+@pytest.mark.asyncio
+async def test_interface_refresh_and_duplicate_ready_cannot_extend_confirmation(
+    tmp_path, monkeypatch
+):
+    clock = [100.0]
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend, lambda: clock[0])
+    started = await begin(supervisor)
+    await supervisor.request({"command": "ready", "token": started["token"]})
+    clock[0] += 10
+    monkeypatch.setattr(
+        backend, "refresh_interfaces", AsyncMock(return_value=["/dev/input/event5"])
+    )
+    supervisor.refresh_interfaces(backend.inventory.scan()[0])
+    assert supervisor.apply_task is not None
+    token = supervisor.state["token"]
+    await supervisor.request({"command": "quiesced", "token": token})
+    await supervisor.apply_task
+    clock[0] += 5
+    ready = await supervisor.request({"command": "ready", "token": token})
+    assert ready["remaining_seconds"] == 15
+    with pytest.raises(ValueError, match="not ready for confirmation"):
+        await supervisor.request({"command": "ready", "token": token})
+    clock[0] += 15
+    with pytest.raises(ValueError, match="trial expired"):
+        await supervisor.request({"command": "keep", "token": token})
+    await supervisor.monitor_once()
+    assert supervisor.state["reason"] == "trial_expired"
+
+
+@pytest.mark.asyncio
 async def test_keep_requires_ready_output_and_explicit_live_trial(tmp_path: Path) -> None:
     clock = [100.0]
     supervisor = MaskReservation(FakeBackend(tmp_path), lambda: clock[0])
@@ -272,7 +368,7 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
     clock = [100.0]
     backend = FakeBackend(tmp_path)
     supervisor = MaskReservation(backend, lambda: clock[0])
-    await begin(supervisor)
+    started = await begin(supervisor)
     if cause == "disconnect":
         (backend.inventory.scan()[0].syspath / "devnum").write_text("8")
     elif cause == "endpoint":
@@ -280,6 +376,7 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
     elif cause == "scope":
         monkeypatch.setattr(backend.inventory, "other_steam_controllers", lambda _: ["other"])
     elif cause == "trial_expired":
+        await supervisor.request({"command": "ready", "token": started["token"]})
         clock[0] += TRIAL_SECONDS
         await supervisor.request({"command": "poll"})
     await supervisor.monitor_once()

@@ -23,13 +23,16 @@ All three locations use the helper's same saved mask state. In setup and Hardwar
 Settings, hover over the Device masking group for an explanation of masking and
 shared receivers.
 
-Turn a device's switch **on** to mask it. On first activation, the daemon
-starts a 30-second deadline before changing device access.
-Once input is ready, an inline strip asks whether it still works. Choose
+Turn a device's switch **on** to mask it. The daemon allows 90 seconds to
+quiesce input, complete the bounded hardware job, and acquire replacement readers.
+Once input is ready, a separate 30-second confirmation window starts and an
+inline strip asks whether it still works. Choose
 **Keep masking** to confirm, or **Undo** to restore access. Missing the deadline
 restores access even if the dialog closes. Confirmation saves the choice for
 reconnects and restarts. Previously confirmed hardware can be switched back on
 without repeating the confirmation; acquisition deadlines still protect it.
+Refreshing interfaces during a manual trial does not extend its existing
+confirmation window.
 
 Turn the switch **off** to restore that device's access and disable its saved
 mask. No separate pause or resume action is needed. A confirmed device keeps

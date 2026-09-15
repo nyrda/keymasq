@@ -329,11 +329,17 @@ class HardwareMasking:
             self.last_progress = time.monotonic()
             self.task = asyncio.create_task(self.monitor(), name="hardware-mask-owner")
 
-    async def stop_monitor(self) -> None:
+    async def stop_monitor(self) -> Exception | None:
         if self.task is not None:
             self.monitor_stop.set()
-            await self.task
-            self.task = None
+            try:
+                await self.task
+            except Exception as exc:
+                log.exception("Hardware masking monitor failed")
+                return exc
+            finally:
+                self.task = None
+        return None
 
     async def startup(self) -> None:
         if self.session_uid is not None and (
@@ -477,30 +483,48 @@ class HardwareMasking:
             raise errors[0]
 
     async def suspend(self) -> None:
-        await self.stop_monitor()
-        await self.restore("lifecycle_stop")
-        self.needs_startup = True
+        monitor_error = await self.stop_monitor()
+        try:
+            await self.restore("lifecycle_stop")
+        finally:
+            self.needs_startup = True
+        if monitor_error is not None:
+            raise monitor_error
 
     def resume(self) -> None:
         if self.session_uid is not None:
             self.start_monitor()
 
     async def close(self, *, restore_hardware: bool = True) -> None:
+        errors: list[Exception] = []
+
+        async def attempt(cleanup: Callable[[], Awaitable[object]]) -> None:
+            try:
+                await cleanup()
+            except Exception as exc:
+                errors.append(exc)
+                log.exception("Hardware masking cleanup failed")
+
         try:
-            await self.stop_monitor()
+            monitor_error = await self.stop_monitor()
+            if monitor_error is not None:
+                errors.append(monitor_error)
             if self.initialized and restore_hardware:
-                await self.restore("lifecycle_stop")
+                await attempt(lambda: self.restore("lifecycle_stop"))
             else:
                 for reservation in self.coordinator.reservations.values():
-                    if reservation.apply_task is not None:
-                        reservation.apply_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, OSError):
-                            await reservation.apply_task
-                await self.release_runtime()
+                    task = reservation.apply_task
+                    if task is not None:
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await attempt(lambda task=task: task)
+                await attempt(self.release_runtime)
         finally:
             self.session_uid = None
             self.coordinator.session_uid = None
             self.needs_startup = True
+        if errors:
+            raise errors[0]
 
 
 async def adopt_masked_interfaces(

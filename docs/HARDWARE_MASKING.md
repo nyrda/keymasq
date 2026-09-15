@@ -95,6 +95,8 @@ confirmation or unlock; the original confirmation authorizes it.
 Closing the GUI leaves confirmed masks active. Normal daemon/session shutdown
 and suspend restore physical access; startup and wake reapply enabled masks when
 the same user session is available.
+If the masking monitor has failed, cleanup still releases its readers and
+attempts hardware restoration before reporting the monitor error.
 
 Runtime failure restores physical access before retrying remapping automatically.
 The daemon releases the affected reservation's readers; unrelated readers stay

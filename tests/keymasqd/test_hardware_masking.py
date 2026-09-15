@@ -771,3 +771,35 @@ async def test_one_device_release_failure_does_not_skip_other_devices(monkeypatc
     with pytest.raises(OSError, match="macro teardown failed"):
         await manager.release_all_devices()
     assert attempted == {"keyboard", "mouse", "controller"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["shutdown", "disconnect_without_restore", "suspend"])
+async def test_failed_monitor_does_not_skip_lifecycle_cleanup(monkeypatch, operation):
+    masking = HardwareMasking(DeviceManager())
+    masking.initialized = True
+    masking.needs_startup = False
+    masking.session_uid = masking.coordinator.session_uid = 1000
+
+    async def failed_monitor():
+        raise RuntimeError("monitor failed")
+
+    masking.task = asyncio.create_task(failed_monitor())
+    await asyncio.sleep(0)
+    released, request = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(masking, "release_runtime", released)
+    monkeypatch.setattr(masking, "request", request)
+    with pytest.raises(RuntimeError, match="monitor failed"):
+        if operation == "suspend":
+            await masking.suspend()
+        else:
+            await masking.close(restore_hardware=operation == "shutdown")
+    released.assert_awaited_once()
+    if operation == "disconnect_without_restore":
+        request.assert_not_awaited()
+    else:
+        request.assert_awaited_once_with("restore", {"reason": "lifecycle_stop"})
+    assert masking.task is None
+    assert masking.needs_startup
+    expected_uid = 1000 if operation == "suspend" else None
+    assert masking.session_uid == masking.coordinator.session_uid == expected_uid

@@ -10,7 +10,7 @@ import pytest
 
 from keymasq.masking import backend as backend_module
 from keymasq.masking.backend import LinuxMaskBackend, save_json
-from keymasq.masking.service import MaskReservation
+from keymasq.masking.coordinator import MaskReservation
 from tests.common.test_hardware_masking import FakeBackend, deck_sysfs, write
 
 

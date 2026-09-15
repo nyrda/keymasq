@@ -235,7 +235,7 @@ validate_user_wrapper_destinations() {
 	keymasq_wrapper_user=$1
 	keymasq_wrapper_home=$(resolve_user_home "$keymasq_wrapper_user")
 	keymasq_wrapper_dir=$(root_path "$keymasq_wrapper_home/.local/bin")
-	for keymasq_wrapper_name in keymasq keymasqd keymasq-maskd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
+	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		keymasq_wrapper_path="$keymasq_wrapper_dir/$keymasq_wrapper_name"
 		if { [ -e "$keymasq_wrapper_path" ] || [ -L "$keymasq_wrapper_path" ]; } && \
 			! user_wrapper_is_managed "$keymasq_wrapper_user" "$keymasq_wrapper_name" "$keymasq_wrapper_path"; then
@@ -271,7 +271,6 @@ validate_runtime_dir() {
 	keymasq_validate_dir=$1
 	[ -x "$keymasq_validate_dir/bin/keymasq" ] || die "extracted runtime missing keymasq launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasqd" ] || die "extracted runtime missing keymasqd launcher"
-	[ -x "$keymasq_validate_dir/bin/keymasq-maskd" ] || die "extracted runtime missing keymasq-maskd launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-record" ] || die "extracted runtime missing keymasq-record launcher"
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
@@ -538,7 +537,8 @@ install_atomic_keep_list() {
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
 /etc/systemd/system/keymasqd.service
-/etc/systemd/system/keymasq-maskd.service
+/etc/systemd/system/keymasq-hardware@.service
+/etc/polkit-1/rules.d/49-keymasq-hardware.rules
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 EOF
@@ -644,7 +644,7 @@ install_user_wrappers() {
 	validate_user_wrapper_destinations "$user"
 	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
-	for name in keymasq keymasqd keymasq-maskd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		write_user_wrapper "$user" "$name" "$bin_dir/$name"
 	done
 }
@@ -850,7 +850,7 @@ refresh_common_integration() {
 	install_root=$(root_path "$INSTALL_DIR")
 	install -d -m 0755 "$install_root/bin" "$install_root/share/keymasq"
 
-	for name in keymasq keymasqd keymasq-maskd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		write_wrapper "$name" "$install_root/bin/$name"
 	done
 
@@ -905,7 +905,8 @@ write_systemd_integration_files() {
 	install_file 0644 "$assets/keymasq-sysusers.conf" "$(root_path /etc/sysusers.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasq-tmpfiles.conf" "$(root_path /etc/tmpfiles.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasqd.service" "$(root_path /etc/systemd/system/keymasqd.service)"
-	install_file 0644 "$assets/keymasq-maskd.service" "$(root_path /etc/systemd/system/keymasq-maskd.service)"
+	install_file 0644 "$assets/49-keymasq-hardware.rules" "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
+	install_file 0644 "$assets/keymasq-hardware@.service" "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
 	install_user_service "$target_user"
 	if [ "$install_keep_list" = 1 ]; then
 		install_atomic_keep_list
@@ -957,7 +958,6 @@ install_systemd_integration() {
 	fi
 
 	refresh_systemd_integration "$target_user" "$install_keep_list"
-	systemctl try-restart keymasq-maskd.service
 	systemctl enable --now keymasqd.service
 	if [ "$keymasqd_was_active" = 1 ]; then
 		systemctl try-restart keymasqd.service
@@ -1097,11 +1097,11 @@ uninstall_keymasq() {
 	home=$(resolve_user_home "$target_user")
 
 	systemctl disable --now keymasqd.service 2>/dev/null || true
-	systemctl disable --now keymasq-maskd.service 2>/dev/null || true
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
 	remove_path "$(root_path /etc/systemd/system/keymasqd.service)"
-	remove_path "$(root_path /etc/systemd/system/keymasq-maskd.service)"
+	remove_path "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
+	remove_path "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
 	remove_user_path "$target_user" "$(root_path "$home/.config/systemd/user/keymasq-session.service")"
 	remove_path "$(root_path /etc/sysusers.d/keymasq.conf)"
 	remove_path "$(root_path /etc/tmpfiles.d/keymasq.conf)"
@@ -1117,7 +1117,7 @@ uninstall_keymasq() {
 	remove_user_path "$target_user" "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
-	for name in keymasq keymasqd keymasq-maskd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe gtk4-brotway-run; do
 		remove_user_wrapper_if_managed "$target_user" "$name" "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
@@ -1289,7 +1289,7 @@ self_update() {
 	) 9>"$lock_path"
 
 	restart_failed=0
-	for unit in keymasq-maskd.service keymasqd.service; do
+	for unit in keymasqd.service; do
 		if [ -f "$(root_path "/etc/systemd/system/$unit")" ] && \
 			! systemctl try-restart "$unit"; then
 			warn "could not restart $unit after update"
@@ -1407,9 +1407,6 @@ dispatch_command() {
 		keymasqd)
 			run_python_module keymasq.keymasqd "$@"
 			;;
-		keymasq-maskd)
-			run_python_module keymasq.masking.service "$@"
-			;;
 		keymasq-session)
 			run_python_module keymasq.session "$@"
 			;;
@@ -1436,7 +1433,7 @@ main() {
 					;;
 			esac
 			;;
-		keymasqd|keymasq-maskd|keymasq-session|keymasq-record)
+		keymasqd|keymasq-session|keymasq-record)
 			dispatch_command "$basename" "$@"
 			;;
 	esac
@@ -1454,7 +1451,7 @@ main() {
 			shift
 			self_update "$@"
 			;;
-		keymasq|keymasqd|keymasq-maskd|keymasq-session|keymasq-record)
+		keymasq|keymasqd|keymasq-session|keymasq-record)
 			command_name=$1
 			shift
 			dispatch_command "$command_name" "$@"

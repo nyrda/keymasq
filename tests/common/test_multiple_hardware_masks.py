@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, save_json
+from keymasq.masking.coordinator import MaskSupervisor
 from keymasq.masking.inventory import Attachment, HardwareInventory
-from keymasq.masking.service import MaskSupervisor
 
 
 class Inventory(HardwareInventory):
@@ -73,7 +73,7 @@ async def supervisor(tmp_path):
     await supervisor.initialize()
     await supervisor.request({"command": "startup", "uid": 1000})
     yield supervisor
-    await supervisor.restore("service_stopped", stop_owner=False)
+    await supervisor.restore("service_stopped")
 
 
 def selected(result, identity):
@@ -135,7 +135,7 @@ async def test_disconnect_and_trial_expiry_leave_other_masks_running(supervisor)
     clock = [100.0]
     supervisor.clock = lambda: clock[0]
     # Renew the lease in the fake clock's time domain, independent of host uptime.
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     first, second, third = supervisor.backend.inventory.scan()
     await start(supervisor, first)
     await start(supervisor, second)
@@ -145,13 +145,13 @@ async def test_disconnect_and_trial_expiry_leave_other_masks_running(supervisor)
     assert selected(supervisor.status(), first.identity)["reason"] == "hardware_disconnected"
     assert selected(supervisor.status(), second.identity)["state"] == "masked"
     clock[0] += 31
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     await supervisor.monitor_once()
     assert selected(supervisor.status(), third.identity)["reason"] == "trial_expired"
     assert selected(supervisor.status(), second.identity)["state"] == "masked"
     supervisor.backend.inventory.attachments.append(first)
     await supervisor.request({"command": "resume", "id": first.identity})
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     result = supervisor.status()
     assert selected(result, first.identity)["state"] == "applying"
     assert selected(result, second.identity)["state"] == "masked"
@@ -164,7 +164,7 @@ async def test_saved_masks_restart_independently_and_belong_to_user(supervisor):
     await start(supervisor, first)
     await start(supervisor, second)
     await start(supervisor, third, persist=False)
-    await supervisor.restore("lifecycle_stop", stop_owner=False)
+    await supervisor.restore("lifecycle_stop")
     fresh = MaskSupervisor(supervisor.backend)
     await fresh.initialize()
     result = await fresh.request({"command": "startup", "uid": 1001})
@@ -173,7 +173,7 @@ async def test_saved_masks_restart_independently_and_belong_to_user(supervisor):
     assert selected(result, first.identity)["state"] == "applying"
     assert selected(result, second.identity)["state"] == "applying"
     assert selected(result, third.identity)["state"] == "restored"
-    await fresh.restore("service_stopped", stop_owner=False)
+    await fresh.restore("service_stopped")
 
 
 @pytest.mark.asyncio
@@ -193,7 +193,7 @@ async def test_a_slow_restore_does_not_block_other_trials_or_heartbeats(supervis
     await supervisor.request({"command": "restore", **data})
     await entered.wait()
     try:
-        result = await asyncio.wait_for(supervisor.request({"command": "heartbeat"}), 1)
+        result = await asyncio.wait_for(supervisor.request({"command": "poll"}), 1)
         assert selected(result, first.identity)["state"] == "restoring"
         await asyncio.wait_for(start(supervisor, second), 1)
         assert selected(supervisor.status(), second.identity)["state"] == "masked"
@@ -217,7 +217,7 @@ async def test_no_fixed_device_count_limit(tmp_path):
         assert len(result["devices"]) == len(result["masks"]) == 80
         assert all(item["state"] == "masked" for item in result["masks"])
     finally:
-        await supervisor.restore("service_stopped", stop_owner=False)
+        await supervisor.restore("service_stopped")
 
 
 @pytest.mark.asyncio
@@ -228,7 +228,7 @@ async def test_clean_owner_close_preserves_saved_and_explicitly_stopped_masks(su
     await supervisor.request({"command": "restore", **data})
     await supervisor.reservations[first.identity].recovery_task
     async with supervisor.reservations[second.identity].operation_lock:
-        cleanup = asyncio.create_task(supervisor.restore("service_stopped", stop_owner=False))
+        cleanup = asyncio.create_task(supervisor.restore("service_stopped"))
         await asyncio.sleep(0)
         disconnected = asyncio.create_task(supervisor.owner_disconnected())
         await asyncio.sleep(0)
@@ -241,7 +241,7 @@ async def test_clean_owner_close_preserves_saved_and_explicitly_stopped_masks(su
     result = await fresh.request({"command": "startup", "uid": 1000})
     assert selected(result, first.identity)["state"] == "restored"
     assert selected(result, second.identity)["state"] == "applying"
-    await fresh.restore("service_stopped", stop_owner=False)
+    await fresh.restore("service_stopped")
 
 
 @pytest.mark.asyncio
@@ -252,7 +252,7 @@ async def test_switch_off_disables_saved_choice_and_switch_on_reuses_confirmatio
     await supervisor.reservations[first.identity].recovery_task
     assert not selected(supervisor.status(), first.identity)["enabled"]
     assert not selected(supervisor.status(), first.identity)["persist"]
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     assert selected(supervisor.status(), first.identity)["state"] == "restored"
     result = await supervisor.request(
         {"command": "mask", "id": first.identity, "generation": first.generation, "persist": True}
@@ -284,7 +284,7 @@ async def test_saved_switch_can_be_enabled_and_disabled_while_disconnected(super
     assert selected(result, first.identity)["enabled"]
     assert selected(result, first.identity)["state"] == "restored"
     supervisor.backend.inventory.attachments.append(first)
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     assert selected(supervisor.status(), first.identity)["state"] == "applying"
 
 
@@ -295,7 +295,7 @@ async def test_unmask_all_disables_saved_masks_without_pausing_remapping(supervi
     result = await supervisor.request({"command": "restore", "persist": False})
     assert not result["remapping_suspended"]
     assert all(not mask["enabled"] and not mask["persist"] for mask in result["masks"])
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     assert all(mask["state"] == "restored" for mask in supervisor.status()["masks"])
 
 
@@ -326,7 +326,7 @@ async def test_usb_disconnect_keeps_access_rules_until_automatic_reacquisition(s
     assert backend.early.read_text() == rules
     assert backend.late.exists()
     supervisor.backend.inventory.attachments.append(first)
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     assert selected(supervisor.status(), first.identity)["state"] == "applying"
     assert selected(supervisor.status(), second.identity)["state"] == "masked"
     assert backend.early.read_text() == rules
@@ -362,7 +362,7 @@ async def test_receiver_controller_connection_keeps_rules_during_reacquisition(
     assert not state["remapping_suspended"]
     assert backend.early.read_text() == rules
     assert backend.late.exists()
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     assert selected(supervisor.status(), first.identity)["state"] == "applying"
     assert selected(supervisor.status(), second.identity)["state"] == "masked"
     token = state["token"]

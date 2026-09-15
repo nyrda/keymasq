@@ -412,29 +412,36 @@
             ];
 
             services.udev.packages = [ cfg.package ];
+            security.polkit.enable = true;
+            security.polkit.extraConfig = builtins.readFile ./polkit/49-keymasq-hardware.rules;
 
             systemd.services.keymasqd = {
               description = "Keymasq Input Remapping Daemon";
+              path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               wantedBy = [ "multi-user.target" ];
               after = [
                 "systemd-udevd.service"
                 "systemd-udev-trigger.service"
-                "keymasq-maskd.service"
               ];
-              wants = [ "systemd-udev-trigger.service" "keymasq-maskd.service" ];
+              wants = [ "systemd-udev-trigger.service" ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";
+                WatchdogSec = 20;
+                WatchdogSignal = "SIGKILL";
+                TimeoutStopSec = 20;
                 User = "keymasq";
                 Group = "keymasq";
                 SupplementaryGroups = [ "input" ];
                 Nice = -5;
                 ExecStartPre = [
+                  "+${cfg.package}/bin/keymasq-record recover-hardware"
                   "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle"
                   "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
                   "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];
                 ExecStart = "${cfg.package}/bin/keymasqd";
+                ExecStopPost = "+${cfg.package}/bin/keymasq-record recover-hardware";
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
@@ -455,23 +462,20 @@
               };
             };
 
-            systemd.services.keymasq-maskd = {
-              description = "Keymasq Hardware Masking and Recovery";
-              after = [ "systemd-udevd.service" "systemd-udev-trigger.service" ];
-              before = [ "keymasqd.service" ];
+            systemd.services."keymasq-hardware@" = {
+              description = "Keymasq privileged hardware operation";
+              after = [ "keymasqd.service" ];
+              bindsTo = [ "keymasqd.service" ];
               path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
-                Type = "notify";
-                ExecStart = "${cfg.package}/bin/keymasq-maskd";
-                WatchdogSec = 20;
-                ExecStopPost = "${cfg.package}/bin/keymasq-maskd --recover-offline";
-                Restart = "on-failure";
-                RestartSec = 2;
-                TimeoutStopSec = 20;
+                Type = "oneshot";
+                ExecStart = "${cfg.package}/bin/keymasq-record hardware-operation %i";
+                TimeoutStartSec = 60;
+                TimeoutStopSec = 2;
                 User = "root";
                 NoNewPrivileges = true;
-                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" "CAP_CHOWN" "CAP_FOWNER" "CAP_KILL" "CAP_SYS_PTRACE" ];
+                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" "CAP_CHOWN" "CAP_FOWNER" "CAP_SYS_PTRACE" ];
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 PrivateTmp = true;

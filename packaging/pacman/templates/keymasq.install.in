@@ -86,7 +86,6 @@ post_upgrade() {
     _ensure_security_policy
 
     systemctl daemon-reload 2>/dev/null || true
-    systemctl try-restart keymasq-maskd.service 2>/dev/null || true
     systemctl try-restart keymasqd.service 2>/dev/null || true
 
     echo ""
@@ -94,13 +93,13 @@ post_upgrade() {
     echo ""
     echo "Security policy uses UID and recording guard controls; verify /etc/keymasq/security.toml"
     echo "If session cannot connect to daemon, verify runtime socket policy in /etc/keymasq/security.toml"
-    echo "The package tried to restart keymasq-maskd and keymasqd if they were already running."
+    echo "The package tried to restart keymasqd if it was already running."
     echo "If needed, restart services manually:"
     echo "  systemctl --user restart keymasq-session"
 }
 
 pre_remove() {
-    systemctl stop keymasqd.service keymasq-maskd.service 2>/dev/null || true
+    systemctl stop keymasqd.service 2>/dev/null || true
 }
 
 post_remove() {

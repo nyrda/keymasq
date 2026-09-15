@@ -1,4 +1,4 @@
-"""Bounded Linux device-policy transactions used only by the root mask service."""
+"""Bounded Linux device-policy transactions used only by short-lived root helpers."""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ from keymasq.masking.inventory import (
 log = logging.getLogger("keymasq.masking")
 RUNTIME_DIR = Path("/run/keymasq-masking")
 STATE_DIR = Path("/var/lib/keymasq-masking")
-SOCKET_PATH = RUNTIME_DIR / "socket"
 
 
 class DeviceInUseError(ValueError):
     def __init__(self, pid: str, application: str) -> None:
+        self.pid = pid
         self.application = application
         super().__init__(
             f"Process {pid} has a direct USB or auxiliary HID connection. "

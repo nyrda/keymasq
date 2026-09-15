@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import time
@@ -23,7 +22,8 @@ from keymasq.keymasqd.runtime.grab.release import (
     release_interface_unlocked,
 )
 from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
-from keymasq.masking.backend import SOCKET_PATH
+from keymasq.masking.client import HardwareBackend
+from keymasq.masking.coordinator import MaskSupervisor
 from keymasq.masking.inventory import HardwareInventory
 
 if TYPE_CHECKING:
@@ -295,15 +295,15 @@ class MaskRuntime:
 class HardwareMasking:
     def __init__(self, manager: DeviceManager) -> None:
         self.manager = manager
-        self.reader: asyncio.StreamReader | None = None
-        self.writer: asyncio.StreamWriter | None = None
+        self.coordinator = MaskSupervisor(HardwareBackend())
+        self.initialized = False
         self.lock = asyncio.Lock()
         self.task: asyncio.Task[None] | None = None
         self.state: JsonObject = {"masks": []}
         self.session_uid: int | None = None
-        self.helper_uid: int | None = None
         self.needs_startup = True
         self.monitor_stop = asyncio.Event()
+        self.last_progress = time.monotonic()
         self.reservations: dict[str, MaskRuntime] = {}
 
     def runtime(self, identity: str) -> MaskRuntime:
@@ -326,6 +326,7 @@ class HardwareMasking:
     def start_monitor(self) -> None:
         if self.task is None:
             self.monitor_stop.clear()
+            self.last_progress = time.monotonic()
             self.task = asyncio.create_task(self.monitor(), name="hardware-mask-owner")
 
     async def stop_monitor(self) -> None:
@@ -336,10 +337,9 @@ class HardwareMasking:
 
     async def startup(self) -> None:
         if self.session_uid is not None and (
-            self.needs_startup or self.helper_uid != self.session_uid
+            self.needs_startup or self.coordinator.session_uid != self.session_uid
         ):
             status = await self.request("startup", {"uid": self.session_uid})
-            self.helper_uid = self.session_uid
             self.needs_startup = False
             self.manager.masking_suspended = bool(status.get("remapping_suspended"))
 
@@ -356,32 +356,12 @@ class HardwareMasking:
 
     async def _request(self, command: str, data: JsonObject | None = None) -> JsonObject:
         async with self.lock:
-            if self.writer is None:
-                self.reader, self.writer = await asyncio.open_unix_connection(
-                    str(SOCKET_PATH), limit=16 * 1024 * 1024
-                )
-            assert self.reader is not None
-            assert self.writer is not None
-            try:
-                self.writer.write(
-                    (json.dumps({**(data or {}), "command": command}) + "\n").encode()
-                )
-                await self.writer.drain()
-                line = await asyncio.wait_for(self.reader.readline(), 20)
-                if not line:
-                    raise ConnectionError("Hardware masking service disconnected")
-                result = cast(JsonObject, json.loads(line))
-                if result.get("status") != "ok":
-                    raise ValueError(str(result.get("message", "Hardware masking failed")))
-                self.state = result
-                return result
-            except (OSError, TimeoutError, json.JSONDecodeError):
-                self.writer.close()
-                self.writer = None
-                self.reader = None
-                self.needs_startup = True
-                self.helper_uid = None
-                raise
+            if not self.initialized:
+                await self.coordinator.initialize()
+                self.initialized = True
+            result = await self.coordinator.request({**(data or {}), "command": command})
+            self.state = result
+            return result
 
     async def handle(self, command: CommandType, data: JsonObject, *, uid: int) -> JsonObject:
         if self.session_uid is not None and self.session_uid != uid:
@@ -412,14 +392,15 @@ class HardwareMasking:
         except OSError:
             if operation != "inventory":
                 raise OSError(
-                    "Hardware masking service is unavailable; install the updated service"
+                    "Privileged hardware operations are unavailable; "
+                    "install the updated service units"
                 ) from None
             attachments = await asyncio.to_thread(HardwareInventory().scan)
             self.start_monitor()
             return {
                 "devices": [item.as_json() for item in attachments],
                 "available": False,
-                "message": "Install the hardware masking service to enable masking",
+                "message": "Install the hardware operation units to enable masking",
                 "remapping_suspended": self.manager.masking_suspended,
             }
         result["available"] = True
@@ -434,7 +415,8 @@ class HardwareMasking:
 
     async def monitor_once(self) -> None:
         await self.startup()
-        status = await self.request("heartbeat")
+        await self.coordinator.monitor_once()
+        status = await self.request("poll")
         paused = bool(status.get("remapping_suspended"))
         if paused and not self.manager.masking_suspended:
             self.manager.masking_suspended = True
@@ -463,8 +445,9 @@ class HardwareMasking:
             except asyncio.CancelledError:
                 raise
             except (OSError, ValueError, TimeoutError):
-                log.warning("Hardware masking service unavailable", exc_info=True)
+                log.warning("Hardware masking operation failed", exc_info=True)
                 await self.release_runtime()
+            self.last_progress = time.monotonic()
             try:
                 await asyncio.wait_for(self.monitor_stop.wait(), 1)
             except TimeoutError:
@@ -473,10 +456,6 @@ class HardwareMasking:
     async def restore(self, reason: str = "user_restore") -> None:
         await self.release_runtime()
         try:
-            if self.writer is None:
-                if reason != "lifecycle_stop":
-                    raise OSError("Hardware recovery service is disconnected; local input released")
-                return
             await self.request("restore", {"reason": reason})
         finally:
             if reason != "lifecycle_stop":
@@ -493,22 +472,22 @@ class HardwareMasking:
         if self.session_uid is not None:
             self.start_monitor()
 
-    async def close(self) -> None:
+    async def close(self, *, restore_hardware: bool = True) -> None:
         try:
             await self.stop_monitor()
-            if self.writer is not None:
+            if self.initialized and restore_hardware:
                 await self.restore("lifecycle_stop")
+            else:
+                for reservation in self.coordinator.reservations.values():
+                    if reservation.apply_task is not None:
+                        reservation.apply_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, OSError):
+                            await reservation.apply_task
+                await self.release_runtime()
         finally:
-            writer = self.writer
-            self.writer = None
-            self.reader = None
             self.session_uid = None
-            self.helper_uid = None
+            self.coordinator.session_uid = None
             self.needs_startup = True
-            if writer is not None:
-                writer.close()
-                with contextlib.suppress(ConnectionError):
-                    await writer.wait_closed()
 
 
 async def adopt_masked_interfaces(

@@ -23,8 +23,8 @@ All three locations use the helper's same saved mask state. In setup and Hardwar
 Settings, hover over the Device masking group for an explanation of masking and
 shared receivers.
 
-Turn a device's switch **on** to mask it. On first activation, the independent
-recovery service starts a 30-second deadline before changing device access.
+Turn a device's switch **on** to mask it. On first activation, the daemon
+starts a 30-second deadline before changing device access.
 Once input is ready, an inline strip asks whether it still works. Choose
 **Keep masking** to confirm, or **Undo** to restore access. Missing the deadline
 restores access even if the dialog closes. Confirmation saves the choice for
@@ -89,7 +89,7 @@ duplicate-device protection.
 The background user session reapplies enabled masks after reboot or service
 restart, including in Steam Deck Gaming Mode without opening the GUI. It waits
 for a working replacement before completing takeover. The acquisition deadline
-and heartbeat recovery still apply. Automatic startup does not require another
+and watchdog recovery still apply. Automatic startup does not require another
 confirmation or unlock; the original confirmation authorizes it.
 
 Closing the GUI leaves confirmed masks active. Normal daemon/session shutdown
@@ -112,9 +112,13 @@ display history alone never authorize automatic masking.
 
 ## How it works
 
-`keymasq-maskd` is a small root service separate from the input event loop. It
-resolves the selected attachment again, records its current device permissions
-and driver bindings, and installs runtime udev rules for the selected device.
+`keymasqd` owns masking reservations, confirmation deadlines, saved preferences,
+and reconnect handling. There is no separate masking daemon. For privileged
+operations it starts a short-lived `keymasq-hardware@.service` job through systemd.
+The job invokes the existing `keymasq-record hardware-operation` entry point,
+resolves the selected attachment again, records permissions and driver bindings,
+and installs runtime udev rules. The root process exits when the operation ends.
+Listing hardware and monitoring unchanged masks do not start privileged jobs.
 The rules reserve its hidraw, usbfs, evdev and legacy joystick nodes for root
 and the dedicated `keymasq` account. They remove desktop ACLs and match the
 USB port, model and serial when present, or the specific non-USB HID instance.
@@ -188,7 +192,7 @@ Blocking hidraw on Bluetooth does not restrict direct Bluetooth socket access or
 privileged system broker.
 
 The built-in Deck controller retains its tested main `hid-steam` interface
-transition. The service disables hid-steam's lizard mode
+transition. The helper disables hid-steam's lizard mode
 for the reservation, then restores its previous value during recovery. Because
 that setting is module-wide, masking refuses other attached hid-steam
 controllers and recovers if one appears. For that Deck transition, existing
@@ -202,20 +206,26 @@ output. A deliberately disabled virtual output and motion observation do not
 require an output. A missing interface, stopped reader, or failed configured
 output restores access. Readiness checks
 wait for routing transactions to finish. The existing session reevaluation
-applies saved hardware routes after takeover, including during automatic startup. A heartbeat to `keymasq-maskd` renews a 12-second lease even
-after Keep. An unresponsive input daemon can be killed by the recovery service
-to release its grabs and virtual outputs. Turning off or unplugging a controller,
-changes to its interfaces, and ordinary trial expiry do not terminate a responsive
-daemon. It releases affected readers and waits for the hardware to return.
+applies saved hardware routes after takeover, including during automatic startup.
+Turning off or unplugging a controller, changes to its interfaces, and ordinary
+trial expiry release only the affected readers. They do not terminate the daemon.
+
+Systemd watches `keymasqd` with a 20-second watchdog. Heartbeats run on the input
+event loop and stop if that loop blocks or the masking coordinator stops making
+progress. On watchdog expiry systemd kills the daemon, releasing every evdev grab
+and virtual output, then runs `keymasq-record recover-hardware` to restore physical
+access. The same cleanup runs after normal service shutdown. Startup also runs
+recovery before opening input devices, and fails if recovery is incomplete.
+The watchdog applies to ordinary remapping even when masking is never enabled.
+It cannot diagnose every logical error in a still-responsive input loop.
+
 A device with only hidraw endpoints
 can be reserved without a decoder or virtual output. That reserves access;
-interpreting proprietary reports still requires an input driver. The helper
+interpreting proprietary reports still requires an input driver. The daemon
 also monitors endpoint disappearance or changes, including hidraw-only masks.
-The recovery service has its own systemd watchdog and reconciles every
-reservation's root-owned journal when it stops or starts.
 
-The root service stores the confirmed startup preference in
-`/var/lib/keymasq-masking/reservations/<attachment-id>/policy.json`, bound to the
+The daemon stores the confirmed startup preference in
+`/var/lib/keymasq/masking/reservations/<attachment-id>/policy.json`, bound to the
 authenticated desktop UID.
 It is separate from the temporary permissions and undo journal under `/run`.
 The journal restores an interrupted operation; it does not authorize startup.
@@ -223,8 +233,8 @@ Each reservation has its own `suspended` file. The top-level `suspended` file is
 reserved for an explicit emergency stop of all remapping. Undo journals and ACL
 restore files live under `/run/keymasq-masking/reservations/<attachment-id>/`.
 Udev rule filenames include the attachment ID, so restoring one mask cannot
-remove another mask's rules. The daemon lease is shared; losing that owner
-restores every active reservation.
+remove another mask's rules. Stopping the daemon stops its outstanding hardware
+jobs before root-owned recovery runs.
 
 This blocks ordinary applications from opening the covered physical nodes.
 The hardware remains visible in sysfs and may remain in cached application
@@ -233,38 +243,43 @@ system-wide device access control, not a per-application visibility filter.
 
 ## Administrative recovery
 
-From SSH or a TTY, run:
+From SSH or a TTY, stop the daemon to release all grabs and restore access:
 
 ```sh
-sudo keymasq-maskd --recover
+sudo systemctl stop keymasqd
 ```
 
-For the installed AppImage, the explicit path is:
+If recovery reports an error, retry the short-lived helper while the daemon is
+stopped:
 
 ```sh
-sudo /opt/keymasq/bin/keymasq-maskd --recover
+sudo keymasq-record recover-hardware
 ```
 
-The command restores access through the supervisor, or recovers its journal
-offline if the supervisor is stopped. Automatic remapping remains paused.
-User profiles and hardware configurations are preserved.
+For the installed AppImage, use `/opt/keymasq/bin/keymasq-record`.
+Restart `keymasqd` when ready to resume remapping. User profiles, hardware
+configurations, and confirmed masking preferences are preserved.
 
 ## Trying a worktree build
 
-Run `./scripts/dev-maskd.sh` in a terminal, then start `./scripts/dev.sh`.
-The first command requests sudo, stages this checkout's helper in a root-owned
-runtime directory, and starts it under systemd with watchdog and stop recovery.
-It stops the installed daemon and masking helper before replacing them.
-Run both from the same checkout so they share the reader-quiescence handshake.
+Run `./scripts/dev.sh`. Its daemon launcher requests sudo, stages the checkout in
+`/run/keymasq-dev-source`, and installs runtime systemd overrides for the daemon
+and its short-lived hardware jobs. The same watchdog and shutdown recovery apply
+to development. No separate masking launcher or resident root service is needed.
 
-Open Device masking, turn a device on, and try its controls during the
-first confirmation countdown. Without Keep masking, access restores automatically. Inspect helper
-logs with `journalctl -fu keymasq-maskd-dev`. Verify physical opens fail as the
-desktop user while the daemon's evdev and native sources remain usable.
+Open Device masking, turn a device on, and try its controls during the first
+confirmation countdown. Without Keep masking, access restores automatically.
+Inspect daemon logs with `journalctl -fu keymasqd` and hardware job failures with
+`journalctl -u 'keymasq-hardware@*'`.
 
-After stopping the dev workspace, restore the installed services:
+After stopping the development workspace, remove its overrides to return to the
+installed code:
 
 ```sh
-sudo systemctl stop keymasq-maskd-dev
-sudo systemctl start keymasq-maskd keymasqd
+sudo rm -f /run/systemd/system/keymasqd.service.d/90-worktree.conf
+sudo rm -f /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf
+sudo rm -f /run/systemd/system/keymasqd.service /run/systemd/system/keymasq-hardware@.service
+sudo rm -f /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules
+sudo systemctl daemon-reload
+sudo systemctl start keymasqd
 ```

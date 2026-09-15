@@ -608,7 +608,6 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
     for name in (
         "keymasq",
         "keymasqd",
-        "keymasq-maskd",
         "keymasq-session",
         "keymasq-record",
         "slurp",
@@ -701,7 +700,7 @@ case "${1:-}" in
   --help)
     exit 0
     ;;
-  keymasq|keymasq-record|keymasq-maskd)
+  keymasq|keymasq-record)
     if [[ "${2:-}" = "--help" ]]; then
       exit 0
     fi
@@ -1546,9 +1545,7 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "systemctl reenable keymasqd.service" in command_log
     assert "systemctl --user reenable keymasq-session.service" in command_log
-    assert command_log.index("systemctl try-restart keymasq-maskd.service") < command_log.index(
-        "systemctl try-restart keymasqd.service"
-    )
+    assert "systemctl try-restart keymasqd.service" in command_log
 
 
 def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
@@ -1834,13 +1831,13 @@ exit 97
 
 
 @pytest.mark.asyncio
-async def test_appimage_rejects_runtime_without_masking_helper(tmp_path: Path) -> None:
+async def test_appimage_rejects_runtime_without_privileged_helper(tmp_path: Path) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     source = tmp_path / "source.AppImage"
     source.write_text("appimage\n", encoding="utf-8")
     env = _env(tmp_path, fake_root, assets, source)
-    (Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq-maskd").unlink()
+    (Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq-record").unlink()
     result = await asyncio.create_subprocess_exec(
         "sh", str(RUNTIME_SCRIPT), "--install", "--user", "root",
         env=env,
@@ -1849,5 +1846,5 @@ async def test_appimage_rejects_runtime_without_masking_helper(tmp_path: Path) -
     )
     _, stderr = await result.communicate()
     assert result.returncode != 0
-    assert b"missing keymasq-maskd launcher" in stderr
+    assert b"missing keymasq-record launcher" in stderr
     assert not (fake_root / "opt/keymasq/runtime/current").exists()

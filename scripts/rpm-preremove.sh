@@ -6,6 +6,5 @@ set -e
 # service in that case.
 if [ "${1:-0}" -eq 0 ]; then
     systemctl disable --now keymasqd.service 2>/dev/null || true
-    systemctl disable --now keymasq-maskd.service 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
 fi

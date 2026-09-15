@@ -1,1 +1,1 @@
-"""Physical hardware reservations and independent recovery."""
+"""Daemon-owned hardware reservations and short-lived privileged operations."""

@@ -131,8 +131,8 @@ stage_rpm_support_files() {
 
     cp -f "$REPO_DIR/systemd/keymasqd.service" \
         "$staging_dir/usr/lib/systemd/system/keymasqd.service"
-    cp -f "$REPO_DIR/systemd/keymasq-maskd.service" \
-        "$staging_dir/usr/lib/systemd/system/keymasq-maskd.service"
+    cp -f "$REPO_DIR/systemd/keymasq-hardware@.service" \
+        "$staging_dir/usr/lib/systemd/system/keymasq-hardware@.service"
     cp -f "$REPO_DIR/systemd/keymasq-session.service" \
         "$staging_dir/usr/lib/systemd/user/keymasq-session.service"
     cp -f "$REPO_DIR/sysusers.d/keymasq.conf" \
@@ -143,6 +143,8 @@ stage_rpm_support_files() {
         "$staging_dir/usr/lib/udev/rules.d/91-keymasq-acl.rules"
     cp -f "$REPO_DIR/udev/99-keymasq-hide-grabbed.rules" \
         "$staging_dir/usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules"
+    install -Dm644 "$REPO_DIR/polkit/49-keymasq-hardware.rules" \
+        "$staging_dir/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules"
     cp -f "$REPO_DIR/polkit/com.keymasq.record-macro.policy" \
         "$staging_dir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
     cp -f "$REPO_DIR/assets/tools.keymasq.keymasq.desktop" \

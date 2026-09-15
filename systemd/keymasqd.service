@@ -2,21 +2,26 @@
 Description=Keymasq Input Remapping Daemon
 Documentation=man:keymasqd(1)
 Documentation=https://keymasq.tools/docs/latest/
-After=systemd-udevd.service systemd-udev-trigger.service keymasq-maskd.service
-Wants=systemd-udev-trigger.service keymasq-maskd.service
+After=systemd-udevd.service systemd-udev-trigger.service
+Wants=systemd-udev-trigger.service
 
 [Service]
 Type=notify
+WatchdogSec=20
+WatchdogSignal=SIGKILL
+TimeoutStopSec=20
 User=keymasq
 Group=keymasq
 SupplementaryGroups=input
 # Keep grabbed-input remapping responsive under CPU contention.
 Nice=-5
+ExecStartPre=+/usr/bin/keymasq-record recover-hardware
 ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
 ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
 # Apply native-driver ACLs to controllers already connected at startup.
 ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
 ExecStart=/usr/bin/keymasqd
+ExecStopPost=+/usr/bin/keymasq-record recover-hardware
 Restart=on-failure
 RestartSec=5
 

@@ -4,9 +4,7 @@ import asyncio
 import json
 import os
 import shutil
-import signal
 import stat
-import struct
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +15,7 @@ import pytest
 from keymasq.common.ipc import CommandType
 from keymasq.keymasqd.hardware_masking import HardwareMasking
 from keymasq.masking import backend as backend_module
-from keymasq.masking import permissions, service, usb
+from keymasq.masking import permissions, usb
 from keymasq.masking.backend import LinuxMaskBackend, run_host, save_json
 from keymasq.masking.inventory import HardwareInventory
 from tests.common.test_hardware_masking import deck_sysfs, write
@@ -29,16 +27,14 @@ from tests.common.test_hardware_masking import deck_sysfs, write
 )
 async def test_failed_owner_cleanup_cannot_reuse_old_helper_identity(monkeypatch, failure):
     masking = HardwareMasking(SimpleNamespace(masking_suspended=False))
-    old_writer = SimpleNamespace(close=Mock(), wait_closed=AsyncMock())
-    masking.writer = old_writer
-    masking.session_uid = masking.helper_uid = 1000
+    masking.initialized = True
+    masking.session_uid = masking.coordinator.session_uid = 1000
     masking.needs_startup = False
     monkeypatch.setattr(masking, "release_runtime", AsyncMock())
     monkeypatch.setattr(masking, "request", AsyncMock(side_effect=failure))
     with pytest.raises(type(failure)):
         await masking.close()
-    old_writer.close.assert_called_once()
-    assert masking.writer is masking.reader is masking.session_uid is masking.helper_uid is None
+    assert masking.session_uid is masking.coordinator.session_uid is None
     request = AsyncMock(return_value={})
     monkeypatch.setattr(masking, "request", request)
     monkeypatch.setattr(masking, "start_monitor", Mock())
@@ -52,71 +48,11 @@ async def test_failed_owner_cleanup_cannot_reuse_old_helper_identity(monkeypatch
 @pytest.mark.asyncio
 async def test_startup_checks_helper_identity_even_if_startup_flag_is_clear(monkeypatch):
     masking = HardwareMasking(SimpleNamespace(masking_suspended=False))
-    masking.session_uid, masking.helper_uid, masking.needs_startup = 1001, 1000, False
+    masking.session_uid, masking.coordinator.session_uid, masking.needs_startup = 1001, 1000, False
     request = AsyncMock(return_value={})
     monkeypatch.setattr(masking, "request", request)
     await masking.startup()
     request.assert_awaited_once_with("startup", {"uid": 1001})
-    assert masking.helper_uid == 1001
-
-
-@pytest.mark.asyncio
-async def test_pidfd_admission_failure_does_not_occupy_owner_slot(tmp_path, monkeypatch):
-    started = asyncio.Event()
-    callbacks = {}
-    supervisor = SimpleNamespace(
-        initialize=AsyncMock(),
-        owner_pidfd=None,
-        session_uid=None,
-        request=AsyncMock(return_value={}),
-        owner_disconnected=AsyncMock(),
-        restore=AsyncMock(),
-        monitor=AsyncMock(side_effect=asyncio.Event().wait),
-    )
-    server = SimpleNamespace(close=Mock(), wait_closed=AsyncMock())
-
-    async def start_server(handler, *_args, **_kwargs):
-        callbacks["handle"] = handler
-        return server
-
-    monkeypatch.setattr(service, "SOCKET_PATH", tmp_path / "socket")
-    monkeypatch.setattr(
-        service.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000)
-    )
-    monkeypatch.setattr(service.os, "chown", Mock())
-    monkeypatch.setattr(service.os, "chmod", Mock())
-    pidfd = os.open(tmp_path, os.O_RDONLY)
-    monkeypatch.setattr(service.os, "pidfd_open", Mock(side_effect=[ProcessLookupError(), pidfd]))
-    monkeypatch.setattr(service.asyncio, "start_unix_server", start_server)
-    monkeypatch.setattr(
-        asyncio.get_running_loop(),
-        "add_signal_handler",
-        lambda sig, cb: callbacks.update({sig: cb}),
-    )
-    monkeypatch.setattr(service, "notify", lambda _: started.set())
-    task = asyncio.create_task(service.serve(supervisor))
-    await started.wait()
-    writers = []
-    try:
-        for _ in range(2):
-            transport = SimpleNamespace(getsockopt=lambda *_: struct.pack("3i", 123, 1000, 1000))
-            writer = Mock()
-            writer.get_extra_info.return_value = transport
-            writer.wait_closed = AsyncMock()
-            writer.drain = AsyncMock()
-            reader = SimpleNamespace(
-                readline=AsyncMock(side_effect=[b'{"command":"heartbeat"}\n', b""])
-            )
-            writers.append(writer)
-            await callbacks["handle"](reader, writer)
-        supervisor.request.assert_awaited_once_with({"command": "heartbeat"})
-        supervisor.owner_disconnected.assert_awaited_once()
-        assert supervisor.owner_pidfd is None
-        for writer in writers:
-            writer.close.assert_called_once()
-    finally:
-        callbacks[signal.SIGTERM]()
-        await task
 
 
 def test_composite_hub_is_rejected_and_discovery_cannot_cross_usb_devices(tmp_path):

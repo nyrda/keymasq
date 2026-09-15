@@ -28,7 +28,8 @@ async def test_emergency_reset_releases_local_readers_when_helper_disconnected(m
     monkeypatch.setattr(masking, "release_runtime", AsyncMock())
     monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
     monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
-    with pytest.raises(OSError, match="recovery service is disconnected"):
+    monkeypatch.setattr(masking, "request", AsyncMock(side_effect=OSError("operation failed")))
+    with pytest.raises(OSError, match="operation failed"):
         await manager.emergency_reset()
     masking.release_runtime.assert_awaited_once()
     manager.release_all_devices.assert_awaited_once()
@@ -63,7 +64,7 @@ async def test_session_inventory_starts_saved_mask_without_gui(monkeypatch):
 @pytest.mark.asyncio
 async def test_clean_close_preserves_startup_intent_and_emergency_restore_does_not(monkeypatch):
     masking = HardwareMasking(DeviceManager())
-    masking.writer = SimpleNamespace(close=Mock(), wait_closed=AsyncMock())
+    masking.initialized = True
     masking.state = {"state": "masked"}
     request = AsyncMock()
     monkeypatch.setattr(masking, "request", request)
@@ -72,7 +73,6 @@ async def test_clean_close_preserves_startup_intent_and_emergency_restore_does_n
     request.assert_awaited_with("restore", {"reason": "user_restore"})
     await masking.close()
     request.assert_awaited_with("restore", {"reason": "lifecycle_stop"})
-    assert masking.writer is None
     assert masking.session_uid is None
 
 
@@ -498,7 +498,7 @@ async def test_quiesce_stops_only_selected_physical_and_native_readers(monkeypat
 
 @pytest.mark.asyncio
 async def test_failed_mask_recovers_without_resume_from_gui(tmp_path, monkeypatch):
-    from keymasq.masking.service import MaskReservation
+    from keymasq.masking.coordinator import MaskReservation
     from tests.common.test_hardware_mask_persistence import confirm
     from tests.common.test_hardware_masking import FakeBackend
 
@@ -524,7 +524,7 @@ async def test_failed_mask_recovers_without_resume_from_gui(tmp_path, monkeypatc
     assert not supervisor.status()["remapping_suspended"]
     assert not manager.masking_suspended
     manager.broadcast_hardware_mask_ready.assert_called_once()
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     await supervisor.request({"command": "quiesced", "token": supervisor.state["token"]})
     assert supervisor.apply_task is not None
     await supervisor.apply_task

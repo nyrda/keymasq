@@ -1,40 +1,22 @@
-"""Root companion service: reservation deadlines outlive the remapping process."""
+"""Masking reservations and deadlines owned by the remapping daemon."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import contextlib
-import fcntl
 import json
 import logging
-import os
-import pwd
-import signal
-import socket
-import struct
 import time
 import uuid
 from collections.abc import Callable
 from typing import cast
 
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import SOCKET_PATH, DeviceInUseError, LinuxMaskBackend, save_json
+from keymasq.masking.backend import DeviceInUseError, LinuxMaskBackend, save_json
 from keymasq.masking.inventory import Attachment
 
 log = logging.getLogger("keymasq.masking")
 TRIAL_SECONDS = 30.0
-LEASE_SECONDS = 12.0
-
-
-def notify(message: str) -> None:
-    address = os.environ.get("NOTIFY_SOCKET")
-    if not address:
-        return
-    if address.startswith("@"):
-        address = "\0" + address[1:]
-    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as connection:
-        connection.sendto(message.encode(), address)
 
 
 class MaskReservation:
@@ -45,8 +27,6 @@ class MaskReservation:
         self.clock = clock
         self.state: JsonObject = {"state": "unmasked"}
         self.deadline = 0.0
-        self.last_heartbeat = 0.0
-        self.owner_pidfd: int | None = None
         self.apply_task: asyncio.Task[None] | None = None
         self.recovery_task: asyncio.Task[None] | None = None
         self.recovery_lock = asyncio.Lock()
@@ -158,8 +138,7 @@ class MaskReservation:
             self.session_uid = uid
             await self.autostart()
             return self.status()
-        if command == "heartbeat":
-            self.last_heartbeat = self.clock()
+        if command == "poll":
             await self.autostart()
             return self.status()
         if command in {"status", "inventory"}:
@@ -211,7 +190,6 @@ class MaskReservation:
             if confirmed:
                 self.state["automatic"] = True
             self.deadline = self.clock() + TRIAL_SECONDS
-            self.last_heartbeat = self.clock()
             self.quiesced.clear()
 
             async def apply() -> None:
@@ -238,7 +216,7 @@ class MaskReservation:
                     if isinstance(exc, DeviceInUseError):
                         self.state["error_code"] = "device_in_use"
                         self.state["blocking_application"] = exc.application
-                    # The independent monitor performs serialized recovery.
+                    # The daemon coordinator performs serialized recovery.
                     self.deadline = self.clock()
 
             self.apply_task = asyncio.create_task(apply(), name="hardware-mask-activation")
@@ -298,7 +276,7 @@ class MaskReservation:
                 self.state["error"] = (
                     "The replacement controller stopped; restoring hardware access"
                 )
-            await self._restore(reason, stop_owner=False)
+            await self._restore(reason)
             return self.status()
         if command == "resume":
             if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
@@ -307,18 +285,18 @@ class MaskReservation:
             return self.status()
         raise ValueError("Unknown hardware masking operation")
 
-    async def restore(self, reason: str, *, stop_owner: bool) -> None:
+    async def restore(self, reason: str) -> None:
         async with self.operation_lock:
-            await self._restore(reason, stop_owner=stop_owner)
+            await self._restore(reason)
 
     async def owner_disconnected(self) -> None:
         async with self.operation_lock:
             # A clean supervisor stop closes the daemon while recovery runs.
             # Recheck after that recovery finishes before classifying the loss.
             if self.active or self.backend.journal.exists() or self.backend.armed:
-                await self._restore("daemon_disconnected", stop_owner=True)
+                await self._restore("daemon_disconnected")
 
-    async def _restore(self, reason: str, *, stop_owner: bool) -> None:
+    async def _restore(self, reason: str) -> None:
         async with self.recovery_lock:
             had_mask = (
                 self.active
@@ -349,11 +327,6 @@ class MaskReservation:
                     )
                 return
             self.state.update({"state": "restoring", "reason": reason})
-            if stop_owner and self.owner_pidfd is not None:
-                # Close stale evdev grabs and uinput outputs even if keymasqd is
-                # SIGSTOP'ed. systemd may restart it; the suspension survives.
-                with contextlib.suppress(ProcessLookupError):
-                    signal.pidfd_send_signal(self.owner_pidfd, signal.SIGKILL)
             task = self.apply_task
             if task is not None and not task.done():
                 task.cancel()
@@ -417,20 +390,17 @@ class MaskReservation:
         if self.state.get("state") == "recovery_failed":
             # Preserve why recovery began so the daemon can resume after a
             # transient repair failure. A retry must not kill a healthy owner.
-            await self._restore(str(self.state.get("reason", "retry")), stop_owner=False)
+            await self._restore(str(self.state.get("reason", "retry")))
         elif self.active:
-            if self.clock() - self.last_heartbeat > LEASE_SECONDS:
-                await self._restore("daemon_unresponsive", stop_owner=True)
-                return
             if self.state.get("error"):
-                await self._restore("activation_failed", stop_owner=False)
+                await self._restore("activation_failed")
                 return
             if self.state.get("state") == "applying":
                 if self.clock() >= self.deadline:
-                    await self._restore("trial_expired", stop_owner=False)
+                    await self._restore("trial_expired")
                 return  # USB re-enumeration intentionally removes this generation.
             if self.state.get("state") != "masked" and self.clock() >= self.deadline:
-                await self._restore("trial_expired", stop_owner=False)
+                await self._restore("trial_expired")
                 return
             try:
                 attachment = await asyncio.to_thread(
@@ -439,7 +409,7 @@ class MaskReservation:
                     str(self.state.get("generation", "")),
                 )
             except ValueError:
-                await self._restore("hardware_disconnected", stop_owner=False)
+                await self._restore("hardware_disconnected")
                 return
             if "endpoint_roles" in self.state:
                 roles = await asyncio.to_thread(self.backend.inventory.endpoint_roles, attachment)
@@ -447,18 +417,16 @@ class MaskReservation:
                     if self.can_refresh_interfaces(attachment, roles):
                         self.refresh_interfaces(attachment)
                     else:
-                        await self._restore("hardware_interfaces_changed", stop_owner=False)
+                        await self._restore("hardware_interfaces_changed")
                     return
             others = await asyncio.to_thread(
                 self.backend.other_steam_controllers, str(self.state.get("main_hid", ""))
             )
             if others:
-                await self._restore("controller_scope_changed", stop_owner=False)
+                await self._restore("controller_scope_changed")
             elif self.state.get("state") != "masked" and self.clock() >= self.deadline:
                 failed = bool(self.state.get("error"))
-                await self._restore(
-                    "activation_failed" if failed else "trial_expired", stop_owner=False
-                )
+                await self._restore("activation_failed" if failed else "trial_expired")
 
     async def monitor(self) -> None:
         while True:
@@ -468,11 +436,10 @@ class MaskReservation:
             except Exception:
                 log.exception("Hardware recovery monitor will retry")
                 await asyncio.sleep(1)
-            notify("WATCHDOG=1")
 
 
 class MaskSupervisor:
-    """Own one daemon lease and an independent transaction for each attachment."""
+    """Coordinate an independent transaction for each attachment inside keymasqd."""
 
     def __init__(
         self, backend: LinuxMaskBackend, clock: Callable[[], float] = time.monotonic
@@ -481,8 +448,6 @@ class MaskSupervisor:
         self.clock = clock
         self.reservations: dict[str, MaskReservation] = {}
         self.session_uid: int | None = None
-        self.owner_pidfd: int | None = None
-        self.last_heartbeat = clock()
         self.operation_lock = asyncio.Lock()
 
     async def reservation(self, identity: str) -> MaskReservation:
@@ -532,7 +497,6 @@ class MaskSupervisor:
             return
         for item in list(self.reservations.values()):
             item.session_uid = self.session_uid
-            item.last_heartbeat = self.last_heartbeat
             if item.operation_lock.locked():
                 continue
             try:
@@ -548,10 +512,7 @@ class MaskSupervisor:
             if not isinstance(uid, int) or isinstance(uid, bool) or uid < 0:
                 raise ValueError("An authenticated user ID is required")
             self.session_uid = uid
-        if command in {"startup", "heartbeat"}:
-            self.last_heartbeat = self.clock()
-            for item in self.reservations.values():
-                item.last_heartbeat = self.last_heartbeat
+        if command in {"startup", "poll"}:
             await self.autostart()
             return self.status()
         if command in {"status", "inventory"}:
@@ -581,7 +542,7 @@ class MaskSupervisor:
                             item.session_uid = self.session_uid
                             if item.policy.get("owner_uid") == self.session_uid and item.policy:
                                 await item.save_policy(False)
-                            await item._restore("user_restore", stop_owner=False)
+                            await item._restore("user_restore")
 
                     results = await asyncio.gather(
                         *(unmask(item) for item in list(self.reservations.values())),
@@ -596,7 +557,7 @@ class MaskSupervisor:
                     if message.get("reason") == "lifecycle_stop"
                     else "user_restore"
                 )
-                await self.restore(reason, stop_owner=False)
+                await self.restore(reason)
             else:
                 if any(
                     item.active or item.backend.journal.exists()
@@ -644,7 +605,6 @@ class MaskSupervisor:
             if item is None:
                 raise ValueError("Select an existing hardware mask")
         item.session_uid = self.session_uid
-        item.last_heartbeat = self.last_heartbeat
         if command == "restore":
             if message.get("token") != item.state.get("token"):
                 raise ValueError("This hardware mask has changed; refresh the hardware list")
@@ -691,7 +651,7 @@ class MaskSupervisor:
 
                 async def recover() -> None:
                     try:
-                        await item.restore(reason, stop_owner=False)
+                        await item.restore(reason)
                     except (OSError, ValueError):
                         log.exception("Hardware recovery will retry for %s", identity)
 
@@ -700,7 +660,7 @@ class MaskSupervisor:
             await item.request(message)
         return self.status()
 
-    async def restore(self, reason: str, *, stop_owner: bool) -> None:
+    async def restore(self, reason: str) -> None:
         if reason not in {
             "lifecycle_stop",
             "service_stopped",
@@ -710,18 +670,8 @@ class MaskSupervisor:
             await asyncio.to_thread(
                 (self.backend.state_dir / "suspended").write_text, reason + "\n"
             )
-        had_mask = any(
-            item.active
-            or item.backend.journal.exists()
-            or item.backend.armed
-            or item.state.get("state") in {"restoring", "recovery_failed"}
-            for item in self.reservations.values()
-        )
-        if stop_owner and had_mask and self.owner_pidfd is not None:
-            with contextlib.suppress(ProcessLookupError):
-                signal.pidfd_send_signal(self.owner_pidfd, signal.SIGKILL)
         results = await asyncio.gather(
-            *(item.restore(reason, stop_owner=False) for item in list(self.reservations.values())),
+            *(item.restore(reason) for item in list(self.reservations.values())),
             return_exceptions=True,
         )
         for result in results:
@@ -731,12 +681,6 @@ class MaskSupervisor:
     async def owner_disconnected(self) -> None:
         # Closing a clean owner must not replace an explicit per-device stop
         # with an automatically retryable failure.
-        if self.owner_pidfd is not None and any(
-            item.active or item.backend.journal.exists() or item.backend.armed
-            for item in self.reservations.values()
-        ):
-            with contextlib.suppress(ProcessLookupError):
-                signal.pidfd_send_signal(self.owner_pidfd, signal.SIGKILL)
         results = await asyncio.gather(
             *(item.owner_disconnected() for item in list(self.reservations.values())),
             return_exceptions=True,
@@ -746,11 +690,6 @@ class MaskSupervisor:
                 log.error("Disconnected owner's hardware still needs recovery: %s", result)
 
     async def monitor_once(self) -> None:
-        if self.clock() - self.last_heartbeat > LEASE_SECONDS and any(
-            item.active or item.backend.armed for item in self.reservations.values()
-        ):
-            await self.restore("daemon_unresponsive", stop_owner=True)
-            return
         results = await asyncio.gather(
             *(
                 item.monitor_once()
@@ -770,138 +709,4 @@ class MaskSupervisor:
                 await self.monitor_once()
             except Exception:
                 log.exception("Hardware recovery monitor will retry")
-            notify("WATCHDOG=1")
 
-    async def recover_offline(self, *, suspend: bool) -> None:
-        await self.initialize()
-        await self.restore("admin_restore" if suspend else "service_stopped", stop_owner=False)
-
-
-async def serve(supervisor: MaskSupervisor) -> None:
-    await supervisor.initialize()
-    account = pwd.getpwnam("keymasq")
-    owner: asyncio.StreamWriter | None = None
-    clients: set[asyncio.StreamWriter] = set()
-
-    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        nonlocal owner
-        transport = writer.get_extra_info("socket")
-        pid, uid, _gid = struct.unpack(
-            "3i", transport.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
-        )
-        admin = uid == 0
-        if uid not in {0, account.pw_uid} or (not admin and owner is not None):
-            writer.close()
-            await writer.wait_closed()
-            return
-        try:
-            if not admin:
-                # Admission must not publish an owner until its lifetime handle exists.
-                supervisor.owner_pidfd = os.pidfd_open(pid)
-                owner = writer
-            clients.add(writer)
-            while line := await reader.readline():
-                try:
-                    raw_message: object = json.loads(line)
-                    if not isinstance(raw_message, dict):
-                        raise ValueError("Expected a request object")
-                    message = cast(JsonObject, raw_message)
-                    if admin:
-                        if message.get("command") != "restore":
-                            raise ValueError("The administrative connection only restores hardware")
-                        await supervisor.restore("admin_restore", stop_owner=True)
-                        result = supervisor.status()
-                    else:
-                        result = await supervisor.request(message)
-                    response: JsonObject = {"status": "ok", **result}
-                except (ValueError, OSError, KeyError) as exc:
-                    response = {"status": "error", "message": str(exc)}
-                writer.write((json.dumps(response) + "\n").encode())
-                await writer.drain()
-        except (OSError, ValueError):
-            log.debug("Masking client disconnected", exc_info=True)
-        finally:
-            clients.discard(writer)
-            try:
-                if owner is writer:
-                    try:
-                        await supervisor.owner_disconnected()
-                    finally:
-                        supervisor.session_uid = None
-                        owner = None
-                        if supervisor.owner_pidfd is not None:
-                            os.close(supervisor.owner_pidfd)
-                            supervisor.owner_pidfd = None
-            finally:
-                writer.close()
-                with contextlib.suppress(ConnectionError):
-                    await writer.wait_closed()
-
-    SOCKET_PATH.unlink(missing_ok=True)
-    server = await asyncio.start_unix_server(handle, str(SOCKET_PATH), limit=16 * 1024 * 1024)
-    os.chown(SOCKET_PATH, 0, account.pw_gid)
-    os.chmod(SOCKET_PATH, 0o660)
-    monitor = asyncio.create_task(supervisor.monitor(), name="hardware-mask-deadlines")
-    notify("READY=1")
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
-    try:
-        await stop.wait()
-    finally:
-        # Python 3.13+ waits for connected clients in Server.wait_closed().
-        # Close the listener and clients explicitly before awaiting it.
-        server.close()
-        monitor.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await monitor
-        await supervisor.restore("service_stopped", stop_owner=True)
-        for client in tuple(clients):
-            client.close()
-        await server.wait_closed()
-        SOCKET_PATH.unlink(missing_ok=True)
-
-
-async def administrative_restore() -> None:
-    reader, writer = await asyncio.open_unix_connection(str(SOCKET_PATH))
-    try:
-        writer.write(b'{"command":"restore"}\n')
-        await writer.drain()
-        response = json.loads(await asyncio.wait_for(reader.readline(), 30))
-        if response.get("status") != "ok":
-            raise RuntimeError(response.get("message", "Restoration failed"))
-        print("Hardware access restored. Remapping remains suspended until explicitly resumed.")
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Keymasq hardware masking and recovery service")
-    parser.add_argument(
-        "--recover", action="store_true", help="restore hardware and suspend remapping"
-    )
-    parser.add_argument("--recover-offline", action="store_true", help=argparse.SUPPRESS)
-    args = parser.parse_args()
-    if os.geteuid() != 0:
-        parser.error("this service and its administrative recovery command require root")
-    logging.basicConfig(level=logging.INFO)
-    backend = LinuxMaskBackend()
-    backend.prepare_directories()
-    if args.recover and SOCKET_PATH.exists():
-        try:
-            asyncio.run(administrative_restore())
-            return
-        except (ConnectionRefusedError, FileNotFoundError):
-            pass  # A stale socket can remain after an abrupt service failure.
-    with (backend.runtime_dir / "service.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if args.recover or args.recover_offline:
-            asyncio.run(MaskSupervisor(backend).recover_offline(suspend=args.recover))
-        else:
-            asyncio.run(serve(MaskSupervisor(backend)))
-
-
-if __name__ == "__main__":
-    main()

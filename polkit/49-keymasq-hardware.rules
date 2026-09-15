@@ -1,0 +1,9 @@
+// Only the dedicated daemon account may start the fixed hardware job template.
+// No arbitrary unit properties, commands, paths, or user sessions are authorized.
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        subject.user === "keymasq" && action.lookup("verb") === "start" &&
+        /^keymasq-hardware@[0-9a-f]{32}\.service$/.test(action.lookup("unit") || "")) {
+        return polkit.Result.YES;
+    }
+});

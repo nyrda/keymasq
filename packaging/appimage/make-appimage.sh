@@ -303,7 +303,7 @@ install_runtime_files() {
   local launcher="$WORKDIR/keymasq-appimage-runtime"
 
   install -Dm755 "$REPO_ROOT/packaging/appimage/runtime/keymasq-appimage-runtime.sh" "$launcher"
-  for name in keymasq keymasqd keymasq-maskd keymasq-session keymasq-record; do
+  for name in keymasq keymasqd keymasq-session keymasq-record; do
     install -Dm755 "$launcher" "$APPDIR/bin/$name"
   done
 

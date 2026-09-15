@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, finish_io
+from keymasq.masking.coordinator import TRIAL_SECONDS, MaskReservation
 from keymasq.masking.inventory import Attachment, HardwareInventory
-from keymasq.masking.service import LEASE_SECONDS, TRIAL_SECONDS, MaskReservation
 
 
 def write(path: Path, text: str) -> None:
@@ -172,7 +172,7 @@ async def test_keep_requires_ready_output_and_explicit_live_trial(tmp_path: Path
     assert kept["state"] == "masked"
     # Confirmation removes the trial deadline, but does not remove the lease.
     clock[0] += TRIAL_SECONDS
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     await supervisor.monitor_once()
     assert supervisor.state["state"] == "masked"
 
@@ -185,7 +185,7 @@ async def test_expired_confirmation_restores_and_latches_suspension(tmp_path: Pa
     result = await begin(supervisor)
     await supervisor.request({"command": "ready", "token": result["token"]})
     clock[0] += TRIAL_SECONDS
-    await supervisor.request({"command": "heartbeat"})
+    await supervisor.request({"command": "poll"})
     with pytest.raises(ValueError, match="expired"):
         await supervisor.request({"command": "keep", "token": result["token"]})
     await supervisor.monitor_once()
@@ -196,20 +196,6 @@ async def test_expired_confirmation_restores_and_latches_suspension(tmp_path: Pa
     assert backend.recoveries == 1
     await supervisor.request({"command": "resume"})
     assert supervisor.status()["remapping_suspended"] is False
-
-
-@pytest.mark.asyncio
-async def test_missing_daemon_heartbeat_restores_a_confirmed_mask(tmp_path: Path) -> None:
-    clock = [100.0]
-    backend = FakeBackend(tmp_path)
-    supervisor = MaskReservation(backend, lambda: clock[0])
-    result = await begin(supervisor)
-    await supervisor.request({"command": "ready", "token": result["token"]})
-    await supervisor.request({"command": "keep", "token": result["token"]})
-    clock[0] += LEASE_SECONDS + 1
-    await supervisor.monitor_once()
-    assert backend.recoveries == 1
-    assert supervisor.state["reason"] == "daemon_unresponsive"
 
 
 @pytest.mark.asyncio
@@ -282,20 +268,13 @@ async def test_cancellation_waits_for_pending_mutation_before_recovery(tmp_path:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cause", ["disconnect", "endpoint", "scope", "trial_expired", "unresponsive"]
+    "cause", ["disconnect", "endpoint", "scope", "trial_expired"]
 )
 async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch, cause):
-    from unittest.mock import Mock
-
-    from keymasq.masking import service
-
     clock = [100.0]
     backend = FakeBackend(tmp_path)
     supervisor = MaskReservation(backend, lambda: clock[0])
     await begin(supervisor)
-    supervisor.owner_pidfd = 123
-    kill = Mock()
-    monkeypatch.setattr(service.signal, "pidfd_send_signal", kill)
     if cause == "disconnect":
         (backend.inventory.scan()[0].syspath / "devnum").write_text("8")
     elif cause == "endpoint":
@@ -304,34 +283,20 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
         monkeypatch.setattr(backend, "other_steam_controllers", lambda _: ["other"])
     elif cause == "trial_expired":
         clock[0] += TRIAL_SECONDS
-        await supervisor.request({"command": "heartbeat"})
-    else:
-        clock[0] += LEASE_SECONDS + 1
+        await supervisor.request({"command": "poll"})
     await supervisor.monitor_once()
     assert backend.recoveries == 1
     assert supervisor.state["state"] == "restored"
-    if cause == "unresponsive":
-        kill.assert_called_once_with(123, service.signal.SIGKILL)
-    else:
-        kill.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_repair_retry_preserves_reason_and_does_not_kill_daemon(tmp_path, monkeypatch):
-    from unittest.mock import Mock
-
-    from keymasq.masking import service
-
     backend = FakeBackend(tmp_path)
     supervisor = MaskReservation(backend)
     await begin(supervisor)
-    supervisor.owner_pidfd = 123
-    kill = Mock()
-    monkeypatch.setattr(service.signal, "pidfd_send_signal", kill)
     backend.fail_recovery = True
     with pytest.raises(OSError, match="restoration failure"):
         await supervisor.request({"command": "restore", "reason": "replacement_unavailable"})
     await supervisor.monitor_once()
     assert supervisor.state["state"] == "restored"
     assert supervisor.state["reason"] == "replacement_unavailable"
-    kill.assert_not_called()

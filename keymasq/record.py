@@ -110,6 +110,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="keymasq-record")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    hardware = subparsers.add_parser("hardware-operation", help=argparse.SUPPRESS)
+    hardware.add_argument("request_id")
+    subparsers.add_parser("recover-hardware", help="Restore hardware access after daemon failure")
+
     status_parser = subparsers.add_parser("status", help="Show capture unlock status")
     status_parser.add_argument("--uid", type=int, required=True)
 
@@ -160,6 +164,11 @@ def main() -> None:
 
     try:
         caller_euid = _require_privileged_caller()
+        if args.command in {"hardware-operation", "recover-hardware"}:
+            from keymasq.masking.operations import main as hardware_operation
+
+            hardware_operation(args.command, getattr(args, "request_id", ""))
+            return
         if hasattr(args, "uid"):
             _authorize_target_uid(int(args.uid), caller_euid)
 

@@ -22,7 +22,7 @@ unset DESKTOP_SESSION
 "$appimage" --help >/dev/null
 "$appimage" keymasq --help >/dev/null
 "$appimage" keymasq-record --help >/dev/null
-"$appimage" keymasq-maskd --help >/dev/null
+"$appimage" --help >/dev/null
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT

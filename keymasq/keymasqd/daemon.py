@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -88,6 +89,7 @@ class Daemon:
         self.socket_server: SocketServer | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
+        self._watchdog_task: asyncio.Task[None] | None = None
         self.verbosity = verbosity
         self.security_policy: SecurityPolicy | None = None
         self._unlock_cache: _GuardStatusCache = {}
@@ -156,6 +158,7 @@ class Daemon:
             await self.sleep_coordinator.start()
 
             sd_notify("READY=1")
+            self._watchdog_task = asyncio.create_task(self._watchdog(), name="daemon-watchdog")
 
             await self._shutdown_event.wait()
         finally:
@@ -168,8 +171,17 @@ class Daemon:
         sd_notify("STOPPING=1")
         log.info("Stopping keymasqd")
         self.running = False
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._watchdog_task
+            self._watchdog_task = None
 
-        await self._run_async_cleanup("restore hardware masks", self.hardware_masking.close)
+        # ExecStopPost restores root-owned permissions after systemd has stopped
+        # every hardware job. Starting a BindsTo job during shutdown is unsafe.
+        await self._run_async_cleanup(
+            "release hardware masks", lambda: self.hardware_masking.close(restore_hardware=False)
+        )
         await self._run_async_cleanup(
             "stop logind sleep coordination",
             self.sleep_coordinator.stop,
@@ -209,6 +221,25 @@ class Daemon:
             "shut down output devices",
             self.device_manager.shutdown_output_devices,
         )
+
+    async def _watchdog(self) -> None:
+        """Feed systemd from the same event loop that processes physical input."""
+        try:
+            interval = int(os.environ.get("WATCHDOG_USEC", "0")) / 1_000_000
+            pid = int(os.environ.get("WATCHDOG_PID", str(os.getpid())))
+        except ValueError:
+            return
+        if interval <= 0 or pid != os.getpid():
+            return
+        while self.running:
+            # A blocked loop cannot reach this await or send another heartbeat.
+            await asyncio.sleep(interval / 3)
+            if self.hardware_masking.task is not None and (
+                self.hardware_masking.task.done()
+                or time.monotonic() - self.hardware_masking.last_progress > interval
+            ):
+                continue
+            sd_notify("WATCHDOG=1")
 
     async def _run_async_cleanup(
         self,

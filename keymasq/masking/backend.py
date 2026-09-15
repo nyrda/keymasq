@@ -99,6 +99,7 @@ class LinuxMaskBackend:
         self.state_dir = state_dir
         self.journal = runtime_dir / "journal.json"
         self.armed_record = runtime_dir / "armed.json"
+        self.permissions = runtime_dir / "permissions.json"
         suffix = f"-{reservation_id}" if reservation_id else ""
         self.early = rules_dir / f"72-keymasq-masking{suffix}.rules"
         self.late = rules_dir / f"99-zz-keymasq-masking{suffix}.rules"
@@ -136,11 +137,8 @@ class LinuxMaskBackend:
         self.rules_dir.mkdir(parents=True, exist_ok=True)
 
     async def snapshot(self, attachment: Attachment) -> JsonObject:
-        self.validate(attachment)
-        if attachment.is_deck and await finish_io(
-            self.other_steam_controllers, attachment.main_hid
-        ):
-            raise ValueError("Disconnect other hid-steam controllers before trying Deck masking")
+        await finish_io(self.validate, attachment)
+        await self.check_deck_scope(attachment)
         try:
             bindings = await finish_io(self.inventory.bindings, attachment)
         except ValueError as exc:
@@ -175,7 +173,7 @@ class LinuxMaskBackend:
                 "filesystem": info.st_dev,
             }
         original_mode = ""
-        if attachment.is_deck:
+        if attachment.is_deck and await finish_io(self.mode_path.exists):
             original_mode = (await finish_io(self.mode_path.read_text)).strip()
             if original_mode not in {"Y", "N"}:
                 raise ValueError("Unsupported hid-steam input mode")
@@ -191,13 +189,22 @@ class LinuxMaskBackend:
         await finish_io(save_json, self.journal, data)
         return data
 
-    def other_steam_controllers(self, main_hid: str) -> list[str]:
-        if not main_hid:
+    async def check_deck_scope(self, attachment: Attachment) -> None:
+        if attachment.is_deck and await finish_io(
+            self.other_steam_controllers, attachment.main_hid, attachment_path=attachment.syspath
+        ):
+            raise ValueError("Disconnect other hid-steam controllers before trying Deck masking")
+
+    def other_steam_controllers(
+        self, main_hid: str, *, attachment_path: Path | None = None
+    ) -> list[str]:
+        if not main_hid and attachment_path is None:
             return []
         driver = self.inventory.sys_root / "bus/hid/drivers/hid-steam"
-        attachment_path = (
-            (self.inventory.sys_root / "bus/hid/devices" / main_hid).resolve().parent.parent
-        )
+        if attachment_path is None:
+            attachment_path = (
+                (self.inventory.sys_root / "bus/hid/devices" / main_hid).resolve().parent.parent
+            )
         return [
             path.name
             for path in driver.glob("*")
@@ -243,6 +250,8 @@ class LinuxMaskBackend:
         pattern = USB_NAME if attachment.transport == "usb" else HID_NAME
         if not attachment.supported or not pattern.fullmatch(attachment.kernel_name):
             raise ValueError("Invalid physical attachment")
+        if attachment.transport == "usb" and self.inventory.is_hub(attachment.syspath):
+            raise ValueError("Masking USB hubs is not supported")
         if not all(
             len(value) == 4 and all(char in "0123456789abcdef" for char in value)
             for value in (attachment.vendor, attachment.product)
@@ -329,9 +338,16 @@ class LinuxMaskBackend:
         return attachment
 
     async def install_rules(self, attachment: Attachment) -> None:
+        from keymasq.masking.permissions import capture
+
         # Early tag removal must precede seat-late's uaccess processing. The
         # final rule removes existing ACLs and applies to newly created nodes.
-        matches = self.rule_matches(attachment)
+        matches = await finish_io(self.rule_matches, attachment)
+        if not self.armed:
+            for live in await finish_io(self.inventory.scan):
+                if live.identity == attachment.identity:
+                    await capture(self, live)
+                    break
         await finish_io(save_json, self.armed_record, self.selector(attachment))
         # Driver bind/unbind events also run desktop access rules. Restrict
         # every event for a live node, not only its initial add/change.
@@ -385,6 +401,13 @@ class LinuxMaskBackend:
                     await self.rebind_binding(attachment, hid, driver)
         await finish_io(self.reject_unrevoked_handles, attachment)
         if attachment.is_deck:
+            await self.check_deck_scope(attachment)
+            if snapshot.get("mode") not in {"Y", "N"}:
+                mode = (await finish_io(self.mode_path.read_text)).strip()
+                if mode not in {"Y", "N"}:
+                    raise ValueError("Unsupported hid-steam input mode")
+                snapshot["mode"] = mode
+                await finish_io(save_json, self.journal, snapshot)
             await finish_io(self.mode_path.write_text, "N\n")
         current = await finish_io(
             self.inventory.resolve, attachment.identity, attachment.generation
@@ -525,21 +548,37 @@ class LinuxMaskBackend:
         await run_host("udevadm", "settle", "--timeout=8")
 
     async def recover(self, *, keep_rules: bool = False) -> None:
+        from keymasq.masking.permissions import restore
         from keymasq.masking.usb import enable_recorded_port
 
         if not self.journal.exists():
-            # Stale task-owned rules must never survive an interrupted startup.
-            if not keep_rules:
-                selector = (
-                    json.loads(await finish_io(self.armed_record.read_text))
-                    if self.armed_record.exists()
-                    else {}
-                )
+            if keep_rules:
+                return
+            selector = (
+                json.loads(await finish_io(self.armed_record.read_text))
+                if self.armed_record.exists()
+                else json.loads(await finish_io(self.permissions.read_text))["selector"]
+                if self.permissions.exists()
+                else {}
+            )
+            if not selector:
                 await self.remove_rules()
-                for current in await finish_io(self.inventory.scan):
-                    if current.identity == selector.get("id"):
-                        await self.trigger(current, "add")
-            return
+                return
+            # Persist recovery intent before removing rules, including when
+            # startup armed a selector but never began an activation journal.
+            await finish_io(
+                save_json,
+                self.journal,
+                {
+                    "id": selector["id"],
+                    "generation": "",
+                    "selector": selector,
+                    "nodes": {},
+                    "bindings": {},
+                    "mode": "",
+                    "prearmed": True,
+                },
+            )
         data = cast(JsonObject, json.loads(await finish_io(self.journal.read_text)))
         await finish_io(enable_recorded_port, self, data)
         attachment: Attachment | None = None
@@ -596,26 +635,19 @@ class LinuxMaskBackend:
                 ).unlink,
                 missing_ok=True,
             )
+            await restore(self, attachment, data)
+            # Current rules and logind own the final desktop grants. No saved
+            # ACL may overwrite their result, including after a seat switch.
             await self.trigger(attachment, "add")
-            snapshots = {} if data.get("prearmed") else cast(dict[str, JsonObject], data["nodes"])
-            for node in await finish_io(self.inventory.nodes, attachment):
-                role = await finish_io(self.inventory.node_role, attachment, node)
-                snapshot = snapshots.get(role)
-                if snapshot is None:
-                    continue
-                await finish_io(
-                    os.chown, node, int(str(snapshot["uid"])), int(str(snapshot["gid"]))
-                )
-                acl_file = self.runtime_dir / "restore.acl"
-                await finish_io(acl_file.write_text, str(snapshot["acl"]))
-                await run_host("setfacl", f"--set-file={acl_file}", "--", str(node))
-            await finish_io((self.runtime_dir / "restore.acl").unlink, missing_ok=True)
         if repair_error is not None:
             raise repair_error
         await finish_io(self.journal.unlink)
+        if not keep_rules:
+            await finish_io(self.permissions.unlink, missing_ok=True)
 
     async def remove_rules(self) -> None:
         for rule in (self.early, self.late):
             await finish_io(rule.unlink, missing_ok=True)
         await run_host("udevadm", "control", "--reload-rules")
+        await run_host("udevadm", "settle", "--timeout=8")
         await finish_io(self.armed_record.unlink, missing_ok=True)

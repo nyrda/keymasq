@@ -15,6 +15,16 @@ from tests.common.test_generic_hardware_masking import generic_usb
 from tests.common.test_hardware_masking import write
 
 
+@pytest.fixture(autouse=True)
+def simulated_node_permissions(monkeypatch):
+    # These sysfs fixtures use regular files and test driver/rule sequencing.
+    # Permission recovery is exercised with real ACLs in the boundary tests.
+    from keymasq.masking import permissions
+
+    monkeypatch.setattr(permissions, "capture", AsyncMock())
+    monkeypatch.setattr(permissions, "restore", AsyncMock())
+
+
 @pytest.fixture
 def usb_port(tmp_path, monkeypatch):
     inventory, attachment, hid, driver = generic_usb(tmp_path)
@@ -169,7 +179,7 @@ def test_port_validation_rejects_parent_hubs_and_wrong_ports(usb_port):
     (attachment.syspath / "port").unlink()
     (attachment.syspath / "port").symlink_to(port)
     write(attachment.syspath / "bDeviceClass", "09")
-    with pytest.raises(ValueError, match="individual USB devices"):
+    with pytest.raises(ValueError, match="disconnected or changed"):
         usb_module.port_record(backend, attachment)
 
 

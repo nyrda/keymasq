@@ -37,12 +37,7 @@ class Attachment:
 
     @property
     def is_deck(self) -> bool:
-        return (
-            self.transport == "usb"
-            and self.vendor == "28de"
-            and self.product == "1205"
-            and bool(self.main_hid)
-        )
+        return self.transport == "usb" and self.vendor == "28de" and self.product == "1205"
 
     @property
     def supported(self) -> bool:
@@ -70,6 +65,24 @@ class HardwareInventory:
         self.sys_root = sys_root
         self.dev_root = dev_root
 
+    def owns_path(self, attachment: Attachment, path: Path) -> bool:
+        if not path.is_relative_to(attachment.syspath):
+            return False
+        if attachment.transport != "usb":
+            return True
+        return (
+            next(
+                (parent for parent in (path, *path.parents) if USB_NAME.fullmatch(parent.name)),
+                None,
+            )
+            == attachment.syspath
+        )
+
+    def is_hub(self, path: Path) -> bool:
+        return read_attribute(path / "bDeviceClass") == "09" or any(
+            read_attribute(item / "bInterfaceClass") == "09" for item in path.glob(f"{path.name}:*")
+        )
+
     def scan(self) -> list[Attachment]:
         devices: list[Attachment] = []
         hid_paths = list((self.sys_root / "bus/hid/devices").glob("*"))
@@ -83,6 +96,8 @@ class HardwareInventory:
             product = read_attribute(path / "idProduct").lower()
             interfaces = list(path.glob(f"{path.name}:*"))
             real_path = path.resolve()
+            if self.is_hub(real_path):
+                continue
             if (
                 not any(read_attribute(item / "bInterfaceClass") == "03" for item in interfaces)
                 and not any(item.resolve().parent.parent == real_path for item in hid_paths)
@@ -180,7 +195,7 @@ class HardwareInventory:
         for path in sorted((self.sys_root / "bus/hid/devices").glob("*")):
             if not HID_NAME.fullmatch(path.name):
                 continue
-            if not path.resolve().is_relative_to(attachment.syspath):
+            if not self.owns_path(attachment, path.resolve()):
                 continue
             if re.match(r"hid:b[0-9a-f]{4}g0103", read_attribute(path / "modalias").lower()):
                 continue
@@ -236,7 +251,7 @@ class HardwareInventory:
         for subsystem, patterns in (("hidraw", ("hidraw*",)), ("input", ("event*", "js*"))):
             for pattern in patterns:
                 for path in sorted((self.sys_root / "class" / subsystem).glob(pattern)):
-                    if (path / "device").resolve().is_relative_to(attachment.syspath):
+                    if self.owns_path(attachment, (path / "device").resolve()):
                         node = self.dev_root / ("input" if subsystem == "input" else "") / path.name
                         if node.exists():
                             nodes.append(node)

@@ -301,6 +301,7 @@ class HardwareMasking:
         self.task: asyncio.Task[None] | None = None
         self.state: JsonObject = {"masks": []}
         self.session_uid: int | None = None
+        self.helper_uid: int | None = None
         self.needs_startup = True
         self.monitor_stop = asyncio.Event()
         self.reservations: dict[str, MaskRuntime] = {}
@@ -334,8 +335,11 @@ class HardwareMasking:
             self.task = None
 
     async def startup(self) -> None:
-        if self.needs_startup and self.session_uid is not None:
+        if self.session_uid is not None and (
+            self.needs_startup or self.helper_uid != self.session_uid
+        ):
             status = await self.request("startup", {"uid": self.session_uid})
+            self.helper_uid = self.session_uid
             self.needs_startup = False
             self.manager.masking_suspended = bool(status.get("remapping_suspended"))
 
@@ -376,9 +380,12 @@ class HardwareMasking:
                 self.writer = None
                 self.reader = None
                 self.needs_startup = True
+                self.helper_uid = None
                 raise
 
     async def handle(self, command: CommandType, data: JsonObject, *, uid: int) -> JsonObject:
+        if self.session_uid is not None and self.session_uid != uid:
+            await self.close()
         self.session_uid = uid
         operation = MASK_COMMANDS[command]
         if operation == "restore":
@@ -487,16 +494,21 @@ class HardwareMasking:
             self.start_monitor()
 
     async def close(self) -> None:
-        await self.stop_monitor()
-        if self.writer is not None:
-            await self.restore("lifecycle_stop")
-        if self.writer is not None:
-            self.writer.close()
-            await self.writer.wait_closed()
+        try:
+            await self.stop_monitor()
+            if self.writer is not None:
+                await self.restore("lifecycle_stop")
+        finally:
+            writer = self.writer
             self.writer = None
             self.reader = None
-        self.session_uid = None
-        self.needs_startup = True
+            self.session_uid = None
+            self.helper_uid = None
+            self.needs_startup = True
+            if writer is not None:
+                writer.close()
+                with contextlib.suppress(ConnectionError):
+                    await writer.wait_closed()
 
 
 async def adopt_masked_interfaces(

@@ -79,7 +79,8 @@ class MaskReservation:
     async def arm_saved_usb(self) -> None:
         selector = self.policy.get("usb_selector")
         if isinstance(selector, dict) and not self.backend.armed:
-            await self.backend.install_rules(self.backend.from_selector(selector))
+            attachment = await asyncio.to_thread(self.backend.from_selector, selector)
+            await self.backend.install_rules(attachment)
 
     async def autostart(self) -> None:
         if (
@@ -793,11 +794,12 @@ async def serve(supervisor: MaskSupervisor) -> None:
             writer.close()
             await writer.wait_closed()
             return
-        clients.add(writer)
-        if not admin:
-            owner = writer
-            supervisor.owner_pidfd = os.pidfd_open(pid)
         try:
+            if not admin:
+                # Admission must not publish an owner until its lifetime handle exists.
+                supervisor.owner_pidfd = os.pidfd_open(pid)
+                owner = writer
+            clients.add(writer)
             while line := await reader.readline():
                 try:
                     raw_message: object = json.loads(line)
@@ -816,22 +818,24 @@ async def serve(supervisor: MaskSupervisor) -> None:
                     response = {"status": "error", "message": str(exc)}
                 writer.write((json.dumps(response) + "\n").encode())
                 await writer.drain()
-        except (ConnectionError, ValueError):
+        except (OSError, ValueError):
             log.debug("Masking client disconnected", exc_info=True)
         finally:
             clients.discard(writer)
-            if owner is writer:
-                try:
-                    await supervisor.owner_disconnected()
-                finally:
-                    supervisor.session_uid = None
-                    owner = None
-                    if supervisor.owner_pidfd is not None:
-                        os.close(supervisor.owner_pidfd)
-                        supervisor.owner_pidfd = None
-            writer.close()
-            with contextlib.suppress(ConnectionError):
-                await writer.wait_closed()
+            try:
+                if owner is writer:
+                    try:
+                        await supervisor.owner_disconnected()
+                    finally:
+                        supervisor.session_uid = None
+                        owner = None
+                        if supervisor.owner_pidfd is not None:
+                            os.close(supervisor.owner_pidfd)
+                            supervisor.owner_pidfd = None
+            finally:
+                writer.close()
+                with contextlib.suppress(ConnectionError):
+                    await writer.wait_closed()
 
     SOCKET_PATH.unlink(missing_ok=True)
     server = await asyncio.start_unix_server(handle, str(SOCKET_PATH), limit=16 * 1024 * 1024)

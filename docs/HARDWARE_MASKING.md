@@ -120,11 +120,28 @@ and the dedicated `keymasq` account. They remove desktop ACLs and match the
 USB port, model and serial when present, or the specific non-USB HID instance.
 They exclude virtual outputs.
 
+Before arming rules for a connected device, the helper records its ownership and
+static ACLs. Recovery restores and reads back that baseline, then lets current
+udev policy grant desktop access. Saved ACLs never overwrite the result of that
+policy pass. On nodes tagged `uaccess`, named-user grants are managed by current
+desktop policy and are not replayed from the snapshot. Configure permanent user
+grants on those nodes through udev rules so they are reapplied during recovery.
+Static group ACLs and ACLs on nodes without `uaccess` are preserved.
+
+Nodes first created while a saved mask is already armed have no earlier permission
+record. Recovery resets them to `root:root`, mode `0600`, without extended ACLs,
+then applies current udev policy. Permission restoration failures retain the
+recovery journal and report an error for retry. USB hubs, including composite
+devices with a hub interface, cannot be masked; discovery does not include input
+interfaces belonging to downstream USB devices.
+
 Confirmed USB masks keep their rules armed while the device is unplugged.
 The next connection receives the restrictions during initial udev processing,
 before the desktop is granted access. Temporary USB connection numbers remain
 part of transaction validation, but are not permission-rule matches. The saved
 selector also allows enabling an already confirmed mask while unplugged.
+Without a serial number, that saved selection identifies the port and model,
+so another unit of the same model connected to that port inherits the choice.
 Normal disconnection does not suspend the saved USB mask or remove its rules.
 The rules also stay armed when a wireless controller connects to or disconnects
 from a confirmed USB receiver while Keymasq reacquires its changed input interfaces.

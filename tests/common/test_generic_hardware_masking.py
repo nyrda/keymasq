@@ -14,6 +14,16 @@ from keymasq.masking.service import MaskReservation
 from tests.common.test_hardware_masking import FakeBackend, deck_sysfs, write
 
 
+@pytest.fixture(autouse=True)
+def simulated_node_permissions(monkeypatch):
+    # These sysfs fixtures use regular files and test driver/rule sequencing.
+    # Permission recovery is exercised with real ACLs in the boundary tests.
+    from keymasq.masking import permissions
+
+    monkeypatch.setattr(permissions, "capture", AsyncMock())
+    monkeypatch.setattr(permissions, "restore", AsyncMock())
+
+
 def generic_usb(tmp_path: Path):
     inventory, usb = deck_sysfs(tmp_path)
     write(usb / "idVendor", "abcd")

@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.masking import MaskPhase, is_active, is_recovering, is_transitional
+from keymasq.common.masking import MaskPhase, is_active, is_recovering
 from keymasq.gui.session_client import session_request_async
 
 Change = Callable[[str, dict], None]
@@ -275,7 +275,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.retry.set_sensitive(
             available and connected and not busy and not recovering and not active and not paused
         )
-        confirming = is_transitional(state) and not mask.get("automatic")
+        confirming = state == MaskPhase.TRIAL and not mask.get("automatic")
         self.confirmation.set_visible(bool(confirming))
         self.keep.set_sensitive(state == MaskPhase.TRIAL and not busy)
         self.undo.set_sensitive(not busy)

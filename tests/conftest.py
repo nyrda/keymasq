@@ -64,6 +64,7 @@ def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def isolate_hardware_masking_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("keymasq.masking.backend.STATE_DIR", tmp_path / "masking-state")
+    monkeypatch.setattr("keymasq.masking.paths.POLICY_DIR", tmp_path / "masking-policy")
 
 
 @pytest.fixture(autouse=True)

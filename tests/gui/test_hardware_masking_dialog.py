@@ -145,13 +145,15 @@ def test_blocked_app_has_readable_error_and_diagnostics_in_details(dialog, monke
     assert calls.pop()[0] == "mask_hardware"
 
 
-def test_previously_confirmed_activation_has_no_confirmation_strip(dialog):
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("phase", ["applying", "acquiring", "trial", "masked"])
+def test_confirmation_waits_for_manual_trial(dialog, automatic, phase):
     dialog._render(
         response(
             {
                 "id": "first",
-                "state": "acquiring",
-                "automatic": True,
+                "state": phase,
+                "automatic": automatic,
                 "enabled": True,
                 "remaining_seconds": 25,
             }
@@ -159,8 +161,9 @@ def test_previously_confirmed_activation_has_no_confirmation_strip(dialog):
     )
     row = dialog._rows["first"]
     assert row.switch.get_active()
-    assert not row.confirmation.get_visible()
-    assert row.status.get_text() == "Reconnecting device…"
+    assert row.confirmation.get_visible() is (phase == "trial" and not automatic)
+    if phase in {"applying", "acquiring"}:
+        assert row.status.get_text() == "Reconnecting device…"
 
 
 def test_cancelled_unlock_does_not_change_switch_or_send_mask_request(dialog, monkeypatch):

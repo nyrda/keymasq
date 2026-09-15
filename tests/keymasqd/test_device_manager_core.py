@@ -34,6 +34,26 @@ from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_devic
 
 
 @pytest.mark.asyncio
+async def test_saved_global_stop_blocks_grabs_before_masking_startup(monkeypatch, tmp_path):
+    from keymasq.masking import paths
+
+    monkeypatch.setattr(paths, "POLICY_DIR", tmp_path / "policy")
+    monkeypatch.setattr(paths, "STATE_DIR", tmp_path / "transactions")
+    paths.POLICY_DIR.mkdir()
+    (paths.POLICY_DIR / "suspended").write_text("user_restore\n")
+    manager = DeviceManager()
+    open_device = Mock()
+    monkeypatch.setattr(manager, "_device_input", open_device)
+
+    assert await manager.grab_device("1234:5678", ["/dev/input/event0"], {}) == {
+        "grabbed": False,
+        "reason": "Hardware recovery suspended remapping",
+    }
+    open_device.assert_not_called()
+    assert not manager.grab_state.desired_paths
+
+
+@pytest.mark.asyncio
 async def test_device_replaced_between_probe_and_final_open_waits_for_matching_model(monkeypatch):
     from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_module
     from tests.keymasqd.test_device_path_resolver import _FakeDevice

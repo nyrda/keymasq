@@ -185,9 +185,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
         self.mask_registry = MaskRegistry()
-        from keymasq.masking.paths import STATE_DIR as MASK_STATE_DIR
+        from keymasq.masking.paths import POLICY_DIR
 
-        self.masking_suspended = (MASK_STATE_DIR / "suspended").exists()
+        self.masking_suspended = (POLICY_DIR / "suspended").exists()
         self.masking_recovery: Callable[[], Awaitable[bool]] | None = None
         self.verbosity = verbosity
         self.broadcast_callback = broadcast_callback

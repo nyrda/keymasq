@@ -1,6 +1,8 @@
 import asyncio
+import configparser
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -11,6 +13,31 @@ from keymasq.masking.backend import DeviceInUseError, LinuxMaskBackend
 from tests.common.test_generic_hardware_masking import generic_usb
 
 TOKEN = "a" * 32
+
+
+@pytest.mark.parametrize(
+    "unit_path,tmpfiles_path",
+    [
+        ("systemd/keymasq-hardware@.service", "tmpfiles.d/keymasq.conf"),
+        (
+            "packaging/appimage/assets/keymasq-hardware@.service",
+            "packaging/appimage/assets/keymasq-tmpfiles.conf",
+        ),
+    ],
+)
+def test_hardware_job_does_not_expose_unrelated_runtime_files(unit_path, tmpfiles_path):
+    root = Path(__file__).resolve().parents[2]
+    unit = configparser.ConfigParser(interpolation=None)
+    unit.read(root / unit_path)
+    service = unit["Service"]
+    assert service["ProtectSystem"] == "strict"
+    assert set(service["ReadWritePaths"].split()) == {
+        "/run/keymasq/hardware-requests",
+        "/run/udev/rules.d",
+    }
+    assert service["RuntimeDirectory"] == service["StateDirectory"] == "keymasq-masking"
+    entries = [line.split() for line in (root / tmpfiles_path).read_text().splitlines()]
+    assert ["d", "/run/udev/rules.d", "0755", "root", "root", "-"] in entries
 
 
 @pytest.mark.asyncio
@@ -122,6 +149,33 @@ async def test_response_cannot_follow_a_replaced_request_path(request_file, tmp_
     await operations.run_request(TOKEN, root)
     assert unrelated.read_text() == "unchanged"
     assert json.loads(original.read_text()) == {"status": "ok", "finished": True}
+
+
+@pytest.mark.asyncio
+async def test_new_job_opens_recreated_request_directory(request_file, tmp_path, monkeypatch):
+    root = LinuxMaskBackend(
+        runtime_dir=tmp_path / "run", state_dir=tmp_path / "state", rules_dir=tmp_path / "rules"
+    )
+    old_directory = tmp_path / "old-requests"
+    request = request_file.read_text()
+
+    async def replace_directory(*_):
+        request_file.parent.rename(old_directory)
+        request_file.parent.mkdir(mode=0o700)
+        request_file.write_text(request)
+        request_file.chmod(0o600)
+        return {"finished": "original"}
+
+    monkeypatch.setattr(operations, "execute", replace_directory)
+    await operations.run_request(TOKEN, root)
+    original_response = {"status": "ok", "finished": "original"}
+    assert json.loads((old_directory / TOKEN).read_text()) == original_response
+    assert request_file.read_text() == request
+
+    monkeypatch.setattr(operations, "execute", AsyncMock(return_value={"finished": "replacement"}))
+    await operations.run_request(TOKEN, root)
+    assert json.loads(request_file.read_text()) == {"status": "ok", "finished": "replacement"}
+    assert json.loads((old_directory / TOKEN).read_text()) == original_response
 
 
 @pytest.mark.asyncio

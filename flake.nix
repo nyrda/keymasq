@@ -416,6 +416,7 @@
             systemd.tmpfiles.rules = [
               "d /run/keymasq 0755 keymasq keymasq -"
               "d /var/lib/keymasq 0750 keymasq keymasq -"
+              "d /run/udev/rules.d 0755 root root -"
             ];
 
             services.udev.packages = [ cfg.package ];
@@ -490,8 +491,9 @@
                 RuntimeDirectoryPreserve = "yes";
                 StateDirectory = "keymasq-masking";
                 StateDirectoryMode = "0755";
-                # keymasqd can recreate its runtime directory after a crash.
-                ReadWritePaths = [ "/run" "/var/lib/keymasq-masking" ];
+                # RuntimeDirectory and StateDirectory already permit writes
+                # to the helper's own records. Each job opens a fresh request.
+                ReadWritePaths = [ "/run/keymasq/hardware-requests" "/run/udev/rules.d" ];
               };
             };
 

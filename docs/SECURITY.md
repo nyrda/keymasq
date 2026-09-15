@@ -447,6 +447,13 @@ and `/run/current-system/sw/bin`; the caller's `PATH` is ignored. Missing comman
 are reported before arming restrictions, and a missing package-pinned executable
 does not fall back to another location.
 
+Hardware jobs allow filesystem writes to their own `RuntimeDirectory` and
+`StateDirectory`, the daemon's `/run/keymasq/hardware-requests` directory, and
+`/run/udev/rules.d`. They do not make the rest of `/run` writable. Tmpfiles creates
+the udev rules directory before jobs start. Each job opens the current request
+directory, while an admitted request's response stays on its validated inode if
+the daemon's runtime directory is replaced.
+
 The daemon binds confirmed startup preferences to its authenticated desktop UID
 and keeps per-attachment confirmation deadlines and recovery state. GUI-supplied
 UIDs cannot change ownership. Multiple masks have independent identities and

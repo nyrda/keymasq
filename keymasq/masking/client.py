@@ -10,18 +10,16 @@ from pathlib import Path
 from typing import cast
 
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import (
+from keymasq.masking.backend import DeviceInUseError, finish_io, run_host
+from keymasq.masking.inventory import Attachment, HardwareInventory
+from keymasq.masking.operations import REQUESTS
+from keymasq.masking.paths import (
+    POLICY_DIR,
     RUNTIME_DIR,
     STATE_DIR,
-    DeviceInUseError,
-    LinuxMaskBackend,
-    finish_io,
-    run_host,
+    reservation_ids,
+    validate_identity,
 )
-from keymasq.masking.inventory import Attachment
-from keymasq.masking.operations import REQUESTS
-
-POLICY_DIR = Path("/var/lib/keymasq/masking")
 
 
 async def request(operation: str, identity: str, **data: object) -> JsonObject:
@@ -70,19 +68,29 @@ async def request(operation: str, identity: str, **data: object) -> JsonObject:
         raise
 
 
-class HardwareBackend(LinuxMaskBackend):
-    def __init__(self, identity: str = "") -> None:
-        super().__init__(
-            runtime_dir=RUNTIME_DIR / "reservations" / identity if identity else RUNTIME_DIR,
-            state_dir=POLICY_DIR / "reservations" / identity if identity else POLICY_DIR,
-            reservation_id=identity,
-        )
-        self.identity = identity
+class SystemdMaskBackend:
+    """Request privileged transactions; own no sysfs or permission mutations."""
 
-    def for_attachment(self, identity: str) -> HardwareBackend:
-        # Reuse the privileged backend's identity validation.
-        super().for_attachment(identity)
-        return HardwareBackend(identity)
+    def __init__(self, identity: str = "", inventory: HardwareInventory | None = None) -> None:
+        self.identity = identity
+        self.inventory = inventory or HardwareInventory()
+        self.runtime_dir = RUNTIME_DIR / "reservations" / identity if identity else RUNTIME_DIR
+        self.state_dir = POLICY_DIR / "reservations" / identity if identity else POLICY_DIR
+        self.journal = self.runtime_dir / "journal.json"
+        self.permissions = self.runtime_dir / "permissions.json"
+        self.armed_record = self.runtime_dir / "armed.json"
+        suffix = f"-{identity}" if identity else ""
+        self.early = Path("/run/udev/rules.d") / f"72-keymasq-masking{suffix}.rules"
+        self.late = Path("/run/udev/rules.d") / f"99-zz-keymasq-masking{suffix}.rules"
+        self.active_attachment: Attachment | None = None
+
+    @property
+    def armed(self) -> bool:
+        return self.early.exists() or self.late.exists() or self.armed_record.exists()
+
+    def for_attachment(self, identity: str) -> SystemdMaskBackend:
+        validate_identity(identity)
+        return SystemdMaskBackend(identity, self.inventory)
 
     def prepare_directories(self) -> None:
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -95,7 +103,7 @@ class HardwareBackend(LinuxMaskBackend):
                 target.chmod(0o600)
 
     def reservation_ids(self) -> list[str]:
-        return sorted(set(super().reservation_ids()) | set(LinuxMaskBackend().reservation_ids()))
+        return reservation_ids(self.runtime_dir, self.state_dir, RUNTIME_DIR, STATE_DIR)
 
     async def install_rules(self, attachment: Attachment) -> None:
         await request("arm", self.identity)

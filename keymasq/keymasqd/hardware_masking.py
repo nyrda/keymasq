@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.devices import resolve_stable_path
 from keymasq.common.ipc import CommandType
+from keymasq.common.masking import MaskPhase, is_recovering
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.runtime import device_path_resolver
@@ -22,8 +23,8 @@ from keymasq.keymasqd.runtime.grab.release import (
     release_interface_unlocked,
 )
 from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
-from keymasq.masking.client import HardwareBackend
-from keymasq.masking.coordinator import MaskSupervisor
+from keymasq.masking.client import SystemdMaskBackend
+from keymasq.masking.coordinator import MaskCoordinator
 from keymasq.masking.inventory import HardwareInventory
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ MASK_COMMANDS = {
 
 
 class MaskRuntime:
-    """Physical readers and retry state belonging to one helper reservation."""
+    """Physical readers and retry state belonging to one daemon-owned reservation."""
 
     def __init__(
         self, manager: DeviceManager, identity: str, request: Callable[..., Awaitable[JsonObject]]
@@ -76,7 +77,7 @@ class MaskRuntime:
         from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
         grabbed = cast(GrabbedDevice, device)
-        paths = self.manager.mask_reservation_paths.get(self.reservation_id, [])
+        paths = self.manager.mask_registry.reservation_paths.get(self.reservation_id, [])
         if os.path.realpath(grabbed.path) in {os.path.realpath(path) for path in paths}:
             return True
         if grabbed.path.startswith(SOURCE_PREFIX) and self.attachment_path:
@@ -109,39 +110,32 @@ class MaskRuntime:
                     cancel_pending_hardware_release(self.manager, hardware_id)
                     cancel_pending_interface_release(self.manager, hardware_id, device.path)
                     await release_interface_unlocked(self.manager, hardware_id, device.path)
-            paths = {
-                os.path.realpath(path)
-                for path in self.manager.mask_reservation_paths.pop(self.reservation_id, [])
-            }
-            paths.update(released)
-            for hardware_id, reserved in list(self.manager.masked_hardware_paths.items()):
-                remaining = [path for path in reserved if os.path.realpath(path) not in paths]
-                if remaining:
-                    self.manager.masked_hardware_paths[hardware_id] = remaining
-                else:
-                    self.manager.masked_hardware_paths.pop(hardware_id, None)
-            self.manager.mask_reservation_attachments.pop(self.reservation_id, None)
+            self.manager.mask_registry.release(self.reservation_id, released)
         self.raw_only = False
         self.transition_active = False
-        self.manager.masking_blocked_attachments.discard(self.attachment_path)
+        self.manager.mask_registry.blocked_attachments.discard(self.attachment_path)
 
     async def update(self, status: JsonObject) -> None:
         self.attachment_path = str(status.get("attachment_path", self.attachment_path))
-        if status.get("state") == "applying" and status.get("quiesce_required"):
+        if status.get("state") == MaskPhase.APPLYING and status.get("quiesce_required"):
             await self.quiesce(status)
-        if status.get("state") == "acquiring" and status.get("token") != self.token:
+        if status.get("state") == MaskPhase.ACQUIRING and status.get("token") != self.token:
             self.token = str(status.get("token", ""))
             self.acquisition = asyncio.create_task(
                 self.acquire(status), name=f"masked-input-{self.identity}"
             )
-        if status.get("state") in {"trial", "masked"} and not await self.runtime_ready():
+        if (
+            status.get("state") in {MaskPhase.TRIAL, MaskPhase.MASKED}
+            and not await self.runtime_ready()
+        ):
             log.error("Reserved input or output stopped for %s; restoring access", self.identity)
             await self.release_runtime()
             status = await self.request(
                 "restore", {"reason": "replacement_unavailable", "token": status.get("token")}
             )
-        if status.get("state") in {"restoring", "restored", "recovery_failed"} and (
-            self.reservation_id in self.manager.mask_reservation_paths or self.transition_active
+        if (is_recovering(status.get("state")) or status.get("state") == MaskPhase.RESTORED) and (
+            self.reservation_id in self.manager.mask_registry.reservation_paths
+            or self.transition_active
         ):
             await self.release_runtime()
             self.manager.broadcast_hardware_mask_ready()
@@ -152,14 +146,14 @@ class MaskRuntime:
         from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 
         if (
-            self.reservation_id in self.manager.mask_reservation_paths
+            self.reservation_id in self.manager.mask_registry.reservation_paths
             or self.acquisition is not None
         ):
             await self.release_runtime()
         attachment = Path(str(status["attachment_path"]))
         self.transition_active = True
         self.attachment_path = str(attachment)
-        self.manager.masking_blocked_attachments.add(str(attachment))
+        self.manager.mask_registry.blocked_attachments.add(str(attachment))
         async with self.manager._op_lock:  # pyright: ignore[reportPrivateUsage]
             for hardware_id, devices in list(self.manager.grabbed_devices.items()):
                 for device in list(devices):
@@ -187,11 +181,9 @@ class MaskRuntime:
             self.transition_active = True
             # The quiesce handshake released the affected readers before
             # rebind. Keep unrelated devices running throughout acquisition.
-            self.manager.masking_blocked_attachments.discard(self.attachment_path)
+            self.manager.mask_registry.blocked_attachments.discard(self.attachment_path)
             self.raw_only = not paths
-            self.manager.masked_hardware_paths[self.reservation_id] = paths
-            self.manager.mask_reservation_paths[self.reservation_id] = paths.copy()
-            self.manager.mask_reservation_attachments[self.reservation_id] = self.attachment_path
+            self.manager.mask_registry.register(self.reservation_id, paths, self.attachment_path)
             # Own every interface under the reservation even before hardware
             # configuration exists. Later profile requests reuse these grabs.
             if paths:
@@ -217,7 +209,7 @@ class MaskRuntime:
         now = self.clock()
         if not status.get("remapping_suspended"):
             self.retry_at = None
-            if status.get("state") == "masked":
+            if status.get("state") == MaskPhase.MASKED:
                 if self.healthy_since is None:
                     self.healthy_since = now
                 elif now - self.healthy_since >= 30:
@@ -229,7 +221,7 @@ class MaskRuntime:
         retryable = status.get("reason") in AUTOMATIC_RECOVERY_REASONS or (
             status.get("reason") == "trial_expired" and bool(status.get("automatic"))
         )
-        if status.get("state") != "restored" or not retryable:
+        if status.get("state") != MaskPhase.RESTORED or not retryable:
             self.retry_at = None
             return
         if self.retry_at is None:
@@ -253,7 +245,9 @@ class MaskRuntime:
         async with self.manager._op_lock:  # pyright: ignore[reportPrivateUsage]
             expected = {
                 os.path.realpath(path)
-                for path in self.manager.mask_reservation_paths.get(self.reservation_id, [])
+                for path in self.manager.mask_registry.reservation_paths.get(
+                    self.reservation_id, []
+                )
             }
             if not expected:
                 return self.raw_only
@@ -293,9 +287,11 @@ class MaskRuntime:
 
 
 class HardwareMasking:
+    """Own daemon lifecycle and polling; connect reservations to input runtimes."""
+
     def __init__(self, manager: DeviceManager) -> None:
         self.manager = manager
-        self.coordinator = MaskSupervisor(HardwareBackend())
+        self.coordinator = MaskCoordinator(SystemdMaskBackend())
         self.initialized = False
         self.lock = asyncio.Lock()
         self.task: asyncio.Task[None] | None = None
@@ -304,10 +300,10 @@ class HardwareMasking:
         self.needs_startup = True
         self.monitor_stop = asyncio.Event()
         self.last_progress = time.monotonic()
-        self.reservations: dict[str, MaskRuntime] = {}
+        self.runtimes: dict[str, MaskRuntime] = {}
 
     def runtime(self, identity: str) -> MaskRuntime:
-        if identity not in self.reservations:
+        if identity not in self.runtimes:
 
             async def request(command: str, data: JsonObject | None = None) -> JsonObject:
                 result = await self.request(command, {**(data or {}), "id": identity})
@@ -320,8 +316,8 @@ class HardwareMasking:
                     cast(JsonObject, {}),
                 )
 
-            self.reservations[identity] = MaskRuntime(self.manager, identity, request)
-        return self.reservations[identity]
+            self.runtimes[identity] = MaskRuntime(self.manager, identity, request)
+        return self.runtimes[identity]
 
     def start_monitor(self) -> None:
         if self.task is None:
@@ -350,8 +346,8 @@ class HardwareMasking:
             self.manager.masking_suspended = bool(status.get("remapping_suspended"))
 
     async def request(self, command: str, data: JsonObject | None = None) -> JsonObject:
-        # Finish an in-flight exchange before cancellation can begin recovery;
-        # otherwise its reply could be mistaken for the subsequent restore reply.
+        # Finish the serialized coordinator request before cancellation can
+        # begin recovery of its in-flight hardware transaction.
         exchange = asyncio.create_task(self._request(command, data))
         try:
             return await asyncio.shield(exchange)
@@ -388,8 +384,8 @@ class HardwareMasking:
                 )
                 if not current or data.get("token") != current.get("token"):
                     raise ValueError("This hardware mask has changed; refresh the hardware list")
-                if identity in self.reservations:
-                    await self.reservations[identity].release_runtime()
+                if identity in self.runtimes:
+                    await self.runtimes[identity].release_runtime()
             else:
                 await self.release_runtime()
         try:
@@ -413,7 +409,7 @@ class HardwareMasking:
         return result
 
     async def release_runtime(self) -> None:
-        for item in list(self.reservations.values()):
+        for item in list(self.runtimes.values()):
             await item.release_runtime()
 
     async def monitor_once(self) -> None:
@@ -539,7 +535,7 @@ async def adopt_masked_interfaces(
     Called under the device manager operation lock. Unconfigured interfaces stay
     in the reservation bucket until a hardware config selects their paths.
     """
-    if not manager.masked_hardware_paths or hardware_id.startswith(RESERVATION_PREFIX):
+    if not manager.mask_registry.hardware_paths or hardware_id.startswith(RESERVATION_PREFIX):
         return interfaces
     descriptors = interfaces or device_path_resolver.interface_descriptors_from_paths(paths)
     resolved = await asyncio.to_thread(
@@ -563,7 +559,7 @@ async def adopt_masked_interfaces(
         await device.reset_mapping_runtime_state()
         device.release_tracked_outputs()
         _move_reserved_interface(manager, device, hardware_id)
-    reserved = manager.masked_hardware_paths.get(hardware_id)
+    reserved = manager.mask_registry.hardware_paths.get(hardware_id)
     if not reserved:
         return interfaces
     # Preserve explicit source IDs, including gamepad and motion IDs from setup.
@@ -582,13 +578,15 @@ def _move_reserved_interface(manager: DeviceManager, device: object, hardware_id
     cancel_pending_hardware_release(manager, previous)
     cancel_pending_interface_release(manager, previous, grabbed.path)
     manager.grabbed_devices[previous].remove(grabbed)
-    previous_paths = manager.masked_hardware_paths.get(previous, [])
+    previous_paths = manager.mask_registry.hardware_paths.get(previous, [])
     path_key = resolve_stable_path(grabbed.path)
     moved_paths = [path for path in previous_paths if resolve_stable_path(path) == path_key]
-    manager.masked_hardware_paths[previous] = [
+    manager.mask_registry.hardware_paths[previous] = [
         path for path in previous_paths if path not in moved_paths
     ]
-    manager.masked_hardware_paths.setdefault(hardware_id, []).extend(moved_paths or [grabbed.path])
+    manager.mask_registry.hardware_paths.setdefault(hardware_id, []).extend(
+        moved_paths or [grabbed.path]
+    )
     manager.grabbed_devices.setdefault(hardware_id, []).append(grabbed)
     grabbed.hardware_id = hardware_id
     grabbed.mapping_getter = lambda: manager.active_mappings.get(grabbed.hardware_id, {})
@@ -597,7 +595,7 @@ def _move_reserved_interface(manager: DeviceManager, device: object, hardware_id
     manager.grab_state.desired_paths.pop(previous, None)
     if not manager.grabbed_devices[previous]:
         manager.grabbed_devices.pop(previous)
-        manager.masked_hardware_paths.pop(previous, None)
+        manager.mask_registry.hardware_paths.pop(previous, None)
         manager.active_mappings.pop(previous, None)
 
 
@@ -624,11 +622,11 @@ def reservation_for_device(manager: DeviceManager, device: object) -> str | None
 
     grabbed = cast(GrabbedDevice, device)
     key = os.path.realpath(grabbed.path)
-    for identity, paths in manager.mask_reservation_paths.items():
+    for identity, paths in manager.mask_registry.reservation_paths.items():
         if key in {os.path.realpath(path) for path in paths}:
             return identity
         source = grabbed.device
-        attachment = manager.mask_reservation_attachments.get(identity)
+        attachment = manager.mask_registry.reservation_attachments.get(identity)
         if (
             attachment
             and isinstance(source, NativeInputDevice)

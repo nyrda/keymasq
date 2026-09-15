@@ -206,9 +206,9 @@ async def test_global_recovery_cannot_race_an_active_operation(tmp_path, monkeyp
 async def test_listing_hardware_does_not_start_privileged_jobs(tmp_path, monkeypatch):
     from keymasq.common.ipc import CommandType
     from keymasq.keymasqd.hardware_masking import HardwareMasking
-    from keymasq.masking.coordinator import MaskSupervisor
+    from keymasq.masking.coordinator import MaskCoordinator
 
-    backend = client.HardwareBackend()
+    backend = client.SystemdMaskBackend()
     backend.state_dir = tmp_path / "policy"
     monkeypatch.setattr(
         backend, "prepare_directories", lambda: backend.state_dir.mkdir(exist_ok=True)
@@ -218,11 +218,51 @@ async def test_listing_hardware_does_not_start_privileged_jobs(tmp_path, monkeyp
     operation = AsyncMock()
     monkeypatch.setattr(client, "request", operation)
     masking = HardwareMasking(SimpleNamespace(masking_suspended=False))
-    masking.coordinator = MaskSupervisor(backend)
+    masking.coordinator = MaskCoordinator(backend)
     monkeypatch.setattr(masking, "start_monitor", Mock())
     result = await masking.handle(CommandType.HARDWARE_INVENTORY, {}, uid=os.getuid())
     assert result["available"] and result["devices"] == []
     operation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_systemd_backend_keeps_existing_policy_and_transaction_paths(tmp_path, monkeypatch):
+    identity = "b" * 24
+    run, policy, legacy = (tmp_path / name for name in ("run", "policy", "legacy"))
+    monkeypatch.setattr(client, "RUNTIME_DIR", run)
+    monkeypatch.setattr(client, "POLICY_DIR", policy)
+    monkeypatch.setattr(client, "STATE_DIR", legacy)
+    backend = client.SystemdMaskBackend()
+    scoped = backend.for_attachment(identity)
+    assert scoped.journal == run / "reservations" / identity / "journal.json"
+    assert scoped.permissions == run / "reservations" / identity / "permissions.json"
+    assert scoped.armed_record == run / "reservations" / identity / "armed.json"
+    assert scoped.early.name == f"72-keymasq-masking-{identity}.rules"
+    assert scoped.late.name == f"99-zz-keymasq-masking-{identity}.rules"
+    assert scoped.inventory is backend.inventory
+    for invalid in ("../escape", "A" * 24, "b" * 23):
+        with pytest.raises(ValueError, match="Invalid attachment identity"):
+            backend.for_attachment(invalid)
+
+    def prepare_legacy():
+        directory = legacy / "reservations" / identity
+        directory.mkdir(parents=True)
+        (directory / "policy.json").write_bytes(b'{"persist":true,"owner_uid":1000}\n')
+        (directory / "selection.json").write_bytes(b'{"state":"restored"}\n')
+
+    await asyncio.to_thread(prepare_legacy)
+    assert await asyncio.to_thread(backend.reservation_ids) == [identity]
+    await asyncio.to_thread(scoped.prepare_directories)
+    for name in ("policy.json", "selection.json"):
+        assert await asyncio.to_thread(
+            (scoped.state_dir / name).read_bytes
+        ) == await asyncio.to_thread((legacy / "reservations" / identity / name).read_bytes)
+    await asyncio.to_thread((scoped.state_dir / "policy.json").write_bytes, b'{"persist":false}\n')
+    await asyncio.to_thread(scoped.prepare_directories)
+    assert (
+        await asyncio.to_thread((scoped.state_dir / "policy.json").read_bytes)
+        == b'{"persist":false}\n'
+    )
 
 
 @pytest.mark.asyncio

@@ -85,7 +85,7 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
                     "usb_selector"
                 ]
             )
-            attachment = await finish_io(backend.from_selector, selector)
+            attachment = await finish_io(backend.inventory.from_selector, selector)
             await backend.install_rules(attachment)
             return {}
         attachment = await finish_io(
@@ -94,7 +94,9 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
         if operation == "activate":
             # Offline arming can only reuse an identity discovered by root.
             await finish_io(
-                save_json, backend.state_dir / "selector.json", backend.selector(attachment)
+                save_json,
+                backend.state_dir / "selector.json",
+                backend.inventory.selector(attachment),
             )
             nodes = await backend.activate(attachment)
             current = backend.active_attachment or attachment

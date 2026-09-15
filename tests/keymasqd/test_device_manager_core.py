@@ -4040,7 +4040,7 @@ async def test_disconnected_binding_during_masking_check_waits_for_device(monkey
     from keymasq.keymasqd import hardware_masking
 
     manager = DeviceManager()
-    manager.masking_blocked_attachments.add("/sys/devices/receiver")
+    manager.mask_registry.blocked_attachments.add("/sys/devices/receiver")
     parent = Mock(side_effect=FileNotFoundError(errno.ENODEV, "source disappeared"))
     monkeypatch.setattr(hardware_masking, "input_attachment_path", parent)
     monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)

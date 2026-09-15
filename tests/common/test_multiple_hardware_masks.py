@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, save_json
-from keymasq.masking.coordinator import MaskSupervisor
+from keymasq.masking.coordinator import MaskCoordinator
 from keymasq.masking.inventory import Attachment, HardwareInventory
 
 
@@ -69,7 +69,7 @@ class Backend(LinuxMaskBackend):
 @pytest.fixture
 async def supervisor(tmp_path):
     backend = Backend(Inventory(tmp_path), tmp_path / "run", tmp_path / "rules", tmp_path / "state")
-    supervisor = MaskSupervisor(backend)
+    supervisor = MaskCoordinator(backend)
     await supervisor.initialize()
     await supervisor.request({"command": "startup", "uid": 1000})
     yield supervisor
@@ -124,7 +124,7 @@ async def test_emergency_reset_restores_masks_without_runtime_readers(supervisor
     masking.coordinator = supervisor
     masking.initialized = True
     manager.masking_recovery = masking.restore
-    assert not manager.masked_hardware_paths
+    assert not manager.mask_registry.hardware_paths
     await manager.emergency_reset()
     assert manager.masking_suspended
     assert supervisor.status()["remapping_suspended"]
@@ -207,7 +207,7 @@ async def test_saved_masks_restart_independently_and_belong_to_user(supervisor):
     await start(supervisor, second)
     await start(supervisor, third, persist=False)
     await supervisor.restore("lifecycle_stop")
-    fresh = MaskSupervisor(supervisor.backend)
+    fresh = MaskCoordinator(supervisor.backend)
     await fresh.initialize()
     result = await fresh.request({"command": "startup", "uid": 1001})
     assert not any(item["state"] == "applying" for item in result["masks"])
@@ -226,7 +226,7 @@ async def test_restart_uses_original_reason_after_failed_recovery(supervisor, re
     await supervisor.reservations[first.identity].restore(reason)
     suspended = supervisor.reservations[first.identity].backend.state_dir / "suspended"
     suspended.write_text("recovery_failed\n")
-    fresh = MaskSupervisor(supervisor.backend)
+    fresh = MaskCoordinator(supervisor.backend)
     await fresh.initialize()
     result = selected(await fresh.request({"command": "startup", "uid": 1000}), first.identity)
     if reason == "user_restore":
@@ -261,7 +261,7 @@ async def test_failed_user_restore_keeps_its_reason_through_shutdown(supervisor,
     assert (item.backend.state_dir / "suspended").read_text().strip() == "user_restore"
     monkeypatch.setattr(item.backend, "recover", original)
     await item.restore("lifecycle_stop")
-    fresh = MaskSupervisor(supervisor.backend)
+    fresh = MaskCoordinator(supervisor.backend)
     await fresh.initialize()
     result = selected(await fresh.request({"command": "startup", "uid": 1000}), first.identity)
     assert result["state"] == "restored"
@@ -301,7 +301,7 @@ async def test_no_fixed_device_count_limit(tmp_path):
     backend = Backend(
         Inventory(tmp_path, 80), tmp_path / "run", tmp_path / "rules", tmp_path / "state"
     )
-    supervisor = MaskSupervisor(backend)
+    supervisor = MaskCoordinator(backend)
     await supervisor.initialize()
     await supervisor.request({"command": "startup", "uid": 1000})
     try:
@@ -330,7 +330,7 @@ async def test_clean_owner_close_preserves_saved_and_explicitly_stopped_masks(su
     assert selected(supervisor.status(), first.identity)["reason"] == "user_restore"
     assert selected(supervisor.status(), first.identity)["remapping_suspended"]
     assert not selected(supervisor.status(), second.identity)["remapping_suspended"]
-    fresh = MaskSupervisor(supervisor.backend)
+    fresh = MaskCoordinator(supervisor.backend)
     await fresh.initialize()
     result = await fresh.request({"command": "startup", "uid": 1000})
     assert selected(result, first.identity)["state"] == "restored"

@@ -41,7 +41,7 @@ def usb_port(tmp_path, monkeypatch):
         "nodes": {},
         "bindings": {hid.name: driver.name},
         "mode": "",
-        "selector": backend.selector(attachment),
+        "selector": backend.inventory.selector(attachment),
     }
     return backend, attachment, port, snapshot
 
@@ -54,7 +54,10 @@ def test_usb_rules_match_reconnect_but_keep_serial_scope(tmp_path):
     assert backend.rule_matches(inventory.scan()[0]) == before
     (attachment.syspath / "serial").write_text("different-controller")
     assert backend.rule_matches(inventory.scan()[0]) != before
-    assert backend.from_selector(backend.selector(attachment)).serial == attachment.serial
+    assert (
+        backend.inventory.from_selector(backend.inventory.selector(attachment)).serial
+        == attachment.serial
+    )
 
 
 def test_usb_without_serial_tests_absence_on_usb_parent_for_every_endpoint(tmp_path):

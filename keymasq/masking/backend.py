@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import pwd
-import re
 import shutil
 import stat
 from collections.abc import Callable
@@ -19,14 +18,12 @@ from keymasq.masking.inventory import (
     DRIVER_NAME,
     HID_NAME,
     USB_INTERFACE_NAME,
-    USB_NAME,
     Attachment,
     HardwareInventory,
 )
+from keymasq.masking.paths import RUNTIME_DIR, STATE_DIR, reservation_ids, validate_identity
 
 log = logging.getLogger("keymasq.masking")
-RUNTIME_DIR = Path("/run/keymasq-masking")
-STATE_DIR = Path("/var/lib/keymasq-masking")
 
 
 class DeviceInUseError(ValueError):
@@ -111,8 +108,7 @@ class LinuxMaskBackend:
         return self.early.exists() or self.late.exists() or self.armed_record.exists()
 
     def for_attachment(self, identity: str) -> LinuxMaskBackend:
-        if not re.fullmatch(r"[0-9a-f]{24}", identity):
-            raise ValueError("Invalid attachment identity")
+        validate_identity(identity)
         return LinuxMaskBackend(
             self.inventory,
             self.runtime_dir / "reservations" / identity,
@@ -122,14 +118,7 @@ class LinuxMaskBackend:
         )
 
     def reservation_ids(self) -> list[str]:
-        return sorted(
-            {
-                path.name
-                for root in (self.runtime_dir, self.state_dir)
-                for path in (root / "reservations").glob("*")
-                if re.fullmatch(r"[0-9a-f]{24}", path.name) and path.is_dir()
-            }
-        )
+        return reservation_ids(self.runtime_dir, self.state_dir)
 
     def prepare_directories(self) -> None:
         for path in (self.runtime_dir, self.state_dir):
@@ -137,7 +126,7 @@ class LinuxMaskBackend:
         self.rules_dir.mkdir(parents=True, exist_ok=True)
 
     async def snapshot(self, attachment: Attachment) -> JsonObject:
-        await finish_io(self.validate, attachment)
+        await finish_io(self.inventory.validate, attachment)
         await self.check_deck_scope(attachment)
         try:
             bindings = await finish_io(self.inventory.bindings, attachment)
@@ -184,32 +173,18 @@ class LinuxMaskBackend:
             "nodes": snapshots,
             "bindings": bindings,
             "prearmed": self.armed,
-            "selector": self.selector(attachment),
+            "selector": self.inventory.selector(attachment),
         }
         await finish_io(save_json, self.journal, data)
         return data
 
     async def check_deck_scope(self, attachment: Attachment) -> None:
         if attachment.is_deck and await finish_io(
-            self.other_steam_controllers, attachment.main_hid, attachment_path=attachment.syspath
+            self.inventory.other_steam_controllers,
+            attachment.main_hid,
+            attachment_path=attachment.syspath,
         ):
             raise ValueError("Disconnect other hid-steam controllers before trying Deck masking")
-
-    def other_steam_controllers(
-        self, main_hid: str, *, attachment_path: Path | None = None
-    ) -> list[str]:
-        if not main_hid and attachment_path is None:
-            return []
-        driver = self.inventory.sys_root / "bus/hid/drivers/hid-steam"
-        if attachment_path is None:
-            attachment_path = (
-                (self.inventory.sys_root / "bus/hid/devices" / main_hid).resolve().parent.parent
-            )
-        return [
-            path.name
-            for path in driver.glob("*")
-            if HID_NAME.fullmatch(path.name) and not path.resolve().is_relative_to(attachment_path)
-        ]
 
     def reject_unrevoked_handles(self, attachment: Attachment) -> None:
         protected = {
@@ -246,20 +221,8 @@ class LinuxMaskBackend:
             except (FileNotFoundError, ProcessLookupError):
                 continue
 
-    def validate(self, attachment: Attachment) -> None:
-        pattern = USB_NAME if attachment.transport == "usb" else HID_NAME
-        if not attachment.supported or not pattern.fullmatch(attachment.kernel_name):
-            raise ValueError("Invalid physical attachment")
-        if attachment.transport == "usb" and self.inventory.is_hub(attachment.syspath):
-            raise ValueError("Masking USB hubs is not supported")
-        if not all(
-            len(value) == 4 and all(char in "0123456789abcdef" for char in value)
-            for value in (attachment.vendor, attachment.product)
-        ):
-            raise ValueError("Invalid hardware vendor or product")
-
     def rule_matches(self, attachment: Attachment) -> list[str]:
-        self.validate(attachment)
+        self.inventory.validate(attachment)
         name = attachment.kernel_name
         if attachment.transport != "usb":
             return [
@@ -308,35 +271,6 @@ class LinuxMaskBackend:
         pattern = "".join({"*": "[*]", "?": "[?]", "[": "[[]", "]": "[]]"}.get(c, c) for c in value)
         return 'e"' + "".join(f"\\x{byte:02x}" for byte in pattern.encode()) + '"'
 
-    @staticmethod
-    def selector(attachment: Attachment) -> JsonObject:
-        return {
-            "id": attachment.identity,
-            "vendor": attachment.vendor,
-            "product": attachment.product,
-            "transport": attachment.transport,
-            "path": str(attachment.syspath),
-            "kernel_name": attachment.kernel_name,
-            "serial": attachment.serial,
-        }
-
-    def from_selector(self, selector: JsonObject) -> Attachment:
-        attachment = Attachment(
-            str(selector["id"]),
-            "",
-            "",
-            str(selector["vendor"]),
-            str(selector["product"]),
-            str(selector["transport"]),
-            Path(str(selector["path"])),
-            str(selector["kernel_name"]),
-            serial=str(selector.get("serial", "")),
-        )
-        self.validate(attachment)
-        if not attachment.syspath.is_relative_to(self.inventory.sys_root / "devices"):
-            raise ValueError("Invalid saved USB attachment path")
-        return attachment
-
     async def install_rules(self, attachment: Attachment) -> None:
         from keymasq.masking.permissions import capture
 
@@ -348,7 +282,7 @@ class LinuxMaskBackend:
                 if live.identity == attachment.identity:
                     await capture(self, live)
                     break
-        await finish_io(save_json, self.armed_record, self.selector(attachment))
+        await finish_io(save_json, self.armed_record, self.inventory.selector(attachment))
         # Driver bind/unbind events also run desktop access rules. Restrict
         # every event for a live node, not only its initial add/change.
         early = "\n".join(f'ACTION!="remove", {match}, TAG-="uaccess"' for match in matches)

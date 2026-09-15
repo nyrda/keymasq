@@ -281,3 +281,58 @@ class HardwareInventory:
             return f"{interface}:hidraw"
         kind = "event" if node.name.startswith("event") else "js"
         return f"{interface}:{kind}:{read_attribute(device / 'name')}"
+
+    def other_steam_controllers(
+        self, main_hid: str, *, attachment_path: Path | None = None
+    ) -> list[str]:
+        if not main_hid and attachment_path is None:
+            return []
+        driver = self.sys_root / "bus/hid/drivers/hid-steam"
+        if attachment_path is None:
+            attachment_path = (self.sys_root / "bus/hid/devices" / main_hid).resolve().parent.parent
+        return [
+            path.name
+            for path in driver.glob("*")
+            if HID_NAME.fullmatch(path.name) and not path.resolve().is_relative_to(attachment_path)
+        ]
+
+    def validate(self, attachment: Attachment) -> None:
+        pattern = USB_NAME if attachment.transport == "usb" else HID_NAME
+        if not attachment.supported or not pattern.fullmatch(attachment.kernel_name):
+            raise ValueError("Invalid physical attachment")
+        if attachment.transport == "usb" and self.is_hub(attachment.syspath):
+            raise ValueError("Masking USB hubs is not supported")
+        if not all(
+            len(value) == 4 and all(char in "0123456789abcdef" for char in value)
+            for value in (attachment.vendor, attachment.product)
+        ):
+            raise ValueError("Invalid hardware vendor or product")
+
+    @staticmethod
+    def selector(attachment: Attachment) -> JsonObject:
+        return {
+            "id": attachment.identity,
+            "vendor": attachment.vendor,
+            "product": attachment.product,
+            "transport": attachment.transport,
+            "path": str(attachment.syspath),
+            "kernel_name": attachment.kernel_name,
+            "serial": attachment.serial,
+        }
+
+    def from_selector(self, selector: JsonObject) -> Attachment:
+        attachment = Attachment(
+            str(selector["id"]),
+            "",
+            "",
+            str(selector["vendor"]),
+            str(selector["product"]),
+            str(selector["transport"]),
+            Path(str(selector["path"])),
+            str(selector["kernel_name"]),
+            serial=str(selector.get("serial", "")),
+        )
+        self.validate(attachment)
+        if not attachment.syspath.is_relative_to(self.sys_root / "devices"):
+            raise ValueError("Invalid saved USB attachment path")
+        return attachment

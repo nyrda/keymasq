@@ -12,6 +12,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.combo.state import ComboRuntimeDeps
@@ -206,6 +207,7 @@ def construct_grabbed_device(
     ) -> object | None:
         return manager.resolve_gamepad_output(output_id, context=context)
 
+    registry = cast(MaskRegistry | None, getattr(manager, "mask_registry", None))
     return deps.grabbed_device_cls(
         path=path,
         hardware_id=request.hardware_id,
@@ -219,7 +221,7 @@ def construct_grabbed_device(
         device_type=detected_type,
         device_types=detected_types,
         default_output=request.default_output,
-        source_reserved=request.hardware_id in getattr(manager, "masked_hardware_paths", {}),
+        source_reserved=registry is not None and request.hardware_id in registry.hardware_paths,
         verbosity=manager.verbosity,
         keyboard_uinput=manager.output_state.keyboard_uinput,
         mouse_uinput=manager.output_state.mouse_uinput,
@@ -283,7 +285,8 @@ async def grab_one_interface(
     raw_device: Any | None = None
     counted_available = False
     try:
-        blocked = cast(set[str], getattr(manager, "masking_blocked_attachments", set[str]()))
+        registry = cast(MaskRegistry | None, getattr(manager, "mask_registry", None))
+        blocked = registry.blocked_attachments if registry is not None else set[str]()
         if blocked:
             from keymasq.keymasqd.hardware_masking import input_attachment_path
 

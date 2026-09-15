@@ -196,7 +196,7 @@ async def test_recovery_preserves_static_acl_and_current_seat_grants(
             {
                 "id": attachment.identity,
                 "generation": attachment.generation,
-                "selector": backend.selector(attachment),
+                "selector": backend.inventory.selector(attachment),
                 "nodes": {},
                 "bindings": {},
                 "mode": "",

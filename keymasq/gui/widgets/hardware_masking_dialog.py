@@ -9,10 +9,10 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.masking import MaskPhase, is_active, is_recovering, is_transitional
 from keymasq.gui.session_client import session_request_async
 
 Change = Callable[[str, dict], None]
-ACTIVE_STATES = {"applying", "acquiring", "trial", "masked"}
 
 
 def connect_button(button: Gtk.Button, action: Callable[[], object]) -> None:
@@ -23,9 +23,9 @@ def connect_button(button: Gtk.Button, action: Callable[[], object]) -> None:
 
 
 def failure_message(mask: dict) -> str:
-    if mask.get("state") == "recovery_failed":
+    if mask.get("state") == MaskPhase.RECOVERY_FAILED:
         return "Device access could not be restored yet. Keymasq is retrying."
-    if mask.get("state") == "restored" and mask.get("reason") == "user_restore":
+    if mask.get("state") == MaskPhase.RESTORED and mask.get("reason") == "user_restore":
         return ""
     error = str(mask.get("error", ""))
     if mask.get("error_code") == "device_in_use" or "direct USB or auxiliary HID" in error:
@@ -196,10 +196,10 @@ class MaskDeviceRow(Adw.PreferencesRow):
         request_error: str = "",
     ) -> None:
         self.device, self.mask = device, mask
-        state = mask.get("state", "unmasked")
+        state = mask.get("state", MaskPhase.UNMASKED)
         connected = bool(device.get("supported"))
-        active = state in ACTIVE_STATES
-        recovering = state in {"restoring", "recovery_failed"}
+        active = is_active(state)
+        recovering = is_recovering(state)
         enabled = bool(
             mask.get(
                 "enabled",
@@ -239,15 +239,17 @@ class MaskDeviceRow(Adw.PreferencesRow):
             status = "Waiting for device"
         elif busy:
             status = "Updating…"
-        elif state == "restoring":
+        elif state == MaskPhase.RESTORING:
             status = "Turning off…"
         elif error:
-            status = "Couldn’t restore access" if state == "recovery_failed" else "Couldn’t mask"
-        elif state in {"applying", "acquiring"}:
+            status = (
+                "Couldn’t restore access" if state == MaskPhase.RECOVERY_FAILED else "Couldn’t mask"
+            )
+        elif state in {MaskPhase.APPLYING, MaskPhase.ACQUIRING}:
             status = "Reconnecting device…"
-        elif state == "trial":
+        elif state == MaskPhase.TRIAL:
             status = "Masked · awaiting confirmation"
-        elif state == "masked":
+        elif state == MaskPhase.MASKED:
             status = "Masked"
         elif paused:
             status = "Off · remapping stopped by recovery"
@@ -269,13 +271,13 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.switch.update_property([Gtk.AccessibleProperty.DESCRIPTION], [status])
         self.error.set_text(error)
         self.failure.set_visible(bool(error))
-        self.retry.set_visible(state != "recovery_failed")
+        self.retry.set_visible(state != MaskPhase.RECOVERY_FAILED)
         self.retry.set_sensitive(
             available and connected and not busy and not recovering and not active and not paused
         )
-        confirming = state in {"applying", "acquiring", "trial"} and not mask.get("automatic")
+        confirming = is_transitional(state) and not mask.get("automatic")
         self.confirmation.set_visible(bool(confirming))
-        self.keep.set_sensitive(state == "trial" and not busy)
+        self.keep.set_sensitive(state == MaskPhase.TRIAL and not busy)
         self.undo.set_sensitive(not busy)
         self.undo.set_label(f"Undo · {mask.get('remaining_seconds', 0)}s")
         technical = [

@@ -9,6 +9,7 @@ from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.types import JsonObject, JsonObjectList
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import cleanup_runtime_failure
 from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
@@ -128,7 +129,8 @@ async def handle_capture_command(
             return await daemon.capture_manager.begin_native(
                 hardware_id, native_interfaces, motion_axis_codes
             )
-        reserved = getattr(daemon.device_manager, "masked_hardware_paths", {})
+        registry = cast(MaskRegistry | None, getattr(daemon.device_manager, "mask_registry", None))
+        reserved = registry.hardware_paths if registry is not None else {}
         borrowed = {
             os.path.realpath(device.path): cast(GrabbedDevice, device)
             for hid, devices in daemon.device_manager.grabbed_devices.items()

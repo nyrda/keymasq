@@ -71,7 +71,9 @@ async def capture(backend: LinuxMaskBackend, attachment: Attachment) -> None:
             "acl": static_acl(acl, uaccess=uaccess),
         }
     await finish_io(
-        save_json, backend.permissions, {"selector": backend.selector(attachment), "nodes": nodes}
+        save_json,
+        backend.permissions,
+        {"selector": backend.inventory.selector(attachment), "nodes": nodes},
     )
 
 

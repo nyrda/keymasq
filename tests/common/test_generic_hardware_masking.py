@@ -376,7 +376,7 @@ async def test_missing_bindings_after_usb_reconnect_still_restores_access(tmp_pa
         {
             "id": attachment.identity,
             "generation": attachment.generation,
-            "selector": backend.selector(attachment),
+            "selector": backend.inventory.selector(attachment),
             "usb_reconnect": True,
             "bindings": {hid.name: driver.name},
             "mode": "",

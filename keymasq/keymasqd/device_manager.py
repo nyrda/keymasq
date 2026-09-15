@@ -35,6 +35,7 @@ from keymasq.keymasqd import device_inventory
 from keymasq.keymasqd.input_sources import discovery as native_discovery
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.input_sources.types import Binding
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -183,11 +184,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     ) -> None:
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
-        self.masked_hardware_paths: dict[str, list[str]] = {}
-        self.mask_reservation_paths: dict[str, list[str]] = {}
-        self.mask_reservation_attachments: dict[str, str] = {}
-        self.masking_blocked_attachments: set[str] = set()
-        from keymasq.masking.backend import STATE_DIR as MASK_STATE_DIR
+        self.mask_registry = MaskRegistry()
+        from keymasq.masking.paths import STATE_DIR as MASK_STATE_DIR
 
         self.masking_suspended = (MASK_STATE_DIR / "suspended").exists()
         self.masking_recovery: Callable[[], Awaitable[None]] | None = None
@@ -336,13 +334,13 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             # Recovery can begin while a request is queued behind another grab.
             if self.masking_suspended:
                 return {"grabbed": False, "reason": "Hardware recovery suspended remapping"}
-            if self.masked_hardware_paths:
+            if self.mask_registry.hardware_paths:
                 from keymasq.keymasqd.hardware_masking import adopt_masked_interfaces
 
                 evdev_interfaces = await adopt_masked_interfaces(
                     self, hardware_id, evdev_paths, evdev_interfaces, self._input_resolver_deps()
                 )
-                if hardware_id in self.masked_hardware_paths:
+                if hardware_id in self.mask_registry.hardware_paths:
                     force_grab_unmapped = True
             request = GrabRequest(
                 hardware_id=hardware_id,
@@ -384,7 +382,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         grace_s: float | None = None,
     ) -> JsonObject:
         async with self._op_lock:
-            if hardware_id in self.masked_hardware_paths:
+            if hardware_id in self.mask_registry.hardware_paths:
                 from keymasq.keymasqd.hardware_masking import release_masked_configuration
 
                 result = await release_masked_configuration(self, hardware_id)
@@ -770,14 +768,16 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     def _discoverable_input_paths(self, paths: list[str] | None = None) -> list[str]:
         # evdev.list_devices uses access(), which omits source-hidden nodes even
         # when this daemon can reopen them through CAP_DAC_OVERRIDE.
-        reserved = [path for paths in list(self.masked_hardware_paths.values()) for path in paths]
+        reserved = [
+            path for paths in list(self.mask_registry.hardware_paths.values()) for path in paths
+        ]
         return list(dict.fromkeys([*(paths if paths is not None else _device_paths()), *reserved]))
 
     def _input_resolver_deps(self) -> device_path_resolver.DevicePathResolverDeps:
         return replace(
             _device_path_resolver_deps(),
             device_paths_fn=self._discoverable_input_paths,
-            cache=device_path_resolver.DeviceCache() if self.masked_hardware_paths else None,
+            cache=device_path_resolver.DeviceCache() if self.mask_registry.hardware_paths else None,
         )
 
     def _recording_virtual_device_metadata(self) -> dict[str, JsonObject]:
@@ -790,7 +790,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         metadata = device_inventory.recording_grabbed_source_metadata(
             cast(Any, self.grabbed_devices)
         )
-        for paths in self.masked_hardware_paths.values():
+        for paths in self.mask_registry.hardware_paths.values():
             for path in paths:
                 source = metadata.get(resolve_stable_path(path))
                 if source is not None:

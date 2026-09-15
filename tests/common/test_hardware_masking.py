@@ -108,11 +108,11 @@ def test_scope_check_ignores_the_same_controllers_proxy_and_auxiliary_interfaces
     auxiliary = usb / "3-3:1.0/0003:28DE:1205.0010"
     auxiliary.mkdir()
     (driver / auxiliary.name).symlink_to(auxiliary)
-    assert backend.other_steam_controllers(main) == []
+    assert backend.inventory.other_steam_controllers(main) == []
     other = usb.parent / "3-4/3-4:1.2/0003:28DE:1205.0014"
     other.mkdir(parents=True)
     (driver / other.name).symlink_to(other)
-    assert backend.other_steam_controllers(main) == [other.name]
+    assert backend.inventory.other_steam_controllers(main) == [other.name]
 
 
 class FakeBackend(LinuxMaskBackend):
@@ -267,9 +267,7 @@ async def test_cancellation_waits_for_pending_mutation_before_recovery(tmp_path:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "cause", ["disconnect", "endpoint", "scope", "trial_expired"]
-)
+@pytest.mark.parametrize("cause", ["disconnect", "endpoint", "scope", "trial_expired"])
 async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch, cause):
     clock = [100.0]
     backend = FakeBackend(tmp_path)
@@ -280,7 +278,7 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
     elif cause == "endpoint":
         (backend.inventory.dev_root / "hidraw3").unlink()
     elif cause == "scope":
-        monkeypatch.setattr(backend, "other_steam_controllers", lambda _: ["other"])
+        monkeypatch.setattr(backend.inventory, "other_steam_controllers", lambda _: ["other"])
     elif cause == "trial_expired":
         clock[0] += TRIAL_SECONDS
         await supervisor.request({"command": "poll"})

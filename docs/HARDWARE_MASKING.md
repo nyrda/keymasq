@@ -129,10 +129,21 @@ The job invokes the existing `keymasq-record hardware-operation` entry point,
 resolves the selected attachment again, records permissions and driver bindings,
 and installs runtime udev rules. The root process exits when the operation ends.
 Listing hardware and monitoring unchanged masks do not start privileged jobs.
-The rules reserve its hidraw, usbfs, evdev and legacy joystick nodes for root
-and the dedicated `keymasq` account. They remove desktop ACLs and match the
-USB port, model and serial when present, or the specific non-USB HID instance.
-They exclude virtual outputs.
+The rules reserve the selected device's hidraw, usbfs, evdev and legacy joystick
+nodes for root and the dedicated `keymasq` account. They remove desktop ACLs and
+match the USB port, model and serial when present, or the specific non-USB HID
+instance. They exclude virtual outputs.
+
+Within the daemon, `HardwareMasking` owns the polling loop and lifecycle cleanup.
+`MaskCoordinator` manages independent `MaskReservation` policies, deadlines, and
+transaction locks; `MaskRuntime` owns each reservation's readers and remapping
+retries. `MaskRegistry` tracks runtime path ownership as interfaces move between
+reservations and hardware configurations.
+
+The coordinator uses a narrow backend interface. `SystemdMaskBackend` submits
+privileged jobs, while `LinuxMaskBackend` implements the root transactions.
+Both use the same read-only inventory helpers. The daemon and GUI share the
+mask phase definitions.
 
 Before arming rules for a connected device, the helper records its ownership and
 static ACLs. Recovery restores and reads back that baseline, then lets current

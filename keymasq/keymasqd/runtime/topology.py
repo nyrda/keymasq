@@ -225,10 +225,11 @@ async def reconcile_topology_unlocked(
     manager: _TopologyManager, snapshot: Snapshot, *, deps: TopologyRuntimeDeps
 ) -> None:
     removed: list[tuple[str, str]] = []
+    registry = getattr(manager, "mask_registry", None)
 
     for hardware_id, devices in manager.grabbed_devices.items():
-        if hardware_id in getattr(manager, "masked_hardware_paths", {}):
-            # The physical reservation supervisor owns disconnection and
+        if registry is not None and hardware_id in registry.hardware_paths:
+            # The masking coordinator owns physical disconnection and
             # recovery. evdev discovery can temporarily omit a hidden source.
             continue
         for device in devices:

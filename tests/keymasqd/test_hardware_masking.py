@@ -13,6 +13,7 @@ from keymasq.keymasqd.hardware_masking import (
     adopt_masked_interfaces,
     release_masked_configuration,
 )
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 from keymasq.keymasqd.runtime.topology import reconcile_topology_unlocked
 
@@ -23,7 +24,7 @@ RESERVATION_ID = "@masked:test"
 async def test_emergency_reset_releases_local_readers_when_helper_disconnected(monkeypatch):
     manager = DeviceManager()
     masking = HardwareMasking(manager)
-    manager.masked_hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
+    manager.mask_registry.hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
     manager.masking_recovery = masking.restore
     monkeypatch.setattr(masking, "release_runtime", AsyncMock())
     monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
@@ -38,8 +39,8 @@ async def test_emergency_reset_releases_local_readers_when_helper_disconnected(m
 
 
 def runtime(manager):
-    manager.mask_reservation_paths.setdefault(
-        RESERVATION_ID, list(manager.masked_hardware_paths.get(RESERVATION_ID, []))
+    manager.mask_registry.reservation_paths.setdefault(
+        RESERVATION_ID, list(manager.mask_registry.hardware_paths.get(RESERVATION_ID, []))
     )
     return MaskRuntime(manager, "test", AsyncMock())
 
@@ -95,7 +96,7 @@ def test_reserved_nodes_remain_discoverable_when_access_filter_omits_them(monkey
     from keymasq.keymasqd import device_manager as module
 
     manager = DeviceManager()
-    manager.masked_hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
+    manager.mask_registry.hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
     monkeypatch.setattr(module, "_device_paths", lambda: ["/dev/input/event11"])
     assert set(manager._discoverable_input_paths()) == {"/dev/input/event5", "/dev/input/event11"}
     assert set(manager._input_resolver_deps().device_paths_fn()) == {
@@ -108,14 +109,14 @@ def test_reserved_nodes_remain_discoverable_when_access_filter_omits_them(monkey
 async def test_evdev_rescan_does_not_end_physical_hardware_ownership() -> None:
     device = SimpleNamespace(path="/dev/input/event5")
     manager = SimpleNamespace(
-        masked_hardware_paths={"28de:1205": [device.path]},
+        mask_registry=MaskRegistry(hardware_paths={"28de:1205": [device.path]}),
         grabbed_devices={"28de:1205": [device]},
     )
     release = AsyncMock()
     deps = SimpleNamespace(release_interface_fn=release)
     await reconcile_topology_unlocked(manager, {}, deps=deps)  # type: ignore[arg-type]
     release.assert_not_awaited()
-    manager.masked_hardware_paths.clear()
+    manager.mask_registry.hardware_paths.clear()
     await reconcile_topology_unlocked(manager, {}, deps=deps)  # type: ignore[arg-type]
     release.assert_awaited_once_with(manager, "28de:1205", device.path)
 
@@ -155,9 +156,9 @@ async def test_setup_adopts_selected_reserved_interfaces_and_preserves_output(mo
         uinput=object(),
     )
     original_output = gamepad.uinput
-    manager.mask_reservation_paths[RESERVATION_ID] = [gamepad.path, keyboard.path]
+    manager.mask_registry.reservation_paths[RESERVATION_ID] = [gamepad.path, keyboard.path]
     manager.grabbed_devices[RESERVATION_ID] = [gamepad, keyboard]
-    manager.masked_hardware_paths[RESERVATION_ID] = [gamepad.path, keyboard.path]
+    manager.mask_registry.hardware_paths[RESERVATION_ID] = [gamepad.path, keyboard.path]
     monkeypatch.setattr(masking, "resolve_stable_path", lambda path: path)
     monkeypatch.setattr(
         masking.device_path_resolver,
@@ -188,7 +189,7 @@ async def test_setup_adopts_selected_reserved_interfaces_and_preserves_output(mo
     assert gamepad.uinput is original_output
     assert gamepad.running
     assert await runtime(manager).runtime_ready()
-    assert "28de:1205@2" not in manager.masked_hardware_paths
+    assert "28de:1205@2" not in manager.mask_registry.hardware_paths
 
 
 @pytest.fixture
@@ -236,8 +237,8 @@ async def reserved_runtime(monkeypatch):
     monkeypatch.setattr(device_module.source_hiding, "hide_source", AsyncMock())
     await device.grab()
     manager.grabbed_devices[RESERVATION_ID] = [device]
-    manager.masked_hardware_paths[RESERVATION_ID] = [device.path]
-    manager.mask_reservation_paths[RESERVATION_ID] = [device.path]
+    manager.mask_registry.hardware_paths[RESERVATION_ID] = [device.path]
+    manager.mask_registry.reservation_paths[RESERVATION_ID] = [device.path]
     try:
         yield manager, device, physical, target
     finally:
@@ -335,7 +336,7 @@ async def test_mask_readiness_rejects_incomplete_runtime(reserved_runtime, failu
     elif failure == "stopped_reader":
         await device.stop_event_loop()
     else:
-        manager.mask_reservation_paths[RESERVATION_ID].append("/dev/input/missing")
+        manager.mask_registry.reservation_paths[RESERVATION_ID].append("/dev/input/missing")
     assert not await runtime(manager).runtime_ready()
 
 
@@ -568,7 +569,7 @@ async def test_automatic_recovery_releases_only_reserved_hardware(monkeypatch):
     manager = DeviceManager()
     unrelated = SimpleNamespace(path="/dev/input/event99")
     manager.grabbed_devices["keyboard"] = [unrelated]
-    manager.masked_hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
+    manager.mask_registry.hardware_paths[RESERVATION_ID] = ["/dev/input/event5"]
     release = AsyncMock()
     selected = SimpleNamespace(path="/dev/input/event5")
     manager.grabbed_devices[RESERVATION_ID] = [selected]
@@ -593,7 +594,7 @@ async def test_failed_acquisition_finishes_its_own_recovery(monkeypatch):
     cast(AsyncMock, masking.request).assert_awaited_once_with(
         "restore", {"reason": "replacement_unavailable", "token": "trial"}
     )
-    assert not manager.masked_hardware_paths
+    assert not manager.mask_registry.hardware_paths
 
 
 @pytest.mark.asyncio
@@ -624,8 +625,8 @@ async def test_two_reservations_can_share_a_configuration_and_release_independen
     )
     for device in (first, second):
         manager.grabbed_devices[device.hardware_id] = [device]
-        manager.masked_hardware_paths[device.hardware_id] = [device.path]
-        manager.mask_reservation_paths[device.hardware_id] = [device.path]
+        manager.mask_registry.hardware_paths[device.hardware_id] = [device.path]
+        manager.mask_registry.reservation_paths[device.hardware_id] = [device.path]
     monkeypatch.setattr(module, "resolve_stable_path", lambda path: path)
     monkeypatch.setattr(
         module.device_path_resolver,
@@ -653,7 +654,7 @@ async def test_two_reservations_can_share_a_configuration_and_release_independen
     monkeypatch.setattr(module, "release_interface_unlocked", release)
     await first_runtime.release_runtime()
     assert manager.grabbed_devices["shared-config"] == [second]
-    assert manager.masked_hardware_paths["shared-config"] == [second.path]
+    assert manager.mask_registry.hardware_paths["shared-config"] == [second.path]
     assert await second_runtime.runtime_ready()
     assert not manager.masking_suspended
 
@@ -698,7 +699,7 @@ async def test_releasing_one_raw_only_mask_leaves_the_other_ready():
     await first.release_runtime()
     assert not await first.runtime_ready()
     assert await second.runtime_ready()
-    assert "@masked:second" in manager.mask_reservation_paths
+    assert "@masked:second" in manager.mask_registry.reservation_paths
 
 
 @pytest.mark.asyncio
@@ -710,7 +711,7 @@ async def test_emergency_release_precedes_blocked_controller_recovery(
     manager = DeviceManager()
     masking = HardwareMasking(manager)
     if readers_registered:
-        manager.masked_hardware_paths[RESERVATION_ID] = ["controller"]
+        manager.mask_registry.hardware_paths[RESERVATION_ID] = ["controller"]
     manager.masking_recovery = masking.restore
     held = {"keyboard", "mouse"}
     entered, finish = asyncio.Event(), asyncio.Event()

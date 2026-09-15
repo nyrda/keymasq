@@ -177,6 +177,58 @@ async def test_saved_masks_restart_independently_and_belong_to_user(supervisor):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["lifecycle_stop", "service_stopped", "user_restore"])
+async def test_restart_uses_original_reason_after_failed_recovery(supervisor, reason):
+    first = supervisor.backend.inventory.scan()[0]
+    await start(supervisor, first)
+    await supervisor.reservations[first.identity].restore(reason)
+    suspended = supervisor.reservations[first.identity].backend.state_dir / "suspended"
+    suspended.write_text("recovery_failed\n")
+    fresh = MaskSupervisor(supervisor.backend)
+    await fresh.initialize()
+    result = selected(await fresh.request({"command": "startup", "uid": 1000}), first.identity)
+    if reason == "user_restore":
+        assert result["state"] == "restored"
+        assert result["reason"] == "user_restore"
+        assert result["remapping_suspended"]
+    else:
+        assert result["state"] == "applying"
+        assert not result["remapping_suspended"]
+        item = fresh.reservations[first.identity]
+        await item.request({"command": "quiesced", "token": result["token"]})
+        assert item.apply_task is not None
+        await item.apply_task
+        result = await item.request({"command": "ready", "token": result["token"]})
+        assert result["state"] == "masked"
+    await fresh.restore("service_stopped")
+
+
+@pytest.mark.asyncio
+async def test_failed_user_restore_keeps_its_reason_through_shutdown(supervisor, monkeypatch):
+    first = supervisor.backend.inventory.scan()[0]
+    await start(supervisor, first)
+    item = supervisor.reservations[first.identity]
+    original = item.backend.recover
+
+    async def fail():
+        raise OSError("udev recovery failed")
+
+    monkeypatch.setattr(item.backend, "recover", fail)
+    with pytest.raises(OSError, match="udev recovery failed"):
+        await item.restore("user_restore")
+    assert (item.backend.state_dir / "suspended").read_text().strip() == "user_restore"
+    monkeypatch.setattr(item.backend, "recover", original)
+    await item.restore("lifecycle_stop")
+    fresh = MaskSupervisor(supervisor.backend)
+    await fresh.initialize()
+    result = selected(await fresh.request({"command": "startup", "uid": 1000}), first.identity)
+    assert result["state"] == "restored"
+    assert result["reason"] == "user_restore"
+    assert result["remapping_suspended"]
+    await fresh.restore("service_stopped")
+
+
+@pytest.mark.asyncio
 async def test_a_slow_restore_does_not_block_other_trials_or_heartbeats(supervisor, monkeypatch):
     first, second, _ = supervisor.backend.inventory.scan()
     data = await start(supervisor, first)

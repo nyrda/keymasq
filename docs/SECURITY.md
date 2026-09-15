@@ -448,8 +448,8 @@ affected attachment. Persistent USB rules enforce access restrictions while
 hardware is disconnected, without a running privileged helper.
 
 Root-owned journals and static permission baselines survive a daemon failure.
-Each hardware job belongs to the daemon's lifecycle and stops before the daemon's
-systemd cleanup hook runs. Per-attachment locks serialize mutations; a global
+The daemon's systemd cleanup hook stops all outstanding hardware jobs before
+restoring permissions. Per-attachment locks serialize mutations; a global
 recovery lock excludes all hardware jobs. `ExecStopPost` restores every remaining
 reservation, and `ExecStartPre` requires recovery to succeed before remapping
 starts again. A 20-second systemd watchdog kills a blocked daemon, releasing all

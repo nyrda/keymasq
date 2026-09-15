@@ -298,6 +298,12 @@ class MaskReservation:
 
     async def _restore(self, reason: str) -> None:
         async with self.recovery_lock:
+            if reason in {"lifecycle_stop", "service_stopped"} and self.state.get(
+                "state"
+            ) == "recovery_failed":
+                # Shutdown must not replace the reason for unfinished recovery,
+                # especially an explicit user stop.
+                reason = str(self.state.get("reason", reason))
             had_mask = (
                 self.active
                 or self.backend.journal.exists()
@@ -338,12 +344,14 @@ class MaskReservation:
                 else:
                     await self.backend.recover()
             except Exception as exc:
-                await asyncio.to_thread(
-                    (self.backend.state_dir / "suspended").write_text, "recovery_failed\n"
-                )
                 self.state.update({"state": "recovery_failed", "error": str(exc)})
                 log.exception("Hardware restoration failed; recovery will retry")
                 raise
+            suspended = self.backend.state_dir / "suspended"
+            if suspended.exists() and (
+                await asyncio.to_thread(suspended.read_text)
+            ).strip() == "recovery_failed":
+                await asyncio.to_thread(suspended.write_text, reason + "\n")
             self.state.update({"state": "restored", "event_nodes": []})
             await asyncio.to_thread(
                 save_json, self.backend.state_dir / "selection.json", self.state
@@ -470,11 +478,21 @@ class MaskSupervisor:
                     "state": "restored",
                     "event_nodes": [],
                 }
-            if item.backend.journal.exists():
+            suspended = item.backend.state_dir / "suspended"
+            pause_reason = (
+                (await asyncio.to_thread(suspended.read_text)).strip()
+                if suspended.exists()
+                else ""
+            )
+            if pause_reason == "recovery_failed":
+                # Failed cleanup used to replace the original pause reason.
+                # Once recovery succeeds, use the saved reason again.
+                pause_reason = str(item.state.get("reason") or "service_restart")
+            if item.backend.journal.exists() and not pause_reason:
+                pause_reason = "service_restart"
                 await asyncio.to_thread(
-                    (item.backend.state_dir / "suspended").write_text, "service_restart\n"
+                    suspended.write_text, pause_reason + "\n"
                 )
-                item.state["reason"] = "service_restart"
             try:
                 await item.backend.recover()
             except (OSError, ValueError) as exc:
@@ -482,9 +500,12 @@ class MaskSupervisor:
                     "id": identity,
                     "state": "recovery_failed",
                     "error": str(exc),
-                    "reason": "service_restart",
+                    "reason": pause_reason or "service_restart",
                 }
                 continue
+            if pause_reason:
+                await asyncio.to_thread(suspended.write_text, pause_reason + "\n")
+                item.state["reason"] = pause_reason
 
     def status(self) -> JsonObject:
         return {
@@ -709,4 +730,3 @@ class MaskSupervisor:
                 await self.monitor_once()
             except Exception:
                 log.exception("Hardware recovery monitor will retry")
-

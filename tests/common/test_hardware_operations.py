@@ -14,6 +14,24 @@ TOKEN = "a" * 32
 
 
 @pytest.mark.asyncio
+async def test_service_cleanup_stops_jobs_before_restoring_permissions(monkeypatch):
+    calls = []
+
+    async def stop(*args, **kwargs):
+        assert args == ("systemctl", "stop", "keymasq-hardware@*.service")
+        calls.append("stopped")
+
+    async def restore():
+        assert calls == ["stopped"]
+        calls.append("restored")
+
+    monkeypatch.setattr(operations, "run_host", stop)
+    monkeypatch.setattr(operations, "recover_all", restore)
+    await operations.recover_hardware()
+    assert calls == ["stopped", "restored"]
+
+
+@pytest.mark.asyncio
 async def test_privileged_job_preserves_the_blocking_application(tmp_path, monkeypatch):
     directory = tmp_path / "requests"
     monkeypatch.setattr(client, "REQUESTS", directory)

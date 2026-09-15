@@ -1,98 +1,97 @@
 #!/usr/bin/env bash
-# Run the worktree daemon in the foreground; only hardware jobs use systemd.
 set -euo pipefail
+
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${SCRIPT_PATH}")/.." && pwd)}"
-if [[ "${1:-}" == --root ]]; then
-  [[ "${EUID}" -eq 0 && $# -ge 4 ]] || exit 2
-  source_root="$2"
-  python_executable="$3"
-  tool_path="$4"
-  shift 4
-  export PATH="${tool_path}"
-  exec 9>/run/keymasq-dev.lock
-  flock -n 9 || { echo "Another development daemon launcher is still running." >&2; exit 1; }
-  stage_root="$(mktemp -d /run/keymasq-dev-source.XXXXXX)"
-  declare -a changed_paths=()
-  cleanup() {
-    local result=$? path index
-    trap - EXIT
-    trap '' INT TERM
-    if [[ -x "$stage_root/run-record" ]]; then
-      systemctl stop 'keymasq-hardware@*.service' || result=1
-      "$stage_root/run-record" recover-hardware || result=1
-    fi
-    for ((index=${#changed_paths[@]}-1; index>=0; index--)); do
-      path="${changed_paths[index]}"
-      rm -f -- "$path"
-      if [[ -e "$stage_root/backup/$index" || -L "$stage_root/backup/$index" ]]; then
-        cp -a -- "$stage_root/backup/$index" "$path" || result=1
-      fi
-    done
-    systemctl daemon-reload || result=1
-    rm -rf -- "$stage_root"
-    exit "$result"
-  }
-  trap cleanup EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  install -d "$stage_root/backup"
-  for path in \
-    /run/systemd/system.control/keymasq-hardware@.service \
-    /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf \
-    /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules; do
-    if [[ -e "$path" || -L "$path" ]]; then
-      cp -a -- "$path" "$stage_root/backup/${#changed_paths[@]}"
-    fi
-    changed_paths+=("$path")
-  done
-  # An outgoing daemon's late hardware request must not cancel this stop.
-  systemctl stop --job-mode=replace-irreversibly keymasqd.service
-  # Do not overwrite the targets of pre-existing configuration symlinks.
-  rm -f -- "${changed_paths[@]}"
-  install -d -m 0755 -o root -g root "$stage_root"
-  cp -R "$source_root/keymasq" "$stage_root/keymasq"
-  chown -R root:root "$stage_root/keymasq"
-  chmod -R go-w "$stage_root/keymasq"
-  {
-    printf '#!%s\n' "$(command -v bash)"
-    printf 'export PYTHONPATH=%q\n' "$stage_root"
-    printf 'export PATH=%q\n' "$tool_path"
-    printf 'exec %q -P -m keymasq.record "$@"\n' "$python_executable"
-  } > "$stage_root/run-record"
-  chmod 0755 "$stage_root/run-record"
-  install -d /run/systemd/system.control /run/systemd/system/keymasq-hardware@.service.d
-  # Foreground development has no parent service. The EXIT trap handles cleanup.
-  sed '/^BindsTo=/d; /^After=/d' "$source_root/systemd/keymasq-hardware@.service" \
-    > /run/systemd/system.control/keymasq-hardware@.service
-  cat > /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf <<UNIT
-[Service]
-ExecStart=
-ExecStart=$stage_root/run-record hardware-operation %i
-UNIT
-  install -Dm644 "$source_root/polkit/49-keymasq-hardware.rules" /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules
-  systemctl daemon-reload
-  "$stage_root/run-record" recover-hardware
-  install -d -m 0755 -o keymasq -g keymasq /run/keymasq
-  install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
-  # Match the installed daemon's account and sole capability, without a service
-  # or watchdog. Ctrl+C returns here and restores hardware access.
-  env -u WATCHDOG_USEC -u WATCHDOG_PID -u NOTIFY_SOCKET \
-    HOME=/var/lib/keymasq PYTHONPATH="$stage_root" \
-    setpriv --reuid=keymasq --regid=keymasq --init-groups \
-    --bounding-set=-all,+dac_override --inh-caps=+dac_override --ambient-caps=+dac_override \
-    "$python_executable" -P -m keymasq.keymasqd "$@"
-  exit 0
+
+if [[ ! -f "${REPO_ROOT}/flake.nix" ]]; then
+  echo "flake.nix not found under: ${REPO_ROOT}" >&2
+  exit 1
 fi
+
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
-  exec nix develop "$REPO_ROOT" -c "$SCRIPT_PATH" "$@"
+  exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
-source "$REPO_ROOT/scripts/dev-shell-env.sh"
+
+source "${REPO_ROOT}/scripts/dev-shell-env.sh"
 normalize_dev_shell_for_pkexec
+
+host_command() {
+  # Match optional NixOS sudo rules even when the worktree's Nix shell uses
+  # another nixpkgs pin. Other hosts keep using their normal PATH commands.
+  local name="$1"
+  if [[ -x "/run/current-system/sw/bin/${name}" ]]; then
+    printf '/run/current-system/sw/bin/%s\n' "${name}"
+  else
+    command -v "${name}"
+  fi
+}
+
 if [[ -x /run/wrappers/bin/sudo ]]; then
-  sudo_command=/run/wrappers/bin/sudo
+  SUDO_COMMAND=/run/wrappers/bin/sudo
 else
-  sudo_command="$(command -v sudo)"
+  SUDO_COMMAND="$(command -v sudo)"
 fi
-exec "$sudo_command" "$(command -v bash)" "$SCRIPT_PATH" --root \
-  "$REPO_ROOT" "$(command -v python)" "$PATH" "$@"
+SYSTEMCTL_COMMAND="$(host_command systemctl || true)"
+INSTALL_COMMAND="$(host_command install)"
+ENV_COMMAND="$(host_command env)"
+
+# Normal sudo uses a matching NOPASSWD rule automatically, and otherwise
+# authenticates as usual. Do not retry executed commands on failure: a daemon
+# exit is not an indication that passwordless authorization was unavailable.
+stop_installed_daemon_service() {
+  if [[ -z "${SYSTEMCTL_COMMAND}" ]]; then
+    return
+  fi
+
+  if ! "${SYSTEMCTL_COMMAND}" is-active --quiet keymasqd.service; then
+    return
+  fi
+
+  if [[ "${EUID}" -eq 0 ]]; then
+    "${SYSTEMCTL_COMMAND}" stop keymasqd.service
+  else
+    "${SUDO_COMMAND}" "${SYSTEMCTL_COMMAND}" stop keymasqd.service
+  fi
+}
+
+prepare_runtime_dirs() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    "${INSTALL_COMMAND}" -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    "${INSTALL_COMMAND}" -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+  else
+    "${SUDO_COMMAND}" "${INSTALL_COMMAND}" -d -m 0755 -o keymasq -g keymasq /run/keymasq
+    "${SUDO_COMMAND}" "${INSTALL_COMMAND}" -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
+  fi
+}
+
+stage_source_checkout() {
+  local repo_id
+  local stage_root
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    repo_id="$(printf '%s' "${REPO_ROOT}" | sha256sum | cut -c1-12)"
+  else
+    repo_id="$(printf '%s' "${REPO_ROOT}" | cksum | awk '{print $1}')"
+  fi
+
+  stage_root="/tmp/keymasq-dev-keymasqd-${USER:-$(id -un)}-${repo_id}"
+  rm -rf "${stage_root}"
+  mkdir -p "${stage_root}"
+  chmod 0755 "${stage_root}"
+  cp -R "${REPO_ROOT}/keymasq" "${stage_root}/"
+
+  printf '%s\n' "${stage_root}"
+}
+
+STAGED_PYTHONPATH="$(stage_source_checkout)"
+export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
+
+stop_installed_daemon_service
+prepare_runtime_dirs
+
+exec "${SUDO_COMMAND}" -u keymasq "${ENV_COMMAND}" \
+  HOME=/var/lib/keymasq \
+  PATH="${PATH}" \
+  PYTHONPATH="${PYTHONPATH}" \
+  python -m keymasq.keymasqd "$@"

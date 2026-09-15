@@ -464,8 +464,6 @@
 
             systemd.services."keymasq-hardware@" = {
               description = "Keymasq privileged hardware operation";
-              after = [ "keymasqd.service" ];
-              bindsTo = [ "keymasqd.service" ];
               path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {

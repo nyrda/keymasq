@@ -1,7 +1,5 @@
 [Unit]
 Description=Keymasq privileged hardware operation
-BindsTo=keymasqd.service
-After=keymasqd.service
 
 [Service]
 Type=oneshot

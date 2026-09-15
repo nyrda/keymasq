@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import cast
 
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import DeviceInUseError, LinuxMaskBackend, finish_io, save_json
+from keymasq.masking.backend import (
+    DeviceInUseError,
+    LinuxMaskBackend,
+    finish_io,
+    run_host,
+    save_json,
+)
 
 REQUESTS = Path("/run/keymasq/hardware-requests")
 REQUEST_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -149,9 +155,16 @@ async def recover_all(root: LinuxMaskBackend | None = None) -> None:
             raise OSError("Hardware recovery remains incomplete: " + "; ".join(failures))
 
 
+async def recover_hardware() -> None:
+    # Stop outstanding jobs before taking their undo records. Jobs do not
+    # depend on keymasqd.service: foreground development uses them as well.
+    await run_host("systemctl", "stop", "keymasq-hardware@*.service", timeout=10)
+    await recover_all()
+
+
 def main(operation: str, token: str = "") -> None:
     if os.geteuid() != 0:
         raise PermissionError("Hardware operations require root")
     if "PKEXEC_UID" in os.environ:
         raise PermissionError("Recording authorization does not authorize hardware operations")
-    asyncio.run(run_request(token) if operation == "hardware-operation" else recover_all())
+    asyncio.run(run_request(token) if operation == "hardware-operation" else recover_hardware())

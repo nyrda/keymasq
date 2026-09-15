@@ -262,12 +262,12 @@ configurations, and confirmed masking preferences are preserved.
 
 ## Trying a worktree build
 
-Run `./scripts/dev.sh`. Its daemon launcher requests sudo, stages the checkout in
-`/run/keymasq-dev-source.*`, and runs the daemon in the foreground as `keymasq`.
-The development daemon has no systemd service or watchdog. Only its short-lived
-privileged hardware jobs use a temporary unit. On exit, the launcher restores
-hardware access, restores the previous job unit and Polkit rule, removes its
-staged source, and reloads systemd. This cleanup also runs when setup fails.
+Install the branch's hardware job unit and Polkit rule, then run `./scripts/dev.sh`.
+The existing development launcher runs the daemon in the foreground as `keymasq`,
+using the same sudo commands as before. It installs no service overrides or rules
+and has no watchdog. The installed hardware job unit also supports a foreground
+daemon; starting a job does not start the installed daemon service. A clean
+foreground exit restores hardware access through those jobs.
 
 Open Device masking, turn a device on, and try its controls during the first
 confirmation countdown. Without Keep masking, access restores automatically.
@@ -275,8 +275,8 @@ Daemon logs appear directly in its terminal. Inspect hardware job failures with
 `journalctl -u 'keymasq-hardware@*'`.
 
 After stopping the development workspace, start `keymasqd` to use the installed
-code. Older development launchers left overrides behind. Remove those once
-before switching back to the installed build:
+code. The earlier service-based development experiment left overrides behind.
+Remove those once before using the installed job unit or daemon:
 
 ```sh
 sudo rm -f /run/systemd/system/keymasqd.service.d/90-worktree.conf

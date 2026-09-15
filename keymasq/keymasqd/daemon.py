@@ -177,10 +177,10 @@ class Daemon:
                 await self._watchdog_task
             self._watchdog_task = None
 
-        # ExecStopPost restores root-owned permissions after systemd has stopped
-        # every hardware job. Starting a BindsTo job during shutdown is unsafe.
+        # Foreground daemons also restore access on a clean exit. The installed
+        # service additionally runs privileged cleanup after crashes or hangs.
         await self._run_async_cleanup(
-            "release hardware masks", lambda: self.hardware_masking.close(restore_hardware=False)
+            "restore hardware masks", self.hardware_masking.close
         )
         await self._run_async_cleanup(
             "stop logind sleep coordination",

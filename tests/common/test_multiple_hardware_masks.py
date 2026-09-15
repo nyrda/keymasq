@@ -134,6 +134,8 @@ async def test_wrong_device_token_cannot_confirm_or_restore_another_mask(supervi
 async def test_disconnect_and_trial_expiry_leave_other_masks_running(supervisor):
     clock = [100.0]
     supervisor.clock = lambda: clock[0]
+    # Renew the lease in the fake clock's time domain, independent of host uptime.
+    await supervisor.request({"command": "heartbeat"})
     first, second, third = supervisor.backend.inventory.scan()
     await start(supervisor, first)
     await start(supervisor, second)

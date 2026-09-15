@@ -2,6 +2,15 @@ from keymasq.session.hardware import HardwareManager
 
 
 class TestHardwareManager:
+    def test_masking_associations_survive_reload(self, temp_config_dir, sample_hardware_config):
+        sample_hardware_config.masking_devices = ["a" * 24, "b" * 24]
+        manager = HardwareManager()
+        manager.save_hardware(sample_hardware_config)
+        manager.reload()
+        loaded = manager.get_hardware(sample_hardware_config.hardware_id)
+        assert loaded is not None
+        assert loaded.masking_devices == ["a" * 24, "b" * 24]
+
     def test_save_and_load_hardware(self, temp_config_dir, sample_hardware_config):
         manager = HardwareManager()
         manager.save_hardware(sample_hardware_config)

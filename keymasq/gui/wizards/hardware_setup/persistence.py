@@ -18,8 +18,25 @@ class PersistenceMixin:
     def _persist_config(self: Any, config: HardwareConfig) -> None:
         if self._template_state.current == "gamepad":
             config.default_output = self.controller_output.output_id
+        masking = getattr(self, "masking", None)
+        if masking is not None:
+            config.masking_devices = sorted(masking.identities or ())
         self.hardware_manager.save_hardware(config)
+        self._hardware_saved = True
         self.emit("device-created", config)
+        if masking is not None and masking.choices:
+            self.back_btn.set_visible(False)
+            self.next_btn.set_label("Done")
+            self.mode_row.set_sensitive(False)
+            self.controller_output.set_sensitive(False)
+            self.describe_title.set_label("Hardware saved")
+            self.describe_subtitle.set_label("Check masking below before closing.")
+            masking._devices.set_tooltip_text(
+                "Hide the original device from apps while Keymasq remaps it. "
+                "Shared receivers are masked together."
+            )
+            masking.apply_choices()
+            return
         self.close()
 
     def _save_custom_config(self: Any) -> None:

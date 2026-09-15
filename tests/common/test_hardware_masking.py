@@ -6,7 +6,7 @@ import pytest
 
 from keymasq.masking.backend import LinuxMaskBackend, finish_io
 from keymasq.masking.inventory import Attachment, HardwareInventory
-from keymasq.masking.service import LEASE_SECONDS, TRIAL_SECONDS, MaskSupervisor
+from keymasq.masking.service import LEASE_SECONDS, TRIAL_SECONDS, MaskReservation
 
 
 def write(path: Path, text: str) -> None:
@@ -93,9 +93,9 @@ def test_rules_reserve_only_the_selected_connection(tmp_path: Path) -> None:
     matches = backend.rule_matches(inventory.scan()[0])
     assert all('idVendor}=="28de"' in match for match in matches)
     assert all('idProduct}=="1205"' in match for match in matches)
-    assert all('devnum}=="7"' in match for match in matches)
-    assert "ATTRS{devnum}" in matches[0]
-    assert "ATTR{devnum}" in matches[1]
+    assert not any("devnum" in match for match in matches)
+    assert "ATTRS{serial}" in matches[0]
+    assert "ATTR{serial}" in matches[1]
 
 
 def test_scope_check_ignores_the_same_controllers_proxy_and_auxiliary_interfaces(
@@ -130,15 +130,22 @@ class FakeBackend(LinuxMaskBackend):
             raise OSError("udev failed")
         return ["/dev/input/event5"]
 
-    async def recover(self) -> None:
+    async def install_rules(self, attachment: Attachment) -> None:
+        self.early.write_text("\n".join(self.rule_matches(attachment)))
+        self.late.write_text("reserved")
+
+    async def recover(self, *, keep_rules: bool = False) -> None:
         self.recoveries += 1
         if self.fail_recovery:
             self.fail_recovery = False
             raise OSError("temporary restoration failure")
         self.journal.unlink(missing_ok=True)
+        if not keep_rules:
+            self.early.unlink(missing_ok=True)
+            self.late.unlink(missing_ok=True)
 
 
-async def begin(supervisor: MaskSupervisor) -> dict[str, object]:
+async def begin(supervisor: MaskReservation) -> dict[str, object]:
     await supervisor.request({"command": "startup", "uid": 1000})
     deck = supervisor.backend.inventory.scan()[0]
     result = await supervisor.request(
@@ -146,6 +153,7 @@ async def begin(supervisor: MaskSupervisor) -> dict[str, object]:
     )
     assert result["state"] == "applying"
     assert supervisor.apply_task is not None
+    await supervisor.request({"command": "quiesced", "token": result["token"]})
     await supervisor.apply_task
     return result
 
@@ -153,7 +161,7 @@ async def begin(supervisor: MaskSupervisor) -> dict[str, object]:
 @pytest.mark.asyncio
 async def test_keep_requires_ready_output_and_explicit_live_trial(tmp_path: Path) -> None:
     clock = [100.0]
-    supervisor = MaskSupervisor(FakeBackend(tmp_path), lambda: clock[0])
+    supervisor = MaskReservation(FakeBackend(tmp_path), lambda: clock[0])
     result = await begin(supervisor)
     token = result["token"]
     with pytest.raises(ValueError, match="not ready"):
@@ -173,7 +181,7 @@ async def test_keep_requires_ready_output_and_explicit_live_trial(tmp_path: Path
 async def test_expired_confirmation_restores_and_latches_suspension(tmp_path: Path) -> None:
     clock = [100.0]
     backend = FakeBackend(tmp_path)
-    supervisor = MaskSupervisor(backend, lambda: clock[0])
+    supervisor = MaskReservation(backend, lambda: clock[0])
     result = await begin(supervisor)
     await supervisor.request({"command": "ready", "token": result["token"]})
     clock[0] += TRIAL_SECONDS
@@ -194,7 +202,7 @@ async def test_expired_confirmation_restores_and_latches_suspension(tmp_path: Pa
 async def test_missing_daemon_heartbeat_restores_a_confirmed_mask(tmp_path: Path) -> None:
     clock = [100.0]
     backend = FakeBackend(tmp_path)
-    supervisor = MaskSupervisor(backend, lambda: clock[0])
+    supervisor = MaskReservation(backend, lambda: clock[0])
     result = await begin(supervisor)
     await supervisor.request({"command": "ready", "token": result["token"]})
     await supervisor.request({"command": "keep", "token": result["token"]})
@@ -207,7 +215,7 @@ async def test_missing_daemon_heartbeat_restores_a_confirmed_mask(tmp_path: Path
 @pytest.mark.asyncio
 async def test_reconnect_ends_the_reservation_without_remasking(tmp_path: Path) -> None:
     backend = FakeBackend(tmp_path)
-    supervisor = MaskSupervisor(backend)
+    supervisor = MaskReservation(backend)
     await begin(supervisor)
     attachment = backend.inventory.scan()[0]
     (attachment.syspath / "devnum").write_text("8")
@@ -219,7 +227,7 @@ async def test_reconnect_ends_the_reservation_without_remasking(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_old_keep_request_cannot_confirm_a_new_trial(tmp_path: Path) -> None:
-    supervisor = MaskSupervisor(FakeBackend(tmp_path))
+    supervisor = MaskReservation(FakeBackend(tmp_path))
     old = await begin(supervisor)
     await supervisor.request({"command": "restore"})
     new = await begin(supervisor)
@@ -234,7 +242,7 @@ async def test_failed_activation_and_recovery_remain_recoverable(tmp_path: Path)
     backend = FakeBackend(tmp_path)
     backend.fail_activation = True
     backend.fail_recovery = True
-    supervisor = MaskSupervisor(backend)
+    supervisor = MaskReservation(backend)
     await begin(supervisor)
     with pytest.raises(OSError, match="restoration failure"):
         await supervisor.monitor_once()
@@ -270,3 +278,60 @@ async def test_cancellation_waits_for_pending_mutation_before_recovery(tmp_path:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert journal == ["mutation finished", "restored"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cause", ["disconnect", "endpoint", "scope", "trial_expired", "unresponsive"]
+)
+async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch, cause):
+    from unittest.mock import Mock
+
+    from keymasq.masking import service
+
+    clock = [100.0]
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend, lambda: clock[0])
+    await begin(supervisor)
+    supervisor.owner_pidfd = 123
+    kill = Mock()
+    monkeypatch.setattr(service.signal, "pidfd_send_signal", kill)
+    if cause == "disconnect":
+        (backend.inventory.scan()[0].syspath / "devnum").write_text("8")
+    elif cause == "endpoint":
+        (backend.inventory.dev_root / "hidraw3").unlink()
+    elif cause == "scope":
+        monkeypatch.setattr(backend, "other_steam_controllers", lambda _: ["other"])
+    elif cause == "trial_expired":
+        clock[0] += TRIAL_SECONDS
+        await supervisor.request({"command": "heartbeat"})
+    else:
+        clock[0] += LEASE_SECONDS + 1
+    await supervisor.monitor_once()
+    assert backend.recoveries == 1
+    assert supervisor.state["state"] == "restored"
+    if cause == "unresponsive":
+        kill.assert_called_once_with(123, service.signal.SIGKILL)
+    else:
+        kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_repair_retry_preserves_reason_and_does_not_kill_daemon(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from keymasq.masking import service
+
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend)
+    await begin(supervisor)
+    supervisor.owner_pidfd = 123
+    kill = Mock()
+    monkeypatch.setattr(service.signal, "pidfd_send_signal", kill)
+    backend.fail_recovery = True
+    with pytest.raises(OSError, match="restoration failure"):
+        await supervisor.request({"command": "restore", "reason": "replacement_unavailable"})
+    await supervisor.monitor_once()
+    assert supervisor.state["state"] == "restored"
+    assert supervisor.state["reason"] == "replacement_unavailable"
+    kill.assert_not_called()

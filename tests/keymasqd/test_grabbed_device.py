@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import os
 import threading
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device import outputs, repeat
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     grabbed_event_processing_deps,
@@ -44,6 +46,33 @@ async def _wait_for_uinput_events(
             return seen
         await asyncio.sleep(0.01)
     raise AssertionError(f"Timed out waiting for uinput events {sorted(expected - seen)}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ids", [(0x9999, 0x6012), (0x2DC8, 0x310B)])
+@pytest.mark.parametrize("access", [InputAccessMode.EXCLUSIVE, InputAccessMode.OBSERVE])
+async def test_final_open_rejects_wrong_model_without_grabbing_or_starting_outputs(
+    monkeypatch, ids, access
+):
+    physical = MagicMock()
+    physical.info = SimpleNamespace(vendor=ids[0], product=ids[1])
+    monkeypatch.setattr(grabbed_device, "_device_input", lambda _path: physical)
+    device = GrabbedDevice(
+        path="/dev/input/by-id/shared-controller",
+        hardware_id="2dc8:6012@2",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+        access_mode=access,
+        device_type=DeviceType.MOTION if access is InputAccessMode.OBSERVE else DeviceType.GAMEPAD,
+    )
+    with pytest.raises(OSError) as error:
+        await device.grab()
+    assert error.value.errno == errno.ENODEV
+    physical.close.assert_called_once()
+    physical.grab.assert_not_called()
+    assert device.device is None and device.uinput is None
+    assert not device.running
 
 
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
@@ -300,7 +329,7 @@ async def test_mouse_events_continue_during_controller_uinput_io(monkeypatch, ph
 
     source = SimpleNamespace(
         name="controller",
-        info=SimpleNamespace(vendor=None, product=None, version=None, bustype=None),
+        info=SimpleNamespace(vendor=0x2DC8, product=0x6012, version=None, bustype=None),
         capabilities=lambda: {evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]},
         close=MagicMock(),
         grab=MagicMock(),

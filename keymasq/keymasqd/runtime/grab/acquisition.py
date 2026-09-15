@@ -277,10 +277,18 @@ async def grab_one_interface(
     state: GrabAcquisitionState,
     path: str,
 ) -> None:
+    blocked = cast(set[str], getattr(manager, "masking_blocked_attachments", set[str]()))
+    if blocked:
+        from keymasq.keymasqd.hardware_masking import input_attachment_path
+
+        parent = await adapters.ASYNCIO_RUNTIME.to_thread(input_attachment_path, path)
+        if any(parent.is_relative_to(attachment) for attachment in blocked):
+            return
     if path in plan.existing_by_claim_path:
         return
 
     raw_device: Any | None = None
+    counted_available = False
     try:
         probe_device, caps = await adapters.ASYNCIO_RUNTIME.to_thread(
             probe_interface_device_sync,
@@ -288,7 +296,17 @@ async def grab_one_interface(
             path,
         )
         raw_device = probe_device
+        if not device_path_resolver.device_matches_hardware_model(
+            probe_device, request.hardware_id
+        ):
+            log.info(
+                "Skipping device with different vendor/product IDs for %s: %s",
+                request.hardware_id,
+                path,
+            )
+            return
         state.available_count += 1
+        counted_available = True
         resolved_interface = plan.resolved_by_claim_path.get(path)
         interface_id = str(
             (resolved_interface.interface_id if resolved_interface is not None else "")
@@ -354,6 +372,8 @@ async def grab_one_interface(
             adapters.close_device(raw_device)
             raw_device = None
         if exc.errno in {deps.errno_mod.ENOENT, deps.errno_mod.ENODEV}:
+            if counted_available:
+                state.available_count -= 1
             log.info(
                 "Skipping unavailable interface for %s: %s",
                 request.hardware_id,

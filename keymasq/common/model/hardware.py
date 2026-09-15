@@ -78,6 +78,7 @@ class HardwareConfig:
     id: str | None = None
     input_sources: list[NativeInputSource] = field(default_factory=list)
     default_output: str = "passthrough"
+    masking_devices: list[str] = field(default_factory=list)
 
     @property
     def hardware_id(self) -> str:

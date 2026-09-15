@@ -160,7 +160,7 @@ def detect_devices_via_session(
             path=path,
             config_path=config_path,
         )
-        configured_hardware_id = configured_identity_hardware_ids.get(identity_key, "")
+        configured_hardware_id = configured_identity_hardware_ids.get((vid_pid, identity_key), "")
         if not show_raw_evdev_devices and configured_hardware_id:
             continue
         source_fields = interface_source_fields(dev)

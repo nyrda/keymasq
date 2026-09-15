@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import logging
 import os
 import time
@@ -25,7 +26,7 @@ from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import adapters, force_feedback, source_hiding
+from keymasq.keymasqd.runtime import adapters, device_path_resolver, force_feedback, source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
@@ -779,6 +780,12 @@ class GrabbedDevice:
             if self.path.startswith(SOURCE_PREFIX)
             else _device_input(self.path)
         )
+        if not device_path_resolver.device_matches_hardware_model(self.device, self.hardware_id):
+            adapters.close_device(self.device)
+            self.device = None
+            raise OSError(
+                errno.ENODEV, "Input device vendor/product IDs do not match configuration"
+            )
         self.state.analog_fuzz_releasing = False
         initialize_motion_state(self, self.mapping_getter())
 

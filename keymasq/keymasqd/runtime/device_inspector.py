@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import evdev
+
 from keymasq.common.types import JsonObject
+
+INSPECTOR_UPDATE_INTERVAL_S = 1 / 60
 
 
 def normalize_hardware_id(hardware_id: str) -> str:
@@ -36,10 +42,61 @@ class DeviceInspectorState:
     active_hardware_ids: set[str] = field(default_factory=set)
     suppressed_hardware_ids: set[str] = field(default_factory=set)
     event_sequence: int = 0
+    _pending_axes: dict[tuple[str, str, str, str], JsonObject] = field(default_factory=dict)
+    _flush_handle: asyncio.TimerHandle | None = None
 
     def reset(self) -> None:
+        self._cancel_flush()
+        self._pending_axes.clear()
         self.active_hardware_ids.clear()
         self.suppressed_hardware_ids.clear()
+
+    def queue_event(self, payload: JsonObject, emit: Callable[[JsonObject], None]) -> None:
+        hardware_id = str(payload.get("hardware_id", ""))
+        if not self.is_active(hardware_id):
+            return
+        event_type, code = payload.get("type"), payload.get("code")
+        if (
+            event_type == evdev.ecodes.EV_ABS
+            and isinstance(code, int)
+            and code < evdev.ecodes.ABS_MT_SLOT
+        ) or (
+            event_type == evdev.ecodes.EV_SYN and code == evdev.ecodes.SYN_REPORT
+        ):
+            key = (hardware_id, str(payload.get("path", "")), str(event_type), str(code))
+            # Retain the last value in arrival order, including the frame boundary.
+            self._pending_axes.pop(key, None)
+            self._pending_axes[key] = payload
+            if self._flush_handle is None:
+                self._flush_handle = asyncio.get_running_loop().call_later(
+                    INSPECTOR_UPDATE_INTERVAL_S, self.flush_events, emit
+                )
+            return
+
+        # Preserve button edges, relative movement, and exceptional SYN reports.
+        # Flush preceding axis values so their order relative to these is retained.
+        source = (hardware_id, str(payload.get("path", "")))
+        for key in list(self._pending_axes):
+            if key[:2] == source:
+                self._emit_event(self._pending_axes.pop(key), emit)
+        self._emit_event(payload, emit)
+
+    def flush_events(self, emit: Callable[[JsonObject], None]) -> None:
+        self._cancel_flush()
+        pending = list(self._pending_axes.values())
+        self._pending_axes.clear()
+        for payload in pending:
+            self._emit_event(payload, emit)
+
+    def _emit_event(self, payload: JsonObject, emit: Callable[[JsonObject], None]) -> None:
+        event_payload = self.event_payload(payload)
+        if event_payload is not None:
+            emit(event_payload)
+
+    def _cancel_flush(self) -> None:
+        if self._flush_handle is not None:
+            self._flush_handle.cancel()
+            self._flush_handle = None
 
     def is_active(self, hardware_id: str) -> bool:
         return str(hardware_id or "").strip() in self.active_hardware_ids
@@ -73,6 +130,11 @@ class DeviceInspectorState:
 
     def stop(self, hardware_id: str) -> InspectorTransition:
         normalized = normalize_hardware_id(hardware_id)
+        self._pending_axes = {
+            key: payload for key, payload in self._pending_axes.items() if key[0] != normalized
+        }
+        if not self._pending_axes:
+            self._cancel_flush()
         reset_runtime = normalized in self.suppressed_hardware_ids
         self.suppressed_hardware_ids.discard(normalized)
         self.active_hardware_ids.discard(normalized)

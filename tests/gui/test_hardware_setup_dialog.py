@@ -18,6 +18,72 @@ def _configured_hardware_manager(*configs: HardwareConfig) -> HardwareManager:
 
 
 class TestHardwareSetupDialog:
+    @pytest.mark.parametrize("show_raw", [False, True])
+    def test_shared_path_with_different_model_can_be_configured_separately(
+        self, monkeypatch, show_raw
+    ):
+        from keymasq.common.model.core import DeviceType
+        from keymasq.gui.wizards.hardware_setup import discovery
+
+        path = "/dev/input/by-id/usb-Controller_Serial-event-joystick"
+        first = HardwareConfig(
+            vendor_id="1234",
+            product_id="1001",
+            name="First mode",
+            evdev_devices=[EvdevDevice(path=path, device_type=DeviceType.GAMEPAD)],
+            buttons=[],
+        )
+        second = HardwareConfig(
+            vendor_id="1234",
+            product_id="1002",
+            name="Second mode",
+            evdev_devices=[EvdevDevice(path=path, device_type=DeviceType.GAMEPAD)],
+            buttons=[],
+        )
+        manager = _configured_hardware_manager(first)
+        monkeypatch.setattr(
+            discovery,
+            "session_request",
+            lambda *_args, **_kwargs: {
+                "status": "ok",
+                "devices": [
+                    {
+                        "path": "/dev/input/event21",
+                        "stable_path": path,
+                        "name": "Controller",
+                        "vendor_id": "1234",
+                        "product_id": "1002",
+                        "device_type": "gamepad",
+                        "device_types": ["gamepad"],
+                    }
+                ],
+            },
+        )
+        detected = {}
+        assert discovery.detect_devices_via_session(
+            detected,
+            hardware_manager=manager,
+            show_raw_evdev_devices=show_raw,
+        )
+        assert len(detected) == 1
+        assert all(not row.get("configured_hardware_id") for row in detected.values())
+        manager.save_hardware(second)
+        assert set(manager.list_hardware_ids()) == {"1234:1001", "1234:1002"}
+        detected.clear()
+        discovery.detect_devices_via_session(
+            detected,
+            hardware_manager=manager,
+            show_raw_evdev_devices=show_raw,
+        )
+        if show_raw:
+            assert all(
+                interface["configured_hardware_id"] == "1234:1002"
+                for row in detected.values()
+                for interface in row["interfaces"]
+            )
+        else:
+            assert not detected
+
     def test_hardware_setup_uses_inline_adw_dialog(self, monkeypatch):
         gi.require_version("Adw", "1")
         gi.require_version("Gtk", "4.0")
@@ -752,7 +818,7 @@ class TestHardwareSetupDialog:
 
         keys = inventory.configured_identity_hardware_ids(_configured_hardware_manager(configured))
 
-        assert keys["by-id:usb-Test_Mouse"] == "1234:5678"
+        assert keys[("1234:5678", "by-id:usb-Test_Mouse")] == "1234:5678"
 
     def test_normal_rows_show_interface_expander_and_raw_rows_use_summary(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -1425,9 +1491,7 @@ class TestHardwareSetupDialog:
         assert dialog._detect_devices_via_session(detected_devices) is False
         assert detected_devices == {}
 
-    def test_detect_devices_via_session_numbers_gamepads_before_motion_siblings(
-        self, monkeypatch
-    ):
+    def test_detect_devices_via_session_numbers_gamepads_before_motion_siblings(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
 

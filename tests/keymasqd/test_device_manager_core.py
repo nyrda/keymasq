@@ -34,6 +34,28 @@ from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_devic
 
 
 @pytest.mark.asyncio
+async def test_device_replaced_between_probe_and_final_open_waits_for_matching_model(monkeypatch):
+    from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_module
+    from tests.keymasqd.test_device_path_resolver import _FakeDevice
+
+    path = "/dev/input/by-id/shared-controller-event-joystick"
+    correct = _FakeDevice(path, product=0x6012)
+    replacement = _FakeDevice(path, product=0x310B)
+    manager = DeviceManager()
+    monkeypatch.setattr(manager, "_device_input", lambda _path: correct)
+    monkeypatch.setattr(grabbed_module, "_device_input", lambda _path: replacement)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
+    result = await manager.grab_device(
+        "2dc8:6012", [path], {"btn_south": "btn_south"}, force_grab_unmapped=True
+    )
+    assert result["waiting_for_device"] is True
+    assert not manager.grabbed_devices.get("2dc8:6012")
+    assert replacement.close_count == 1
+    assert manager.grab_state.desired_paths["2dc8:6012"] == {path}
+
+
+@pytest.mark.asyncio
 async def test_set_cursor_position_emits_absolute_mouse_move() -> None:
     manager = DeviceManager()
     mouse = FakeUInput()
@@ -1237,9 +1259,11 @@ class TestDeviceManager:
         ]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("wrong_model", ["9999:3106", "2dc8:9999"])
     async def test_grab_device_honors_explicit_gamepad_path(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        wrong_model: str,
     ) -> None:
         manager = DeviceManager()
         explicit_path = "/dev/input/by-id/test-pad-if02-event-joystick"
@@ -1297,6 +1321,18 @@ class TestDeviceManager:
             disable_hotplug_hiding,
         )
         manager._device_input = lambda path: _InputDevice(path)  # type: ignore[method-assign]
+
+        wrong = await manager.grab_device(
+            hardware_id=wrong_model,
+            evdev_paths=[explicit_path],
+            button_map={"btn_south": "btn_south"},
+            force_grab_unmapped=True,
+        )
+        assert wrong["waiting_for_device"] is True
+        assert wrong["grabbed_count"] == 0
+        assert not manager.grabbed_devices.get(wrong_model)
+        assert manager.grab_state.desired_paths[wrong_model] == {explicit_path}
+        disable_hotplug_hiding.reset_mock()
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -2041,6 +2077,8 @@ class TestDeviceManager:
         manager = DeviceManager()
 
         class _InputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self, path: str) -> None:
                 self.path = path
 
@@ -2375,6 +2413,10 @@ class TestDeviceDetection:
 
 
 class TestListDevices:
+    @pytest.fixture(autouse=True)
+    def no_native_sources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(device_manager.native_discovery, "discover_bindings", lambda: [])
+
     def test_list_devices_closes_devices_after_metadata_scan(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -2769,9 +2811,7 @@ class TestListDevices:
         monkeypatch.setattr(topology, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with pytest.raises(asyncio.CancelledError):
-            await topology.topology_watch_loop(
-                manager, log=device_manager.log, deps=deps
-            )
+            await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
 
         schedule_topology_reconcile.assert_called_once_with(
             manager,
@@ -2821,9 +2861,7 @@ class TestListDevices:
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
             with pytest.raises(asyncio.CancelledError):
-                await topology.topology_watch_loop(
-                    manager, log=device_manager.log, deps=deps
-                )
+                await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
 
         assert "Topology scan failed: scan boom" in caplog.text
         schedule_topology_reconcile.assert_called_once_with(

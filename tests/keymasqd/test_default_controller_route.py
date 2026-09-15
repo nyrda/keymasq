@@ -269,7 +269,7 @@ async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch
         await asyncio.Event().wait()
         yield evdev.InputEvent(0, 0, E.EV_SYN, E.SYN_REPORT, 0)
 
-    physical = Mock()
+    physical = Mock(info=SimpleNamespace(vendor=0x1234, product=0x5678))
     physical.capabilities.return_value = {
         E.EV_KEY: [E.BTN_SOUTH],
         E.EV_ABS: [(E.ABS_X, evdev.AbsInfo(0, 0, 255, 0, 0, 0))],

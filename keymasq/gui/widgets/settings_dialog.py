@@ -79,8 +79,8 @@ class SettingsDialog(Adw.Dialog):
 
         hardware_group = Adw.PreferencesGroup(title="Hardware")
         page.add(hardware_group)
-        masking_row = Adw.ActionRow(title="Hardware masking")
-        masking_row.set_subtitle("Reserve attached controllers, including devices in use by Steam")
+        masking_row = Adw.ActionRow(title="Device masking")
+        masking_row.set_subtitle("Stop apps reading devices directly while Keymasq remaps them")
         masking_button = Gtk.Button(label="Manage")
         masking_button.set_valign(Gtk.Align.CENTER)
         masking_button.connect("clicked", self._on_hardware_masking_clicked)

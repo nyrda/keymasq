@@ -430,27 +430,54 @@ one connection from the dedicated `keymasq` account through
 `/run/keymasq-masking/socket`, mode `0660`, with `SO_PEERCRED` checks.
 Root connections can only request recovery. The session and input daemon
 apply the existing unlock policy to Mask, Keep, Resume and startup preference
-changes; recovery remains
+changes. Turning masking off, including its saved startup choice, remains
 available after unlock expires. No separate Polkit action is added.
 
 Keep saves the confirmed hardware identity and startup preference in root-owned
 state, bound to the desktop UID obtained from the daemon client's credentials.
 This authorizes automatic takeover for that user's subsequent sessions without
 another unlock. GUI-supplied UIDs cannot select the owner. Automatic takeover
-still requires a working replacement within the acquisition deadline. Recovery
-pauses automatic masking across reboots; normal shutdown preserves the saved
-preference for the next session.
+still requires a working replacement within the acquisition deadline. After
+completed runtime failure recovery, the authenticated daemon retries remapping
+with increasing delays. Explicit user or administrative stops and unconfirmed
+manual trial expiry stay paused across reboots. Normal shutdown preserves the
+saved preference for the next session.
 
-The companion owns temporary udev rules, permission snapshots, a rollback
-journal, trial deadlines and the daemon lease. Its bounded capabilities allow
+Each attachment owns separate temporary udev rules, permission snapshots, a
+rollback journal, a trial deadline, and a saved startup preference. Operations
+address its attachment identity and trial token; a token for one attachment cannot
+confirm or restore another. There is no fixed reservation count limit. Per-device
+restore and manual trial expiry leave other masks and remapping running.
+Turning a mask off also disables its saved startup choice. **Unmask all devices**
+turns off every mask without pausing remapping. Administrative recovery pauses all
+remapping. Previously confirmed hardware can be enabled again without another
+confirmation, including while unplugged; that operation still requires the
+authenticated owner and the existing unlock policy. The companion owns the
+shared daemon lease and restores all active masks when that owner is lost.
+Confirmed USB masks retain their access rules across unplugging, including while
+no input reader exists. These armed offline rules are covered by the same owner
+lease and administrative recovery. Rules match the selected USB port and model,
+plus the serial when present; connection generations only guard transactions.
+USB takeover may disconnect the individual device through its port's sysfs
+control to invalidate existing usbfs handles. The helper records the port's path
+and filesystem identity before disabling it and re-enables it on cancellation
+or recovery. It rejects hub targets and ganged power switching, and does not
+cycle a parent hub. The USB hub descriptor query is read-only.
+Its bounded capabilities allow
 root-owned device and sysfs access, ownership and ACL restoration, termination
-of an unresponsive owning daemon, and inspection of `/proc/*/fd` links to
+of an unresponsive owning daemon, and inspection of `/proc/*/fd` device identities to
 detect raw handles the supported rebind cannot revoke. It does not inspect
 input content. Its writable filesystem state includes `/run` and its own
 persistent state directory. Recovery needs the current `/run/keymasq` after
 daemon restarts, which can replace that directory; a bind mount of the old
 directory cannot restore the new source-hiding markers. Netlink access lets
 `udevadm` wait for device policy updates.
+HID bindings come from the selected physical attachment's sysfs ancestry.
+The client cannot supply driver names or sysfs write paths. The helper journals
+the bindings before mutation, checks ancestry and driver identity again before
+rebinding, and removes access restrictions even if driver repair needs retrying.
+Generic masking has no vendor allowlist. The daemon acknowledges reader release
+before takeover, and the helper retains its independent deadline during that wait.
 `keymasqd` retains its existing capability set. See
 [Hardware masking](HARDWARE_MASKING.md) for scope, default passthrough and
 independent recovery behavior.

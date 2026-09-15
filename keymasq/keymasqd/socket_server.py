@@ -375,12 +375,12 @@ class SocketServer:
         try:
             while True:
                 data = await reader.read(4096)
-                if not data:
+                if not data or writer not in self.clients:
                     break
 
                 self._buffer[writer] += data
 
-                while True:
+                while writer in self.clients:
                     buffered = self._buffer[writer]
                     cmd, remaining = decode_command(buffered)
                     if cmd is None:
@@ -416,6 +416,8 @@ class SocketServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         response = await self._process_command(cmd, context)
+        if writer not in self.clients:
+            return
         writer.write(encode_response(response))
         await asyncio.wait_for(writer.drain(), timeout=self.response_drain_timeout_s)
 

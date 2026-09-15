@@ -621,6 +621,8 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self, path: str) -> None:
                 self.path = path
 
@@ -726,6 +728,8 @@ class TestDeviceManagerHelpers:
     @pytest.mark.asyncio
     async def test_grab_skipped_probe_closes_raw_device(self) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self.close_count = 0
 
@@ -755,6 +759,8 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self.close_count = 0
 

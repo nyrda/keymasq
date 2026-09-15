@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
 normalize_dev_shell_for_pkexec() {
+  # Nix store binaries are not setuid. Prefer NixOS's installed privilege
+  # wrappers so GUI authorization reaches the working pkexec executable.
+  if [[ -x /run/wrappers/bin/pkexec ]]; then
+    export PATH="/run/wrappers/bin:${PATH}"
+  fi
+
   local current_shell="${SHELL:-}"
   local login_shell=""
   local candidate=""

@@ -184,6 +184,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
         self.masked_hardware_paths: dict[str, list[str]] = {}
+        self.mask_reservation_paths: dict[str, list[str]] = {}
+        self.mask_reservation_attachments: dict[str, str] = {}
+        self.masking_blocked_attachments: set[str] = set()
         from keymasq.masking.backend import STATE_DIR as MASK_STATE_DIR
 
         self.masking_suspended = (MASK_STATE_DIR / "suspended").exists()
@@ -506,15 +509,14 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 raise errors[0]
             return {"status": "ok", "neutralized": True}
 
-    def broadcast_hardware_recovery(self) -> None:
+    def broadcast_hardware_recovery(self, *, retrying: bool = False) -> None:
         self._broadcast_runtime_event(
-            CommandType.RUNTIME_RESET, {"reason": "hardware_mask_recovery"}
+            CommandType.RUNTIME_RESET,
+            {"reason": "hardware_mask_recovery", "retrying": retrying},
         )
 
     def broadcast_hardware_mask_ready(self) -> None:
-        self._broadcast_runtime_event(
-            CommandType.RUNTIME_RESET, {"reason": "hardware_mask_ready"}
-        )
+        self._broadcast_runtime_event(CommandType.RUNTIME_RESET, {"reason": "hardware_mask_ready"})
 
     async def emergency_reset(self) -> JsonObject:
         if self.masked_hardware_paths and self.masking_recovery is not None:
@@ -603,9 +605,10 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         return self.device_inspector_state.suppressed_snapshot()
 
     def broadcast_device_inspector_event(self, payload: JsonObject) -> None:
-        event_payload = self.device_inspector_state.event_payload(payload)
-        if event_payload is not None:
-            self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, event_payload)
+        self.device_inspector_state.queue_event(payload, self._emit_device_inspector_event)
+
+    def _emit_device_inspector_event(self, payload: JsonObject) -> None:
+        self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, payload)
 
     def _broadcast_device_inspector_status(self, hardware_id: str, reason: str) -> None:
         self._broadcast_runtime_event(
@@ -772,7 +775,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
 
     def _input_resolver_deps(self) -> device_path_resolver.DevicePathResolverDeps:
         return replace(
-            _device_path_resolver_deps(), device_paths_fn=self._discoverable_input_paths,
+            _device_path_resolver_deps(),
+            device_paths_fn=self._discoverable_input_paths,
             cache=device_path_resolver.DeviceCache() if self.masked_hardware_paths else None,
         )
 

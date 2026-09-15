@@ -151,7 +151,7 @@ async def handle_event(
 ) -> None:
     if manager.verbosity >= 2:
         log.debug("Event: %s -> %s", event_type.value, data)
-    elif manager.verbosity >= 1:
+    elif manager.verbosity >= 1 and event_type != CommandType.DEVICE_INSPECTOR_EVENT:
         log.debug("Event: %s -> %s", event_type.value, event_log_view(data))
 
     if event_type == CommandType.CURSOR_POSITION_REQUEST:
@@ -864,7 +864,8 @@ def handle_macro_playback_cancelled_event(
 
 
 async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject) -> None:
-    device_inspector.clear_all_device_inspector_state(manager)
+    if not data.get("retrying"):
+        device_inspector.clear_all_device_inspector_state(manager)
     manager.broadcast_to_session_clients({"event": "runtime_reset", **data})
     if data.get("reason") == "hardware_mask_ready":
         runtime_state.invalidate_grabbed_state(manager)
@@ -872,10 +873,13 @@ async def handle_runtime_reset_event(manager: "SessionManager", data: JsonObject
         return
     if data.get("reason") == "hardware_mask_recovery":
         runtime_state.invalidate_grabbed_state(manager)
-        manager.profile_state.runtime_profile_activations.clear()
+        if not data.get("retrying"):
+            manager.profile_state.runtime_profile_activations.clear()
         manager.send_notification(
             "Keymasq: Hardware restored",
-            "Remapping is paused. Resume it from Settings > Hardware masking.",
+            "Controller recovery is complete. Remapping will retry automatically."
+            if data.get("retrying")
+            else "Remapping is paused. Resume it from Settings > Hardware masking.",
         )
         return
     manager.send_notification(

@@ -642,6 +642,12 @@ That shell covers source checks and the local current-worktree
 access to the target distro's metadata when dependency names or Python paths
 must be resolved against Fedora or openSUSE.
 
+The GUI development launcher normalizes `SHELL` to an entry in `/etc/shells`
+for polkit authentication. On NixOS, it also puts `/run/wrappers/bin` first in
+`PATH` so GUI unlock uses the installed setuid `pkexec` wrapper. The executable
+in the Nix store cannot elevate privileges itself. Restart the GUI after
+changing the launcher environment.
+
 For Debian package work on Debian or Ubuntu, install:
 
 ```bash

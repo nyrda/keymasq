@@ -13,6 +13,7 @@ from gi.repository import Adw, Gdk, GObject, Gtk  # pyright: ignore[reportAttrib
 from keymasq.common.devices import find_all_interfaces, resolve_stable_path
 from keymasq.gui.session_client import GuiTaskResult, run_gui_task
 from keymasq.gui.widgets.controller_output import ControllerOutputGroup
+from keymasq.gui.widgets.device_masking import DeviceMaskingPanel
 from keymasq.gui.widgets.fuzzy_search import fuzzy_query_matches, install_listbox_fuzzy_filter
 from keymasq.gui.wizards.hardware_setup import templates
 from keymasq.gui.wizards.hardware_setup.flow import DiscoveryMixin
@@ -49,11 +50,13 @@ class HardwareSetupDialog(
         super().__init__()
         self.set_title("Add Event Device" if select_evdev_only else "Add New Device")
         self.set_content_width(500)
-        self.set_content_height(520)
+        self.set_content_height(620)
         if hasattr(self, "set_modal"):
             self.set_modal(True)
 
         self.hardware_manager = hardware_manager
+        self._parent = parent
+        self._hardware_saved = False
         self._raw_evdev_only = raw_evdev_only
         self._select_evdev_only = select_evdev_only
         self._navigation = WizardNavigation(select_evdev_only=select_evdev_only)
@@ -224,6 +227,10 @@ class HardwareSetupDialog(
         self.describe_subtitle.add_css_class("dim-label")
         box.append(self.describe_subtitle)
 
+        self.masking = DeviceMaskingPanel(self._parent, deferred=True)
+        box.append(self.masking)
+        self.connect("closed", self.masking._on_closed)
+
         self.mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_label = Gtk.Label(label="Configure as:")
         mode_label.set_halign(Gtk.Align.START)
@@ -275,6 +282,9 @@ class HardwareSetupDialog(
         self._detect_devices()
 
     def _on_next(self, _button: Gtk.Button) -> None:
+        if self._hardware_saved:
+            self.close()
+            return
         visible_page = self.stack.get_visible_child_name()
         if visible_page not in {"select", "describe"}:
             return
@@ -298,6 +308,21 @@ class HardwareSetupDialog(
                 self._template_state.values.index(self._template_state.current)
             )
             self.describe_title.set_label(f"Configure {selected_device.get('name', 'Device')}")
+            self.masking.set_sources(
+                [
+                    (
+                        str(
+                            iface.get("source_path")
+                            or iface.get("path")
+                            or iface.get("stable_path")
+                            or ""
+                        ),
+                        str(iface.get("phys") or ""),
+                    )
+                    for iface in selected_device.get("interfaces", [])
+                ],
+                hardware_id=str(selected_device.get("hardware_id", "")),
+            )
             self._update_describe_mode_ui()
             self.stack.set_visible_child_name("describe")
             self.back_btn.set_visible(True)

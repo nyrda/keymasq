@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.types import JsonObject
@@ -77,6 +78,14 @@ async def capture(backend: LinuxMaskBackend, attachment: Attachment) -> None:
     )
 
 
+def _write_restore_acl(path: Path, acl: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        # A previous interrupted restore may have left a file with another mode.
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(acl)
+
+
 async def restore(backend: LinuxMaskBackend, attachment: Attachment, journal: JsonObject) -> None:
     if backend.permissions.exists():
         record = json.loads(await finish_io(backend.permissions.read_text))
@@ -99,7 +108,7 @@ async def restore(backend: LinuxMaskBackend, attachment: Attachment, journal: Js
             uid, gid = int(str(baseline["uid"])), int(str(baseline["gid"]))
             acl = str(baseline["acl"])
             await finish_io(os.chown, node, uid, gid)
-            await finish_io(acl_file.write_text, acl)
+            await finish_io(_write_restore_acl, acl_file, acl)
             await run_host("setfacl", f"--set-file={acl_file}", "--", str(node))
             info = await finish_io(node.stat)
             actual_acl = await run_host("getfacl", "-cn", "--", str(node))

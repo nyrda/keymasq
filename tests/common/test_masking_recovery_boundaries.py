@@ -173,6 +173,44 @@ async def permission_backend(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_restore_acl_is_private_before_use_and_removed(
+    permission_backend, monkeypatch, existing, fail
+):
+    backend, attachment, _node = permission_backend
+    acl_file = backend.runtime_dir / "restore.acl"
+    if existing:
+        acl_file.write_text("left by an interrupted restore")
+        acl_file.chmod(0o644)
+    seen = []
+
+    async def host(*args, **kwargs):
+        if args[0] == "udevadm":
+            return "TAGS=:uaccess:\n"
+        if args[0] == "setfacl":
+            seen.append(stat.S_IMODE(acl_file.stat().st_mode))
+            assert seen[-1] == 0o600
+            if fail:
+                raise OSError("setfacl failed")
+        return await run_host(*args, **kwargs)
+
+    monkeypatch.setattr(permissions, "run_host", host)
+    await permissions.capture(backend, attachment)
+    previous = os.umask(0)
+    try:
+        if fail:
+            with pytest.raises(OSError, match="setfacl failed"):
+                await permissions.restore(backend, attachment, {})
+        else:
+            await permissions.restore(backend, attachment, {})
+    finally:
+        os.umask(previous)
+    assert seen == [0o600]
+    assert not acl_file.exists()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("prearmed,no_journal", [(False, False), (True, False), (True, True)])
 async def test_recovery_preserves_static_acl_and_current_seat_grants(
     permission_backend, monkeypatch, prearmed, no_journal

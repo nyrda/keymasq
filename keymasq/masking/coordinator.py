@@ -132,162 +132,188 @@ class MaskReservation:
             return await self._request(message)
 
     async def _request(self, message: JsonObject) -> JsonObject:
+        """Dispatch while operation_lock is held; handlers never acquire it again."""
         command = message.get("command")
-        if command == "startup":
-            uid = message.get("uid")
-            if not isinstance(uid, int) or isinstance(uid, bool) or uid < 0:
-                raise ValueError("An authenticated user ID is required")
-            self.session_uid = uid
-            await self.autostart()
+        if command == "status":
             return self.status()
-        if command == "poll":
-            await self.autostart()
-            return self.status()
-        if command in {"status", "inventory"}:
-            result = self.status()
-            if command == "inventory":
-                attachments = await asyncio.to_thread(self.backend.inventory.scan)
-                result["devices"] = [item.as_json() for item in attachments]
-                if self.state.get("id") and not any(
-                    item.identity == self.state["id"] for item in attachments
-                ):
-                    result["devices"].append(
-                        {
-                            **self.state,
-                            "supported": False,
-                            "unsupported_reason": "Not connected",
-                        }
-                    )
-            return result
-        if command == "mask":
-            if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
-                raise ValueError("This attachment already has a mask or pending recovery")
-            attachment = await asyncio.to_thread(
-                self.backend.inventory.resolve,
-                str(message.get("id", "")),
-                str(message.get("generation", "")),
-            )
-            self.backend.inventory.validate(attachment)
-            confirmed = (
-                message.get("persist") is True
-                and self.policy.get("id") == attachment.identity
-                and self.policy.get("owner_uid") == self.session_uid
-            )
-            if confirmed:
-                await self.save_policy(True)
-            await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
-            self.state = {
-                **attachment.as_json(),
-                "state": MaskPhase.APPLYING,
-                "id": attachment.identity,
-                "generation": attachment.generation,
-                "name": attachment.name,
-                "main_hid": attachment.main_hid if attachment.is_deck else "",
-                "attachment_path": str(attachment.syspath),
-                "quiesce_required": True,
-                "token": uuid.uuid4().hex,
-            }
-            if attachment.transport == "usb":
-                self.state["usb_selector"] = self.backend.inventory.selector(attachment)
-            if confirmed:
-                self.state["automatic"] = True
-            self.deadline = self.clock() + TRIAL_SECONDS
-            self.quiesced.clear()
+        handlers = {
+            "startup": self._startup,
+            "poll": self._poll,
+            "inventory": self._inventory,
+            "mask": self._mask,
+            "quiesced": self._quiesced,
+            "ready": self._confirm,
+            "keep": self._confirm,
+            "persistence": self._persistence,
+            "restore": self._restore_request,
+            "resume": self._resume,
+        }
+        if not isinstance(command, str) or command not in handlers:
+            raise ValueError("Unknown hardware masking operation")
+        return await handlers[command](message)
 
-            async def apply() -> None:
-                try:
-                    await self.quiesced.wait()
-                    nodes = await self.backend.activate(attachment)
-                    current = self.backend.active_attachment or attachment
-                    roles = await asyncio.to_thread(self.backend.inventory.endpoint_roles, current)
-                    self.state.update(
-                        {
-                            **current.as_json(),
-                            "main_hid": current.main_hid if current.is_deck else "",
-                            "attachment_path": str(current.syspath),
-                            "state": MaskPhase.ACQUIRING,
-                            "event_nodes": nodes,
-                            "endpoint_roles": roles,
-                        }
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    log.exception("Hardware masking failed")
-                    self.state["error"] = str(exc)
-                    if isinstance(exc, DeviceInUseError):
-                        self.state["error_code"] = "device_in_use"
-                        self.state["blocking_application"] = exc.application
-                    # The daemon coordinator performs serialized recovery.
-                    self.deadline = self.clock()
+    async def _startup(self, message: JsonObject) -> JsonObject:
+        uid = message.get("uid")
+        if not isinstance(uid, int) or isinstance(uid, bool) or uid < 0:
+            raise ValueError("An authenticated user ID is required")
+        self.session_uid = uid
+        await self.autostart()
+        return self.status()
 
-            self.apply_task = asyncio.create_task(apply(), name="hardware-mask-activation")
-            return self.status()
-        if command == "quiesced":
-            if self.clock() >= self.deadline:
-                raise ValueError("The hardware trial expired; access is being restored")
-            if self.state.get("state") != MaskPhase.APPLYING or message.get(
+    async def _poll(self, _message: JsonObject) -> JsonObject:
+        await self.autostart()
+        return self.status()
+
+    async def _inventory(self, _message: JsonObject) -> JsonObject:
+        result = self.status()
+        attachments = await asyncio.to_thread(self.backend.inventory.scan)
+        result["devices"] = [item.as_json() for item in attachments]
+        if self.state.get("id") and not any(
+            item.identity == self.state["id"] for item in attachments
+        ):
+            result["devices"].append(
+                {
+                    **self.state,
+                    "supported": False,
+                    "unsupported_reason": "Not connected",
+                }
+            )
+        return result
+
+    async def _mask(self, message: JsonObject) -> JsonObject:
+        if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
+            raise ValueError("This attachment already has a mask or pending recovery")
+        attachment = await asyncio.to_thread(
+            self.backend.inventory.resolve,
+            str(message.get("id", "")),
+            str(message.get("generation", "")),
+        )
+        self.backend.inventory.validate(attachment)
+        confirmed = (
+            message.get("persist") is True
+            and self.policy.get("id") == attachment.identity
+            and self.policy.get("owner_uid") == self.session_uid
+        )
+        if confirmed:
+            await self.save_policy(True)
+        await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
+        self.state = {
+            **attachment.as_json(),
+            "state": MaskPhase.APPLYING,
+            "id": attachment.identity,
+            "generation": attachment.generation,
+            "name": attachment.name,
+            "main_hid": attachment.main_hid if attachment.is_deck else "",
+            "attachment_path": str(attachment.syspath),
+            "quiesce_required": True,
+            "token": uuid.uuid4().hex,
+        }
+        if attachment.transport == "usb":
+            self.state["usb_selector"] = self.backend.inventory.selector(attachment)
+        if confirmed:
+            self.state["automatic"] = True
+        self.deadline = self.clock() + TRIAL_SECONDS
+        self.quiesced.clear()
+
+        self.apply_task = asyncio.create_task(
+            self._apply(attachment), name="hardware-mask-activation"
+        )
+        return self.status()
+
+    async def _apply(self, attachment: Attachment) -> None:
+        try:
+            await self.quiesced.wait()
+            nodes = await self.backend.activate(attachment)
+            current = self.backend.active_attachment or attachment
+            roles = await asyncio.to_thread(self.backend.inventory.endpoint_roles, current)
+            self.state.update(
+                {
+                    **current.as_json(),
+                    "main_hid": current.main_hid if current.is_deck else "",
+                    "attachment_path": str(current.syspath),
+                    "state": MaskPhase.ACQUIRING,
+                    "event_nodes": nodes,
+                    "endpoint_roles": roles,
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("Hardware masking failed")
+            self.state["error"] = str(exc)
+            if isinstance(exc, DeviceInUseError):
+                self.state["error_code"] = "device_in_use"
+                self.state["blocking_application"] = exc.application
+            # The daemon coordinator performs serialized recovery.
+            self.deadline = self.clock()
+
+    async def _quiesced(self, message: JsonObject) -> JsonObject:
+        if self.clock() >= self.deadline:
+            raise ValueError("The hardware trial expired; access is being restored")
+        if self.state.get("state") != MaskPhase.APPLYING or message.get("token") != self.state.get(
+            "token"
+        ):
+            raise ValueError("This hardware trial has ended")
+        self.state["quiesce_required"] = False
+        self.quiesced.set()
+        return self.status()
+
+    async def _confirm(self, message: JsonObject) -> JsonObject:
+        command = message.get("command")
+        if message.get("token") != self.state.get("token") or not self.active:
+            raise ValueError("This hardware trial has ended")
+        if self.clock() >= self.deadline:
+            raise ValueError("The hardware trial expired; access is being restored")
+        expected = MaskPhase.ACQUIRING if command == "ready" else MaskPhase.TRIAL
+        if self.state.get("state") != expected:
+            raise ValueError("The replacement controller is not ready for confirmation")
+        if command == "keep":
+            await self.save_policy(message.get("persist", True))
+        if self.state.get("state") != expected:
+            raise ValueError("This hardware trial has ended")
+        self.state["state"] = (
+            MaskPhase.MASKED
+            if command == "keep" or self.state.get("automatic")
+            else MaskPhase.TRIAL
+        )
+        if self.state["state"] == MaskPhase.MASKED:
+            if self.state.get("automatic") and self.policy:
+                await self.save_policy(self.policy.get("persist", True))
+            await asyncio.to_thread(
+                save_json, self.backend.state_dir / "selection.json", self.state
+            )
+        return self.status()
+
+    async def _persistence(self, message: JsonObject) -> JsonObject:
+        if self.active:
+            if self.state.get("state") != MaskPhase.MASKED or message.get(
                 "token"
             ) != self.state.get("token"):
-                raise ValueError("This hardware trial has ended")
-            self.state["quiesce_required"] = False
-            self.quiesced.set()
-            return self.status()
-        if command in {"ready", "keep"}:
-            if message.get("token") != self.state.get("token") or not self.active:
-                raise ValueError("This hardware trial has ended")
-            if self.clock() >= self.deadline:
-                raise ValueError("The hardware trial expired; access is being restored")
-            expected = MaskPhase.ACQUIRING if command == "ready" else MaskPhase.TRIAL
-            if self.state.get("state") != expected:
-                raise ValueError("The replacement controller is not ready for confirmation")
-            if command == "keep":
-                await self.save_policy(message.get("persist", True))
-            if self.state.get("state") != expected:
-                raise ValueError("This hardware trial has ended")
-            self.state["state"] = (
-                MaskPhase.MASKED
-                if command == "keep" or self.state.get("automatic")
-                else MaskPhase.TRIAL
-            )
-            if self.state["state"] == MaskPhase.MASKED:
-                if self.state.get("automatic") and self.policy:
-                    await self.save_policy(self.policy.get("persist", True))
-                await asyncio.to_thread(
-                    save_json, self.backend.state_dir / "selection.json", self.state
+                raise ValueError(
+                    "Confirm the hardware trial before changing its startup preference"
                 )
-            return self.status()
-        if command == "persistence":
-            if self.active:
-                if self.state.get("state") != MaskPhase.MASKED or message.get(
-                    "token"
-                ) != self.state.get("token"):
-                    raise ValueError(
-                        "Confirm the hardware trial before changing its startup preference"
-                    )
-            elif not self.policy or message.get("id") != self.policy.get("id"):
-                raise ValueError("No confirmed hardware mask was selected")
-            if self.policy and self.policy.get("owner_uid") != self.session_uid:
-                raise ValueError("This startup preference belongs to another user")
-            await self.save_policy(message.get("persist"))
-            return self.status()
-        if command == "restore":
-            reason = "user_restore"
-            if message.get("reason") == "lifecycle_stop":
-                reason = "lifecycle_stop"
-            if message.get("reason") == "replacement_unavailable":
-                reason = "replacement_unavailable"
-                self.state["error"] = (
-                    "The replacement controller stopped; restoring hardware access"
-                )
-            await self._restore(reason)
-            return self.status()
-        if command == "resume":
-            if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
-                raise ValueError("Restore the current mask before resuming remapping")
-            await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
-            return self.status()
-        raise ValueError("Unknown hardware masking operation")
+        elif not self.policy or message.get("id") != self.policy.get("id"):
+            raise ValueError("No confirmed hardware mask was selected")
+        if self.policy and self.policy.get("owner_uid") != self.session_uid:
+            raise ValueError("This startup preference belongs to another user")
+        await self.save_policy(message.get("persist"))
+        return self.status()
+
+    async def _restore_request(self, message: JsonObject) -> JsonObject:
+        reason = "user_restore"
+        if message.get("reason") == "lifecycle_stop":
+            reason = "lifecycle_stop"
+        if message.get("reason") == "replacement_unavailable":
+            reason = "replacement_unavailable"
+            self.state["error"] = "The replacement controller stopped; restoring hardware access"
+        await self._restore(reason)
+        return self.status()
+
+    async def _resume(self, _message: JsonObject) -> JsonObject:
+        if self.active or self.recovery_lock.locked() or self.backend.journal.exists():
+            raise ValueError("Restore the current mask before resuming remapping")
+        await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
+        return self.status()
 
     async def restore(self, reason: str) -> None:
         async with self.operation_lock:

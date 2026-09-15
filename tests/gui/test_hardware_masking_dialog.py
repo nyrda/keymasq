@@ -11,7 +11,7 @@ def dialog(monkeypatch):
     monkeypatch.setattr(module, "session_request_async", lambda *_args, **_kwargs: None)
     dialog = module.HardwareMaskingPanel()
     yield dialog
-    dialog._on_closed(dialog)
+    dialog.close()
 
 
 def response(*masks) -> dict:
@@ -137,7 +137,22 @@ def test_saved_mask_stopped_after_restart_cannot_look_active(dialog, globally_pa
     assert not row.failure.get_visible()
 
 
-def test_blocked_app_has_readable_error_and_diagnostics_in_details(dialog, monkeypatch):
+@pytest.mark.parametrize(
+    ("process", "display"),
+    [
+        ("steam", "Steam"),
+        ("steamwebhelper", "Steam"),
+        ("winedevice.exe", "Wine"),
+        ("wine64-preloader", "Wine"),
+        ("wine-preloader", "Wine"),
+        ("custom-controller-app", "custom-controller-app"),
+        (None, "Another app"),
+        ("", "Another app"),
+    ],
+)
+def test_blocked_app_has_readable_error_and_diagnostics_in_details(
+    dialog, monkeypatch, process, display
+):
     calls = []
     monkeypatch.setattr(
         dialog, "_authorized_change", lambda command, data: calls.append((command, data))
@@ -154,14 +169,14 @@ def test_blocked_app_has_readable_error_and_diagnostics_in_details(dialog, monke
                 "enabled": False,
                 "error": detail,
                 "error_code": "device_in_use",
-                "blocking_application": "Steam",
+                "blocking_application": process,
             }
         )
     )
     row = dialog._rows["first"]
     assert not row.switch.get_active()
     assert row.status.get_text() == "Couldn’t mask"
-    assert row.error.get_text() == "Steam is using this device directly. Close it, then retry."
+    assert row.error.get_text() == f"{display} is using this device directly. Close it, then retry."
     assert "1234" not in row.error.get_text()
     assert detail not in row.technical.get_text()
     assert not row.technical.get_selectable()

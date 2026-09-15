@@ -283,7 +283,7 @@ class HardwareSettingsDialog(Adw.Dialog):
             hardware_id=self._hardware_config.hardware_id,
         )
         box.append(self._masking)
-        self.connect("closed", self._masking._on_closed)
+        self.connect("closed", self._masking.close)
 
         self._output_group = ControllerOutputGroup(
             self._hardware_config.default_output, self._save_output

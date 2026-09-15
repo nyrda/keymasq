@@ -1,4 +1,16 @@
-"""Runtime path ownership; callers retain the device manager's locking."""
+"""Runtime path ownership; callers retain the device manager's locking.
+
+Reader inspection, adoption, and release hold DeviceManager._op_lock. Under
+that lock, registry operations and release_interface_unlocked() are safe;
+grab_device(), release_device(), release_interface(), and release_all_devices()
+acquire the lock themselves and must be called outside it. Cancel and await
+acquisition/update tasks before taking the lock, since those tasks can need it.
+
+Acquisition registers paths synchronously on the event loop before calling
+grab_device(); it does not hold _op_lock across that public call. Path snapshots
+used while examining readers last only for the current locked operation, so a
+reconnected device's symlinks are resolved again on the next operation.
+"""
 
 import os
 from dataclasses import dataclass, field
@@ -28,10 +40,15 @@ class MaskRegistry:
 
     def release(self, reservation_id: str, released: set[str]) -> None:
         """Remove a reservation's paths from every adopted hardware configuration."""
-        paths = {os.path.realpath(path) for path in self.reservation_paths.pop(reservation_id, [])}
+        reservation_paths = self.reservation_paths.pop(reservation_id, [])
+        all_paths = set(reservation_paths)
+        for reserved in self.hardware_paths.values():
+            all_paths.update(reserved)
+        resolved = {path: os.path.realpath(path) for path in all_paths}
+        paths = {resolved[path] for path in reservation_paths}
         paths.update(released)
         for hardware_id, reserved in list(self.hardware_paths.items()):
-            remaining = [path for path in reserved if os.path.realpath(path) not in paths]
+            remaining = [path for path in reserved if resolved[path] not in paths]
             if remaining:
                 self.hardware_paths[hardware_id] = remaining
             else:

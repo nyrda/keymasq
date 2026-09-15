@@ -229,7 +229,7 @@ class HardwareSetupDialog(
 
         self.masking = DeviceMaskingPanel(self._parent, deferred=True)
         box.append(self.masking)
-        self.connect("closed", self.masking._on_closed)
+        self.connect("closed", self.masking.close)
 
         self.mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_label = Gtk.Label(label="Configure as:")

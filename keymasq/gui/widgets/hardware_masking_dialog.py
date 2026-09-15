@@ -22,6 +22,17 @@ def connect_button(button: Gtk.Button, action: Callable[[], object]) -> None:
     button.connect("clicked", clicked)
 
 
+def application_display_name(name: object) -> str:
+    app = str(name or "Another app")
+    return {
+        "steam": "Steam",
+        "steamwebhelper": "Steam",
+        "winedevice.exe": "Wine",
+        "wine64-preloader": "Wine",
+        "wine-preloader": "Wine",
+    }.get(app, app)
+
+
 def failure_message(mask: dict) -> str:
     if mask.get("state") == MaskPhase.RECOVERY_FAILED:
         return "Device access could not be restored yet. Keymasq is retrying."
@@ -29,14 +40,7 @@ def failure_message(mask: dict) -> str:
         return ""
     error = str(mask.get("error", ""))
     if mask.get("error_code") == "device_in_use" or "direct USB or auxiliary HID" in error:
-        app = str(mask.get("blocking_application") or "Another app")
-        app = {
-            "steam": "Steam",
-            "steamwebhelper": "Steam",
-            "winedevice.exe": "Wine",
-            "wine64-preloader": "Wine",
-            "wine-preloader": "Wine",
-        }.get(app, app)
+        app = application_display_name(mask.get("blocking_application"))
         return f"{app} is using this device directly. Close it, then retry."
     return (
         "Masking could not be started. Retry, or open device details for more information."
@@ -151,6 +155,18 @@ class MaskDeviceRow(Adw.PreferencesRow):
         if self._details_group is not None:
             self._details_group.remove(self.details_row)
 
+    def _set_switch_active(self, active: bool) -> None:
+        self._syncing = True
+        try:
+            self.switch.set_active(active)
+        finally:
+            self._syncing = False
+
+    def set_deferred_choice(self, enabled: bool) -> None:
+        self.enabled = enabled
+        self._set_switch_active(enabled)
+        self.switch.set_tooltip_text("Applied after saving hardware")
+
     def _toggled(self, _switch: Gtk.Switch, _param: object) -> None:
         if self._syncing:
             return
@@ -159,9 +175,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
             return
         # Until authentication and the helper accept the request, retain the
         # observed state. Cancelling the unlock dialog must not leave a false ON.
-        self._syncing = True
-        self.switch.set_active(self.enabled)
-        self._syncing = False
+        self._set_switch_active(self.enabled)
         if desired:
             self.turn_on()
         else:
@@ -212,9 +226,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
             )
         )
         self.enabled = enabled and not paused
-        self._syncing = True
-        self.switch.set_active(self.enabled)
-        self._syncing = False
+        self._set_switch_active(self.enabled)
         can_enable = connected or bool(mask.get("has_saved_mask"))
         self.switch.set_sensitive(
             available
@@ -366,7 +378,7 @@ class HardwareMaskingPanel(Gtk.Box):
         self.append(footer)
         self._timer = 0
         self.connect("map", self._on_map)
-        self.connect("unmap", self._on_closed)
+        self.connect("unmap", self.close)
 
     def _on_map(self, _widget: Gtk.Widget) -> None:
         self._closed = False
@@ -374,7 +386,7 @@ class HardwareMaskingPanel(Gtk.Box):
             self._timer = GLib.timeout_add_seconds(1, self._refresh)
         self._refresh()
 
-    def _on_closed(self, _widget: Gtk.Widget) -> None:
+    def close(self, _widget: Gtk.Widget | None = None) -> None:
         self._closed = True
         if self._timer:
             GLib.source_remove(self._timer)
@@ -441,12 +453,7 @@ class HardwareMaskingPanel(Gtk.Box):
                 request_error=self._errors.get(identity, ""),
             )
             if self.deferred and identity in self.choices:
-                row = self._rows[identity]
-                row.enabled = self.choices[identity]
-                row._syncing = True
-                row.switch.set_active(row.enabled)
-                row._syncing = False
-                row.switch.set_tooltip_text("Applied after saving hardware")
+                self._rows[identity].set_deferred_choice(self.choices[identity])
         self._unmask_all.set_sensitive(
             not self._pending and any(row.enabled for row in self._rows.values())
         )
@@ -573,4 +580,4 @@ class HardwareMaskingDialog(Adw.Dialog):
         self.panel.remove(self.panel.footer)
         toolbar.add_bottom_bar(self.panel.footer)
         self.set_child(toolbar)
-        self.connect("closed", self.panel._on_closed)
+        self.connect("closed", self.panel.close)

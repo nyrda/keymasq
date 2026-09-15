@@ -246,6 +246,47 @@ async def reserved_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["single", "all"])
+@pytest.mark.parametrize("paused", [False, True])
+async def test_unmask_reapplies_after_physical_recovery_without_topology_change(
+    reserved_runtime, monkeypatch, scope, paused
+):
+    manager, _device, physical, _target = reserved_runtime
+    manager.masking_suspended = paused
+    masking = HardwareMasking(manager)
+    mask = masking.runtime("test")
+    notify = Mock()
+    monkeypatch.setattr(manager, "broadcast_hardware_mask_ready", notify)
+    monkeypatch.setattr(masking, "startup", AsyncMock())
+    monkeypatch.setattr(masking, "start_monitor", Mock())
+    status = {"id": "test", "state": "masked", "token": "trial"}
+
+    async def request(command, data=None):
+        if command == "restore":
+            status["state"] = "restoring" if scope == "single" else "restored"
+        return {"masks": [status.copy()], "remapping_suspended": paused}
+
+    monkeypatch.setattr(masking, "request", request)
+    data = {"persist": False}
+    if scope == "single":
+        data.update(id="test", token="trial")
+    await masking.handle(CommandType.RESTORE_HARDWARE, data, uid=1000)
+    physical.close.assert_called_once()
+    assert not manager.mask_registry.reservation_paths
+    notify.assert_not_called()
+
+    # No device-discovery event is needed to recover the logical routes.
+    for phase in ("restoring", "recovery_failed"):
+        await mask.update({**status, "state": phase})
+        notify.assert_not_called()
+    await mask.update({**status, "state": "restored"})
+    assert notify.call_count == (0 if paused else 1)
+    await mask.update({**status, "state": "restored"})
+    assert notify.call_count == (0 if paused else 1)
+    assert manager.masking_suspended is paused
+
+
+@pytest.mark.asyncio
 async def test_masked_route_changes_preserve_grab_and_release_outputs(reserved_runtime):
     import evdev
 
@@ -595,6 +636,27 @@ async def test_failed_acquisition_finishes_its_own_recovery(monkeypatch):
         "restore", {"reason": "replacement_unavailable", "token": "trial"}
     )
     assert not manager.mask_registry.hardware_paths
+
+
+def test_registry_release_resolves_reconnected_aliases_and_preserves_other_reservations(tmp_path):
+    first, second, replacement = (str(tmp_path / name) for name in ("event1", "event2", "event3"))
+    alias = tmp_path / "controller"
+    alias.symlink_to(first)
+    registry = MaskRegistry()
+    registry.register("first", [str(alias)], "/usb/first")
+    registry.register("second", [second], "/usb/second")
+    registry.hardware_paths["shared"] = [first, second]
+    registry.release("first", set())
+    assert registry.hardware_paths == {"second": [second], "shared": [second]}
+
+    alias.unlink()
+    alias.symlink_to(replacement)
+    registry.register("first", [str(alias)], "/usb/first")
+    registry.hardware_paths["shared"] = [replacement, second]
+    registry.release("first", set())
+    assert registry.hardware_paths == {"second": [second], "shared": [second]}
+    assert registry.reservation_paths == {"second": [second]}
+    assert registry.reservation_attachments == {"second": "/usb/second"}
 
 
 @pytest.mark.asyncio

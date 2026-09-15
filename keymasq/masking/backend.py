@@ -24,6 +24,10 @@ from keymasq.masking.inventory import (
 from keymasq.masking.paths import RUNTIME_DIR, STATE_DIR, reservation_ids, validate_identity
 
 log = logging.getLogger("keymasq.masking")
+HOST_COMMAND_TIMEOUT_S = 8.0
+ENDPOINT_WAIT_TIMEOUT_S = 8.0
+UDEV_SETTLE_TIMEOUT_S = 8
+UDEV_TRIGGER_TIMEOUT_S = 12.0
 
 
 class DeviceInUseError(ValueError):
@@ -46,7 +50,7 @@ async def finish_io[T](function: Callable[..., T], *args: Any, **kwargs: Any) ->
         raise
 
 
-async def run_host(*args: str, timeout: float = 8.0) -> str:
+async def run_host(*args: str, timeout: float = HOST_COMMAND_TIMEOUT_S) -> str:
     process = await asyncio.create_subprocess_exec(
         await finish_io(command_path, args[0]),
         *args[1:],
@@ -351,7 +355,7 @@ class LinuxMaskBackend:
             self.inventory.resolve, attachment.identity, attachment.generation
         )
         expected = set(cast(dict[str, object], snapshot["nodes"]))
-        deadline = asyncio.get_running_loop().time() + 8
+        deadline = asyncio.get_running_loop().time() + ENDPOINT_WAIT_TIMEOUT_S
         while not expected <= set(await finish_io(self.inventory.endpoint_roles, current)):
             if asyncio.get_running_loop().time() >= deadline:
                 raise OSError("Some reserved hardware interfaces did not return after reconnect")
@@ -416,7 +420,7 @@ class LinuxMaskBackend:
         """Adopt hotplugged input nodes without resetting an already masked receiver."""
         if not self.armed or not self.journal.exists():
             raise ValueError("The hardware mask is no longer active")
-        await run_host("udevadm", "settle", "--timeout=8")
+        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
         current = await finish_io(
             self.inventory.resolve, attachment.identity, attachment.generation
         )
@@ -431,7 +435,7 @@ class LinuxMaskBackend:
             f"--action={action}",
             f"--parent-match={attachment.syspath}",
             "--settle",
-            timeout=12.0,
+            timeout=UDEV_TRIGGER_TIMEOUT_S,
         )
 
     async def rebind_hid(
@@ -458,7 +462,7 @@ class LinuxMaskBackend:
             if children:
                 raise OSError("HID driver did not remove its raw endpoints")
         await finish_io((driver / "bind").write_text, main_hid)
-        await run_host("udevadm", "settle", "--timeout=8")
+        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
 
     async def rebind_binding(
         self, attachment: Attachment, binding: str, driver_name: str, *, repair: bool = False
@@ -483,7 +487,7 @@ class LinuxMaskBackend:
             if await finish_io(lambda: list(interface.glob("input/input*"))):
                 raise OSError("USB input driver did not remove its endpoints")
         await finish_io((driver / "bind").write_text, name)
-        await run_host("udevadm", "settle", "--timeout=8")
+        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
 
     async def recover(self, *, keep_rules: bool = False) -> None:
         from keymasq.masking.permissions import restore
@@ -590,5 +594,5 @@ class LinuxMaskBackend:
         for rule in (self.early, self.late):
             await finish_io(rule.unlink, missing_ok=True)
         await run_host("udevadm", "control", "--reload-rules")
-        await run_host("udevadm", "settle", "--timeout=8")
+        await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
         await finish_io(self.armed_record.unlink, missing_ok=True)

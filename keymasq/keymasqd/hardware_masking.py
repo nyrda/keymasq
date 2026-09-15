@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("keymasqd.masking")
 RESERVATION_PREFIX = "@masked:"
+INITIAL_RETRY_DELAY_S = 2.0
+MAX_RETRY_DELAY_S = 60.0
+HEALTHY_RETRY_RESET_S = 30.0
 AUTOMATIC_RECOVERY_REASONS = {
     "replacement_unavailable",
     "activation_failed",
@@ -68,17 +71,17 @@ class MaskRuntime:
         self.attachment_path = ""
         self.raw_only = False
         self.transition_active = False
+        self.reapply_after_restore = False
         self.clock = time.monotonic
         self.retry_at: float | None = None
-        self.retry_delay = 2.0
+        self.retry_delay = INITIAL_RETRY_DELAY_S
         self.healthy_since: float | None = None
 
-    def owns(self, device: object) -> bool:
+    def owns(self, device: object, reserved_paths: set[str]) -> bool:
         from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 
         grabbed = cast(GrabbedDevice, device)
-        paths = self.manager.mask_registry.reservation_paths.get(self.reservation_id, [])
-        if os.path.realpath(grabbed.path) in {os.path.realpath(path) for path in paths}:
+        if os.path.realpath(grabbed.path) in reserved_paths:
             return True
         if grabbed.path.startswith(SOURCE_PREFIX) and self.attachment_path:
             from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
@@ -102,9 +105,20 @@ class MaskRuntime:
                 await task
         released: set[str] = set()
         async with self.manager._op_lock:  # pyright: ignore[reportPrivateUsage]
+            if (
+                self.reservation_id in self.manager.mask_registry.reservation_paths
+                or self.transition_active
+            ):
+                self.reapply_after_restore = True
+            paths = {
+                os.path.realpath(path)
+                for path in self.manager.mask_registry.reservation_paths.get(
+                    self.reservation_id, []
+                )
+            }
             for hardware_id, devices in list(self.manager.grabbed_devices.items()):
                 for device in list(devices):
-                    if not self.owns(device):
+                    if not self.owns(device, paths):
                         continue
                     released.add(os.path.realpath(device.path))
                     cancel_pending_hardware_release(self.manager, hardware_id)
@@ -138,7 +152,10 @@ class MaskRuntime:
             or self.transition_active
         ):
             await self.release_runtime()
-            self.manager.broadcast_hardware_mask_ready()
+        if status.get("state") == MaskPhase.RESTORED and self.reapply_after_restore:
+            self.reapply_after_restore = False
+            if not self.manager.masking_suspended:
+                self.manager.broadcast_hardware_mask_ready()
         await self.recover_automatically(status)
 
     async def quiesce(self, status: JsonObject) -> None:
@@ -194,6 +211,7 @@ class MaskRuntime:
                 raise OSError("The reserved input runtime could not be started")
             await self.request("ready", {"token": status.get("token")})
             self.transition_active = False
+            self.reapply_after_restore = False
             self.manager.broadcast_hardware_mask_ready()
         except asyncio.CancelledError:
             raise
@@ -212,8 +230,8 @@ class MaskRuntime:
             if status.get("state") == MaskPhase.MASKED:
                 if self.healthy_since is None:
                     self.healthy_since = now
-                elif now - self.healthy_since >= 30:
-                    self.retry_delay = 2.0
+                elif now - self.healthy_since >= HEALTHY_RETRY_RESET_S:
+                    self.retry_delay = INITIAL_RETRY_DELAY_S
             else:
                 self.healthy_since = None
             return
@@ -226,7 +244,7 @@ class MaskRuntime:
             return
         if self.retry_at is None:
             self.retry_at = now + self.retry_delay
-            self.retry_delay = min(self.retry_delay * 2, 60.0)
+            self.retry_delay = min(self.retry_delay * 2, MAX_RETRY_DELAY_S)
             self.manager.broadcast_hardware_recovery(retrying=True)
             return
         if now < self.retry_at:
@@ -254,7 +272,7 @@ class MaskRuntime:
             ready: set[str] = set()
             for devices in self.manager.grabbed_devices.values():
                 for device in devices:
-                    if not self.owns(device):
+                    if not self.owns(device, expected):
                         continue
                     if device.path.startswith(SOURCE_PREFIX):
                         expected.add(os.path.realpath(device.path))

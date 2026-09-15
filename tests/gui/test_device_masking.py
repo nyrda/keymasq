@@ -106,9 +106,9 @@ def test_settings_mask_target_rejects_reused_path_with_different_model(
         write(hid / "uevent", f"HID_PHYS=receiver/input0\nHID_ID=0003:0000{vendor}:0000{product}\n")
         selected = resolve_masking_devices([source], inventory, hardware_id="1234:5678@2")
         assert selected == ({"receiver"} if (vendor, product) == ("1234", "5678") else set())
-        assert resolve_masking_devices(
-            [source], inventory, hardware_id=f"{vendor}:{product}"
-        ) == {"receiver"}
+        assert resolve_masking_devices([source], inventory, hardware_id=f"{vendor}:{product}") == {
+            "receiver"
+        }
 
 
 def test_setup_defers_changes_until_save_and_authenticates_once(monkeypatch):
@@ -140,7 +140,7 @@ def test_cancelled_setup_never_applies_pending_changes(monkeypatch):
     monkeypatch.setattr(panel, "_change", lambda *args: requests.append(args))
     panel._render(response())
     panel._rows["first"].switch.set_active(True)
-    panel._on_closed(panel)
+    panel.close()
     assert not requests
 
 
@@ -169,7 +169,7 @@ def test_setup_saves_hardware_before_masking_and_stays_open_for_confirmation(mon
     assert wizard.next_btn.get_label() == "Done"
     wizard._on_next(wizard.next_btn)
     assert events[-1][0] == "closed"
-    wizard.masking._on_closed(wizard.masking)
+    wizard.masking.close()
 
 
 def test_closed_settings_does_not_apply_after_association_save(monkeypatch):
@@ -188,6 +188,6 @@ def test_closed_settings_does_not_apply_after_association_save(monkeypatch):
     panel._render(response())
     panel._rows["first"].switch.set_active(True)
     assert len(callbacks) == 1
-    panel._on_closed(panel)
+    panel.close()
     callbacks[0]()
     assert not requests

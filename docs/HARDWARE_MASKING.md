@@ -111,8 +111,11 @@ failure does not skip other devices, and physical masking recovery runs afterwar
 Emergency recovery also restores masks with no runtime readers, including
 disconnected devices and masks
 still acquiring their replacements. Per-device unmasking leaves unrelated
-remapping active. Before system suspend, ordinary output neutralization is
-attempted before masking cleanup; both steps run even if either fails.
+remapping active. When physical recovery completes, the session reapplies
+profiles even if the device list has not changed. This does not clear an
+existing global remapping stop. Before system suspend, ordinary output
+neutralization is attempted before masking cleanup; both steps run even if
+either fails.
 
 With no active masking state or pending recovery records, emergency reset releases
 devices and the session reapplies profiles normally. Saved, inactive mask history
@@ -314,16 +317,4 @@ Daemon logs appear directly in its terminal. Inspect hardware job failures with
 `journalctl -u 'keymasq-hardware@*'`.
 
 After stopping the development workspace, start `keymasqd` to use the installed
-code. The earlier service-based development experiment left overrides behind.
-Remove those once before using the installed job unit or daemon:
-
-```sh
-sudo rm -f /run/systemd/system/keymasqd.service.d/90-worktree.conf
-sudo rm -f /run/systemd/system/keymasq-hardware@.service.d/90-worktree.conf
-sudo rm -f /run/systemd/system.control/keymasqd.service /run/systemd/system.control/keymasq-hardware@.service
-sudo rm -f /run/systemd/system/keymasqd.service /run/systemd/system/keymasq-hardware@.service
-sudo rm -f /etc/polkit-1/rules.d/49-keymasq-hardware-dev.rules
-sudo rm -rf /run/keymasq-dev-source
-sudo systemctl daemon-reload
-sudo systemctl start keymasqd
-```
+code.

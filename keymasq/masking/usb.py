@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import finish_io, run_host, save_json
+from keymasq.masking.backend import UDEV_SETTLE_TIMEOUT_S, finish_io, run_host, save_json
 from keymasq.masking.inventory import Attachment, read_attribute
 
 if TYPE_CHECKING:
@@ -132,7 +132,7 @@ async def reconnect(
                 bindings = await finish_io(backend.inventory.bindings, current)
                 roles = await finish_io(backend.inventory.endpoint_roles, current)
                 if set(cast(dict[str, object], snapshot["nodes"])) <= set(roles):
-                    await run_host("udevadm", "settle", "--timeout=8")
+                    await run_host("udevadm", "settle", f"--timeout={UDEV_SETTLE_TIMEOUT_S}")
                     snapshot.update({"generation": current.generation, "bindings": bindings})
                     await finish_io(save_json, backend.journal, snapshot)
                     return current

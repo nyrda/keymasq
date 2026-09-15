@@ -329,12 +329,12 @@ class HardwareMasking:
             self.last_progress = time.monotonic()
             self.task = asyncio.create_task(self.monitor(), name="hardware-mask-owner")
 
-    async def stop_monitor(self) -> Exception | None:
+    async def stop_monitor(self) -> Exception | asyncio.CancelledError | None:
         if self.task is not None:
             self.monitor_stop.set()
             try:
                 await self.task
-            except Exception as exc:
+            except (Exception, asyncio.CancelledError) as exc:
                 log.exception("Hardware masking monitor failed")
                 return exc
             finally:
@@ -496,7 +496,7 @@ class HardwareMasking:
             self.start_monitor()
 
     async def close(self, *, restore_hardware: bool = True) -> None:
-        errors: list[Exception] = []
+        errors: list[Exception | asyncio.CancelledError] = []
 
         async def attempt(cleanup: Callable[[], Awaitable[object]]) -> None:
             try:

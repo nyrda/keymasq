@@ -775,21 +775,22 @@ async def test_one_device_release_failure_does_not_skip_other_devices(monkeypatc
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["shutdown", "disconnect_without_restore", "suspend"])
-async def test_failed_monitor_does_not_skip_lifecycle_cleanup(monkeypatch, operation):
+@pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+async def test_failed_monitor_does_not_skip_lifecycle_cleanup(monkeypatch, operation, failure):
     masking = HardwareMasking(DeviceManager())
     masking.initialized = True
     masking.needs_startup = False
     masking.session_uid = masking.coordinator.session_uid = 1000
 
     async def failed_monitor():
-        raise RuntimeError("monitor failed")
+        raise failure("monitor failed")
 
     masking.task = asyncio.create_task(failed_monitor())
     await asyncio.sleep(0)
     released, request = AsyncMock(), AsyncMock()
     monkeypatch.setattr(masking, "release_runtime", released)
     monkeypatch.setattr(masking, "request", request)
-    with pytest.raises(RuntimeError, match="monitor failed"):
+    with pytest.raises(failure, match="monitor failed"):
         if operation == "suspend":
             await masking.suspend()
         else:
@@ -803,3 +804,63 @@ async def test_failed_monitor_does_not_skip_lifecycle_cleanup(monkeypatch, opera
     assert masking.needs_startup
     expected_uid = 1000 if operation == "suspend" else None
     assert masking.session_uid == masking.coordinator.session_uid == expected_uid
+
+
+@pytest.mark.asyncio
+async def test_cancelled_monitor_does_not_cancel_daemon_disconnect_cleanup(monkeypatch):
+    from keymasq.keymasqd.daemon import Daemon
+
+    daemon = Daemon()
+    daemon.running = True
+    masking = daemon.hardware_masking
+    masking.initialized = True
+
+    async def cancelled_monitor():
+        raise asyncio.CancelledError
+
+    masking.task = asyncio.create_task(cancelled_monitor())
+    await asyncio.sleep(0)
+    order = []
+    monkeypatch.setattr(
+        masking, "release_runtime", AsyncMock(side_effect=lambda: order.append("readers"))
+    )
+    monkeypatch.setattr(
+        masking, "request", AsyncMock(side_effect=lambda *_: order.append("physical"))
+    )
+    monkeypatch.setattr(daemon.recording_manager, "abort", AsyncMock())
+    monkeypatch.setattr(daemon.recording_manager, "discard_all_pending_recordings", AsyncMock())
+    monkeypatch.setattr(daemon.capture_manager, "close_all", Mock())
+    monkeypatch.setattr(
+        daemon.device_manager,
+        "release_all_devices",
+        AsyncMock(side_effect=lambda: order.append("ordinary")),
+    )
+    await daemon._on_client_disconnect()
+    assert order == ["readers", "physical", "ordinary"]
+
+
+@pytest.mark.asyncio
+async def test_daemon_caller_cancellation_waits_for_masking_cleanup(monkeypatch):
+    from keymasq.keymasqd.daemon import Daemon
+
+    daemon = Daemon()
+    masking = daemon.hardware_masking
+    masking.initialized = True
+    entered = asyncio.Event()
+
+    async def monitor():
+        entered.set()
+        await asyncio.Event().wait()
+
+    masking.task = asyncio.create_task(monitor())
+    released, request = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(masking, "release_runtime", released)
+    monkeypatch.setattr(masking, "request", request)
+    cleanup = asyncio.create_task(daemon._run_async_cleanup("restore masks", masking.close))
+    await entered.wait()
+    cleanup.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cleanup
+    released.assert_awaited_once()
+    request.assert_awaited_once_with("restore", {"reason": "lifecycle_stop"})
+    assert masking.task is None

@@ -250,6 +250,12 @@ class Daemon:
     ) -> None:
         try:
             await cleanup()
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
+            # A cancelled child must not cancel the remaining daemon cleanup.
+            log.exception("Cancelled child while attempting to %s during daemon cleanup", label)
         except Exception:
             log.exception("Failed to %s during daemon cleanup", label)
 

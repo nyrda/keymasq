@@ -19,4 +19,4 @@ RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 StateDirectory=keymasq-masking
 StateDirectoryMode=0755
-ReadWritePaths=/run/keymasq/hardware-requests /run/udev/rules.d
+ReadWritePaths=/run/keymasq/hardware-requests /run/udev/rules.d -/run/keymasq/hidden -/run/keymasq/hidden-hardware

@@ -34,6 +34,8 @@ def test_hardware_job_does_not_expose_unrelated_runtime_files(unit_path, tmpfile
     assert set(service["ReadWritePaths"].split()) == {
         "/run/keymasq/hardware-requests",
         "/run/udev/rules.d",
+        "-/run/keymasq/hidden",
+        "-/run/keymasq/hidden-hardware",
     }
     assert service["RuntimeDirectory"] == service["StateDirectory"] == "keymasq-masking"
     entries = [line.split() for line in (root / tmpfiles_path).read_text().splitlines()]
@@ -366,19 +368,56 @@ async def test_daemon_watchdog_runs_on_the_input_event_loop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_does_not_hide_a_stalled_mask_coordinator(monkeypatch):
+@pytest.mark.parametrize("via_request", [False, True])
+async def test_watchdog_keeps_feeding_while_masking_waits_for_recovery(
+    monkeypatch, tmp_path, via_request
+):
     from keymasq.keymasqd import daemon as module
+    from keymasq.masking.coordinator import MaskCoordinator
+    from tests.common.test_multiple_hardware_masks import Backend, Inventory
 
     daemon = module.Daemon()
     daemon.running = True
-    daemon.hardware_masking.task = Mock(done=lambda: False)
-    daemon.hardware_masking.last_progress = 0
+    backend = Backend(Inventory(tmp_path), tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    coordinator = MaskCoordinator(backend)
+    await coordinator.initialize()
+    item = await coordinator.reservation(backend.inventory.attachments[0].identity)
+    item.state.update(state="recovery_failed", reason="user_restore")
+    entered, finish = asyncio.Event(), asyncio.Event()
+
+    async def recover(**_kwargs):
+        entered.set()
+        await finish.wait()
+
+    monkeypatch.setattr(item.backend, "recover", recover)
+    masking = daemon.hardware_masking
+    masking.coordinator = coordinator
+    masking.initialized = True
+    request = None
+    if via_request:
+        request = asyncio.create_task(masking.request("restore", {"persist": False}))
+        await entered.wait()
+    masking.start_monitor()
+    await entered.wait()
     monkeypatch.setenv("WATCHDOG_USEC", "30000")
     monkeypatch.setenv("WATCHDOG_PID", str(os.getpid()))
     notify = Mock()
     monkeypatch.setattr(module, "sd_notify", notify)
     task = asyncio.create_task(daemon._watchdog())
-    await asyncio.sleep(0.04)
-    daemon.running = False
-    await task
-    notify.assert_not_called()
+    try:
+        # The monitor is awaiting recovery for several watchdog periods, while
+        # input-loop heartbeats must continue throughout that wait.
+        await asyncio.sleep(0.08)
+        notify.reset_mock()
+        await asyncio.sleep(0.04)
+        notify.assert_called_with("WATCHDOG=1")
+        assert masking.task is not None and not masking.task.done()
+    finally:
+        daemon.running = False
+        await task
+        masking.monitor_stop.set()
+        finish.set()
+        if request is not None:
+            await request
+        await masking.stop_monitor()
+        await masking.release_runtime()

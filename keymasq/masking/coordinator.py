@@ -9,6 +9,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import cast
 
 from keymasq.common.masking import MaskPhase, is_active, is_recovering, is_transitional
@@ -19,6 +20,16 @@ from keymasq.masking.protocols import MaskBackend
 
 log = logging.getLogger("keymasq.masking")
 TRIAL_SECONDS = 30.0
+
+
+async def load_saved_object(path: Path) -> JsonObject:
+    try:
+        data = json.loads(await asyncio.to_thread(path.read_text))
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} must contain a JSON object")
+    return cast(JsonObject, data)
 
 
 class MaskReservation:
@@ -38,9 +49,20 @@ class MaskReservation:
         self.quiesced = asyncio.Event()
 
     async def load_policy(self) -> None:
-        path = self.backend.state_dir / "policy.json"
-        if path.exists():
-            self.policy = cast(JsonObject, json.loads(await asyncio.to_thread(path.read_text)))
+        policy = await load_saved_object(self.backend.state_dir / "policy.json")
+        if policy:
+            uid = policy.get("owner_uid")
+            if (
+                not isinstance(policy.get("id"), str)
+                or (self.state.get("id") is not None and policy["id"] != self.state["id"])
+                or not isinstance(policy.get("persist"), bool)
+                or not isinstance(uid, int)
+                or isinstance(uid, bool)
+                or uid < 0
+                or ("usb_selector" in policy and not isinstance(policy["usb_selector"], dict))
+            ):
+                raise ValueError("policy.json contains an invalid masking preference")
+        self.policy = policy
 
     async def save_policy(self, persist: object) -> None:
         if not isinstance(persist, bool):
@@ -518,13 +540,26 @@ class MaskCoordinator:
         await asyncio.to_thread(self.backend.prepare_directories)
         for identity in await asyncio.to_thread(self.backend.reservation_ids):
             item = await self.reservation(identity)
-            await item.load_policy()
-            selection = item.backend.state_dir / "selection.json"
-            if await asyncio.to_thread(selection.exists):
+            invalid_saved_state = False
+            try:
+                await item.load_policy()
+                selection = await load_saved_object(item.backend.state_dir / "selection.json")
+                if "reason" in selection and not isinstance(selection["reason"], str):
+                    raise ValueError("selection.json contains an invalid recovery reason")
                 item.state = {
-                    **cast(JsonObject, json.loads(await asyncio.to_thread(selection.read_text))),
+                    **selection,
+                    "id": identity,
                     "state": MaskPhase.RESTORED,
                     "event_nodes": [],
+                }
+            except (OSError, ValueError) as exc:
+                log.warning("Invalid saved masking state for %s: %s", identity, exc)
+                invalid_saved_state = True
+                item.policy = {}
+                item.state = {
+                    "id": identity,
+                    "state": MaskPhase.RESTORED,
+                    "error": f"Saved masking state could not be loaded: {exc}",
                 }
             suspended = item.backend.state_dir / "suspended"
             pause_reason = (
@@ -532,6 +567,10 @@ class MaskCoordinator:
                 if await asyncio.to_thread(suspended.exists)
                 else ""
             )
+            if invalid_saved_state:
+                # Corrupt preferences cannot authorize automatic masking. Still
+                # recover the physical transaction and initialize other devices.
+                pause_reason = "invalid_saved_state"
             if pause_reason == MaskPhase.RECOVERY_FAILED:
                 # Failed cleanup used to replace the original pause reason.
                 # Once recovery succeeds, use the saved reason again.

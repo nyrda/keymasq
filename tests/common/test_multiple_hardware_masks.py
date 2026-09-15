@@ -77,6 +77,50 @@ async def supervisor(tmp_path):
     await supervisor.restore("service_stopped")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["policy.json", "selection.json"])
+@pytest.mark.parametrize("contents", ["[]", "null", '"invalid"', "{broken", '{"reason": []}'])
+async def test_invalid_saved_state_still_recovers_and_leaves_other_masks_usable(
+    supervisor, monkeypatch, filename, contents
+):
+    first, second = supervisor.backend.inventory.attachments[:2]
+    for attachment in (first, second):
+        item = await supervisor.reservation(attachment.identity)
+        save_json(
+            item.backend.state_dir / "policy.json",
+            {
+                "id": attachment.identity,
+                "owner_uid": 1000,
+                "persist": True,
+            },
+        )
+    broken = supervisor.reservations[first.identity]
+    (broken.backend.state_dir / filename).write_text(contents)
+    broken.backend.journal.write_text("physical recovery is still required")
+    recovered = []
+
+    async def recover(backend, **_kwargs):
+        recovered.append(backend.state_dir.name)
+        backend.journal.unlink(missing_ok=True)
+
+    monkeypatch.setattr(Backend, "recover", recover)
+    fresh = MaskCoordinator(supervisor.backend)
+    await fresh.initialize()
+    assert set(recovered) == {first.identity, second.identity}
+    assert not broken.backend.journal.exists()
+    bad = fresh.reservations[first.identity]
+    assert not bad.policy
+    assert bad.state["reason"] == "invalid_saved_state"
+    assert "could not be loaded" in bad.state["error"]
+    assert not fresh.status()["remapping_suspended"]
+    try:
+        await fresh.request({"command": "startup", "uid": 1000})
+        assert not bad.active
+        assert fresh.reservations[second.identity].state["state"] == "applying"
+    finally:
+        await fresh.restore("service_stopped")
+
+
 def selected(result, identity):
     return next(item for item in result["masks"] if item["id"] == identity)
 

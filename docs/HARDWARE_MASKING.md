@@ -159,6 +159,11 @@ privileged jobs, while `LinuxMaskBackend` implements the root transactions.
 Both use the same read-only inventory helpers. The daemon and GUI share the
 mask phase definitions.
 
+The job sandbox permits writes to its own records, hardware request files,
+runtime udev rules, and the existing `hidden` and `hidden-hardware` directories
+under `/run/keymasq`. Recovery removes stale evdev hiding markers there before
+restoring permissions. The rest of `/run/keymasq` remains read-only in the job.
+
 Before arming rules for a connected device, the helper records its ownership and
 static ACLs. Recovery restores and reads back that baseline, then lets current
 udev policy grant desktop access. Saved ACLs never overwrite the result of that
@@ -253,13 +258,18 @@ Turning off or unplugging a controller, changes to its interfaces, and ordinary
 trial expiry release only the affected readers. They do not terminate the daemon.
 
 Systemd watches `keymasqd` with a 20-second watchdog. Heartbeats run on the input
-event loop and stop if that loop blocks or the masking coordinator stops making
-progress. On watchdog expiry systemd kills the daemon, releasing every evdev grab
-and virtual output, then runs `keymasq-record recover-hardware` to restore physical
+event loop and stop if that loop blocks. Waiting for a bounded hardware job or
+its coordinator lock does not suppress heartbeats. On watchdog expiry systemd
+kills the daemon, releasing every evdev grab and virtual output, then runs
+`keymasq-record recover-hardware` to restore physical
 access. The same cleanup runs after normal service shutdown. Startup also runs
 recovery before opening input devices, and fails if recovery is incomplete.
 The watchdog applies to ordinary remapping even when masking is never enabled.
 It cannot diagnose every logical error in a still-responsive input loop.
+Unexpected masking monitor errors stop remapping and attempt physical recovery;
+cleanup errors are logged and the monitor keeps running. Invalid saved masking
+state disables automatic masking for that attachment while physical recovery
+still runs. Other attachments retain their saved preferences.
 
 A device with only hidraw endpoints
 can be reserved without a decoder or virtual output. That reserves access;

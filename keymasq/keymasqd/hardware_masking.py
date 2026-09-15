@@ -317,7 +317,6 @@ class HardwareMasking:
         self.session_uid: int | None = None
         self.needs_startup = True
         self.monitor_stop = asyncio.Event()
-        self.last_progress = time.monotonic()
         self.runtimes: dict[str, MaskRuntime] = {}
 
     def runtime(self, identity: str) -> MaskRuntime:
@@ -340,7 +339,6 @@ class HardwareMasking:
     def start_monitor(self) -> None:
         if self.task is None:
             self.monitor_stop.clear()
-            self.last_progress = time.monotonic()
             self.task = asyncio.create_task(self.monitor(), name="hardware-mask-owner")
 
     async def stop_monitor(self) -> Exception | asyncio.CancelledError | None:
@@ -461,10 +459,17 @@ class HardwareMasking:
                 await self.monitor_once()
             except asyncio.CancelledError:
                 raise
-            except (OSError, ValueError, TimeoutError):
-                log.warning("Hardware masking operation failed", exc_info=True)
-                await self.release_runtime()
-            self.last_progress = time.monotonic()
+            except Exception as exc:
+                log.exception("Hardware masking operation failed")
+                try:
+                    if isinstance(exc, (OSError, ValueError, TimeoutError)):
+                        await self.release_runtime()
+                    else:
+                        # An unexpected coordinator failure cannot leave input
+                        # reserved without supervision. Stop remapping first.
+                        await self.restore("monitor_failed")
+                except Exception:
+                    log.exception("Hardware masking cleanup failed; monitor will retry")
             try:
                 await asyncio.wait_for(self.monitor_stop.wait(), 1)
             except TimeoutError:

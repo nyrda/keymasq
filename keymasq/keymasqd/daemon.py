@@ -236,11 +236,8 @@ class Daemon:
         while self.running:
             # A blocked loop cannot reach this await or send another heartbeat.
             await asyncio.sleep(interval / 3)
-            if self.hardware_masking.task is not None and (
-                self.hardware_masking.task.done()
-                or time.monotonic() - self.hardware_masking.last_progress > interval
-            ):
-                continue
+            # Hardware jobs have their own deadlines. Awaiting one, or a lock
+            # it owns, does not mean this input event loop is unresponsive.
             sd_notify("WATCHDOG=1")
 
     async def _run_async_cleanup(

@@ -21,6 +21,51 @@ RESERVATION_ID = "@masked:test"
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TypeError("bad coordinator state"), OSError("job failed")])
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_monitor_survives_errors_and_failed_cleanup(monkeypatch, error, cleanup_fails):
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    calls = 0
+
+    async def tick():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise error
+        masking.monitor_stop.set()
+
+    monkeypatch.setattr(masking, "monitor_once", tick)
+    release = AsyncMock(side_effect=OSError("reader cleanup failed") if cleanup_fails else None)
+    monkeypatch.setattr(masking, "release_runtime", release)
+    monkeypatch.setattr(manager, "neutralize_runtime", AsyncMock())
+    monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
+    monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
+    request = AsyncMock()
+    monkeypatch.setattr(masking, "request", request)
+    await asyncio.wait_for(masking.monitor(), 3)
+    assert calls == 2
+    release.assert_awaited_once()
+    if isinstance(error, TypeError):
+        assert manager.masking_suspended
+        manager.release_all_devices.assert_awaited_once()
+        request.assert_awaited_once_with("restore", {"reason": "monitor_failed"})
+    else:
+        request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_monitor_cancellation_still_propagates(monkeypatch):
+    masking = HardwareMasking(DeviceManager())
+    monkeypatch.setattr(masking, "monitor_once", AsyncMock(side_effect=asyncio.CancelledError))
+    cleanup = AsyncMock()
+    monkeypatch.setattr(masking, "release_runtime", cleanup)
+    with pytest.raises(asyncio.CancelledError):
+        await masking.monitor()
+    cleanup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_emergency_reset_releases_local_readers_when_helper_disconnected(monkeypatch):
     manager = DeviceManager()
     masking = HardwareMasking(manager)

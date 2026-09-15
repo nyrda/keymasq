@@ -493,7 +493,14 @@
                 StateDirectoryMode = "0755";
                 # RuntimeDirectory and StateDirectory already permit writes
                 # to the helper's own records. Each job opens a fresh request.
-                ReadWritePaths = [ "/run/keymasq/hardware-requests" "/run/udev/rules.d" ];
+                ReadWritePaths = [
+                  "/run/keymasq/hardware-requests"
+                  "/run/udev/rules.d"
+                  # Recovery removes existing legacy evdev hiding markers.
+                  # Missing marker directories require no cleanup.
+                  "-/run/keymasq/hidden"
+                  "-/run/keymasq/hidden-hardware"
+                ];
               };
             };
 

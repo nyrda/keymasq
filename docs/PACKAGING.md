@@ -354,6 +354,9 @@ Build the package with:
 nix build .#default
 ```
 
+The Python distribution is named `keymasq`, matching the Nix package's `pname`.
+AppImages bundle `keymasq-*.dist-info` and use that metadata for version detection.
+
 Open the development shell with:
 
 ```bash

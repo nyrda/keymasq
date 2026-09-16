@@ -3,7 +3,7 @@ requires = ["setuptools>=78.1.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python-keymasq"
+name = "keymasq"
 version = "0.19.0"
 description = "Linux input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
 readme = "README.md"

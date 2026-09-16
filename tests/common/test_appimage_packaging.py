@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import pwd
@@ -6,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,90 @@ PYTHON_RUNTIME_PACKAGE_MANIFEST = APPIMAGE_ASSETS / "python-runtime-site-package
 def _write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+@pytest.mark.parametrize("include_metadata", [True, False])
+async def test_appimage_detects_project_distribution_version(
+    tmp_path: Path, include_metadata: bool
+) -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["name"] == "keymasq"
+    if include_metadata:
+        metadata = tmp_path / f"{project['name']}-{project['version']}.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: {project['name']}\nVersion: {project['version']}\n",
+            encoding="utf-8",
+        )
+    runtime = RUNTIME_SCRIPT.read_text(encoding="utf-8")
+    function = runtime.split("appdir_version() {", 1)[1].split("\n}", 1)[0]
+    process = await asyncio.create_subprocess_exec(
+        "sh",
+        "-c",
+        'run_python() { "$TEST_PYTHON" -S "$@"; }'
+        + "\nappdir_version() {"
+        + function
+        + '\n}\nappdir_version "$TEST_APPDIR"',
+        env={
+            **os.environ,
+            "TEST_PYTHON": sys.executable,
+            "TEST_APPDIR": str(tmp_path),
+            "PYTHONPATH": str(tmp_path),
+            "PYTHONNOUSERSITE": "1",
+        },
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    assert process.returncode == (0 if include_metadata else 1), stderr.decode()
+    assert stdout.decode() == (f"{project['version']}\n" if include_metadata else "")
+
+
+async def test_appimage_copies_project_distribution_metadata(tmp_path: Path) -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    staged = tmp_path / "staging/site-packages"
+    (staged / "keymasq").mkdir(parents=True)
+    metadata_name = f"{project['name']}-{project['version']}.dist-info"
+    (staged / metadata_name).mkdir()
+    (staged / metadata_name / "METADATA").write_text("project metadata\n", encoding="utf-8")
+    manifest = tmp_path / "packaging/appimage/assets/python-runtime-site-packages.txt"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("", encoding="utf-8")
+    appdir = tmp_path / "AppDir"
+    python_lib = appdir / "lib/python3.13"
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+    function = builder.split("copy_python_packages() {", 1)[1].split("\n}", 1)[0]
+    process = await asyncio.create_subprocess_exec(
+        "bash",
+        "-euc",
+        'resolve_runtime_site_packages() { printf "%s\\n" "$STAGING/site-packages"; }'
+        + "\ncopy_python_packages() {"
+        + function
+        + '\n}\ncopy_python_packages "$APPDIR/lib/python3.13"',
+        env={
+            **os.environ,
+            "REPO_ROOT": str(tmp_path),
+            "STAGING": str(staged.parent),
+            "APPDIR": str(appdir),
+        },
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    assert process.returncode == 0, stderr.decode()
+    assert (python_lib / "site-packages" / metadata_name / "METADATA").read_text(
+        encoding="utf-8"
+    ) == "project metadata\n"
 
 
 def test_appimage_builder_pins_the_brotway_release() -> None:

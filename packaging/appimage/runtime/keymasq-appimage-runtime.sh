@@ -391,7 +391,7 @@ appdir_version() {
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    print(version("python-keymasq"))
+    print(version("keymasq"))
 except PackageNotFoundError:
     raise SystemExit(1)
 PY

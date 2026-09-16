@@ -475,7 +475,7 @@ copy_python_packages() {
   done < "$manifest"
   chmod -R u+w "$bundled_site"
   cp -a "$staged_site"/keymasq "$bundled_site/"
-  cp -a "$staged_site"/python_keymasq-*.dist-info "$bundled_site/"
+  cp -a "$staged_site"/keymasq-*.dist-info "$bundled_site/"
 }
 
 install_appimage_icons() {

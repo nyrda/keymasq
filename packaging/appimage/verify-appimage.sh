@@ -113,7 +113,7 @@ fi
 unexpected_python_packages=()
 while IFS= read -r package_name; do
   case "$package_name" in
-    keymasq|python_keymasq-*.dist-info)
+    keymasq|keymasq-*.dist-info)
       continue
       ;;
   esac
@@ -156,6 +156,7 @@ fi
 "$loader" --library-path "$appdir/lib" "$python_bin" -P - <<'PY'
 import pyexpat
 import xml.etree.ElementTree as ET
+from importlib.metadata import version
 
 import cairo
 import dbus_next
@@ -166,6 +167,7 @@ import tomli_w
 import uvloop
 from Xlib import X, display  # noqa: F401
 
+print(f"Keymasq distribution version: {version('keymasq')}")
 ET.fromstring("<keymasq />")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")

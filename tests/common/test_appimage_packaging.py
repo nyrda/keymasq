@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import pwd
@@ -29,7 +30,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 @pytest.mark.parametrize("include_metadata", [True, False])
-def test_appimage_detects_project_distribution_version(
+async def test_appimage_detects_project_distribution_version(
     tmp_path: Path, include_metadata: bool
 ) -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -43,15 +44,13 @@ def test_appimage_detects_project_distribution_version(
         )
     runtime = RUNTIME_SCRIPT.read_text(encoding="utf-8")
     function = runtime.split("appdir_version() {", 1)[1].split("\n}", 1)[0]
-    result = subprocess.run(
-        [
-            "sh",
-            "-c",
-            'run_python() { "$TEST_PYTHON" -S "$@"; }'
-            + "\nappdir_version() {"
-            + function
-            + '\n}\nappdir_version "$TEST_APPDIR"',
-        ],
+    process = await asyncio.create_subprocess_exec(
+        "sh",
+        "-c",
+        'run_python() { "$TEST_PYTHON" -S "$@"; }'
+        + "\nappdir_version() {"
+        + function
+        + '\n}\nappdir_version "$TEST_APPDIR"',
         env={
             **os.environ,
             "TEST_PYTHON": sys.executable,
@@ -59,15 +58,20 @@ def test_appimage_detects_project_distribution_version(
             "PYTHONPATH": str(tmp_path),
             "PYTHONNOUSERSITE": "1",
         },
-        capture_output=True,
-        text=True,
-        check=False,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    assert result.returncode == (0 if include_metadata else 1), result.stderr
-    assert result.stdout == (f"{project['version']}\n" if include_metadata else "")
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    assert process.returncode == (0 if include_metadata else 1), stderr.decode()
+    assert stdout.decode() == (f"{project['version']}\n" if include_metadata else "")
 
 
-def test_appimage_copies_project_distribution_metadata(tmp_path: Path) -> None:
+async def test_appimage_copies_project_distribution_metadata(tmp_path: Path) -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     staged = tmp_path / "staging/site-packages"
     (staged / "keymasq").mkdir(parents=True)
@@ -81,26 +85,29 @@ def test_appimage_copies_project_distribution_metadata(tmp_path: Path) -> None:
     python_lib = appdir / "lib/python3.13"
     builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
     function = builder.split("copy_python_packages() {", 1)[1].split("\n}", 1)[0]
-    result = subprocess.run(
-        [
-            "bash",
-            "-euc",
-            'resolve_runtime_site_packages() { printf "%s\\n" "$STAGING/site-packages"; }'
-            + "\ncopy_python_packages() {"
-            + function
-            + '\n}\ncopy_python_packages "$APPDIR/lib/python3.13"',
-        ],
+    process = await asyncio.create_subprocess_exec(
+        "bash",
+        "-euc",
+        'resolve_runtime_site_packages() { printf "%s\\n" "$STAGING/site-packages"; }'
+        + "\ncopy_python_packages() {"
+        + function
+        + '\n}\ncopy_python_packages "$APPDIR/lib/python3.13"',
         env={
             **os.environ,
             "REPO_ROOT": str(tmp_path),
             "STAGING": str(staged.parent),
             "APPDIR": str(appdir),
         },
-        check=False,
-        capture_output=True,
-        text=True,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    assert result.returncode == 0, result.stderr
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    assert process.returncode == 0, stderr.decode()
     assert (python_lib / "site-packages" / metadata_name / "METADATA").read_text(
         encoding="utf-8"
     ) == "project metadata\n"

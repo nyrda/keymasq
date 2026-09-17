@@ -5,7 +5,24 @@ from unittest.mock import AsyncMock
 import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
+from keymasq.common.model.profiles import ProfileConfig, WindowRule
 from keymasq.session.manager.core import SessionManager
+
+
+def _save_conditional_profile(
+    manager: SessionManager,
+    name: str,
+    field: str,
+    pattern: str,
+) -> None:
+    manager.profiles.save_profile(
+        ProfileConfig(
+            name=name,
+            enabled=True,
+            is_permanent=False,
+            window_rules=[WindowRule(field=field, pattern=pattern)],
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -156,6 +173,7 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
+    _save_conditional_profile(manager, "Steam", "class", "steam")
     manager.compositor_state.window_listener = SimpleNamespace(
         get_active_window=AsyncMock(return_value=("steam", "Game", ["fullscreen"]))
     )
@@ -182,6 +200,7 @@ async def test_get_active_window_reevaluates_when_listener_clears_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
+    _save_conditional_profile(manager, "Games", "class", "Game")
     manager.compositor_state.window_listener = SimpleNamespace(
         get_active_window=AsyncMock(return_value=("", "", []))
     )
@@ -205,6 +224,121 @@ async def test_get_active_window_reevaluates_when_listener_clears_window(
     }
     assert manager.compositor_state.current_window == {}
     reevaluate_profiles.assert_awaited_once_with(manager, reason="active window changed")
+
+
+@pytest.mark.asyncio
+async def test_on_window_change_skips_reevaluate_for_irrelevant_title_churn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    _save_conditional_profile(manager, "Browser", "class", "firefox")
+    manager.compositor_state.current_window = {
+        "class": "firefox",
+        "title": "old tab",
+        "tags": [],
+    }
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    await session_compositor_module.on_window_change(manager, "firefox", "new tab", [])
+
+    assert manager.compositor_state.current_window == {
+        "class": "firefox",
+        "title": "new tab",
+        "tags": [],
+    }
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_on_window_change_reevaluates_when_relevant_field_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    _save_conditional_profile(manager, "Music", "title", "Now Playing")
+    manager.compositor_state.current_window = {
+        "class": "player",
+        "title": "paused",
+        "tags": [],
+    }
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    await session_compositor_module.on_window_change(manager, "player", "Now Playing: song", [])
+
+    assert manager.compositor_state.current_window == {
+        "class": "player",
+        "title": "Now Playing: song",
+        "tags": [],
+    }
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="window changed")
+
+
+@pytest.mark.asyncio
+async def test_on_window_change_skips_reevaluate_without_conditional_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.compositor_state.current_window = {
+        "class": "firefox",
+        "title": "old tab",
+        "tags": [],
+    }
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    await session_compositor_module.on_window_change(manager, "firefox", "new tab", [])
+
+    assert manager.compositor_state.current_window == {
+        "class": "firefox",
+        "title": "new tab",
+        "tags": [],
+    }
+    reevaluate_profiles.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_active_window_skips_reevaluate_for_irrelevant_title_churn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    _save_conditional_profile(manager, "Browser", "class", "firefox")
+    manager.compositor_state.current_window = {
+        "class": "firefox",
+        "title": "old tab",
+        "tags": [],
+    }
+    manager.compositor_state.window_listener = SimpleNamespace(
+        get_active_window=AsyncMock(return_value=("firefox", "new tab", []))
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    result = await session_compositor_module.get_active_window_payload(manager)
+
+    assert result == {
+        "status": "ok",
+        "class": "firefox",
+        "title": "new tab",
+        "tags": [],
+    }
+    reevaluate_profiles.assert_not_awaited()
 
 
 @pytest.mark.asyncio

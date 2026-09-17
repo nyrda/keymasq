@@ -59,6 +59,7 @@ class HyprlandListener(WindowListener):
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
+        self._last_window: tuple[str, str, tuple[str, ...]] | None = None
         self.socket_path: str | None = None
         self.cmd_socket_path: str | None = None
         self.reader: asyncio.StreamReader | None = None
@@ -193,6 +194,10 @@ class HyprlandListener(WindowListener):
             window_title = parts[1] if len(parts) > 1 else ""
 
             tags = await self._get_window_tags()
+            window = (window_class, window_title, tuple(tags))
+            if window == self._last_window:
+                return
+            self._last_window = window
             log.debug(
                 f"Active window changed: class={window_class}, title={window_title}, tags={tags}"
             )

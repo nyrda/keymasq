@@ -61,7 +61,7 @@ class Attachment:
             "unsupported_reason": "" if self.supported else "Takeover is not supported yet",
             "scope": "All HID and input interfaces on this USB device, including direct USB access"
             if self.transport == "usb"
-            else "This device's HID and input interfaces; Bluetooth adapter remains available",
+            else "This device's HID and input interfaces",
         }
 
 

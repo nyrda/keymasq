@@ -494,7 +494,8 @@ identity before changing it, refuses hubs and ganged power switching, and repair
 an interrupted port operation during recovery. Current desktop grants come from
 udev after static permissions are restored; old session ACLs are not replayed.
 `keymasqd` retains its existing capability set. See
-[Hardware masking](HARDWARE_MASKING.md) for scope and recovery behavior.
+[Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
+[Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
 
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)
 - session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)

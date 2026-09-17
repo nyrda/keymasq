@@ -478,7 +478,20 @@
         system:
         let
           pkgs = mkPkgs system;
-          devPython = pkgs.python312;
+          # Workaround for upstream nixpkgs breakage (2026-09-16 lock):
+          # python312Packages.backrefs 6.2 runs its test suite as the
+          # install check (mk-python-derivation maps doCheck to
+          # doInstallCheck), and one test (TestExceptions.test_timeout)
+          # fails against regex 2026.7.11, so any env containing
+          # mkdocs-material fails to build. Skip backrefs' checks; it
+          # is docs-only and unrelated to keymasq code.
+          devPython = pkgs.python312.override {
+            packageOverrides = final: prev: {
+              backrefs = prev.backrefs.overridePythonAttrs (_: {
+                doCheck = false;
+              });
+            };
+          };
           devPythonPackages = devPython.pkgs;
           evdevPackages = mkEvdevPackages pkgs devPythonPackages;
           mkTestPython =

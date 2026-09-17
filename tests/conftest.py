@@ -221,6 +221,28 @@ def virtual_keyboard():
 
 
 @pytest.fixture
+def virtual_keyboard_interface():
+    capabilities = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.KEY_A,
+            evdev.ecodes.KEY_B,
+            evdev.ecodes.KEY_C,
+        ],
+    }
+
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
+        name=f"{TEST_UINPUT_PREFIX}-source-keyboard-interface",
+        vendor=0x1234,
+        product=0x5678,
+    )
+
+    yield device
+
+    device.close()
+
+
+@pytest.fixture
 def virtual_feedback_keyboard():
     capabilities = {
         evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_CAPSLOCK],

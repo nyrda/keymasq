@@ -95,6 +95,25 @@ for a working replacement before completing takeover. The acquisition deadline
 and watchdog recovery still apply. Automatic startup does not require another
 confirmation or unlock; the original confirmation authorizes it.
 
+Saved masks are reconciled against the connected hardware rather than retried
+blindly. Each saved mask reports one of these states: **off**, **starting**,
+**waiting for device**, **saved incomplete**, **attention**, **activating**,
+**trial**, **masked**, or **recovering**. A disconnected device is a normal
+waiting state, not a failure. When an automatic start or offline arming fails,
+the daemon records the reason and retries after two seconds, doubling up to one
+minute. Connecting or disconnecting the device, turning its switch on, or
+pressing **Retry** resets that delay. A saved mask whose root-recorded selector
+is missing or unusable, for example one confirmed by an earlier build, shows
+**Waiting for device · confirm again when connected**; no privileged job runs
+for it until the device is connected and confirmed once more. Absent devices
+list the time they were last connected under their details.
+
+The daemon subscribes to kernel hotplug notifications and rescans hardware
+immediately when USB, HID, or input devices change, with a slower periodic
+rescan as a fallback. Without those notifications it rescans every heartbeat.
+Privileged jobs only run when reconciliation decides a change is needed, never
+on every heartbeat.
+
 Closing the GUI leaves confirmed masks active. Normal daemon/session shutdown
 and suspend restore physical access; startup and wake reapply enabled masks when
 the same user session is available.

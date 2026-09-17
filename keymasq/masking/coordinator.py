@@ -6,15 +6,22 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from keymasq.common.masking import HARDWARE_JOB_TIMEOUT, MaskPhase, is_active, is_recovering
+from keymasq.common.masking import (
+    HARDWARE_JOB_TIMEOUT,
+    MaskPhase,
+    SavedMaskLifecycle,
+    is_active,
+    is_recovering,
+)
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import DeviceInUseError, save_json
+from keymasq.masking.backend import DeviceInUseError, MaskOperationError, save_json
 from keymasq.masking.inventory import Attachment
 from keymasq.masking.protocols import MaskBackend
 
@@ -22,6 +29,13 @@ log = logging.getLogger("keymasq.masking")
 TRIAL_SECONDS = 30.0
 # One bounded job plus time for quiescing and starting replacement readers.
 ACTIVATION_SECONDS = HARDWARE_JOB_TIMEOUT + 15.0
+# Automatic starts back off like runtime recovery; presence changes and user
+# actions reset the delay so a returning device is handled promptly.
+INITIAL_RETRY_DELAY_S = 2.0
+MAX_RETRY_DELAY_S = 60.0
+# A saved record the helper cannot arm offline. Retrying cannot repair it;
+# only a connected activation records a selector the root job may trust.
+INCOMPLETE_CODES = frozenset({"selector_missing", "selector_invalid"})
 
 
 async def load_saved_object(path: Path) -> JsonObject:
@@ -50,11 +64,19 @@ class MaskReservation:
         self.policy: JsonObject = {}
         self.session_uid: int | None = None
         self.quiesced = asyncio.Event()
+        self.wall_clock: Callable[[], float] = time.time
+        # Reconciliation memory: the last observed presence, the earliest next
+        # automatic attempt, and why the last attempt was deferred.
+        self.present: bool | None = None
+        self.next_attempt = 0.0
+        self.retry_delay = INITIAL_RETRY_DELAY_S
+        self.attention: JsonObject = {}
 
     async def load_policy(self) -> None:
         policy = await load_saved_object(self.backend.state_dir / "policy.json")
         if policy:
             uid = policy.get("owner_uid")
+            seen = policy.get("last_seen")
             if (
                 not isinstance(policy.get("id"), str)
                 or (self.state.get("id") is not None and policy["id"] != self.state["id"])
@@ -63,6 +85,8 @@ class MaskReservation:
                 or isinstance(uid, bool)
                 or uid < 0
                 or ("usb_selector" in policy and not isinstance(policy["usb_selector"], dict))
+                or (seen is not None and not isinstance(seen, int | float))
+                or isinstance(seen, bool)
             ):
                 raise ValueError("policy.json contains an invalid masking preference")
         self.policy = policy
@@ -80,18 +104,77 @@ class MaskReservation:
         selector = self.state.get("usb_selector", self.policy.get("usb_selector"))
         if isinstance(selector, dict):
             policy["usb_selector"] = selector
+        seen = self.wall_clock() if self.active or self.present else self.policy.get("last_seen")
+        if seen is not None:
+            policy["last_seen"] = seen
         await asyncio.to_thread(save_json, self.backend.state_dir / "policy.json", policy)
         self.policy = policy
 
-    async def arm_saved_usb(self) -> None:
+    async def record_seen(self) -> None:
+        """Remember when the saved hardware was last connected, for absent rows."""
+        if not self.policy or self.policy.get("owner_uid") != self.session_uid:
+            return
+        policy: JsonObject = {**self.policy, "last_seen": self.wall_clock()}
+        await asyncio.to_thread(save_json, self.backend.state_dir / "policy.json", policy)
+        self.policy = policy
+
+    def last_scan_before_attempt(self, last_scan: float, now: float) -> bool:
+        return last_scan < self.next_attempt <= now
+
+    def reset_backoff(self) -> None:
+        self.next_attempt = 0.0
+        self.retry_delay = INITIAL_RETRY_DELAY_S
+        if self.attention:
+            self.attention = {}
+            if not self.active:
+                self.state.pop("error", None)
+
+    def defer_automatic_start(self, exc: Exception) -> None:
+        """Record why automatic masking stopped and when it may try again."""
+        identity = self.policy.get("id", self.state.get("id"))
+        code = str(getattr(exc, "code", "") or "automatic_start_failed")
+        self.attention = {"code": code, "message": str(exc)}
+        self.state["error"] = str(exc)
+        if code in INCOMPLETE_CODES:
+            # Nothing changes until the hardware is connected and confirmed.
+            self.next_attempt = math.inf
+            log.warning("Saved mask %s cannot be armed while disconnected: %s", identity, exc)
+            return
+        self.next_attempt = self.clock() + self.retry_delay
+        log.warning(
+            "Automatic masking for %s failed; retrying in %.0fs: %s",
+            identity,
+            self.retry_delay,
+            exc,
+        )
+        self.retry_delay = min(self.retry_delay * 2, MAX_RETRY_DELAY_S)
+
+    async def arm_saved_usb(self, present: bool = False) -> None:
         selector = self.policy.get("usb_selector")
-        if isinstance(selector, dict) and not await asyncio.to_thread(
+        if not isinstance(selector, dict) or await asyncio.to_thread(
             getattr, self.backend, "armed"
         ):
+            return
+        if not await asyncio.to_thread(self.backend.saved_selector_available):
+            if present:
+                # A connected activation records the root selector and installs
+                # the same rules itself; there is nothing to arm ahead of it.
+                return
+            raise MaskOperationError(
+                "selector_missing",
+                "This saved mask has no root-recorded selector; "
+                "connect the device and confirm masking again",
+            )
+        try:
             attachment = await asyncio.to_thread(self.backend.inventory.from_selector, selector)
-            await self.backend.install_rules(attachment)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MaskOperationError(
+                "selector_invalid", f"The saved selector cannot be used: {exc}"
+            ) from exc
+        await self.backend.install_rules(attachment)
 
-    async def autostart(self) -> None:
+    async def autostart(self, attachments: list[Attachment] | None = None) -> None:
+        """Converge a saved mask toward its policy given the current hardware."""
         if (
             self.active
             or self.recovery_lock.locked()
@@ -109,27 +192,38 @@ class MaskReservation:
             # A clean shutdown can interrupt automatic reacquisition. The
             # authenticated owner's confirmed policy still authorizes startup.
             await asyncio.to_thread(suspended.unlink, missing_ok=True)
-        await self.arm_saved_usb()
-        attachments = await asyncio.to_thread(self.backend.inventory.scan)
+        if attachments is None:
+            attachments = await asyncio.to_thread(self.backend.inventory.scan)
         attachment = next(
             (item for item in attachments if item.identity == self.policy["id"]), None
         )
-        if attachment is None or not attachment.supported:
-            return  # Hardware and its driver may still be appearing during boot.
+        present = attachment is not None and attachment.supported
+        if present != self.present:
+            # A presence transition is new information: retry immediately,
+            # even after a failure that could not be repaired while absent.
+            self.present = present
+            self.reset_backoff()
+            if present:
+                await self.record_seen()
+        if self.clock() < self.next_attempt:
+            return
         try:
-            await self._request(
-                {
-                    "command": "mask",
-                    "id": attachment.identity,
-                    "generation": attachment.generation,
-                }
-            )
-            self.state["automatic"] = True
+            await self.arm_saved_usb(present)
+            if attachment is not None and present:
+                await self._request(
+                    {
+                        "command": "mask",
+                        "id": attachment.identity,
+                        "generation": attachment.generation,
+                    }
+                )
+                self.state["automatic"] = True
+            # Otherwise the hardware and its driver may still be appearing;
+            # armed rules already cover its next connection.
         except (ValueError, OSError) as exc:
-            self.state["error"] = str(exc)
-            await asyncio.to_thread(
-                (self.backend.state_dir / "suspended").write_text, "automatic_start_failed\n"
-            )
+            self.defer_automatic_start(exc)
+            return
+        self.reset_backoff()
 
     @property
     def active(self) -> bool:
@@ -183,9 +277,11 @@ class MaskReservation:
             "admin_restore",
             "offline_recovery",
         }
+        enabled = self.active or bool(self.policy.get("persist") and not explicitly_stopped)
+        retry_in = self.next_attempt - self.clock()
         return {
             **self.state,
-            "enabled": self.active or bool(self.policy.get("persist") and not explicitly_stopped),
+            "enabled": enabled,
             "remaining_seconds": max(0, int(self.deadline - self.clock() + 0.999))
             if self.state.get("state") == MaskPhase.TRIAL
             else 0,
@@ -193,7 +289,39 @@ class MaskReservation:
             "persist": self.policy.get("persist", True),
             "has_saved_mask": bool(self.policy),
             "saved_id": self.policy.get("id"),
+            "lifecycle": self.lifecycle(enabled, paused),
+            "attention_code": str(self.attention.get("code", "")),
+            "next_retry_seconds": int(retry_in + 0.999)
+            if self.attention and math.isfinite(retry_in) and retry_in > 0
+            else 0,
+            "last_seen": self.policy.get("last_seen"),
         }
+
+    def lifecycle(self, enabled: bool, paused: bool) -> SavedMaskLifecycle:
+        phase = self.state.get("state")
+        if phase == MaskPhase.MASKED:
+            return SavedMaskLifecycle.MASKED
+        if phase == MaskPhase.TRIAL and not self.state.get("automatic"):
+            return SavedMaskLifecycle.TRIAL
+        if self.active:
+            return SavedMaskLifecycle.ACTIVATING
+        if is_recovering(phase):
+            return SavedMaskLifecycle.RECOVERING
+        if (
+            not enabled
+            or paused
+            or self.session_uid is None
+            or self.policy.get("owner_uid") != self.session_uid
+        ):
+            return SavedMaskLifecycle.OFF
+        code = self.attention.get("code")
+        if code in INCOMPLETE_CODES:
+            return SavedMaskLifecycle.SAVED_INCOMPLETE
+        if code:
+            return SavedMaskLifecycle.ATTENTION
+        if self.present is False:
+            return SavedMaskLifecycle.WAITING_FOR_DEVICE
+        return SavedMaskLifecycle.STARTING
 
     async def request(self, message: JsonObject) -> JsonObject:
         async with self.operation_lock:
@@ -266,6 +394,8 @@ class MaskReservation:
             and self.policy.get("id") == attachment.identity
             and self.policy.get("owner_uid") == self.session_uid
         )
+        self.present = True
+        self.reset_backoff()
         if confirmed:
             await self.save_policy(True)
         await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
@@ -560,6 +690,14 @@ class MaskCoordinator:
         self.reservations: dict[str, MaskReservation] = {}
         self.session_uid: int | None = None
         self.operation_lock = asyncio.Lock()
+        # With kernel hotplug notifications the owner raises this interval and
+        # marks changes instead; without them every heartbeat rescans sysfs.
+        self.scan_interval = 0.0
+        self.hardware_changed = True
+        self.last_scan: float | None = None
+
+    def mark_hardware_changed(self) -> None:
+        self.hardware_changed = True
 
     async def reservation(self, identity: str) -> MaskReservation:
         if identity not in self.reservations:
@@ -663,18 +801,36 @@ class MaskCoordinator:
             "remapping_suspended": paused[0],
         }
 
-    async def autostart(self) -> None:
+    def scan_due(self) -> bool:
+        if self.hardware_changed or self.last_scan is None:
+            return True
+        now = self.clock()
+        elapsed = now - self.last_scan
+        if elapsed < 0 or elapsed >= self.scan_interval:
+            return True  # A clock that moved backwards must not stall scans.
+        # A deferred automatic start whose delay elapsed since the last scan.
+        return any(
+            item.attention and item.last_scan_before_attempt(self.last_scan, now)
+            for item in self.reservations.values()
+        )
+
+    async def autostart(self, *, force: bool = False) -> None:
         if self.session_uid is None or await asyncio.to_thread(
             (self.backend.state_dir / "suspended").exists
         ):
             return
+        if not force and not self.scan_due():
+            return
+        self.hardware_changed = False
+        self.last_scan = self.clock()
+        attachments = await asyncio.to_thread(self.backend.inventory.scan)
         for item in list(self.reservations.values()):
             item.session_uid = self.session_uid
             if item.operation_lock.locked():
                 continue
             try:
                 async with item.operation_lock:
-                    await item.autostart()
+                    await item.autostart(attachments)
             except (OSError, ValueError):
                 log.exception("Cannot start saved mask %s", item.policy.get("id"))
 
@@ -686,7 +842,7 @@ class MaskCoordinator:
                 raise ValueError("An authenticated user ID is required")
             self.session_uid = uid
         if command in {"startup", "poll"}:
-            await self.autostart()
+            await self.autostart(force=command == "startup")
             return await self.status()
         if command in {"status", "inventory"}:
             result = await self.status()
@@ -765,6 +921,7 @@ class MaskCoordinator:
                     item.session_uid = self.session_uid
                     await item.save_policy(True)
                     await item._request({"command": "resume"})
+                    item.reset_backoff()  # An explicit request retries at once.
                     await item.autostart()
                 return await self.status()
             # Resolve before creating any persistent paths from a client request.

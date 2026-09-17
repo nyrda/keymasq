@@ -243,3 +243,61 @@ def test_unlock_callback_rechecks_pending_operations(dialog, monkeypatch, block)
         dialog._pending.add("first" if block == "same_device" else "all")
     prompts[0]["on_success"]()
     assert not requests
+
+
+def test_incomplete_saved_mask_waits_without_a_failure_box(dialog):
+    state = response(
+        {
+            "id": "first",
+            "state": "restored",
+            "token": "one",
+            "enabled": True,
+            "persist": True,
+            "has_saved_mask": True,
+            "lifecycle": "saved_incomplete",
+            "attention_code": "selector_missing",
+            "error": "This saved mask has no root-recorded selector",
+            "last_seen": 1_700_000_000,
+        }
+    )
+    state["devices"][0]["supported"] = False
+    dialog._render(state)
+    row = dialog._rows["first"]
+    assert row.switch.get_active()
+    assert row.status.get_text() == "Waiting for device · confirm again when connected"
+    assert not row.failure.get_visible()
+    assert row.error.get_text() == ""
+    assert "Last seen" in row.technical.get_text()
+    assert "no root-recorded selector" in row.diagnostics
+
+
+def test_retrying_saved_mask_shows_countdown_and_allows_offline_retry(dialog, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        dialog, "_authorized_change", lambda command, data: calls.append((command, data))
+    )
+    state = response(
+        {
+            "id": "first",
+            "state": "restored",
+            "token": "one",
+            "enabled": True,
+            "persist": True,
+            "has_saved_mask": True,
+            "lifecycle": "attention",
+            "attention_code": "job_failed",
+            "next_retry_seconds": 7,
+            "error": "systemctl failed: unit not found",
+        }
+    )
+    state["devices"][0]["supported"] = False
+    dialog._render(state)
+    row = dialog._rows["first"]
+    assert row.status.get_text() == "Waiting for device · retrying in 7s"
+    assert row.failure.get_visible()
+    assert row.retry.get_sensitive()
+    row.retry.emit("clicked")
+    assert calls.pop() == ("mask_hardware", {"id": "first", "persist": True})
+    state["devices"][0]["supported"] = True
+    dialog._render(state)
+    assert row.status.get_text() == "Couldn’t mask · retrying in 7s"

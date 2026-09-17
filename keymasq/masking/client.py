@@ -11,7 +11,7 @@ from typing import cast
 
 from keymasq.common.masking import HARDWARE_JOB_TIMEOUT
 from keymasq.common.types import JsonObject
-from keymasq.masking.backend import DeviceInUseError, finish_io, run_host
+from keymasq.masking.backend import DeviceInUseError, MaskOperationError, finish_io, run_host
 from keymasq.masking.inventory import Attachment, HardwareInventory
 from keymasq.masking.operations import REQUESTS
 from keymasq.masking.paths import (
@@ -51,7 +51,11 @@ async def request(operation: str, identity: str, **data: object) -> JsonObject:
                     raise DeviceInUseError(
                         str(result.get("pid", "")), str(result.get("application", ""))
                     )
-                raise OSError(str(result.get("message", "Privileged hardware operation failed")))
+                message = str(result.get("message", "Privileged hardware operation failed"))
+                code = result.get("error_code")
+                if isinstance(code, str) and code:
+                    raise MaskOperationError(code, message)
+                raise OSError(message)
             return result
         finally:
             await finish_io(path.unlink, missing_ok=True)
@@ -101,6 +105,11 @@ class SystemdMaskBackend:
 
     def needs_recovery(self) -> bool:
         return self.journal.exists() or self.armed or self.permissions.exists()
+
+    def saved_selector_available(self) -> bool:
+        # The helper records this file as root during a connected activation.
+        # Its directory is listable, so presence can be checked without a job.
+        return (STATE_DIR / "reservations" / self.identity / "selector.json").exists()
 
     async def install_rules(self, attachment: Attachment) -> None:
         await request("arm", self.identity)

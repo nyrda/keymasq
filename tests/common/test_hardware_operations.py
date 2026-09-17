@@ -377,8 +377,11 @@ async def test_offline_arm_requires_the_current_root_selector(tmp_path, monkeypa
         expected = await asyncio.to_thread(inventory.from_selector, selector)
         install.assert_awaited_once_with(expected)
     else:
-        with pytest.raises(FileNotFoundError):
+        from keymasq.masking.backend import MaskOperationError
+
+        with pytest.raises(MaskOperationError) as failure:
             await operations.execute(request, root)
+        assert failure.value.code == "selector_missing"
         install.assert_not_awaited()
 
 

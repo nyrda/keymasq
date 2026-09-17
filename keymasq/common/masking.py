@@ -21,6 +21,20 @@ class MaskPhase(StrEnum):
     RECOVERY_FAILED = "recovery_failed"
 
 
+class SavedMaskLifecycle(StrEnum):
+    """What the daemon is doing about a saved mask; derived, never authorizing."""
+
+    OFF = "off"
+    STARTING = "starting"
+    WAITING_FOR_DEVICE = "waiting_for_device"
+    SAVED_INCOMPLETE = "saved_incomplete"
+    ATTENTION = "attention"
+    ACTIVATING = "activating"
+    TRIAL = "trial"
+    MASKED = "masked"
+    RECOVERING = "recovering"
+
+
 def is_active(phase: object) -> bool:
     return phase in {MaskPhase.APPLYING, MaskPhase.ACQUIRING, MaskPhase.TRIAL, MaskPhase.MASKED}
 

@@ -1,5 +1,6 @@
 """Device masking switches with inline confirmation and recovery feedback."""
 
+import time
 from collections.abc import Callable
 
 import gi
@@ -9,7 +10,13 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.masking import HARDWARE_GUI_TIMEOUT, MaskPhase, is_active, is_recovering
+from keymasq.common.masking import (
+    HARDWARE_GUI_TIMEOUT,
+    MaskPhase,
+    SavedMaskLifecycle,
+    is_active,
+    is_recovering,
+)
 from keymasq.gui.session_client import session_request_async
 
 Change = Callable[[str, dict], None]
@@ -33,9 +40,27 @@ def application_display_name(name: object) -> str:
     }.get(app, app)
 
 
+def last_seen_text(mask: dict) -> str:
+    seen = mask.get("last_seen")
+    if not isinstance(seen, (int, float)) or isinstance(seen, bool) or seen <= 0:
+        return ""
+    return "Last seen " + time.strftime("%Y-%m-%d %H:%M", time.localtime(seen))
+
+
+def retry_suffix(mask: dict) -> str:
+    seconds = mask.get("next_retry_seconds", 0)
+    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds > 0:
+        return f" · retrying in {int(seconds)}s"
+    return ""
+
+
 def failure_message(mask: dict) -> str:
     if mask.get("state") == MaskPhase.RECOVERY_FAILED:
         return "Device access could not be restored yet. Keymasq is retrying."
+    if mask.get("lifecycle") == SavedMaskLifecycle.SAVED_INCOMPLETE:
+        # Not a failure: the record predates root-recorded selectors and is
+        # completed by the next connected confirmation.
+        return ""
     if mask.get("state") == MaskPhase.RESTORED and mask.get("reason") == "user_restore":
         return ""
     error = str(mask.get("error", ""))
@@ -244,18 +269,29 @@ class MaskDeviceRow(Adw.PreferencesRow):
             [Gtk.AccessibleProperty.LABEL], [f"Mask {device.get('name', 'device')}"]
         )
         error = request_error or failure_message(mask)
+        lifecycle = str(mask.get("lifecycle", ""))
         # Losing the radio/USB connection is an expected state, not a failure
         # dialog. The saved switch remains on until the user turns it off.
         if not connected and enabled and not recovering and not request_error:
-            error = ""
-            status = "Waiting for device"
+            if lifecycle == SavedMaskLifecycle.SAVED_INCOMPLETE:
+                error = ""
+                status = "Waiting for device · confirm again when connected"
+            elif lifecycle == SavedMaskLifecycle.ATTENTION and error:
+                # Arming saved rules failed while unplugged; unlike a missing
+                # device this is actionable, so keep the failure visible.
+                status = "Waiting for device" + retry_suffix(mask)
+            else:
+                error = ""
+                status = "Waiting for device"
         elif busy:
             status = "Updating…"
         elif state == MaskPhase.RESTORING:
             status = "Turning off…"
         elif error:
             status = (
-                "Couldn’t restore access" if state == MaskPhase.RECOVERY_FAILED else "Couldn’t mask"
+                "Couldn’t restore access"
+                if state == MaskPhase.RECOVERY_FAILED
+                else "Couldn’t mask" + retry_suffix(mask)
             )
         elif state in {MaskPhase.APPLYING, MaskPhase.ACQUIRING}:
             status = "Reconnecting device…"
@@ -284,8 +320,14 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.error.set_text(error)
         self.failure.set_visible(bool(error))
         self.retry.set_visible(state != MaskPhase.RECOVERY_FAILED)
+        # Saved rules can be re-armed while the device is unplugged.
         self.retry.set_sensitive(
-            available and connected and not busy and not recovering and not active and not paused
+            available
+            and (connected or bool(mask.get("has_saved_mask")))
+            and not busy
+            and not recovering
+            and not active
+            and not paused
         )
         confirming = state == MaskPhase.TRIAL and not mask.get("automatic")
         self.confirmation.set_visible(bool(confirming))
@@ -303,6 +345,9 @@ class MaskDeviceRow(Adw.PreferencesRow):
             technical.append(str(mask["error"]))
         if request_error:
             technical.append(request_error)
+        seen = last_seen_text(mask) if not connected else ""
+        if seen:
+            technical.append(seen)
         diagnostics = "\n\n".join(technical)
         if diagnostics != self.diagnostics:
             self.copy.set_label("Copy diagnostics")
@@ -312,6 +357,8 @@ class MaskDeviceRow(Adw.PreferencesRow):
         connection = str(device.get("connection") or "")
         summary = f"{transport} · Port {connection}" if transport == "USB" else transport.title()
         details = [summary, str(device.get("scope") or device.get("unsupported_reason") or "")]
+        if seen:
+            details.append(seen)
         if self._details_group is not None:
             details.insert(0, self.name.get_text())
         self.technical.set_text("\n".join(part for part in details if part))

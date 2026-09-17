@@ -32,7 +32,23 @@ UDEV_SETTLE_PROCESS_TIMEOUT_S = UDEV_SETTLE_TIMEOUT_S + 2.0
 UDEV_TRIGGER_TIMEOUT_S = 12.0
 
 
+class MaskOperationError(OSError):
+    """A privileged operation failed for a reason the daemon can classify."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
+
+
+class DeviceAbsentError(ValueError):
+    """The requested attachment generation is no longer connected."""
+
+    code = "device_absent"
+
+
 class DeviceInUseError(ValueError):
+    code = "device_in_use"
+
     def __init__(self, pid: str, application: str) -> None:
         self.pid = pid
         self.application = application
@@ -130,6 +146,10 @@ class LinuxMaskBackend:
 
     def needs_recovery(self) -> bool:
         return self.journal.exists() or self.armed or self.permissions.exists()
+
+    def saved_selector_available(self) -> bool:
+        """Only a selector recorded by root during activation can arm rules offline."""
+        return (self.state_dir / "selector.json").exists()
 
     def prepare_directories(self) -> None:
         for path in (self.runtime_dir, self.state_dir):

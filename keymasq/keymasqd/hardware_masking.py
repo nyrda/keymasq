@@ -15,6 +15,7 @@ from keymasq.common.devices import resolve_stable_path
 from keymasq.common.ipc import CommandType
 from keymasq.common.masking import MaskPhase, is_recovering
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.hotplug import HotplugWatcher
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime.grab.release import (
@@ -35,6 +36,10 @@ RESERVATION_PREFIX = "@masked:"
 INITIAL_RETRY_DELAY_S = 2.0
 MAX_RETRY_DELAY_S = 60.0
 HEALTHY_RETRY_RESET_S = 30.0
+HEARTBEAT_S = 1.0
+# Deadlines still tick every second; sysfs is rescanned this often when the
+# kernel reports hotplug events, and every heartbeat when it cannot.
+HOTPLUG_SCAN_INTERVAL_S = 5.0
 AUTOMATIC_RECOVERY_REASONS = {
     "replacement_unavailable",
     "activation_failed",
@@ -329,7 +334,13 @@ class HardwareMasking:
         self.session_uid: int | None = None
         self.needs_startup = True
         self.monitor_stop = asyncio.Event()
+        self.wake = asyncio.Event()
+        self.hotplug = HotplugWatcher(self.hardware_changed)
         self.runtimes: dict[str, MaskRuntime] = {}
+
+    def hardware_changed(self) -> None:
+        self.coordinator.mark_hardware_changed()
+        self.wake.set()
 
     def runtime(self, identity: str) -> MaskRuntime:
         if identity not in self.runtimes:
@@ -351,11 +362,13 @@ class HardwareMasking:
     def start_monitor(self) -> None:
         if self.task is None:
             self.monitor_stop.clear()
+            self.wake.clear()
             self.task = asyncio.create_task(self.monitor(), name="hardware-mask-owner")
 
     async def stop_monitor(self) -> Exception | asyncio.CancelledError | None:
         if self.task is not None:
             self.monitor_stop.set()
+            self.wake.set()
             try:
                 await self.task
             except (Exception, asyncio.CancelledError) as exc:
@@ -466,26 +479,33 @@ class HardwareMasking:
             )
 
     async def monitor(self) -> None:
-        while not self.monitor_stop.is_set():
-            try:
-                await self.monitor_once()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                log.exception("Hardware masking operation failed")
+        self.coordinator.scan_interval = HOTPLUG_SCAN_INTERVAL_S if self.hotplug.start() else 0.0
+        try:
+            while not self.monitor_stop.is_set():
                 try:
-                    if isinstance(exc, (OSError, ValueError, TimeoutError)):
-                        await self.release_runtime()
-                    else:
-                        # An unexpected coordinator failure cannot leave input
-                        # reserved without supervision. Stop remapping first.
-                        await self.restore("monitor_failed")
-                except Exception:
-                    log.exception("Hardware masking cleanup failed; monitor will retry")
-            try:
-                await asyncio.wait_for(self.monitor_stop.wait(), 1)
-            except TimeoutError:
-                pass
+                    await self.monitor_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    log.exception("Hardware masking operation failed")
+                    try:
+                        if isinstance(exc, (OSError, ValueError, TimeoutError)):
+                            await self.release_runtime()
+                        else:
+                            # An unexpected coordinator failure cannot leave input
+                            # reserved without supervision. Stop remapping first.
+                            await self.restore("monitor_failed")
+                    except Exception:
+                        log.exception("Hardware masking cleanup failed; monitor will retry")
+                # A hotplug event or stop request ends the heartbeat wait early.
+                try:
+                    await asyncio.wait_for(self.wake.wait(), HEARTBEAT_S)
+                except TimeoutError:
+                    pass
+                self.wake.clear()
+        finally:
+            self.hotplug.stop()
+            self.coordinator.scan_interval = 0.0
 
     async def recover_if_needed(self) -> bool:
         """Leave an ordinary emergency reset ordinary when no masking state exists."""

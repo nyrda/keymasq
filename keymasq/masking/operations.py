@@ -15,8 +15,10 @@ from typing import cast
 
 from keymasq.common.types import JsonObject
 from keymasq.masking.backend import (
+    DeviceAbsentError,
     DeviceInUseError,
     LinuxMaskBackend,
+    MaskOperationError,
     finish_io,
     run_host,
     save_json,
@@ -80,13 +82,34 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
             return {}
         if operation == "arm":
             path = backend.state_dir / "selector.json"
-            selector = json.loads(await finish_io(path.read_text))
-            attachment = await finish_io(backend.inventory.from_selector, selector)
+            try:
+                selector = json.loads(await finish_io(path.read_text))
+            except FileNotFoundError as exc:
+                # Saved by an earlier build, or never activated as root. Only a
+                # connected activation can record a selector this job may trust.
+                raise MaskOperationError(
+                    "selector_missing",
+                    "This saved mask has no root-recorded selector; "
+                    "connect the device and confirm masking again",
+                ) from exc
+            try:
+                if not isinstance(selector, dict):
+                    raise ValueError("selector.json must contain a JSON object")
+                attachment = await finish_io(
+                    backend.inventory.from_selector, cast(JsonObject, selector)
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise MaskOperationError(
+                    "selector_invalid", f"The saved selector cannot be used: {exc}"
+                ) from exc
             await backend.install_rules(attachment)
             return {}
-        attachment = await finish_io(
-            backend.inventory.resolve, identity, str(message.get("generation", ""))
-        )
+        try:
+            attachment = await finish_io(
+                backend.inventory.resolve, identity, str(message.get("generation", ""))
+            )
+        except ValueError as exc:
+            raise DeviceAbsentError(str(exc)) from exc
         if operation == "activate":
             # Offline arming can only reuse an identity discovered by root.
             await finish_io(
@@ -118,10 +141,11 @@ async def run_request(token: str, root: LinuxMaskBackend | None = None) -> None:
         except Exception as exc:
             log.exception("Hardware operation failed")
             result = {"status": "error", "message": str(exc)}
+            code = getattr(exc, "code", None)
+            if isinstance(code, str) and code:
+                result["error_code"] = code
             if isinstance(exc, DeviceInUseError):
-                result.update(
-                    {"error_code": "device_in_use", "application": exc.application, "pid": exc.pid}
-                )
+                result.update({"application": exc.application, "pid": exc.pid})
 
         # This is the already validated inode, never a path supplied in JSON.
         def respond() -> None:

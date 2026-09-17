@@ -175,6 +175,12 @@ input driver. The daemon monitors endpoint disappearance or changes, including
 for hidraw-only masks. Turning off or unplugging a controller, changes to its
 interfaces, and ordinary trial expiry release only the affected readers.
 
+When masking quiesces or restores the interfaces of an ordinary hardware
+configuration, that release does not arm the model's hotplug-hiding flag, unlike
+a normal disconnect of a still-desired gamepad. The reservation's access rules
+own the replacement nodes, recovery clears stale hiding markers, and the
+session's reapply re-derives hiding for the configuration afterwards.
+
 Removing a profile preserves the hardware's default route. Removing the hardware
 configuration returns its reserved interfaces to ordinary setup passthrough.
 Changing the default output releases held output state and keeps the physical

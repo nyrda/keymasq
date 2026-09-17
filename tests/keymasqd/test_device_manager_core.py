@@ -4017,6 +4017,57 @@ class TestReleaseScheduling:
         assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
 
     @pytest.mark.asyncio
+    async def test_masking_release_keeps_desired_gamepad_without_hotplug_hiding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Takeover recreates the nodes under masking rules; no hiding flag."""
+        manager = DeviceManager()
+        fake_device = SimpleNamespace(
+            path="/dev/input/event2",
+            interface_id="gamepad",
+            stop_event_loop=AsyncMock(),
+            release=AsyncMock(),
+            release_tracked_outputs=Mock(),
+        )
+        manager.grabbed_devices["2dc8:3106"] = [fake_device]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        enable_hotplug_hiding = AsyncMock()
+
+        async def clear_combo_runtime(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            lifecycle,
+            "clear_combo_runtime_for_binding_scope",
+            clear_combo_runtime,
+        )
+        monkeypatch.setattr(
+            source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+
+        await release.release_interface_unlocked(
+            manager,
+            "2dc8:3106",
+            "/dev/input/event2",
+            arm_hotplug_hiding=False,
+        )
+
+        enable_hotplug_hiding.assert_not_awaited()
+        fake_device.release.assert_awaited_once()
+        assert "2dc8:3106" not in manager.grabbed_devices
+        assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
+
+    @pytest.mark.asyncio
     async def test_release_on_hold_state_is_retried_then_released(
         self,
         monkeypatch: pytest.MonkeyPatch,

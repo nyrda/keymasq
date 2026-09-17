@@ -580,6 +580,9 @@ async def test_quiesce_stops_only_selected_physical_and_native_readers(monkeypat
     monkeypatch.setattr(masking, "request", AsyncMock())
     await masking.quiesce({"attachment_path": str(selected), "token": "trial"})
     assert [call.args[2] for call in release.await_args_list] == [physical.path, motion.path]
+    # Quiesced interfaces come back under the reservation's rules; arming the
+    # model's hotplug-hiding flag would only make the hide rule race them.
+    assert all(call.kwargs == {"arm_hotplug_hiding": False} for call in release.await_args_list)
     cast(AsyncMock, masking.request).assert_awaited_once_with("quiesced", {"token": "trial"})
 
 
@@ -664,7 +667,9 @@ async def test_automatic_recovery_releases_only_reserved_hardware(monkeypatch):
     monkeypatch.setattr(module, "release_interface_unlocked", release)
     monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
     await runtime(manager).release_runtime()
-    release.assert_awaited_once_with(manager, RESERVATION_ID, selected.path)
+    release.assert_awaited_once_with(
+        manager, RESERVATION_ID, selected.path, arm_hotplug_hiding=False
+    )
     manager.release_all_devices.assert_not_awaited()
     assert manager.grabbed_devices["keyboard"] == [unrelated]
 
@@ -790,7 +795,7 @@ async def test_two_reservations_can_share_a_configuration_and_release_independen
     assert not await first_runtime.runtime_ready()
     assert await second_runtime.runtime_ready()
 
-    async def release(_manager, hardware_id, path):
+    async def release(_manager, hardware_id, path, **_kwargs):
         manager.grabbed_devices[hardware_id] = [
             device for device in manager.grabbed_devices[hardware_id] if device.path != path
         ]

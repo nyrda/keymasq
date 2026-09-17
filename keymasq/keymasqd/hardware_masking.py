@@ -139,7 +139,11 @@ class MaskRuntime:
                     released.add(resolved[device.path])
                     cancel_pending_hardware_release(self.manager, hardware_id)
                     cancel_pending_interface_release(self.manager, hardware_id, device.path)
-                    await release_interface_unlocked(self.manager, hardware_id, device.path)
+                    # Recovery restores the nodes and the session reapplies the
+                    # hardware configuration; do not arm hotplug hiding here.
+                    await release_interface_unlocked(
+                        self.manager, hardware_id, device.path, arm_hotplug_hiding=False
+                    )
             await self.manager.mask_registry.release(self.reservation_id, released)
         self.raw_only = False
         self.transition_active = False
@@ -202,7 +206,11 @@ class MaskRuntime:
                         continue
                     cancel_pending_hardware_release(self.manager, hardware_id)
                     cancel_pending_interface_release(self.manager, hardware_id, device.path)
-                    await release_interface_unlocked(self.manager, hardware_id, device.path)
+                    # The rebind recreates these nodes under the reservation's
+                    # rules; a hotplug-hiding flag would only add udev churn.
+                    await release_interface_unlocked(
+                        self.manager, hardware_id, device.path, arm_hotplug_hiding=False
+                    )
         await self.request("quiesced", {"token": status.get("token")})
 
     async def acquire(self, status: JsonObject) -> None:

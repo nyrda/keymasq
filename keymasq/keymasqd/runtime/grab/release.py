@@ -269,8 +269,18 @@ async def release_interface_unlocked(
     manager: GrabManager,
     hardware_id: str,
     path: str,
+    *,
+    arm_hotplug_hiding: bool = True,
 ) -> None:
-    """Release one grabbed interface. Caller must hold ``manager._op_lock``."""
+    """Release one grabbed interface. Caller must hold ``manager._op_lock``.
+
+    When the last interface of a still-desired gamepad goes away, its model is
+    normally flagged for hotplug hiding so a returning device stays hidden until
+    it is grabbed again. Hardware masking passes ``arm_hotplug_hiding=False``:
+    it releases interfaces it is about to take over or has just restored, the
+    reservation's own access rules cover the replacement nodes, and the
+    session's reapply re-derives hiding afterwards.
+    """
 
     devices = manager.grabbed_devices.get(hardware_id, [])
     keep: list[ManagedGrabbedDevice] = []
@@ -300,7 +310,9 @@ async def release_interface_unlocked(
         manager.grabbed_devices.pop(hardware_id, None)
         desired_config = manager.grab_state.desired_grabs.get(hardware_id)
         if manager.grab_state.desired_paths.get(hardware_id):
-            if desired_grab_requests_gamepad_source_hiding(desired_config):
+            if arm_hotplug_hiding and desired_grab_requests_gamepad_source_hiding(
+                desired_config
+            ):
                 await enable_hardware_hotplug_hiding_best_effort(
                     manager,
                     hardware_id,

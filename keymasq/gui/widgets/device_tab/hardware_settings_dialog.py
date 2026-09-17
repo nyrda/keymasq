@@ -19,6 +19,7 @@ from keymasq.common.model.hardware import EvdevDevice, HardwareConfig, NativeInp
 from keymasq.common.model.motion import MotionSensorDefinition
 from keymasq.gui.session_client import GuiTaskResult, run_gui_task, session_request_async
 from keymasq.gui.widgets.controller_output import ControllerOutputGroup
+from keymasq.gui.widgets.device_masking import DeviceMaskingPanel, hardware_masking_sources
 from keymasq.gui.widgets.device_tab.motion_calibration_dialog import (
     MotionCalibrationDialog,
 )
@@ -216,6 +217,30 @@ class HardwareSettingsDialog(Adw.Dialog):
 
         run_gui_task(lambda: self._hardware_manager.save_hardware(config), saved)
 
+    def _remember_mask(self, identity: str, proceed: Callable[[], None]) -> None:
+        if identity in self._hardware_config.masking_devices:
+            proceed()
+            return
+        config = deepcopy(self._hardware_config)
+        config.masking_devices.append(identity)
+        self.set_sensitive(False)
+        self.set_can_close(False)
+
+        def saved(result: GuiTaskResult[None]) -> None:
+            self.set_sensitive(True)
+            self.set_can_close(True)
+            if result.error is not None:
+                self._masking._pending.discard(identity)
+                self._masking._errors[identity] = (
+                    f"Could not save device association: {result.error}"
+                )
+                self._masking._render(self._masking._state)
+                return
+            self._hardware_config.masking_devices = config.masking_devices
+            proceed()
+
+        run_gui_task(lambda: self._hardware_manager.save_hardware(config), saved)
+
     def _setup_ui(self) -> None:
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -246,6 +271,19 @@ class HardwareSettingsDialog(Adw.Dialog):
         self._identity_row = identity_row
         identity_group.add(identity_row)
         box.append(identity_group)
+
+        device_details = Adw.ExpanderRow(title="Device details", visible=False)
+        identity_group.add(device_details)
+        self._masking = DeviceMaskingPanel(
+            self._parent, remember=self._remember_mask, details_group=device_details
+        )
+        self._masking.set_sources(
+            hardware_masking_sources(self._hardware_config),
+            self._hardware_config.masking_devices,
+            hardware_id=self._hardware_config.hardware_id,
+        )
+        box.append(self._masking)
+        self.connect("closed", self._masking.close)
 
         self._output_group = ControllerOutputGroup(
             self._hardware_config.default_output, self._save_output
@@ -314,6 +352,11 @@ class HardwareSettingsDialog(Adw.Dialog):
         self.set_child(content)
 
     def refresh_runtime_metadata(self) -> None:
+        self._masking.set_sources(
+            hardware_masking_sources(self._hardware_config),
+            self._hardware_config.masking_devices,
+            hardware_id=self._hardware_config.hardware_id,
+        )
         self._refresh_identity()
         self._refresh_interface_rows()
         self._refresh_motion_rows()

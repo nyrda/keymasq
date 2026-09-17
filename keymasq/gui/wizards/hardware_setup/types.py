@@ -37,6 +37,7 @@ class DetectedInterface(TypedDict, total=False):
     raw_capabilities: dict[int, list[object]]
     driver: str
     grabbed_by_keymasq: bool
+    reserved_for_masking: bool
     source_hardware_id: str
     source_interface_id: str
     source_stable_path: str

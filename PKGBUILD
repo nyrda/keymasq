@@ -93,6 +93,8 @@ package() {
 
     install -Dm644 "systemd/keymasqd.service" \
         "$pkgdir/usr/lib/systemd/system/keymasqd.service"
+    install -Dm644 "systemd/keymasq-hardware@.service" \
+        "$pkgdir/usr/lib/systemd/system/keymasq-hardware@.service"
     install -Dm644 "systemd/keymasq-session.service" \
         "$pkgdir/usr/lib/systemd/user/keymasq-session.service"
 
@@ -107,6 +109,8 @@ package() {
         install -Dm644 "udev/$rule" "$pkgdir/usr/lib/udev/rules.d/$rule"
     done
 
+    install -Dm644 "polkit/49-keymasq-hardware.rules" \
+        "$pkgdir/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules"
     install -Dm644 "polkit/com.keymasq.record-macro.policy" \
         "$pkgdir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
 

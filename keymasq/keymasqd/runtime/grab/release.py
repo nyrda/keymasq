@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -72,13 +73,35 @@ async def release_device_unlocked(
         )
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
-    for device in devices:
-        await device.release()
+    # Every interface gets its release attempt. A failed interface stays
+    # tracked so a later release or emergency reset retries it; it must not
+    # take its siblings' cleanup or their tracking down with it.
+    failures: list[Exception] = []
+    unreleased: list[ManagedGrabbedDevice] = []
+    for index, device in enumerate(devices):
+        try:
+            await device.release()
+        except asyncio.CancelledError:
+            unreleased.extend(devices[index:])
+            manager.grabbed_devices[hardware_id] = unreleased
+            raise
+        except Exception as exc:
+            failures.append(exc)
+            unreleased.append(device)
+            log.exception(
+                "Failed to release %s for %s; keeping it tracked for retry",
+                device.path,
+                hardware_id,
+            )
+    if unreleased:
+        manager.grabbed_devices[hardware_id] = unreleased
 
     if devices:
         outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
+    if failures:
+        raise failures[0]
     log.info("Released device %s", hardware_id)
     return {"released": True, "hardware_id": hardware_id}
 
@@ -181,10 +204,25 @@ def hardware_has_held_inputs(manager: GrabManager, hardware_id: str) -> bool:
     )
 
 
-def cancel_pending_hardware_release(manager: GrabManager, hardware_id: str) -> None:
-    task = manager.grab_state.pending_hardware_release.pop(hardware_id, None)
-    if task and not task.done():
+def _cancel_unless_current(task: asyncio.Task[object] | None) -> None:
+    """Cancel a pending release task, but never the one performing the release.
+
+    A deferred release calls the release helpers itself. Cancelling its own
+    task would abort that release at the next await, after the devices were
+    already taken from tracking.
+    """
+    if task is None or task.done():
+        return
+    try:
+        current = asyncio.current_task()
+    except RuntimeError:
+        current = None
+    if task is not current:
         task.cancel()
+
+
+def cancel_pending_hardware_release(manager: GrabManager, hardware_id: str) -> None:
+    _cancel_unless_current(manager.grab_state.pending_hardware_release.pop(hardware_id, None))
 
 
 def cancel_pending_interface_release(
@@ -193,9 +231,7 @@ def cancel_pending_interface_release(
     path: str,
 ) -> None:
     key = (hardware_id, path)
-    task = manager.grab_state.pending_interface_release.pop(key, None)
-    if task and not task.done():
-        task.cancel()
+    _cancel_unless_current(manager.grab_state.pending_interface_release.pop(key, None))
 
 
 def cancel_pending_interface_releases_for_hardware(
@@ -205,9 +241,7 @@ def cancel_pending_interface_releases_for_hardware(
     for key in list(manager.grab_state.pending_interface_release.keys()):
         if key[0] != hardware_id:
             continue
-        task = manager.grab_state.pending_interface_release.pop(key)
-        if not task.done():
-            task.cancel()
+        _cancel_unless_current(manager.grab_state.pending_interface_release.pop(key))
 
 
 def schedule_interface_release(
@@ -268,8 +302,18 @@ async def release_interface_unlocked(
     manager: GrabManager,
     hardware_id: str,
     path: str,
+    *,
+    arm_hotplug_hiding: bool = True,
 ) -> None:
-    """Release one grabbed interface. Caller must hold ``manager._op_lock``."""
+    """Release one grabbed interface. Caller must hold ``manager._op_lock``.
+
+    When the last interface of a still-desired gamepad goes away, its model is
+    normally flagged for hotplug hiding so a returning device stays hidden until
+    it is grabbed again. Hardware masking passes ``arm_hotplug_hiding=False``:
+    it releases interfaces it is about to take over or has just restored, the
+    reservation's own access rules cover the replacement nodes, and the
+    session's reapply re-derives hiding afterwards.
+    """
 
     devices = manager.grabbed_devices.get(hardware_id, [])
     keep: list[ManagedGrabbedDevice] = []
@@ -299,7 +343,7 @@ async def release_interface_unlocked(
         manager.grabbed_devices.pop(hardware_id, None)
         desired_config = manager.grab_state.desired_grabs.get(hardware_id)
         if manager.grab_state.desired_paths.get(hardware_id):
-            if desired_grab_requests_gamepad_source_hiding(desired_config):
+            if arm_hotplug_hiding and desired_grab_requests_gamepad_source_hiding(desired_config):
                 await enable_hardware_hotplug_hiding_best_effort(
                     manager,
                     hardware_id,
@@ -326,13 +370,34 @@ async def release_all_devices(
     fire_and_observe_fn: FireAndObserve,
 ) -> None:
     async with manager._op_lock:
-        await manager.cancel_macro_playback()
+        errors: list[Exception] = []
+
+        async def attempt(label: str, cleanup: Callable[[], Awaitable[object]]) -> None:
+            try:
+                await cleanup()
+            except Exception as exc:
+                errors.append(exc)
+                log.exception("Device release failed while %s", label)
+
+        await attempt("cancelling macros", manager.cancel_macro_playback)
         for devices in list(manager.grabbed_devices.values()):
-            await stop_device_event_loops(devices)
-        await lifecycle.clear_combo_runtime(
-            manager,
-            deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            await attempt(
+                "stopping readers", lambda devices=devices: stop_device_event_loops(devices)
+            )
+        await attempt(
+            "clearing combos",
+            lambda: lifecycle.clear_combo_runtime(
+                manager,
+                deps=combo_runtime_deps(fire_and_observe_fn=fire_and_observe_fn),
+            ),
         )
         hardware_ids = set(manager.grabbed_devices) | set(manager.grab_state.desired_grabs)
         for hardware_id in list(hardware_ids):
-            await release_device_unlocked(manager, hardware_id, log=log)
+            await attempt(
+                f"releasing {hardware_id}",
+                lambda hardware_id=hardware_id: release_device_unlocked(
+                    manager, hardware_id, log=log
+                ),
+            )
+        if errors:
+            raise errors[0]

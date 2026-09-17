@@ -225,7 +225,17 @@ def _controller_entries(iface: InterfaceInfo, event_type: int) -> dict[int, obje
         for entry in raw.get(event_type, [])
         if (code := evdev_code_value(entry)) is not None
     }
+    inventory_prefix = f"{evdev.ecodes.EV[event_type]}_"
     for name in iface.get("capabilities", []):
+        # Masked nodes cannot be probed by the GUI. The daemon's inventory
+        # supplies numeric names such as EV_KEY_304 instead of btn_south.
+        label = str(name).strip().upper()
+        if label.startswith(inventory_prefix):
+            numeric_code = label[len(inventory_prefix):]
+            if numeric_code.isdecimal():
+                code = int(numeric_code)
+                entries.setdefault(code, code)
+            continue
         code = resolve_evdev_code(name)
         if code is not None and resolve_evdev_event_type(name) == event_type:
             entries.setdefault(code, code)

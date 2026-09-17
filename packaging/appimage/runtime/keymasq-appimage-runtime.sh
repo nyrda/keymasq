@@ -537,6 +537,8 @@ install_atomic_keep_list() {
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
 /etc/systemd/system/keymasqd.service
+/etc/systemd/system/keymasq-hardware@.service
+/etc/polkit-1/rules.d/49-keymasq-hardware.rules
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 EOF
@@ -903,6 +905,8 @@ write_systemd_integration_files() {
 	install_file 0644 "$assets/keymasq-sysusers.conf" "$(root_path /etc/sysusers.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasq-tmpfiles.conf" "$(root_path /etc/tmpfiles.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasqd.service" "$(root_path /etc/systemd/system/keymasqd.service)"
+	install_file 0644 "$assets/49-keymasq-hardware.rules" "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
+	install_file 0644 "$assets/keymasq-hardware@.service" "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
 	install_user_service "$target_user"
 	if [ "$install_keep_list" = 1 ]; then
 		install_atomic_keep_list
@@ -1096,6 +1100,8 @@ uninstall_keymasq() {
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
 	remove_path "$(root_path /etc/systemd/system/keymasqd.service)"
+	remove_path "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
+	remove_path "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
 	remove_user_path "$target_user" "$(root_path "$home/.config/systemd/user/keymasq-session.service")"
 	remove_path "$(root_path /etc/sysusers.d/keymasq.conf)"
 	remove_path "$(root_path /etc/tmpfiles.d/keymasq.conf)"
@@ -1283,11 +1289,13 @@ self_update() {
 	) 9>"$lock_path"
 
 	restart_failed=0
-	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] && \
-		! systemctl try-restart keymasqd.service; then
-		warn "could not restart keymasqd.service after update"
-		restart_failed=1
-	fi
+	for unit in keymasqd.service; do
+		if [ -f "$(root_path "/etc/systemd/system/$unit")" ] && \
+			! systemctl try-restart "$unit"; then
+			warn "could not restart $unit after update"
+			restart_failed=1
+		fi
+	done
 	home=$(resolve_user_home "$target_user")
 	if [ -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")" ] && \
 		! run_user_systemctl "$target_user" try-restart keymasq-session.service; then

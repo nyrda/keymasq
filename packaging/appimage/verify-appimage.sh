@@ -174,11 +174,16 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: F401,E402
 PY
 
-"$appdir/bin/slurp" -h >/dev/null
-"$appdir/bin/waypipe" --help >/dev/null
-# The pinned Brotway launcher promises that --help exits without starting a
-# daemon or requiring a display. Keep this smoke check in sync when repinning.
-"$appdir/bin/gtk4-brotway-run" --help >/dev/null
+(
+  # Shell launchers choose the bundled loader themselves. Loading bundled
+  # libc into the host shell can crash before the launcher reaches it.
+  unset LD_LIBRARY_PATH
+  "$appdir/bin/slurp" -h >/dev/null
+  "$appdir/bin/waypipe" --help >/dev/null
+  # The pinned Brotway launcher promises that --help exits without starting a
+  # daemon or requiring a display. Keep this smoke check in sync when repinning.
+  "$appdir/bin/gtk4-brotway-run" --help >/dev/null
+)
 
 (
   export LD_LIBRARY_PATH="$appdir/lib/gtk4-brotway:$appdir/lib"

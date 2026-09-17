@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol, cast
 
 import evdev
@@ -29,6 +29,8 @@ from keymasq.keymasqd.permission_hints import (
 )
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime.adapters import DeviceInfo
+from keymasq.keymasqd.runtime.grabbed_device.types import InputEventLike
+from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 
 log = logging.getLogger("keymasq.keymasqd.capture_manager")
 
@@ -85,6 +87,13 @@ class CaptureSession:
     path_hardware_ids: dict[str, str] = field(default_factory=dict)
     path_sources: dict[str, str] = field(default_factory=dict)
     exclusive_devices: list[_CaptureInputDevice] = field(default_factory=list)
+    borrowed_paths: set[str] = field(default_factory=set)
+    borrowed_streams: list[
+        tuple[InputCaptureStream, Callable[[InputEventLike], None]]
+    ] = field(default_factory=list)
+    borrowed_events: queue.Queue[tuple[_CaptureInputDevice, InputEventLike]] = field(
+        default_factory=lambda: queue.Queue(1024)
+    )
     motion_axis_codes: tuple[int, ...] = ()
     motion_frame_queue: queue.Queue[JsonObject] | None = None
     motion_dropped_frames: int = 0
@@ -196,6 +205,7 @@ class CaptureManager:
         evdev_interfaces: list[JsonObject] | None = None,
         mode: str = "button",
         motion_axis_codes: list[int] | None = None,
+        borrowed_streams: Mapping[str, InputCaptureStream] | None = None,
     ) -> JsonObject:
         mode = _capture_mode(mode)
         normalized_motion_axis_codes = tuple(
@@ -208,11 +218,14 @@ class CaptureManager:
             matched, path_sources = self._find_devices_by_interfaces(
                 hardware_id,
                 evdev_interfaces,
+                extra_paths=borrowed_streams or {},
             )
         elif evdev_paths:
             matched = self._find_devices_by_paths(evdev_paths)
         else:
-            matched = self._find_devices(*self._parse_hardware_id(hardware_id))
+            matched = self._find_devices(
+                *self._parse_hardware_id(hardware_id), extra_paths=borrowed_streams or {},
+            )
         if not matched:
             raise ValueError(input_device_permission_message(f"No devices found for {hardware_id}"))
 
@@ -220,6 +233,7 @@ class CaptureManager:
         exclusive_devices: list[_CaptureInputDevice] = []
         warnings: list[str] = []
         permission_error_seen = False
+        borrowed: dict[str, InputCaptureStream] = {}
         for device in matched:
             try:
                 is_motion_device = _is_motion_device(device)
@@ -228,8 +242,12 @@ class CaptureManager:
                     _close_device(device)
                     continue
                 if not is_motion_device:
-                    device.grab()
-                    exclusive_devices.append(device)
+                    stream = (borrowed_streams or {}).get(os.path.realpath(device.path))
+                    if stream is not None:
+                        borrowed[device.path] = stream
+                    else:
+                        device.grab()
+                        exclusive_devices.append(device)
                 readable.append(device)
             except OSError as e:
                 if e.errno == errno.EBUSY:
@@ -269,6 +287,17 @@ class CaptureManager:
             mode=mode,
         )
         self._sessions[token] = session
+        try:
+            for device in readable:
+                stream = borrowed.get(device.path)
+                if stream is not None:
+                    consumer = self._borrowed_consumer(session, device)
+                    stream.attach(consumer)
+                    session.borrowed_paths.add(device.path)
+                    session.borrowed_streams.append((stream, consumer))
+        except BaseException:
+            self.end(token)
+            raise
         if mode == "motion":
             self._start_motion_reader(session)
 
@@ -276,6 +305,7 @@ class CaptureManager:
             "token": token,
             "hardware_id": hardware_id,
             "warnings": warnings,
+            **({"borrowed_paths": sorted(session.borrowed_paths)} if borrowed else {}),
         }
 
     def read(self, token: str) -> JsonObject:
@@ -285,7 +315,18 @@ class CaptureManager:
         if session.mode == "motion":
             return self._read_motion_frames(session)
 
+        while True:
+            try:
+                device, event = session.borrowed_events.get_nowait()
+            except queue.Empty:
+                break
+            parsed = self._parse_event(device, event, session.mode, session.path_sources)
+            if parsed is not None:
+                return {"captured": parsed}
+
         for device in session.devices:
+            if device.path in session.borrowed_paths:
+                continue
             event = _read_one_device_event(device)
 
             if event is None:
@@ -296,6 +337,23 @@ class CaptureManager:
                 return {"captured": parsed}
 
         return {"captured": None}
+
+    def _borrowed_consumer(
+        self, session: CaptureSession, device: _CaptureInputDevice,
+    ) -> Callable[[InputEventLike], None]:
+        def consume(event: InputEventLike) -> None:
+            try:
+                session.borrowed_events.put_nowait((device, event))
+            except queue.Full:
+                # Setup polling may be slower than a controller's axis reports.
+                # Retain recent samples without blocking the input event loop.
+                try:
+                    session.borrowed_events.get_nowait()
+                except queue.Empty:
+                    pass
+                session.borrowed_events.put_nowait((device, event))
+
+        return consume
 
     def _read_motion_frames(self, session: CaptureSession) -> JsonObject:
         frames: list[JsonObject] = []
@@ -462,6 +520,8 @@ class CaptureManager:
 
         if session.native_task is not None and not session.native_task.done():
             session.native_task.get_loop().call_soon_threadsafe(session.native_task.cancel)
+        for stream, consumer in session.borrowed_streams:
+            stream.detach(consumer)
 
         if session.stop_event is not None:
             session.stop_event.set()
@@ -702,11 +762,13 @@ class CaptureManager:
         product_id = product_id.split("@", 1)[0]
         return vendor_id.lower(), product_id.lower()
 
-    def _find_devices(self, vendor_id: str, product_id: str) -> list[_CaptureInputDevice]:
+    def _find_devices(
+        self, vendor_id: str, product_id: str, *, extra_paths: Iterable[str] = (),
+    ) -> list[_CaptureInputDevice]:
         clear_device_path_cache()
         devices: list[_CaptureInputDevice] = []
         list_devices = cast(Callable[[], list[str]], evdev.list_devices)
-        for path in list_devices():
+        for path in dict.fromkeys([*list_devices(), *extra_paths]):
             try:
                 device = cast(_CaptureInputDevice, evdev.InputDevice(path))
             except OSError:
@@ -739,11 +801,19 @@ class CaptureManager:
         self,
         hardware_id: str,
         evdev_interfaces: list[JsonObject],
+        *, extra_paths: Iterable[str] = (),
     ) -> tuple[list[_CaptureInputDevice], dict[str, str]]:
         clear_device_path_cache()
+        deps = _device_path_resolver_deps()
+        if extra_paths:
+            default_paths = deps.device_paths_fn
+            deps = replace(
+                deps, device_paths_fn=lambda: list(dict.fromkeys([*default_paths(), *extra_paths])),
+                cache=device_path_resolver.DeviceCache(),
+            )
         resolved = device_path_resolver.resolve_evdev_interfaces(
             evdev_interfaces,
-            deps=_device_path_resolver_deps(),
+            deps=deps,
             hardware_id=hardware_id,
         )
         devices: list[_CaptureInputDevice] = []
@@ -842,7 +912,7 @@ class CaptureManager:
     def _parse_event(
         self,
         device: _CaptureInputDevice,
-        event: evdev.InputEvent,
+        event: InputEventLike,
         mode: str = "button",
         path_sources: Mapping[str, str] | None = None,
     ) -> JsonObject | None:

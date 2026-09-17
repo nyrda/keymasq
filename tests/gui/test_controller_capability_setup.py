@@ -1,18 +1,36 @@
 """Capability-to-hardware regression tests for controller setup and targeting."""
 
+from types import SimpleNamespace
+
 import evdev
 import pytest
 
-from keymasq.common.controller_capabilities import hardware_controller_template
+from keymasq.common.controller_capabilities import hardware_controller_template, is_flight_stick
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE, XBOX_360_TEMPLATE
 from keymasq.gui.wizards.hardware_setup.flow import merge_inventory_abs_info
+from keymasq.gui.wizards.hardware_setup.rows import device_in_use, device_in_use_summary
 from keymasq.gui.wizards.hardware_setup.templates import (
     build_gamepad_analog_inputs,
     build_gamepad_buttons,
 )
+from keymasq.keymasqd.device_inventory import _abs_axis_info, _capability_names
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_reserved_interface_does_not_hide_another_interface_in_use(configured):
+    active = (
+        {"configured_hardware_id": "1234:5678"}
+        if configured
+        else {"grabbed_by_keymasq": True, "source_hardware_id": "1234:5678"}
+    )
+    device = {"interfaces": [{"reserved_for_masking": True}, active]}
+    assert device_in_use(device)
+    assert device_in_use_summary(device) == (
+        "Configured as 1234:5678" if configured else "In use by 1234:5678"
+    )
 
 
 def controller_interface(template):
@@ -159,6 +177,54 @@ def test_inventory_fallback_preserves_buttons_and_axis_metadata():
     assert {b.evdev for b in config.buttons} == {"btn_trigger", "btn_trigger_happy1"}
     axis = config.analog_inputs[0].axes[0]
     assert (axis.minimum, axis.maximum, axis.rest) == (10, 900, None)
+
+
+def test_masked_deck_setup_uses_actual_daemon_inventory_format():
+    # EV_KEY capabilities measured from hid-steam on the masked Steam Deck.
+    codes = [
+        289, 290, 294, 304, 305, 307, 308, 310, 311, 312, 313, 314,
+        315, 316, 317, 318, 544, 545, 546, 547, 548, 549, 550, 551,
+    ]
+    caps = {
+        evdev.ecodes.EV_KEY: codes,
+        evdev.ecodes.EV_ABS: [
+            (code, evdev.AbsInfo(0, -32767, 32767, 0, 0, 6553))
+            for code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y)
+        ],
+    }
+    physical = SimpleNamespace(capabilities=lambda **_kwargs: caps)
+    iface = {
+        "id": "if02_joystick",
+        "device_types": ["gamepad"],
+        "capabilities": _capability_names(physical, evdev),
+        "raw_capabilities": merge_inventory_abs_info({}, _abs_axis_info(physical, evdev)),
+    }
+    config = hardware_from_interfaces([iface])
+    assert len(config.buttons) == 24
+    assert {button.evdev_code for button in config.buttons} == set(codes)
+    assert all(button.source == "if02_joystick" for button in config.buttons)
+    assert {b.evdev for b in config.buttons} >= {"btn_south", "btn_east", "btn_dpad_up"}
+    assert config.analog_inputs[0].id == "left_stick"
+    assert config.analog_inputs[0].axes[0].minimum == -32767
+    assert hardware_controller_template(config).layout == "gamepad"
+
+
+def test_mixed_inventory_names_preserve_raw_ranges_and_do_not_duplicate_buttons():
+    iface = controller_interface(XBOX_360_TEMPLATE)
+    iface["capabilities"] = [button.evdev for button in XBOX_360_TEMPLATE.buttons] + [
+        f"EV_KEY_{evdev.ecodes.BTN_SOUTH}", "EV_KEY_", "EV_KEY_-1", "EV_KEY_bad",
+        f"EV_ABS_{evdev.ecodes.ABS_X}", "EV_ABS_304", "EV_REL_304",
+    ]
+    config = hardware_from_interfaces([iface])
+    assert [b.evdev for b in config.buttons].count("btn_south") == 1
+    assert len(config.buttons) == len(XBOX_360_TEMPLATE.buttons)
+    stick = next(a for a in config.analog_inputs if a.id == "left_stick")
+    assert stick.axes[0].minimum == -32768
+
+
+@pytest.mark.parametrize("face_button", ["btn_south", "btn_a", "btn_gamepad", "EV_KEY_304"])
+def test_gamepad_face_buttons_take_precedence_over_extra_joystick_buttons(face_button):
+    assert not is_flight_stick([face_button, "btn_thumb", "btn_thumb2", "btn_base"])
 
 
 def test_pairing_does_not_cross_interfaces_or_drop_duplicate_controls():

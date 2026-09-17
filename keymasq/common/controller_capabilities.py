@@ -20,7 +20,14 @@ from keymasq.common.virtual_device_templates import (
 
 
 def is_flight_stick(names: Iterable[str]) -> bool:
-    capabilities = {name.lower() for name in names}
+    capabilities = {canonical_gamepad_button_name(name.lower()) for name in names}
+    # hid-steam advertises joystick-range buttons alongside the Deck's gamepad
+    # buttons. Those extra controls must not switch its layout to a flight stick.
+    if any(
+        name in capabilities or f"ev_key_{resolve_evdev_code(name)}" in capabilities
+        for name in ("btn_south", "btn_east", "btn_north", "btn_west", "btn_gamepad")
+    ):
+        return False
     return bool(
         capabilities & {"btn_trigger", "btn_joystick", "btn_thumb", "btn_top", "btn_pinkie"}
     )

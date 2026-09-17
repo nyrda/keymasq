@@ -34,6 +34,48 @@ from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_devic
 
 
 @pytest.mark.asyncio
+async def test_saved_global_stop_blocks_grabs_before_masking_startup(monkeypatch, tmp_path):
+    from keymasq.masking import paths
+
+    monkeypatch.setattr(paths, "POLICY_DIR", tmp_path / "policy")
+    monkeypatch.setattr(paths, "STATE_DIR", tmp_path / "transactions")
+    paths.POLICY_DIR.mkdir()
+    (paths.POLICY_DIR / "suspended").write_text("user_restore\n")
+    manager = DeviceManager()
+    open_device = Mock()
+    monkeypatch.setattr(manager, "_device_input", open_device)
+
+    assert await manager.grab_device("1234:5678", ["/dev/input/event0"], {}) == {
+        "grabbed": False,
+        "reason": "Hardware recovery suspended remapping",
+    }
+    open_device.assert_not_called()
+    assert not manager.grab_state.desired_paths
+
+
+@pytest.mark.asyncio
+async def test_device_replaced_between_probe_and_final_open_waits_for_matching_model(monkeypatch):
+    from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_module
+    from tests.keymasqd.test_device_path_resolver import _FakeDevice
+
+    path = "/dev/input/by-id/shared-controller-event-joystick"
+    correct = _FakeDevice(path, product=0x6012)
+    replacement = _FakeDevice(path, product=0x310B)
+    manager = DeviceManager()
+    monkeypatch.setattr(manager, "_device_input", lambda _path: correct)
+    monkeypatch.setattr(grabbed_module, "_device_input", lambda _path: replacement)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
+    result = await manager.grab_device(
+        "2dc8:6012", [path], {"btn_south": "btn_south"}, force_grab_unmapped=True
+    )
+    assert result["waiting_for_device"] is True
+    assert not manager.grabbed_devices.get("2dc8:6012")
+    assert replacement.close_count == 1
+    assert manager.grab_state.desired_paths["2dc8:6012"] == {path}
+
+
+@pytest.mark.asyncio
 async def test_set_cursor_position_emits_absolute_mouse_move() -> None:
     manager = DeviceManager()
     mouse = FakeUInput()
@@ -1237,9 +1279,11 @@ class TestDeviceManager:
         ]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("wrong_model", ["9999:3106", "2dc8:9999"])
     async def test_grab_device_honors_explicit_gamepad_path(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        wrong_model: str,
     ) -> None:
         manager = DeviceManager()
         explicit_path = "/dev/input/by-id/test-pad-if02-event-joystick"
@@ -1297,6 +1341,18 @@ class TestDeviceManager:
             disable_hotplug_hiding,
         )
         manager._device_input = lambda path: _InputDevice(path)  # type: ignore[method-assign]
+
+        wrong = await manager.grab_device(
+            hardware_id=wrong_model,
+            evdev_paths=[explicit_path],
+            button_map={"btn_south": "btn_south"},
+            force_grab_unmapped=True,
+        )
+        assert wrong["waiting_for_device"] is True
+        assert wrong["grabbed_count"] == 0
+        assert not manager.grabbed_devices.get(wrong_model)
+        assert manager.grab_state.desired_paths[wrong_model] == {explicit_path}
+        disable_hotplug_hiding.reset_mock()
 
         result = await manager.grab_device(
             hardware_id="2dc8:3106",
@@ -2041,6 +2097,8 @@ class TestDeviceManager:
         manager = DeviceManager()
 
         class _InputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self, path: str) -> None:
                 self.path = path
 
@@ -2375,6 +2433,10 @@ class TestDeviceDetection:
 
 
 class TestListDevices:
+    @pytest.fixture(autouse=True)
+    def no_native_sources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(device_manager.native_discovery, "discover_bindings", lambda: [])
+
     def test_list_devices_closes_devices_after_metadata_scan(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -2769,9 +2831,7 @@ class TestListDevices:
         monkeypatch.setattr(topology, "schedule_topology_reconcile", schedule_topology_reconcile)
 
         with pytest.raises(asyncio.CancelledError):
-            await topology.topology_watch_loop(
-                manager, log=device_manager.log, deps=deps
-            )
+            await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
 
         schedule_topology_reconcile.assert_called_once_with(
             manager,
@@ -2821,9 +2881,7 @@ class TestListDevices:
 
         with caplog.at_level(logging.WARNING, logger="keymasqd.devices"):
             with pytest.raises(asyncio.CancelledError):
-                await topology.topology_watch_loop(
-                    manager, log=device_manager.log, deps=deps
-                )
+                await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
 
         assert "Topology scan failed: scan boom" in caplog.text
         schedule_topology_reconcile.assert_called_once_with(
@@ -3959,6 +4017,90 @@ class TestReleaseScheduling:
         assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
 
     @pytest.mark.asyncio
+    async def test_release_attempts_every_interface_and_keeps_failures_tracked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """One interface's failed cleanup must not skip its siblings' release."""
+        manager = DeviceManager()
+        keyboard = SimpleNamespace(
+            path="/dev/input/event1",
+            release=AsyncMock(side_effect=OSError("keyboard cleanup failed")),
+        )
+        mouse = SimpleNamespace(path="/dev/input/event2", release=AsyncMock())
+        other = SimpleNamespace(path="/dev/input/event3", release=AsyncMock())
+        manager.grabbed_devices["combo"] = [keyboard, mouse]
+        manager.grabbed_devices["other"] = [other]
+        monkeypatch.setattr(release, "stop_device_event_loops", AsyncMock())
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", AsyncMock())
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime_for_binding_scope", AsyncMock())
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+        monkeypatch.setattr(manager, "cancel_macro_playback", AsyncMock())
+
+        with pytest.raises(OSError, match="keyboard cleanup failed"):
+            await manager.release_all_devices()
+
+        mouse.release.assert_awaited_once()
+        other.release.assert_awaited_once()
+        assert manager.grabbed_devices == {"combo": [keyboard]}
+
+        keyboard.release.side_effect = None
+        await manager.release_all_devices()
+        assert keyboard.release.await_count == 2
+        assert not manager.grabbed_devices
+
+    @pytest.mark.asyncio
+    async def test_masking_release_keeps_desired_gamepad_without_hotplug_hiding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Takeover recreates the nodes under masking rules; no hiding flag."""
+        manager = DeviceManager()
+        fake_device = SimpleNamespace(
+            path="/dev/input/event2",
+            interface_id="gamepad",
+            stop_event_loop=AsyncMock(),
+            release=AsyncMock(),
+            release_tracked_outputs=Mock(),
+        )
+        manager.grabbed_devices["2dc8:3106"] = [fake_device]
+        evdev_interfaces = [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}]
+        manager.grab_state.desired_paths["2dc8:3106"] = {"keymasq:2dc8:3106"}
+        manager.grab_state.desired_grabs["2dc8:3106"] = DesiredGrabConfig(
+            paths={"keymasq:2dc8:3106"},
+            button_map={"btn_south": "btn_south"},
+            evdev_interfaces=evdev_interfaces,
+        )
+        enable_hotplug_hiding = AsyncMock()
+
+        async def clear_combo_runtime(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            lifecycle,
+            "clear_combo_runtime_for_binding_scope",
+            clear_combo_runtime,
+        )
+        monkeypatch.setattr(
+            source_hiding,
+            "enable_hardware_hotplug_hiding",
+            enable_hotplug_hiding,
+        )
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+
+        await release.release_interface_unlocked(
+            manager,
+            "2dc8:3106",
+            "/dev/input/event2",
+            arm_hotplug_hiding=False,
+        )
+
+        enable_hotplug_hiding.assert_not_awaited()
+        fake_device.release.assert_awaited_once()
+        assert "2dc8:3106" not in manager.grabbed_devices
+        assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
+
+    @pytest.mark.asyncio
     async def test_release_on_hold_state_is_retried_then_released(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -3995,3 +4137,20 @@ class TestReleaseScheduling:
         fake_device.reset_mapping_runtime_state.assert_awaited_once_with(previous_mapping={})
         assert fake_device.release.await_count == 1
         assert holds["count"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_disconnected_binding_during_masking_check_waits_for_device(monkeypatch):
+    from keymasq.keymasqd import hardware_masking
+
+    manager = DeviceManager()
+    manager.mask_registry.blocked_attachments.add("/sys/devices/receiver")
+    parent = Mock(side_effect=FileNotFoundError(errno.ENODEV, "source disappeared"))
+    monkeypatch.setattr(hardware_masking, "input_attachment_path", parent)
+    monkeypatch.setattr(device_manager, "resolve_stable_path", lambda path: path)
+    result = await manager.grab_device(
+        "1234:5678", ["/dev/input/event20"], {}, force_grab_unmapped=True
+    )
+    parent.assert_called_once_with("/dev/input/event20")
+    assert result["waiting_for_device"]
+    assert result["grabbed_count"] == 0

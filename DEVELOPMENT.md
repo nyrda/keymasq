@@ -67,6 +67,53 @@ mirrors the installed entrypoint: no arguments launch the GUI, while command
 arguments dispatch through the CLI path. Use it when validating packaging or
 wrapper behavior, not as the fastest GUI iteration loop.
 
+## Sudo Rules for the Development Daemon
+
+`dev-keymasqd.sh` needs root for a fixed set of commands: stopping the installed
+`keymasqd.service`, creating `/run/keymasq` and `/var/lib/keymasq`, and starting
+the daemon. The daemon itself starts through `setpriv`, which switches to the
+`keymasq` user and grants the single `CAP_DAC_OVERRIDE` ambient capability that
+`keymasqd.service` also grants. Without it, `udevadm trigger` cannot write
+sysfs `uevent` files and source hiding logs `Permission denied` warnings (see
+`docs/TROUBLESHOOTING.md`). If `setpriv` is missing, the launcher falls back to
+plain `sudo -u keymasq` and warns.
+
+Without any sudo rule the launcher prompts for your password on every restart.
+The three setup commands are fixed and safe to allow without a password. The
+daemon start is not: it runs whatever the worktree contains, with a capability
+that bypasses file permission checks and without the service's sandbox. A
+passwordless rule for it would give every process running as your desktop user
+root-equivalent access, so let that command keep prompting. Sudo's credential
+cache reduces the prompts; `Defaults timestamp_timeout=30` in your sudoers
+keeps one password per half hour.
+
+The launcher prefers stable `/run/current-system/sw/bin` paths on NixOS so one
+rule keeps matching across worktrees with different nixpkgs pins. Replace `alice`
+with your desktop user:
+
+```nix
+security.sudo.extraRules = [
+  {
+    users = [ "alice" ];
+    runAs = "root";
+    commands = map (command: {
+      inherit command;
+      options = [ "NOPASSWD" "NOSETENV" ];
+    }) [
+      "/run/current-system/sw/bin/systemctl stop keymasqd.service"
+      "/run/current-system/sw/bin/install -d -m 0755 -o keymasq -g keymasq /run/keymasq"
+      "/run/current-system/sw/bin/install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq"
+    ];
+  }
+];
+```
+
+The equivalent plain sudoers entries, for example in `/etc/sudoers.d/keymasq-dev`,
+are one line per command with the same `NOPASSWD:NOSETENV:` options. On other
+distributions the launcher resolves `install` and `systemctl` from the dev shell
+`PATH`, which points into the Nix store; check the exact paths with `command -v`
+inside `nix develop` before pinning them.
+
 ## Running Checks
 
 Run the standard validation with:

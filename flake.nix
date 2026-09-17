@@ -120,6 +120,13 @@
             cat > keymasq/common/build_paths.py <<EOF
             KEYMASQ_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keymasq-record"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
+            MASKING_COMMAND_PATHS = {
+                "udevadm": "${pkgs.systemd}/bin/udevadm",
+                "systemctl": "${pkgs.systemd}/bin/systemctl",
+                "getfacl": "${pkgs.acl}/bin/getfacl",
+                "setfacl": "${pkgs.acl}/bin/setfacl",
+                "chmod": "${pkgs.coreutils}/bin/chmod",
+            }
             EOF
 
             substituteInPlace polkit/com.keymasq.record-macro.policy \
@@ -409,12 +416,16 @@
             systemd.tmpfiles.rules = [
               "d /run/keymasq 0755 keymasq keymasq -"
               "d /var/lib/keymasq 0750 keymasq keymasq -"
+              "d /run/udev/rules.d 0755 root root -"
             ];
 
             services.udev.packages = [ cfg.package ];
+            security.polkit.enable = true;
+            security.polkit.extraConfig = builtins.readFile ./polkit/49-keymasq-hardware.rules;
 
             systemd.services.keymasqd = {
               description = "Keymasq Input Remapping Daemon";
+              path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               wantedBy = [ "multi-user.target" ];
               after = [
                 "systemd-udevd.service"
@@ -424,16 +435,21 @@
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";
+                WatchdogSec = 20;
+                WatchdogSignal = "SIGKILL";
+                TimeoutStopSec = 20;
                 User = "keymasq";
                 Group = "keymasq";
                 SupplementaryGroups = [ "input" ];
                 Nice = -5;
                 ExecStartPre = [
+                  "+${cfg.package}/bin/keymasq-record recover-hardware"
                   "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle"
                   "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
                   "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];
                 ExecStart = "${cfg.package}/bin/keymasqd";
+                ExecStopPost = "+${cfg.package}/bin/keymasq-record recover-hardware";
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
@@ -451,6 +467,41 @@
                 RuntimeDirectoryMode = "0755";
                 StateDirectory = "keymasq";
                 ReadWritePaths = [ "/run/keymasq" "/var/lib/keymasq" ];
+              };
+            };
+
+            systemd.services."keymasq-hardware@" = {
+              description = "Keymasq privileged hardware operation";
+              path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
+              restartTriggers = [ cfg.package ];
+              serviceConfig = {
+                Type = "oneshot";
+                ExecStart = "${cfg.package}/bin/keymasq-record hardware-operation %i";
+                TimeoutStartSec = 60;
+                TimeoutStopSec = 2;
+                User = "root";
+                NoNewPrivileges = true;
+                # CAP_SYS_PTRACE permits /proc/*/fd inspection to detect and verify USB handle revocation.
+                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" "CAP_CHOWN" "CAP_FOWNER" "CAP_SYS_PTRACE" ];
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateTmp = true;
+                RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" ];
+                RuntimeDirectory = "keymasq-masking";
+                RuntimeDirectoryMode = "0755";
+                RuntimeDirectoryPreserve = "yes";
+                StateDirectory = "keymasq-masking";
+                StateDirectoryMode = "0755";
+                # RuntimeDirectory and StateDirectory already permit writes
+                # to the helper's own records. Each job opens a fresh request.
+                ReadWritePaths = [
+                  "/run/keymasq/hardware-requests"
+                  "/run/udev/rules.d"
+                  # Recovery removes existing legacy evdev hiding markers.
+                  # Missing marker directories require no cleanup.
+                  "-/run/keymasq/hidden"
+                  "-/run/keymasq/hidden-hardware"
+                ];
               };
             };
 
@@ -515,6 +566,8 @@
             pkgs.mkShell {
               packages = [
                 (mkTestPython evdevPackage [ ])
+                pkgs.acl
+                pkgs.systemd
               ];
             };
           mkCiGuiShell =
@@ -528,6 +581,8 @@
 
               packages = [
                 (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
+                pkgs.acl
+                pkgs.systemd
                 pkgs.gobject-introspection
                 pkgs.gtk4
                 pkgs.libadwaita
@@ -588,6 +643,8 @@
                 # transitive deps.
                 mkdocs-material
               ]))
+              pkgs.acl
+              pkgs.systemd
               pkgs.gobject-introspection
               pkgs.gtk4
               pkgs.libadwaita

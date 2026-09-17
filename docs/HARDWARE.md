@@ -47,6 +47,17 @@ Stable Path detection stores a kernel-provided link such as:
 This is the preferred method when Linux exposes a useful `/dev/input/by-id`
 link — it points at one specific interface and is easy to read.
 
+Keymasq checks the opened input device's vendor and product IDs against the
+hardware configuration before using it. A stable path can be reused by another
+device or controller mode; the path alone does not establish a match. When the
+IDs differ, that configuration waits for its matching device without grabbing
+the replacement. This also applies to readers already acquired by masking.
+
+Two hardware configurations with different vendor/product IDs can use the same
+stable path. Each connects only when the device at that path reports its IDs.
+Add each controller mode separately through hardware setup. The check uses the
+input device's IDs, which can differ from those of its USB receiver.
+
 ### Product ID
 
 Product ID detection stores a logical Keymasq path instead:
@@ -72,6 +83,24 @@ Open hardware settings from the gear button in a device tab.
 
 The dialog lists the hardware name and ID, every attached event device with its
 detection control, and the rename, delete, and add/remove actions.
+
+**Device masking** appears below the hardware name and on the final hardware
+setup page. In setup, switches take effect after **Save**. When masking is
+requested, the page stays open for confirmation or retry; **Done** closes it.
+Cancelling setup before saving does not change device access. Hardware Settings
+applies masking changes immediately, using the same saved choice as the global
+Device masking overview. Shared receiver interfaces use one switch.
+Connection and masking scope appear under **Hardware → Device details**. Errors
+offer **Copy diagnostics** there; the masking switches do not open another dialog.
+
+The optional `[hardware].masking_devices` list stores physical attachment IDs so
+Hardware Settings can show previously associated masks while disconnected. It
+does not enable masking or grant access. Mask policy remains owned by the helper.
+Exact device paths and physical connection identifiers take precedence over model
+IDs; ambiguous model-only configurations do not select an arbitrary controller.
+The live input's vendor and product IDs must also match the configuration, so a
+reused path in another controller mode does not add that mode's masking switch.
+See [Device masking](HARDWARE_MASKING.md) for scope and recovery behavior.
 
 Clicking the identity row (or `Rename`) opens the same rename dialog as the
 device tab. Renaming only changes the display name — hardware IDs, mappings, and
@@ -218,6 +247,7 @@ layering and merge behavior.
 ## Controller output
 
 Choose passthrough or a virtual controller during setup or in Hardware Settings.
+Hover over the Controller output group for routing guidance.
 In `[hardware]`, `default_output` defaults to `"passthrough"` and accepts virtual
 output IDs such as `"virtual-gamepad-1"`. This setting applies across profiles,
 even with none active. Virtual routing forwards

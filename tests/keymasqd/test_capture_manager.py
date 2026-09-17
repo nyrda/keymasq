@@ -10,6 +10,7 @@ from keymasq.common.devices import detect_input_classes, primary_input_class
 from keymasq.keymasqd import capture_manager as capture_manager_module
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.runtime import device_path_resolver
+from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 
 
 class _FakeInfo:
@@ -101,6 +102,81 @@ def test_capture_manager_begin_read_end(monkeypatch) -> None:
 
     ended = manager.end(token)
     assert ended["ended"] is True
+
+
+@pytest.mark.parametrize("mode", ["button", "analog"])
+def test_masked_capture_uses_owned_stream_without_a_second_grab(monkeypatch, mode) -> None:
+    probe = _FakeDevice("/dev/input/event5", 0x28DE, 0x1205, [])
+    probe.grab = Mock(side_effect=OSError(errno.EBUSY, "owned by Keymasq"))
+    monkeypatch.setattr(evdev, "InputDevice", lambda _path: probe)
+    stream = InputCaptureStream()
+    manager = CaptureManager()
+    result = manager.begin(
+        "28de:1205@2", [probe.path], mode=mode, borrowed_streams={probe.path: stream},
+    )
+    token = str(result["token"])
+    probe.grab.assert_not_called()
+    parse = Mock(wraps=manager._parse_event)
+    monkeypatch.setattr(manager, "_parse_event", parse)
+    event = (
+        evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+        if mode == "button"
+        else evdev.InputEvent(0, 0, evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 1234)
+    )
+    assert stream.feed(evdev.InputEvent(0, 0, evdev.ecodes.EV_SYN, 0, 0)) is True
+    assert stream.feed(event) is True
+    parse.assert_not_called()
+    captured = manager.read(token)["captured"]
+    assert parse.call_count == 2
+    assert captured["device_path"] == probe.path
+    assert captured["code"] == event.code
+    if mode == "analog":
+        assert captured["value"] == 1234
+        assert captured["absinfo"]["minimum"] == -32768
+    assert probe.read_one_count == 0
+    manager.end(token)
+    assert probe.closed
+    assert stream.feed(event) is False  # default passthrough can resume
+
+
+def test_second_capture_cannot_replace_existing_reserved_reader(monkeypatch) -> None:
+    stream = InputCaptureStream()
+    monkeypatch.setattr(
+        evdev, "InputDevice", lambda path: _FakeDevice(path, 0x28DE, 0x1205, [])
+    )
+    manager = CaptureManager()
+    first = manager.begin(
+        "28de:1205", ["/dev/input/event5"],
+        borrowed_streams={"/dev/input/event5": stream},
+    )
+    with pytest.raises(RuntimeError, match="active capture"):
+        manager.begin(
+            "28de:1205@2", ["/dev/input/event5"],
+            borrowed_streams={"/dev/input/event5": stream},
+        )
+    event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+    assert stream.feed(event)
+    assert manager.read(str(first["token"]))["captured"]["code"] == evdev.ecodes.BTN_SOUTH
+    assert manager.end_all() == 1
+    assert not stream.feed(event)
+
+
+def test_capture_resolves_hidden_reserved_model_path(monkeypatch) -> None:
+    probe = _FakeDevice("/dev/input/event5", 0x28DE, 0x1205, [])
+    monkeypatch.setattr(evdev, "InputDevice", lambda _path: probe)
+    monkeypatch.setattr(evdev, "list_devices", lambda: [])
+    stream = InputCaptureStream()
+    manager = CaptureManager()
+    result = manager.begin(
+        "28de:1205@2",
+        evdev_interfaces=[{"id": "source", "path": "keymasq:28de:1205"}],
+        borrowed_streams={probe.path: stream},
+    )
+    event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    assert stream.feed(event)
+    assert manager.read(str(result["token"]))["captured"]["source"] == "source"
+    assert not probe.grabbed
+    manager.end_all()
 
 
 def test_capture_manager_begin_can_target_explicit_paths(monkeypatch) -> None:

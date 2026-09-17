@@ -1,7 +1,7 @@
 import os
 import threading
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -9,6 +9,27 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.security import SecurityPolicy
 from keymasq.keymasqd import daemon as daemon_module
 from tests.keymasqd.daemon_support import client_context
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        CommandType.MASK_HARDWARE,
+        CommandType.KEEP_HARDWARE_MASK,
+        CommandType.RESUME_HARDWARE,
+        CommandType.SET_HARDWARE_MASK_PERSISTENCE,
+    ],
+)
+@pytest.mark.asyncio
+async def test_hardware_masking_uses_existing_unlock(daemon_testbed, monkeypatch, command):
+    daemon, *_rest = daemon_testbed
+    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
+    monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
+    with pytest.raises(PermissionError, match="recording_locked"):
+        await daemon._ensure_sensitive_command_allowed(command, client_context())
+    await daemon._ensure_sensitive_command_allowed(CommandType.RESTORE_HARDWARE, client_context())
+    daemon.security_policy.recording_unlock_required = False
+    await daemon._ensure_sensitive_command_allowed(command, client_context())
 
 
 @pytest.mark.asyncio
@@ -551,12 +572,16 @@ async def test_stale_unlocked_cache_entry_is_re_resolved_before_sensitive_comman
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("running", [True, False])
 async def test_client_disconnect_clears_owned_runtime_unlock_only(
     daemon_testbed,
     monkeypatch,
     tmp_path: Path,
+    running: bool,
 ):
     daemon, device_manager, recording_manager, _macro_store, capture_manager = daemon_testbed
+    daemon.running = running
+    daemon.hardware_masking.close = AsyncMock()
     capture_manager.close_all = Mock(return_value=0)
     owned_uid = 5555
     unrelated_uid = 7777
@@ -578,6 +603,7 @@ async def test_client_disconnect_clears_owned_runtime_unlock_only(
 
     await daemon._on_client_disconnect(client)
 
+    daemon.hardware_masking.close.assert_awaited_once_with(restore_hardware=running)
     assert daemon._recording_refresh_owners == {unrelated_uid: (700, 10)}
     assert daemon._unlock_cache[owned_uid] == (500.0, False, 0, "none")
     assert unrelated_uid not in daemon._unlock_cache

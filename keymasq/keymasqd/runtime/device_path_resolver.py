@@ -136,6 +136,18 @@ class DevicePathResolverDeps:
 _DEFAULT_CACHE = DeviceCache()
 
 
+def device_matches_hardware_model(device: object, hardware_id: str | None) -> bool:
+    """Check the opened input device, since a stable path can name another model."""
+    model = parse_hardware_model_id(hardware_id)
+    if model is None:
+        return True  # Runtime reservations have no configured hardware model.
+    info = getattr(device, "info", None)
+    return (getattr(info, "vendor", None), getattr(info, "product", None)) == (
+        int(model[0], 16),
+        int(model[1], 16),
+    )
+
+
 def _probe_cached_device_info(
     path: str,
     *,

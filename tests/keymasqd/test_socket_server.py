@@ -592,6 +592,42 @@ class TestSocketServer:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
+    async def test_disconnect_during_command_discards_buffered_commands(
+        self, temp_socket_dir, monkeypatch, caplog
+    ):
+        entered = asyncio.Event()
+        resume = asyncio.Event()
+        commands = []
+
+        async def handler(command, _data, _client):
+            commands.append(command)
+            entered.set()
+            await resume.wait()
+            return {"ok": True}
+
+        server = SocketServer(str(paths.SOCKET_PATH), handler)
+        monkeypatch.setattr(
+            server, "_extract_peer", lambda _writer: PeerCredentials(pid=100, uid=1000, gid=1000)
+        )
+        reader = asyncio.StreamReader()
+        command = encode_command(Command(command=CommandType.PING, data={}))
+        reader.feed_data(command + command)
+        writer = _BroadcastWriter()
+        task = asyncio.create_task(server._serve_client(reader, writer))  # type: ignore[arg-type]
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            await server._drop_client(writer)  # type: ignore[arg-type]
+            reader.feed_eof()
+            resume.set()
+            await asyncio.wait_for(task, timeout=1)
+            assert commands == [CommandType.PING]
+            assert not writer.writes
+            assert "Error handling client" not in caplog.text
+            assert not server._buffer
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
     async def test_broadcast_event_does_not_block_on_slow_client(
         self,
         temp_socket_dir,

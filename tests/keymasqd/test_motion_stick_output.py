@@ -206,7 +206,11 @@ async def test_motion_startup_and_profile_reset_seed_unchanged_axes(monkeypatch,
     values = {E.ABS_RZ: 0, E.ABS_X: 0, E.ABS_Y: 0, E.ABS_Z: 1000}
     absinfo = Mock(side_effect=lambda code: SimpleNamespace(value=values[code]))
     monkeypatch.setattr(
-        device_module, "_device_input", lambda path: SimpleNamespace(absinfo=absinfo)
+        device_module,
+        "_device_input",
+        lambda path: SimpleNamespace(
+            absinfo=absinfo, info=SimpleNamespace(vendor=0x1234, product=0x5678)
+        ),
     )
     monkeypatch.setattr(pipeline, "event_loop", AsyncMock())
     rig.motion.access_mode = InputAccessMode.OBSERVE

@@ -27,6 +27,13 @@ and `EV_SYN` reports can be enabled from the filter buttons in the inspector.
 The window keeps the most recent 100 events per filter category and displays
 the most recent 100 events that match the active filters.
 
+Rapid absolute-axis updates and normal `EV_SYN` reports are coalesced for the
+inspector at 60 Hz, retaining the latest value per axis and interface. Button
+presses and releases, relative movement, and dropped-frame reports retain their
+order. This limits display traffic from motion sensors; remapping and recording
+still process every input sample. The inspector stream is a sampled view, not a
+lossless recording. Per-event inspector logging requires `-vv`.
+
 ## Motion preview
 
 Configured motion sensors appear in both Resolved Mapping and Live Inputs.

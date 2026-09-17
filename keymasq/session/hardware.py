@@ -229,6 +229,11 @@ class HardwareManager:
             id=hardware_id or None,
             input_sources=[NativeInputSource(**source) for source in hw.get("input_sources", [])],
             default_output=str(hw.get("default_output") or "passthrough").strip() or "passthrough",
+            masking_devices=[
+                identity
+                for identity in hw.get("masking_devices", [])
+                if isinstance(identity, str) and re.fullmatch(r"[0-9a-f]{24}", identity)
+            ],
         )
 
     @staticmethod
@@ -576,6 +581,8 @@ class HardwareManager:
             ]
         if config.default_output != "passthrough":
             data["hardware"]["default_output"] = config.default_output
+        if config.masking_devices:
+            data["hardware"]["masking_devices"] = config.masking_devices
 
         if config.image:
             data["hardware"]["image"] = config.image

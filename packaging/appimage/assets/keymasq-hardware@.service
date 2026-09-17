@@ -1,0 +1,23 @@
+[Unit]
+Description=Keymasq privileged hardware operation
+
+[Service]
+Type=oneshot
+ExecStart=/opt/keymasq/bin/keymasq-record hardware-operation %i
+TimeoutStartSec=60
+TimeoutStopSec=2
+User=root
+Group=root
+NoNewPrivileges=true
+# CAP_SYS_PTRACE permits /proc/*/fd inspection to detect and verify USB handle revocation.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER CAP_SYS_PTRACE
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RuntimeDirectory=keymasq-masking
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+StateDirectory=keymasq-masking
+StateDirectoryMode=0755
+ReadWritePaths=/run/keymasq/hardware-requests /run/udev/rules.d -/run/keymasq/hidden -/run/keymasq/hidden-hardware

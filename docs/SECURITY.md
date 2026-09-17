@@ -423,6 +423,80 @@ When `emergency_cancel_combo_enabled = false`, the daemon does not inject the
 combo and the GUI allows it to be assigned like any other combo. Disabling it
 is not recommended unless you intentionally need that exact trigger.
 
+## Hardware Masking Jobs
+
+Masking coordination runs inside `keymasqd`. The existing `keymasq-record`
+entry point performs privileged hardware changes in short-lived systemd jobs;
+there is no resident root masking process. A Polkit rule lets only the dedicated
+`keymasq` account start the fixed `keymasq-hardware@<request-id>.service` template.
+It does not authorize arbitrary units, unit properties, or commands. Recording
+or capture authorization through pkexec does not authorize these hardware commands.
+
+The helper opens a daemon-owned request inode with `O_NOFOLLOW`, rejects unsafe
+permissions and hard links, and reads a bounded JSON request. It accepts only
+activation, offline arming, interface refresh, and recovery. Attachment identities
+and current generations resolve through root's sysfs inventory. The daemon cannot
+supply driver names, mutation paths, shell commands, or permission snapshots.
+The response is written through the pinned descriptor, not a reopened path.
+Offline arming reuses a selector previously discovered and stored by root.
+Saved selector paths are resolved before containment checks and hardware reads.
+They must remain inside the sysfs devices tree, including while devices are offline.
+
+Masking subprocesses and generated udev rules use the same trusted executable
+resolver. Nix packages pin commands to their dependency store paths. Other
+packages and source checkouts search only `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`,
+and `/run/current-system/sw/bin`; the caller's `PATH` is ignored. Missing commands
+are reported before arming restrictions, and a missing package-pinned executable
+does not fall back to another location.
+
+Hardware jobs allow filesystem writes to their own `RuntimeDirectory` and
+`StateDirectory`, the daemon's `/run/keymasq/hardware-requests` directory,
+`/run/udev/rules.d`, and the legacy `/run/keymasq/hidden` and
+`/run/keymasq/hidden-hardware` directories when present, for recovery cleanup.
+They do not make the rest of `/run` writable. Tmpfiles creates
+the udev rules directory before jobs start. Each job opens the current request
+directory, while an admitted request's response stays on its validated inode if
+the daemon's runtime directory is replaced.
+
+The daemon binds confirmed startup preferences to its authenticated desktop UID
+and keeps per-attachment confirmation deadlines and recovery state. GUI-supplied
+UIDs cannot change ownership. Multiple masks have independent identities and
+confirmation tokens. Ordinary interface changes or trial expiry recover only the
+affected attachment. Persistent USB rules enforce access restrictions while
+hardware is disconnected, without a running privileged helper.
+
+Masking state is shared between users admitted by `daemon_allowed_uids`.
+The current daemon owner can see saved device names and identities from other
+users and request physical access restoration. Status tokens guard against stale
+requests; they are not authorization secrets. Automatic masking and changes to
+saved startup preferences still check the authenticated owner's UID.
+
+Root-owned journals and static permission baselines survive a daemon failure.
+The daemon's systemd cleanup hook stops all outstanding hardware jobs before
+restoring permissions. Per-attachment locks serialize mutations; a global
+recovery lock excludes all hardware jobs. `ExecStopPost` restores every remaining
+reservation, and `ExecStartPre` requires recovery to succeed before remapping
+starts again. A 20-second systemd watchdog kills a blocked daemon, releasing all
+its grabs and outputs. Heartbeats run on the input loop; awaiting a bounded
+hardware job does not suppress them. This protects ordinary remapping as well as masking, but
+does not detect every logical error in a responsive loop.
+
+The short-lived job's bounded capabilities permit device/sysfs access, ownership
+and ACL restoration, and inspection of `/proc/*/fd` device identities.
+`CAP_SYS_PTRACE` is required for the kernel's ptrace access check on other users'
+FD targets. The scan selects USB reconnect when an application holds a direct
+USB handle, then checks for remaining handles after takeover. Ordinary driver
+rebind does not revoke an application's open usbfs handle. Inspection failures
+therefore fail the operation; inaccessible processes are not silently skipped.
+This capability belongs only to the short-lived root job. The scan does not
+inspect input content. USB reconnect records and validates the individual port's
+identity before changing it, refuses hubs and ganged power switching, and repairs
+an interrupted port operation during recovery. Current desktop grants come from
+udev after static permissions are restored; old session ACLs are not replayed.
+`keymasqd` retains its existing capability set. See
+[Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
+[Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
+
 ## Socket Paths
 
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)

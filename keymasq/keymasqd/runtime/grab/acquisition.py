@@ -12,6 +12,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.combo.state import ComboRuntimeDeps
@@ -206,6 +207,7 @@ def construct_grabbed_device(
     ) -> object | None:
         return manager.resolve_gamepad_output(output_id, context=context)
 
+    registry = cast(MaskRegistry | None, getattr(manager, "mask_registry", None))
     return deps.grabbed_device_cls(
         path=path,
         hardware_id=request.hardware_id,
@@ -219,6 +221,7 @@ def construct_grabbed_device(
         device_type=detected_type,
         device_types=detected_types,
         default_output=request.default_output,
+        source_reserved=registry is not None and request.hardware_id in registry.hardware_paths,
         verbosity=manager.verbosity,
         keyboard_uinput=manager.output_state.keyboard_uinput,
         mouse_uinput=manager.output_state.mouse_uinput,
@@ -280,14 +283,33 @@ async def grab_one_interface(
         return
 
     raw_device: Any | None = None
+    counted_available = False
     try:
+        registry = cast(MaskRegistry | None, getattr(manager, "mask_registry", None))
+        blocked = registry.blocked_attachments if registry is not None else set[str]()
+        if blocked:
+            from keymasq.keymasqd.hardware_masking import input_attachment_path
+
+            parent = await adapters.ASYNCIO_RUNTIME.to_thread(input_attachment_path, path)
+            if any(parent.is_relative_to(attachment) for attachment in blocked):
+                return
         probe_device, caps = await adapters.ASYNCIO_RUNTIME.to_thread(
             probe_interface_device_sync,
             manager,
             path,
         )
         raw_device = probe_device
+        if not device_path_resolver.device_matches_hardware_model(
+            probe_device, request.hardware_id
+        ):
+            log.info(
+                "Skipping device with different vendor/product IDs for %s: %s",
+                request.hardware_id,
+                path,
+            )
+            return
         state.available_count += 1
+        counted_available = True
         resolved_interface = plan.resolved_by_claim_path.get(path)
         interface_id = str(
             (resolved_interface.interface_id if resolved_interface is not None else "")
@@ -353,6 +375,8 @@ async def grab_one_interface(
             adapters.close_device(raw_device)
             raw_device = None
         if exc.errno in {deps.errno_mod.ENOENT, deps.errno_mod.ENODEV}:
+            if counted_available:
+                state.available_count -= 1
             log.info(
                 "Skipping unavailable interface for %s: %s",
                 request.hardware_id,

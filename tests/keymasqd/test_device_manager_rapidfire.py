@@ -128,6 +128,8 @@ class TestRapidfireRelease:
         call_order: list[str] = []
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self._active_keys = [
                     [evdev.ecodes.KEY_L],
@@ -220,6 +222,8 @@ class TestRapidfireRelease:
         monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "imu")
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self.grab_calls = 0
                 self.ungrab_calls = 0
@@ -525,6 +529,8 @@ class TestRapidfireRelease:
         monkeypatch.setattr(grabbed_device, "ACTIVE_KEY_IDLE_MAX_WAIT_S", 60.0)
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def capabilities(self) -> dict[int, list[int]]:
                 return {
                     evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
@@ -593,6 +599,8 @@ class TestRapidfireRelease:
         monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def capabilities(self) -> dict[int, list[int]]:
                 return {
                     evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
@@ -745,6 +753,8 @@ class TestRapidfireRelease:
         )
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def capabilities(self) -> dict[int, list[int]]:
                 return {
                     evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],
@@ -1103,6 +1113,8 @@ class TestRapidfireRelease:
         restore_calls: list[list[str]] = []
 
         class _FakeInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def capabilities(self) -> dict[int, list[int]]:
                 return {
                     evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_L],

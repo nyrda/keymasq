@@ -79,6 +79,8 @@ ICON_NAMES = (
     "microphone-sensitivity-muted-symbolic",
     "object-select-symbolic",
     "open-menu-symbolic",
+    "pan-down-symbolic",
+    "pan-end-symbolic",
     "preferences-desktop-keyboard-shortcuts",
     "preferences-desktop-keyboard-shortcuts-symbolic",
     "preferences-desktop-keyboard-symbolic",

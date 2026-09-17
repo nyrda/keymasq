@@ -15,10 +15,12 @@ def configured_hardware_ids(hardware_manager: HardwareManager) -> set[str]:
     return set(hardware_manager.list_hardware_ids())
 
 
-def configured_identity_hardware_ids(hardware_manager: HardwareManager) -> dict[str, str]:
+def configured_identity_hardware_ids(
+    hardware_manager: HardwareManager,
+) -> dict[tuple[str, str], str]:
     configs = hardware_manager.list_hardware()
 
-    keys: dict[str, str] = {}
+    keys: dict[tuple[str, str], str] = {}
     for config in configs:
         model_id = config.model_id
         hardware_id = config.hardware_id
@@ -28,16 +30,19 @@ def configured_identity_hardware_ids(hardware_manager: HardwareManager) -> dict[
                 continue
             device_types = [device.device_type.value]
             for key in configured_raw_identity_keys(path):
-                keys.setdefault(key, hardware_id)
+                keys.setdefault((model_id, key), hardware_id)
             stable_path = configured_device_stable_path(path)
             phys = "" if is_by_id_path(stable_path) else configured_device_phys(device)
             keys.setdefault(
-                logical_hardware_identity_key(
-                    model_id=model_id,
-                    device_types=device_types,
-                    stable_path=stable_path,
-                    phys=phys,
-                    path=path,
+                (
+                    model_id,
+                    logical_hardware_identity_key(
+                        model_id=model_id,
+                        device_types=device_types,
+                        stable_path=stable_path,
+                        phys=phys,
+                        path=path,
+                    ),
                 ),
                 hardware_id,
             )

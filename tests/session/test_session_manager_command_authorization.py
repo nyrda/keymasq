@@ -11,6 +11,24 @@ from keymasq.session.manager.core import SessionManager
 from tests.session.support import grant_recording_refresh_owner
 
 
+@pytest.mark.parametrize(
+    "command",
+    ["mask_hardware", "keep_hardware_mask", "resume_hardware", "set_hardware_mask_persistence"],
+)
+@pytest.mark.asyncio
+async def test_hardware_masking_cannot_bypass_session_unlock(command: str) -> None:
+    manager = SessionManager()
+    manager.security_policy.recording_unlock_required = True
+    manager.client.send_command = AsyncMock()
+    result = await manager._handle_session_request(
+        {"command": command}, PeerCredentials(pid=111, uid=1000, gid=1000), object()
+    )
+    assert result["status"] == "error"
+    assert result["error_code"] == "sensitive_command_denied"
+    manager.client.send_command.assert_not_awaited()
+    assert not recording_unlock_module.is_sensitive_session_command(manager, "restore_hardware")
+
+
 @pytest.mark.asyncio
 async def test_sensitive_command_requires_active_recording_owner(
     monkeypatch: pytest.MonkeyPatch,

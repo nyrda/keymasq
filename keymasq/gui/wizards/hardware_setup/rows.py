@@ -44,7 +44,10 @@ def raw_device_summary(
 
 def device_in_use(dev_info: DeviceInfo) -> bool:
     return any(
-        bool(iface.get("grabbed_by_keymasq", False))
+        (
+            bool(iface.get("grabbed_by_keymasq", False))
+            and not bool(iface.get("reserved_for_masking", False))
+        )
         or bool(iface.get("configured_hardware_id", False))
         for iface in dev_info.get("interfaces", [])
         if isinstance(iface, dict)
@@ -52,8 +55,12 @@ def device_in_use(dev_info: DeviceInfo) -> bool:
 
 
 def device_in_use_summary(dev_info: DeviceInfo) -> str:
+    reserved = False
     for iface in dev_info.get("interfaces", []):
         if not isinstance(iface, dict):
+            continue
+        if iface.get("reserved_for_masking") and not iface.get("configured_hardware_id"):
+            reserved = True
             continue
         if not bool(iface.get("grabbed_by_keymasq", False)):
             configured_hardware_id = str(iface.get("configured_hardware_id", "") or "")
@@ -67,7 +74,7 @@ def device_in_use_summary(dev_info: DeviceInfo) -> str:
         if hardware_id:
             return f"In use by {hardware_id}"
         return "In use by Keymasq"
-    return ""
+    return "Masked · Available to add" if reserved else ""
 
 
 def interface_detail_lines(iface: InterfaceInfo) -> list[str]:

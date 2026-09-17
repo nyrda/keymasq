@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import shutil
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -59,6 +60,26 @@ def _create_virtual_uinput(
 @pytest.fixture(autouse=True)
 def enable_test_uinput_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(TEST_UINPUT_ENV, "1")
+
+
+@pytest.fixture(autouse=True)
+def isolate_hardware_masking_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("keymasq.masking.backend.STATE_DIR", tmp_path / "masking-state")
+    monkeypatch.setattr("keymasq.masking.paths.POLICY_DIR", tmp_path / "masking-policy")
+
+
+@pytest.fixture(autouse=True)
+def pin_masking_test_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.masking import commands
+
+    # Source tests use tools supplied by the pinned Nix test shell, which need
+    # not be installed in the host's system directories. Production builds
+    # receive these paths from packaging; resolver tests replace them explicitly.
+    monkeypatch.setattr(
+        commands,
+        "BUILD_COMMAND_PATHS",
+        {name: path for name in commands.COMMAND_NAMES if (path := shutil.which(name))},
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -192,6 +213,28 @@ def virtual_keyboard():
         name=f"{TEST_UINPUT_PREFIX}-source-keyboard",
         vendor=0xABCD,
         product=0xEF01,
+    )
+
+    yield device
+
+    device.close()
+
+
+@pytest.fixture
+def virtual_keyboard_interface():
+    capabilities = {
+        evdev.ecodes.EV_KEY: [
+            evdev.ecodes.KEY_A,
+            evdev.ecodes.KEY_B,
+            evdev.ecodes.KEY_C,
+        ],
+    }
+
+    device = _create_virtual_uinput(
+        capabilities=capabilities,
+        name=f"{TEST_UINPUT_PREFIX}-source-keyboard-interface",
+        vendor=0x1234,
+        product=0x5678,
     )
 
     yield device

@@ -2,6 +2,7 @@ import asyncio
 import errno
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import replace
 from typing import Any, Protocol, cast
 
 import evdev
@@ -34,6 +35,7 @@ from keymasq.keymasqd import device_inventory
 from keymasq.keymasqd.input_sources import discovery as native_discovery
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.input_sources.types import Binding
+from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -182,6 +184,11 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     ) -> None:
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
+        self.mask_registry = MaskRegistry()
+        from keymasq.masking.paths import POLICY_DIR
+
+        self.masking_suspended = (POLICY_DIR / "suspended").exists()
+        self.masking_recovery: Callable[[], Awaitable[bool]] | None = None
         self.verbosity = verbosity
         self.broadcast_callback = broadcast_callback
 
@@ -321,7 +328,20 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         default_output: str | None = None,
         evdev_interfaces: list[JsonObject] | None = None,
     ) -> JsonObject:
+        if self.masking_suspended:
+            return {"grabbed": False, "reason": "Hardware recovery suspended remapping"}
         async with self._op_lock:
+            # Recovery can begin while a request is queued behind another grab.
+            if self.masking_suspended:
+                return {"grabbed": False, "reason": "Hardware recovery suspended remapping"}
+            if self.mask_registry.hardware_paths:
+                from keymasq.keymasqd.hardware_masking import adopt_masked_interfaces
+
+                evdev_interfaces = await adopt_masked_interfaces(
+                    self, hardware_id, evdev_paths, evdev_interfaces, self._input_resolver_deps()
+                )
+                if hardware_id in self.mask_registry.hardware_paths:
+                    force_grab_unmapped = True
             request = GrabRequest(
                 hardware_id=hardware_id,
                 evdev_paths=evdev_paths,
@@ -339,7 +359,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 desired_grab_config_cls=DesiredGrabConfig,
                 clear_device_path_cache_fn=clear_device_path_cache,
                 resolve_stable_path_fn=resolve_stable_path,
-                device_path_resolver_deps=_device_path_resolver_deps(),
+                device_path_resolver_deps=self._input_resolver_deps(),
                 grabbed_device_cls=GrabbedDevice,
                 get_interface_id_fn=get_interface_id,
                 str_value_fn=coerce_str,
@@ -362,6 +382,12 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         grace_s: float | None = None,
     ) -> JsonObject:
         async with self._op_lock:
+            if hardware_id in self.mask_registry.hardware_paths:
+                from keymasq.keymasqd.hardware_masking import release_masked_configuration
+
+                result = await release_masked_configuration(self, hardware_id)
+                await self._refresh_combo_runtime_preserving_unchanged()
+                return result
             if immediate:
                 result = await release_device_unlocked(
                     self,
@@ -481,7 +507,18 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 raise errors[0]
             return {"status": "ok", "neutralized": True}
 
+    def broadcast_hardware_recovery(self, *, retrying: bool = False) -> None:
+        self._broadcast_runtime_event(
+            CommandType.RUNTIME_RESET,
+            {"reason": "hardware_mask_recovery", "retrying": retrying},
+        )
+
+    def broadcast_hardware_mask_ready(self) -> None:
+        self._broadcast_runtime_event(CommandType.RUNTIME_RESET, {"reason": "hardware_mask_ready"})
+
     async def emergency_reset(self) -> JsonObject:
+        if self.masking_recovery is not None and await self.masking_recovery():
+            return {"status": "ok", "reset": True, "reason": "hardware_mask_recovery"}
         await self.release_all_devices()
         self._broadcast_runtime_event(
             CommandType.RUNTIME_RESET,
@@ -565,9 +602,10 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         return self.device_inspector_state.suppressed_snapshot()
 
     def broadcast_device_inspector_event(self, payload: JsonObject) -> None:
-        event_payload = self.device_inspector_state.event_payload(payload)
-        if event_payload is not None:
-            self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, event_payload)
+        self.device_inspector_state.queue_event(payload, self._emit_device_inspector_event)
+
+    def _emit_device_inspector_event(self, payload: JsonObject) -> None:
+        self._broadcast_runtime_event(CommandType.DEVICE_INSPECTOR_EVENT, payload)
 
     def _broadcast_device_inspector_status(self, hardware_id: str, reason: str) -> None:
         self._broadcast_runtime_event(
@@ -709,7 +747,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         scan = _InputDeviceScan()
         deps = device_inventory.InventoryScanDeps(
             clear_path_cache=clear_device_path_cache,
-            device_paths=scan.paths,
+            device_paths=lambda: self._discoverable_input_paths(scan.paths()),
             open_device=cast(Any, scan.open),
             resolve_stable_path=resolve_stable_path,
             get_interface_id=get_interface_id,
@@ -726,6 +764,21 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             grabbed_metadata=self._recording_grabbed_source_metadata(),
         )
 
+    def _discoverable_input_paths(self, paths: list[str] | None = None) -> list[str]:
+        # evdev.list_devices uses access(), which omits source-hidden nodes even
+        # when this daemon can reopen them through CAP_DAC_OVERRIDE.
+        reserved = [
+            path for paths in list(self.mask_registry.hardware_paths.values()) for path in paths
+        ]
+        return list(dict.fromkeys([*(paths if paths is not None else _device_paths()), *reserved]))
+
+    def _input_resolver_deps(self) -> device_path_resolver.DevicePathResolverDeps:
+        return replace(
+            _device_path_resolver_deps(),
+            device_paths_fn=self._discoverable_input_paths,
+            cache=device_path_resolver.DeviceCache() if self.mask_registry.hardware_paths else None,
+        )
+
     def _recording_virtual_device_metadata(self) -> dict[str, JsonObject]:
         return device_inventory.recording_virtual_device_metadata(
             self.output_state,
@@ -733,7 +786,15 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         )
 
     def _recording_grabbed_source_metadata(self) -> dict[str, JsonObject]:
-        return device_inventory.recording_grabbed_source_metadata(cast(Any, self.grabbed_devices))
+        metadata = device_inventory.recording_grabbed_source_metadata(
+            cast(Any, self.grabbed_devices)
+        )
+        for paths in self.mask_registry.hardware_paths.values():
+            for path in paths:
+                source = metadata.get(resolve_stable_path(path))
+                if source is not None:
+                    source["reserved_for_masking"] = True
+        return metadata
 
     def _detect_device_types(self, device: _ManagedInputDevice) -> list[str]:
         return detect_input_classes(device)

@@ -101,6 +101,29 @@ def test_configure_virtual_gamepads_instantiates_bundled_joystick_template(
 
 class TestEventLoopRecovery:
     @pytest.mark.asyncio
+    async def test_reserved_setup_capture_suppresses_output_until_capture_ends(self, monkeypatch):
+        device = make_grabbed_device(monkeypatch, running=True)
+        event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH, 1)
+        captured = []
+        consumer = captured.append
+        device.capture_stream.attach(consumer)
+
+        async def read_events(_runtime):
+            yield event
+            device.capture_stream.detach(consumer)
+            yield event
+
+        process = AsyncMock()
+        monkeypatch.setattr(pipeline, "read_events", read_events)
+        monkeypatch.setattr(pipeline, "process_event", process)
+        device.device = SimpleNamespace()
+        await pipeline.event_loop(
+            device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
+        )
+        assert captured == [event]
+        process.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_event_processing_dependencies_are_reused_per_loop(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -598,6 +621,8 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self, path: str) -> None:
                 self.path = path
 
@@ -703,6 +728,8 @@ class TestDeviceManagerHelpers:
     @pytest.mark.asyncio
     async def test_grab_skipped_probe_closes_raw_device(self) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self.close_count = 0
 
@@ -732,6 +759,8 @@ class TestDeviceManagerHelpers:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
             def __init__(self) -> None:
                 self.close_count = 0
 

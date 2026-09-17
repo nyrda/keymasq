@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import logging
 import os
 import time
@@ -25,7 +26,7 @@ from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
-from keymasq.keymasqd.runtime import adapters, force_feedback, source_hiding
+from keymasq.keymasqd.runtime import adapters, device_path_resolver, force_feedback, source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
@@ -54,6 +55,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     NaturalMouseMover,
     RuntimeDisconnectCallback,
 )
+from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 from keymasq.keymasqd.runtime.motion_controls import initialize_motion_state
 from keymasq.keymasqd.runtime.outputs import (
     create_uinput_with_permission_hint,
@@ -320,7 +322,9 @@ class GrabbedDevice:
         interface_id: str | None = None,
         access_mode: InputAccessMode | None = None,
         default_output: str | None = None,
+        source_reserved: bool = False,
     ) -> None:
+        self.source_reserved = source_reserved
         self.path = path
         self.resolved_event_path = os.path.realpath(path)
         self.hardware_id = hardware_id
@@ -349,6 +353,7 @@ class GrabbedDevice:
         self.update_motion_sensors(motion_sensors or {})
         self.mapping_getter = mapping_getter
         self.event_callback = event_callback
+        self.capture_stream = InputCaptureStream()
         self.device_type = device_type
         self.device_types = device_types or [device_type.value]
         is_motion_device = (
@@ -546,10 +551,37 @@ class GrabbedDevice:
         if self.default_output == output_id and not self._default_output_change_pending:
             return
         self._default_output_change_pending = True
-        await self.release()
-        self.default_output = output_id
-        await self.grab()
+        if self.source_reserved and self.device is not None:
+            await self._replace_reserved_output(output_id)
+        else:
+            await self.release()
+            self.default_output = output_id
+            await self.grab()
         self._default_output_change_pending = False
+
+    async def _replace_reserved_output(self, output_id: str | None) -> None:
+        # Keep EVIOCGRAB throughout the change. Other processes may still have
+        # evdev handles from before the mask, even though new opens are denied.
+        await self.stop_event_loop()
+        await pipeline.cleanup_runtime_failure(self, log=log)
+        self.state.passthrough_frame_output = None
+        self.state.analog_source_axis_values.clear()
+        self.state.analog_snapshot_boundary = None
+        self.state.analog_mouse_area_resyncing = False
+        self.state.quarantined_source_keys.clear()
+        await self._stop_output_feedback_proxy()
+        if self.uinput is not None:
+            await asyncio.to_thread(_close_passthrough_uinput, self.uinput, context="route change")
+            self.uinput = None
+        self.default_output = output_id
+        # On failure, keep the grab until MaskRuntime detects the stopped reader
+        # and performs coordinated release and helper recovery. Closing it here
+        # would expose input before that recovery has begun.
+        await self._configure_default_output()
+        self.running = True
+        self.task = asyncio.create_task(
+            pipeline.event_loop(self, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=log)
+        )
 
     async def reset_mapping_runtime_state(
         self,
@@ -646,6 +678,98 @@ class GrabbedDevice:
             except Exception:
                 log.exception("Unexpected failure restoring hidden source after failed grab")
 
+    async def _configure_default_output(self) -> None:
+        assert self.device is not None
+        is_gamepad_passthrough = _is_gamepad_passthrough(self.device_type, self.device_types)
+        if self.default_output is not None:
+            self.default_route = DefaultControllerRoute(
+                self.default_output, source_axis_ranges(self.device.capabilities())
+            )
+            self._refresh_default_route_ranges()
+        else:
+            self.default_route = None
+            caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
+
+            passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
+                _passthrough_name(
+                    self.device,
+                    self.hardware_id,
+                    self.interface_id,
+                    is_gamepad=is_gamepad_passthrough,
+                ),
+                "passthrough",
+                test_name=f"passthrough-{self.hardware_id}",
+            )
+            passthrough_vendor = _int_u16(passthrough_vendor)
+            passthrough_product = _int_u16(passthrough_product)
+            passthrough_version: int | None = None
+            passthrough_bustype: int | None = None
+            passthrough_input_props = None
+            if is_gamepad_passthrough and (
+                passthrough_vendor is None or passthrough_product is None
+            ):
+                (
+                    passthrough_vendor,
+                    passthrough_product,
+                    passthrough_version,
+                    passthrough_bustype,
+                ) = _passthrough_input_id(self.device, self.hardware_id)
+                passthrough_input_props = _passthrough_input_props(self.device)
+
+            if passthrough_vendor is None or passthrough_product is None:
+                passthrough_version = None
+                passthrough_bustype = None
+                passthrough_input_props = None
+
+            supports_max_effects = uinput_supports_max_effects(evdev.UInput)
+            if ff_max_effects > 0 and not supports_max_effects:
+                log.debug(
+                    "python-evdev UInput does not support max_effects; "
+                    "using evdev's default force-feedback capacity for %s",
+                    self.path,
+                )
+
+            def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
+                return create_uinput_with_permission_hint(
+                    "passthrough",
+                    lambda: evdev.UInput(
+                        **_passthrough_uinput_kwargs(
+                            caps=caps,
+                            passthrough_name=passthrough_name,
+                            passthrough_vendor=passthrough_vendor,
+                            passthrough_product=passthrough_product,
+                            passthrough_version=passthrough_version,
+                            passthrough_bustype=passthrough_bustype,
+                            passthrough_input_props=passthrough_input_props,
+                            ff_max_effects=max_effects,
+                            supports_max_effects=supports_max_effects,
+                        )
+                    ),
+                )
+
+            self.uinput = await _create_passthrough_uinput(
+                lambda: make_passthrough_uinput(ff_max_effects)
+            )
+            if force_feedback.has_passthrough_output_feedback(caps):
+                try:
+                    self._start_output_feedback_proxy()
+                except Exception:  # noqa: BLE001 - retry without advertised feedback support.
+                    log.warning(
+                        "Disabling passthrough output feedback for %s "
+                        "after proxy start failure",
+                        self.path,
+                        exc_info=True,
+                    )
+                    await asyncio.to_thread(
+                        _close_passthrough_uinput, self.uinput, context="output-feedback retry"
+                    )
+                    self.uinput = None
+                    force_feedback.disable_passthrough_output_feedback(caps)
+                    ff_max_effects = 0
+                    self.uinput = await _create_passthrough_uinput(
+                        lambda: make_passthrough_uinput(ff_max_effects)
+                    )
+
     async def grab(self) -> None:
         self.state.analog_source_axis_values.clear()
         self.state.analog_mouse_area_resyncing = False
@@ -659,6 +783,12 @@ class GrabbedDevice:
             if self.path.startswith(SOURCE_PREFIX)
             else _device_input(self.path)
         )
+        if not device_path_resolver.device_matches_hardware_model(self.device, self.hardware_id):
+            adapters.close_device(self.device)
+            self.device = None
+            raise OSError(
+                errno.ENODEV, "Input device vendor/product IDs do not match configuration"
+            )
         self.state.analog_fuzz_releasing = False
         initialize_motion_state(self, self.mapping_getter())
 
@@ -680,94 +810,7 @@ class GrabbedDevice:
                 self.device_type,
                 self.device_types,
             )
-            if self.default_output is not None:
-                self.default_route = DefaultControllerRoute(
-                    self.default_output, source_axis_ranges(self.device.capabilities())
-                )
-                self._refresh_default_route_ranges()
-            else:
-                self.default_route = None
-                caps, ff_max_effects = _copy_passthrough_capabilities(self.device)
-
-                passthrough_name, passthrough_vendor, passthrough_product = uinput_identity(
-                    _passthrough_name(
-                        self.device,
-                        self.hardware_id,
-                        self.interface_id,
-                        is_gamepad=is_gamepad_passthrough,
-                    ),
-                    "passthrough",
-                    test_name=f"passthrough-{self.hardware_id}",
-                )
-                passthrough_vendor = _int_u16(passthrough_vendor)
-                passthrough_product = _int_u16(passthrough_product)
-                passthrough_version: int | None = None
-                passthrough_bustype: int | None = None
-                passthrough_input_props = None
-                if is_gamepad_passthrough and (
-                    passthrough_vendor is None or passthrough_product is None
-                ):
-                    (
-                        passthrough_vendor,
-                        passthrough_product,
-                        passthrough_version,
-                        passthrough_bustype,
-                    ) = _passthrough_input_id(self.device, self.hardware_id)
-                    passthrough_input_props = _passthrough_input_props(self.device)
-
-                if passthrough_vendor is None or passthrough_product is None:
-                    passthrough_version = None
-                    passthrough_bustype = None
-                    passthrough_input_props = None
-
-                supports_max_effects = uinput_supports_max_effects(evdev.UInput)
-                if ff_max_effects > 0 and not supports_max_effects:
-                    log.debug(
-                        "python-evdev UInput does not support max_effects; "
-                        "using evdev's default force-feedback capacity for %s",
-                        self.path,
-                    )
-
-                def make_passthrough_uinput(max_effects: int) -> evdev.UInput:
-                    return create_uinput_with_permission_hint(
-                        "passthrough",
-                        lambda: evdev.UInput(
-                            **_passthrough_uinput_kwargs(
-                                caps=caps,
-                                passthrough_name=passthrough_name,
-                                passthrough_vendor=passthrough_vendor,
-                                passthrough_product=passthrough_product,
-                                passthrough_version=passthrough_version,
-                                passthrough_bustype=passthrough_bustype,
-                                passthrough_input_props=passthrough_input_props,
-                                ff_max_effects=max_effects,
-                                supports_max_effects=supports_max_effects,
-                            )
-                        ),
-                    )
-
-                self.uinput = await _create_passthrough_uinput(
-                    lambda: make_passthrough_uinput(ff_max_effects)
-                )
-                if force_feedback.has_passthrough_output_feedback(caps):
-                    try:
-                        self._start_output_feedback_proxy()
-                    except Exception:  # noqa: BLE001 - retry without advertised feedback support.
-                        log.warning(
-                            "Disabling passthrough output feedback for %s "
-                            "after proxy start failure",
-                            self.path,
-                            exc_info=True,
-                        )
-                        await asyncio.to_thread(
-                            _close_passthrough_uinput, self.uinput, context="output-feedback retry"
-                        )
-                        self.uinput = None
-                        force_feedback.disable_passthrough_output_feedback(caps)
-                        ff_max_effects = 0
-                        self.uinput = await _create_passthrough_uinput(
-                            lambda: make_passthrough_uinput(ff_max_effects)
-                        )
+            await self._configure_default_output()
 
             await grab.wait_for_active_keys_to_clear(
                 self,
@@ -779,7 +822,7 @@ class GrabbedDevice:
             )
             self.device.grab()
             await update_touchpad_fuzz(self)
-            if is_gamepad_passthrough:
+            if is_gamepad_passthrough and not self.source_reserved:
                 self.source_hidden_kernel_names = []
                 self.source_pending_hidden_kernel_names = source_hiding.node_kernel_names(
                     self.resolved_event_path
@@ -824,33 +867,50 @@ class GrabbedDevice:
                 except (TimeoutError, asyncio.CancelledError):
                     pass
 
+    async def _release_step(self, label: str, step: Callable[[], Awaitable[object]]) -> None:
+        """Run optional cleanup without letting it skip the physical handle release."""
+        try:
+            await step()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Release cleanup failed while %s for %s; continuing", label, self.path)
+
     async def release(self) -> None:
-        await self.stop_event_loop()
-        await update_touchpad_fuzz(self, releasing=True)
+        # A disconnected device routinely fails the optional runtime cleanup
+        # below. Those failures are logged; ungrab and close still run so the
+        # handle never outlives the release.
+        await self._release_step("stopping the reader", self.stop_event_loop)
+        await self._release_step(
+            "resetting touchpad fuzz", lambda: update_touchpad_fuzz(self, releasing=True)
+        )
         self.state.input_event_buffer.clear()
         self.state.analog_snapshot_boundary = None
         self.state.analog_deferred_keys.clear()
         self.state.analog_source_axis_values.clear()
         self.state.analog_mouse_area_resyncing = False
-        await self.reset_analog_controls()
-        await self.reset_superkeys()
-        pipeline.observe_profile_trigger_end_for_held_sources(self)
-        outputs.release_all_keys(
-            self,
-            evdev_mod=evdev,
-            uinput_writer=identity_uinput_writer,
-        )
+        await self._release_step("resetting analog controls", self.reset_analog_controls)
+        await self._release_step("resetting superkeys", self.reset_superkeys)
+        try:
+            pipeline.observe_profile_trigger_end_for_held_sources(self)
+            outputs.release_all_keys(
+                self,
+                evdev_mod=evdev,
+                uinput_writer=identity_uinput_writer,
+            )
+        except Exception:
+            log.exception("Release cleanup failed while releasing held keys for %s", self.path)
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
         self.state.quarantined_source_keys.clear()
 
-        await self._stop_output_feedback_proxy()
+        await self._release_step("stopping output feedback", self._stop_output_feedback_proxy)
 
         if self.device:
             if isinstance(self.device, NativeInputDevice):
-                await self.device.aclose()
+                await self._release_step("closing the native device", self.device.aclose)
             if self.access_mode is InputAccessMode.EXCLUSIVE:
                 try:
                     self.device.ungrab()

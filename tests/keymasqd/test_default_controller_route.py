@@ -260,14 +260,16 @@ async def test_flight_axis_keeps_code_and_uses_target_range_and_release(routed):
     assert not writer.closed
 
 
-async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch, routed):
+@pytest.mark.parametrize("reserved", [False, True])
+async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch, routed, reserved):
     device, writer, _, state = routed
+    device.source_reserved = reserved
 
     async def input_events():
         await asyncio.Event().wait()
         yield evdev.InputEvent(0, 0, E.EV_SYN, E.SYN_REPORT, 0)
 
-    physical = Mock()
+    physical = Mock(info=SimpleNamespace(vendor=0x1234, product=0x5678))
     physical.capabilities.return_value = {
         E.EV_KEY: [E.BTN_SOUTH],
         E.EV_ABS: [(E.ABS_X, evdev.AbsInfo(0, 0, 255, 0, 0, 0))],
@@ -278,7 +280,8 @@ async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch
     clone = Mock(side_effect=AssertionError("A default route must not create a clone"))
     monkeypatch.setattr(device_module, "_copy_passthrough_capabilities", clone)
     monkeypatch.setattr(device_module.grab, "wait_for_active_keys_to_clear", AsyncMock())
-    monkeypatch.setattr(device_module.source_hiding, "hide_source", AsyncMock(return_value=[]))
+    hide = AsyncMock(return_value=[])
+    monkeypatch.setattr(device_module.source_hiding, "hide_source", hide)
     await device.grab()
     try:
         await send(device, E.EV_KEY, E.BTN_SOUTH, 1)
@@ -290,6 +293,11 @@ async def test_grab_skips_clone_and_route_change_releases_old_output(monkeypatch
         assert state.virtual_gamepad_uinputs["flight"].writes[-1] == (E.EV_ABS, E.ABS_X, 1023)
         assert device.uinput is None
         clone.assert_not_called()
+        if reserved:
+            physical.grab.assert_called_once()
+            physical.ungrab.assert_not_called()
+            physical.close.assert_not_called()
+            hide.assert_not_awaited()
     finally:
         await device.release()
     assert not writer.closed

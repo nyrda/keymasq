@@ -312,11 +312,11 @@ class TestIntegrationLifecycle(IntegrationTestBase):
         self,
         full_system,
         virtual_mouse,
-        virtual_keyboard,
+        virtual_keyboard_interface,
     ):
         _server, manager = full_system
         mouse_path = virtual_mouse.device.path
-        keyboard_path = virtual_keyboard.device.path
+        keyboard_path = virtual_keyboard_interface.device.path
 
         reader, writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
 

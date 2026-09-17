@@ -114,11 +114,13 @@ find %{buildroot}%{python3_sitelib} -type f -name '*.py[co]' -delete
 sed -i '/__pycache__/d; /\\.py[co]/d' %{pyproject_files}
 
 install -Dpm0644 systemd/keymasqd.service %{buildroot}%{_unitdir}/keymasqd.service
+install -Dpm0644 systemd/keymasq-hardware@.service %{buildroot}%{_unitdir}/keymasq-hardware@.service
 install -Dpm0644 systemd/keymasq-session.service %{buildroot}%{_userunitdir}/keymasq-session.service
 install -Dpm0644 sysusers.d/keymasq.conf %{buildroot}%{_sysusersdir}/keymasq.conf
 install -Dpm0644 tmpfiles.d/keymasq.conf %{buildroot}%{_tmpfilesdir}/keymasq.conf
 install -Dpm0644 udev/91-keymasq-acl.rules %{buildroot}%{_udevrulesdir}/91-keymasq-acl.rules
 install -Dpm0644 udev/99-keymasq-hide-grabbed.rules %{buildroot}%{_udevrulesdir}/99-keymasq-hide-grabbed.rules
+install -Dpm0644 polkit/49-keymasq-hardware.rules %{buildroot}%{_datadir}/polkit-1/rules.d/49-keymasq-hardware.rules
 install -Dpm0644 polkit/com.keymasq.record-macro.policy %{buildroot}%{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
 install -Dpm0644 assets/tools.keymasq.keymasq.desktop %{buildroot}%{_datadir}/applications/tools.keymasq.keymasq.desktop
 install -Dpm0644 assets/tools.keymasq.keymasq.metainfo.xml %{buildroot}%{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml
@@ -160,12 +162,14 @@ cat <<'SPEC_TAIL'
 %{_bindir}/keymasq-record
 %{_bindir}/keymasq-session
 %{_unitdir}/keymasqd.service
+%{_unitdir}/keymasq-hardware@.service
 %{_userunitdir}/keymasq-session.service
 %{_sysusersdir}/keymasq.conf
 %{_tmpfilesdir}/keymasq.conf
 %{_udevrulesdir}/91-keymasq-acl.rules
 %{_udevrulesdir}/99-keymasq-hide-grabbed.rules
 %{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
+%{_datadir}/polkit-1/rules.d/49-keymasq-hardware.rules
 %{_datadir}/applications/tools.keymasq.keymasq.desktop
 %{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg

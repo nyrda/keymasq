@@ -7,6 +7,8 @@ polkit/com.keymasq.record-macro.policy usr/share/polkit-1/actions/
 sysusers.d/keymasq.conf usr/lib/sysusers.d/
 systemd/keymasq-session.service usr/lib/systemd/user/
 systemd/keymasqd.service usr/lib/systemd/system/
+systemd/keymasq-hardware@.service usr/lib/systemd/system/
 tmpfiles.d/keymasq.conf usr/lib/tmpfiles.d/
 udev/91-keymasq-acl.rules usr/lib/udev/rules.d/
 udev/99-keymasq-hide-grabbed.rules usr/lib/udev/rules.d/
+polkit/49-keymasq-hardware.rules usr/share/polkit-1/rules.d/

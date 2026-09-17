@@ -77,6 +77,16 @@ class SettingsDialog(Adw.Dialog):
         gamepad_group.add(virtual_devices_row)
         self._virtual_devices_button = virtual_devices_button
 
+        hardware_group = Adw.PreferencesGroup(title="Hardware")
+        page.add(hardware_group)
+        masking_row = Adw.ActionRow(title="Device masking")
+        masking_row.set_subtitle("Stop apps reading devices directly while Keymasq remaps them")
+        masking_button = Gtk.Button(label="Manage")
+        masking_button.set_valign(Gtk.Align.CENTER)
+        masking_button.connect("clicked", self._on_hardware_masking_clicked)
+        masking_row.add_suffix(masking_button)
+        hardware_group.add(masking_row)
+
         macro_group = Adw.PreferencesGroup(title="Macros")
         page.add(macro_group)
 
@@ -133,6 +143,11 @@ class SettingsDialog(Adw.Dialog):
         from keymasq.gui.widgets.virtual_devices_dialog import VirtualDevicesDialog
 
         VirtualDevicesDialog(self).present(self)
+
+    def _on_hardware_masking_clicked(self, _button: Gtk.Button) -> None:
+        from keymasq.gui.widgets.hardware_masking_dialog import HardwareMaskingDialog
+
+        HardwareMaskingDialog(self._parent).present(self)
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
         if self._save_inflight or self._save_applied:

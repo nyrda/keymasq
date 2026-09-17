@@ -20,7 +20,7 @@ class ControllerOutputGroup(Adw.PreferencesGroup):
         on_changed: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(title="Controller output")
-        self.set_description(
+        self.set_tooltip_text(
             "Applies to all profiles. Virtual controllers receive matching buttons and axes. "
             "Map unmatched inputs individually."
         )

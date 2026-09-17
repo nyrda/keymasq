@@ -138,6 +138,7 @@ in
           programs.dconf.enable = true;
 
           environment.systemPackages = [
+            pkgs.acl
             keymasqPackage
             pytestRunner
             testPython

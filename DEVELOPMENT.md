@@ -67,6 +67,65 @@ mirrors the installed entrypoint: no arguments launch the GUI, while command
 arguments dispatch through the CLI path. Use it when validating packaging or
 wrapper behavior, not as the fastest GUI iteration loop.
 
+## Passwordless Daemon Restarts
+
+`dev-keymasqd.sh` needs root for a fixed set of commands: stopping the installed
+`keymasqd.service`, creating `/run/keymasq` and `/var/lib/keymasq`, and starting
+the daemon. The daemon itself starts through `setpriv`, which switches to the
+`keymasq` user and grants the single `CAP_DAC_OVERRIDE` ambient capability that
+`keymasqd.service` also grants. Without it, `udevadm trigger` cannot write
+sysfs `uevent` files and source hiding logs `Permission denied` warnings (see
+`docs/TROUBLESHOOTING.md`). If `setpriv` is missing, the launcher falls back to
+plain `sudo -u keymasq` and warns.
+
+Without a sudo rule the launcher simply prompts for your password on every
+restart. To make restarts passwordless, allow exactly those commands. The
+`setpriv` arguments are pinned on purpose, so the rule can match the complete
+command line instead of `setpriv *`. The trailing `*` after `env` covers the
+`HOME`, `PATH`, `PYTHONPATH`, and `python -m keymasq.keymasqd` arguments.
+
+The launcher prefers stable `/run/current-system/sw/bin` paths on NixOS so one
+rule keeps matching across worktrees with different nixpkgs pins. Replace `alice`
+with your desktop user:
+
+```nix
+security.sudo.extraRules = [
+  {
+    users = [ "alice" ];
+    runAs = "root";
+    commands = map (command: {
+      inherit command;
+      options = [ "NOPASSWD" "NOSETENV" ];
+    }) [
+      "/run/current-system/sw/bin/systemctl stop keymasqd.service"
+      "/run/current-system/sw/bin/install -d -m 0755 -o keymasq -g keymasq /run/keymasq"
+      "/run/current-system/sw/bin/install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq"
+      "/run/current-system/sw/bin/setpriv --reuid=keymasq --regid=keymasq --init-groups --bounding-set=-all\\,+dac_override --inh-caps=+dac_override --ambient-caps=+dac_override --no-new-privs /run/current-system/sw/bin/env *"
+    ];
+  }
+];
+```
+
+The equivalent plain sudoers entry, for example in `/etc/sudoers.d/keymasq-dev`,
+is one line per command:
+
+```text
+alice ALL=(root) NOPASSWD:NOSETENV: /run/current-system/sw/bin/setpriv --reuid=keymasq --regid=keymasq --init-groups --bounding-set=-all\,+dac_override --inh-caps=+dac_override --ambient-caps=+dac_override --no-new-privs /run/current-system/sw/bin/env *
+```
+
+Sudoers treats a bare comma in command arguments as a separator, so the comma
+inside `--bounding-set` must be written as `\,` in the rendered file. In a Nix
+string that is `\\,`. Validate the rendered file with `visudo -c -f <file>`.
+
+On other distributions the launcher resolves `setpriv`, `env`, `install`, and
+`systemctl` from the dev shell `PATH`, which points into the Nix store. Check
+the exact paths with `command -v setpriv` inside `nix develop` before pinning
+them, or accept the password prompt.
+
+Do not widen the rule beyond these commands. The `env` wildcard already allows
+any program to run as `keymasq` with `CAP_DAC_OVERRIDE`; that is the same trust
+the installed service has, and nothing in Keymasq needs more.
+
 ## Running Checks
 
 Run the standard validation with:

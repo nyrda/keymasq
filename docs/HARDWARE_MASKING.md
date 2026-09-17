@@ -350,13 +350,11 @@ configurations, and confirmed masking preferences are preserved.
 ## Trying a worktree build
 
 Install the branch's hardware job unit and Polkit rule, then run `./scripts/dev.sh`.
-The existing development launcher runs the daemon in the foreground as `keymasq`
-through sudo and `setpriv`, granting the same single `CAP_DAC_OVERRIDE` ambient
-capability as the installed unit so source hiding works. Without `setpriv` it
-falls back to plain `sudo -u keymasq` and warns. It installs no service overrides
-or rules and has no watchdog. The installed hardware job unit also supports a foreground
-daemon; starting a job does not start the installed daemon service. A clean
-foreground exit restores hardware access through those jobs.
+The development launcher runs the daemon in the foreground as `keymasq` (see
+`DEVELOPMENT.md`). It installs no service overrides or rules and has no watchdog.
+The installed hardware job unit also supports a foreground daemon; starting a job
+does not start the installed daemon service. A clean foreground exit restores
+hardware access through those jobs.
 
 Open Device masking, turn a device on, and try its controls during the first
 confirmation countdown. Without Keep masking, access restores automatically.

@@ -345,6 +345,24 @@ class HardwareMasking:
         self.wake = asyncio.Event()
         self.hotplug = HotplugWatcher(self.hardware_changed)
         self.runtimes: dict[str, MaskRuntime] = {}
+        # Grab admission combines a local emergency latch with the pause the
+        # coordinator reports. Any response may raise the pause. Only explicit
+        # startup, mask, and global resume transitions clear it, and only when
+        # no emergency stop began after that request was issued.
+        self.emergency_latched = False
+        self.observed_paused = bool(getattr(manager, "masking_suspended", False))
+        self.stop_generation = 0
+
+    def _sync_admission(self) -> None:
+        self.manager.masking_suspended = self.emergency_latched or self.observed_paused
+
+    def _apply_status(self, status: JsonObject, generation: int, *, transition: bool) -> None:
+        if status.get("remapping_suspended"):
+            self.observed_paused = True
+        elif transition and generation == self.stop_generation:
+            self.observed_paused = False
+            self.emergency_latched = False
+        self._sync_admission()
 
     def hardware_changed(self) -> None:
         self.coordinator.mark_hardware_changed()
@@ -390,9 +408,10 @@ class HardwareMasking:
         if self.session_uid is not None and (
             self.needs_startup or self.coordinator.session_uid != self.session_uid
         ):
+            generation = self.stop_generation
             status = await self.request("startup", {"uid": self.session_uid})
             self.needs_startup = False
-            self.manager.masking_suspended = bool(status.get("remapping_suspended"))
+            self._apply_status(status, generation, transition=True)
 
     async def request(self, command: str, data: JsonObject | None = None) -> JsonObject:
         # Finish the serialized coordinator request before cancellation can
@@ -439,6 +458,7 @@ class HardwareMasking:
                 await self.release_runtime()
         try:
             await self.startup()
+            generation = self.stop_generation
             result = await self.request(operation, data)
         except OSError:
             if operation != "inventory":
@@ -452,8 +472,12 @@ class HardwareMasking:
                 "remapping_suspended": self.manager.masking_suspended,
             }
         result["available"] = True
-        if operation in {"mask", "resume"}:
-            self.manager.masking_suspended = bool(result.get("remapping_suspended"))
+        explicit = operation == "mask" or (operation == "resume" and not data.get("id"))
+        self._apply_status(result, generation, transition=explicit)
+        # A stop that could not record its marker must still reach the GUI.
+        result["remapping_suspended"] = (
+            bool(result.get("remapping_suspended")) or self.emergency_latched
+        )
         self.start_monitor()
         return result
 
@@ -464,14 +488,17 @@ class HardwareMasking:
     async def monitor_once(self) -> None:
         await self.startup()
         await self.coordinator.monitor_once()
+        was_suspended = self.manager.masking_suspended
+        generation = self.stop_generation
         status = await self.request("poll")
         paused = bool(status.get("remapping_suspended"))
-        if paused and not self.manager.masking_suspended:
-            self.manager.masking_suspended = True
+        # A poll may only raise the pause. A snapshot that says "not
+        # suspended" can predate an emergency stop and must not revoke it.
+        self._apply_status(status, generation, transition=False)
+        if paused and not was_suspended:
             await self.release_runtime()
             await self.manager.release_all_devices()
             self.manager.broadcast_hardware_recovery()
-        self.manager.masking_suspended = paused
         for item in cast(list[JsonObject], status.get("masks", [])):
             if not item.get("id"):
                 continue
@@ -541,7 +568,11 @@ class HardwareMasking:
 
         global_stop = reason != "lifecycle_stop"
         if global_stop:
-            self.manager.masking_suspended = True
+            # Latch admission locally before the coordinator records its
+            # marker; only an explicit resume clears it again.
+            self.emergency_latched = True
+            self.stop_generation += 1
+            self._sync_admission()
             await attempt("neutralizing ordinary input", self.manager.neutralize_runtime)
             await attempt("releasing ordinary input", self.manager.release_all_devices)
         try:
@@ -551,6 +582,9 @@ class HardwareMasking:
             )
         finally:
             if global_stop:
+                # Responses issued while the stop ran cannot clear it either.
+                self.stop_generation += 1
+                self._sync_admission()
                 self.manager.broadcast_hardware_recovery()
         if errors:
             raise errors[0]

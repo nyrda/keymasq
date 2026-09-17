@@ -4017,6 +4017,39 @@ class TestReleaseScheduling:
         assert manager.grab_state.desired_grabs["2dc8:3106"].evdev_interfaces == (evdev_interfaces)
 
     @pytest.mark.asyncio
+    async def test_release_attempts_every_interface_and_keeps_failures_tracked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """One interface's failed cleanup must not skip its siblings' release."""
+        manager = DeviceManager()
+        keyboard = SimpleNamespace(
+            path="/dev/input/event1",
+            release=AsyncMock(side_effect=OSError("keyboard cleanup failed")),
+        )
+        mouse = SimpleNamespace(path="/dev/input/event2", release=AsyncMock())
+        other = SimpleNamespace(path="/dev/input/event3", release=AsyncMock())
+        manager.grabbed_devices["combo"] = [keyboard, mouse]
+        manager.grabbed_devices["other"] = [other]
+        monkeypatch.setattr(release, "stop_device_event_loops", AsyncMock())
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime", AsyncMock())
+        monkeypatch.setattr(lifecycle, "clear_combo_runtime_for_binding_scope", AsyncMock())
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+        monkeypatch.setattr(manager, "cancel_macro_playback", AsyncMock())
+
+        with pytest.raises(OSError, match="keyboard cleanup failed"):
+            await manager.release_all_devices()
+
+        mouse.release.assert_awaited_once()
+        other.release.assert_awaited_once()
+        assert manager.grabbed_devices == {"combo": [keyboard]}
+
+        keyboard.release.side_effect = None
+        await manager.release_all_devices()
+        assert keyboard.release.await_count == 2
+        assert not manager.grabbed_devices
+
+    @pytest.mark.asyncio
     async def test_masking_release_keeps_desired_gamepad_without_hotplug_hiding(
         self,
         monkeypatch: pytest.MonkeyPatch,

@@ -83,7 +83,7 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
         if operation == "arm":
             path = backend.state_dir / "selector.json"
             try:
-                selector = json.loads(await finish_io(path.read_text))
+                raw = await finish_io(path.read_text)
             except FileNotFoundError as exc:
                 # Saved by an earlier build, or never activated as root. Only a
                 # connected activation can record a selector this job may trust.
@@ -93,6 +93,9 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
                     "connect the device and confirm masking again",
                 ) from exc
             try:
+                # A damaged record is permanent until a connected activation
+                # rewrites it; JSON errors are ValueErrors and belong here too.
+                selector = json.loads(raw)
                 if not isinstance(selector, dict):
                     raise ValueError("selector.json must contain a JSON object")
                 attachment = await finish_io(

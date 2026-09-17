@@ -75,6 +75,36 @@ async def test_final_open_rejects_wrong_model_without_grabbing_or_starting_outpu
     assert not device.running
 
 
+@pytest.mark.asyncio
+async def test_release_ungrabs_and_closes_after_optional_cleanup_failures(monkeypatch):
+    """Same guarantee without uinput: a fake handle stands in for evdev."""
+    from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
+
+    grabbed = GrabbedDevice(
+        path="/dev/input/event99",
+        hardware_id="test:device",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=AsyncMock(),
+    )
+    handle = SimpleNamespace(ungrab=MagicMock(), close=MagicMock())
+    grabbed.device = handle  # type: ignore[assignment]
+    grabbed.access_mode = InputAccessMode.EXCLUSIVE
+    monkeypatch.setattr(
+        grabbed,
+        "_stop_output_feedback_proxy",
+        AsyncMock(side_effect=OSError("feedback proxy died")),
+    )
+    monkeypatch.setattr(
+        grabbed, "reset_analog_controls", AsyncMock(side_effect=RuntimeError("analog"))
+    )
+    monkeypatch.setattr(grabbed, "reset_superkeys", AsyncMock(side_effect=OSError("keys")))
+    await grabbed.release()  # must not raise
+    handle.ungrab.assert_called_once()
+    handle.close.assert_called_once()
+    assert grabbed.device is None
+
+
 @pytest.mark.skipif(not os.access("/dev/uinput", os.W_OK), reason="No uinput access")
 class TestGrabbedDevice:
     @pytest.fixture
@@ -104,6 +134,32 @@ class TestGrabbedDevice:
             assert grabbed.running is True
         finally:
             await grabbed.release()
+
+    @pytest.mark.asyncio
+    async def test_release_closes_the_handle_when_optional_cleanup_fails(
+        self, virtual_mouse, event_callback, mapping_getter, monkeypatch
+    ):
+        device_path = virtual_mouse.device.path
+        grabbed = GrabbedDevice(
+            path=device_path,
+            hardware_id="test:device",
+            button_map={},
+            mapping_getter=mapping_getter,
+            event_callback=event_callback,
+        )
+        await grabbed.grab()
+        monkeypatch.setattr(
+            grabbed,
+            "_stop_output_feedback_proxy",
+            AsyncMock(side_effect=OSError("feedback proxy died")),
+        )
+        monkeypatch.setattr(
+            grabbed, "reset_analog_controls", AsyncMock(side_effect=RuntimeError("analog"))
+        )
+        await grabbed.release()  # must not raise
+        assert grabbed.running is False
+        assert grabbed.device is None
+        assert grabbed.uinput is None
 
     @pytest.mark.asyncio
     async def test_release_device(self, virtual_mouse, event_callback, mapping_getter):

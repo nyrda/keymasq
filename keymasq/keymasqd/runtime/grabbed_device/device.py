@@ -867,33 +867,50 @@ class GrabbedDevice:
                 except (TimeoutError, asyncio.CancelledError):
                     pass
 
+    async def _release_step(self, label: str, step: Callable[[], Awaitable[object]]) -> None:
+        """Run optional cleanup without letting it skip the physical handle release."""
+        try:
+            await step()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Release cleanup failed while %s for %s; continuing", label, self.path)
+
     async def release(self) -> None:
-        await self.stop_event_loop()
-        await update_touchpad_fuzz(self, releasing=True)
+        # A disconnected device routinely fails the optional runtime cleanup
+        # below. Those failures are logged; ungrab and close still run so the
+        # handle never outlives the release.
+        await self._release_step("stopping the reader", self.stop_event_loop)
+        await self._release_step(
+            "resetting touchpad fuzz", lambda: update_touchpad_fuzz(self, releasing=True)
+        )
         self.state.input_event_buffer.clear()
         self.state.analog_snapshot_boundary = None
         self.state.analog_deferred_keys.clear()
         self.state.analog_source_axis_values.clear()
         self.state.analog_mouse_area_resyncing = False
-        await self.reset_analog_controls()
-        await self.reset_superkeys()
-        pipeline.observe_profile_trigger_end_for_held_sources(self)
-        outputs.release_all_keys(
-            self,
-            evdev_mod=evdev,
-            uinput_writer=identity_uinput_writer,
-        )
+        await self._release_step("resetting analog controls", self.reset_analog_controls)
+        await self._release_step("resetting superkeys", self.reset_superkeys)
+        try:
+            pipeline.observe_profile_trigger_end_for_held_sources(self)
+            outputs.release_all_keys(
+                self,
+                evdev_mod=evdev,
+                uinput_writer=identity_uinput_writer,
+            )
+        except Exception:
+            log.exception("Release cleanup failed while releasing held keys for %s", self.path)
         self.state.held_source_keys.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
         self.state.quarantined_source_keys.clear()
 
-        await self._stop_output_feedback_proxy()
+        await self._release_step("stopping output feedback", self._stop_output_feedback_proxy)
 
         if self.device:
             if isinstance(self.device, NativeInputDevice):
-                await self.device.aclose()
+                await self._release_step("closing the native device", self.device.aclose)
             if self.access_mode is InputAccessMode.EXCLUSIVE:
                 try:
                     self.device.ungrab()

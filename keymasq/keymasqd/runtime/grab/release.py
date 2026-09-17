@@ -73,13 +73,35 @@ async def release_device_unlocked(
         )
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
-    for device in devices:
-        await device.release()
+    # Every interface gets its release attempt. A failed interface stays
+    # tracked so a later release or emergency reset retries it; it must not
+    # take its siblings' cleanup or their tracking down with it.
+    failures: list[Exception] = []
+    unreleased: list[ManagedGrabbedDevice] = []
+    for index, device in enumerate(devices):
+        try:
+            await device.release()
+        except asyncio.CancelledError:
+            unreleased.extend(devices[index:])
+            manager.grabbed_devices[hardware_id] = unreleased
+            raise
+        except Exception as exc:
+            failures.append(exc)
+            unreleased.append(device)
+            log.exception(
+                "Failed to release %s for %s; keeping it tracked for retry",
+                device.path,
+                hardware_id,
+            )
+    if unreleased:
+        manager.grabbed_devices[hardware_id] = unreleased
 
     if devices:
         outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
+    if failures:
+        raise failures[0]
     log.info("Released device %s", hardware_id)
     return {"released": True, "hardware_id": hardware_id}
 
@@ -182,10 +204,25 @@ def hardware_has_held_inputs(manager: GrabManager, hardware_id: str) -> bool:
     )
 
 
-def cancel_pending_hardware_release(manager: GrabManager, hardware_id: str) -> None:
-    task = manager.grab_state.pending_hardware_release.pop(hardware_id, None)
-    if task and not task.done():
+def _cancel_unless_current(task: asyncio.Task[object] | None) -> None:
+    """Cancel a pending release task, but never the one performing the release.
+
+    A deferred release calls the release helpers itself. Cancelling its own
+    task would abort that release at the next await, after the devices were
+    already taken from tracking.
+    """
+    if task is None or task.done():
+        return
+    try:
+        current = asyncio.current_task()
+    except RuntimeError:
+        current = None
+    if task is not current:
         task.cancel()
+
+
+def cancel_pending_hardware_release(manager: GrabManager, hardware_id: str) -> None:
+    _cancel_unless_current(manager.grab_state.pending_hardware_release.pop(hardware_id, None))
 
 
 def cancel_pending_interface_release(
@@ -194,9 +231,7 @@ def cancel_pending_interface_release(
     path: str,
 ) -> None:
     key = (hardware_id, path)
-    task = manager.grab_state.pending_interface_release.pop(key, None)
-    if task and not task.done():
-        task.cancel()
+    _cancel_unless_current(manager.grab_state.pending_interface_release.pop(key, None))
 
 
 def cancel_pending_interface_releases_for_hardware(
@@ -206,9 +241,7 @@ def cancel_pending_interface_releases_for_hardware(
     for key in list(manager.grab_state.pending_interface_release.keys()):
         if key[0] != hardware_id:
             continue
-        task = manager.grab_state.pending_interface_release.pop(key)
-        if not task.done():
-            task.cancel()
+        _cancel_unless_current(manager.grab_state.pending_interface_release.pop(key))
 
 
 def schedule_interface_release(
@@ -310,9 +343,7 @@ async def release_interface_unlocked(
         manager.grabbed_devices.pop(hardware_id, None)
         desired_config = manager.grab_state.desired_grabs.get(hardware_id)
         if manager.grab_state.desired_paths.get(hardware_id):
-            if arm_hotplug_hiding and desired_grab_requests_gamepad_source_hiding(
-                desired_config
-            ):
+            if arm_hotplug_hiding and desired_grab_requests_gamepad_source_hiding(desired_config):
                 await enable_hardware_hotplug_hiding_best_effort(
                     manager,
                     hardware_id,

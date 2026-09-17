@@ -386,6 +386,28 @@ async def test_offline_arm_requires_the_current_root_selector(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("contents", ['{"id": "trunc', "[]", "null"])
+async def test_damaged_root_selector_is_a_permanent_arm_failure(tmp_path, monkeypatch, contents):
+    from keymasq.masking.backend import MaskOperationError
+
+    inventory, attachment, *_ = await asyncio.to_thread(generic_usb, tmp_path)
+    root = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    backend = root.for_attachment(attachment.identity)
+
+    def prepare():
+        backend.prepare_directories()
+        (backend.state_dir / "selector.json").write_text(contents)
+
+    await asyncio.to_thread(prepare)
+    install = AsyncMock()
+    monkeypatch.setattr(LinuxMaskBackend, "install_rules", install)
+    with pytest.raises(MaskOperationError) as failure:
+        await operations.execute({"operation": "arm", "id": attachment.identity}, root)
+    assert failure.value.code == "selector_invalid"
+    install.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_daemon_watchdog_runs_on_the_input_event_loop(monkeypatch):
     from keymasq.keymasqd import daemon as module
 

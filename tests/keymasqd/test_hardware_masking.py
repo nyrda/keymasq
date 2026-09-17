@@ -1026,3 +1026,66 @@ async def test_daemon_caller_cancellation_waits_for_masking_cleanup(monkeypatch)
     released.assert_awaited_once()
     request.assert_awaited_once_with("restore", {"reason": "lifecycle_stop"})
     assert masking.task is None
+
+
+@pytest.mark.asyncio
+async def test_status_snapshots_cannot_revoke_an_emergency_stop(monkeypatch):
+    """Only an explicit global resume clears the admission latch."""
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    poll_started, poll_release = asyncio.Event(), asyncio.Event()
+    physical_entered, physical_finish = asyncio.Event(), asyncio.Event()
+    resume_result = {"masks": [], "remapping_suspended": False}
+
+    async def request(command, data=None):
+        if command == "poll":
+            poll_started.set()
+            await poll_release.wait()
+            return {"masks": [], "remapping_suspended": False}
+        if command == "restore":
+            physical_entered.set()
+            await physical_finish.wait()
+            return {"masks": [], "remapping_suspended": True}
+        if command == "resume":
+            return dict(resume_result)
+        return {"masks": [], "remapping_suspended": False}
+
+    monkeypatch.setattr(masking, "request", request)
+    monkeypatch.setattr(masking, "startup", AsyncMock())
+    monkeypatch.setattr(masking, "start_monitor", Mock())
+    monkeypatch.setattr(masking.coordinator, "monitor_once", AsyncMock())
+    monkeypatch.setattr(manager, "neutralize_runtime", AsyncMock())
+    monkeypatch.setattr(manager, "release_all_devices", AsyncMock())
+    monkeypatch.setattr(manager, "broadcast_hardware_recovery", Mock())
+
+    async def grab_denied() -> bool:
+        result = await manager.grab_device(hardware_id="kbd", evdev_paths=[], button_map={})
+        return result.get("grabbed") is False and "suspended" in str(result.get("reason"))
+
+    # A poll is in flight with a pre-stop snapshot when the emergency begins.
+    poll = asyncio.create_task(masking.monitor_once())
+    await asyncio.wait_for(poll_started.wait(), 1)
+    stop = asyncio.create_task(masking.restore())
+    await asyncio.wait_for(physical_entered.wait(), 1)
+    assert manager.masking_suspended and await grab_denied()
+    poll_release.set()
+    await poll  # the stale snapshot completes while recovery is unfinished
+    assert manager.masking_suspended and await grab_denied()
+    physical_finish.set()
+    await stop
+    assert manager.masking_suspended and await grab_denied()
+    # A fresh poll that reports no pause still cannot clear the latch.
+    await masking.monitor_once()
+    assert manager.masking_suspended and await grab_denied()
+    # A per-reservation resume is not a global transition.
+    await masking.handle(CommandType.RESUME_HARDWARE, {"id": "one"}, uid=1000)
+    assert manager.masking_suspended
+    # An explicit global resume clears it and reports the cleared state.
+    result = await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
+    assert not manager.masking_suspended and not result["remapping_suspended"]
+    # A stop whose marker could not be recorded still reaches the GUI.
+    masking.emergency_latched = True
+    masking._sync_admission()
+    resume_result["remapping_suspended"] = False
+    status = await masking.handle(CommandType.HARDWARE_INVENTORY, {}, uid=1000)
+    assert status["remapping_suspended"] is True

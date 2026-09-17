@@ -3255,3 +3255,85 @@ class TestDeviceTabWidget:
 
         assert len(device.buttons) == 1
         assert "already exists" in status.get_text()
+
+
+class TestDeviceTabStatusPollRefresh:
+    @staticmethod
+    def _make_tab():
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Mouse",
+            evdev_devices=[],
+            buttons=[
+                ButtonDefinition(id="btn_back", label="Back", evdev="btn_side"),
+                ButtonDefinition(id="btn_forward", label="Forward", evdev="btn_extra"),
+            ],
+        )
+        tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
+        return device, tab
+
+    @staticmethod
+    def _payload(device, profiles, state):
+        return {
+            "status": "ok",
+            "devices": {
+                device.hardware_id: {
+                    "profiles": profiles,
+                    "device_status": {
+                        "state": state,
+                        "configured_count": 1,
+                        "connected_count": 1,
+                        "grabbed_count": 1 if state == "grabbed" else 0,
+                        "runtime_ready": state == "grabbed",
+                    },
+                }
+            },
+        }
+
+    def test_identical_status_response_skips_button_refresh(self, monkeypatch):
+        device, tab = self._make_tab()
+        payload = self._payload(device, ["Gaming"], "grabbed")
+        tab.apply_active_profile_response(payload)
+
+        refreshed: list[str] = []
+        monkeypatch.setattr(tab, "_update_button_display", refreshed.append)
+        pill_updates: list[None] = []
+        monkeypatch.setattr(tab, "_update_device_status_pill", lambda: pill_updates.append(None))
+
+        tab.apply_active_profile_response(self._payload(device, ["Gaming"], "grabbed"))
+
+        assert refreshed == []
+        assert pill_updates == []
+        assert tab._active_profile_names == ["Gaming"]
+
+    def test_changed_profiles_refreshes_buttons(self, monkeypatch):
+        device, tab = self._make_tab()
+        tab.apply_active_profile_response(self._payload(device, ["Gaming"], "grabbed"))
+
+        refreshed: list[str] = []
+        monkeypatch.setattr(tab, "_update_button_display", refreshed.append)
+
+        tab.apply_active_profile_response(self._payload(device, ["Gaming", "Work"], "grabbed"))
+
+        assert sorted(refreshed) == ["btn_back", "btn_forward"]
+        assert tab._active_profile_names == ["Gaming", "Work"]
+
+    def test_changed_device_status_updates_pill_without_button_refresh(self, monkeypatch):
+        device, tab = self._make_tab()
+        tab.apply_active_profile_response(self._payload(device, ["Gaming"], "grabbed"))
+        grabbed_pill = tab._device_status_label.get_text()
+        grabbed_caption = tab._header_caption_label.get_text()
+
+        refreshed: list[str] = []
+        monkeypatch.setattr(tab, "_update_button_display", refreshed.append)
+
+        tab.apply_active_profile_response(self._payload(device, ["Gaming"], "partial"))
+
+        assert refreshed == []
+        assert tab._device_runtime_status["state"] == "partial"
+        assert tab._device_status_label.get_text() != grabbed_pill
+        assert tab._header_caption_label.get_text() != grabbed_caption

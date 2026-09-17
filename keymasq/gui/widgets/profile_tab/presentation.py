@@ -64,10 +64,13 @@ class ProfilePresentationMixin:
 
     def apply_active_profile_response(self: Any, data: dict | None) -> None:
         active_profiles = self._active_profile_names_from_response(data or {})
-        if active_profiles != self._active_profile_names:
-            self._active_profile_names = active_profiles
-            self._refresh_profile_dropdown_states()
-            self._update_active_profiles_summary()
+        if active_profiles == self._active_profile_names:
+            # Status polls arrive every couple of seconds and usually repeat the
+            # previous payload. Skip the full re-render when nothing changed.
+            return
+        self._active_profile_names = active_profiles
+        self._refresh_profile_dropdown_states()
+        self._update_active_profiles_summary()
         self._update_profile_state_display()
         self._after_active_profiles_changed()
 

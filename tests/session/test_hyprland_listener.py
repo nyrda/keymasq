@@ -254,12 +254,14 @@ async def test_hyprland_activewindow_event_emits_once_for_repeated_events() -> N
         calls.append((window_class, window_title, tags))
 
     listener = HyprlandListener(callback)
-    listener._get_window_tags = AsyncMock(return_value=[])  # type: ignore[method-assign]
+    get_window_tags = AsyncMock(return_value=[])
+    listener._get_window_tags = get_window_tags  # type: ignore[method-assign]
 
     await listener._handle_event("activewindow>>firefox,tab one")
     await listener._handle_event("activewindow>>firefox,tab one")
 
     assert calls == [("firefox", "tab one", [])]
+    get_window_tags.assert_awaited_once()
 
 
 @pytest.mark.asyncio

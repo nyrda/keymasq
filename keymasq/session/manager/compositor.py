@@ -14,6 +14,11 @@ from keymasq.session.compositor import (
     is_compositor_supported,
 )
 from keymasq.session.listeners.gnome import GnomeListener
+from keymasq.session.profile.rules import (
+    normalize_window_info_for_match,
+    normalize_window_rule_field,
+    window_fields_in_use,
+)
 
 from .common import JsonObject, json_list, merge_support_details
 from .profile import coordinator
@@ -160,7 +165,11 @@ async def run_compositor_setup_action(
 async def get_active_window_payload(manager: "SessionManager") -> JsonObject:
     previous_window = dict(manager.compositor_state.current_window)
     window_info = await refresh_current_window_from_listener(manager)
-    if previous_window != manager.compositor_state.current_window:
+    if _window_update_changes_profile_matches(
+        manager,
+        previous_window,
+        manager.compositor_state.current_window,
+    ):
         await coordinator.reevaluate_profiles(manager, reason="active window changed")
     if window_info is not None:
         return {"status": "ok", **window_info}
@@ -627,8 +636,42 @@ async def on_window_change(
             window_tags,
         )
 
+    previous_window = manager.compositor_state.current_window
     manager.compositor_state.current_window = cast(JsonObject, window_info)
-    await coordinator.reevaluate_profiles(manager, reason="window changed")
+    if _window_update_changes_profile_matches(
+        manager,
+        previous_window,
+        manager.compositor_state.current_window,
+    ):
+        await coordinator.reevaluate_profiles(manager, reason="window changed")
+
+
+def _window_update_changes_profile_matches(
+    manager: "SessionManager",
+    previous_window: JsonObject,
+    current_window: JsonObject,
+) -> bool:
+    """Check whether a window delta can change conditional profile matches.
+
+    Rapid title-only churn (media players, browser tabs, terminals) is the
+    common case: when no enabled conditional profile matches on the changed
+    field there is no need to rerun the full grab/mapping reevaluation.
+    """
+    previous_match_state = normalize_window_info_for_match(previous_window)
+    current_match_state = normalize_window_info_for_match(current_window)
+    if previous_match_state == current_match_state:
+        return False
+    fields = window_fields_in_use(
+        manager.profiles.snapshot_profiles().values(),
+        manager.compositor_state.compositor_capabilities,
+    )
+    if not fields:
+        return False
+    return any(
+        previous_match_state[normalize_window_rule_field(field)]
+        != current_match_state[normalize_window_rule_field(field)]
+        for field in fields
+    )
 
 
 def compositor_dispatch_available(manager: "SessionManager") -> bool:

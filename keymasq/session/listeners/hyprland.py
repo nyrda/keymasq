@@ -59,6 +59,7 @@ class HyprlandListener(WindowListener):
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
+        self._last_window: tuple[str, str, tuple[str, ...]] | None = None
         self.socket_path: str | None = None
         self.cmd_socket_path: str | None = None
         self.reader: asyncio.StreamReader | None = None
@@ -192,7 +193,15 @@ class HyprlandListener(WindowListener):
             window_class = parts[0] if parts else ""
             window_title = parts[1] if len(parts) > 1 else ""
 
+            last = self._last_window
+            if last is not None and window_class == last[0] and window_title == last[1]:
+                # Same focused window as the last emission: skip the
+                # j/activewindow tags query and stay silent, matching the
+                # other listeners' duplicate suppression.
+                return
+
             tags = await self._get_window_tags()
+            self._last_window = (window_class, window_title, tuple(tags))
             log.debug(
                 f"Active window changed: class={window_class}, title={window_title}, tags={tags}"
             )

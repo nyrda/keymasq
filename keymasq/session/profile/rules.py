@@ -1,5 +1,6 @@
 import logging
 import re
+from collections.abc import Iterable
 from typing import cast
 
 from keymasq.common.model.profiles import (
@@ -7,10 +8,11 @@ from keymasq.common.model.profiles import (
     WindowRule,
 )
 
-from .types import TomlDict
+from .types import ProfileInfo, TomlDict
 
 log = logging.getLogger("keymasq-session.profiles")
 SUPPORTED_WINDOW_RULE_FIELDS = frozenset({"class", "title", "tag"})
+WINDOW_MATCH_FIELDS = frozenset({"class", "title", "tag"})
 
 
 def normalize_window_rule_field(value: object) -> str:
@@ -18,10 +20,61 @@ def normalize_window_rule_field(value: object) -> str:
     return "tag" if field == "tags" else field
 
 
+def normalize_window_info_for_match(
+    window_info: TomlDict | None,
+) -> dict[str, str | tuple[str, ...]]:
+    """Normalize window state for match-relevant comparison.
+
+    Missing keys, empty strings, tag order, and blank tags all fail to match
+    the same way, so they compare equal here.
+    """
+    if not isinstance(window_info, dict):
+        return {"class": "", "title": "", "tag": ()}
+    window_class = window_info.get("class", "")
+    window_title = window_info.get("title", "")
+    raw_tags = window_info.get("tags", [])
+    if not isinstance(raw_tags, list):
+        raw_tags = []
+    typed_tags = cast(list[object], raw_tags)
+    tags = sorted(
+        {str(tag) for tag in typed_tags if str(tag or "").strip()},
+    )
+    return {
+        "class": window_class if isinstance(window_class, str) else "",
+        "title": window_title if isinstance(window_title, str) else "",
+        "tag": tuple(tags),
+    }
+
+
 def has_unsupported_rules(config: ProfileConfig, capabilities: list[str]) -> bool:
     return "window_tags" not in capabilities and any(
         normalize_window_rule_field(rule.field) == "tag" for rule in config.window_rules
     )
+
+
+def window_fields_in_use(
+    profiles: Iterable[ProfileInfo],
+    capabilities: list[str] | None = None,
+) -> frozenset[str]:
+    """Return normalized window fields that can change conditional profile matches.
+
+    Only enabled conditional profiles whose rules are supported on the current
+    compositor can change the resolved profile set, so a window update touching
+    none of these fields cannot alter profile resolution.
+    """
+    capable = capabilities or []
+    fields: set[str] = set()
+    for info in profiles:
+        config = info.config
+        if not config.enabled or config.is_permanent or not config.window_rules:
+            continue
+        if has_unsupported_rules(config, capable):
+            continue
+        for rule in config.window_rules:
+            field = normalize_window_rule_field(rule.field)
+            if field in WINDOW_MATCH_FIELDS:
+                fields.add(field)
+    return frozenset(fields)
 
 
 def validate_window_rules(window_rules: list[WindowRule]) -> None:

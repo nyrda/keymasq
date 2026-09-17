@@ -242,3 +242,41 @@ async def test_hyprland_send_cmd_logs_unexpected_close_errors(
 
     assert "Unexpected failure while closing Hyprland command writer" in caplog.text
     assert "close bug" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_hyprland_activewindow_event_emits_once_for_repeated_events() -> None:
+    calls: list[tuple[str, str, list[str]]] = []
+
+    async def callback(
+        window_class: str, window_title: str, tags: list[str]
+    ) -> None:
+        calls.append((window_class, window_title, tags))
+
+    listener = HyprlandListener(callback)
+    get_window_tags = AsyncMock(return_value=[])
+    listener._get_window_tags = get_window_tags  # type: ignore[method-assign]
+
+    await listener._handle_event("activewindow>>firefox,tab one")
+    await listener._handle_event("activewindow>>firefox,tab one")
+
+    assert calls == [("firefox", "tab one", [])]
+    get_window_tags.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_activewindow_event_emits_on_title_change() -> None:
+    calls: list[tuple[str, str, list[str]]] = []
+
+    async def callback(
+        window_class: str, window_title: str, tags: list[str]
+    ) -> None:
+        calls.append((window_class, window_title, tags))
+
+    listener = HyprlandListener(callback)
+    listener._get_window_tags = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    await listener._handle_event("activewindow>>firefox,tab one")
+    await listener._handle_event("activewindow>>firefox,tab two")
+
+    assert calls == [("firefox", "tab one", []), ("firefox", "tab two", [])]

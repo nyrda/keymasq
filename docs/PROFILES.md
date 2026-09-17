@@ -265,6 +265,12 @@ Window-rule fields are `class`, `title`, and `tag`. The hand-edited alias
 unexpected non-string class/title values safely fail to match instead of
 interrupting profile resolution.
 
+`keymasq-session` tracks the full window state for display, but it only
+re-runs profile resolution when a changed field is actually used by an enabled
+conditional profile. Rapid title-only churn (music players, browser tabs,
+terminals) therefore skips the grab/mapping reevaluation unless some enabled
+conditional profile has a `title` rule.
+
 `activation_macro` and `deactivation_macro` are optional stored macro names.
 When set, `keymasq-session` asks `keymasqd` to play the macro after the global
 active profile set changes. They fire once when a profile enters or leaves the

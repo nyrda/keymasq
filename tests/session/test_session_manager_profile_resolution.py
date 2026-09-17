@@ -16,6 +16,7 @@ from keymasq.common.model.profiles import (
     ComboStep,
     DeviceProfileLayer,
     ProfileConfig,
+    WindowRule,
 )
 from keymasq.common.model.superkeys import (
     SuperkeyAction,
@@ -50,6 +51,9 @@ async def test_window_churn_conflict_then_fallback_keeps_deterministic_active_pr
     )
 
     manager.hardware.list_hardware_ids = lambda: [hardware_id]  # type: ignore[assignment]
+    profile_game.window_rules = [WindowRule(field="title", pattern="game")]
+    manager.profiles.save_profile(profile_game)
+    manager.profiles.save_profile(profile_base)
 
     def resolve_active_profiles(
         window_info: dict | None,

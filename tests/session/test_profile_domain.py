@@ -11,10 +11,15 @@ from keymasq.common.model.profiles import (
     ComboStep,
     DeviceProfileLayer,
     ProfileConfig,
+    WindowRule,
 )
 from keymasq.session.profile import references
 from keymasq.session.profile.codec import ProfileCodec
 from keymasq.session.profile.resolution import ProfileResolver
+from keymasq.session.profile.rules import (
+    normalize_window_info_for_match,
+    window_fields_in_use,
+)
 from keymasq.session.profile.types import ProfileInfo
 
 
@@ -205,3 +210,50 @@ def test_resolver_applies_runtime_overlay_without_mutating_stored_combo() -> Non
     stored_event = overlay.combos[0].steps[0].events[0]
     assert stored_event.hardware_id == "keyboard"
     assert stored_event.source == "kbd"
+
+
+def _conditional_profile(
+    name: str,
+    *,
+    field: str = "title",
+    pattern: str = "Editor",
+    enabled: bool = True,
+    permanent: bool = False,
+) -> ProfileInfo:
+    return ProfileInfo(
+        Path(f"{name}.toml"),
+        ProfileConfig(
+            name=name,
+            enabled=enabled,
+            is_permanent=permanent,
+            window_rules=[WindowRule(field=field, pattern=pattern)],
+        ),
+    )
+
+
+def test_window_fields_in_use_reports_only_supported_conditional_fields() -> None:
+    profiles = [
+        _conditional_profile("Title"),
+        _conditional_profile("Class", field="class", pattern="firefox"),
+        _conditional_profile("Tags", field="tags", pattern="work"),
+        _conditional_profile("Disabled", enabled=False),
+        _conditional_profile("Permanent", permanent=True),
+    ]
+
+    assert window_fields_in_use(profiles, ["window_tags"]) == frozenset(
+        {"title", "class", "tag"}
+    )
+    assert window_fields_in_use(profiles, []) == frozenset({"title", "class"})
+    assert window_fields_in_use(profiles[:0]) == frozenset()
+
+
+def test_normalize_window_info_for_match_ignores_shape_and_tag_order() -> None:
+    assert normalize_window_info_for_match({}) == normalize_window_info_for_match(None)
+    assert normalize_window_info_for_match({"class": "", "title": "", "tags": []}) == (
+        normalize_window_info_for_match({})
+    )
+    assert normalize_window_info_for_match(
+        {"class": "app", "title": "t", "tags": ["b", "a"]}
+    ) == normalize_window_info_for_match(
+        {"class": "app", "title": "t", "tags": ["a", "b", "  "]}
+    )

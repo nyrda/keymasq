@@ -80,6 +80,9 @@ device**. It is masked again automatically when it returns. For USB devices the
 access restriction is already in place when the device reconnects, before the
 desktop is granted access. Without a serial number the saved choice identifies
 the port and model, so another unit of the same model on that port inherits it.
+Bluetooth devices are identified by their remote address, so pairing survives
+reconnects, but their restriction is reapplied a few seconds after they
+reconnect rather than ahead of it.
 
 Each saved mask reports one state: **off**, **starting**, **waiting for device**,
 **saved incomplete**, **attention**, **activating**, **trial**, **masked**, or

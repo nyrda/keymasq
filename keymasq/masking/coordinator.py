@@ -309,11 +309,14 @@ class MaskReservation:
             return SavedMaskLifecycle.RECOVERING
         if (
             not enabled
-            or paused
             or self.session_uid is None
             or self.policy.get("owner_uid") != self.session_uid
         ):
             return SavedMaskLifecycle.OFF
+        if paused:
+            # Restored after an automatic reason such as a Bluetooth disconnect;
+            # the daemon owner resumes it after its retry delay.
+            return SavedMaskLifecycle.RECOVERING
         code = self.attention.get("code")
         if code in INCOMPLETE_CODES:
             return SavedMaskLifecycle.SAVED_INCOMPLETE

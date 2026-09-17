@@ -281,3 +281,68 @@ async def test_invalid_last_seen_is_rejected_like_other_policy_damage(tmp_path):
     assert not fresh.reservations[first.identity].policy
     assert fresh.reservations[first.identity].state["reason"] == "invalid_saved_state"
     await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_bluetooth_disconnect_and_reconnect_resume_without_usb_arming(clocked, monkeypatch):
+    from dataclasses import replace
+
+    supervisor, clock = clocked
+    inventory = supervisor.backend.inventory
+    original = inventory.attachments[0]
+    device = replace(
+        original,
+        transport="bluetooth",
+        syspath=inventory.sys_root / "devices/virtual/misc/uhid/0005:ABCD:9876.0020",
+        kernel_name="0005:ABCD:9876.0020",
+    )
+    inventory.attachments[0] = device
+    armed = []
+    monkeypatch.setattr(
+        Backend, "install_rules", lambda self, attachment: armed.append(attachment.identity)
+    )
+    selector_probe = []
+    monkeypatch.setattr(
+        Backend,
+        "saved_selector_available",
+        lambda self: selector_probe.append(True) or False,
+    )
+    data = await start(supervisor, device)
+    item = supervisor.reservations[device.identity]
+    assert "usb_selector" not in item.policy
+    assert item.backend.armed  # the fake activation wrote its rules itself
+
+    # A Bluetooth disconnect removes the instance-specific rules and pauses the
+    # reservation until the daemon owner resumes it.
+    inventory.attachments.remove(device)
+    await supervisor.monitor_once()
+    mask = selected((await supervisor.status()), device.identity)
+    assert mask["state"] == "restored" and mask["reason"] == "hardware_disconnected"
+    assert mask["remapping_suspended"] and mask["enabled"]
+    assert mask["lifecycle"] == "recovering"
+    assert not item.backend.armed
+    await supervisor.request({"command": "poll"})
+    assert selected((await supervisor.status()), device.identity)["remapping_suspended"]
+
+    await supervisor.request({"command": "resume", "id": device.identity})
+    await supervisor.request({"command": "poll"})
+    mask = selected((await supervisor.status()), device.identity)
+    assert not mask["remapping_suspended"]
+    assert mask["lifecycle"] == "waiting_for_device"
+    assert armed == [] and selector_probe == []
+
+    # The remote address keeps the identity; the HID instance changes.
+    returned = replace(
+        device,
+        generation="0005:ABCD:9876.0021:77",
+        syspath=inventory.sys_root / "devices/virtual/misc/uhid/0005:ABCD:9876.0021",
+        kernel_name="0005:ABCD:9876.0021",
+    )
+    inventory.attachments.append(returned)
+    clock[0] += 1
+    result = await supervisor.request({"command": "poll"})
+    mask = selected(result, device.identity)
+    assert mask["state"] == "applying" and mask["lifecycle"] == "activating"
+    assert mask["generation"] == returned.generation
+    assert mask["token"] != data["token"]
+    assert armed == [] and selector_probe == []

@@ -423,7 +423,7 @@ When `emergency_cancel_combo_enabled = false`, the daemon does not inject the
 combo and the GUI allows it to be assigned like any other combo. Disabling it
 is not recommended unless you intentionally need that exact trigger.
 
-## Socket Paths
+## Hardware Masking Jobs
 
 Masking coordination runs inside `keymasqd`. The existing `keymasq-record`
 entry point performs privileged hardware changes in short-lived systemd jobs;
@@ -496,6 +496,8 @@ udev after static permissions are restored; old session ACLs are not replayed.
 `keymasqd` retains its existing capability set. See
 [Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
 [Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
+
+## Socket Paths
 
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)
 - session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)

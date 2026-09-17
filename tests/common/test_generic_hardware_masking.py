@@ -282,6 +282,44 @@ async def test_generic_activation_applies_policy_before_rebinding_without_deck_m
 
 
 @pytest.mark.asyncio
+async def test_activation_waits_for_udev_to_apply_rules_to_rebound_nodes(tmp_path, monkeypatch):
+    """A bare settle after bind can return before udevd queues the new nodes."""
+    inventory, attachment, hid, driver = generic_usb(tmp_path)
+    backend = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    backend.prepare_directories()
+    snapshot = {"nodes": {}, "bindings": {hid.name: driver.name}}
+    monkeypatch.setattr(backend, "snapshot", AsyncMock(return_value=snapshot))
+    monkeypatch.setattr(backend, "reject_unrevoked_handles", lambda *_: None)
+    events: list[tuple[str, ...]] = []
+
+    async def host(*args, **_kwargs):
+        if args[:2] == ("udevadm", "trigger"):
+            events.append(args)
+        return ""
+
+    async def rebind(*_args, **_kwargs):
+        events.append(("rebind",))
+
+    async def verify_access(current):
+        # udev must have processed the replacement nodes under the armed
+        # rules before their ownership is checked.
+        assert events[-1][:2] == ("udevadm", "trigger")
+        assert "--action=change" in events[-1]
+        assert f"--parent-match={current.syspath}" in events[-1]
+        assert "--settle" in events[-1]
+        assert ("rebind",) in events[:-1]
+        events.append(("verify",))
+
+    monkeypatch.setattr(backend_module, "run_host", host)
+    monkeypatch.setattr(backend, "rebind_hid", rebind)
+    monkeypatch.setattr(backend, "verify_access", verify_access)
+    assert await backend.activate(attachment) == []
+    assert events[-1] == ("verify",)
+    triggers = [event for event in events if event[:2] == ("udevadm", "trigger")]
+    assert len(triggers) == 2  # once before rebind for live nodes, once after
+
+
+@pytest.mark.asyncio
 async def test_takeover_rejects_a_raw_endpoint_that_survives_the_rebind(tmp_path, monkeypatch):
     inventory, attachment, hid, driver = generic_usb(tmp_path)
     backend = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")

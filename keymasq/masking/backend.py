@@ -391,6 +391,13 @@ class LinuxMaskBackend:
             current = await finish_io(
                 self.inventory.resolve, attachment.identity, attachment.generation
             )
+        # devtmpfs publishes replacement nodes as root:root before udev applies
+        # the access rules, and a bare `udevadm settle` can return before udevd
+        # has even queued their add events. A fast single-interface rebind,
+        # such as a Bluetooth controller, exposes that window. Trigger the
+        # current attachment and wait for that event so every replacement node
+        # has been processed under the armed rules before verification.
+        await self.trigger(current, "change")
         nodes = await finish_io(self.inventory.event_nodes, current)
         await self.verify_access(current)
         names = [
@@ -457,6 +464,8 @@ class LinuxMaskBackend:
         current = await finish_io(
             self.inventory.resolve, attachment.identity, attachment.generation
         )
+        # Hotplugged nodes may still be waiting for udev; see activate().
+        await self.trigger(current, "change")
         await self.verify_access(current)
         await finish_io(self.reject_unrevoked_handles, current)
         return await finish_io(self.inventory.event_nodes, current)

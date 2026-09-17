@@ -87,7 +87,11 @@ The removed endpoints invalidate existing application handles; ordinary
 applications cannot reopen the replacements. Unrelated readers keep running
 during takeover. The helper records every binding for recovery and verifies that
 the expected interfaces return. If they cannot be recreated, the trial restores
-access with an error.
+access with an error. Before verifying ownership, the helper triggers a change
+event for the attachment and waits for it: devtmpfs publishes replacement nodes
+as root before udev applies the rules, and a bare settle after the driver bind
+can return before udevd has queued their add events. A fast single-interface
+rebind, typical for Bluetooth, exposes that window.
 
 When an existing direct USB handle prevents a HID rebind from completing
 takeover, the helper cycles the selected device's individual USB port. It

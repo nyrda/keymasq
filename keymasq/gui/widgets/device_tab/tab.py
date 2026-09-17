@@ -75,8 +75,20 @@ class DeviceTab(
         self.refresh_profiles()
 
     def apply_active_profile_response(self, data: dict | None) -> None:
-        self._device_runtime_status = self._device_runtime_status_from_response(data or {})
+        payload = data or {}
+        runtime_status = self._device_runtime_status_from_response(payload)
+        status_changed = runtime_status != self._device_runtime_status
+        profiles_changed = (
+            self._active_profile_names_from_response(payload) != self._active_profile_names
+        )
+        self._device_runtime_status = runtime_status
         super().apply_active_profile_response(data)
+        if not status_changed:
+            return
+        if not profiles_changed:
+            # The base class only refreshes the caption when profiles change,
+            # but the caption also embeds the grab status note.
+            self._update_header_caption()
         self._update_device_status_pill()
         self._refresh_hardware_settings_runtime_metadata()
 

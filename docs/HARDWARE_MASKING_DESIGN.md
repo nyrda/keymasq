@@ -40,7 +40,10 @@ use the same allowance because they can queue behind administrative work.
 The rules reserve the selected device's hidraw, usbfs, evdev, and legacy
 joystick nodes for root and the dedicated `keymasq` account. They remove desktop
 ACLs and match the USB port, model, and serial when present, or the specific
-non-USB HID instance. They exclude virtual outputs. Bluetooth and other HID
+non-USB HID instance. The final rule strips ACLs before applying the mode: on a
+node that an earlier rule left with an ACL mask, `chmod` changes only the mask
+entry, so stripping afterwards would re-expose the earlier group entry and the
+node would verify as mode 0600. They exclude virtual outputs. Bluetooth and other HID
 reservations cover hidraw and input nodes. Rule filenames include the attachment
 ID, so restoring one mask cannot remove another mask's rules.
 

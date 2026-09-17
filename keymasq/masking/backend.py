@@ -333,11 +333,14 @@ class LinuxMaskBackend:
                 if match.startswith('SUBSYSTEM=="input"')
                 else "/dev/%k"
             )
+            # Strip ACLs before chmod. On a node that an earlier rule left with
+            # an ACL mask, chmod changes the mask entry rather than the group
+            # entry, and a later setfacl -b would expose that group entry again.
             late_lines.append(
                 f'ACTION!="remove", {match}, TAG-="uaccess", '
                 'OWNER:="root", GROUP:="keymasq", MODE:="0660", '
-                f'RUN+="{chmod} 0660 {node}", '
-                f'RUN+="{setfacl} -b {node}"'
+                f'RUN+="{setfacl} -b {node}", '
+                f'RUN+="{chmod} 0660 {node}"'
             )
 
         def write_rule(path: Path, content: str) -> None:

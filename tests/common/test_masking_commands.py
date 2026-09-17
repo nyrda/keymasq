@@ -93,4 +93,8 @@ async def test_udev_rules_use_trusted_tools_and_preflight_dependencies(
         rules = transaction.late.read_text()
         assert f'RUN+="{trusted_tools}/chmod 0660 ' in rules
         assert f'RUN+="{trusted_tools}/setfacl -b ' in rules
+        # With an ACL mask present, chmod only changes the mask entry and a
+        # later setfacl -b re-exposes the group entry. Strip ACLs first.
+        for line in rules.splitlines():
+            assert line.index("setfacl -b") < line.index("chmod 0660"), line
         assert str(tmp_path / "caller") not in rules

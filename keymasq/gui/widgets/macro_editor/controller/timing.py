@@ -264,12 +264,11 @@ class TimelineControllerMixin:
             at_us=self._timeline._insertion_us,
             delta_us=delta_us,
         )
-        if not mapping:
-            self._duration_us = max(self._duration_us, self._timeline._insertion_us) + delta_us
-            self._refresh_after_timing_edit(recompute_duration=False)
-            return
-        self._apply_time_map(mapping)
-        self._refresh_after_timing_edit()
+        # Inserted time always lengthens the macro, so trailing silence survives the shift.
+        self._duration_us = max(self._duration_us, self._timeline._insertion_us) + delta_us
+        if mapping:
+            self._apply_time_map(mapping)
+        self._refresh_after_timing_edit(recompute_duration=False)
 
     def _on_add_time_start_clicked(self, _btn) -> None:
         if not self._timing_extend_ms_spin:
@@ -286,8 +285,10 @@ class TimelineControllerMixin:
         if not mapping:
             return
 
+        # Keep trailing silence: the macro grows by the inserted time.
+        self._duration_us += delta_us
         self._apply_time_map(mapping)
-        self._refresh_after_timing_edit()
+        self._refresh_after_timing_edit(recompute_duration=False)
 
     def _on_add_time_end_clicked(self, _btn) -> None:
         if not self._timing_extend_ms_spin:

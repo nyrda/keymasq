@@ -2582,3 +2582,42 @@ def test_macro_editor_compositor_position_preset_offers_capture(monkeypatch) -> 
     dialog._on_selection_changed(control)
     assert dialog._move_capture_row.get_visible() is False
 
+
+def test_macro_editor_insert_time_keeps_trailing_silence(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    dialog._build_timing_tools()
+    event = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_A,
+        press_t_us=1_000_000,
+        release_t_us=1_100_000,
+    )
+    dialog._events = [event]
+    dialog._duration_us = 3_000_000
+    assert dialog._timing_extend_ms_spin is not None
+    dialog._timing_extend_ms_spin.set_value(500)
+
+    dialog._timeline._insertion_us = 500_000
+    dialog._on_insert_time_at_cursor_clicked(None)
+
+    assert event.press_t_us == 1_500_000
+    assert dialog._duration_us == 3_500_000
+
+    dialog._on_add_time_start_clicked(None)
+
+    assert event.press_t_us == 2_000_000
+    assert dialog._duration_us == 4_000_000
+
+    dialog._timeline._insertion_us = 3_800_000
+    dialog._on_insert_time_at_cursor_clicked(None)
+
+    assert event.press_t_us == 2_000_000
+    assert dialog._duration_us == 4_500_000
+
+
+def test_macro_editor_insert_at_spin_shares_control_width(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+
+    assert dialog._insertion_spin in dialog._control_width_group.get_widgets()
+

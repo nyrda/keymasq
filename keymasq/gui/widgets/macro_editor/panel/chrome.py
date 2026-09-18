@@ -80,9 +80,11 @@ class EditorChromeMixin:
         columns.set_margin_end(8)
 
         selection_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # The property panel creates the shared control width group the selection panel joins.
+        property_panel = self._build_property_panel()
         self._inspector_placeholder = self._build_selection_panel()
         selection_column.append(self._inspector_placeholder)
-        selection_column.append(self._build_property_panel())
+        selection_column.append(property_panel)
         self._revealer.connect("notify::reveal-child", self._on_inspector_reveal_changed)
         selection_column.set_hexpand(True)
         column_widths.add_widget(selection_column)

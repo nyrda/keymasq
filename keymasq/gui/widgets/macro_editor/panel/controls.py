@@ -10,11 +10,27 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
+from keymasq.gui.widgets.compositor_actions.core import (
+    CompositorActionDefinition,
+    CompositorActionPreset,
+)
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
+    _control_to_compositor_action,
     _describe_compositor_control,
 )
 from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
+from keymasq.gui.widgets.macro_editor.panel.rows import check_row, field_row, unit_label
+
+_CONTROL_TITLES = {
+    "wait": "Wait",
+    "wait_random": "Wait",
+}
+_CONTROL_DETAILS = {
+    "wait": "Fixed pause before the next action",
+    "wait_random": "Pause for a random duration between min and max",
+}
 
 
 def _release_options(mode: str) -> tuple[tuple[str, str], ...]:
@@ -38,6 +54,7 @@ class ControlEditorState:
     show_change: bool
     title_context: str = ""
     show_ab: bool = False
+    random_duration: bool = False
     a_label: str = "A:"
     a_value_ms: float = 0.0
     show_a: bool = False
@@ -79,21 +96,23 @@ def control_editor_state(
     """Resolve all control-editor presentation decisions without GTK."""
     is_compositor = control.mode == "compositor_dispatch"
     base = ControlEditorState(
-        title="Compositor Action" if is_compositor else "Control",
+        title="Compositor Action"
+        if is_compositor
+        else _CONTROL_TITLES.get(control.mode, "Control"),
         detail=(
             _describe_compositor_control(control)
             if is_compositor
-            else control.mode.replace("_", " ").title()
+            else _CONTROL_DETAILS.get(control.mode, control.mode.replace("_", " ").title())
         ),
         mode_label=control.mode.replace("_", " ").title(),
-        change_label="Change Action..." if is_compositor else "Change Key...",
-        show_change=is_compositor,
+        change_label="Change Key...",
+        show_change=False,
     )
     if control.mode == "wait":
         return replace(
             base,
             show_ab=True,
-            a_label="Duration (ms):",
+            a_label="Duration",
             a_value_ms=max(0.0, control.duration_us / 1000.0),
             show_a=True,
         )
@@ -101,10 +120,11 @@ def control_editor_state(
         return replace(
             base,
             show_ab=True,
-            a_label="Min (ms):",
+            random_duration=True,
+            a_label="Min",
             a_value_ms=max(0.0, control.min_us / 1000.0),
             show_a=True,
-            b_label="Max (ms):",
+            b_label="Max",
             b_value_ms=max(0.0, control.max_us / 1000.0),
             show_b=True,
         )
@@ -167,16 +187,7 @@ def _set_entry_text_if_needed(entry: Gtk.Entry, text: str) -> None:
 class ControlEditorMixin:
     """Build, present, and edit wait, command, and compositor controls."""
 
-    def _build_control_editor(self, panel: Gtk.Box) -> None:
-        control_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self._control_mode_label = Gtk.Label()
-        self._control_mode_label.add_css_class("dim-label")
-        self._control_mode_label.set_halign(Gtk.Align.START)
-        control_row.append(self._control_mode_label)
-
-        control_ab_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._control_a_label = Gtk.Label(label="A:")
-        control_ab_row.append(self._control_a_label)
+    def _build_control_editor(self) -> None:
         self._control_a_spin = Gtk.SpinButton()
         self._control_a_spin.set_adjustment(
             Gtk.Adjustment(value=0, lower=0, upper=600000, step_increment=1)
@@ -184,9 +195,8 @@ class ControlEditorMixin:
         self._control_a_spin.set_digits(0)
         self._control_a_spin.set_width_chars(7)
         self._control_a_spin.connect("value-changed", self._on_control_a_changed)
-        control_ab_row.append(self._control_a_spin)
-        self._control_b_label = Gtk.Label(label="B:")
-        control_ab_row.append(self._control_b_label)
+        self._control_a_row = field_row("Duration", self._control_a_spin, unit_label("ms"))
+
         self._control_b_spin = Gtk.SpinButton()
         self._control_b_spin.set_adjustment(
             Gtk.Adjustment(value=0, lower=0, upper=600000, step_increment=1)
@@ -194,30 +204,28 @@ class ControlEditorMixin:
         self._control_b_spin.set_digits(0)
         self._control_b_spin.set_width_chars(7)
         self._control_b_spin.connect("value-changed", self._on_control_b_changed)
-        control_ab_row.append(self._control_b_spin)
-        control_row.append(control_ab_row)
+        self._control_b_row = field_row("Max", self._control_b_spin, unit_label("ms"))
+        self._control_random_check = Gtk.CheckButton()
+        self._control_random_check.connect("toggled", self._on_control_random_toggled)
+        self._control_random_row = check_row(
+            "Random duration",
+            self._control_random_check,
+            tooltip="Pause for a random time between Min and Max on each run.",
+        )
 
-        control_cmd_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        control_cmd_row.append(Gtk.Label(label="Command:"))
         self._control_cmd_entry = Gtk.Entry()
         self._control_cmd_entry.set_hexpand(True)
         self._control_cmd_entry.connect("changed", self._on_control_command_changed)
-        control_cmd_row.append(self._control_cmd_entry)
-        control_row.append(control_cmd_row)
+        self._control_cmd_row = field_row("Command", self._control_cmd_entry)
 
-        control_exec_mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        control_exec_mode_row.append(Gtk.Label(label="Run:"))
         self._control_exec_mode_dropdown = Gtk.DropDown.new_from_strings(
             ["Wait for completion", "Run in parallel", "Run detached"]
         )
         self._control_exec_mode_dropdown.connect(
             "notify::selected", self._on_control_exec_mode_changed
         )
-        control_exec_mode_row.append(self._control_exec_mode_dropdown)
-        control_row.append(control_exec_mode_row)
+        self._control_exec_mode_row = field_row("Run", self._control_exec_mode_dropdown)
 
-        control_sync_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        control_sync_row.append(Gtk.Label(label="Timeout (ms):"))
         self._control_timeout_spin = Gtk.SpinButton()
         self._control_timeout_spin.set_adjustment(
             Gtk.Adjustment(
@@ -230,34 +238,29 @@ class ControlEditorMixin:
         self._control_timeout_spin.set_digits(0)
         self._control_timeout_spin.set_width_chars(8)
         self._control_timeout_spin.connect("value-changed", self._on_control_timeout_changed)
-        control_sync_row.append(self._control_timeout_spin)
-        self._control_inhibit_check = Gtk.CheckButton(label="Inhibit mouse")
+        self._control_sync_row = field_row("Timeout", self._control_timeout_spin, unit_label("ms"))
+        self._control_inhibit_check = Gtk.CheckButton()
         self._control_inhibit_check.connect("toggled", self._on_control_inhibit_toggled)
-        control_sync_row.append(self._control_inhibit_check)
-        control_row.append(control_sync_row)
+        self._control_inhibit_row = check_row(
+            "Inhibit mouse while waiting", self._control_inhibit_check
+        )
 
-        self._control_timeout_hint_label = Gtk.Label()
-        self._control_timeout_hint_label.add_css_class("dim-label")
-        self._control_timeout_hint_label.set_halign(Gtk.Align.START)
-        control_row.append(self._control_timeout_hint_label)
-
-        macro_call_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        macro_call_row.append(Gtk.Label(label="Call:"))
         self._control_macro_call_dropdown = Gtk.DropDown.new_from_strings(
             ["Run and wait", "Run in parallel"]
         )
         self._control_macro_call_dropdown.connect(
             "notify::selected", self._on_control_macro_call_changed
         )
-        macro_call_row.append(self._control_macro_call_dropdown)
-        macro_call_row.append(Gtk.Label(label="Playback:"))
+        self._control_macro_call_row = field_row("Call", self._control_macro_call_dropdown)
+
         self._control_macro_loop_dropdown = Gtk.DropDown.new_from_strings(
             ["Once", "Count", "While held"]
         )
         self._control_macro_loop_dropdown.connect(
             "notify::selected", self._on_control_macro_loop_changed
         )
-        macro_call_row.append(self._control_macro_loop_dropdown)
+        self._control_macro_loop_row = field_row("Playback", self._control_macro_loop_dropdown)
+
         self._control_macro_count_spin = Gtk.SpinButton()
         self._control_macro_count_spin.set_adjustment(
             Gtk.Adjustment(value=1, lower=1, upper=1000000, step_increment=1)
@@ -267,11 +270,8 @@ class ControlEditorMixin:
         self._control_macro_count_spin.connect(
             "value-changed", self._on_control_macro_count_changed
         )
-        macro_call_row.append(self._control_macro_count_spin)
-        control_row.append(macro_call_row)
+        self._control_macro_count_row = field_row("Count", self._control_macro_count_spin)
 
-        macro_options_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        macro_options_row.append(Gtk.Label(label="Speed:"))
         self._control_macro_speed_spin = Gtk.SpinButton()
         self._control_macro_speed_spin.set_adjustment(
             Gtk.Adjustment(value=1.0, lower=0.1, upper=10.0, step_increment=0.1)
@@ -280,46 +280,85 @@ class ControlEditorMixin:
         self._control_macro_speed_spin.connect(
             "value-changed", self._on_control_macro_speed_changed
         )
-        macro_options_row.append(self._control_macro_speed_spin)
-        self._control_macro_movement_check = Gtk.CheckButton(label="Mouse movement")
+        self._control_macro_speed_row = field_row("Speed", self._control_macro_speed_spin)
+
+        self._control_macro_movement_check = Gtk.CheckButton()
         self._control_macro_movement_check.connect(
             "toggled", self._on_control_macro_movement_changed
         )
-        macro_options_row.append(self._control_macro_movement_check)
-        self._control_macro_clicks_check = Gtk.CheckButton(label="Mouse clicks")
+        self._control_macro_movement_row = check_row(
+            "Replay mouse movement", self._control_macro_movement_check
+        )
+        self._control_macro_clicks_check = Gtk.CheckButton()
         self._control_macro_clicks_check.connect("toggled", self._on_control_macro_clicks_changed)
-        macro_options_row.append(self._control_macro_clicks_check)
-        control_row.append(macro_options_row)
+        self._control_macro_clicks_row = check_row(
+            "Replay mouse clicks", self._control_macro_clicks_check
+        )
 
-        macro_stop_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        macro_stop_row.append(Gtk.Label(label="On release:"))
         self._control_macro_stop_dropdown = Gtk.DropDown.new_from_strings(
             ["Finish current run", "Cancel current run", "Pause and resume"]
         )
         self._control_macro_stop_dropdown.connect(
             "notify::selected", self._on_control_macro_stop_changed
         )
-        macro_stop_row.append(self._control_macro_stop_dropdown)
-        control_row.append(macro_stop_row)
+        self._control_macro_stop_row = field_row("On release", self._control_macro_stop_dropdown)
         self._control_macro_pause_timeout = PauseTimeoutControl(
             self._on_control_macro_pause_timeout_changed
         )
-        control_row.append(self._control_macro_pause_timeout)
 
-        panel.append(control_row)
-        self._control_row = control_row
-        self._control_ab_row = control_ab_row
-        self._control_cmd_row = control_cmd_row
-        self._control_exec_mode_row = control_exec_mode_row
-        self._control_sync_row = control_sync_row
-        self._control_timeout_hint_label.set_visible(False)
-        self._control_macro_call_row = macro_call_row
-        self._control_macro_options_row = macro_options_row
-        self._control_macro_stop_row = macro_stop_row
-        macro_call_row.set_visible(False)
-        macro_options_row.set_visible(False)
-        macro_stop_row.set_visible(False)
-        self._control_row.set_visible(False)
+        # Compositor actions edit inline: preset, then the raw dispatcher fields.
+        self._control_compositor_definition: CompositorActionDefinition | None = None
+        # The action whose preset was explicitly set to Custom; rebuilds keep that choice.
+        self._control_compositor_custom_for: EditableControl | None = None
+        self._control_compositor_preset_dropdown = Gtk.DropDown.new_from_strings([])
+        self._control_compositor_preset_dropdown.connect(
+            "notify::selected", self._on_control_compositor_preset_changed
+        )
+        self._control_compositor_preset_row = field_row(
+            "Preset", self._control_compositor_preset_dropdown
+        )
+        self._control_compositor_dispatcher_entry = Gtk.Entry()
+        self._control_compositor_dispatcher_entry.set_hexpand(True)
+        self._control_compositor_dispatcher_entry.connect(
+            "changed", self._on_control_compositor_field_changed
+        )
+        self._control_compositor_dispatcher_row = field_row(
+            "Dispatcher", self._control_compositor_dispatcher_entry
+        )
+        self._control_compositor_args_entry = Gtk.Entry()
+        self._control_compositor_args_entry.set_hexpand(True)
+        self._control_compositor_args_entry.connect(
+            "changed", self._on_control_compositor_field_changed
+        )
+        self._control_compositor_args_row = field_row(
+            "Arguments", self._control_compositor_args_entry
+        )
+
+        self._control_rows: tuple[Gtk.Widget, ...] = (
+            self._control_a_row,
+            self._control_b_row,
+            self._control_random_row,
+            self._control_cmd_row,
+            self._control_exec_mode_row,
+            self._control_sync_row,
+            self._control_inhibit_row,
+            self._control_macro_call_row,
+            self._control_macro_loop_row,
+            self._control_macro_count_row,
+            self._control_macro_speed_row,
+            self._control_macro_movement_row,
+            self._control_macro_clicks_row,
+            self._control_macro_stop_row,
+            self._control_macro_pause_timeout,
+            self._control_compositor_preset_row,
+            self._control_compositor_dispatcher_row,
+            self._control_compositor_args_row,
+        )
+        self._set_control_rows_visible(False)
+
+    def _set_control_rows_visible(self, visible: bool) -> None:
+        for row in self._control_rows:
+            row.set_visible(visible)
 
     def _show_control_properties(self, control: EditableControl) -> None:
         state = control_editor_state(control, self._macro_exec_timeout_max_ms)
@@ -330,43 +369,44 @@ class ControlEditorMixin:
         self._edit_child_macro_btn.set_visible(state.show_macro)
         self._edit_child_macro_btn.set_sensitive(bool(control.macro_name))
         self._key_info_label.set_label(state.detail)
-        self._press_label.set_label("At:")
-        self._duration_text_label.set_visible(False)
-        self._duration_spin.set_visible(False)
-        self._duration_unit_label.set_visible(False)
-        self._release_label.set_visible(False)
-        self._release_spin.set_visible(False)
-        self._release_unit_label.set_visible(False)
+        self._press_row.set_title("At")
+        self._set_key_timing_rows_visible(False)
         self._change_key_btn.set_visible(state.show_change)
         self._change_key_btn.set_label(state.change_label)
-        self._move_row.set_visible(False)
-        self._control_row.set_visible(True)
+        self._set_move_rows_visible(False)
 
         self._updating_props = True
         try:
             self._press_spin.set_value(control.t_us / 1000)
-            self._control_mode_label.set_label(state.mode_label)
-            self._control_mode_label.set_visible(not state.show_macro)
-            self._control_a_label.set_label(state.a_label)
-            self._control_a_label.set_visible(state.show_a)
-            self._control_a_spin.set_visible(state.show_a)
+            self._control_a_row.set_title(state.a_label)
+            self._control_a_row.set_visible(state.show_ab and state.show_a)
             self._control_a_spin.set_value(state.a_value_ms)
-            self._control_b_label.set_label(state.b_label)
-            self._control_b_label.set_visible(state.show_b)
-            self._control_b_spin.set_visible(state.show_b)
+            self._control_b_row.set_title(state.b_label)
+            self._control_b_row.set_visible(state.show_ab and state.show_b)
             self._control_b_spin.set_value(state.b_value_ms)
-            self._control_ab_row.set_visible(state.show_ab)
+            self._control_random_row.set_visible(state.show_ab)
+            self._control_random_check.set_active(state.random_duration)
             self._control_cmd_row.set_visible(state.show_command)
             self._control_exec_mode_row.set_visible(state.show_exec_mode)
             self._control_sync_row.set_visible(state.show_sync)
-            self._control_timeout_hint_label.set_visible(state.show_timeout_hint)
+            self._control_inhibit_row.set_visible(state.show_sync)
+            self._control_sync_row.set_subtitle(
+                state.timeout_hint if state.show_timeout_hint else ""
+            )
             self._control_macro_call_row.set_visible(state.show_macro)
-            self._control_macro_options_row.set_visible(state.show_macro)
+            self._control_macro_loop_row.set_visible(state.show_macro)
+            self._control_macro_count_row.set_visible(
+                state.show_macro and state.macro_loop_mode == "count"
+            )
+            self._control_macro_speed_row.set_visible(state.show_macro)
+            self._control_macro_movement_row.set_visible(state.show_macro)
+            self._control_macro_clicks_row.set_visible(state.show_macro)
             self._control_macro_stop_row.set_visible(state.show_macro)
             self._control_macro_pause_timeout.set_visible(
                 state.show_macro and state.macro_loop_stop_behavior == "pause_run"
             )
             self._control_macro_pause_timeout.set_timeout(state.macro_pause_timeout_s)
+            self._show_compositor_rows(control if control.mode == "compositor_dispatch" else None)
             if state.show_command:
                 _set_entry_text_if_needed(self._control_cmd_entry, state.command)
             if state.show_exec_mode:
@@ -376,14 +416,11 @@ class ControlEditorMixin:
             if state.show_sync:
                 self._control_timeout_spin.set_value(state.timeout_ms)
                 self._control_inhibit_check.set_active(state.inhibit_mouse)
-            if state.show_timeout_hint:
-                self._control_timeout_hint_label.set_label(state.timeout_hint)
             if state.show_macro:
                 self._control_macro_call_dropdown.set_selected(0 if state.macro_wait else 1)
                 self._control_macro_loop_dropdown.set_selected(
                     {"none": 0, "count": 1, "hold": 2}.get(state.macro_loop_mode, 0)
                 )
-                self._control_macro_count_spin.set_visible(state.macro_loop_mode == "count")
                 self._control_macro_count_spin.set_value(state.macro_loop_count)
                 release_options = _release_options(state.macro_loop_mode)
                 release_labels = [label for _, label in release_options]
@@ -411,6 +448,167 @@ class ControlEditorMixin:
             self._updating_props = False
         self._update_selected_move_capture_controls(None)
 
+    # -- compositor actions -------------------------------------------------
+
+    def _compositor_definition_for(
+        self, control: EditableControl
+    ) -> CompositorActionDefinition | None:
+        action = _control_to_compositor_action(control)
+        compositor_id = str(control.compositor_id or "").strip()
+        for definition in COMPOSITOR_ACTION_DEFINITIONS:
+            if compositor_id and definition.compositor_id == compositor_id:
+                return definition
+        status = self._resolve_compositor_action_status()
+        if not status.get("compositor_dispatch_available"):
+            status = self._resolve_compositor_action_status(self._compositor_action_status)
+        for definition in COMPOSITOR_ACTION_DEFINITIONS:
+            if definition.is_available(action, dict(status)):
+                return definition
+        return None
+
+    def _compositor_selected_preset(self) -> CompositorActionPreset | None:
+        definition = self._control_compositor_definition
+        if definition is None:
+            return None
+        index = int(self._control_compositor_preset_dropdown.get_selected())
+        if definition.allow_custom:
+            index -= 1
+        if index < 0 or index >= len(definition.presets):
+            return None
+        return definition.presets[index]
+
+    def _show_compositor_rows(self, control: EditableControl | None) -> None:
+        """Fill the compositor rows for ``control``; hide them when it is ``None``."""
+        preset_row = self._control_compositor_preset_row
+        dispatcher_row = self._control_compositor_dispatcher_row
+        args_row = self._control_compositor_args_row
+        if control is None:
+            self._control_compositor_definition = None
+            self._control_compositor_custom_for = None
+            for row in (preset_row, dispatcher_row, args_row):
+                row.set_visible(False)
+            return
+        if self._control_compositor_custom_for is not control:
+            self._control_compositor_custom_for = None
+
+        definition = self._compositor_definition_for(control)
+        self._control_compositor_definition = definition
+        dispatcher = str(control.compositor_dispatcher or "")
+        args = str(control.compositor_args or "")
+        _set_entry_text_if_needed(self._control_compositor_dispatcher_entry, dispatcher)
+        _set_entry_text_if_needed(self._control_compositor_args_entry, args)
+        self._control_compositor_dispatcher_entry.set_placeholder_text(
+            definition.dispatcher_placeholder if definition is not None else "dispatcher"
+        )
+        self._control_compositor_args_entry.set_placeholder_text(
+            definition.args_placeholder if definition is not None else ""
+        )
+        if definition is None:
+            # Unknown compositor: expose the raw fields so the action stays editable.
+            preset_row.set_visible(False)
+            for entry in (
+                self._control_compositor_dispatcher_entry,
+                self._control_compositor_args_entry,
+            ):
+                entry.set_editable(True)
+            dispatcher_row.set_visible(True)
+            dispatcher_row.set_subtitle("")
+            args_row.set_visible(True)
+            return
+
+        labels = (["Custom"] if definition.allow_custom else []) + [
+            preset.label for preset in definition.presets
+        ]
+        model = self._control_compositor_preset_dropdown.get_model()
+        if (
+            not isinstance(model, Gtk.StringList)
+            or [model.get_string(i) for i in range(model.get_n_items())] != labels
+        ):
+            self._control_compositor_preset_dropdown.set_model(Gtk.StringList.new(labels))
+        selected = 0
+        keep_custom = definition.allow_custom and self._control_compositor_custom_for is control
+        for index, preset in enumerate(definition.presets):
+            if keep_custom or preset.dispatcher != dispatcher:
+                continue
+            if preset.args != args and not preset.captures_position:
+                continue
+            selected = index + 1 if definition.allow_custom else index
+            break
+        self._control_compositor_preset_dropdown.set_selected(selected)
+        for entry in (
+            self._control_compositor_dispatcher_entry,
+            self._control_compositor_args_entry,
+        ):
+            entry.set_editable(definition.allow_custom)
+        preset_row.set_visible(True)
+        self._update_compositor_row_state()
+
+    def _update_compositor_row_state(self) -> None:
+        definition = self._control_compositor_definition
+        if definition is None:
+            return
+        preset = self._compositor_selected_preset()
+        show_raw = definition.show_fields_for_presets or preset is None
+        self._control_compositor_dispatcher_row.set_visible(show_raw)
+        self._control_compositor_args_row.set_visible(
+            (definition.args_visible and show_raw)
+            or (preset is not None and preset.captures_position)
+        )
+        dispatcher = self._control_compositor_dispatcher_entry.get_text().strip()
+        args = self._control_compositor_args_entry.get_text().strip()
+        if preset is not None:
+            hint = preset.hint
+        elif not dispatcher:
+            hint = "Choose a preset or enter a dispatcher manually."
+        elif not definition.args_visible:
+            hint = f"Dispatch this Lua expression through {definition.title}."
+        else:
+            hint = (
+                f"Dispatch '{dispatcher}{' ' + args if args else ''}' through {definition.title}."
+            )
+        self._control_compositor_preset_row.set_subtitle(hint)
+        self._update_selected_move_capture_controls(None)
+
+    def _on_control_compositor_preset_changed(self, _dropdown: Gtk.DropDown, _param) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if (
+            not isinstance(selected_obj, EditableControl)
+            or selected_obj.mode != "compositor_dispatch"
+        ):
+            return
+        preset = self._compositor_selected_preset()
+        if preset is None:
+            # Custom keeps the current fields and simply exposes them for editing.
+            self._control_compositor_custom_for = selected_obj
+            self._update_compositor_row_state()
+            self._control_compositor_dispatcher_entry.grab_focus()
+            return
+        self._control_compositor_custom_for = None
+        selected_obj.compositor_dispatcher = preset.dispatcher
+        selected_obj.compositor_args = preset.args
+        self._refresh_after_control_change(selected_obj)
+
+    def _on_control_compositor_field_changed(self, _entry: Gtk.Entry) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if (
+            not isinstance(selected_obj, EditableControl)
+            or selected_obj.mode != "compositor_dispatch"
+        ):
+            return
+        # Like the command entry, avoid rebuilding the panel so typing keeps focus.
+        selected_obj.compositor_dispatcher = (
+            self._control_compositor_dispatcher_entry.get_text().strip()
+        )
+        selected_obj.compositor_args = self._control_compositor_args_entry.get_text().strip()
+        self._key_info_label.set_label(_describe_compositor_control(selected_obj))
+        self._update_compositor_row_state()
+        self._timeline.queue_draw()
+        self._sync_close_guard()
+
     def _refresh_after_control_change(self, control: EditableControl) -> None:
         self._control_events.sort(key=lambda c: c.t_us)
         self._recompute_duration()
@@ -436,7 +634,7 @@ class ControlEditorMixin:
             editor.present(parent)
 
     def _update_timeout_clamp_hint(self, timeout_ms: int) -> None:
-        self._control_timeout_hint_label.set_label(
+        self._control_sync_row.set_subtitle(
             timeout_policy_hint(timeout_ms, self._macro_exec_timeout_max_ms)
         )
 
@@ -452,6 +650,26 @@ class ControlEditorMixin:
             selected_obj.min_us = max(0, int(spin.get_value() * 1000))
             if selected_obj.max_us < selected_obj.min_us:
                 selected_obj.max_us = selected_obj.min_us
+        self._refresh_after_control_change(selected_obj)
+
+    def _on_control_random_toggled(self, check: Gtk.CheckButton) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if not isinstance(selected_obj, EditableControl):
+            return
+        if check.get_active() and selected_obj.mode == "wait":
+            duration = max(0, int(selected_obj.duration_us))
+            selected_obj.mode = "wait_random"
+            selected_obj.min_us = duration // 2 if duration else 50_000
+            selected_obj.max_us = duration * 3 // 2 if duration else 150_000
+        elif not check.get_active() and selected_obj.mode == "wait_random":
+            selected_obj.mode = "wait"
+            selected_obj.duration_us = (
+                max(0, int(selected_obj.min_us)) + max(0, int(selected_obj.max_us))
+            ) // 2
+        else:
+            return
         self._refresh_after_control_change(selected_obj)
 
     def _on_control_b_changed(self, spin: Gtk.SpinButton) -> None:

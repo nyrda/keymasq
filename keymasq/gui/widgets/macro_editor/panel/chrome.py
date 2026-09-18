@@ -7,10 +7,12 @@ import gi
 # pyright: reportAttributeAccessIssue=false
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 
-from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.widgets.docs_links import docs_page_url
+from keymasq.gui.widgets.macro_editor.panel.rows import field_row, rows_list, unit_label
 from keymasq.gui.widgets.macro_editor.timeline import TimelineWidget
 
 log = logging.getLogger(__name__)
@@ -28,14 +30,10 @@ class EditorChromeMixin:
 
         root.append(self._build_toolbar())
         root.append(Gtk.Separator())
+
         root.append(self._build_timeline_area())
-        root.append(self._build_selection_bar())
         root.append(Gtk.Separator())
-        root.append(self._build_property_panel())
-        root.append(self._build_name_row())
-        footer_spacer = Gtk.Box()
-        footer_spacer.set_vexpand(True)
-        root.append(footer_spacer)
+        root.append(self._build_inspector())
         root.append(self._build_footer())
 
         frame = Gtk.Frame()
@@ -72,6 +70,45 @@ class EditorChromeMixin:
         self._set_editor_busy(True, "Loading macro…")
         GLib.idle_add(self._update_canvas_width)
 
+    def _build_inspector(self) -> Gtk.Widget:
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Both columns share one width; the separator between them does not.
+        column_widths = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        columns.set_margin_top(10)
+        columns.set_margin_bottom(6)
+        columns.set_margin_start(8)
+        columns.set_margin_end(8)
+
+        selection_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # The property panel creates the shared control width group the selection panel joins.
+        property_panel = self._build_property_panel()
+        self._inspector_placeholder = self._build_selection_panel()
+        selection_column.append(self._inspector_placeholder)
+        selection_column.append(property_panel)
+        self._revealer.connect("notify::reveal-child", self._on_inspector_reveal_changed)
+        selection_column.set_hexpand(True)
+        column_widths.add_widget(selection_column)
+        columns.append(selection_column)
+
+        columns.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        macro_column = self._build_name_row()
+        macro_column.set_valign(Gtk.Align.START)
+        macro_column.set_hexpand(True)
+        column_widths.add_widget(macro_column)
+        columns.append(macro_column)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.add_css_class("macro-inspector")
+        scrolled.set_child(columns)
+        return scrolled
+
+    def _on_inspector_reveal_changed(self, revealer: Gtk.Revealer, _pspec) -> None:
+        self._inspector_placeholder.set_visible(not revealer.get_reveal_child())
+
     def _set_editor_busy(self, busy: bool, message: str = "") -> None:
         if self._dialog_closed:
             return
@@ -94,17 +131,14 @@ class EditorChromeMixin:
         bar.set_margin_start(4)
         bar.set_margin_end(4)
 
-        timing_btn = Gtk.MenuButton(label="Timing Tools")
-        timing_btn.add_css_class("flat")
-        timing_btn.set_popover(self._build_timing_popover())
-        bar.append(timing_btn)
-
         self._undo_button = Gtk.Button(icon_name="edit-undo-symbolic")
+        self._undo_button.add_css_class("flat")
         self._undo_button.set_tooltip_text("Undo (Ctrl+Z)")
         self._undo_button.set_sensitive(False)
         self._undo_button.connect("clicked", self._on_undo_clicked)
         bar.append(self._undo_button)
         self._redo_button = Gtk.Button(icon_name="edit-redo-symbolic")
+        self._redo_button.add_css_class("flat")
         self._redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
         self._redo_button.set_sensitive(False)
         self._redo_button.connect("clicked", self._on_redo_clicked)
@@ -132,9 +166,9 @@ class EditorChromeMixin:
         zoom_in_btn.connect("clicked", self._on_zoom_in)
         bar.append(zoom_in_btn)
 
-        reset_fit_btn = Gtk.Button(label="Reset Fit")
+        reset_fit_btn = Gtk.Button(label="Fit")
         reset_fit_btn.add_css_class("flat")
-        reset_fit_btn.set_tooltip_text("Fit timeline to visible width")
+        reset_fit_btn.set_tooltip_text("Reset fit: fit timeline to visible width")
         reset_fit_btn.connect("clicked", self._on_reset_fit)
         bar.append(reset_fit_btn)
 
@@ -169,178 +203,86 @@ class EditorChromeMixin:
         self._update_stats()
         return bar
 
-    def _build_timing_popover(self) -> Gtk.Popover:
-        pop = Gtk.Popover()
+    def _build_timing_tools(self) -> Gtk.Widget:
+        """Build the Timing Tools content once; the dialog reuses it on every open."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        for margin in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{margin}")(16)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
+        def spin(value: float, upper: float) -> Gtk.SpinButton:
+            widget = Gtk.SpinButton()
+            widget.set_adjustment(
+                Gtk.Adjustment(value=value, lower=0.0, upper=upper, step_increment=10.0)
+            )
+            widget.set_digits(0)
+            widget.set_width_chars(8)
+            return widget
 
-        title = Gtk.Label(label="Timing Tools")
-        title.add_css_class("heading")
-        title.set_halign(Gtk.Align.START)
-        box.append(title)
-
-        hint = Gtk.Label(label="Trim silence and shape waiting times")
-        hint.add_css_class("dim-label")
-        hint.add_css_class("caption")
-        hint.set_halign(Gtk.Align.START)
-        box.append(hint)
-
-        trim_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         trim_start_btn = Gtk.Button(label="Trim Start")
+        trim_start_btn.set_tooltip_text("Remove silence before the first action")
         trim_start_btn.connect("clicked", self._on_trim_start_clicked)
-        trim_row.append(trim_start_btn)
         trim_end_btn = Gtk.Button(label="Trim End")
+        trim_end_btn.set_tooltip_text("Remove silence after the last action")
         trim_end_btn.connect("clicked", self._on_trim_end_clicked)
-        trim_row.append(trim_end_btn)
-        box.append(trim_row)
+        trim_row = field_row("Trim", trim_start_btn, trim_end_btn)
 
-        box.append(Gtk.Separator())
+        self._timing_extend_ms_spin = spin(100.0, 600000.0)
+        insert_row = field_row("Insert time", self._timing_extend_ms_spin, unit_label("ms"))
+        at_cursor_btn = Gtk.Button(label="At Cursor")
+        at_cursor_btn.set_tooltip_text("Add empty time at the insertion cursor")
+        at_cursor_btn.connect("clicked", self._on_insert_time_at_cursor_clicked)
+        at_start_btn = Gtk.Button(label="At Start")
+        at_start_btn.set_tooltip_text("Add leading silence")
+        at_start_btn.connect("clicked", self._on_add_time_start_clicked)
+        at_end_btn = Gtk.Button(label="At End")
+        at_end_btn.set_tooltip_text("Add trailing silence")
+        at_end_btn.connect("clicked", self._on_add_time_end_clicked)
+        insert_buttons = field_row("", at_cursor_btn, at_start_btn, at_end_btn)
 
-        scale_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        scale_row.append(Gtk.Label(label="Scale:"))
-        timing_scale_spin = Gtk.SpinButton()
-        self._timing_scale_spin = timing_scale_spin
-        timing_scale_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=1.00,
-                lower=0.10,
-                upper=10.00,
-                step_increment=0.10,
-            )
+        self._timing_total_spin = spin(0.0, 3600000.0)
+        set_total_btn = Gtk.Button(label="Set")
+        set_total_btn.set_tooltip_text("Trailing silence grows or shrinks to reach this length")
+        set_total_btn.connect("clicked", self._on_set_total_time_clicked)
+        total_row = field_row(
+            "Total time",
+            self._timing_total_spin,
+            unit_label("ms"),
+            set_total_btn,
+            subtitle="Cannot end before the last action",
         )
-        timing_scale_spin.set_digits(2)
-        timing_scale_spin.set_width_chars(5)
-        scale_row.append(timing_scale_spin)
-        scale_row.append(Gtk.Label(label="x"))
-        apply_scale_btn = Gtk.Button(label="Apply")
-        apply_scale_btn.connect("clicked", self._on_apply_scale_clicked)
-        scale_row.append(apply_scale_btn)
-        box.append(scale_row)
 
-        gap_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        gap_row.append(Gtk.Label(label="Min gap (ms):"))
-        timing_min_gap_spin = Gtk.SpinButton()
-        self._timing_min_gap_spin = timing_min_gap_spin
-        timing_min_gap_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=0.0,
-                lower=0.0,
-                upper=2000.0,
-                step_increment=1.0,
-            )
-        )
-        timing_min_gap_spin.set_digits(0)
-        timing_min_gap_spin.set_width_chars(5)
-        gap_row.append(timing_min_gap_spin)
-        gap_row.append(Gtk.Label(label="Max gap (ms):"))
-        timing_max_gap_spin = Gtk.SpinButton()
-        self._timing_max_gap_spin = timing_max_gap_spin
-        timing_max_gap_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=250.0,
-                lower=0.0,
-                upper=10000.0,
-                step_increment=10.0,
-            )
-        )
-        timing_max_gap_spin.set_digits(0)
-        timing_max_gap_spin.set_width_chars(5)
-        gap_row.append(timing_max_gap_spin)
-        box.append(gap_row)
+        box.append(rows_list(trim_row, insert_row, insert_buttons, total_row))
+        self._timing_content = box
+        return box
 
-        apply_gap_btn = Gtk.Button(label="Apply Gap Limits")
-        apply_gap_btn.connect("clicked", self._on_apply_gap_limits_clicked)
-        box.append(apply_gap_btn)
+    def _present_timing_dialog(self, _button: Gtk.Widget | None = None) -> None:
+        if self._timing_content is None:
+            self._build_timing_tools()
+        content = self._timing_content
+        assert content is not None
+        if self._timing_total_spin is not None:
+            self._timing_total_spin.set_value(self._duration_us / 1000)
+        dialog = Adw.Dialog(title="Timing Tools", content_width=420)
+        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        wrapper.append(content)
+        close_btn = Gtk.Button(label="Close")
+        close_btn.set_halign(Gtk.Align.END)
+        close_btn.set_margin_end(16)
+        close_btn.set_margin_bottom(16)
+        close_btn.connect("clicked", self._on_close_dialog_clicked, dialog)
+        wrapper.append(close_btn)
+        dialog.set_child(wrapper)
 
-        box.append(Gtk.Separator())
+        def release_content(closed_dialog: Adw.Dialog) -> None:
+            wrapper.remove(content)
+            closed_dialog.set_child(None)
+            if self._timing_dialog is closed_dialog:
+                self._timing_dialog = None
 
-        extend_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        extend_row.append(Gtk.Label(label="Time (ms):"))
-        timing_extend_ms_spin = Gtk.SpinButton()
-        self._timing_extend_ms_spin = timing_extend_ms_spin
-        timing_extend_ms_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=100.0,
-                lower=0.0,
-                upper=600000.0,
-                step_increment=10.0,
-            )
-        )
-        timing_extend_ms_spin.set_digits(0)
-        timing_extend_ms_spin.set_width_chars(7)
-        extend_row.append(timing_extend_ms_spin)
-        box.append(extend_row)
+        self._timing_dialog = dialog
 
-        extend_btn_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-        )
-        add_start_btn = Gtk.Button(label="Add at Start")
-        add_start_btn.connect("clicked", self._on_add_time_start_clicked)
-        extend_btn_row.append(add_start_btn)
-        add_end_btn = Gtk.Button(label="Add at End")
-        add_end_btn.connect("clicked", self._on_add_time_end_clicked)
-        extend_btn_row.append(add_end_btn)
-        total_time_btn = Gtk.Button(label="Total Time")
-        total_time_btn.connect("clicked", self._on_set_total_time_clicked)
-        extend_btn_row.append(total_time_btn)
-        box.append(extend_btn_row)
-
-        box.append(Gtk.Separator())
-
-        insert_title = Gtk.Label(label="Insert Wait")
-        insert_title.add_css_class("heading")
-        insert_title.set_halign(Gtk.Align.START)
-        box.append(insert_title)
-
-        at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        at_row.append(Gtk.Label(label="At (ms):"))
-        insert_gap_at_spin = Gtk.SpinButton()
-        self._insert_gap_at_spin = insert_gap_at_spin
-        insert_gap_at_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=0.0,
-                lower=0.0,
-                upper=3600000.0,
-                step_increment=1.0,
-            )
-        )
-        insert_gap_at_spin.set_digits(0)
-        insert_gap_at_spin.set_width_chars(7)
-        at_row.append(insert_gap_at_spin)
-        box.append(at_row)
-
-        gap_insert_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-        )
-        gap_insert_row.append(Gtk.Label(label="Wait (ms):"))
-        insert_gap_ms_spin = Gtk.SpinButton()
-        self._insert_gap_ms_spin = insert_gap_ms_spin
-        insert_gap_ms_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=100.0,
-                lower=0.0,
-                upper=60000.0,
-                step_increment=10.0,
-            )
-        )
-        insert_gap_ms_spin.set_digits(0)
-        insert_gap_ms_spin.set_width_chars(7)
-        gap_insert_row.append(insert_gap_ms_spin)
-        box.append(gap_insert_row)
-
-        insert_btn = Gtk.Button(label="Insert Wait")
-        insert_btn.add_css_class("suggested-action")
-        insert_btn.connect("clicked", self._on_insert_gap_clicked)
-        box.append(insert_btn)
-
-        pop.set_child(box)
-        return pop
+        dialog.connect("closed", release_content)
+        dialog.present(self._parent)
 
     def _build_timeline_area(self) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -463,7 +405,6 @@ class EditorChromeMixin:
         self._sync_close_guard()
 
     def _revert_to_saved_state(self) -> None:
-        self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self._apply_macro_state(self._initial_macro_data)
 
@@ -476,7 +417,6 @@ class EditorChromeMixin:
         self._timeline.clear_gap_selection()
 
         self._sync_macro_settings_controls()
-        self._macro_capture_delay_spin.set_value(self._start_position_capture.delay_seconds)
 
         self._auto_zoom_enabled = True
         self._set_timeline_scroll(0.0)

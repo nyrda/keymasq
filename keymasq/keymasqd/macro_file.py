@@ -96,10 +96,6 @@ class MacroFileMeta:
     event_count: int = 0
     created_at: str = ""
     revision: int = 1
-    has_legacy_move_to_start: bool = False
-    move_to_start: bool = False
-    start_x: int = 0
-    start_y: int = 0
     block_mouse_movement: bool = False
     loop_mode: str = "none"
     loop_count: int = 1
@@ -120,10 +116,6 @@ class MacroFileMeta:
             event_count=macro_payload_int(payload, "event_count", _event_count(payload)),
             created_at=macro_payload_str(payload, "created_at", datetime.now().isoformat()),
             revision=macro_payload_int(payload, "revision", 1),
-            has_legacy_move_to_start="move_to_start" in payload,
-            move_to_start=bool(payload.get("move_to_start", False)),
-            start_x=macro_payload_int(payload, "start_x", 0),
-            start_y=macro_payload_int(payload, "start_y", 0),
             block_mouse_movement=bool(payload.get("block_mouse_movement", False)),
             loop_mode=macro_payload_str(payload, "loop_mode", "none") or "none",
             loop_count=macro_payload_int(payload, "loop_count", 1),
@@ -155,10 +147,6 @@ class MacroFileMeta:
             "loop_stop_behavior": self.loop_stop_behavior,
             "pause_timeout_s": self.pause_timeout_s,
         }
-        if self.has_legacy_move_to_start:
-            payload["move_to_start"] = bool(self.move_to_start)
-            payload["start_x"] = int(self.start_x)
-            payload["start_y"] = int(self.start_y)
         if self.type_binding:
             payload["type_binding"] = True
             payload["type_down_ms"] = int(self.type_down_ms)

@@ -66,9 +66,6 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     assert action["macro_loop_mode"] == "count"
     assert action["macro_loop_count"] == 3
     assert action["macro_loop_stop_behavior"] == "cancel_run"
-    assert action["macro_move_to_start"] is True
-    assert action["macro_start_x"] == 111
-    assert action["macro_start_y"] == 222
     assert action["macro_block_mouse_movement"] is True
 
 
@@ -99,9 +96,6 @@ async def test_resolve_mapping_macros_loads_macro_definition_inside_superkey(dae
     assert hold_action["macro_loop_mode"] == "count"
     assert hold_action["macro_loop_count"] == 3
     assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
-    assert hold_action["macro_move_to_start"] is True
-    assert hold_action["macro_start_x"] == 111
-    assert hold_action["macro_start_y"] == 222
     assert hold_action["macro_block_mouse_movement"] is True
 
 
@@ -124,9 +118,6 @@ async def test_resolve_mapping_macros_traverses_all_nested_action_containers(
 
     macro_store.get_meta.side_effect = lambda name: macro_meta(
         loop_count=loop_counts[str(name)],
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
     )
 
@@ -185,8 +176,6 @@ async def test_mapping_and_combo_macro_resolution_match_for_nested_actions(daemo
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
     macro_store.get_meta.return_value = macro_meta(
         loop_count=6,
-        start_x=11,
-        start_y=12,
     )
 
     def nested_action():
@@ -237,9 +226,6 @@ async def test_resolve_macros_deduplicates_macro_store_reads(
 
     macro_store.get_meta.side_effect = lambda name: macro_meta(
         loop_count=3 if name == "combo" else 2,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
     )
 
@@ -271,10 +257,7 @@ async def test_resolve_macros_ignores_malformed_stored_macro_values(
     macro_store.get_meta.return_value = {
         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
         "loop_mode": "count",
-        "loop_count": "",
-        "move_to_start": True,
-        "start_x": "abc",
-        "start_y": 0,
+        "loop_count": "abc",
         "block_mouse_movement": False,
     }
 
@@ -297,9 +280,6 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
     macro_store.get_meta.return_value = macro_meta(
         loop_count=2,
-        move_to_start=False,
-        start_x=4,
-        start_y=5,
         block_mouse_movement=False,
     )
 
@@ -327,8 +307,6 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
     daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
     macro_store.get_meta.return_value = macro_meta(
         loop_count=4,
-        start_x=7,
-        start_y=8,
     )
 
     await daemon._handle_command(
@@ -369,8 +347,6 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
     macro_store.get_meta.return_value = macro_meta(
         loop_mode="hold",
         loop_count=5,
-        start_x=7,
-        start_y=8,
     )
 
     await daemon._handle_command(
@@ -412,9 +388,6 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
     assert hold_action["macro_loop_mode"] == "hold"
     assert hold_action["macro_loop_count"] == 5
     assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
-    assert hold_action["macro_move_to_start"] is True
-    assert hold_action["macro_start_x"] == 7
-    assert hold_action["macro_start_y"] == 8
     assert hold_action["macro_block_mouse_movement"] is True
 
 

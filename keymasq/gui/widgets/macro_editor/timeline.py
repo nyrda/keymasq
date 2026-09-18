@@ -1156,48 +1156,17 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
 
             def _insert_gap(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                rect = Gdk.Rectangle()
-                rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-                self._editor._show_add_control_popover(
-                    self,
-                    "wait",
-                    default_t_us=_t,
-                    pointing_to=rect,
-                )
+                self._editor._insert_wait_at(_t)
 
             gap_btn.connect("clicked", _insert_gap)
             box.append(gap_btn)
-
-            wait_random_btn = Gtk.Button(label=f"Insert Wait (random) at {t_label}")
-            wait_random_btn.add_css_class("flat")
-
-            def _insert_wait_random(_b, _t=t_us, _p=popover):
-                _p.popdown()
-                rect = Gdk.Rectangle()
-                rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
-                self._editor._show_add_control_popover(
-                    self,
-                    "wait_random",
-                    default_t_us=_t,
-                    pointing_to=rect,
-                )
-
-            wait_random_btn.connect("clicked", _insert_wait_random)
-            box.append(wait_random_btn)
 
             exec_btn = Gtk.Button(label=f"Run Command at {t_label}")
             exec_btn.add_css_class("flat")
 
             def _insert_exec(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                control = EditableControl(
-                    mode="exec_sync",
-                    t_us=int(_t),
-                    command="",
-                    timeout_ms=min(30000, self._editor._macro_exec_timeout_max_ms),
-                    inhibit_mouse=False,
-                )
-                self._editor._insert_control_event(control)
+                self._editor._insert_exec_at(_t)
 
             exec_btn.connect("clicked", _insert_exec)
             box.append(exec_btn)
@@ -1220,7 +1189,7 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
 
             def _insert_compositor(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                self._editor._present_compositor_action_dialog(default_t_us=_t)
+                self._editor._insert_compositor_action(default_t_us=_t)
 
             compositor_btn.connect("clicked", _insert_compositor)
             box.append(compositor_btn)

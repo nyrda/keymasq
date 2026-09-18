@@ -625,19 +625,6 @@ def _find_analog_control_dialog_row(
     return dialog.shell.row_for_selection(EditorSelection.saved_item(name))
 
 
-def _find_menu_button_by_label(widget: Gtk.Widget, label: str) -> Gtk.MenuButton | None:
-    for descendant in _iter_widget_tree(widget):
-        if not isinstance(descendant, Gtk.MenuButton):
-            continue
-        get_label = getattr(descendant, "get_label", None)
-        if callable(get_label) and get_label() == label:
-            return descendant
-        for child in _iter_widget_tree(descendant):
-            if isinstance(child, Gtk.Label) and child.get_label() == label:
-                return descendant
-    return None
-
-
 def _expand_expander_row_by_title(widget: Gtk.Widget, title: str) -> bool:
     for descendant in _iter_widget_tree(widget):
         get_title = getattr(descendant, "get_title", None)
@@ -777,6 +764,7 @@ class DocshotRunner:
         self.shot_index = 0
         self.current_dialog: object | None = None
         self.current_popover: Gtk.Popover | None = None
+        self.current_subdialog: object | None = None
         self.crop_widget: Gtk.Widget | None = None
         self.crop_dialog: Gtk.Widget | None = None
         self.capture_root_window = False
@@ -1218,6 +1206,8 @@ class DocshotRunner:
             if self.current_popover.get_parent() is not None:
                 self.current_popover.unparent()
             self.current_popover = None
+        _close_dialog(self.current_subdialog)
+        self.current_subdialog = None
         _close_dialog(self.current_dialog)
         self.current_dialog = None
         _drain_events()
@@ -1541,8 +1531,7 @@ class DocshotRunner:
         self.current_dialog = dialog
         if target == "macro_editor_timing_tools":
             self.capture_root_window = True
-            GLib.timeout_add(300, self._show_macro_timing_tools_popover, dialog)
-            GLib.timeout_add(600, self._show_macro_timing_tools_popover, dialog)
+            GLib.timeout_add(100, self._show_macro_timing_tools_dialog, dialog, shot)
             return
         if target == "macro_editor_loop_menu":
             self.capture_root_window = True
@@ -1572,15 +1561,12 @@ class DocshotRunner:
             dialog._copy_selection()
             dialog._paste_selection(at_us=2_000_000)
         elif scenario == "selection_timing":
-            self.capture_root_window = True
-            dialog._show_selection_timing(
-                timeline_point=(timeline._time_to_x(1_350_000), timeline._m_y + 20)
-            )
-            popover = next(
-                widget for widget in _iter_widget_tree(timeline) if isinstance(widget, Gtk.Popover)
-            )
+            # The inspector shows Selection Timing inline while a time span is selected.
+            dialog._update_selection_summary()
             stack = next(
-                widget for widget in _iter_widget_tree(popover) if isinstance(widget, Gtk.Stack)
+                widget
+                for widget in _iter_widget_tree(dialog._selection_timing_box)
+                if isinstance(widget, Gtk.Stack)
             )
             stack.set_visible_child_name("scale")
             spin = next(
@@ -1589,7 +1575,6 @@ class DocshotRunner:
                 if isinstance(widget, Gtk.SpinButton)
             )
             spin.set_value(50)
-            self.current_popover = popover
         elif scenario == "erase_selection":
             dialog._erase_btn.set_active(True)
             first = timeline._time_to_x(250_000)
@@ -1601,19 +1586,18 @@ class DocshotRunner:
         timeline.queue_draw()
         return False
 
-    def _show_macro_timing_tools_popover(self, dialog: MacroEditorDialog) -> bool:
-        if self.current_popover is not None:
-            self.current_popover.popdown()
-            self.current_popover.unparent()
-            self.current_popover = None
-        build_popover = getattr(dialog, "_build_timing_popover", None)
-        if not callable(build_popover):
+    def _show_macro_timing_tools_dialog(self, dialog: MacroEditorDialog, shot: Json) -> bool:
+        if dialog is not self.current_dialog:
             return False
-        popover = build_popover()
-        parent = _find_menu_button_by_label(dialog, "Timing Tools") or dialog
-        popover.set_parent(parent)
-        popover.popup()
-        self.current_popover = popover
+        if not dialog._initial_state_loaded:
+            return True
+        dialog._timeline._insertion_us = 250_000
+        dialog._present_timing_dialog()
+        timing_dialog = dialog._timing_dialog
+        if timing_dialog is not None:
+            self._set_widget_crop(timing_dialog, shot, default_padding=24)
+            self.crop_dialog = timing_dialog
+            self.current_subdialog = timing_dialog
         return False
 
     def _open_macro_loop_dropdown(self, dialog: MacroEditorDialog) -> bool:

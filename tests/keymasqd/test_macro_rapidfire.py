@@ -121,9 +121,6 @@ async def test_scheduler_scales_pulses_and_shifts_them_for_explicit_wait(speed: 
         speed=speed,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=deps,
     )

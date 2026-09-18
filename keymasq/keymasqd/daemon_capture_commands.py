@@ -192,10 +192,7 @@ async def handle_capture_command(
 
 
 def _start_position_from_data(data: JsonObject) -> tuple[int, int] | None:
-    if not (
-        coerce_bool(data.get("record_start_position"), False)
-        or coerce_bool(data.get("move_to_start"), False)
-    ):
+    if not coerce_bool(data.get("record_start_position"), False):
         return None
     if "start_x" not in data or "start_y" not in data:
         return None

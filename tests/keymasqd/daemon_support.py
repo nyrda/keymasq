@@ -13,9 +13,6 @@ def macro_meta(**overrides: object) -> dict[str, object]:
         "loop_mode": "count",
         "loop_count": 3,
         "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 111,
-        "start_y": 222,
         "block_mouse_movement": True,
     }
     payload.update(overrides)

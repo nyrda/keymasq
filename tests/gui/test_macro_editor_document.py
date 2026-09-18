@@ -47,9 +47,6 @@ def test_macro_document_parses_and_serializes_without_dialog() -> None:
         loop_mode="hold",
         loop_count=1,
         loop_stop_behavior="finish_run",
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=True,
     )
 

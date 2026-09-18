@@ -270,6 +270,7 @@ class Fragment:
         lists[4].extend(added[4])
         return items(added)
 
+
 def scale(selected: list[Item], factor: float, *, scale_waits: bool = False) -> None:
     if factor <= 0:
         raise ValueError("Timing factor must be positive")
@@ -325,6 +326,29 @@ def set_pauses(selected: list[Item], pause_us: int) -> None:
     offsets = [0]
     for item_start, item_end in sections[1:]:
         delta += max(0, pause_us) - (item_start - previous_end)
+        anchors.append(item_start)
+        offsets.append(delta)
+        previous_end = item_end
+    for item in selected:
+        shift(item, offsets[bisect_right(anchors, start(item)) - 1])
+
+
+def limit_pauses(selected: list[Item], min_us: int, max_us: int | None) -> None:
+    """Clamp positive idle gaps into a range, preserving holds and overlapping groups."""
+    sections = pause_sections(selected)
+    if len(sections) < 2:
+        return
+    min_us = max(0, min_us)
+    if max_us is not None and max_us < min_us:
+        max_us = min_us
+    previous_end = sections[0][1]
+    delta = 0
+    anchors = [sections[0][0]]
+    offsets = [0]
+    for item_start, item_end in sections[1:]:
+        gap = item_start - previous_end
+        limited = max(min_us, gap if max_us is None else min(gap, max_us))
+        delta += limited - gap
         anchors.append(item_start)
         offsets.append(delta)
         previous_end = item_end

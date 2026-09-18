@@ -77,9 +77,6 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
                 macro_loop_mode="count",
                 macro_loop_count=3,
                 macro_loop_stop_behavior="cancel_run",
-                macro_move_to_start=True,
-                macro_start_x=10,
-                macro_start_y=20,
                 macro_block_mouse_movement=True,
             ),
             "profile": MappingAction(
@@ -169,9 +166,6 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
             macro_speed=1.5,
             macro_loop_mode="count",
             macro_loop_count=2,
-            macro_move_to_start=True,
-            macro_start_x=10,
-            macro_start_y=20,
         )
     ) == {
         "action": "macro",
@@ -183,9 +177,6 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         "loop_mode": "count",
         "loop_count": 2,
         "loop_stop_behavior": "finish_run",
-        "move_to_start": True,
-        "start_x": 10,
-        "start_y": 20,
         "block_mouse_movement": False,
     }
     assert action_payload.serialize_mapping_action(

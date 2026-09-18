@@ -4,6 +4,7 @@
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import gi
 
@@ -21,6 +22,13 @@ from keymasq.gui.widgets.macro_editor.clipboard import (
 )
 from keymasq.gui.widgets.macro_editor.model import _format_time_us
 from keymasq.gui.widgets.macro_editor.panel.controls import _set_entry_text_if_needed
+from keymasq.gui.widgets.macro_editor.panel.rows import (
+    FieldRow,
+    check_row,
+    field_row,
+    rows_list,
+    unit_label,
+)
 from keymasq.gui.widgets.macro_editor.timing_ops import TimelineLists, sort_timeline_items
 
 # Keep the fragment alive when its source dialog closes. The native clipboard
@@ -34,6 +42,8 @@ class SelectionControllerMixin:
     def _on_editor_key_pressed(
         self, _controller: Gtk.EventControllerKey, keyval: int, _keycode: int, state: int
     ) -> bool:
+        if keyval == Gdk.KEY_Escape:
+            return self._on_editor_escape(state)
         if (
             not state & Gdk.ModifierType.CONTROL_MASK
             or state & (Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK)
@@ -58,6 +68,27 @@ class SelectionControllerMixin:
             or bool(state & Gdk.ModifierType.SHIFT_MASK)
         )
         return True
+
+    def _on_editor_escape(self, state: int) -> bool:
+        """Escape clears the selection first; with nothing selected it closes the editor.
+
+        Handled here so it behaves the same whichever editor widget has focus. Popovers
+        keep their own Escape, and an unhandled Escape falls through to the dialog close.
+        """
+        modifiers = (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
+        )
+        if state & modifiers or not self._editor_content.is_sensitive():
+            return False
+        root = self._editor_content.get_root()
+        focus = root.get_focus() if root is not None else None
+        while focus is not None and focus is not self._editor_content:
+            if isinstance(focus, Gtk.Popover):
+                return False
+            focus = focus.get_parent()
+        if focus is None:
+            return False
+        return self._timeline.clear_selection_state()
 
     def _timeline_lists(self) -> TimelineLists:
         return (
@@ -97,7 +128,6 @@ class SelectionControllerMixin:
         }
         self._history_restoring = True
         try:
-            self._cancel_capture_start_position("")
             self._cancel_capture_selected_move("")
             self._apply_macro_state({**payload, **metadata})
             self._timeline.set_selection([])
@@ -109,13 +139,24 @@ class SelectionControllerMixin:
             self._history_restoring = False
         self._sync_close_guard()
 
-    def _finish_selection_edit(self) -> None:
+    def _content_end_us(self) -> int:
+        return selection.bounds(selection.items(self._timeline_lists()))[1]
+
+    def _finish_selection_edit(self, *, trailing_us: int | None = None) -> None:
+        """Refresh after a selection edit.
+
+        By default the macro only grows to fit moved actions. Selection Timing passes the
+        trailing silence it measured before the edit, so the macro ends that long after the
+        last action again. That lets a whole-macro Scale or pause limit shorten the macro
+        without touching silence the user added on purpose.
+        """
         sort_timeline_items(*self._timeline_lists())
-        self._duration_us = max(
-            self._duration_us, selection.bounds(selection.items(self._timeline_lists()))[1]
-        )
-        if self._timeline._time_selection is not None:
-            self._duration_us = max(self._duration_us, self._timeline._time_selection[1])
+        if trailing_us is not None:
+            self._duration_us = self._content_end_us() + max(0, trailing_us)
+        else:
+            self._duration_us = max(self._duration_us, self._content_end_us())
+            if self._timeline._time_selection is not None:
+                self._duration_us = max(self._duration_us, self._timeline._time_selection[1])
         self._refresh_after_timing_edit(recompute_duration=False)
         self._update_selection_summary()
 
@@ -227,33 +268,159 @@ class SelectionControllerMixin:
     def _select_all(self) -> None:
         self._timeline.set_selection(selection.items(self._timeline_lists()))
 
-    def _build_selection_bar(self) -> Gtk.Widget:
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        bar.set_margin_top(4)
-        bar.set_margin_bottom(4)
-        menu = Gtk.MenuButton(label="Edit Selection")
-        self._selection_menu_button = menu
-        popover = Gtk.Popover()
-        menu.set_popover(popover)
-        popover.connect("show", lambda _p: self._populate_selection_menu(popover))
-        bar.append(menu)
-        self._selection_summary = Gtk.Label(label="No actions selected")
-        self._selection_summary.add_css_class("dim-label")
-        self._selection_summary.set_hexpand(True)
+    _SELECTION_HINT = "Right-click the timeline to cut, copy, or delete the selection"
+
+    def _build_selection_panel(self) -> Gtk.Widget:
+        """Build the left inspector column shown when no single action is selected."""
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self._selection_summary = Gtk.Label(label="")
+        self._selection_summary.add_css_class("heading")
+        self._selection_summary.set_wrap(True)
+        self._selection_summary.set_xalign(0.0)
         self._selection_summary.set_halign(Gtk.Align.START)
-        bar.append(self._selection_summary)
-        bar.append(Gtk.Label(label="Paste at:"))
+        self._selection_summary.set_visible(False)
+        panel.append(self._selection_summary)
+        self._selection_hint = Gtk.Label(label=self._SELECTION_HINT)
+        self._selection_hint.add_css_class("dim-label")
+        self._selection_hint.add_css_class("caption")
+        self._selection_hint.set_wrap(True)
+        self._selection_hint.set_xalign(0.0)
+        self._selection_hint.set_halign(Gtk.Align.START)
+        self._selection_hint.set_visible(False)
+        panel.append(self._selection_hint)
+
+        # Selection Timing renders inline here while a range or group is selected.
+        self._selection_timing_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._selection_timing_box.set_margin_bottom(8)
+        self._selection_timing_box.set_visible(False)
+        self._selection_timing_key: object = None
+        panel.append(self._selection_timing_box)
+
+        # The insertion cursor: where Add and Paste put new actions.
         self._insertion_spin = Gtk.SpinButton.new_with_range(0, 3_600_000, 1)
         self._insertion_spin.set_digits(3)
         self._insertion_spin.set_width_chars(10)
         self._insertion_spin.set_tooltip_text(
-            "The dotted line marks where Paste inserts actions. "
-            "Right-click the timeline to paste there."
+            "The dotted line marks where new and pasted actions go. Click the timeline to move it."
         )
         self._insertion_spin.connect("value-changed", self._on_insertion_changed)
-        bar.append(self._insertion_spin)
-        bar.append(Gtk.Label(label="ms"))
-        return bar
+        insert_row = field_row("Insert at", self._insertion_spin, unit_label("ms"))
+        control_group: Gtk.SizeGroup | None = getattr(self, "_control_width_group", None)
+        if control_group is not None:
+            control_group.add_widget(self._insertion_spin)
+        self._insert_row = rows_list(insert_row)
+        panel.append(self._insert_row)
+
+        # With nothing selected the column offers everything the right-click menu adds.
+        self._insert_grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+        self._insert_grid.set_column_homogeneous(True)
+        add_actions: list[tuple[str, str, Callable[[], None]]] = [
+            (
+                "Key",
+                "Adds a key, held for a set time or pulsed with rapidfire",
+                lambda: self._add_input_at_cursor("keyboard"),
+            ),
+            (
+                "Mouse Button",
+                "Adds a mouse button, held for a set time or pulsed with rapidfire",
+                lambda: self._add_input_at_cursor("mouse"),
+            ),
+            (
+                "Gamepad Button",
+                "Adds a gamepad button, held or pulsed with rapidfire, or an axis value",
+                lambda: self._add_input_at_cursor("gamepad"),
+            ),
+            (
+                "Mouse Move",
+                "Adds a mouse move to a position",
+                self._add_move_at_cursor,
+            ),
+            (
+                "Wait",
+                "Halts playback for a set time that speed changes do not affect",
+                lambda: self._insert_wait_at(self._timeline._insertion_us),
+            ),
+            (
+                "Run Command",
+                "Adds a shell command to fill in",
+                lambda: self._insert_exec_at(self._timeline._insertion_us),
+            ),
+            (
+                "Call Macro",
+                "Runs another saved macro",
+                self._add_macro_call_at_cursor,
+            ),
+            (
+                "Compositor Action",
+                "Adds an action for the running compositor",
+                lambda: self._insert_compositor_action(self._timeline._insertion_us),
+            ),
+        ]
+        for index, (label, tooltip, callback) in enumerate(add_actions):
+            button = Gtk.Button(label=label)
+            button.set_tooltip_text(tooltip)
+            button.set_hexpand(True)
+            button.connect("clicked", lambda _b, cb=callback: cb())
+            self._insert_grid.attach(button, index % 2, index // 2, 1, 1)
+        panel.append(self._insert_grid)
+
+        # Paste buttons are shown only while the clipboard holds a macro fragment.
+        paste_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._paste_buttons = paste_buttons
+        self._paste_button = Gtk.Button(label="Paste")
+        self._paste_button.set_tooltip_text("Paste copied actions at the insertion cursor (Ctrl+V)")
+        self._paste_button.connect("clicked", lambda _b: self._paste_selection())
+        paste_buttons.append(self._paste_button)
+        self._paste_shift_button = Gtk.Button(label="Paste and Shift Later Actions")
+        self._paste_shift_button.set_tooltip_text(
+            "Insert copied actions and move everything after the cursor later"
+        )
+        self._paste_shift_button.connect("clicked", lambda _b: self._paste_selection(insert=True))
+        paste_buttons.append(self._paste_shift_button)
+        panel.append(paste_buttons)
+
+        # The clipboard outlives the editor, so the handler is disconnected on close.
+        self._clipboard = self._timeline.get_clipboard()
+        self._clipboard_handler_id = self._clipboard.connect(
+            "changed", lambda _c: self._refresh_paste_buttons()
+        )
+        self._refresh_paste_buttons()
+        return panel
+
+    def _disconnect_clipboard_listener(self) -> None:
+        """Drop the clipboard handler. Safe to call more than once."""
+        clipboard = getattr(self, "_clipboard", None)
+        handler_id = getattr(self, "_clipboard_handler_id", 0)
+        if clipboard is not None and handler_id:
+            clipboard.disconnect(handler_id)
+        self._clipboard = None
+        self._clipboard_handler_id = 0
+
+    def _add_input_at_cursor(self, device_type: str) -> None:
+        self._present_add_key_dialog(
+            default_t_us=self._timeline._insertion_us, device_type=device_type
+        )
+
+    def _add_move_at_cursor(self) -> None:
+        self._present_mouse_move_dialog(default_t_us=self._timeline._insertion_us)
+
+    def _add_macro_call_at_cursor(self) -> None:
+        self._present_macro_call_dialog(
+            mode="macro_sync", default_t_us=self._timeline._insertion_us
+        )
+
+    def _refresh_paste_buttons(self) -> None:
+        if not hasattr(self, "_paste_button") or self._dialog_closed:
+            return
+        available = has_macro_fragment(self._timeline.get_clipboard())
+        self._paste_buttons.set_visible(available)
+        self._sync_insert_row_visibility()
+
+    def _sync_insert_row_visibility(self) -> None:
+        # The cursor field only matters when adding or pasting is on offer.
+        self._insert_row.set_visible(
+            self._insert_grid.get_visible() or self._paste_buttons.get_visible()
+        )
 
     def _on_insertion_changed(self, spin: Gtk.SpinButton) -> None:
         self._timeline._insertion_us = round(spin.get_value() * 1000)
@@ -267,19 +434,37 @@ class SelectionControllerMixin:
         if self._timeline._time_selection is not None:
             first, last = self._timeline._time_selection
             label = f"Range {first / 1000:g} to {last / 1000:g} ms · {len(selected)} selected"
+        elif selected:
+            label = f"{len(selected)} selected · {(last - first) / 1000:g} ms"
         else:
-            label = (
-                f"{len(selected)} selected · {(last - first) / 1000:g} ms"
-                if selected
-                else "No actions selected"
-            )
+            label = ""
         self._selection_summary.set_label(label)
+        has_selection = bool(label)
+        self._selection_summary.set_visible(has_selection)
+        self._selection_hint.set_visible(has_selection)
+        self._insert_grid.set_visible(not has_selection)
+        self._sync_insert_row_visibility()
+        self._sync_inline_selection_timing(selected)
         self._insertion_spin.set_value(self._timeline._insertion_us / 1000)
+        self._refresh_paste_buttons()
 
-    def _populate_selection_menu(self, popover: Gtk.Popover) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self._append_selection_commands(box, popover)
-        popover.set_child(box)
+    def _sync_inline_selection_timing(self, selected: list[selection.Item]) -> None:
+        box = self._selection_timing_box
+        key = (tuple(id(item) for item in selected), self._timeline._time_selection)
+        if not selected:
+            self._selection_timing_key = None
+            box.set_visible(False)
+            while (child := box.get_first_child()) is not None:
+                box.remove(child)
+            return
+        if key == self._selection_timing_key and box.get_first_child() is not None:
+            return
+        self._selection_timing_key = key
+        while (child := box.get_first_child()) is not None:
+            box.remove(child)
+        ui = self._build_selection_timing(selected, on_done=None)
+        box.append(ui.box)
+        box.set_visible(True)
 
     def _append_selection_commands(
         self,
@@ -313,12 +498,13 @@ class SelectionControllerMixin:
                 selected,
             ),
         ]
-        if timeline_point is None:
-            commands.append(("Select All  Ctrl+A", self._select_all, True))
+        commands.append(("Select All  Ctrl+A", self._select_all, True))
+        # Only commands that apply right now are listed; the rest stay out of the way.
         for label, command, sensitive in commands:
+            if not sensitive:
+                continue
             button = Gtk.Button(label=label)
             button.add_css_class("flat")
-            button.set_sensitive(sensitive)
 
             def activate(_button, callback=command) -> None:
                 popover.popdown()
@@ -328,47 +514,71 @@ class SelectionControllerMixin:
             button.connect("clicked", activate)
             box.append(button)
 
-    def _show_selection_timing(self, *, timeline_point: tuple[float, float] | None = None) -> None:
-        selected = self._timeline.selected_items()
-        if not selected:
-            return
-        popover = Gtk.Popover()
-        if timeline_point is not None:
-            popover.set_parent(self._timeline)
-            rect = Gdk.Rectangle()
-            rect.x, rect.y = map(round, timeline_point)
-            rect.width = rect.height = 1
-            popover.set_pointing_to(rect)
-            popover.set_position(Gtk.PositionType.RIGHT)
-        else:
-            popover.set_parent(self._selection_menu_button)
-            popover.set_position(Gtk.PositionType.BOTTOM)
+    def _build_selection_timing(
+        self,
+        selected: list[selection.Item],
+        *,
+        on_done: Callable[[], None] | None,
+    ) -> "_SelectionTimingUi":
+        """Build the Move / Pauses / Scale tabs for the given selection.
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        box.set_size_request(360, -1)
-        for margin in ("top", "bottom", "start", "end"):
-            getattr(box, f"set_margin_{margin}")(16)
-        heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        title = Gtk.Label(label="Selection Timing", xalign=0)
-        title.add_css_class("heading")
-        heading.append(title)
-        count = len(selected)
-        subtitle = Gtk.Label(label=f"{count} action{'s' if count != 1 else ''} selected", xalign=0)
-        subtitle.add_css_class("dim-label")
-        heading.append(subtitle)
-        box.append(heading)
+        ``on_done`` runs after an apply or cancel. When it is ``None`` there is no Cancel
+        button, which is the inline inspector form.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        if on_done is not None:
+            box.set_size_request(360, -1)
+            for margin in ("top", "bottom", "start", "end"):
+                getattr(box, f"set_margin_{margin}")(16)
+            heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            title = Gtk.Label(label="Selection Timing", xalign=0)
+            title.add_css_class("heading")
+            heading.append(title)
+            count = len(selected)
+            subtitle = Gtk.Label(
+                label=f"{count} action{'s' if count != 1 else ''} selected", xalign=0
+            )
+            subtitle.add_css_class("dim-label")
+            heading.append(subtitle)
+            box.append(heading)
 
         stack = Gtk.Stack()
         stack.set_hhomogeneous(True)
         stack.set_vhomogeneous(True)
         switcher = Gtk.StackSwitcher()
+        switcher.add_css_class("macro-selection-tabs")
         switcher.set_stack(stack)
         switcher.set_halign(Gtk.Align.FILL)
         switcher.set_hexpand(True)
         box.append(switcher)
         box.append(stack)
         inputs: dict[str, Gtk.SpinButton] = {}
-        unit_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
+        # Labels share one column across the tabs; spins share the inspector's control width.
+        label_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
+        control_group: Gtk.SizeGroup | None = getattr(self, "_control_width_group", None)
+
+        def spin_row(
+            name: str,
+            label: str,
+            unit: str,
+            low: float,
+            high: float,
+            value: float,
+            help_text: str = "",
+        ) -> FieldRow:
+            spin = Gtk.SpinButton.new_with_range(low, high, 1)
+            spin.set_digits(1 if name == "scale" else 3)
+            spin.set_numeric(True)
+            spin.set_width_chars(8)
+            spin.set_value(value)
+            spin.set_tooltip_text(label)
+            spin.connect("activate", lambda _s: apply())
+            inputs[name] = spin
+            if control_group is not None:
+                control_group.add_widget(spin)
+            row = field_row(label, spin, unit_label(unit), subtitle=help_text)
+            row.bind_label_column(label_group)
+            return row
 
         def page(
             name: str,
@@ -380,28 +590,8 @@ class SelectionControllerMixin:
             value: float,
             help_text: str,
         ) -> Gtk.Box:
-            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            text = Gtk.Label(label=label, xalign=0)
-            text.set_hexpand(True)
-            line.append(text)
-            spin = Gtk.SpinButton.new_with_range(low, high, 1)
-            spin.set_digits(1 if name == "scale" else 3)
-            spin.set_numeric(True)
-            spin.set_width_chars(9)
-            spin.set_value(value)
-            spin.set_tooltip_text(label)
-            inputs[name] = spin
-            line.append(spin)
-            unit_label = Gtk.Label(label=unit, xalign=0)
-            unit_group.add_widget(unit_label)
-            line.append(unit_label)
-            content.append(line)
-            help_label = Gtk.Label(label=help_text, xalign=0)
-            help_label.set_wrap(True)
-            help_label.set_max_width_chars(40)
-            help_label.add_css_class("dim-label")
-            content.append(help_label)
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            content.append(spin_row(name, label, unit, low, high, value, help_text))
             stack.add_titled(content, name, title)
             return content
 
@@ -416,23 +606,48 @@ class SelectionControllerMixin:
             "Negative values move actions earlier.",
         )
         pauses_available = len(selection.pause_sections(selected)) > 1
-        page(
+        pauses_page = page(
             "pauses",
             "Pauses",
-            "Pause between actions",
+            "Pause",
             "ms",
             0,
             3_600_000,
             100,
             (
-                "Sets pauses between actions or overlapping groups. "
-                "Keeps holds and overlaps unchanged."
+                "Sets pauses between actions. Holds and overlaps stay together."
                 if pauses_available
-                else "There are no pauses to adjust in this selection. "
-                "Holds and overlapping actions stay together."
+                else "No pauses to adjust here. Holds and overlaps stay together."
             ),
         )
         inputs["pauses"].set_sensitive(pauses_available)
+        # Pauses can be set to one value or clamped into a range.
+        pauses_mode = Gtk.DropDown.new_from_strings(["Set all to", "Limit to a range"])
+        if control_group is not None:
+            control_group.add_widget(pauses_mode)
+        pauses_mode_row = field_row("Pauses", pauses_mode)
+        pauses_mode_row.bind_label_column(label_group)
+        pauses_page.prepend(pauses_mode_row)
+        pause_row = pauses_mode_row.get_next_sibling()
+        min_row = spin_row("pauses_min", "Min", "ms", 0, 3_600_000, 0)
+        max_row = spin_row(
+            "pauses_max",
+            "Max",
+            "ms",
+            0,
+            3_600_000,
+            250,
+            "Shorter pauses grow to Min, longer ones shrink to Max. 0 means no maximum.",
+        )
+        for row in (min_row, max_row):
+            row.set_visible(False)
+            pauses_page.append(row)
+        inputs["pauses_min"].set_sensitive(pauses_available)
+        inputs["pauses_max"].set_sensitive(pauses_available)
+
+        def limit_mode() -> bool:
+            return int(pauses_mode.get_selected()) == 1
+
         scale_page = page(
             "scale",
             "Scale",
@@ -443,15 +658,26 @@ class SelectionControllerMixin:
             100,
             "50% = twice as fast · 200% = twice as slow",
         )
-        wait_check = Gtk.CheckButton(label="Include wait durations")
-        wait_check.set_tooltip_text("Also scale Wait and Random Wait durations.")
-        scale_page.append(wait_check)
+        # A second row, like the Pauses tab, so the apply button stays put across tabs.
+        wait_check = Gtk.CheckButton()
+        wait_row = check_row(
+            "Include wait durations",
+            wait_check,
+            tooltip="Also scale Wait and Random Wait durations.",
+        )
+        wait_row.bind_label_column(label_group)
+        scale_page.append(wait_row)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        footer.set_halign(Gtk.Align.END)
-        cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _b: popover.popdown())
-        footer.append(cancel)
+        footer.set_halign(Gtk.Align.END if on_done is not None else Gtk.Align.START)
+        if on_done is None:
+            footer.set_margin_top(8)
+        cancel: Gtk.Button | None = None
+        if on_done is not None:
+            cancel_button = Gtk.Button(label="Cancel")
+            cancel_button.connect("clicked", lambda _b: on_done())
+            footer.append(cancel_button)
+            cancel = cancel_button
         apply_button = Gtk.Button(label="Move")
         apply_button.set_size_request(110, -1)
         apply_button.add_css_class("suggested-action")
@@ -466,6 +692,7 @@ class SelectionControllerMixin:
             spin.update()
             value = spin.get_value()
             self._record_edit_history()
+            trailing_us = max(0, self._duration_us - self._content_end_us())
             if name == "move":
                 time_range = self._timeline._time_selection
                 delta = round(value * 1000)
@@ -474,26 +701,77 @@ class SelectionControllerMixin:
                 delta = selection.move(selected, delta)
                 if time_range is not None:
                     self._timeline._time_selection = (time_range[0] + delta, time_range[1] + delta)
+            elif name == "pauses" and limit_mode():
+                inputs["pauses_min"].update()
+                inputs["pauses_max"].update()
+                max_ms = inputs["pauses_max"].get_value()
+                selection.limit_pauses(
+                    selected,
+                    round(inputs["pauses_min"].get_value() * 1000),
+                    round(max_ms * 1000) if max_ms > 0 else None,
+                )
             elif name == "pauses":
                 selection.set_pauses(selected, round(value * 1000))
             else:
                 selection.scale(selected, value / 100, scale_waits=wait_check.get_active())
-            self._finish_selection_edit()
-            popover.popdown()
+            self._finish_selection_edit(trailing_us=trailing_us)
+            if on_done is not None:
+                on_done()
 
         def focus_input() -> None:
-            spin = inputs[stack.get_visible_child_name() or "move"]
+            name = stack.get_visible_child_name() or "move"
+            spin = inputs["pauses_min" if name == "pauses" and limit_mode() else name]
             if not spin.get_sensitive():
-                cancel.grab_focus()
+                if cancel is not None:
+                    cancel.grab_focus()
                 return
             spin.grab_focus()
             spin.select_region(0, -1)
 
         def changed(_stack, _spec) -> None:
             name = stack.get_visible_child_name() or "move"
-            apply_button.set_label({"move": "Move", "pauses": "Set Pauses", "scale": "Scale"}[name])
+            pauses_label = "Limit Pauses" if limit_mode() else "Set Pauses"
+            apply_button.set_label({"move": "Move", "pauses": pauses_label, "scale": "Scale"}[name])
             apply_button.set_sensitive(name != "pauses" or pauses_available)
-            focus_input()
+            if on_done is not None:
+                focus_input()
+
+        def pauses_mode_changed(_dropdown, _spec) -> None:
+            limit = limit_mode()
+            if pause_row is not None:
+                pause_row.set_visible(not limit)
+            min_row.set_visible(limit)
+            max_row.set_visible(limit)
+            changed(stack, None)
+
+        apply_button.connect("clicked", apply)
+        stack.connect("notify::visible-child-name", changed)
+        pauses_mode.connect("notify::selected", pauses_mode_changed)
+        return _SelectionTimingUi(
+            box=box,
+            switcher=switcher,
+            cancel=cancel,
+            apply=apply,
+            focus_input=focus_input,
+        )
+
+    def _show_selection_timing(self, *, timeline_point: tuple[float, float] | None = None) -> None:
+        selected = self._timeline.selected_items()
+        if not selected:
+            return
+        popover = Gtk.Popover()
+        if timeline_point is not None:
+            popover.set_parent(self._timeline)
+            rect = Gdk.Rectangle()
+            rect.x, rect.y = map(round, timeline_point)
+            rect.width = rect.height = 1
+            popover.set_pointing_to(rect)
+            popover.set_position(Gtk.PositionType.RIGHT)
+        else:
+            popover.set_parent(self._timeline)
+            popover.set_position(Gtk.PositionType.BOTTOM)
+
+        ui = self._build_selection_timing(selected, on_done=popover.popdown)
 
         def key_pressed(_controller, keyval: int, _keycode: int, state: int) -> bool:
             if state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK):
@@ -502,9 +780,9 @@ class SelectionControllerMixin:
                 # Enter on Cancel or the tabs keeps its normal widget behavior.
                 root = popover.get_root()
                 focus = root.get_focus() if root is not None else None
-                if focus is cancel or (focus is not None and focus.is_ancestor(switcher)):
+                if focus is ui.cancel or (focus is not None and focus.is_ancestor(ui.switcher)):
                     return False
-                apply()
+                ui.apply()
                 return True
             if keyval == Gdk.KEY_Escape:
                 popover.popdown()
@@ -515,13 +793,20 @@ class SelectionControllerMixin:
             popover.unparent()
             self._timeline.grab_focus()
 
-        apply_button.connect("clicked", apply)
-        stack.connect("notify::visible-child-name", changed)
         keys = Gtk.EventControllerKey.new()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", key_pressed)
         popover.add_controller(keys)
-        popover.set_child(box)
-        popover.connect("map", lambda _p: focus_input())
+        popover.set_child(ui.box)
+        popover.connect("map", lambda _p: ui.focus_input())
         popover.connect("closed", closed)
         popover.popup()
+
+
+@dataclass(frozen=True)
+class _SelectionTimingUi:
+    box: Gtk.Box
+    switcher: Gtk.StackSwitcher
+    cancel: Gtk.Button | None
+    apply: Callable[[], None]
+    focus_input: Callable[[], None]

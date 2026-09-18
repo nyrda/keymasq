@@ -128,9 +128,6 @@ speed = 1.0
 loop_mode = "none" # none, count, hold, toggle
 loop_count = 1
 loop_stop_behavior = "finish_run" # finish_run or cancel_run
-move_to_start = false
-start_x = 0
-start_y = 0
 block_mouse_movement = false
 
 # control profiles

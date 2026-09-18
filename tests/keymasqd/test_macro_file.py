@@ -146,20 +146,16 @@ def test_macro_payload_device_types_skip_missing_and_macro_events() -> None:
     assert payload["device_types"] == ["keyboard", "mouse"]
 
 
-def test_macro_meta_preserves_legacy_move_to_start_presence() -> None:
-    current = MacroFileMeta.from_payload({"name": "current"}).to_payload()
+def test_macro_meta_drops_legacy_move_to_start_keys() -> None:
     legacy = MacroFileMeta.from_payload(
         {
             "name": "legacy",
-            "move_to_start": False,
+            "move_to_start": True,
             "start_x": 10,
             "start_y": 20,
         }
     ).to_payload()
 
-    assert "move_to_start" not in current
-    assert "start_x" not in current
-    assert "start_y" not in current
-    assert legacy["move_to_start"] is False
-    assert legacy["start_x"] == 10
-    assert legacy["start_y"] == 20
+    assert "move_to_start" not in legacy
+    assert "start_x" not in legacy
+    assert "start_y" not in legacy

@@ -69,9 +69,6 @@ class SuperkeyActionData:
     macro_loop_count: int = 1
     macro_loop_stop_behavior: str = "finish_run"
     macro_pause_timeout_s: float = 0.0
-    macro_move_to_start: bool = False
-    macro_start_x: int = 0
-    macro_start_y: int = 0
     macro_block_mouse_movement: bool = False
     macro_recording_slot: int = 0
     profile_name: str | None = None

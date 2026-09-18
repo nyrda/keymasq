@@ -26,10 +26,13 @@ class Ultimate2Driver:
 
     def matches(self, endpoint: Endpoint) -> bool:
         # The tested interface is a Generic Desktop / Gamepad application
-        # collection, with report 1 and a vendor-defined tail. Report decoding
-        # below verifies the firmware's extended format before exposing samples.
+        # collection, with report 1 and a vendor-defined tail. The device
+        # exposes the same interface over USB (bus 3) and Bluetooth (bus 5).
+        # Report decoding below verifies the firmware's extended format before
+        # exposing samples.
         return (
-            (endpoint.bus, endpoint.vendor, endpoint.product) == (3, 0x2DC8, 0x6012)
+            endpoint.bus in (3, 5)
+            and (endpoint.vendor, endpoint.product) == (0x2DC8, 0x6012)
             and endpoint.descriptor.startswith(bytes.fromhex("05010905a101"))
             and bytes.fromhex("8501") in endpoint.descriptor
             and bytes.fromhex("0600ff") in endpoint.descriptor

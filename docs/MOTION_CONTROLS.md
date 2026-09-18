@@ -180,10 +180,10 @@ sensor input from other apps.
 ## Ultimate 2 Wireless motion through hidraw
 
 The Ultimate 2 Wireless can provide motion in DInput dongle mode through the
-bundled `8bitdo-ultimate2` driver. Its active USB identity is `2dc8:6012`, and it
-must send the extended 34-byte input reports. The idle receiver identity
-`2dc8:6013` is not a motion source. Bluetooth and other Ultimate models are not
-covered by this driver.
+bundled `8bitdo-ultimate2` driver. Its active identity is `2dc8:6012` over both
+USB and Bluetooth, and it must send the extended 34-byte input reports. The idle
+receiver identity `2dc8:6013` is not a motion source. Other Ultimate models are
+not covered by this driver.
 
 New hardware setup attaches the discovered motion source to the controller.
 For an existing hardware configuration, use its hardware settings to add the

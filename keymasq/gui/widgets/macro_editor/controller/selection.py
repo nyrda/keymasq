@@ -22,7 +22,7 @@ from keymasq.gui.widgets.macro_editor.clipboard import (
 )
 from keymasq.gui.widgets.macro_editor.model import _format_time_us
 from keymasq.gui.widgets.macro_editor.panel.controls import _set_entry_text_if_needed
-from keymasq.gui.widgets.macro_editor.panel.rows import field_row, unit_label
+from keymasq.gui.widgets.macro_editor.panel.rows import field_row, rows_list, unit_label
 from keymasq.gui.widgets.macro_editor.timing_ops import TimelineLists, sort_timeline_items
 
 # Keep the fragment alive when its source dialog closes. The native clipboard
@@ -228,17 +228,17 @@ class SelectionControllerMixin:
     def _select_all(self) -> None:
         self._timeline.set_selection(selection.items(self._timeline_lists()))
 
-    _PLACEHOLDER_TEXT = "Select an action on the timeline to edit it"
     _SELECTION_HINT = "Right-click the timeline to cut, copy, or delete the selection"
 
     def _build_selection_panel(self) -> Gtk.Widget:
         """Build the left inspector column shown when no single action is selected."""
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self._selection_summary = Gtk.Label(label=self._PLACEHOLDER_TEXT)
-        self._selection_summary.add_css_class("dim-label")
+        self._selection_summary = Gtk.Label(label="")
+        self._selection_summary.add_css_class("heading")
         self._selection_summary.set_wrap(True)
         self._selection_summary.set_xalign(0.0)
         self._selection_summary.set_halign(Gtk.Align.START)
+        self._selection_summary.set_visible(False)
         panel.append(self._selection_summary)
         self._selection_hint = Gtk.Label(label=self._SELECTION_HINT)
         self._selection_hint.add_css_class("dim-label")
@@ -256,24 +256,75 @@ class SelectionControllerMixin:
         self._selection_timing_key: object = None
         panel.append(self._selection_timing_box)
 
-        # Both paste rows are shown only while the clipboard holds a macro fragment.
-        paste_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._paste_row = paste_row
-        paste_row.append(Gtk.Label(label="Paste at"))
+        # The insertion cursor: where Add and Paste put new actions.
         self._insertion_spin = Gtk.SpinButton.new_with_range(0, 3_600_000, 1)
         self._insertion_spin.set_digits(3)
         self._insertion_spin.set_width_chars(10)
         self._insertion_spin.set_tooltip_text(
-            "The dotted line marks where Paste inserts actions. "
-            "Right-click the timeline to paste there."
+            "The dotted line marks where new and pasted actions go. Click the timeline to move it."
         )
         self._insertion_spin.connect("value-changed", self._on_insertion_changed)
-        paste_row.append(self._insertion_spin)
-        unit = Gtk.Label(label="ms")
-        unit.add_css_class("dim-label")
-        paste_row.append(unit)
-        panel.append(paste_row)
+        insert_row = field_row("Insert at", self._insertion_spin, unit_label("ms"))
+        control_group: Gtk.SizeGroup | None = getattr(self, "_control_width_group", None)
+        if control_group is not None:
+            control_group.add_widget(self._insertion_spin)
+        self._insert_row = rows_list(insert_row)
+        panel.append(self._insert_row)
 
+        # With nothing selected the column offers everything the right-click menu adds.
+        self._insert_grid = Gtk.Grid(column_spacing=6, row_spacing=6)
+        self._insert_grid.set_column_homogeneous(True)
+        add_actions: list[tuple[str, str, Callable[[], None]]] = [
+            (
+                "Key",
+                "Adds a key, held for a set time or pulsed with rapidfire",
+                lambda: self._add_input_at_cursor("keyboard"),
+            ),
+            (
+                "Mouse Button",
+                "Adds a mouse button, held for a set time or pulsed with rapidfire",
+                lambda: self._add_input_at_cursor("mouse"),
+            ),
+            (
+                "Gamepad Button",
+                "Adds a gamepad button, held or pulsed with rapidfire, or an axis value",
+                lambda: self._add_input_at_cursor("gamepad"),
+            ),
+            (
+                "Mouse Move",
+                "Adds a mouse move to a position",
+                self._add_move_at_cursor,
+            ),
+            (
+                "Wait",
+                "Halts playback for a set time that speed changes do not affect",
+                lambda: self._insert_wait_at(self._timeline._insertion_us),
+            ),
+            (
+                "Run Command",
+                "Adds a shell command to fill in",
+                lambda: self._insert_exec_at(self._timeline._insertion_us),
+            ),
+            (
+                "Call Macro",
+                "Runs another saved macro",
+                self._add_macro_call_at_cursor,
+            ),
+            (
+                "Compositor Action",
+                "Adds an action for the running compositor",
+                lambda: self._insert_compositor_action(self._timeline._insertion_us),
+            ),
+        ]
+        for index, (label, tooltip, callback) in enumerate(add_actions):
+            button = Gtk.Button(label=label)
+            button.set_tooltip_text(tooltip)
+            button.set_hexpand(True)
+            button.connect("clicked", lambda _b, cb=callback: cb())
+            self._insert_grid.attach(button, index % 2, index // 2, 1, 1)
+        panel.append(self._insert_grid)
+
+        # Paste buttons are shown only while the clipboard holds a macro fragment.
         paste_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._paste_buttons = paste_buttons
         self._paste_button = Gtk.Button(label="Paste")
@@ -292,12 +343,31 @@ class SelectionControllerMixin:
         self._refresh_paste_buttons()
         return panel
 
+    def _add_input_at_cursor(self, device_type: str) -> None:
+        self._present_add_key_dialog(
+            default_t_us=self._timeline._insertion_us, device_type=device_type
+        )
+
+    def _add_move_at_cursor(self) -> None:
+        self._present_mouse_move_dialog(default_t_us=self._timeline._insertion_us)
+
+    def _add_macro_call_at_cursor(self) -> None:
+        self._present_macro_call_dialog(
+            mode="macro_sync", default_t_us=self._timeline._insertion_us
+        )
+
     def _refresh_paste_buttons(self) -> None:
         if not hasattr(self, "_paste_button"):
             return
         available = has_macro_fragment(self._timeline.get_clipboard())
-        self._paste_row.set_visible(available)
         self._paste_buttons.set_visible(available)
+        self._sync_insert_row_visibility()
+
+    def _sync_insert_row_visibility(self) -> None:
+        # The cursor field only matters when adding or pasting is on offer.
+        self._insert_row.set_visible(
+            self._insert_grid.get_visible() or self._paste_buttons.get_visible()
+        )
 
     def _on_insertion_changed(self, spin: Gtk.SpinButton) -> None:
         self._timeline._insertion_us = round(spin.get_value() * 1000)
@@ -314,10 +384,13 @@ class SelectionControllerMixin:
         elif selected:
             label = f"{len(selected)} selected · {(last - first) / 1000:g} ms"
         else:
-            label = self._PLACEHOLDER_TEXT
+            label = ""
         self._selection_summary.set_label(label)
-        has_selection = label != self._PLACEHOLDER_TEXT
+        has_selection = bool(label)
+        self._selection_summary.set_visible(has_selection)
         self._selection_hint.set_visible(has_selection)
+        self._insert_grid.set_visible(not has_selection)
+        self._sync_insert_row_visibility()
         self._sync_inline_selection_timing(selected)
         self._insertion_spin.set_value(self._timeline._insertion_us / 1000)
         self._refresh_paste_buttons()

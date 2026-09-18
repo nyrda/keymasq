@@ -515,8 +515,20 @@ def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     assert dialog._control_b_row.get_visible() is True
     assert dialog._control_a_row.get_title() == "Min"
     assert dialog._control_b_row.get_title() == "Max"
+    assert dialog._control_random_row.get_visible() is True
+    assert dialog._control_random_check.get_active() is True
     assert dialog._control_a_spin.get_value_as_int() == 10
     assert dialog._control_b_spin.get_value_as_int() == 80
+
+    dialog._control_random_check.set_active(False)
+    assert random_wait.mode == "wait"
+    assert random_wait.duration_us == 45_000
+    assert dialog._control_a_row.get_title() == "Duration"
+    assert dialog._control_b_row.get_visible() is False
+
+    dialog._control_random_check.set_active(True)
+    assert random_wait.mode == "wait_random"
+    assert (random_wait.min_us, random_wait.max_us) == (22_500, 67_500)
 
 
 def test_macro_editor_compositor_control_selection_shows_action(monkeypatch) -> None:

@@ -25,7 +25,7 @@ from keymasq.gui.widgets.macro_editor.panel.rows import check_row, field_row, un
 
 _CONTROL_TITLES = {
     "wait": "Wait",
-    "wait_random": "Random Wait",
+    "wait_random": "Wait",
 }
 _CONTROL_DETAILS = {
     "wait": "Fixed pause before the next action",
@@ -54,6 +54,7 @@ class ControlEditorState:
     show_change: bool
     title_context: str = ""
     show_ab: bool = False
+    random_duration: bool = False
     a_label: str = "A:"
     a_value_ms: float = 0.0
     show_a: bool = False
@@ -119,6 +120,7 @@ def control_editor_state(
         return replace(
             base,
             show_ab=True,
+            random_duration=True,
             a_label="Min",
             a_value_ms=max(0.0, control.min_us / 1000.0),
             show_a=True,
@@ -203,6 +205,13 @@ class ControlEditorMixin:
         self._control_b_spin.set_width_chars(7)
         self._control_b_spin.connect("value-changed", self._on_control_b_changed)
         self._control_b_row = field_row("Max", self._control_b_spin, unit_label("ms"))
+        self._control_random_check = Gtk.CheckButton()
+        self._control_random_check.connect("toggled", self._on_control_random_toggled)
+        self._control_random_row = check_row(
+            "Random duration",
+            self._control_random_check,
+            tooltip="Pause for a random time between Min and Max on each run.",
+        )
 
         self._control_cmd_entry = Gtk.Entry()
         self._control_cmd_entry.set_hexpand(True)
@@ -328,6 +337,7 @@ class ControlEditorMixin:
         self._control_rows: tuple[Gtk.Widget, ...] = (
             self._control_a_row,
             self._control_b_row,
+            self._control_random_row,
             self._control_cmd_row,
             self._control_exec_mode_row,
             self._control_sync_row,
@@ -374,6 +384,8 @@ class ControlEditorMixin:
             self._control_b_row.set_title(state.b_label)
             self._control_b_row.set_visible(state.show_ab and state.show_b)
             self._control_b_spin.set_value(state.b_value_ms)
+            self._control_random_row.set_visible(state.show_ab)
+            self._control_random_check.set_active(state.random_duration)
             self._control_cmd_row.set_visible(state.show_command)
             self._control_exec_mode_row.set_visible(state.show_exec_mode)
             self._control_sync_row.set_visible(state.show_sync)
@@ -637,6 +649,26 @@ class ControlEditorMixin:
             selected_obj.min_us = max(0, int(spin.get_value() * 1000))
             if selected_obj.max_us < selected_obj.min_us:
                 selected_obj.max_us = selected_obj.min_us
+        self._refresh_after_control_change(selected_obj)
+
+    def _on_control_random_toggled(self, check: Gtk.CheckButton) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if not isinstance(selected_obj, EditableControl):
+            return
+        if check.get_active() and selected_obj.mode == "wait":
+            duration = max(0, int(selected_obj.duration_us))
+            selected_obj.mode = "wait_random"
+            selected_obj.min_us = duration // 2 if duration else 50_000
+            selected_obj.max_us = duration * 3 // 2 if duration else 150_000
+        elif not check.get_active() and selected_obj.mode == "wait_random":
+            selected_obj.mode = "wait"
+            selected_obj.duration_us = (
+                max(0, int(selected_obj.min_us)) + max(0, int(selected_obj.max_us))
+            ) // 2
+        else:
+            return
         self._refresh_after_control_change(selected_obj)
 
     def _on_control_b_changed(self, spin: Gtk.SpinButton) -> None:

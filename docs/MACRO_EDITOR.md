@@ -55,10 +55,11 @@ appear in separate lanes within the same track. A selected press/release pair
 counts as one action; the event count at the top counts its press and release
 separately. Recorded movement and other raw events can also be selected.
 
-The **insertion cursor** is the dotted vertical line. It marks where Ctrl+V
-will paste and where a Shift+click time selection starts. Click empty timeline
-space or the ruler to place it, or enter an exact time in **Paste at** in the
-inspector while nothing is selected. Right-clicking also moves it. It starts at zero in a newly opened
+The **insertion cursor** is the dotted vertical line. It marks where new
+actions are added, where Ctrl+V pastes, and where a Shift+click time selection
+starts. Click empty timeline space or the ruler to place it, or enter an exact
+time in **Insert at** in the inspector while nothing is selected. Right-clicking
+also moves it. It starts at zero in a newly opened
 editor and does not indicate playback progress.
 
 Use **+** and **−** to zoom, or hold Ctrl or Shift while scrolling over the
@@ -68,15 +69,21 @@ near either edge scrolls while you select or move actions.
 
 ## Add and edit actions
 
-Right-click at the desired time. The track you click determines the input
-action offered by the menu:
+With nothing selected, the inspector lists everything that can be added at the
+insertion cursor: **Key**, **Mouse Button**, **Gamepad Button**, **Mouse Move**,
+**Wait**, **Run Command**, **Call Macro**, and **Compositor Action**. Waits,
+commands, and compositor actions are inserted immediately and selected so you
+can finish them in the inspector.
+
+Right-clicking at the desired time offers the same commands. The track you
+click determines the input action in the menu:
 
 | Location | Command |
 |---|---|
 | Keyboard track | **Add Keystroke** |
 | Mouse-button track | **Add Mouse Click** |
 | Gamepad track | **Add Gamepad Button** |
-| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Insert Wait (random)**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
+| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
 
 Choose the key, button, or action in the dialog that opens. A key or mouse-button
 action includes its press and release; you do not need to insert them separately.
@@ -123,9 +130,10 @@ clicks should not run after a failed move. See
 
 ### Waits, commands, and macro calls
 
-Insert a fixed wait with **Insert Wait**, or enter minimum and maximum delays
-with **Insert Wait (random)**. Their **W** and **WR** markers stay at a single
-timeline position. Click a marker to change its delay or position.
+Insert a wait with **Wait**. It starts as a fixed pause. Check **Random
+duration** in the inspector to give it minimum and maximum delays instead. The
+**W** and **WR** markers stay at a single timeline position. Click a marker to
+change its delay or position.
 
 ![Wait and random-wait markers on the movement/control track](assets/screenshots/macro_edit_wait_wait_random_markers.png)
 

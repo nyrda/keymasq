@@ -21,7 +21,6 @@ from keymasq.gui.widgets.macro_editor.model import (
     _move_to_mapping_action,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
-    check_row,
     field_row,
     rows_list,
     unit_label,
@@ -316,143 +315,21 @@ class MacroEditorAddPopoversMixin:
         dialog.set_child(box)
         dialog.present(self._parent)
 
-    def _show_add_control_popover(
-        self,
-        anchor: Gtk.Widget,
-        control_mode: str,
-        default_t_us: int | None = None,
-        pointing_to=None,
-    ) -> None:
-        popover = Gtk.Popover()
-        popover.set_parent(anchor)
-        if pointing_to is not None:
-            popover.set_pointing_to(pointing_to)
+    def _insert_wait_at(self, t_us: int | None = None) -> None:
+        """Insert a fixed wait at ``t_us``. The inspector can switch it to random."""
+        control = EditableControl(mode="wait", t_us=max(0, int(t_us or 0)), duration_us=100_000)
+        self._insert_control_event(control)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        title_text = {
-            "wait": "Insert Wait (Fixed)",
-            "wait_random": "Insert Wait (Random)",
-            "exec_sync": "Insert Exec Sync",
-            "exec_parallel": "Insert Exec Parallel",
-            "exec_async": "Insert Exec Async",
-        }.get(control_mode, "Insert Control")
-
-        title = Gtk.Label(label=title_text)
-        title.add_css_class("heading")
-        title.set_halign(Gtk.Align.START)
-        box.append(title)
-
-        at_spin = Gtk.SpinButton()
-        at_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=(default_t_us or 0) / 1000, lower=0, upper=3600000, step_increment=1
-            )
+    def _insert_exec_at(self, t_us: int | None = None) -> None:
+        """Insert an empty Run Command at ``t_us`` for inline editing."""
+        control = EditableControl(
+            mode="exec_sync",
+            t_us=max(0, int(t_us or 0)),
+            command="",
+            timeout_ms=min(30000, self._macro_exec_timeout_max_ms),
+            inhibit_mouse=False,
         )
-        at_spin.set_digits(0)
-        at_spin.set_width_chars(8)
-        rows: list[Gtk.Widget] = [field_row("At", at_spin, unit_label("ms"))]
-
-        duration_spin: Gtk.SpinButton | None = None
-        min_spin: Gtk.SpinButton | None = None
-        max_spin: Gtk.SpinButton | None = None
-        timeout_spin: Gtk.SpinButton | None = None
-        inhibit_check: Gtk.CheckButton | None = None
-        cmd_entry: Gtk.Entry | None = None
-
-        def spin(value: float, low: float, high: float, step: float) -> Gtk.SpinButton:
-            widget = Gtk.SpinButton()
-            widget.set_adjustment(
-                Gtk.Adjustment(value=value, lower=low, upper=high, step_increment=step)
-            )
-            widget.set_digits(0)
-            widget.set_width_chars(8)
-            return widget
-
-        if control_mode == "wait":
-            duration_spin = spin(100, 0, 600000, 10)
-            rows.append(field_row("Duration", duration_spin, unit_label("ms")))
-        elif control_mode == "wait_random":
-            min_spin = spin(50, 0, 600000, 10)
-            max_spin = spin(150, 0, 600000, 10)
-            rows.append(field_row("Min", min_spin, unit_label("ms")))
-            rows.append(field_row("Max", max_spin, unit_label("ms")))
-        elif control_mode in {"exec_sync", "exec_parallel", "exec_async"}:
-            cmd_entry_widget = Gtk.Entry()
-            cmd_entry = cmd_entry_widget
-            cmd_entry_widget.set_hexpand(True)
-            cmd_entry_widget.set_width_chars(28)
-            cmd_entry_widget.set_placeholder_text("/absolute/path/to/script.sh")
-            rows.append(field_row("Command", cmd_entry_widget))
-
-            if control_mode in {"exec_sync", "exec_parallel"}:
-                timeout_spin = spin(
-                    min(30000, self._macro_exec_timeout_max_ms),
-                    1,
-                    self._macro_exec_timeout_max_ms,
-                    100,
-                )
-                rows.append(
-                    field_row(
-                        "Timeout",
-                        timeout_spin,
-                        unit_label("ms"),
-                        subtitle=f"Policy max timeout: {self._macro_exec_timeout_max_ms}ms",
-                    )
-                )
-                inhibit_check_widget = Gtk.CheckButton()
-                inhibit_check = inhibit_check_widget
-                inhibit_check_widget.set_active(False)
-                rows.append(check_row("Inhibit mouse while waiting", inhibit_check_widget))
-        box.append(rows_list(*rows))
-
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        footer.set_halign(Gtk.Align.END)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_popover_cancel_clicked, popover)
-        footer.append(cancel_btn)
-
-        add_btn = Gtk.Button(label="Insert")
-        add_btn.add_css_class("suggested-action")
-
-        def on_insert(_b) -> None:
-            t_us = int(at_spin.get_value() * 1000)
-            control = EditableControl(mode=control_mode, t_us=t_us)
-
-            if control_mode == "wait" and duration_spin is not None:
-                control.duration_us = max(0, int(duration_spin.get_value() * 1000))
-            elif control_mode == "wait_random" and min_spin is not None and max_spin is not None:
-                mn = max(0, int(min_spin.get_value() * 1000))
-                mx = max(mn, int(max_spin.get_value() * 1000))
-                control.min_us = mn
-                control.max_us = mx
-            elif (
-                control_mode in {"exec_sync", "exec_parallel", "exec_async"}
-                and cmd_entry is not None
-            ):
-                command = cmd_entry.get_text().strip()
-                control.command = command
-                if control_mode in {"exec_sync", "exec_parallel"}:
-                    control.timeout_ms = (
-                        max(1, int(timeout_spin.get_value())) if timeout_spin is not None else 30000
-                    )
-                    control.inhibit_mouse = bool(
-                        inhibit_check.get_active() if inhibit_check is not None else False
-                    )
-
-            self._insert_control_event(control)
-            popover.popdown()
-
-        add_btn.connect("clicked", on_insert)
-        footer.append(add_btn)
-        box.append(footer)
-
-        popover.set_child(box)
-        popover.popup()
+        self._insert_control_event(control)
 
     def _present_add_key_dialog(
         self,

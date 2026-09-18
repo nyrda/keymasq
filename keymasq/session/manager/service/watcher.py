@@ -161,6 +161,8 @@ class ConfigWatcherMixin:
                 self.config_watch_watches.pop(wd, None)
             if watched_path is None:
                 continue
+            if self._config_watch_event_is_own_write(watched_path, name):
+                continue
             if self._config_watch_event_is_relevant(watched_path, name, mask):
                 should_reload = True
 
@@ -183,6 +185,27 @@ class ConfigWatcherMixin:
         if name:
             return name.endswith(".toml")
         return bool(mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB))
+
+    def expect_own_config_write(self: Any, path: Path) -> None:
+        """Ignore watcher events for one file this session is about to write.
+
+        Unlike ``suppress_config_watcher_reload`` this leaves a pending reload
+        and every other file alone, so someone else's edit is never dropped.
+        """
+        loop = asyncio.get_running_loop()
+        self._config_own_writes[path] = loop.time() + CONFIG_RELOAD_EXPLICIT_COALESCE_S
+
+    def forget_own_config_write(self: Any, path: Path) -> None:
+        self._config_own_writes.pop(path, None)
+
+    def _config_watch_event_is_own_write(self: Any, watched_path: Path, name: str) -> bool:
+        if not name or not self._config_own_writes:
+            return False
+        now = asyncio.get_running_loop().time()
+        for path, expires_at in list(self._config_own_writes.items()):
+            if expires_at < now:
+                del self._config_own_writes[path]
+        return (watched_path / name) in self._config_own_writes
 
     def _schedule_config_reload(self: Any) -> None:
         loop = asyncio.get_running_loop()

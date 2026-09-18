@@ -232,8 +232,9 @@ class GrabbedDeviceState:
     # Physical coordinates survive per-control resets; evdev reports only changes.
     analog_source_axis_values: dict[tuple[int, int], int] = field(default_factory=dict)
     input_event_buffer: deque[InputEventLike] = field(default_factory=deque)
-    # Set by the evdev reader while it runs, so queued events wake it up.
+    # Set by the evdev reader while it runs, so a reconcile request wakes it up.
     input_event_ready: asyncio.Event | None = None
+    key_state_reconcile_requested: bool = False
     analog_snapshot_boundary: InputEventLike | None = None
     analog_deferred_keys: list[InputEventLike] = field(default_factory=list)
     analog_original_fuzz: dict[int, int] = field(default_factory=dict)

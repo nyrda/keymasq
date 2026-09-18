@@ -99,6 +99,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self.reload_pending = False
         self.config_reload_timer: asyncio.TimerHandle | None = None
         self._config_reload_coalesce_until = 0.0
+        self._config_own_writes: dict[Path, float] = {}
         self.config_watch_fd: int | None = None
         self.config_watch_watches: dict[int, Path] = {}
         self._registered_signals: set[signal.Signals] = set()

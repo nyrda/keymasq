@@ -877,44 +877,79 @@ async def test_lifetime_profile_enable_rolls_back_when_daemon_rejects_tracking(
     assert manager.profiles.get_profile("Nav").config.enabled is False
 
 
-@pytest.mark.asyncio
-async def test_set_profile_enabled_does_not_reload_for_its_own_profile_write(
-    temp_config_dir,
-) -> None:
-    manager = SessionManager()
-    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
-    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
-    manager.running = True
-    manager.reload_profiles = AsyncMock(return_value=True)  # type: ignore[method-assign]
-
-    result = await coordinator.set_profile_enabled(manager, "Nav", True)
-    # The watcher reports the session's own write right after it lands.
-    manager._schedule_config_reload()
-
-    assert result["enabled"] is True
-    assert manager.config_reload_timer is None
-    manager._run_scheduled_config_reload()
-    manager.reload_profiles.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("profile_name", "enabled"), [("Nav", False), ("Missing", True)])
-async def test_set_profile_enabled_keeps_watcher_reloads_when_it_writes_nothing(
-    temp_config_dir,
-    profile_name: str,
-    enabled: bool,
-) -> None:
+def _nav_manager() -> SessionManager:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
     manager.send_notification = Mock()  # type: ignore[method-assign]
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    manager.profiles.save_profile(ProfileConfig(name="Other", enabled=False, is_permanent=True))
+    return manager
 
-    await coordinator.set_profile_enabled(manager, profile_name, enabled)
-    # Someone else edits a config file right afterwards.
+
+def _watcher_sees(manager: SessionManager, profile_name: str) -> bool:
+    """Whether a watcher event for that profile file would cause a reload."""
+    info = manager.profiles.get_profile(profile_name)
+    assert info is not None
+    directory, name = info.path.parent, info.path.name
+    return not manager._config_watch_event_is_own_write(directory, name)
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_ignores_only_its_own_profile_write(temp_config_dir) -> None:
+    manager = _nav_manager()
+
+    result = await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert result["enabled"] is True
+    assert not _watcher_sees(manager, "Nav")
+    # An unrelated edit arriving right after the toggle still reloads.
+    assert _watcher_sees(manager, "Other")
     manager._schedule_config_reload()
-
     assert manager.config_reload_timer is not None
     manager.config_reload_timer.cancel()
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_keeps_an_unrelated_pending_reload(temp_config_dir) -> None:
+    manager = _nav_manager()
+    manager._schedule_config_reload()
+    pending = manager.config_reload_timer
+    assert pending is not None
+
+    await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert manager.config_reload_timer is pending
+    assert not pending.cancelled()
+    pending.cancel()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("profile_name", "enabled"), [("Nav", False), ("Missing", True)])
+async def test_set_profile_enabled_ignores_nothing_when_it_writes_nothing(
+    temp_config_dir,
+    profile_name: str,
+    enabled: bool,
+) -> None:
+    manager = _nav_manager()
+
+    await coordinator.set_profile_enabled(manager, profile_name, enabled)
+
+    assert _watcher_sees(manager, "Nav")
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_ignores_nothing_when_the_write_fails(
+    temp_config_dir, monkeypatch
+) -> None:
+    manager = _nav_manager()
+    monkeypatch.setattr(
+        manager.profiles, "set_profile_enabled", Mock(side_effect=OSError("disk full"))
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert _watcher_sees(manager, "Nav")
 
 
 @pytest.mark.asyncio

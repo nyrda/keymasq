@@ -1,12 +1,12 @@
 import errno
 import logging
+from collections.abc import Sequence
 
 import evdev
 
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
-from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
@@ -14,7 +14,6 @@ from keymasq.keymasqd.output_helpers import (
 from keymasq.keymasqd.runtime.adapters import ErrnoModule, identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import classification
-from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import queue_input_events
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     AsyncioModule,
     GrabbedDeviceRuntime,
@@ -220,29 +219,18 @@ async def wait_for_active_keys_to_clear(
         )
 
 
-def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
+def seed_startup_held_actions(
+    device_runtime: GrabbedDeviceRuntime,
+    *,
+    active_codes: Sequence[int] | None = None,
+) -> None:
     if device_runtime.device is None:
         return
 
-    try:
-        active_codes = list(device_runtime.device.active_keys() or [])
-    except OSError as exc:
-        logging.getLogger("keymasqd.devices").warning(
-            "[%s] failed to read startup active keys; continuing without startup "
-            "held-state reconciliation: %s",
-            device_runtime.hardware_id,
-            exc,
-        )
-        return
-    except Exception:
-        logging.getLogger("keymasqd.devices").exception(
-            "[%s] unexpected failure reading startup active keys; continuing without "
-            "startup held-state reconciliation",
-            device_runtime.hardware_id,
-        )
-        return
-
-    queue_flushed_key_releases(device_runtime, {int(code) for code in active_codes})
+    if active_codes is None:
+        active_codes = read_active_key_codes(device_runtime)
+        if active_codes is None:
+            return
 
     mapping = device_runtime.mapping_getter()
     for code in active_codes:
@@ -262,40 +250,107 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
         reconcile_startup_held_action(device_runtime, action)
 
 
-def queue_flushed_key_releases(
-    device_runtime: GrabbedDeviceRuntime,
-    active_codes: set[int],
-) -> None:
-    """Replay key releases that the key-state query removed from the input queue.
+def read_active_key_codes(device_runtime: GrabbedDeviceRuntime) -> list[int] | None:
+    device = device_runtime.device
+    if device is None:
+        return None
+    try:
+        return [int(code) for code in device.active_keys() or []]
+    except OSError as exc:
+        logging.getLogger("keymasqd.devices").warning(
+            "[%s] failed to read startup active keys; continuing without startup "
+            "held-state reconciliation: %s",
+            device_runtime.hardware_id,
+            exc,
+        )
+    except Exception:
+        logging.getLogger("keymasqd.devices").exception(
+            "[%s] unexpected failure reading startup active keys; continuing without "
+            "startup held-state reconciliation",
+            device_runtime.hardware_id,
+        )
+    return None
 
-    EVIOCGKEY drops every unread EV_KEY event so the returned state is current,
-    and leaves the caller to reconcile. With a live reader, a release that was
-    still unread is gone: without this its output would stay held.
+
+def request_key_state_reconcile(device_runtime: GrabbedDeviceRuntime) -> None:
+    """Reconcile held keys with the device after a mapping change.
+
+    The key-state query (EVIOCGKEY) discards every unread EV_KEY event, so with
+    a live reader it has to run inside the reader, between two events. Without
+    one there is no unread history to lose and the query runs right away.
     """
-    if isinstance(device_runtime.device, NativeInputDevice):
+    ready = device_runtime.state.input_event_ready
+    if ready is None:
+        seed_startup_held_actions(device_runtime)
+        return
+    device_runtime.state.key_state_reconcile_requested = True
+    ready.set()
+
+
+KEY_STATE_DRAIN_LIMIT = 4096
+
+
+def reconcile_live_key_state(device_runtime: GrabbedDeviceRuntime) -> None:
+    """Reader-owned key-state query; call only between two complete events.
+
+    Everything unread is moved into the reader's buffer first, so the query has
+    nothing to discard. A key event can still arrive between the last read and
+    the query; that one is recovered by comparing the state the buffered history
+    leads to with the queried state, and repairs go after that history.
+    """
+    device = device_runtime.device
+    if device is None:
         return
     state = device_runtime.state
+    for _ in range(KEY_STATE_DRAIN_LIMIT):
+        try:
+            event = device.read_one()
+        except BlockingIOError:
+            event = None
+        if event is None:
+            break
+        state.input_event_buffer.append(event)
+
+    active_codes = read_active_key_codes(device_runtime)
+    if active_codes is None:
+        return
+    active = set(active_codes)
+
     key_type = int(evdev.ecodes.EV_KEY)
-    # Releases already read from the kernel reach the pipeline on their own.
-    pending_releases = {
-        int(event.code)
-        for event in (*state.input_event_buffer, *state.analog_deferred_keys)
-        if int(event.type) == key_type and int(event.value) == 0
-    }
-    releases: list[InputEventLike] = []
-    for event_name in sorted(state.held_source_keys | state.held_source_actions.keys()):
+    projected: set[int] = set()
+    for event_name in state.held_source_keys | state.held_source_actions.keys():
         # Codes python-evdev has no name for are tracked by their number.
         code = (
             int(event_name)
             if event_name.isdecimal()
             else evdev.ecodes.ecodes.get(event_name.upper())
         )
-        if not isinstance(code, int) or code in active_codes or code in pending_releases:
+        if isinstance(code, int):
+            projected.add(code)
+    # Keys this runtime already follows, through held state or buffered history.
+    known = set(projected)
+    for event in (*state.analog_deferred_keys, *state.input_event_buffer):
+        if int(event.type) != key_type:
             continue
-        releases.append(evdev.InputEvent(0, 0, key_type, code, 0))
-    if releases:
-        releases.append(evdev.InputEvent(0, 0, int(evdev.ecodes.EV_SYN), 0, 0))
-        queue_input_events(device_runtime, releases)
+        known.add(int(event.code))
+        if int(event.value) == 0:
+            projected.discard(int(event.code))
+        else:
+            projected.add(int(event.code))
+
+    # A lost release, or a lost press that followed a buffered release.
+    repairs: list[InputEventLike] = [
+        evdev.InputEvent(0, 0, key_type, code, 0) for code in sorted(projected - active)
+    ]
+    repairs.extend(
+        evdev.InputEvent(0, 0, key_type, code, 1) for code in sorted((active - projected) & known)
+    )
+    if repairs:
+        repairs.append(evdev.InputEvent(0, 0, int(evdev.ecodes.EV_SYN), 0, 0))
+        state.input_event_buffer.extend(repairs)
+
+    # Keys that were already down before anyone followed them are seeded as held.
+    seed_startup_held_actions(device_runtime, active_codes=sorted(active - known))
 
 
 def reconcile_startup_held_action(

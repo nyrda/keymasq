@@ -2615,6 +2615,11 @@ def test_macro_editor_insert_time_keeps_trailing_silence(monkeypatch) -> None:
     assert event.press_t_us == 2_000_000
     assert dialog._duration_us == 4_500_000
 
+    dialog._events = []
+    dialog._on_add_time_start_clicked(None)
+
+    assert dialog._duration_us == 5_000_000
+
 
 def test_macro_editor_insert_at_spin_shares_control_width(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)

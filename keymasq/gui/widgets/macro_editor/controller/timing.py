@@ -282,12 +282,10 @@ class TimelineControllerMixin:
             at_us=0,
             delta_us=delta_us,
         )
-        if not mapping:
-            return
-
-        # Keep trailing silence: the macro grows by the inserted time.
+        # Keep trailing silence: the macro grows by the inserted time, even when empty.
         self._duration_us += delta_us
-        self._apply_time_map(mapping)
+        if mapping:
+            self._apply_time_map(mapping)
         self._refresh_after_timing_edit(recompute_duration=False)
 
     def _on_add_time_end_clicked(self, _btn) -> None:

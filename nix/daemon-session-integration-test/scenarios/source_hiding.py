@@ -7,9 +7,11 @@ it to root:root 0600 with only the keymasq ACL. Releasing the source restores
 the original policy, and a daemon restart reconciles stale flags first.
 """
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 
+import evdev
 from support import GAMEPAD_HARDWARE_ID, SOURCE_HIDING_PROFILE_NAME, ScenarioContext
 
 HIDE_TIMEOUT_S = 20.0
@@ -114,6 +116,15 @@ def _expect_restored(
     )
 
 
+def _expect_forwarding(ctx: ScenarioContext, source: evdev.UInput) -> None:
+    ctx.drain_outputs()
+    for value in (1, 0):
+        source.write(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EAST, value)
+        source.syn()
+        time.sleep(0.05)
+    ctx.expect_keys([(evdev.ecodes.KEY_Y, 1), (evdev.ecodes.KEY_Y, 0)])
+
+
 def run(ctx: ScenarioContext) -> None:
     effective = ctx.daemon_effective_capabilities()
     if effective != 0:
@@ -140,12 +151,14 @@ def run(ctx: ScenarioContext) -> None:
         # The event loop keeps forwarding through the handle opened before the
         # hide; the permission reset must not affect the grabbed source.
         ctx.open_passthrough_output(GAMEPAD_HARDWARE_ID).close()
+        _expect_forwarding(ctx, source)
 
         # Restart: ExecStartPre recovery and the daemon's own reconcile clear
         # stale flags through root jobs, then the grab hides the source again.
         ctx.restart_keymasqd()
         ctx.wait_for_hardware_mapping(GAMEPAD_HARDWARE_ID)
         _expect_hidden(ctx, node_path, event_name)
+        _expect_forwarding(ctx, source)
         if ctx.daemon_effective_capabilities() != 0:
             raise AssertionError("keymasqd regained capabilities after restart")
 

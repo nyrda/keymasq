@@ -31,7 +31,11 @@ INPUT_NODE_NAME = re.compile(r"(event|js)[0-9]{1,5}\Z")
 SYS_CLASS_INPUT = Path("/sys/class/input")
 MAX_REQUEST = 65536
 MAX_TRIGGER_NODES = 64
-TRIGGER_TIMEOUT_S = 20.0
+# The daemon waits 15s for a named-node job and 30s for a subsystem one (see
+# keymasqd/runtime/source_hiding.py). udevadm must give up first, leaving room
+# for the unit and helper start, so the daemon always reads a real result.
+NODE_TRIGGER_TIMEOUT_S = 8.0
+SUBSYSTEM_TRIGGER_TIMEOUT_S = 20.0
 log = logging.getLogger("keymasq.masking")
 
 
@@ -97,7 +101,7 @@ async def trigger_input(message: JsonObject, root: LinuxMaskBackend) -> JsonObje
             "--action=change",
             *(f"--sysname-match={name}" for name in nodes or ()),
             "--settle",
-            timeout=TRIGGER_TIMEOUT_S,
+            timeout=SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S,
         )
     return {"triggered": nodes if nodes is not None else ["input"]}
 

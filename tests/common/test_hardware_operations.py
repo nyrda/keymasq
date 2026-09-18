@@ -517,7 +517,7 @@ async def test_trigger_job_runs_udevadm_for_present_nodes_only(tmp_path, monkeyp
                 "--sysname-match=js0",
                 "--settle",
             ),
-            operations.TRIGGER_TIMEOUT_S,
+            operations.NODE_TRIGGER_TIMEOUT_S,
         )
     ]
 
@@ -527,14 +527,17 @@ async def test_trigger_job_without_names_reevaluates_the_input_subsystem(tmp_pat
     calls = []
 
     async def udevadm(*args, **kwargs):
-        calls.append(args)
+        calls.append((args, kwargs.get("timeout")))
         return ""
 
     monkeypatch.setattr(operations, "run_host", udevadm)
     result = await operations.execute({"operation": "trigger", "id": ""}, _trigger_root(tmp_path))
     assert result == {"triggered": ["input"]}
     assert calls == [
-        ("udevadm", "trigger", "--subsystem-match=input", "--action=change", "--settle")
+        (
+            ("udevadm", "trigger", "--subsystem-match=input", "--action=change", "--settle"),
+            operations.SUBSYSTEM_TRIGGER_TIMEOUT_S,
+        )
     ]
 
 

@@ -427,11 +427,17 @@
               description = "Keymasq Input Remapping Daemon";
               path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               wantedBy = [ "multi-user.target" ];
+              # DeviceAllow=char-hidraw resolves at unit start; load hid (which
+              # owns the hidraw major) first so later controllers stay reachable.
               after = [
                 "systemd-udevd.service"
                 "systemd-udev-trigger.service"
+                "modprobe@hid.service"
               ];
-              wants = [ "systemd-udev-trigger.service" ];
+              wants = [
+                "systemd-udev-trigger.service"
+                "modprobe@hid.service"
+              ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";

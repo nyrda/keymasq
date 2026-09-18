@@ -185,7 +185,9 @@ Everything the daemon touches is reachable through ordinary permissions:
   trigger. Per-node hide and restore, model-wide hotplug hiding, and the
   startup reconcile all use this path
   (`keymasq/keymasqd/runtime/source_hiding.py`). `ProtectKernelTunables`
-  keeps sysfs read-only inside the daemon itself.
+  keeps sysfs read-only inside the daemon itself. No input waits on these
+  jobs: a grabbed source is already being read when its hide job is requested,
+  and a release closes every physical handle before any restore job runs.
 - **Permission resets on hidden nodes.** The hide rules reset hidden
   `event*`/`js*` nodes to `root:root` mode `0600`, strip ACLs, and re-grant
   the `keymasq` ACL within the same udev event. The daemon opens and grabs a
@@ -208,20 +210,19 @@ opens; it is not a permission boundary. The rule does not grant write access
 or change device ownership. The Ultimate 2 driver opens its node read-only
 and sends no commands. Future drivers that write need an explicit access policy.
 
-The containment around the capability is retained deliberately: dedicated
-service user, `NoNewPrivileges`, bounding set limited to this single
-capability, protected system and home paths, and writable directories
-restricted to `/run/keymasq` and `/var/lib/keymasq`. All maintained package
-formats (Debian, RPM, Arch/AUR, AppImage/SteamOS, NixOS module) grant this
-same minimal set; none adds any other ambient or bounding capability. The
-service files carry matching comments so the grant and its consumers stay in
-sync.
+The containment around the daemon is retained deliberately: dedicated
+service user, `NoNewPrivileges`, an empty capability bounding set, a closed
+device policy, protected system and home paths, read-only kernel tunables,
+and writable directories restricted to `/run/keymasq` and `/var/lib/keymasq`.
+All maintained package formats (Debian, RPM, Arch/AUR, AppImage/SteamOS,
+NixOS module) ship this same capability-free unit; none adds an ambient or
+bounding capability. The service files carry matching comments so the unit
+and the code that depends on it stay in sync.
 
-A narrower design — delegating the udev trigger and hidden-node access to a
-separate root helper so the daemon itself drops the capability — remains a
-future option only. It adds IPC surface and failure modes of its own, so it
-is not worth adopting unless a concrete security or operational problem with
-the current single-capability model justifies that complexity.
+Delegating the udev trigger to a root job adds IPC surface and failure modes
+of its own. They are bounded: the daemon supplies only `event*`/`js*` kernel
+names, the job validates them again as root, and a failed or timed-out job is
+logged distinctly while remapping keeps working.
 
 ## Peer Identity and ACL
 
@@ -505,7 +506,7 @@ inspect input content. USB reconnect records and validates the individual port's
 identity before changing it, refuses hubs and ganged power switching, and repairs
 an interrupted port operation during recovery. Current desktop grants come from
 udev after static permissions are restored; old session ACLs are not replayed.
-`keymasqd` retains its existing capability set. See
+`keymasqd` itself holds no capabilities. See
 [Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
 [Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
 

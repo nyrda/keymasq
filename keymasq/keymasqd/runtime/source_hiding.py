@@ -7,6 +7,7 @@ from keymasq.common.devices import hardware_model_id_key
 from keymasq.common.paths import RUN_DIR
 from keymasq.keymasqd.permission_hints import source_hiding_job_message
 from keymasq.masking import client as hardware_jobs
+from keymasq.masking.operations import INPUT_NODE_NAME
 
 # Hiding flags live in the daemon's own runtime directory. Making udev act on
 # them means writing root-owned sysfs uevent files, so every trigger runs as a
@@ -19,7 +20,8 @@ HIDDEN_DIR = RUN_DIR / "hidden"
 HIDDEN_HARDWARE_DIR = RUN_DIR / "hidden-hardware"
 SYS_CLASS_INPUT = Path("/sys/class/input")
 # Each job pays for a systemd unit start plus helper start-up before udevadm
-# settles, so these budgets are wider than a bare udevadm call would need.
+# settles, so these budgets are wider than a bare udevadm call would need and
+# must stay above the helper's own udevadm timeouts in masking/operations.py.
 TRIGGER_TIMEOUT_S = 15.0
 RECONCILE_TIMEOUT_S = 30.0
 
@@ -141,11 +143,10 @@ def _validated_kernel_names(names: Sequence[str]) -> list[str]:
     validated: list[str] = []
     for raw_name in names:
         name = str(raw_name or "").strip()
-        if not name or Path(name).name != name:
+        # The root job rejects a whole batch over one bad name, so apply its
+        # exact contract here and drop only the offender.
+        if not INPUT_NODE_NAME.fullmatch(name):
             log.warning("Ignoring invalid hidden source kernel name: %s", raw_name)
-            continue
-        if not (name.startswith("event") or name.startswith("js")):
-            log.warning("Ignoring unexpected hidden source kernel name: %s", name)
             continue
         if name not in validated:
             validated.append(name)

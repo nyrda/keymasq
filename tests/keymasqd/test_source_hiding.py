@@ -112,6 +112,27 @@ async def test_restore_source_ignores_invalid_names_without_starting_a_job(
 
 
 @pytest.mark.asyncio
+async def test_restore_source_drops_names_the_trigger_job_would_reject(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    hidden_dir, _hidden_hardware_dir, _sys_input_dir = _configure_paths(
+        monkeypatch,
+        tmp_path,
+    )
+    hidden_dir.mkdir(parents=True)
+    (hidden_dir / "event22").write_text("1\n", encoding="utf-8")
+    calls = _fake_jobs(monkeypatch)
+
+    await source_hiding.restore_source_by_kernel_names(
+        ["event22", "event", "jsx", "event123456", "event22"]
+    )
+
+    assert not (hidden_dir / "event22").exists()
+    assert [call["names"] for call in calls] == [["event22"]]
+
+
+@pytest.mark.asyncio
 async def test_hide_source_returns_written_flags_when_trigger_job_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

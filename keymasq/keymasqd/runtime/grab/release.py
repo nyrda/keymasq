@@ -1,10 +1,11 @@
 """Graceful release transactions for grabbed hardware and interfaces."""
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from keymasq.keymasqd.runtime import adapters, outputs
 from keymasq.keymasqd.runtime.combo import lifecycle
@@ -24,6 +25,8 @@ from keymasq.keymasqd.runtime.grab.support import (
 )
 
 log = logging.getLogger("keymasqd.devices")
+
+type SourcePolicyStep = Callable[[], Awaitable[object]]
 
 
 @dataclass(frozen=True)
@@ -55,7 +58,13 @@ async def release_device_unlocked(
     hardware_id: str,
     *,
     log: logging.Logger,
+    deferred_source_policy: list[SourcePolicyStep] | None = None,
 ) -> dict[str, object]:
+    """Release every interface of one hardware. Caller must hold ``manager._op_lock``.
+
+    With ``deferred_source_policy`` the caller collects the source-hiding
+    restore steps and awaits them itself after releasing other hardware.
+    """
     cancel_pending_hardware_release(manager, hardware_id)
     cancel_pending_interface_releases_for_hardware(manager, hardware_id)
     await stop_device_event_loops(manager.grabbed_devices.get(hardware_id, []))
@@ -65,11 +74,15 @@ async def release_device_unlocked(
         None,
         deps=combo_runtime_deps(),
     )
+    # Source-hiding policy waits on root jobs. It runs only after the physical
+    # handles are released, so a slow job never keeps an input grabbed.
+    policy_steps: list[SourcePolicyStep] = (
+        deferred_source_policy if deferred_source_policy is not None else []
+    )
     desired_config = manager.grab_state.desired_grabs.pop(hardware_id, None)
     if desired_grab_requests_gamepad_source_hiding(desired_config):
-        await disable_hardware_hotplug_hiding_if_unused_best_effort(
-            manager,
-            hardware_id,
+        policy_steps.append(
+            lambda: disable_hardware_hotplug_hiding_if_unused_best_effort(manager, hardware_id)
         )
     devices = manager.grabbed_devices.pop(hardware_id, [])
 
@@ -79,8 +92,13 @@ async def release_device_unlocked(
     failures: list[Exception] = []
     unreleased: list[ManagedGrabbedDevice] = []
     for index, device in enumerate(devices):
+        restore_hidden_source = getattr(device, "restore_hidden_source", None)
         try:
-            await device.release()
+            if inspect.iscoroutinefunction(restore_hidden_source):
+                await device.release(restore_source=False)
+                policy_steps.append(cast(SourcePolicyStep, restore_hidden_source))
+            else:
+                await device.release()
         except asyncio.CancelledError:
             unreleased.extend(devices[index:])
             manager.grabbed_devices[hardware_id] = unreleased
@@ -100,6 +118,9 @@ async def release_device_unlocked(
         outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
+    if deferred_source_policy is None:
+        for step in policy_steps:
+            await step()
     if failures:
         raise failures[0]
     log.info("Released device %s", hardware_id)
@@ -392,12 +413,18 @@ async def release_all_devices(
             ),
         )
         hardware_ids = set(manager.grabbed_devices) | set(manager.grab_state.desired_grabs)
+        # Readers are already stopped: free every physical handle before any
+        # source-hiding job is awaited, or a slow gamepad restore would leave a
+        # keyboard or mouse grabbed and unread.
+        source_policy: list[SourcePolicyStep] = []
         for hardware_id in list(hardware_ids):
             await attempt(
                 f"releasing {hardware_id}",
                 lambda hardware_id=hardware_id: release_device_unlocked(
-                    manager, hardware_id, log=log
+                    manager, hardware_id, log=log, deferred_source_policy=source_policy
                 ),
             )
+        for step in source_policy:
+            await attempt("restoring source hiding policy", step)
         if errors:
             raise errors[0]

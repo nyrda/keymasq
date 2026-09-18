@@ -102,8 +102,11 @@ install -Dm644 "${REPO_ROOT}/polkit/49-keymasq-hardware.rules" /etc/polkit-1/rul
 cat >/etc/systemd/system/keymasqd.service <<'EOF'
 [Unit]
 Description=Keymasq Input Remapping Daemon
-After=systemd-udevd.service systemd-udev-trigger.service
-Wants=systemd-udev-trigger.service
+# DeviceAllow=char-hidraw resolves when the unit starts; a group the kernel has
+# not registered yet is dropped from the allow-list. Load hid (which owns the
+# hidraw major) first so controllers connected later stay reachable.
+After=systemd-udevd.service systemd-udev-trigger.service modprobe@hid.service
+Wants=systemd-udev-trigger.service modprobe@hid.service
 
 [Service]
 Type=simple

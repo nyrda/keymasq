@@ -70,8 +70,9 @@ class EditorChromeMixin:
         GLib.idle_add(self._update_canvas_width)
 
     def _build_inspector(self) -> Gtk.Widget:
-        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
-        columns.set_homogeneous(True)
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Both columns share one width; the separator between them does not.
+        column_widths = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
         columns.set_margin_top(10)
         columns.set_margin_bottom(6)
         columns.set_margin_start(8)
@@ -86,10 +87,16 @@ class EditorChromeMixin:
         selection_column.append(self._inspector_placeholder)
         selection_column.append(self._build_property_panel())
         self._revealer.connect("notify::reveal-child", self._on_inspector_reveal_changed)
+        selection_column.set_hexpand(True)
+        column_widths.add_widget(selection_column)
         columns.append(selection_column)
+
+        columns.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
         macro_column = self._build_name_row()
         macro_column.set_valign(Gtk.Align.START)
+        macro_column.set_hexpand(True)
+        column_widths.add_widget(macro_column)
         columns.append(macro_column)
 
         scrolled = Gtk.ScrolledWindow()

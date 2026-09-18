@@ -19,20 +19,15 @@ class FieldRow(Gtk.Box):
         subtitle: str = "",
         tooltip: str | None = None,
     ) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.title_label = Gtk.Label(label=title)
-        self.title_label.set_halign(Gtk.Align.START)
-        self.title_label.set_xalign(0.0)
-        self.title_label.set_visible(bool(title))
-        line.append(self.title_label)
+        self.title_label.set_halign(Gtk.Align.END)
+        self.title_label.set_xalign(1.0)
         self.controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.controls.set_hexpand(True)
         for control in controls:
             control.set_valign(Gtk.Align.CENTER)
             self.controls.append(control)
-        line.append(self.controls)
-        self.append(line)
         self.subtitle_label = Gtk.Label()
         self.subtitle_label.add_css_class("dim-label")
         self.subtitle_label.add_css_class("caption")
@@ -40,14 +35,41 @@ class FieldRow(Gtk.Box):
         self.subtitle_label.set_xalign(0.0)
         self.subtitle_label.set_wrap(True)
         self.subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.append(self.subtitle_label)
+        # The subtitle sits under the controls so it stays in the control column.
+        grid = Gtk.Grid(row_spacing=1, column_spacing=8)
+        grid.set_hexpand(True)
+        grid.attach(self.title_label, 0, 0, 1, 1)
+        grid.attach(self.controls, 1, 0, 1, 1)
+        grid.attach(self.subtitle_label, 1, 1, 1, 1)
+        self.append(grid)
         self.set_subtitle(subtitle)
         if tooltip:
             self.set_tooltip_text(tooltip)
+        self._size_group: Gtk.SizeGroup | None = None
+        self._in_size_group = False
+        self.connect("notify::visible", self._on_visible_changed)
+
+    def bind_label_column(self, size_group: Gtk.SizeGroup) -> None:
+        """Share the label column with other rows while this row is visible."""
+        self._size_group = size_group
+        self._on_visible_changed()
+
+    def _on_visible_changed(self, *_args: object) -> None:
+        # Size groups keep measuring hidden members, so hidden rows leave the group.
+        if self._size_group is None:
+            return
+        visible = self.get_visible()
+        self.title_label.set_visible(visible)
+        if visible == self._in_size_group:
+            return
+        if visible:
+            self._size_group.add_widget(self.title_label)
+        else:
+            self._size_group.remove_widget(self.title_label)
+        self._in_size_group = visible
 
     def set_title(self, title: str) -> None:
         self.title_label.set_label(title)
-        self.title_label.set_visible(bool(title))
 
     def get_title(self) -> str:
         return self.title_label.get_label()
@@ -76,7 +98,10 @@ def unit_label(text: str) -> Gtk.Label:
 
 
 def check_row(title: str, check: Gtk.CheckButton, tooltip: str | None = None) -> FieldRow:
-    """Build a row whose only control is a labelled check button."""
+    """Build a row whose only control is a labelled check button.
+
+    The row keeps an empty label slot so the check lines up with the control column.
+    """
     check.set_label(title)
     return FieldRow("", check, tooltip=tooltip)
 
@@ -86,8 +111,8 @@ def rows_list(*rows: Gtk.Widget) -> Gtk.Box:
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
     for row in rows:
-        if isinstance(row, FieldRow) and row.get_title():
-            size_group.add_widget(row.title_label)
+        if isinstance(row, FieldRow):
+            row.bind_label_column(size_group)
         box.append(row)
     return box
 

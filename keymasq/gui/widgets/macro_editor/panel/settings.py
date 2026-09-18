@@ -152,8 +152,9 @@ class MacroSettingsMixin:
             self._on_macro_block_mouse_toggled,
         )
         block_mouse_row = check_row(
-            "Block physical mouse movement during playback",
+            "Block physical mouse movement",
             self._macro_block_mouse_check,
+            tooltip="Suppress movement from the physical mouse while this macro plays.",
         )
 
         self._exec_summary_label = Gtk.Label()
@@ -162,16 +163,15 @@ class MacroSettingsMixin:
         self._exec_summary_label.set_halign(Gtk.Align.START)
         self._exec_summary_label.set_xalign(0.0)
 
-        rows = rows_list(
-            name_row,
-            loop_row,
-            self._macro_loop_count_row,
+        fields = rows_list(name_row, loop_row, self._macro_loop_count_row)
+        toggles = rows_list(
             self._macro_loop_finish_row,
             self._macro_pause_row,
             self._macro_pause_timeout,
             block_mouse_row,
         )
-        outer = group_box(title, rows, self._exec_summary_label)
+        toggles.set_margin_top(8)
+        outer = group_box(title, fields, toggles, self._exec_summary_label)
 
         self._update_loop_controls()
         self._update_exec_summary_label()

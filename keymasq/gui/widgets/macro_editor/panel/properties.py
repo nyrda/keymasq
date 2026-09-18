@@ -130,7 +130,7 @@ class EventPropertiesMixin:
             )
         )
         self._duration_spin.set_digits(0)
-        self._duration_spin.set_width_chars(7)
+        self._duration_spin.set_width_chars(8)
         self._duration_spin.connect("value-changed", self._on_duration_changed)
         self._duration_row = field_row("Duration", self._duration_spin, unit_label("ms"))
 
@@ -159,7 +159,7 @@ class EventPropertiesMixin:
             )
         )
         self._move_x_spin.set_digits(0)
-        self._move_x_spin.set_width_chars(7)
+        self._move_x_spin.set_width_chars(8)
         self._move_x_spin.connect("value-changed", self._on_move_x_changed)
         self._move_x_row = field_row("X", self._move_x_spin)
 
@@ -173,7 +173,7 @@ class EventPropertiesMixin:
             )
         )
         self._move_y_spin.set_digits(0)
-        self._move_y_spin.set_width_chars(7)
+        self._move_y_spin.set_width_chars(8)
         self._move_y_spin.connect("value-changed", self._on_move_y_changed)
         self._move_y_row = field_row("Y", self._move_y_spin)
 
@@ -192,7 +192,7 @@ class EventPropertiesMixin:
         self._move_capture_btn = Gtk.Button(label="Capture")
         self._move_capture_btn.connect("clicked", self._on_capture_selected_move_clicked)
         self._move_capture_row = field_row(
-            "Capture position",
+            "",
             self._move_capture_delay_spin,
             self._move_capture_delay_unit_label,
             self._move_capture_btn,
@@ -212,6 +212,24 @@ class EventPropertiesMixin:
         self._move_capture_row.set_visible(False)
 
         self._build_control_editor()
+        # Primary inputs share one width so spins and dropdowns line up down the column.
+        self._control_width_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        for control in (
+            self._press_spin,
+            self._duration_spin,
+            self._release_spin,
+            self._move_x_spin,
+            self._move_y_spin,
+            self._control_a_spin,
+            self._control_b_spin,
+            self._control_timeout_spin,
+            self._control_exec_mode_dropdown,
+            self._control_macro_call_dropdown,
+            self._control_macro_loop_dropdown,
+            self._control_macro_count_spin,
+            self._control_macro_stop_dropdown,
+        ):
+            self._control_width_group.add_widget(control)
 
         rows = rows_list(
             self._press_row,

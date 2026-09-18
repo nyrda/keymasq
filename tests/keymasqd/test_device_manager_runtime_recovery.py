@@ -937,14 +937,14 @@ class TestDeviceManagerHelpers:
                 )
 
         release_task = asyncio.create_task(run_release())
-        await first_restore_started.wait()
+        await asyncio.wait_for(first_restore_started.wait(), timeout=1.0)
         release_task.cancel()
         await asyncio.sleep(0)
         assert not release_task.done()
 
         restore_barrier.set()
         with pytest.raises(asyncio.CancelledError):
-            await release_task
+            await asyncio.wait_for(release_task, timeout=1.0)
 
         assert restored == ["/dev/input/event22", "/dev/input/event23"]
         assert manager.grabbed_devices == {}

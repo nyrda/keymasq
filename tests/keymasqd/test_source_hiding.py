@@ -4,9 +4,8 @@ from typing import Any
 
 import pytest
 
-from keymasq.keymasqd.permission_hints import CAPABILITY_PERMISSION_HINT
+from keymasq.keymasqd.permission_hints import SOURCE_HIDING_JOB_HINT
 from keymasq.keymasqd.runtime import source_hiding
-from tests.async_fakes import FakeProcess
 
 
 def _configure_paths(
@@ -27,29 +26,32 @@ def _add_js_sibling(sys_input_dir: Path, event_name: str, js_name: str) -> None:
     js_dir.mkdir(parents=True)
 
 
-def _fake_udevadm(
+def _fake_jobs(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    returncode: int = 0,
-    stderr: bytes = b"",
-) -> list[tuple[Any, ...]]:
-    calls: list[tuple[Any, ...]] = []
-    monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
+    error: BaseException | None = None,
+) -> list[dict[str, Any]]:
+    """Capture hardware job requests; each entry records operation, timeout, and data."""
+    calls: list[dict[str, Any]] = []
 
-    async def fake_create_subprocess_exec(*args: Any, **_kwargs: Any) -> FakeProcess:
-        calls.append(args)
-        return FakeProcess(returncode=returncode, stderr=stderr)
+    async def fake_request(
+        operation: str,
+        identity: str,
+        *,
+        timeout: float,
+        **data: object,
+    ) -> dict[str, Any]:
+        calls.append({"operation": operation, "id": identity, "timeout": timeout, **data})
+        if error is not None:
+            raise error
+        return {"status": "ok"}
 
-    monkeypatch.setattr(
-        source_hiding.asyncio,
-        "create_subprocess_exec",
-        fake_create_subprocess_exec,
-    )
+    monkeypatch.setattr(source_hiding.hardware_jobs, "request", fake_request)
     return calls
 
 
 @pytest.mark.asyncio
-async def test_hide_source_flags_event_and_js_sibling_and_triggers_udev(
+async def test_hide_source_flags_event_and_js_sibling_and_requests_one_trigger_job(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -58,7 +60,7 @@ async def test_hide_source_flags_event_and_js_sibling_and_triggers_udev(
         tmp_path,
     )
     _add_js_sibling(sys_input_dir, "event22", "js0")
-    calls = _fake_udevadm(monkeypatch)
+    calls = _fake_jobs(monkeypatch)
 
     hidden_names = await source_hiding.hide_source("/dev/input/event22")
 
@@ -66,27 +68,17 @@ async def test_hide_source_flags_event_and_js_sibling_and_triggers_udev(
     assert (hidden_dir / "event22").read_text(encoding="utf-8") == "1\n"
     assert (hidden_dir / "js0").read_text(encoding="utf-8") == "1\n"
     assert calls == [
-        (
-            "/usr/bin/udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            "--sysname-match=event22",
-            "--settle",
-        ),
-        (
-            "/usr/bin/udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            "--sysname-match=js0",
-            "--settle",
-        ),
+        {
+            "operation": "trigger",
+            "id": "",
+            "timeout": source_hiding.TRIGGER_TIMEOUT_S,
+            "names": ["event22", "js0"],
+        }
     ]
 
 
 @pytest.mark.asyncio
-async def test_restore_source_removes_stored_names_and_triggers_udev(
+async def test_restore_source_removes_stored_names_and_requests_trigger_job(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -97,20 +89,30 @@ async def test_restore_source_removes_stored_names_and_triggers_udev(
     hidden_dir.mkdir(parents=True)
     (hidden_dir / "event22").write_text("1\n", encoding="utf-8")
     (hidden_dir / "js0").write_text("1\n", encoding="utf-8")
-    calls = _fake_udevadm(monkeypatch)
+    calls = _fake_jobs(monkeypatch)
 
     await source_hiding.restore_source_by_kernel_names(["event22", "js0"])
 
     assert not (hidden_dir / "event22").exists()
     assert not (hidden_dir / "js0").exists()
-    assert [call[4] for call in calls] == [
-        "--sysname-match=event22",
-        "--sysname-match=js0",
-    ]
+    assert [call["names"] for call in calls] == [["event22", "js0"]]
 
 
 @pytest.mark.asyncio
-async def test_hide_source_returns_written_flags_when_udev_trigger_fails(
+async def test_restore_source_ignores_invalid_names_without_starting_a_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_paths(monkeypatch, tmp_path)
+    calls = _fake_jobs(monkeypatch)
+
+    await source_hiding.restore_source_by_kernel_names(["../etc", "mouse0", ""])
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_hide_source_returns_written_flags_when_trigger_job_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -119,46 +121,52 @@ async def test_hide_source_returns_written_flags_when_udev_trigger_fails(
         monkeypatch,
         tmp_path,
     )
-    _fake_udevadm(monkeypatch, returncode=1, stderr=b"permission denied")
+    _fake_jobs(
+        monkeypatch,
+        error=OSError("systemctl failed: Unit keymasq-hardware@abc.service not found"),
+    )
 
     hidden_names = await source_hiding.hide_source("/dev/input/event22")
 
     assert hidden_names == ["event22"]
     assert (hidden_dir / "event22").exists()
-    assert "udevadm trigger failed" in caplog.text
+    assert "udev trigger job failed for event22" in caplog.text
+    assert SOURCE_HIDING_JOB_HINT in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_udev_permission_failure_logs_capability_hint(
+async def test_trigger_job_timeout_logs_without_the_install_hint(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     _configure_paths(monkeypatch, tmp_path)
-    _fake_udevadm(
+    _fake_jobs(monkeypatch, error=TimeoutError())
+
+    hidden_names = await source_hiding.hide_source("/dev/input/event22")
+
+    assert hidden_names == ["event22"]
+    assert "Timed out triggering udev for event22" in caplog.text
+    assert SOURCE_HIDING_JOB_HINT not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unexpected_trigger_job_error_is_logged_and_best_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    hidden_dir, _hidden_hardware_dir, _sys_input_dir = _configure_paths(
         monkeypatch,
-        returncode=1,
-        stderr=b"Failed to write 'change' to uevent: Permission denied",
+        tmp_path,
     )
+    _fake_jobs(monkeypatch, error=RuntimeError("job bug"))
 
-    await source_hiding.hide_source("/dev/input/event22")
+    hidden_names = await source_hiding.hide_source("/dev/input/event22")
 
-    assert CAPABILITY_PERMISSION_HINT in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_udev_non_permission_failure_omits_capability_hint(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    _configure_paths(monkeypatch, tmp_path)
-    _fake_udevadm(monkeypatch, returncode=1, stderr=b"device is busy")
-
-    await source_hiding.hide_source("/dev/input/event22")
-
-    assert "udevadm trigger failed" in caplog.text
-    assert CAPABILITY_PERMISSION_HINT not in caplog.text
+    assert hidden_names == ["event22"]
+    assert (hidden_dir / "event22").exists()
+    assert "Unexpected failure triggering udev for event22" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -171,27 +179,23 @@ async def test_hide_source_rolls_back_flags_when_cancelled_during_trigger(
         tmp_path,
     )
     _add_js_sibling(sys_input_dir, "event22", "js0")
-    trigger_calls: list[str] = []
+    trigger_calls: list[list[str]] = []
 
-    async def fake_trigger_input_node(name: str, *, timeout_s: float) -> bool:
+    async def fake_trigger_input_nodes(names: list[str], *, timeout_s: float) -> bool:
         _ = timeout_s
-        trigger_calls.append(name)
-        if trigger_calls == ["event22"]:
+        trigger_calls.append(list(names))
+        if len(trigger_calls) == 1:
             raise asyncio.CancelledError()
         return True
 
-    monkeypatch.setattr(
-        source_hiding,
-        "_trigger_input_node",
-        fake_trigger_input_node,
-    )
+    monkeypatch.setattr(source_hiding, "_trigger_input_nodes", fake_trigger_input_nodes)
 
     with pytest.raises(asyncio.CancelledError):
         await source_hiding.hide_source("/dev/input/event22")
 
     assert not (hidden_dir / "event22").exists()
     assert not (hidden_dir / "js0").exists()
-    assert trigger_calls == ["event22", "event22", "js0"]
+    assert trigger_calls == [["event22", "js0"], ["event22", "js0"]]
 
 
 @pytest.mark.asyncio
@@ -206,24 +210,20 @@ async def test_hide_source_rolls_back_flags_when_cancelled_during_flag_write(
     _add_js_sibling(sys_input_dir, "event22", "js0")
     write_started = asyncio.Event()
     allow_write = asyncio.Event()
-    trigger_calls: list[str] = []
+    trigger_calls: list[list[str]] = []
 
     async def fake_to_thread(func, /, *args, **kwargs):
         write_started.set()
         await allow_write.wait()
         return func(*args, **kwargs)
 
-    async def fake_trigger_input_node(name: str, *, timeout_s: float) -> bool:
+    async def fake_trigger_input_nodes(names: list[str], *, timeout_s: float) -> bool:
         _ = timeout_s
-        trigger_calls.append(name)
+        trigger_calls.append(list(names))
         return True
 
     monkeypatch.setattr(source_hiding.asyncio, "to_thread", fake_to_thread)
-    monkeypatch.setattr(
-        source_hiding,
-        "_trigger_input_node",
-        fake_trigger_input_node,
-    )
+    monkeypatch.setattr(source_hiding, "_trigger_input_nodes", fake_trigger_input_nodes)
 
     task = asyncio.create_task(source_hiding.hide_source("/dev/input/event22"))
     await write_started.wait()
@@ -235,26 +235,7 @@ async def test_hide_source_rolls_back_flags_when_cancelled_during_flag_write(
 
     assert not (hidden_dir / "event22").exists()
     assert not (hidden_dir / "js0").exists()
-    assert trigger_calls == ["event22", "js0"]
-
-
-@pytest.mark.asyncio
-async def test_hide_source_is_best_effort_when_udevadm_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    hidden_dir, _hidden_hardware_dir, _sys_input_dir = _configure_paths(
-        monkeypatch,
-        tmp_path,
-    )
-    monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: None)
-
-    hidden_names = await source_hiding.hide_source("/dev/input/event22")
-
-    assert hidden_names == ["event22"]
-    assert (hidden_dir / "event22").exists()
-    assert "udevadm not found" in caplog.text
+    assert trigger_calls == [["event22", "js0"]]
 
 
 @pytest.mark.asyncio
@@ -266,7 +247,7 @@ async def test_hide_source_rejects_non_event_paths(
         monkeypatch,
         tmp_path,
     )
-    calls = _fake_udevadm(monkeypatch)
+    calls = _fake_jobs(monkeypatch)
 
     hidden_names = await source_hiding.hide_source("/dev/input/js0")
 
@@ -276,7 +257,7 @@ async def test_hide_source_rejects_non_event_paths(
 
 
 @pytest.mark.asyncio
-async def test_reconcile_all_clears_flags_and_triggers_input(
+async def test_reconcile_all_clears_flags_and_triggers_the_input_subsystem(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -289,61 +270,15 @@ async def test_reconcile_all_clears_flags_and_triggers_input(
     (hidden_dir / "js0").write_text("1\n", encoding="utf-8")
     hidden_hardware_dir.mkdir(parents=True)
     (hidden_hardware_dir / "045e:02a1").write_text("1\n", encoding="utf-8")
-    calls = _fake_udevadm(monkeypatch)
+    calls = _fake_jobs(monkeypatch)
 
     await source_hiding.reconcile_all()
 
     assert list(hidden_dir.iterdir()) == []
     assert list(hidden_hardware_dir.iterdir()) == []
     assert calls == [
-        (
-            "/usr/bin/udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            "--settle",
-        )
+        {"operation": "trigger", "id": "", "timeout": source_hiding.RECONCILE_TIMEOUT_S}
     ]
-
-
-@pytest.mark.asyncio
-async def test_udevadm_runs_with_host_tool_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
-    monkeypatch.setenv("APPDIR", "/tmp/.mount_Keymasq")
-    monkeypatch.setenv("LD_LIBRARY_PATH", "/tmp/.mount_Keymasq/lib")
-    monkeypatch.setenv("PYTHONPATH", "/tmp/.mount_Keymasq/lib/python3.12")
-    monkeypatch.setenv("LANG", "C.UTF-8")
-    captured_env: dict[str, str] | None = None
-
-    async def fake_create_subprocess_exec(
-        *_args: Any,
-        **kwargs: Any,
-    ) -> FakeProcess:
-        nonlocal captured_env
-        captured_env = kwargs.get("env")
-        return FakeProcess(returncode=0)
-
-    monkeypatch.setattr(
-        source_hiding.asyncio,
-        "create_subprocess_exec",
-        fake_create_subprocess_exec,
-    )
-
-    result = await source_hiding._run_udevadm(  # pyright: ignore[reportPrivateUsage]
-        ["trigger", "--subsystem-match=input"],
-        timeout_s=0.01,
-        context="test",
-    )
-
-    assert result is True
-    assert captured_env is not None
-    assert captured_env["LANG"] == "C.UTF-8"
-    assert captured_env["PATH"] == "/usr/sbin:/usr/bin:/sbin:/bin"
-    assert "APPDIR" not in captured_env
-    assert "LD_LIBRARY_PATH" not in captured_env
-    assert "PYTHONPATH" not in captured_env
 
 
 def test_hardware_flag_name_normalizes_common_hardware_id_forms() -> None:
@@ -363,25 +298,20 @@ async def test_enable_and_disable_hardware_hotplug_hiding(
         monkeypatch,
         tmp_path,
     )
-    calls = _fake_udevadm(monkeypatch)
+    calls = _fake_jobs(monkeypatch)
 
     enabled = await source_hiding.enable_hardware_hotplug_hiding("045e:02a1")
 
     assert enabled is True
     assert (hidden_hardware_dir / "045e:02a1").read_text(encoding="utf-8") == "1\n"
+    assert calls == []
 
     disabled = await source_hiding.disable_hardware_hotplug_hiding("keymasq:045e:02a1@2")
 
     assert disabled is True
     assert not (hidden_hardware_dir / "045e:02a1").exists()
     assert calls == [
-        (
-            "/usr/bin/udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            "--settle",
-        )
+        {"operation": "trigger", "id": "", "timeout": source_hiding.RECONCILE_TIMEOUT_S}
     ]
 
 
@@ -399,38 +329,3 @@ async def test_enable_hardware_hotplug_hiding_rejects_invalid_id(
 
     assert enabled is False
     assert not hidden_hardware_dir.exists()
-
-
-@pytest.mark.asyncio
-async def test_udevadm_timeout_terminates_process(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    fake_process = FakeProcess()
-    monkeypatch.setattr(source_hiding, "resolve_udevadm_path", lambda: "/usr/bin/udevadm")
-
-    async def fake_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> FakeProcess:
-        return fake_process
-
-    async def fake_wait_for(awaitable: Any, **_kwargs: Any) -> None:
-        close = getattr(awaitable, "close", None)
-        if callable(close):
-            close()
-        raise TimeoutError
-
-    monkeypatch.setattr(
-        source_hiding.asyncio,
-        "create_subprocess_exec",
-        fake_create_subprocess_exec,
-    )
-    monkeypatch.setattr(source_hiding.asyncio, "wait_for", fake_wait_for)
-
-    result = await source_hiding._trigger_input_node(  # pyright: ignore[reportPrivateUsage]
-        "event22",
-        timeout_s=0.01,
-    )
-
-    assert result is False
-    assert fake_process.terminated is True
-    assert "Timed out triggering udev" in caplog.text
-    await asyncio.sleep(0)

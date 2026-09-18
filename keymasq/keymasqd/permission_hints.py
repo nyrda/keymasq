@@ -13,16 +13,10 @@ UINPUT_PERMISSION_ERROR_MARKERS = (
     "not permitted",
     "access denied",
 )
-CAPABILITY_TROUBLESHOOTING_REF = (
-    "docs/TROUBLESHOOTING.md#missing-cap_dac_override-capability"
-)
-CAPABILITY_PERMISSION_HINT = (
-    "Check that keymasqd.service grants AmbientCapabilities=CAP_DAC_OVERRIDE; see "
-    f"{CAPABILITY_TROUBLESHOOTING_REF}."
-)
-CAPABILITY_PERMISSION_ERROR_MARKERS = (
-    "permission denied",
-    "operation not permitted",
+SOURCE_HIDING_TROUBLESHOOTING_REF = "docs/TROUBLESHOOTING.md#source-hiding-jobs-fail"
+SOURCE_HIDING_JOB_HINT = (
+    "Check that keymasq-hardware@.service and its Polkit rule are installed and that "
+    f"the keymasq user may start it; see {SOURCE_HIDING_TROUBLESHOOTING_REF}."
 )
 
 
@@ -48,11 +42,6 @@ def has_permission_hint(message: object) -> bool:
     return PERMISSION_TROUBLESHOOTING_REF in text
 
 
-def is_capability_permission_failure(stderr_text: object) -> bool:
-    text = str(stderr_text).lower()
-    return any(marker in text for marker in CAPABILITY_PERMISSION_ERROR_MARKERS)
-
-
 def input_device_permission_message(message: str) -> str:
     return _append_hint(message, INPUT_DEVICE_PERMISSION_HINT)
 
@@ -61,11 +50,11 @@ def uinput_permission_message(message: str) -> str:
     return _append_hint(message, UINPUT_PERMISSION_HINT)
 
 
-def capability_permission_message(message: str) -> str:
+def source_hiding_job_message(message: str) -> str:
     return _append_hint(
         message,
-        CAPABILITY_PERMISSION_HINT,
-        ref=CAPABILITY_TROUBLESHOOTING_REF,
+        SOURCE_HIDING_JOB_HINT,
+        ref=SOURCE_HIDING_TROUBLESHOOTING_REF,
     )
 
 

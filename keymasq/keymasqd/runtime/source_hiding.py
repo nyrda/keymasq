@@ -1,43 +1,27 @@
 import asyncio
 import logging
-import os
-import shutil
 from collections.abc import Sequence
 from pathlib import Path
 
 from keymasq.common.devices import hardware_model_id_key
 from keymasq.common.paths import RUN_DIR
-from keymasq.keymasqd.permission_hints import (
-    capability_permission_message,
-    is_capability_permission_failure,
-)
+from keymasq.keymasqd.permission_hints import source_hiding_job_message
+from keymasq.masking import client as hardware_jobs
 
-# `udevadm trigger` writes root-owned sysfs uevent files, so hide/restore
-# depends on the ambient CAP_DAC_OVERRIDE granted by keymasqd.service; without
-# it every trigger fails with a sysfs permission error.
+# Hiding flags live in the daemon's own runtime directory. Making udev act on
+# them means writing root-owned sysfs uevent files, so every trigger runs as a
+# bounded keymasq-hardware@ job through keymasq-record; keymasqd itself holds
+# no capabilities (see keymasqd.service and docs/SECURITY.md).
 
 log = logging.getLogger("keymasqd.source_hiding")
 
 HIDDEN_DIR = RUN_DIR / "hidden"
 HIDDEN_HARDWARE_DIR = RUN_DIR / "hidden-hardware"
 SYS_CLASS_INPUT = Path("/sys/class/input")
-UDEVADM_FALLBACK_PATHS = (
-    Path("/usr/bin/udevadm"),
-    Path("/run/current-system/sw/bin/udevadm"),
-)
-TRIGGER_TIMEOUT_S = 2.0
-RECONCILE_TIMEOUT_S = 5.0
-HOST_TOOL_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
-HOST_TOOL_ENV_PASSTHROUGH = (
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "LC_MESSAGES",
-    "SYSTEMD_COLORS",
-    "SYSTEMD_LOG_LEVEL",
-    "SYSTEMD_LOG_TARGET",
-    "TERM",
-)
+# Each job pays for a systemd unit start plus helper start-up before udevadm
+# settles, so these budgets are wider than a bare udevadm call would need.
+TRIGGER_TIMEOUT_S = 15.0
+RECONCILE_TIMEOUT_S = 30.0
 
 
 def node_kernel_names(resolved_event_path: str) -> list[str]:
@@ -68,8 +52,8 @@ async def hide_source(resolved_event_path: str) -> list[str]:
     written_names: list[str] = []
     try:
         written_names = await asyncio.shield(write_task)
-        for name in written_names:
-            await _trigger_input_node(name, timeout_s=TRIGGER_TIMEOUT_S)
+        log.info("Hiding input source %s as %s", resolved_event_path, written_names)
+        await _trigger_input_nodes(written_names, timeout_s=TRIGGER_TIMEOUT_S)
     except asyncio.CancelledError:
         if not written_names:
             written_names = await _written_names_after_hide_cancel(
@@ -87,8 +71,8 @@ async def restore_source_by_kernel_names(names: Sequence[str]) -> None:
         return
 
     await asyncio.to_thread(_remove_flags, kernel_names)
-    for name in kernel_names:
-        await _trigger_input_node(name, timeout_s=TRIGGER_TIMEOUT_S)
+    log.info("Restoring hidden input source %s", kernel_names)
+    await _trigger_input_nodes(kernel_names, timeout_s=TRIGGER_TIMEOUT_S)
 
 
 async def _restore_source_after_hide_cancel(names: Sequence[str]) -> None:
@@ -97,14 +81,12 @@ async def _restore_source_after_hide_cancel(names: Sequence[str]) -> None:
         return
 
     await asyncio.to_thread(_remove_flags, kernel_names)
-    for name in kernel_names:
-        try:
-            await _trigger_input_node(name, timeout_s=TRIGGER_TIMEOUT_S)
-        except asyncio.CancelledError:
-            log.warning("Interrupted udev trigger while restoring hidden source %s", name)
-            continue
-        except Exception:
-            log.exception("Unexpected failure triggering source restore for %s", name)
+    try:
+        await _trigger_input_nodes(kernel_names, timeout_s=TRIGGER_TIMEOUT_S)
+    except asyncio.CancelledError:
+        log.warning("Interrupted udev trigger while restoring hidden sources %s", kernel_names)
+    except Exception:
+        log.exception("Unexpected failure triggering source restore for %s", kernel_names)
 
 
 async def _written_names_after_hide_cancel(
@@ -135,13 +117,7 @@ async def disable_hardware_hotplug_hiding(hardware_id: str) -> bool:
         return False
     removed = await asyncio.to_thread(_remove_hardware_flag, flag_name)
     if removed:
-        await _run_udevadm(
-            [
-                "trigger",
-                "--subsystem-match=input",
-                "--action=change",
-                "--settle",
-            ],
+        await _trigger_input_subsystem(
             timeout_s=RECONCILE_TIMEOUT_S,
             context=f"hardware {flag_name} restore",
         )
@@ -150,33 +126,8 @@ async def disable_hardware_hotplug_hiding(hardware_id: str) -> bool:
 
 async def reconcile_all() -> None:
     await asyncio.to_thread(_clear_flag_dirs)
-    await _run_udevadm(
-        [
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            "--settle",
-        ],
-        timeout_s=RECONCILE_TIMEOUT_S,
-        context="input reconcile",
-    )
-
-
-def resolve_udevadm_path() -> str | None:
-    path = shutil.which("udevadm")
-    if path:
-        return path
-
-    for candidate in UDEVADM_FALLBACK_PATHS:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return None
-
-
-def host_tool_environment() -> dict[str, str]:
-    env = {key: value for key in HOST_TOOL_ENV_PASSTHROUGH if (value := os.environ.get(key))}
-    env["PATH"] = HOST_TOOL_PATH
-    return env
+    log.info("Cleared hidden source flags; re-evaluating input udev rules")
+    await _trigger_input_subsystem(timeout_s=RECONCILE_TIMEOUT_S, context="input reconcile")
 
 
 def hardware_flag_name(hardware_id: object) -> str | None:
@@ -285,88 +236,35 @@ def _clear_flag_dir(flag_dir: Path, label: str) -> None:
             log.warning("Failed to remove stale %s flag %s: %s", label, entry, exc)
 
 
-async def _trigger_input_node(name: str, *, timeout_s: float) -> bool:
-    return await _run_udevadm(
-        [
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            f"--sysname-match={name}",
-            "--settle",
-        ],
+async def _trigger_input_nodes(names: Sequence[str], *, timeout_s: float) -> bool:
+    kernel_names = _validated_kernel_names(names)
+    if not kernel_names:
+        return True
+    return await _request_trigger(
+        {"names": kernel_names},
         timeout_s=timeout_s,
-        context=name,
+        context=", ".join(kernel_names),
     )
 
 
-async def _run_udevadm(args: Sequence[str], *, timeout_s: float, context: str) -> bool:
-    udevadm_path = resolve_udevadm_path()
-    if udevadm_path is None:
-        log.warning("Cannot trigger udev for %s: udevadm not found", context)
-        return False
+async def _trigger_input_subsystem(*, timeout_s: float, context: str) -> bool:
+    return await _request_trigger({}, timeout_s=timeout_s, context=context)
 
-    process: asyncio.subprocess.Process | None = None
+
+async def _request_trigger(data: dict[str, object], *, timeout_s: float, context: str) -> bool:
+    """Run one bounded root job that re-evaluates udev rules for the flagged nodes."""
     try:
-        process = await asyncio.create_subprocess_exec(
-            udevadm_path,
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=host_tool_environment(),
-        )
-        _stdout, stderr = await asyncio.wait_for(
-            process.communicate(),
-            timeout=timeout_s,
-        )
+        await hardware_jobs.request("trigger", "", timeout=timeout_s, **data)
+    except asyncio.CancelledError:
+        raise
     except TimeoutError:
         log.warning("Timed out triggering udev for %s after %.1fs", context, timeout_s)
-        if process is not None:
-            await _terminate_process(process)
         return False
-    except asyncio.CancelledError:
-        if process is not None:
-            await _terminate_process(process)
-        raise
-    except OSError as exc:
-        log.warning("Failed to trigger udev for %s: %s", context, exc)
+    except (OSError, ValueError) as exc:
+        message = source_hiding_job_message(f"udev trigger job failed for {context}: {exc}")
+        log.warning("%s", message)
         return False
     except Exception:
         log.exception("Unexpected failure triggering udev for %s", context)
         return False
-
-    if process.returncode != 0:
-        stderr_text = stderr.decode(errors="replace").strip() if stderr else ""
-        message = (
-            f"udevadm trigger failed for {context}: "
-            f"returncode={process.returncode} stderr={stderr_text}"
-        )
-        if is_capability_permission_failure(stderr_text):
-            message = capability_permission_message(message)
-        log.warning("%s", message)
-        return False
     return True
-
-
-async def _terminate_process(process: asyncio.subprocess.Process) -> None:
-    try:
-        process.terminate()
-        await asyncio.wait_for(process.wait(), timeout=1.0)
-        return
-    except TimeoutError:
-        pass
-    except OSError as exc:
-        log.debug("Failed to terminate udevadm process: %s", exc)
-        return
-    except Exception:
-        log.exception("Unexpected failure terminating udevadm process")
-        return
-
-    try:
-        process.kill()
-        await asyncio.wait_for(process.wait(), timeout=1.0)
-    except TimeoutError:
-        log.warning("udevadm process did not exit after kill")
-    except OSError as exc:
-        log.debug("Failed to kill udevadm process: %s", exc)
-    except Exception:
-        log.exception("Unexpected failure killing udevadm process")

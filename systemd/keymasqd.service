@@ -27,14 +27,18 @@ RestartSec=5
 
 # Security hardening
 NoNewPrivileges=true
-# CAP_DAC_OVERRIDE, the only granted capability: udevadm trigger writes
-# root-owned sysfs uevent files during source hide/restore, and hidden nodes
-# reset to root:root 0600 must stay usable for grabs and force-feedback
-# passthrough. Do not add capabilities in any variant; see docs/SECURITY.md.
-AmbientCapabilities=CAP_DAC_OVERRIDE
-CapabilityBoundingSet=CAP_DAC_OVERRIDE
+# keymasqd holds no capabilities. Device access comes from the ACLs granted
+# above and by the udev rules; source hiding runs its udev triggers as bounded
+# keymasq-hardware@ root jobs. Do not add capabilities in any variant; see
+# docs/SECURITY.md.
+CapabilityBoundingSet=
+DevicePolicy=closed
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
+DeviceAllow=char-hidraw r
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
 PrivateTmp=true
 RuntimeDirectory=keymasq
 RuntimeDirectoryMode=0755

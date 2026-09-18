@@ -825,6 +825,63 @@ class TestDeviceManagerHelpers:
         assert sleep_calls == [0.05, 0.10]
 
     @pytest.mark.asyncio
+    async def test_grab_with_retry_waits_for_udev_to_grant_access(self) -> None:
+        sleep_calls: list[float] = []
+
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                sleep_calls.append(delay)
+
+        class _NotYetAccessibleDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                if self.attempts < 2:
+                    raise PermissionError(errno.EACCES, "Permission denied")
+
+        device = _NotYetAccessibleDevice()
+
+        await acquisition.grab_with_retry(
+            device,
+            "/dev/input/event0",
+            asyncio_mod=_Asyncio(),
+            log=logging.getLogger("test"),
+            errno_mod=errno,
+        )
+
+        assert device.attempts == 2
+        assert sleep_calls == [0.05]
+
+    @pytest.mark.asyncio
+    async def test_grab_with_retry_does_not_retry_other_errors(self) -> None:
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                raise AssertionError("no retry expected")
+
+        class _MissingDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                raise OSError(errno.ENODEV, "gone")
+
+        device = _MissingDevice()
+
+        with pytest.raises(OSError, match="gone"):
+            await acquisition.grab_with_retry(
+                device,
+                "/dev/input/event0",
+                asyncio_mod=_Asyncio(),
+                log=logging.getLogger("test"),
+                errno_mod=errno,
+            )
+
+        assert device.attempts == 1
+
+    @pytest.mark.asyncio
     async def test_grab_with_retry_reraises_last_busy_error_after_retries(self) -> None:
         sleep_calls: list[float] = []
 

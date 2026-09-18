@@ -488,13 +488,16 @@ async def grab_with_retry(
             return
         except OSError as exc:
             last_error = exc
-            if exc.errno != errno_mod.EBUSY:
+            # EACCES: udev may not have granted the daemon ACL yet on a node that
+            # was just created, or that the hiding rules just reset to root:root.
+            if exc.errno not in {errno_mod.EBUSY, errno_mod.EACCES}:
                 raise
             if attempt >= len(delays):
                 break
             log.warning(
-                "Device %s busy during grab (attempt %d/%d), retrying in %.2fs",
+                "Device %s %s during grab (attempt %d/%d), retrying in %.2fs",
                 path,
+                "busy" if exc.errno == errno_mod.EBUSY else "not yet accessible",
                 attempt,
                 len(delays),
                 delay,

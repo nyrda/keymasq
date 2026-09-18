@@ -181,6 +181,12 @@ let
             )
             log_command_output("input devices", "cat /proc/bus/input/devices || true")
             log_command_output(
+                "udev rule simulation for the newest event node",
+                "n=$(ls /sys/class/input | grep '^event' | sort -V | tail -1); "
+                + "ls -l /dev/input/$n; ls -la /run/keymasq/hidden /run/keymasq/hidden-hardware; "
+                + "udevadm test --action=change /sys/class/input/$n 2>&1 | tail -80 || true",
+            )
+            log_command_output(
                 "recording leases",
                 "ls -la /run/keymasq /etc/keymasq || true; "
                 + "cat /run/keymasq/macro-recording-enabled-${toString vmUid} "

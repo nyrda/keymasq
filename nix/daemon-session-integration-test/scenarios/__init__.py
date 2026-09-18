@@ -46,6 +46,7 @@ from . import (
     repeat_passthrough,
     restart_recovery,
     simple_remap,
+    source_hiding,
     superkey_overload_multi_action,
     superkey_profile_handoff,
     superkey_tap,
@@ -113,6 +114,7 @@ SCENARIOS = [
     ScenarioCase("recording and capture", recording_capture.run),
     ScenarioCase("restart recovery", restart_recovery.run),
     ScenarioCase("hotplug replug", hotplug_replug.run),
+    ScenarioCase("source hiding", source_hiding.run),
     ScenarioCase(
         "mapped macro slot playback without capture unlock",
         recording_capture.run_mapped_slot_playback_without_unlock,

@@ -29,6 +29,7 @@ type UInputWriter = Callable[[object | None], WritableUInput | None]
 
 
 class ErrnoModule(Protocol):
+    EACCES: Final[int]
     EAGAIN: Final[int]
     EWOULDBLOCK: Final[int]
     ENOENT: Final[int]

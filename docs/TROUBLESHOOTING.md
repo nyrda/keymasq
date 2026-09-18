@@ -218,30 +218,36 @@ with the updated Keymasq module/package, then restart the daemon. The startup
 hook reapplies native ACLs to connected controllers. Reconnecting also applies
 the rule. A manual ACL is temporary and disappears when the device is recreated.
 
-### Missing CAP_DAC_OVERRIDE capability
+### Source hiding jobs fail
 
-`keymasqd` needs the `CAP_DAC_OVERRIDE` capability for gamepad source
-hide/restore and force-feedback passthrough (see
-[SECURITY.md](SECURITY.md)). The shipped `keymasqd.service` grants it; a local
-override or hand-written unit that drops `AmbientCapabilities` breaks exactly
-those features while everything else keeps working.
+Hiding or restoring a grabbed gamepad source runs `udevadm trigger` as a
+bounded `keymasq-hardware@<request-id>.service` root job that the daemon
+starts (see [SECURITY.md](SECURITY.md)); `keymasqd` itself holds no
+capabilities. The job needs the `keymasq-hardware@.service` template and the
+`49-keymasq-hardware.rules` Polkit rule that lets the `keymasq` user start it.
+Both ship with every package and with the NixOS module.
 
 Symptoms: grabbed gamepads stay visible to games (or stay hidden after
-release), and logs show `udevadm trigger failed ... permission denied` with a
-hint pointing at this section — while remapping, macros, and grabbing work
+release), and the daemon log shows `udev trigger job failed ...` with a hint
+pointing at this section, while remapping, macros, and grabbing work
 normally.
 
 Checks:
 
 ```bash
-systemctl show keymasqd -p AmbientCapabilities -p CapabilityBoundingSet
-systemctl cat keymasqd   # look for drop-in overrides removing the capability
+systemctl cat keymasq-hardware@.service
+journalctl -u 'keymasq-hardware@*' -n 50
+journalctl -u polkit -n 50
+systemctl show keymasqd -p CapabilityBoundingSet -p DevicePolicy
 ```
 
-Both values should be `cap_dac_override`. If a drop-in override in
-`/etc/systemd/system/keymasqd.service.d/` clears them, remove or fix the
-override and run `systemctl daemon-reload && systemctl restart keymasqd`. Do
-not widen the set beyond `CAP_DAC_OVERRIDE`; no Keymasq feature needs more.
+A missing template unit or a Polkit refusal of
+`org.freedesktop.systemd1.manage-units` for the `keymasq` user means the
+package files were not installed or a local override removed them. The
+daemon's `CapabilityBoundingSet` should be empty and `DevicePolicy` should be
+`closed`; do not add capabilities in a drop-in override, no Keymasq feature
+needs them. Each job also waits for `udevadm settle`, so a host where udev is
+very slow logs a timeout for the trigger instead.
 
 ### Daemon ownership conflicts
 

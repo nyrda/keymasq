@@ -9,8 +9,8 @@ separately and is outside this driver layer.
 
 The daemon discovers HID endpoints through sysfs. A registered driver matches
 VID/PID, transport, and its interface's report descriptor. The Ultimate 2 driver
-matches USB `2dc8:6012`, a Gamepad collection, report ID 1, and the vendor-defined
-report field. Its decoder accepts only the observed 34-byte report format.
+matches `2dc8:6012` over USB and Bluetooth, a Gamepad collection, report ID 1,
+and the vendor-defined report field. Its decoder accepts only the observed 34-byte report format.
 Older firmware and the receiver's idle `2dc8:6013` interface do not supply motion
 through this driver. Matching discovery metadata identifies a candidate; usable
 samples are confirmed when the source is opened.

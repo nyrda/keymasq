@@ -198,15 +198,23 @@ async def test_reader_delivers_a_deferred_batch_before_it_queries_again(
     )
     grab.request_key_state_reconcile(runtime)  # type: ignore[arg-type]
 
-    delivered = [await asyncio.wait_for(anext(reader), timeout=1.0) for _ in range(4)]
-    await reader.aclose()
+    first_batch = [await asyncio.wait_for(anext(reader), timeout=1.0) for _ in range(2)]
+    # The release is still unread, so the query must not have happened yet.
+    assert kernel_device.queries == 0
+    second_batch = [await asyncio.wait_for(anext(reader), timeout=1.0) for _ in range(2)]
+    # The pipeline has processed the delivered release by now.
+    runtime.state.held_source_keys.clear()
+    runtime.state.held_source_actions.clear()
+    parked = asyncio.create_task(anext(reader))
+    await asyncio.sleep(0.01)
+    parked.cancel()
+    await asyncio.gather(parked, return_exceptions=True)
 
-    assert _triples(delivered) == [
-        (REL, evdev.ecodes.REL_X, 1),
-        (SYN, 0, 0),
-        (KEY, KEY_L, 0),
-        (SYN, 0, 0),
-    ]
+    assert _triples(first_batch) == [(REL, evdev.ecodes.REL_X, 1), (SYN, 0, 0)]
+    # The real release, read before the query, not a synthetic repair.
+    assert _triples(second_batch) == [(KEY, KEY_L, 0), (SYN, 0, 0)]
+    assert kernel_device.queries == 1
+    assert not runtime.state.input_event_buffer
 
 
 def test_single_buffered_release_is_not_repaired_twice(kernel_device) -> None:

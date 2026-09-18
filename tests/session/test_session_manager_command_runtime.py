@@ -3661,6 +3661,26 @@ async def test_profile_commands_report_reload_and_release_failures() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["reevaluate_profiles", "reevaluate_hardware"])
+async def test_reevaluate_command_broadcasts_config_reloaded(
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    manager = SessionManager()
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    manager.reload_config_from_disk = Mock()  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
+
+    result = await manager._handle_session_request({"command": command}, peer, object())
+
+    assert result == {"status": "ok"}
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "config_reloaded", "status": "ok"}
+    )
+
+
+@pytest.mark.asyncio
 async def test_settings_and_virtual_gamepad_commands_cover_success_and_unavailable(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

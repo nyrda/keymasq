@@ -178,10 +178,6 @@ class LoadControllerMixin:
         self._synthetic_moves = document.moves
         self._control_events = document.controls
         self._duration_us = document.duration_us
-        self._macro_has_move_to_start_setting = document.has_move_to_start_setting
-        self._macro_move_to_start = document.move_to_start
-        self._macro_start_x = document.start_x
-        self._macro_start_y = document.start_y
         self._macro_block_mouse_movement = document.block_mouse_movement
         self._macro_loop_mode = document.loop_mode
         self._macro_loop_count = document.loop_count

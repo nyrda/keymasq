@@ -72,9 +72,6 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
             loop_mode="count",
             loop_count=3,
             loop_stop_behavior="cancel_run",
-            move_to_start=True,
-            start_x=111,
-            start_y=222,
             block_mouse_movement=True,
             source_device="",
             source_button="",
@@ -140,9 +137,6 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
             loop_mode="count",
             loop_count=3,
             loop_stop_behavior="cancel_run",
-            move_to_start=True,
-            start_x=111,
-            start_y=222,
             block_mouse_movement=True,
             source_device="kbd",
             source_button="a",
@@ -162,9 +156,6 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
                 "loop_mode": "none",
                 "loop_count": 1,
                 "loop_stop_behavior": "finish_run",
-                "move_to_start": False,
-                "start_x": 9,
-                "start_y": 10,
                 "block_mouse_movement": False,
             },
         ),
@@ -175,9 +166,6 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
                 "loop_mode": "none",
                 "loop_count": 1,
                 "loop_stop_behavior": "finish_run",
-                "move_to_start": False,
-                "start_x": 9,
-                "start_y": 10,
                 "block_mouse_movement": False,
             },
         ),
@@ -201,9 +189,6 @@ async def test_macro_play_request_runtime_options_override_stored_options(
     assert options.loop_mode == "none"
     assert options.loop_count == 1
     assert options.loop_stop_behavior == "finish_run"
-    assert options.move_to_start is False
-    assert options.start_x == 9
-    assert options.start_y == 10
     assert options.block_mouse_movement is False
 
 
@@ -368,7 +353,6 @@ async def test_macro_play_recording_does_not_create_start_move_on_play(daemon_te
     assert result == {"played": True}
     options = device_manager.play_macro.await_args.args[0]
     assert isinstance(options, MacroPlaybackOptions)
-    assert options.move_to_start is False
     assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert options.load_stored_macro is False
 
@@ -420,7 +404,6 @@ async def test_start_recording_resolves_recording_ids_before_start(daemon_testbe
     "extra_payload",
     [
         {"record_start_position": True},
-        {"move_to_start": True},
     ],
 )
 @pytest.mark.asyncio
@@ -456,7 +439,6 @@ async def test_start_recording_forwards_requested_start_position_to_recording_ma
     [
         {},
         {"record_start_position": False},
-        {"move_to_start": False},
     ],
 )
 @pytest.mark.asyncio

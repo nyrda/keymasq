@@ -47,13 +47,13 @@ def test_control_editor_state_resolves_wait_ranges() -> None:
     )
 
     assert wait.show_ab is True
-    assert wait.a_label == "Duration (ms):"
+    assert wait.a_label == "Duration"
     assert wait.a_value_ms == 125.0
     assert wait.show_a is True
     assert wait.show_b is False
-    assert random_wait.a_label == "Min (ms):"
+    assert random_wait.a_label == "Min"
     assert random_wait.a_value_ms == 20.0
-    assert random_wait.b_label == "Max (ms):"
+    assert random_wait.b_label == "Max"
     assert random_wait.b_value_ms == 80.0
     assert random_wait.show_b is True
 
@@ -121,8 +121,7 @@ def test_control_editor_state_resolves_compositor_action() -> None:
     )
 
     assert state.title == "Compositor Action"
-    assert state.show_change is True
-    assert state.change_label == "Change Action..."
+    assert state.show_change is False
     assert "workspace" in state.detail
 
 

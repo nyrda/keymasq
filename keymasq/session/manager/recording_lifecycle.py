@@ -536,21 +536,6 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Jso
                     ),
                 )
             ),
-            "move_to_start": coerce_bool(
-                data.get(
-                    "macro_move_to_start",
-                    data.get("move_to_start", (macro or {}).get("move_to_start", False)),
-                ),
-                False,
-            ),
-            "start_x": coerce_int(
-                data.get("macro_start_x", data.get("start_x", (macro or {}).get("start_x"))),
-                0,
-            ),
-            "start_y": coerce_int(
-                data.get("macro_start_y", data.get("start_y", (macro or {}).get("start_y"))),
-                0,
-            ),
             "block_mouse_movement": coerce_bool(
                 data.get(
                     "macro_block_mouse_movement",

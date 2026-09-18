@@ -61,9 +61,6 @@ class _ParsedActionFields:
     macro_loop_count: int
     macro_loop_stop_behavior: str
     macro_pause_timeout_s: float
-    macro_move_to_start: bool
-    macro_start_x: int
-    macro_start_y: int
     macro_block_mouse_movement: bool
     macro_recording_slot: int
     profile_name: str | None
@@ -134,9 +131,6 @@ def _parse_shared_action_fields(
         macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
             action_data.get("macro_loop_stop_behavior")
         ),
-        macro_move_to_start=bool(action_data.get("macro_move_to_start", False)),
-        macro_start_x=coerce_int(action_data.get("macro_start_x"), 0),
-        macro_start_y=coerce_int(action_data.get("macro_start_y"), 0),
         macro_block_mouse_movement=bool(action_data.get("macro_block_mouse_movement", False)),
         macro_recording_slot=normalize_macro_recording_slot(
             action_data.get("recording_slot", action_data.get("macro_recording_slot"))
@@ -259,9 +253,6 @@ def parse_action(
         macro_loop_count=shared.macro_loop_count,
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
         macro_pause_timeout_s=shared.macro_pause_timeout_s,
-        macro_move_to_start=shared.macro_move_to_start,
-        macro_start_x=shared.macro_start_x,
-        macro_start_y=shared.macro_start_y,
         macro_block_mouse_movement=shared.macro_block_mouse_movement,
         macro_recording_slot=shared.macro_recording_slot,
         profile_name=shared.profile_name,
@@ -669,9 +660,6 @@ def parse_superkey_action(
         macro_loop_count=shared.macro_loop_count,
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
         macro_pause_timeout_s=shared.macro_pause_timeout_s,
-        macro_move_to_start=shared.macro_move_to_start,
-        macro_start_x=shared.macro_start_x,
-        macro_start_y=shared.macro_start_y,
         macro_block_mouse_movement=shared.macro_block_mouse_movement,
         macro_recording_slot=shared.macro_recording_slot,
         profile_name=shared.profile_name,

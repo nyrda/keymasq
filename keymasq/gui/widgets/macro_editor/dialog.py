@@ -54,13 +54,13 @@ from keymasq.gui.widgets.position_capture import PositionCaptureController
 
 
 def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
-    width = 760
+    width = 880
     height = 680
 
     parent_width = parent.get_width()
     parent_height = parent.get_height()
     if parent_width > 1:
-        width = int(max(760, min(1500, parent_width * 0.9)))
+        width = int(max(880, min(1500, parent_width * 0.9)))
     if parent_height > 1:
         height = int(max(620, min(1000, parent_height * 0.9)))
 
@@ -108,31 +108,19 @@ class MacroEditorMixin(
         self._macro_loop_count: int = 1
         self._macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
         self._macro_pause_timeout_s: float = 0.0
-        self._macro_has_move_to_start_setting: bool = False
-        self._macro_move_to_start: bool = False
-        self._macro_start_x: int = 0
-        self._macro_start_y: int = 0
         self._macro_block_mouse_movement: bool = False
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(session_compositor_id())
-        self._start_position_capture = PositionCaptureController(
-            slurp_capture=self._slurp_capture,
-            slurp_available=self._slurp_capture.available,
-            request_async=session_request_async,
-            on_state_changed=self._update_macro_move_start_controls,
-        )
         self._selected_move_capture = PositionCaptureController(
             slurp_capture=self._slurp_capture,
             slurp_available=self._slurp_capture.available,
             request_async=session_request_async,
             on_state_changed=self._update_selected_move_capture_controls,
         )
-        self._timing_scale_spin: Gtk.SpinButton | None = None
-        self._timing_min_gap_spin: Gtk.SpinButton | None = None
-        self._timing_max_gap_spin: Gtk.SpinButton | None = None
         self._timing_extend_ms_spin: Gtk.SpinButton | None = None
-        self._insert_gap_at_spin: Gtk.SpinButton | None = None
-        self._insert_gap_ms_spin: Gtk.SpinButton | None = None
+        self._timing_total_spin: Gtk.SpinButton | None = None
+        self._timing_content: Gtk.Widget | None = None
+        self._timing_dialog: Adw.Dialog | None = None
         self._timeline_scroll_x: float = 0.0
         self._timeline_scroll_max: float = 0.0
         self._timeline_scroll_adj: Gtk.Adjustment | None = None
@@ -172,11 +160,11 @@ class MacroEditorMixin(
         self.connect("closed", self._on_host_closed)
 
     def _on_host_closed(self, _host: object) -> None:
+        self._disconnect_clipboard_listener()
         if not self._dialog_closed:
             self._dialog_closed = True
             if self._paste_cancellable is not None:
                 self._paste_cancellable.cancel()
-            self._cancel_capture_start_position("")
             self._cancel_capture_selected_move("")
         _editors.discard(self)
 

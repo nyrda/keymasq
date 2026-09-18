@@ -29,9 +29,6 @@ async def play_macro_task_helper(manager: DeviceManager, **kwargs: object) -> No
         speed=float(kwargs["speed"]),
         loop_mode=str(kwargs["loop_mode"]),
         loop_count=int(kwargs["loop_count"]),
-        move_to_start=bool(kwargs["move_to_start"]),
-        start_x=int(kwargs["start_x"]),
-        start_y=int(kwargs["start_y"]),
         block_mouse_movement=bool(kwargs["block_mouse_movement"]),
         deps=device_manager._macro_runtime_deps(),
         macro_event_source=cast(

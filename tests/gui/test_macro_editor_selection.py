@@ -326,3 +326,18 @@ def test_native_clipboard_rejects_invalid_events_before_insertion() -> None:
     ]:
         with pytest.raises(ValueError):
             selection.Fragment.from_clipboard(json.dumps(payload).encode())
+
+
+def test_limit_pauses_clamps_gaps_between_groups() -> None:
+    first = EditableEvent("keyboard", evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0, 10_000)
+    second = EditableEvent("keyboard", evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 100_000, 110_000)
+    third = EditableEvent("keyboard", evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 500_000, 510_000)
+
+    selection.limit_pauses([first, second, third], 50_000, 200_000)
+
+    assert (first.press_t_us, second.press_t_us, third.press_t_us) == (0, 100_000, 310_000)
+    assert third.release_t_us == 320_000
+
+    selection.limit_pauses([first, second, third], 150_000, None)
+
+    assert (second.press_t_us, third.press_t_us) == (160_000, 370_000)

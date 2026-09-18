@@ -32,7 +32,7 @@ async def set_profile_enabled(
         # the config watcher about that one file, so it neither answers with a
         # redundant full reload nor drops anyone else's edit.
         manager.expect_own_config_write(previous.path)
-    was_enabled = previous.config.enabled if previous is not None else None
+    previous_enabled = previous.config.enabled if previous is not None else None
     try:
         profile = await asyncio.to_thread(
             manager.profiles.set_profile_enabled,
@@ -43,7 +43,7 @@ async def set_profile_enabled(
         if previous is not None:
             manager.forget_own_config_write(previous.path)
         raise
-    if previous is not None and (profile is None or was_enabled == profile.enabled):
+    if previous is not None and (profile is None or previous_enabled == profile.enabled):
         # Nothing was written, so an edit to this file is someone else's.
         manager.forget_own_config_write(previous.path)
 
@@ -64,6 +64,9 @@ async def set_profile_enabled(
             reevaluate=None,
         )
 
+    if previous_enabled != profile.enabled:
+        # The enabled flag is persisted config; clients must refresh their profile models.
+        manager.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
     await reevaluate(f"profile {profile_name} enabled={profile.enabled}")
     return {
         "status": "ok",

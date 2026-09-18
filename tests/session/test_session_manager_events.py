@@ -695,9 +695,6 @@ async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> No
                         "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
                         "loop_mode": "count",
                         "loop_count": 2,
-                        "move_to_start": False,
-                        "start_x": 0,
-                        "start_y": 0,
                         "block_mouse_movement": False,
                     }
                 },
@@ -719,9 +716,6 @@ async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> No
             "loop_count": 3,
             "pause_timeout_s": 120,
             "loop_stop_behavior": "cancel_run",
-            "move_to_start": True,
-            "start_x": 11,
-            "start_y": 22,
             "block_mouse_movement": True,
             "source_device": "1234:5678",
             "source_button": "btn_side",
@@ -743,9 +737,6 @@ async def test_handle_event_macro_trigger_forwards_full_playback_payload() -> No
         "loop_count": 3,
         "pause_timeout_s": 120,
         "loop_stop_behavior": "cancel_run",
-        "move_to_start": True,
-        "start_x": 11,
-        "start_y": 22,
         "block_mouse_movement": True,
         "source_device": "1234:5678",
         "source_button": "btn_side",
@@ -1021,6 +1012,8 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
 ) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.suppress_config_watcher_reload = Mock()  # type: ignore[method-assign]
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
     manager.profile_state.runtime_profile_activations["Nav"] = RuntimeProfileActivation(
         profile_name="Nav",
@@ -1039,6 +1032,11 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
 
     assert result["status"] == "ok"
     assert result["enabled"] is False
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "config_reloaded", "status": "ok"}
+    )
+    # The own write is matched per file; a blanket suppress would drop external edits.
+    manager.suppress_config_watcher_reload.assert_not_called()  # type: ignore[attr-defined]
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     reevaluate_profiles.assert_awaited_once_with(
         manager,
@@ -1050,6 +1048,24 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
         "profile_name": "Nav",
         "activation_id": "activation-1",
     }
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_without_change_does_not_broadcast_config_reloaded(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.suppress_config_watcher_reload = Mock()  # type: ignore[method-assign]
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
+
+    result = await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert result["enabled"] is True
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+    manager.suppress_config_watcher_reload.assert_not_called()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -1544,7 +1560,6 @@ def test_handle_device_grab_status_ready_reapplies_waiting_device(
     reevaluate_profiles.assert_called_once_with(manager, reason=f"grab ready for {hardware_id}")
     profiles_event = {
         "event": "profiles_changed",
-        "runtime_only": True,
         **runtime_status.build_active_profiles_payload(manager),
     }
     manager.broadcast_to_session_clients.assert_has_calls(  # type: ignore[attr-defined]

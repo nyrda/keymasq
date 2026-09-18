@@ -198,9 +198,6 @@ class MacroManagerMixin:
                 or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
             ),
             pause_timeout_s=max(0.0, coerce_float(event.get("pause_timeout_s"), 0.0)),
-            move_to_start=coerce_bool(meta.get("move_to_start"), False),
-            start_x=coerce_int(meta.get("start_x"), 0),
-            start_y=coerce_int(meta.get("start_y"), 0),
             block_mouse_movement=coerce_bool(meta.get("block_mouse_movement"), False),
         )
         return playback.start_child_macro(

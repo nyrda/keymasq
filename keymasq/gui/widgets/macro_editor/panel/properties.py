@@ -23,6 +23,12 @@ from keymasq.gui.widgets.macro_editor.model import (
     _get_event_name,
     _get_key_name,
 )
+from keymasq.gui.widgets.macro_editor.panel.rows import (
+    field_row,
+    group_box,
+    rows_list,
+    unit_label,
+)
 from keymasq.gui.widgets.mouse_move_units import format_natural_move_speed
 
 _REL_MOVE_COORDINATE_RANGE = (-10000, 10000)
@@ -45,41 +51,59 @@ class EventPropertiesMixin:
         self._revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
         self._revealer.set_reveal_child(False)
 
-        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        panel.set_margin_top(8)
-        panel.set_margin_bottom(4)
-        panel.set_margin_start(8)
-        panel.set_margin_end(8)
-
-        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._prop_title = Gtk.Label()
         self._prop_title.add_css_class("heading")
         self._prop_title.set_halign(Gtk.Align.START)
+        self._prop_title.set_ellipsize(Pango.EllipsizeMode.END)
         title_row.append(self._prop_title)
         self._prop_context_label = Gtk.Label()
         self._prop_context_label.add_css_class("heading")
         self._prop_context_label.add_css_class("dim-label")
         self._prop_context_label.set_halign(Gtk.Align.START)
-        self._prop_context_label.set_hexpand(False)
+        self._prop_context_label.set_hexpand(True)
         self._prop_context_label.set_ellipsize(Pango.EllipsizeMode.END)
         self._prop_context_label.set_visible(False)
         title_row.append(self._prop_context_label)
+        title_spacer = Gtk.Box()
+        title_spacer.set_hexpand(True)
+        title_row.append(title_spacer)
+
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        header_actions.set_valign(Gtk.Align.CENTER)
         self._edit_child_macro_btn = Gtk.Button(icon_name="document-edit-symbolic")
         self._edit_child_macro_btn.add_css_class("flat")
         self._edit_child_macro_btn.set_tooltip_text("Edit child macro in a new window")
         self._edit_child_macro_btn.set_visible(False)
         self._edit_child_macro_btn.connect("clicked", self._on_edit_child_macro)
-        title_row.append(self._edit_child_macro_btn)
-        panel.append(title_row)
+        header_actions.append(self._edit_child_macro_btn)
 
-        timing_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-        )
-        timing_row.set_halign(Gtk.Align.START)
+        change_key_btn = Gtk.Button(label="Change Key…")
+        change_key_btn.add_css_class("flat")
+        change_key_btn.connect("clicked", self._on_change_key_clicked)
+        header_actions.append(change_key_btn)
+        self._change_key_btn = change_key_btn
 
-        self._press_label = Gtk.Label(label="Press:")
-        timing_row.append(self._press_label)
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.add_css_class("destructive-action")
+        delete_btn.add_css_class("flat")
+        delete_btn.set_tooltip_text("Delete this action (Delete)")
+        delete_btn.connect("clicked", self._on_delete_event)
+        header_actions.append(delete_btn)
+        self._delete_event_btn = delete_btn
+        title_row.append(header_actions)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        header.append(title_row)
+        self._key_info_label = Gtk.Label()
+        self._key_info_label.add_css_class("dim-label")
+        self._key_info_label.add_css_class("caption")
+        self._key_info_label.set_halign(Gtk.Align.START)
+        self._key_info_label.set_xalign(0.0)
+        self._key_info_label.set_wrap(True)
+        self._key_info_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        header.append(self._key_info_label)
+
         self._press_spin = Gtk.SpinButton()
         self._press_spin.set_adjustment(
             Gtk.Adjustment(
@@ -93,12 +117,8 @@ class EventPropertiesMixin:
         self._press_spin.set_digits(0)
         self._press_spin.set_width_chars(8)
         self._press_spin.connect("value-changed", self._on_press_changed)
-        timing_row.append(self._press_spin)
-        self._press_unit_label = Gtk.Label(label="ms")
-        timing_row.append(self._press_unit_label)
+        self._press_row = field_row("At", self._press_spin, unit_label("ms"))
 
-        self._duration_text_label = Gtk.Label(label="Duration:")
-        timing_row.append(self._duration_text_label)
         self._duration_spin = Gtk.SpinButton()
         self._duration_spin.set_adjustment(
             Gtk.Adjustment(
@@ -110,14 +130,10 @@ class EventPropertiesMixin:
             )
         )
         self._duration_spin.set_digits(0)
-        self._duration_spin.set_width_chars(7)
+        self._duration_spin.set_width_chars(8)
         self._duration_spin.connect("value-changed", self._on_duration_changed)
-        timing_row.append(self._duration_spin)
-        self._duration_unit_label = Gtk.Label(label="ms")
-        timing_row.append(self._duration_unit_label)
+        self._duration_row = field_row("Duration", self._duration_spin, unit_label("ms"))
 
-        self._release_label = Gtk.Label(label="  Release:")
-        timing_row.append(self._release_label)
         self._release_spin = Gtk.SpinButton()
         self._release_spin.set_adjustment(
             Gtk.Adjustment(
@@ -131,22 +147,35 @@ class EventPropertiesMixin:
         self._release_spin.set_digits(0)
         self._release_spin.set_width_chars(8)
         self._release_spin.connect("value-changed", self._on_release_changed)
-        timing_row.append(self._release_spin)
-        self._release_unit_label = Gtk.Label(label="ms")
-        timing_row.append(self._release_unit_label)
-        panel.append(timing_row)
+        self._release_row = field_row("Release", self._release_spin, unit_label("ms"))
 
-        move_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        move_row.set_halign(Gtk.Align.START)
-        self._move_mode_label = Gtk.Label(label="Mode: REL")
-        move_row.append(self._move_mode_label)
+        self._move_x_spin = Gtk.SpinButton()
+        self._move_x_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=0,
+                lower=-10000,
+                upper=10000,
+                step_increment=1,
+            )
+        )
+        self._move_x_spin.set_digits(0)
+        self._move_x_spin.set_width_chars(8)
+        self._move_x_spin.connect("value-changed", self._on_move_x_changed)
+        self._move_x_row = field_row("X", self._move_x_spin)
 
-        self._move_capture_prefix_label = Gtk.Label(label="")
-        move_row.append(self._move_capture_prefix_label)
-
-        self._move_capture_delay_label = Gtk.Label(label="Capture in:")
-        self._move_capture_delay_label.add_css_class("dim-label")
-        move_row.append(self._move_capture_delay_label)
+        self._move_y_spin = Gtk.SpinButton()
+        self._move_y_spin.set_adjustment(
+            Gtk.Adjustment(
+                value=0,
+                lower=-10000,
+                upper=10000,
+                step_increment=1,
+            )
+        )
+        self._move_y_spin.set_digits(0)
+        self._move_y_spin.set_width_chars(8)
+        self._move_y_spin.connect("value-changed", self._on_move_y_changed)
+        self._move_y_row = field_row("Y", self._move_y_spin)
 
         self._move_capture_delay_spin = Gtk.SpinButton()
         self._move_capture_delay_spin.set_adjustment(
@@ -159,98 +188,77 @@ class EventPropertiesMixin:
         )
         self._move_capture_delay_spin.set_digits(1)
         self._move_capture_delay_spin.set_width_chars(4)
-        move_row.append(self._move_capture_delay_spin)
-
-        self._move_capture_delay_unit_label = Gtk.Label(label="s")
-        move_row.append(self._move_capture_delay_unit_label)
-
+        self._move_capture_delay_unit_label = unit_label("s")
         self._move_capture_btn = Gtk.Button(label="Capture")
         self._move_capture_btn.connect("clicked", self._on_capture_selected_move_clicked)
-        move_row.append(self._move_capture_btn)
-
-        self._move_capture_colon_label = Gtk.Label(label="")
-        move_row.append(self._move_capture_colon_label)
-
-        self._move_x_label = Gtk.Label(label="X:")
-        move_row.append(self._move_x_label)
-        self._move_x_spin = Gtk.SpinButton()
-        self._move_x_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=0,
-                lower=-10000,
-                upper=10000,
-                step_increment=1,
-            )
-        )
-        self._move_x_spin.set_digits(0)
-        self._move_x_spin.set_width_chars(7)
-        self._move_x_spin.connect("value-changed", self._on_move_x_changed)
-        move_row.append(self._move_x_spin)
-        self._move_y_label = Gtk.Label(label="Y:")
-        move_row.append(self._move_y_label)
-        self._move_y_spin = Gtk.SpinButton()
-        self._move_y_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=0,
-                lower=-10000,
-                upper=10000,
-                step_increment=1,
-            )
-        )
-        self._move_y_spin.set_digits(0)
-        self._move_y_spin.set_width_chars(7)
-        self._move_y_spin.connect("value-changed", self._on_move_y_changed)
-        move_row.append(self._move_y_spin)
-
-        self._move_capture_status = Gtk.Label(label="")
-        self._move_capture_status.add_css_class("dim-label")
-        self._move_capture_status.set_halign(Gtk.Align.START)
-        self._move_capture_status.set_hexpand(True)
-        move_row.append(self._move_capture_status)
-
-        panel.append(move_row)
-        self._move_row = move_row
-        self._move_capture_widgets = (
-            self._move_capture_prefix_label,
-            self._move_capture_delay_label,
+        self._move_capture_row = field_row(
+            "",
             self._move_capture_delay_spin,
             self._move_capture_delay_unit_label,
             self._move_capture_btn,
-            self._move_capture_colon_label,
-            self._move_capture_status,
         )
-        self._move_row.set_visible(False)
+        self._move_capture_status = Gtk.Label(label="")
+        self._move_capture_status.add_css_class("dim-label")
+        self._move_capture_status.add_css_class("caption")
+        self._move_capture_status.set_halign(Gtk.Align.START)
+        self._move_capture_status.set_xalign(0.0)
+        self._move_capture_status.set_wrap(True)
+        self._move_capture_status.connect("notify::label", self._on_move_capture_status_changed)
+
+        self._move_capture_widgets = (
+            self._move_capture_row,
+            self._move_capture_btn,
+        )
+        self._move_capture_row.set_visible(False)
+
+        self._build_control_editor()
+        # Primary inputs share one width so spins and dropdowns line up down the column.
+        self._control_width_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        for control in (
+            self._press_spin,
+            self._duration_spin,
+            self._release_spin,
+            self._move_x_spin,
+            self._move_y_spin,
+            self._control_a_spin,
+            self._control_b_spin,
+            self._control_timeout_spin,
+            self._control_exec_mode_dropdown,
+            self._control_macro_call_dropdown,
+            self._control_macro_loop_dropdown,
+            self._control_macro_count_spin,
+            self._control_macro_stop_dropdown,
+        ):
+            self._control_width_group.add_widget(control)
+
+        rows = rows_list(
+            self._press_row,
+            self._duration_row,
+            self._release_row,
+            self._move_x_row,
+            self._move_y_row,
+            *self._control_rows,
+            self._move_capture_row,
+        )
+
+        panel = group_box(header, rows, self._move_capture_status)
+        self._move_x_row.set_visible(False)
+        self._move_y_row.set_visible(False)
         self._update_selected_move_capture_controls(None)
-
-        self._build_control_editor(panel)
-
-        action_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=8,
-        )
-        self._key_info_label = Gtk.Label()
-        self._key_info_label.add_css_class("dim-label")
-        self._key_info_label.set_hexpand(True)
-        self._key_info_label.set_halign(Gtk.Align.START)
-        action_row.append(self._key_info_label)
-
-        change_key_btn = Gtk.Button(label="Change Key…")
-        change_key_btn.add_css_class("flat")
-        change_key_btn.connect("clicked", self._on_change_key_clicked)
-        action_row.append(change_key_btn)
-        self._change_key_btn = change_key_btn
-
-        delete_btn = Gtk.Button(label="Delete Event")
-        delete_btn.add_css_class("destructive-action")
-        delete_btn.add_css_class("flat")
-        delete_btn.connect("clicked", self._on_delete_event)
-        action_row.append(delete_btn)
-
-        panel.append(action_row)
-        panel.append(Gtk.Separator())
 
         self._revealer.set_child(panel)
         return self._revealer
+
+    def _on_move_capture_status_changed(self, label: Gtk.Label, _pspec) -> None:
+        label.set_visible(bool(label.get_label()))
+
+    def _set_key_timing_rows_visible(self, visible: bool) -> None:
+        self._duration_row.set_visible(visible)
+        self._release_row.set_visible(visible)
+
+    def _set_move_rows_visible(self, visible: bool) -> None:
+        self._move_x_row.set_visible(visible)
+        self._move_y_row.set_visible(visible)
 
     def _on_selection_changed(self, selected_obj: object | None) -> None:
         self._edit_child_macro_btn.set_visible(False)
@@ -278,7 +286,7 @@ class EventPropertiesMixin:
             self._show_control_properties(selected_obj)
             return
 
-        self._control_row.set_visible(False)
+        self._set_control_rows_visible(False)
         if isinstance(selected_obj, EditableMove):
             move = selected_obj
             mode_label = "NATURAL" if move.mode == "natural" else move.mode.upper()
@@ -292,22 +300,13 @@ class EventPropertiesMixin:
                 )
             self._key_info_label.set_label(detail)
 
-            self._press_label.set_label("At:")
-            self._duration_text_label.set_visible(False)
-            self._duration_spin.set_visible(False)
-            self._duration_unit_label.set_visible(False)
-            self._release_label.set_visible(False)
-            self._release_spin.set_visible(False)
-            self._release_unit_label.set_visible(False)
+            self._press_row.set_title("At")
+            self._set_key_timing_rows_visible(False)
             self._change_key_btn.set_visible(move.mode == "natural")
             self._change_key_btn.set_label("Modify Move")
-            self._move_row.set_visible(True)
-            self._move_mode_label.set_label(f"Mode: {mode_label}")
-            self._move_x_label.set_label("X:")
-            self._move_y_label.set_label("Y:")
-            self._move_y_label.set_visible(True)
-            self._move_y_spin.set_visible(True)
-            self._move_y_spin.set_sensitive(True)
+            self._move_x_row.set_title("X")
+            self._move_x_row.set_visible(True)
+            self._move_y_row.set_visible(True)
             coord_min, coord_max = (
                 _ABS_MOVE_COORDINATE_RANGE
                 if move.mode in {"abs", "natural"}
@@ -330,16 +329,11 @@ class EventPropertiesMixin:
             title, detail = _describe_passthrough_event(selected_obj)
             self._prop_title.set_label(title)
             self._key_info_label.set_label(detail)
-            self._press_label.set_label("At:")
-            self._duration_text_label.set_visible(False)
-            self._duration_spin.set_visible(False)
-            self._duration_unit_label.set_visible(False)
-            self._release_label.set_visible(False)
-            self._release_spin.set_visible(False)
-            self._release_unit_label.set_visible(False)
+            self._press_row.set_title("At")
+            self._set_key_timing_rows_visible(False)
             self._change_key_btn.set_visible(False)
-            self._move_row.set_visible(False)
-            self._control_row.set_visible(False)
+            self._set_move_rows_visible(False)
+            self._set_control_rows_visible(False)
             self._updating_props = True
             try:
                 self._press_spin.set_value(int(selected_obj.get("t_us", 0)) / 1000)
@@ -359,20 +353,13 @@ class EventPropertiesMixin:
             self._key_info_label.set_label(
                 f"{name} value {ev.value} (code {ev.code}){output_suffix}"
             )
-            self._press_label.set_label("At:")
-            self._duration_text_label.set_visible(False)
-            self._duration_spin.set_visible(False)
-            self._duration_unit_label.set_visible(False)
-            self._release_label.set_visible(False)
-            self._release_spin.set_visible(False)
-            self._release_unit_label.set_visible(False)
+            self._press_row.set_title("At")
+            self._set_key_timing_rows_visible(False)
             self._change_key_btn.set_visible(True)
             self._change_key_btn.set_label("Change Axis...")
-            self._move_row.set_visible(True)
-            self._move_mode_label.set_label("Gamepad Axis:")
-            self._move_x_label.set_label("Value:")
-            self._move_y_label.set_visible(False)
-            self._move_y_spin.set_visible(False)
+            self._move_x_row.set_title("Value")
+            self._move_x_row.set_visible(True)
+            self._move_y_row.set_visible(False)
             if axis_range is None:
                 self._move_x_spin.set_range(-32768, 32767)
             else:
@@ -405,18 +392,13 @@ class EventPropertiesMixin:
                 else " · One hold spanning the duration"
             )
         self._key_info_label.set_label(detail)
-        self._press_label.set_label("Press:")
-        self._duration_text_label.set_visible(True)
-        self._duration_spin.set_visible(True)
-        self._duration_unit_label.set_visible(True)
-        self._release_label.set_visible(True)
-        self._release_spin.set_visible(True)
-        self._release_unit_label.set_visible(True)
+        self._press_row.set_title("Press")
+        self._set_key_timing_rows_visible(True)
         self._change_key_btn.set_visible(True)
         self._change_key_btn.set_label(
             "Edit Rapidfire..." if ev.rapidfire_enabled else "Change Key..."
         )
-        self._move_row.set_visible(False)
+        self._set_move_rows_visible(False)
 
         self._updating_props = True
         try:

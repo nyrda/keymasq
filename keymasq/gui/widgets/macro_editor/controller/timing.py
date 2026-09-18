@@ -2,7 +2,6 @@
 
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 
-import math
 from typing import Literal
 
 import evdev
@@ -239,26 +238,6 @@ class TimelineControllerMixin:
         self._timeline.clear_gap_selection()
         self._refresh_after_timing_edit(recompute_duration=False)
 
-    def _build_time_mapping_with_gap_limits(
-        self,
-        *,
-        scale: float = 1.0,
-        min_gap_us: int = 0,
-        max_gap_us: int | None = None,
-        include_passthrough: bool = True,
-    ) -> dict[int, int]:
-        return timing_ops.build_time_mapping_with_gap_limits(
-            self._events,
-            self._rel_events,
-            self._passthrough_events,
-            self._synthetic_moves,
-            self._control_events,
-            scale=scale,
-            min_gap_us=min_gap_us,
-            max_gap_us=max_gap_us,
-            include_passthrough=include_passthrough,
-        )
-
     def _on_trim_start_clicked(self, _btn) -> None:
         mapping = timing_ops.build_trim_start_mapping(self._all_timestamps())
         if not mapping:
@@ -273,40 +252,23 @@ class TimelineControllerMixin:
         self._timeline.queue_draw()
         self._sync_close_guard()
 
-    def _on_apply_scale_clicked(self, _btn) -> None:
-        if not self._timing_scale_spin:
+    def _on_insert_time_at_cursor_clicked(self, _btn) -> None:
+        """Shift everything at or after the insertion cursor later by the entered time."""
+        if not self._timing_extend_ms_spin:
             return
-        scale = float(self._timing_scale_spin.get_value())
-        if math.isclose(scale, 1.0, rel_tol=1e-6):
+        delta_us = int(float(self._timing_extend_ms_spin.get_value()) * 1000)
+        if delta_us <= 0:
             return
-        mapping = self._build_time_mapping_with_gap_limits(
-            scale=scale,
-            include_passthrough=False,
+        mapping = timing_ops.build_shift_mapping(
+            self._all_timestamps(include_passthrough=True),
+            at_us=self._timeline._insertion_us,
+            delta_us=delta_us,
         )
-        if not mapping:
-            return
-        self._apply_time_map(mapping)
-        self._refresh_after_timing_edit()
-
-    def _on_apply_gap_limits_clicked(self, _btn) -> None:
-        if not self._timing_min_gap_spin or not self._timing_max_gap_spin:
-            return
-
-        min_gap_us = int(float(self._timing_min_gap_spin.get_value()) * 1000)
-        max_gap_us = int(float(self._timing_max_gap_spin.get_value()) * 1000)
-        max_gap: int | None = max_gap_us if max_gap_us > 0 else None
-        if max_gap is not None and max_gap < min_gap_us:
-            max_gap = min_gap_us
-
-        mapping = self._build_time_mapping_with_gap_limits(
-            min_gap_us=min_gap_us,
-            max_gap_us=max_gap,
-            include_passthrough=False,
-        )
-        if not mapping:
-            return
-        self._apply_time_map(mapping)
-        self._refresh_after_timing_edit()
+        # Inserted time always lengthens the macro, so trailing silence survives the shift.
+        self._duration_us = max(self._duration_us, self._timeline._insertion_us) + delta_us
+        if mapping:
+            self._apply_time_map(mapping)
+        self._refresh_after_timing_edit(recompute_duration=False)
 
     def _on_add_time_start_clicked(self, _btn) -> None:
         if not self._timing_extend_ms_spin:
@@ -320,11 +282,11 @@ class TimelineControllerMixin:
             at_us=0,
             delta_us=delta_us,
         )
-        if not mapping:
-            return
-
-        self._apply_time_map(mapping)
-        self._refresh_after_timing_edit()
+        # Keep trailing silence: the macro grows by the inserted time, even when empty.
+        self._duration_us += delta_us
+        if mapping:
+            self._apply_time_map(mapping)
+        self._refresh_after_timing_edit(recompute_duration=False)
 
     def _on_add_time_end_clicked(self, _btn) -> None:
         if not self._timing_extend_ms_spin:
@@ -340,9 +302,9 @@ class TimelineControllerMixin:
         self._sync_close_guard()
 
     def _on_set_total_time_clicked(self, _btn) -> None:
-        if not self._timing_extend_ms_spin:
+        if not self._timing_total_spin:
             return
-        target_us = int(float(self._timing_extend_ms_spin.get_value()) * 1000)
+        target_us = int(float(self._timing_total_spin.get_value()) * 1000)
         if target_us < 0:
             return
 
@@ -352,19 +314,6 @@ class TimelineControllerMixin:
         self._update_canvas_width()
         self._timeline.queue_draw()
         self._sync_close_guard()
-
-    def _on_insert_gap_clicked(self, _btn) -> None:
-        if not self._insert_gap_at_spin or not self._insert_gap_ms_spin:
-            return
-
-        at_us = int(float(self._insert_gap_at_spin.get_value()) * 1000)
-        gap_us = int(float(self._insert_gap_ms_spin.get_value()) * 1000)
-        control = EditableControl(
-            mode="wait",
-            t_us=at_us,
-            duration_us=max(0, gap_us),
-        )
-        self._insert_control_event(control)
 
     def _clear_selection_if_removed(self) -> None:
         selected = self._timeline._selected

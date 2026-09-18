@@ -11,6 +11,12 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
+from keymasq.gui.widgets.macro_editor.panel.rows import (
+    check_row,
+    field_row,
+    group_box,
+    rows_list,
+)
 
 _LOOP_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("none", "Once"),
@@ -80,24 +86,25 @@ class MacroSettingsMixin:
     """Construct and coordinate macro name, loop, and playback settings."""
 
     def _build_name_row(self) -> Gtk.Widget:
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        outer.set_margin_top(8)
-        outer.set_margin_start(8)
-        outer.set_margin_end(8)
-
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        name_label = Gtk.Label(label="Name:")
-        row.append(name_label)
+        title = Gtk.Label(label="Macro")
+        title.add_css_class("heading")
+        title.set_halign(Gtk.Align.START)
+        title.set_hexpand(True)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.append(title)
+        timing_btn = Gtk.Button(label="Timing…")
+        timing_btn.add_css_class("flat")
+        timing_btn.set_valign(Gtk.Align.CENTER)
+        timing_btn.set_tooltip_text("Trim silence, insert empty time, or set the total length")
+        timing_btn.connect("clicked", self._present_timing_dialog)
+        header.append(timing_btn)
 
         self._name_entry = Gtk.Entry()
         self._name_entry.set_text(self._macro_name)
         self._name_entry.set_hexpand(True)
         self._name_entry.connect("changed", lambda _entry: self._sync_close_guard())
-        row.append(self._name_entry)
-        outer.append(row)
+        name_row = field_row("Name", self._name_entry)
 
-        loop_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        loop_row.append(Gtk.Label(label="Loop:"))
         self._macro_loop_mode_combo = _build_option_dropdown(
             _LOOP_MODE_OPTIONS,
             self._macro_loop_mode,
@@ -106,10 +113,8 @@ class MacroSettingsMixin:
             "notify::selected",
             self._on_macro_loop_mode_changed,
         )
-        loop_row.append(self._macro_loop_mode_combo)
+        loop_row = field_row("Loop", self._macro_loop_mode_combo)
 
-        self._macro_loop_count_label = Gtk.Label(label="Count:")
-        loop_row.append(self._macro_loop_count_label)
         self._macro_loop_count_spin = Gtk.SpinButton()
         self._macro_loop_count_spin.set_adjustment(
             Gtk.Adjustment(
@@ -122,123 +127,63 @@ class MacroSettingsMixin:
         self._macro_loop_count_spin.set_digits(0)
         self._macro_loop_count_spin.set_width_chars(6)
         self._macro_loop_count_spin.connect("value-changed", self._on_macro_loop_count_changed)
-        loop_row.append(self._macro_loop_count_spin)
+        self._macro_loop_count_row = field_row("Count", self._macro_loop_count_spin)
 
-        self._macro_loop_finish_check = Gtk.CheckButton(label="Finish current run before stopping")
+        self._macro_loop_finish_check = Gtk.CheckButton()
         self._macro_loop_finish_check.set_active(self._macro_loop_stop_behavior == "finish_run")
-        self._macro_loop_finish_check.set_tooltip_text(
-            "When disabled, release or toggle stop cancels the macro immediately."
-        )
         self._macro_loop_finish_check.connect(
             "toggled",
             self._on_macro_loop_stop_toggled,
         )
-        loop_row.append(self._macro_loop_finish_check)
-        self._macro_pause_check = Gtk.CheckButton(label="Pause on release")
-        self._macro_pause_check.set_active(self._macro_loop_stop_behavior == "pause_run")
-        self._macro_pause_check.set_tooltip_text(
-            "Release held outputs and pause the timeline. Hold the trigger again to resume. "
-            "Active waits, commands, and mouse moves continue. Requires a held trigger."
+        self._macro_loop_finish_row = check_row(
+            "Finish current run before stopping",
+            self._macro_loop_finish_check,
+            tooltip="When disabled, release or toggle stop cancels the macro immediately.",
         )
+        self._macro_pause_check = Gtk.CheckButton()
+        self._macro_pause_check.set_active(self._macro_loop_stop_behavior == "pause_run")
         self._macro_pause_check.connect("toggled", self._on_macro_pause_toggled)
-        loop_row.append(self._macro_pause_check)
-        outer.append(loop_row)
+        self._macro_pause_row = check_row(
+            "Pause on release",
+            self._macro_pause_check,
+            tooltip=(
+                "Release held outputs and pause the timeline. Hold the trigger again to resume. "
+                "Active waits, commands, and mouse moves continue. Requires a held trigger."
+            ),
+        )
         self._macro_pause_timeout = PauseTimeoutControl(self._on_macro_pause_timeout_changed)
         self._macro_pause_timeout.set_timeout(self._macro_pause_timeout_s)
-        outer.append(self._macro_pause_timeout)
 
-        self._exec_summary_label = Gtk.Label()
-        self._exec_summary_label.add_css_class("dim-label")
-        self._exec_summary_label.set_halign(Gtk.Align.START)
-        outer.append(self._exec_summary_label)
-
-        start_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._move_to_start_row = start_row
-        self._macro_move_to_start_check = Gtk.CheckButton(label="Move mouse to:")
-        self._macro_move_to_start_check.set_active(self._macro_move_to_start)
-        self._macro_move_to_start_check.connect("toggled", self._on_macro_move_to_start_toggled)
-        start_row.append(self._macro_move_to_start_check)
-
-        self._macro_start_x_spin = Gtk.SpinButton()
-        self._macro_start_x_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=self._macro_start_x,
-                lower=-100000,
-                upper=100000,
-                step_increment=1,
-            )
-        )
-        self._macro_start_x_spin.set_digits(0)
-        self._macro_start_x_spin.set_width_chars(7)
-        self._macro_start_x_spin.connect("value-changed", self._on_macro_start_pos_changed)
-        start_row.append(self._macro_start_x_spin)
-
-        self._macro_start_y_spin = Gtk.SpinButton()
-        self._macro_start_y_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=self._macro_start_y,
-                lower=-100000,
-                upper=100000,
-                step_increment=1,
-            )
-        )
-        self._macro_start_y_spin.set_digits(0)
-        self._macro_start_y_spin.set_width_chars(7)
-        self._macro_start_y_spin.connect("value-changed", self._on_macro_start_pos_changed)
-        start_row.append(self._macro_start_y_spin)
-
-        start_row.append(Gtk.Label(label="at the start of the macro"))
-        outer.append(start_row)
-
-        capture_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._move_to_start_capture_row = capture_row
-        capture_row.set_margin_start(24)
-
-        if not self._start_position_capture.slurp_available:
-            capture_label = Gtk.Label(label="Capture new position in:")
-            capture_label.add_css_class("dim-label")
-            capture_row.append(capture_label)
-
-        self._macro_capture_delay_spin = Gtk.SpinButton()
-        self._macro_capture_delay_spin.set_adjustment(
-            Gtk.Adjustment(
-                value=self._start_position_capture.delay_seconds,
-                lower=0.2,
-                upper=15.0,
-                step_increment=0.2,
-            )
-        )
-        self._macro_capture_delay_spin.set_digits(1)
-        self._macro_capture_delay_spin.set_width_chars(4)
-        self._macro_capture_delay_spin.set_visible(not self._start_position_capture.slurp_available)
-        capture_row.append(self._macro_capture_delay_spin)
-
-        if not self._start_position_capture.slurp_available:
-            capture_row.append(Gtk.Label(label="s"))
-
-        self._macro_capture_btn = Gtk.Button(label="Capture")
-        self._macro_capture_btn.connect("clicked", self._on_capture_start_position_clicked)
-        capture_row.append(self._macro_capture_btn)
-
-        self._macro_capture_status = Gtk.Label(label="")
-        self._macro_capture_status.add_css_class("dim-label")
-        self._macro_capture_status.set_halign(Gtk.Align.START)
-        self._macro_capture_status.set_hexpand(True)
-        capture_row.append(self._macro_capture_status)
-        outer.append(capture_row)
-
-        self._macro_block_mouse_check = Gtk.CheckButton(
-            label="Block physical mouse movement during playback"
-        )
+        self._macro_block_mouse_check = Gtk.CheckButton()
         self._macro_block_mouse_check.set_active(self._macro_block_mouse_movement)
         self._macro_block_mouse_check.connect(
             "toggled",
             self._on_macro_block_mouse_toggled,
         )
-        outer.append(self._macro_block_mouse_check)
+        block_mouse_row = check_row(
+            "Block physical mouse movement",
+            self._macro_block_mouse_check,
+            tooltip="Suppress movement from the physical mouse while this macro plays.",
+        )
+
+        self._exec_summary_label = Gtk.Label()
+        self._exec_summary_label.add_css_class("dim-label")
+        self._exec_summary_label.add_css_class("caption")
+        self._exec_summary_label.set_halign(Gtk.Align.START)
+        self._exec_summary_label.set_xalign(0.0)
+        summary = self._exec_summary_label
+
+        fields = rows_list(name_row, loop_row, self._macro_loop_count_row)
+        toggles = rows_list(
+            self._macro_loop_finish_row,
+            self._macro_pause_row,
+            self._macro_pause_timeout,
+            block_mouse_row,
+        )
+        toggles.set_margin_top(8)
+        outer = group_box(header, fields, toggles, summary)
 
         self._update_loop_controls()
-        self._update_macro_move_start_controls()
         self._update_exec_summary_label()
         return outer
 
@@ -247,9 +192,6 @@ class MacroSettingsMixin:
         loop_count = self._macro_loop_count
         loop_stop_behavior = self._macro_loop_stop_behavior
         pause_timeout_s = self._macro_pause_timeout_s
-        move_to_start = self._macro_move_to_start
-        start_x = self._macro_start_x
-        start_y = self._macro_start_y
         block_mouse_movement = self._macro_block_mouse_movement
         name = str(self._macro_data.get("name", self._macro_name) or self._macro_name)
         self._name_entry.set_text(name)
@@ -264,12 +206,8 @@ class MacroSettingsMixin:
         self._macro_loop_stop_behavior = loop_stop_behavior
         self._macro_pause_check.set_active(loop_stop_behavior == "pause_run")
         self._macro_pause_timeout.set_timeout(pause_timeout_s)
-        self._macro_move_to_start_check.set_active(move_to_start)
-        self._macro_start_x_spin.set_value(start_x)
-        self._macro_start_y_spin.set_value(start_y)
         self._macro_block_mouse_check.set_active(block_mouse_movement)
         self._update_loop_controls()
-        self._update_macro_move_start_controls()
 
     def _on_macro_loop_mode_changed(
         self,
@@ -313,42 +251,18 @@ class MacroSettingsMixin:
 
     def _update_loop_controls(self) -> None:
         state = loop_control_state(self._macro_loop_mode)
-        self._macro_loop_count_label.set_visible(state.show_count)
+        self._macro_loop_count_row.set_visible(state.show_count)
         self._macro_loop_count_spin.set_visible(state.show_count)
+        self._macro_loop_finish_row.set_visible(state.show_stop_behavior)
         self._macro_loop_finish_check.set_visible(state.show_stop_behavior)
-        self._macro_pause_check.set_visible(self._macro_loop_mode != "toggle")
-        self._macro_pause_timeout.set_visible(
-            self._macro_loop_mode != "toggle" and self._macro_pause_check.get_active()
-        )
+        show_pause = self._macro_loop_mode != "toggle"
+        self._macro_pause_row.set_visible(show_pause)
+        self._macro_pause_check.set_visible(show_pause)
+        self._macro_pause_timeout.set_visible(show_pause and self._macro_pause_check.get_active())
         self._macro_loop_finish_check.set_sensitive(
             self._macro_loop_mode == "toggle" or not self._macro_pause_check.get_active()
         )
 
-    def _on_macro_move_to_start_toggled(self, check: Gtk.CheckButton) -> None:
-        self._macro_move_to_start = check.get_active()
-        self._update_macro_move_start_controls()
-        self._sync_close_guard()
-
-    def _on_macro_start_pos_changed(self, spin: Gtk.SpinButton) -> None:
-        self._macro_start_x = int(self._macro_start_x_spin.get_value())
-        self._macro_start_y = int(self._macro_start_y_spin.get_value())
-        self._sync_close_guard()
-
     def _on_macro_block_mouse_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_block_mouse_movement = check.get_active()
         self._sync_close_guard()
-
-    def _update_macro_move_start_controls(self) -> None:
-        visible = self._macro_has_move_to_start_setting
-        self._move_to_start_row.set_visible(visible)
-        self._move_to_start_capture_row.set_visible(visible)
-        enabled = self._macro_move_to_start
-        self._macro_start_x_spin.set_sensitive(enabled)
-        self._macro_start_y_spin.set_sensitive(enabled)
-        if self._start_position_capture.slurp_available:
-            self._macro_capture_delay_spin.set_sensitive(False)
-        else:
-            self._macro_capture_delay_spin.set_sensitive(
-                enabled and not self._start_position_capture.pending
-            )
-        self._macro_capture_btn.set_sensitive(enabled and not self._start_position_capture.pending)

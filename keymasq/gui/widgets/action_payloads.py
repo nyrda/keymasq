@@ -77,11 +77,6 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
                 _first_value(action_data, "pause_timeout_s", "macro_pause_timeout_s"), 0.0
             ),
         ),
-        macro_move_to_start=bool_value(
-            _first_value(action_data, "move_to_start", "macro_move_to_start")
-        ),
-        macro_start_x=coerce_int(_first_value(action_data, "start_x", "macro_start_x"), 0),
-        macro_start_y=coerce_int(_first_value(action_data, "start_y", "macro_start_y"), 0),
         macro_block_mouse_movement=bool_value(
             _first_value(action_data, "block_mouse_movement", "macro_block_mouse_movement")
         ),

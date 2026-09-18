@@ -55,10 +55,11 @@ appear in separate lanes within the same track. A selected press/release pair
 counts as one action; the event count at the top counts its press and release
 separately. Recorded movement and other raw events can also be selected.
 
-The **insertion cursor** is the dotted vertical line. It marks where Ctrl+V
-will paste and where a Shift+click time selection starts. Click empty timeline
-space or the ruler to place it, or enter an exact time in **Paste at** below
-the timeline. Right-clicking also moves it. It starts at zero in a newly opened
+The **insertion cursor** is the dotted vertical line. It marks where new
+actions are added, where Ctrl+V pastes, and where a Shift+click time selection
+starts. Click empty timeline space or the ruler to place it, or enter an exact
+time in **Insert at** in the inspector while nothing is selected. Right-clicking
+also moves it. It starts at zero in a newly opened
 editor and does not indicate playback progress.
 
 Use **+** and **−** to zoom, or hold Ctrl or Shift while scrolling over the
@@ -68,15 +69,21 @@ near either edge scrolls while you select or move actions.
 
 ## Add and edit actions
 
-Right-click at the desired time. The track you click determines the input
-action offered by the menu:
+With nothing selected, the inspector lists everything that can be added at the
+insertion cursor: **Key**, **Mouse Button**, **Gamepad Button**, **Mouse Move**,
+**Wait**, **Run Command**, **Call Macro**, and **Compositor Action**. Waits,
+commands, and compositor actions are inserted immediately and selected so you
+can finish them in the inspector.
+
+Right-clicking at the desired time offers the same commands. The track you
+click determines the input action in the menu:
 
 | Location | Command |
 |---|---|
 | Keyboard track | **Add Keystroke** |
 | Mouse-button track | **Add Mouse Click** |
 | Gamepad track | **Add Gamepad Button** |
-| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Insert Wait (random)**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
+| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
 
 Choose the key, button, or action in the dialog that opens. A key or mouse-button
 action includes its press and release; you do not need to insert them separately.
@@ -86,11 +93,13 @@ the Ctrl hold begin before C and end after C.
 The gamepad picker also offers axis values. Gamepad events retain the virtual
 or hardware gamepad output chosen in the picker.
 
-Click an action to show its properties below the timeline. For a held key or
-button, edit **Press**, **Duration**, and **Release** in milliseconds. Use
-**Change Key…** to change the input. Other action types show their own timing
-and configuration fields. Properties edit the selected action immediately;
-[saving](#save-and-undo-changes) writes the changes to the macro library.
+Click an action to show its properties in the inspector below the timeline. The
+inspector has two columns: the selected action on the left and the macro's own
+settings on the right. For a held key or button, edit **Press**, **Duration**,
+and **Release** in milliseconds. Use **Change Key…** to change the input. Other
+action types show their own timing and configuration fields. Properties edit
+the selected action immediately; [saving](#save-and-undo-changes) writes the
+changes to the macro library.
 
 ### Rapidfire keys and buttons
 
@@ -121,9 +130,10 @@ clicks should not run after a failed move. See
 
 ### Waits, commands, and macro calls
 
-Insert a fixed wait with **Insert Wait**, or enter minimum and maximum delays
-with **Insert Wait (random)**. Their **W** and **WR** markers stay at a single
-timeline position. Click a marker to change its delay or position.
+Insert a wait with **Wait**. It starts as a fixed pause. Check **Random
+duration** in the inspector to give it minimum and maximum delays instead. The
+**W** and **WR** markers stay at a single timeline position. Click a marker to
+change its delay or position.
 
 ![Wait and random-wait markers on the movement/control track](assets/screenshots/macro_edit_wait_wait_random_markers.png)
 
@@ -156,8 +166,7 @@ Drag empty track space to draw a selection box; Ctrl+drag adds to the current
 selection. The box selects every action it touches, including complete held
 keys, mouse buttons, recorded movement samples, and raw event markers.
 
-Use Ctrl+A or **Edit Selection > Select All** to select every action. Select All
-is not in the right-click menu. Escape clears the selection and gap highlight.
+Use Ctrl+A or **Select All** in the right-click menu to select every action. Escape clears the selection and gap highlight.
 
 ### Select a time span, including silence
 
@@ -195,7 +204,8 @@ its Move operation preserves the same padding and stops the whole range at zero.
 
 ## Copy and paste
 
-Copy with Ctrl+C or **Copy** in Edit Selection or the right-click menu. Ctrl+X
+Copy with Ctrl+C or **Copy** in the right-click menu. The menu only lists
+commands that apply to the current selection. Ctrl+X
 cuts the selection: it copies the actions and removes them without collapsing
 the surrounding time.
 
@@ -240,7 +250,7 @@ their normal text paste behavior.
 Select actions and press **Delete** or **Backspace** to remove them immediately,
 without confirmation. This keeps the surrounding time in place, including
 when the actions were selected using a time span. **Delete Selected Actions**
-in Edit Selection or the right-click menu does the same thing.
+in the right-click menu does the same thing.
 
 To remove time as well, turn on **Erase** and left-drag across the interval on
 any track or the ruler. The red band spans all tracks and shows the duration
@@ -258,16 +268,17 @@ opens the context menu in Erase mode. Undo reverses the whole erase in one step.
 
 ### Adjust selected timing
 
-Select the actions, then choose **Selection Timing…** from Edit Selection or
-the right-click menu.
+Select several actions or a time span. The inspector shows Selection Timing in
+place of the add list. **Selection Timing…** in the right-click menu opens the
+same form at the pointer.
 
 | Tab | What changes |
 |---|---|
 | **Move** | Shift selected actions by an exact number of milliseconds. Negative values move earlier. Holds and spacing stay unchanged. |
-| **Pauses** | Set the positive idle gaps between selected actions. Holds and overlaps stay unchanged. |
+| **Pauses** | Set every positive idle gap between selected actions to one value, or limit each gap to a range so short pauses grow to the minimum and long ones shrink to the maximum. Holds and overlaps stay unchanged. |
 | **Scale** | Scale spacing and key hold durations around the first selected action. 50% makes the section twice as fast; 200% makes it twice as slow. |
 
-![Selection Timing with Scale set to 50 percent for three selected actions](assets/screenshots/macro_edit_selection_timing.png)
+![Selection Timing in the inspector with Scale set to 50 percent](assets/screenshots/macro_edit_selection_timing.png)
 
 Pauses keeps actions connected by overlapping holds together. For example,
 a modifier held across several keys keeps that section intact. Selected
@@ -313,29 +324,24 @@ editor and clears its highlight.
 
 ### Use Timing Tools
 
-The toolbar's **Timing Tools** menu works on the macro's timing independently
-of the current selection. Use Selection Timing when only a group should change.
+The **Timing…** button in the Macro column opens a dialog that changes the
+timeline itself rather than any action. To scale or limit the pauses of the
+whole macro, select all with Ctrl+A and use Selection Timing.
 
 | Tool | What it does |
 |---|---|
-| **Trim Start** | Remove silence before the first event. |
-| **Trim End** | Remove silence after the last event. |
-| **Scale** | Multiply intervals between editable event timestamps, including holds, by a factor. 0.5× is twice as fast. |
-| **Apply Gap Limits** | Clamp intervals between editable event timestamps to the minimum and maximum. A maximum of zero disables the upper limit. This can change hold durations. |
-| **Add at Start** | Shift events later by the entered time, adding leading silence. |
-| **Add at End** | Add trailing silence. |
-| **Total Time** | Set the minimum macro duration, adding or removing trailing silence. It cannot shorten the macro below its last event. |
-| **Insert Wait** | Add a fixed wait at the entered timestamp. |
+| **Trim Start** | Remove silence before the first action. |
+| **Trim End** | Remove silence after the last action. |
+| **Insert time, At Cursor** | Add the entered amount of empty time at the insertion cursor. Everything at or after the cursor moves later. |
+| **Insert time, At Start** | Add leading silence. |
+| **Insert time, At End** | Add trailing silence. |
+| **Total time** | Set the macro's length by adding or removing trailing silence. It cannot end before the last action. |
 
-![Timing Tools with trimming, scaling, gap limits, duration, and wait controls](assets/screenshots/macro_edit_timing_tools.png)
-
-For recorded movement and raw events, use Selection Timing when you need all
-selected samples to participate in scaling. Explicit waits keep their duration
-when the toolbar's Scale changes event timestamps.
+![Timing Tools dialog with trim, insert time, and total time](assets/screenshots/macro_edit_timing_tools.png)
 
 Right-click also offers **Set Startpoint** and **Set Endpoint**. These trim
 actions outside the chosen boundary; Set Startpoint moves the retained section
-to time zero. Use Total Time to adjust trailing silence without trimming actions.
+to time zero. Use Total time to adjust trailing silence without trimming actions.
 
 ## Save and undo changes
 

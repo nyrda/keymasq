@@ -351,10 +351,6 @@ class SaveControllerMixin:
             moves=self._synthetic_moves,
             controls=self._control_events,
             duration_us=self._duration_us,
-            has_move_to_start_setting=self._macro_has_move_to_start_setting,
-            move_to_start=self._macro_move_to_start,
-            start_x=self._macro_start_x,
-            start_y=self._macro_start_y,
             block_mouse_movement=self._macro_block_mouse_movement,
             loop_mode=self._macro_loop_mode,
             loop_count=self._macro_loop_count,
@@ -377,8 +373,5 @@ class SaveControllerMixin:
                 if self._macro_loop_finish_check.get_active()
                 else "cancel_run"
             ),
-            move_to_start=self._macro_move_to_start_check.get_active(),
-            start_x=int(self._macro_start_x_spin.get_value()),
-            start_y=int(self._macro_start_y_spin.get_value()),
             block_mouse_movement=self._macro_block_mouse_check.get_active(),
         )

@@ -57,8 +57,8 @@ def _handle_session_event(window, event: dict) -> None:
         _update_status_from_keymasqd_event(window, connected)
     elif event_type == "profiles_changed":
         profiles._apply_profile_runtime_state(window, event)
-        if not bool(event.get("runtime_only", False)):
-            profiles._queue_profile_reload(window)
+    elif event_type == "config_reloaded":
+        profiles._queue_profile_reload(window)
     elif event_type == "recording_started":
         macro_recording._close_dialogs_for_recording_start(window)
         window._recording_overlay.set_visible(True)

@@ -1060,9 +1060,6 @@ async def test_play_macro_task_helper_uses_existing_loop_stop_behavior_metadata(
         "speed": 1.0,
         "loop_mode": "hold",
         "loop_count": 1,
-        "move_to_start": False,
-        "start_x": 0,
-        "start_y": 0,
         "block_mouse_movement": False,
     }
     await play_macro_task_helper(
@@ -1077,35 +1074,6 @@ async def test_play_macro_task_helper_uses_existing_loop_stop_behavior_metadata(
     )
 
     assert observed == ["cancel_run", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR]
-
-
-@pytest.mark.asyncio
-async def test_play_macro_can_move_mouse_to_saved_start() -> None:
-    manager = DeviceManager()
-    manager.output_state.mouse_uinput = MagicMock()
-
-    await scheduler.play_macro_task(
-        manager,
-        instance_id=1,
-        macro_events=[],
-        macro_name="with_start",
-        replay_mouse_movement=True,
-        replay_mouse_clicks=True,
-        speed=1.0,
-        loop_mode="none",
-        loop_count=1,
-        move_to_start=True,
-        start_x=640,
-        start_y=360,
-        block_mouse_movement=False,
-        deps=device_manager._macro_runtime_deps(),
-    )
-
-    writes = manager.output_state.mouse_uinput.write.call_args_list
-    assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, -2147483648) for c in writes)
-    assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, -2147483648) for c in writes)
-    assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 640) for c in writes)
-    assert any(c.args == (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 360) for c in writes)
 
 
 @pytest.mark.asyncio
@@ -1124,9 +1092,6 @@ async def test_play_macro_block_mouse_movement_uses_suppression_safeguard() -> N
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=True,
         deps=device_manager._macro_runtime_deps(),
         acquire_mouse_inhibit_fn=begin_mouse_rel_suppression,
@@ -1183,9 +1148,6 @@ async def test_play_macro_block_mouse_movement_renews_suppression_for_wait(
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=True,
         deps=device_manager._macro_runtime_deps(),
         control_action_fn=run_control_action,
@@ -1234,9 +1196,6 @@ async def test_play_macro_honors_empty_macro_duration_as_scaled_minimum(
         speed=2.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -1278,9 +1237,6 @@ async def test_play_macro_does_not_double_sleep_when_wait_exceeds_duration(
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -1318,9 +1274,6 @@ async def test_looped_macro_ends_cleanly_when_stored_revision_changes(
             speed=1.0,
             loop_mode="count",
             loop_count=3,
-            move_to_start=False,
-            start_x=0,
-            start_y=0,
             block_mouse_movement=False,
             deps=device_manager._macro_runtime_deps(),
         )
@@ -1515,9 +1468,6 @@ async def test_play_macro_routes_gamepad_event_output_id() -> None:
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -1908,9 +1858,6 @@ async def test_play_macro_handles_macro_moves_and_unusual_device_type_routing() 
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -1994,9 +1941,6 @@ async def test_play_macro_replays_semantic_moves_when_recorded_movement_disabled
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -2059,9 +2003,6 @@ async def test_play_macro_natural_move_can_stop_current_run_on_failure() -> None
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
     )
@@ -2123,9 +2064,6 @@ async def test_play_macro_wait_control_actions_shift_later_deadlines(
         speed=1.0,
         loop_mode="none",
         loop_count=1,
-        move_to_start=False,
-        start_x=0,
-        start_y=0,
         block_mouse_movement=False,
         deps=device_manager._macro_runtime_deps(),
         control_action_fn=fake_run_macro_control_action,
@@ -2166,9 +2104,6 @@ async def test_play_macro_parallel_exec_continues_timeline_and_joins_at_end() ->
             speed=1.0,
             loop_mode="none",
             loop_count=1,
-            move_to_start=False,
-            start_x=0,
-            start_y=0,
             block_mouse_movement=False,
             deps=device_manager._macro_runtime_deps(),
             control_action_fn=run_control_action,

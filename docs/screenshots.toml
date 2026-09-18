@@ -147,7 +147,6 @@ target = "macro_editor_timing_tools"
 macro = "timing_tools_demo"
 window_width = 1220
 window_height = 1080
-crop = [0, 0, 732, 864]
 
 [[shot]]
 name = "macro_edit_time_selection"
@@ -156,7 +155,7 @@ macro = "selection_demo"
 scenario = "time_selection"
 window_width = 1220
 crop_widget = "_editor_content"
-crop_height = 500
+crop_height = 452
 
 [[shot]]
 name = "macro_edit_paste_selection"
@@ -165,7 +164,7 @@ macro = "selection_demo"
 scenario = "paste_selection"
 window_width = 1220
 crop_widget = "_editor_content"
-crop_height = 500
+crop_height = 452
 
 [[shot]]
 name = "macro_edit_selection_timing"
@@ -174,7 +173,6 @@ macro = "selection_demo"
 scenario = "selection_timing"
 window_width = 1220
 crop_widget = "_editor_content"
-crop_height = 500
 
 [[shot]]
 name = "macro_edit_erase_selection"
@@ -183,7 +181,7 @@ macro = "selection_demo"
 scenario = "erase_selection"
 window_width = 1220
 crop_widget = "_editor_content"
-crop_height = 500
+crop_height = 452
 
 [[shot]]
 name = "key_selector_special"

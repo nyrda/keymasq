@@ -887,7 +887,7 @@ def _nav_manager() -> SessionManager:
 
 
 def _watcher_sees(manager: SessionManager, profile_name: str) -> bool:
-    """Whether a watcher event for that profile file would cause a reload."""
+    """Whether the next watcher event for that profile file would cause a reload."""
     info = manager.profiles.get_profile(profile_name)
     assert info is not None
     directory, name = info.path.parent, info.path.name
@@ -901,9 +901,11 @@ async def test_set_profile_enabled_ignores_only_its_own_profile_write(temp_confi
     result = await coordinator.set_profile_enabled(manager, "Nav", True)
 
     assert result["enabled"] is True
-    assert not _watcher_sees(manager, "Nav")
     # An unrelated edit arriving right after the toggle still reloads.
     assert _watcher_sees(manager, "Other")
+    assert not _watcher_sees(manager, "Nav")
+    # The own write is one rename event; a later edit of that file is external.
+    assert _watcher_sees(manager, "Nav")
     manager._schedule_config_reload()
     assert manager.config_reload_timer is not None
     manager.config_reload_timer.cancel()

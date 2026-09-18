@@ -205,7 +205,9 @@ class ConfigWatcherMixin:
         for path, expires_at in list(self._config_own_writes.items()):
             if expires_at < now:
                 del self._config_own_writes[path]
-        return (watched_path / name) in self._config_own_writes
+        # An atomic write reaches its final name as one rename event. Consuming
+        # the entry there keeps a later edit of the same file visible.
+        return self._config_own_writes.pop(watched_path / name, None) is not None
 
     def _schedule_config_reload(self: Any) -> None:
         loop = asyncio.get_running_loop()

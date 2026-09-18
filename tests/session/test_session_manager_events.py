@@ -908,6 +908,7 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.suppress_config_watcher_reload = Mock()  # type: ignore[method-assign]
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
     manager.profile_state.runtime_profile_activations["Nav"] = RuntimeProfileActivation(
         profile_name="Nav",
@@ -929,6 +930,7 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "config_reloaded", "status": "ok"}
     )
+    manager.suppress_config_watcher_reload.assert_called_once_with()  # type: ignore[attr-defined]
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     reevaluate_profiles.assert_awaited_once_with(
         manager,
@@ -949,6 +951,7 @@ async def test_set_profile_enabled_without_change_does_not_broadcast_config_relo
 ) -> None:
     manager = SessionManager()
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.suppress_config_watcher_reload = Mock()  # type: ignore[method-assign]
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
     monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
 
@@ -956,6 +959,7 @@ async def test_set_profile_enabled_without_change_does_not_broadcast_config_relo
 
     assert result["enabled"] is True
     manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+    manager.suppress_config_watcher_reload.assert_not_called()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

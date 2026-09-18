@@ -907,6 +907,7 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
 ) -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
     manager.profile_state.runtime_profile_activations["Nav"] = RuntimeProfileActivation(
         profile_name="Nav",
@@ -925,6 +926,9 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
 
     assert result["status"] == "ok"
     assert result["enabled"] is False
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "config_reloaded", "status": "ok"}
+    )
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     reevaluate_profiles.assert_awaited_once_with(
         manager,
@@ -1430,7 +1434,6 @@ def test_handle_device_grab_status_ready_reapplies_waiting_device(
     reevaluate_profiles.assert_called_once_with(manager, reason=f"grab ready for {hardware_id}")
     profiles_event = {
         "event": "profiles_changed",
-        "runtime_only": True,
         **runtime_status.build_active_profiles_payload(manager),
     }
     manager.broadcast_to_session_clients.assert_has_calls(  # type: ignore[attr-defined]

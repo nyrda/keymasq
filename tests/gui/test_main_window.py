@@ -1153,7 +1153,26 @@ class TestMainWindow:
         tooltip = tab._header_caption_label.get_tooltip_text() or ""
         assert "connected, grabbed" in tooltip
 
-    def test_main_window_profiles_changed_event_reloads_profile_models(
+    def test_main_window_profiles_changed_event_does_not_reload_profile_models(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from keymasq.gui.window.core import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        reloads: list[object] = []
+        monkeypatch.setattr(profiles, "_queue_profile_reload", reloads.append)
+
+        connection._handle_session_event(
+            window,
+            {"event": "profiles_changed", "status": "ok", "active_profiles": ["Gaming"]},
+        )
+
+        assert reloads == []
+        assert window._profile_runtime_state["active_profiles"] == ["Gaming"]
+
+    def test_main_window_config_reloaded_event_reloads_profile_models(
         self,
         temp_config_dir,
         monkeypatch,
@@ -1200,15 +1219,7 @@ class TestMainWindow:
             )
         )
 
-        connection._handle_session_event(
-            window,
-            {
-                "event": "profiles_changed",
-                "status": "ok",
-                "active_profiles": ["Gaming"],
-                "devices": {"2234:6678": {"profiles": ["Gaming"]}},
-            },
-        )
+        connection._handle_session_event(window, {"event": "config_reloaded", "status": "ok"})
 
         tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
         assert "Gaming" in tab._profile_names

@@ -40,13 +40,13 @@ class DefaultOutputMixin:
         self: Any,
         control: ButtonDefinition | AnalogInputDefinition,
     ) -> tuple[str, str] | None:
+        output_id = self.device.default_output
+        if output_id in {None, "passthrough"}:
+            return None
         sources = {
             device.id for device in self.device.evdev_devices if is_controller_interface(device)
         }
         if not sources or control.source and control.source not in sources:
-            return None
-        output_id = self.device.default_output
-        if output_id in {None, "passthrough"}:
             return None
         template = getattr(self, "_default_output_templates", {}).get(output_id)
         if template is None:

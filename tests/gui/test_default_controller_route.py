@@ -68,6 +68,27 @@ def test_hardware_route_descriptions_do_not_depend_on_profile():
     assert "unavailable" in (tab._default_output_description(hardware.buttons[0]) or "")
 
 
+def test_passthrough_output_skips_controller_detection(monkeypatch):
+    from keymasq.gui.widgets.device_tab import default_output
+
+    hardware = HardwareConfig(
+        "1234",
+        "5678",
+        "Controller",
+        [EvdevDevice("/dev/input/event0", DeviceType.GAMEPAD, "pad")],
+        [ButtonDefinition("south", "South", "btn_south", source="pad")],
+    )
+    tab = DeviceTab(hardware, None, demo_mode=True)
+    assert hardware.default_output in {None, "passthrough"}
+
+    def fail(_device):
+        raise AssertionError("controller detection ran for passthrough output")
+
+    monkeypatch.setattr(default_output, "is_controller_interface", fail)
+
+    assert tab._default_output_presentation(hardware.buttons[0]) is None
+
+
 def test_keyboard_does_not_offer_controller_route():
     hardware = HardwareConfig(
         "1234",

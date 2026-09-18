@@ -48,6 +48,8 @@ async def set_profile_enabled(
             reevaluate=None,
         )
 
+    # The enabled flag is persisted config; clients must refresh their profile models.
+    manager.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
     await reevaluate(f"profile {profile_name} enabled={profile.enabled}")
     return {
         "status": "ok",

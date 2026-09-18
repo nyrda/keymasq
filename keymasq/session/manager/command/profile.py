@@ -96,6 +96,7 @@ async def handle_profile_commands(
             )
             return {"status": "error", "message": str(exc)}
         manager.suppress_config_watcher_reload()
+        manager.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
         runtime_state.invalidate_runtime_payload_signatures(manager)
         await coordinator.reevaluate_profiles(manager, reason="session command reevaluate")
         return {"status": "ok"}

@@ -130,8 +130,7 @@ class TimelineSelectionMixin:
         if not self._in_drag and abs(offset_x) < 4 and abs(offset_y) < 4:
             return True
         if self._bulk_drag_kind == "move" and (
-            self._editor._drag_locked
-            or self._bulk_modifiers & Gdk.ModifierType.CONTROL_MASK
+            self._editor._drag_locked or self._bulk_modifiers & Gdk.ModifierType.CONTROL_MASK
         ):
             return True
         if not self._in_drag:
@@ -324,7 +323,17 @@ class TimelineSelectionMixin:
             self._editor._delete_selection()
             return True
         elif keyval == Gdk.KEY_Escape:
+            return self.clear_selection_state()
+        return False
+
+    def clear_selection_state(self) -> bool:
+        """Drop the selection, time range, and gap highlight. Report whether any existed."""
+        had_state = bool(
+            self.selected_items()
+            or self._time_selection is not None
+            or self._selected_gap is not None
+        )
+        if had_state:
             self.set_selection([])
             self.clear_gap_selection()
-            return True
-        return False
+        return had_state

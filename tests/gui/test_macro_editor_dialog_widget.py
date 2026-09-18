@@ -17,6 +17,7 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.model.actions import MappingAction
 from keymasq.gui.widgets.macro_editor import dialog as macro_editor_dialog_module
 from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
+from keymasq.gui.widgets.macro_editor import timing_ops
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -409,9 +410,10 @@ def test_macro_editor_insert_wait_adds_control_without_rewriting_timeline(monkey
 
 def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
-    assert dialog._timing_extend_ms_spin is not None
+    dialog._build_timing_tools()
+    assert dialog._timing_total_spin is not None
 
-    dialog._timing_extend_ms_spin.set_value(5000)
+    dialog._timing_total_spin.set_value(5000)
     dialog._on_set_total_time_clicked(None)
 
     assert dialog._duration_us == 5_000_000
@@ -425,7 +427,7 @@ def test_macro_editor_timing_tools_set_total_time(monkeypatch) -> None:
         release_t_us=6_002_000,
     )
     dialog._events = [event]
-    dialog._timing_extend_ms_spin.set_value(1000)
+    dialog._timing_total_spin.set_value(1000)
     dialog._on_set_total_time_clicked(None)
 
     assert dialog._duration_us == 6_002_000
@@ -1774,10 +1776,16 @@ def test_macro_editor_time_mapping_updates_all_event_kinds(monkeypatch) -> None:
     dialog._synthetic_moves = [move]
     dialog._control_events = [control]
 
-    mapping = dialog._build_time_mapping_with_gap_limits(
+    mapping = timing_ops.build_time_mapping_with_gap_limits(
+        dialog._events,
+        dialog._rel_events,
+        dialog._passthrough_events,
+        dialog._synthetic_moves,
+        dialog._control_events,
         scale=2.0,
         min_gap_us=500,
         max_gap_us=1500,
+        include_passthrough=True,
     )
     dialog._apply_time_map(mapping)
     dialog._recompute_duration()
@@ -2547,3 +2555,30 @@ def test_macro_editor_erase_toggle_updates_mode_and_styling(monkeypatch) -> None
     dialog._erase_btn.set_active(False)
     assert dialog._erase_mode is False
     assert not dialog._erase_btn.has_css_class("destructive-action")
+
+
+def test_macro_editor_compositor_position_preset_offers_capture(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    definition = next(d for d in COMPOSITOR_ACTION_DEFINITIONS if d.compositor_id == "hyprland")
+    preset = next(p for p in definition.presets if p.captures_position)
+    control = EditableControl(
+        mode="compositor_dispatch",
+        t_us=1_000,
+        compositor_id="hyprland",
+        compositor_dispatcher=preset.dispatcher,
+        compositor_args="0 0",
+    )
+    dialog._control_events.append(control)
+    dialog._timeline._selected = control
+    dialog._on_selection_changed(control)
+
+    assert dialog._move_capture_row.get_visible() is True
+    assert dialog._apply_compositor_capture_position(control, 640, 480) is True
+    assert control.compositor_args == "640 480"
+    assert dialog._control_compositor_args_entry.get_text() == "640 480"
+
+    other = next(p for p in definition.presets if not p.captures_position)
+    control.compositor_dispatcher, control.compositor_args = other.dispatcher, other.args
+    dialog._on_selection_changed(control)
+    assert dialog._move_capture_row.get_visible() is False
+

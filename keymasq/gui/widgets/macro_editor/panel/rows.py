@@ -21,7 +21,7 @@ class FieldRow(Gtk.Box):
         subtitle: str = "",
         tooltip: str | None = None,
     ) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=1)
         self.title_label = Gtk.Label(label=title)
         self.title_label.set_halign(Gtk.Align.END)
         self.title_label.set_xalign(1.0)
@@ -37,16 +37,21 @@ class FieldRow(Gtk.Box):
         self.subtitle_label.add_css_class("caption")
         self.subtitle_label.set_halign(Gtk.Align.START)
         self.subtitle_label.set_xalign(0.0)
-        # One ellipsized line: wrapped labels report inconsistent heights inside grids.
-        self.subtitle_label.set_single_line_mode(True)
-        self.subtitle_label.set_ellipsize(Pango.EllipsizeMode.END)
-        # The subtitle sits under the controls so it stays in the control column.
-        grid = Gtk.Grid(row_spacing=1, column_spacing=8)
-        grid.set_hexpand(True)
-        grid.attach(self.title_label, 0, 0, 1, 1)
-        grid.attach(self.controls, 1, 0, 1, 1)
-        grid.attach(self.subtitle_label, 1, 1, 1, 1)
-        self.append(grid)
+        self.subtitle_label.set_wrap(True)
+        self.subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        # Plain boxes, not a grid: a grid measures wrapping labels inconsistently.
+        # The spacer shares the label column so the subtitle starts under the controls.
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        line.append(self.title_label)
+        line.append(self.controls)
+        self.append(line)
+        self._subtitle_spacer = Gtk.Label()
+        self._subtitle_spacer.set_width_chars(LABEL_COLUMN_CHARS)
+        self._subtitle_line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._subtitle_line.append(self._subtitle_spacer)
+        self.subtitle_label.set_hexpand(True)
+        self._subtitle_line.append(self.subtitle_label)
+        self.append(self._subtitle_line)
         self.set_subtitle(subtitle)
         if tooltip:
             self.set_tooltip_text(tooltip)
@@ -67,10 +72,11 @@ class FieldRow(Gtk.Box):
         self.title_label.set_visible(visible)
         if visible == self._in_size_group:
             return
-        if visible:
-            self._size_group.add_widget(self.title_label)
-        else:
-            self._size_group.remove_widget(self.title_label)
+        for member in (self.title_label, self._subtitle_spacer):
+            if visible:
+                self._size_group.add_widget(member)
+            else:
+                self._size_group.remove_widget(member)
         self._in_size_group = visible
 
     def set_title(self, title: str) -> None:
@@ -81,7 +87,7 @@ class FieldRow(Gtk.Box):
 
     def set_subtitle(self, subtitle: str) -> None:
         self.subtitle_label.set_label(subtitle)
-        self.subtitle_label.set_visible(bool(subtitle))
+        self._subtitle_line.set_visible(bool(subtitle))
 
     def get_subtitle(self) -> str:
         return self.subtitle_label.get_label()

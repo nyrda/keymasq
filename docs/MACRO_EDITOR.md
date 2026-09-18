@@ -273,7 +273,7 @@ Select the actions, then choose **Selection Timing…** from the right-click men
 | Tab | What changes |
 |---|---|
 | **Move** | Shift selected actions by an exact number of milliseconds. Negative values move earlier. Holds and spacing stay unchanged. |
-| **Pauses** | Set the positive idle gaps between selected actions. Holds and overlaps stay unchanged. |
+| **Pauses** | Set every positive idle gap between selected actions to one value, or limit each gap to a range so short pauses grow to the minimum and long ones shrink to the maximum. Holds and overlaps stay unchanged. |
 | **Scale** | Scale spacing and key hold durations around the first selected action. 50% makes the section twice as fast; 200% makes it twice as slow. |
 
 ![Selection Timing with Scale set to 50 percent for three selected actions](assets/screenshots/macro_edit_selection_timing.png)
@@ -322,29 +322,24 @@ editor and clears its highlight.
 
 ### Use Timing Tools
 
-The **Timing…** menu in the Macro column works on the macro's timing independently
-of the current selection. Use Selection Timing when only a group should change.
+The **Timing…** button in the Macro column opens a dialog that changes the
+timeline itself rather than any action. To scale or limit the pauses of the
+whole macro, select all with Ctrl+A and use Selection Timing.
 
 | Tool | What it does |
 |---|---|
-| **Trim Start** | Remove silence before the first event. |
-| **Trim End** | Remove silence after the last event. |
-| **Scale** | Multiply intervals between editable event timestamps, including holds, by a factor. 0.5× is twice as fast. |
-| **Apply Gap Limits** | Clamp intervals between editable event timestamps to the minimum and maximum. A maximum of zero disables the upper limit. This can change hold durations. |
-| **Add at Start** | Shift events later by the entered time, adding leading silence. |
-| **Add at End** | Add trailing silence. |
-| **Total Time** | Set the minimum macro duration, adding or removing trailing silence. It cannot shorten the macro below its last event. |
-| **Insert Wait** | Add a fixed wait at the entered timestamp. |
+| **Trim Start** | Remove silence before the first action. |
+| **Trim End** | Remove silence after the last action. |
+| **Insert time, At Cursor** | Add the entered amount of empty time at the insertion cursor. Everything at or after the cursor moves later. |
+| **Insert time, At Start** | Add leading silence. |
+| **Insert time, At End** | Add trailing silence. |
+| **Total time** | Set the macro's length by adding or removing trailing silence. It cannot end before the last action. |
 
 ![Timing Tools with trimming, scaling, gap limits, duration, and wait controls](assets/screenshots/macro_edit_timing_tools.png)
 
-For recorded movement and raw events, use Selection Timing when you need all
-selected samples to participate in scaling. Explicit waits keep their duration
-when the Timing menu's Scale changes event timestamps.
-
 Right-click also offers **Set Startpoint** and **Set Endpoint**. These trim
 actions outside the chosen boundary; Set Startpoint moves the retained section
-to time zero. Use Total Time to adjust trailing silence without trimming actions.
+to time zero. Use Total time to adjust trailing silence without trimming actions.
 
 ## Save and undo changes
 

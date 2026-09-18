@@ -567,6 +567,7 @@ class ControlEditorMixin:
                 f"Dispatch '{dispatcher}{' ' + args if args else ''}' through {definition.title}."
             )
         self._control_compositor_preset_row.set_subtitle(hint)
+        self._update_selected_move_capture_controls(None)
 
     def _on_control_compositor_preset_changed(self, _dropdown: Gtk.DropDown, _param) -> None:
         if self._updating_props:

@@ -237,8 +237,8 @@ class EventPropertiesMixin:
             self._release_row,
             self._move_x_row,
             self._move_y_row,
-            self._move_capture_row,
             *self._control_rows,
+            self._move_capture_row,
         )
 
         panel = group_box(header, rows, self._move_capture_status)

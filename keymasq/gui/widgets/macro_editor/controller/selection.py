@@ -22,7 +22,13 @@ from keymasq.gui.widgets.macro_editor.clipboard import (
 )
 from keymasq.gui.widgets.macro_editor.model import _format_time_us
 from keymasq.gui.widgets.macro_editor.panel.controls import _set_entry_text_if_needed
-from keymasq.gui.widgets.macro_editor.panel.rows import field_row, rows_list, unit_label
+from keymasq.gui.widgets.macro_editor.panel.rows import (
+    FieldRow,
+    check_row,
+    field_row,
+    rows_list,
+    unit_label,
+)
 from keymasq.gui.widgets.macro_editor.timing_ops import TimelineLists, sort_timeline_items
 
 # Keep the fragment alive when its source dialog closes. The native clipboard
@@ -36,6 +42,8 @@ class SelectionControllerMixin:
     def _on_editor_key_pressed(
         self, _controller: Gtk.EventControllerKey, keyval: int, _keycode: int, state: int
     ) -> bool:
+        if keyval == Gdk.KEY_Escape:
+            return self._on_editor_escape(state)
         if (
             not state & Gdk.ModifierType.CONTROL_MASK
             or state & (Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK)
@@ -60,6 +68,27 @@ class SelectionControllerMixin:
             or bool(state & Gdk.ModifierType.SHIFT_MASK)
         )
         return True
+
+    def _on_editor_escape(self, state: int) -> bool:
+        """Escape clears the selection first; with nothing selected it closes the editor.
+
+        Handled here so it behaves the same whichever editor widget has focus. Popovers
+        keep their own Escape, and an unhandled Escape falls through to the dialog close.
+        """
+        modifiers = (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
+        )
+        if state & modifiers or not self._editor_content.is_sensitive():
+            return False
+        root = self._editor_content.get_root()
+        focus = root.get_focus() if root is not None else None
+        while focus is not None and focus is not self._editor_content:
+            if isinstance(focus, Gtk.Popover):
+                return False
+            focus = focus.get_parent()
+        if focus is None:
+            return False
+        return self._timeline.clear_selection_state()
 
     def _timeline_lists(self) -> TimelineLists:
         return (
@@ -504,17 +533,15 @@ class SelectionControllerMixin:
         label_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
         control_group: Gtk.SizeGroup | None = getattr(self, "_control_width_group", None)
 
-        def page(
+        def spin_row(
             name: str,
-            title: str,
             label: str,
             unit: str,
             low: float,
             high: float,
             value: float,
-            help_text: str,
-        ) -> Gtk.Box:
-            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            help_text: str = "",
+        ) -> FieldRow:
             spin = Gtk.SpinButton.new_with_range(low, high, 1)
             spin.set_digits(1 if name == "scale" else 3)
             spin.set_numeric(True)
@@ -527,7 +554,20 @@ class SelectionControllerMixin:
                 control_group.add_widget(spin)
             row = field_row(label, spin, unit_label(unit), subtitle=help_text)
             row.bind_label_column(label_group)
-            content.append(row)
+            return row
+
+        def page(
+            name: str,
+            title: str,
+            label: str,
+            unit: str,
+            low: float,
+            high: float,
+            value: float,
+            help_text: str,
+        ) -> Gtk.Box:
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            content.append(spin_row(name, label, unit, low, high, value, help_text))
             stack.add_titled(content, name, title)
             return content
 
@@ -542,7 +582,7 @@ class SelectionControllerMixin:
             "Negative values move actions earlier.",
         )
         pauses_available = len(selection.pause_sections(selected)) > 1
-        page(
+        pauses_page = page(
             "pauses",
             "Pauses",
             "Pause",
@@ -557,7 +597,34 @@ class SelectionControllerMixin:
             ),
         )
         inputs["pauses"].set_sensitive(pauses_available)
-        page(
+        # Pauses can be set to one value or clamped into a range.
+        pauses_mode = Gtk.DropDown.new_from_strings(["Set all to", "Limit to a range"])
+        if control_group is not None:
+            control_group.add_widget(pauses_mode)
+        pauses_mode_row = field_row("Pauses", pauses_mode)
+        pauses_mode_row.bind_label_column(label_group)
+        pauses_page.prepend(pauses_mode_row)
+        pause_row = pauses_mode_row.get_next_sibling()
+        min_row = spin_row("pauses_min", "Min", "ms", 0, 3_600_000, 0)
+        max_row = spin_row(
+            "pauses_max",
+            "Max",
+            "ms",
+            0,
+            3_600_000,
+            250,
+            "Shorter pauses grow to Min, longer ones shrink to Max. 0 means no maximum.",
+        )
+        for row in (min_row, max_row):
+            row.set_visible(False)
+            pauses_page.append(row)
+        inputs["pauses_min"].set_sensitive(pauses_available)
+        inputs["pauses_max"].set_sensitive(pauses_available)
+
+        def limit_mode() -> bool:
+            return int(pauses_mode.get_selected()) == 1
+
+        scale_page = page(
             "scale",
             "Scale",
             "Duration",
@@ -567,11 +634,15 @@ class SelectionControllerMixin:
             100,
             "50% = twice as fast · 200% = twice as slow",
         )
-        # Kept outside the stack so every page has the same height; shown on the Scale tab.
-        wait_check = Gtk.CheckButton(label="Include wait durations")
-        wait_check.set_tooltip_text("Also scale Wait and Random Wait durations.")
-        wait_check.set_visible(False)
-        box.append(wait_check)
+        # A second row, like the Pauses tab, so the apply button stays put across tabs.
+        wait_check = Gtk.CheckButton()
+        wait_row = check_row(
+            "Include wait durations",
+            wait_check,
+            tooltip="Also scale Wait and Random Wait durations.",
+        )
+        wait_row.bind_label_column(label_group)
+        scale_page.append(wait_row)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_halign(Gtk.Align.END if on_done is not None else Gtk.Align.START)
@@ -605,6 +676,15 @@ class SelectionControllerMixin:
                 delta = selection.move(selected, delta)
                 if time_range is not None:
                     self._timeline._time_selection = (time_range[0] + delta, time_range[1] + delta)
+            elif name == "pauses" and limit_mode():
+                inputs["pauses_min"].update()
+                inputs["pauses_max"].update()
+                max_ms = inputs["pauses_max"].get_value()
+                selection.limit_pauses(
+                    selected,
+                    round(inputs["pauses_min"].get_value() * 1000),
+                    round(max_ms * 1000) if max_ms > 0 else None,
+                )
             elif name == "pauses":
                 selection.set_pauses(selected, round(value * 1000))
             else:
@@ -614,7 +694,8 @@ class SelectionControllerMixin:
                 on_done()
 
         def focus_input() -> None:
-            spin = inputs[stack.get_visible_child_name() or "move"]
+            name = stack.get_visible_child_name() or "move"
+            spin = inputs["pauses_min" if name == "pauses" and limit_mode() else name]
             if not spin.get_sensitive():
                 if cancel is not None:
                     cancel.grab_focus()
@@ -624,14 +705,23 @@ class SelectionControllerMixin:
 
         def changed(_stack, _spec) -> None:
             name = stack.get_visible_child_name() or "move"
-            apply_button.set_label({"move": "Move", "pauses": "Set Pauses", "scale": "Scale"}[name])
+            pauses_label = "Limit Pauses" if limit_mode() else "Set Pauses"
+            apply_button.set_label({"move": "Move", "pauses": pauses_label, "scale": "Scale"}[name])
             apply_button.set_sensitive(name != "pauses" or pauses_available)
-            wait_check.set_visible(name == "scale")
             if on_done is not None:
                 focus_input()
 
+        def pauses_mode_changed(_dropdown, _spec) -> None:
+            limit = limit_mode()
+            if pause_row is not None:
+                pause_row.set_visible(not limit)
+            min_row.set_visible(limit)
+            max_row.set_visible(limit)
+            changed(stack, None)
+
         apply_button.connect("clicked", apply)
         stack.connect("notify::visible-child-name", changed)
+        pauses_mode.connect("notify::selected", pauses_mode_changed)
         return _SelectionTimingUi(
             box=box,
             switcher=switcher,

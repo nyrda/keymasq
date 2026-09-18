@@ -8,7 +8,11 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.gui.widgets.macro_editor.model import EditableMove
+from keymasq.gui.widgets.macro_editor.model import (
+    EditableControl,
+    EditableMove,
+    _describe_compositor_control,
+)
 
 
 class PositionCaptureMixin:
@@ -21,10 +25,12 @@ class PositionCaptureMixin:
         if not hasattr(self, "_move_capture_widgets"):
             return
         move = selected_move
+        selected_obj = self._timeline._selected if hasattr(self, "_timeline") else None
         if move is None:
-            selected_obj = self._timeline._selected if hasattr(self, "_timeline") else None
             move = selected_obj if isinstance(selected_obj, EditableMove) else None
         enabled = bool(move is not None and move.mode in {"abs", "natural"})
+        if not enabled and self._compositor_capture_target() is not None:
+            enabled = True
         for widget in self._move_capture_widgets:
             widget.set_visible(enabled)
         show_delay = enabled and not self._selected_move_capture.slurp_available
@@ -38,7 +44,48 @@ class PositionCaptureMixin:
             )
         self._move_capture_btn.set_sensitive(enabled and not self._selected_move_capture.pending)
 
+    def _compositor_capture_target(self) -> EditableControl | None:
+        """The selected compositor action, when its preset takes a screen position."""
+        selected_obj = self._timeline._selected if hasattr(self, "_timeline") else None
+        if (
+            not isinstance(selected_obj, EditableControl)
+            or selected_obj.mode != "compositor_dispatch"
+            or not hasattr(self, "_control_compositor_preset_dropdown")
+        ):
+            return None
+        preset = self._compositor_selected_preset()
+        if preset is None or not preset.captures_position:
+            return None
+        return selected_obj
+
+    def _apply_compositor_capture_position(self, control: EditableControl, x: int, y: int) -> bool:
+        if control not in self._control_events:
+            self._move_capture_status.set_text("Capture target no longer available")
+            return False
+        control.compositor_args = f"{int(x)} {int(y)}"
+        if self._timeline._selected is control:
+            self._updating_props = True
+            try:
+                self._control_compositor_args_entry.set_text(control.compositor_args)
+            finally:
+                self._updating_props = False
+            self._key_info_label.set_label(_describe_compositor_control(control))
+        self._timeline.queue_draw()
+        self._sync_close_guard()
+        return True
+
     def _on_capture_selected_move_clicked(self, btn: Gtk.Button) -> None:
+        compositor_control = self._compositor_capture_target()
+        if compositor_control is not None:
+            self._selected_move_capture.begin(
+                button=self._move_capture_btn,
+                status_label=self._move_capture_status,
+                delay_seconds=float(self._move_capture_delay_spin.get_value()),
+                apply_position=lambda x, y, control=compositor_control: (
+                    self._apply_compositor_capture_position(control, x, y)
+                ),
+            )
+            return
         selected_obj = self._timeline._selected
         if not isinstance(selected_obj, EditableMove) or selected_obj.mode not in {
             "abs",

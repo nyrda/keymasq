@@ -117,12 +117,9 @@ class MacroEditorMixin(
             request_async=session_request_async,
             on_state_changed=self._update_selected_move_capture_controls,
         )
-        self._timing_scale_spin: Gtk.SpinButton | None = None
-        self._timing_min_gap_spin: Gtk.SpinButton | None = None
-        self._timing_max_gap_spin: Gtk.SpinButton | None = None
         self._timing_extend_ms_spin: Gtk.SpinButton | None = None
-        self._insert_gap_at_spin: Gtk.SpinButton | None = None
-        self._insert_gap_ms_spin: Gtk.SpinButton | None = None
+        self._timing_total_spin: Gtk.SpinButton | None = None
+        self._timing_content: Gtk.Widget | None = None
         self._timeline_scroll_x: float = 0.0
         self._timeline_scroll_max: float = 0.0
         self._timeline_scroll_adj: Gtk.Adjustment | None = None

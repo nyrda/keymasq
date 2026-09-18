@@ -284,7 +284,12 @@ def queue_flushed_key_releases(
     }
     releases: list[InputEventLike] = []
     for event_name in sorted(state.held_source_keys | state.held_source_actions.keys()):
-        code = evdev.ecodes.ecodes.get(event_name.upper())
+        # Codes python-evdev has no name for are tracked by their number.
+        code = (
+            int(event_name)
+            if event_name.isdecimal()
+            else evdev.ecodes.ecodes.get(event_name.upper())
+        )
         if not isinstance(code, int) or code in active_codes or code in pending_releases:
             continue
         releases.append(evdev.InputEvent(0, 0, key_type, code, 0))

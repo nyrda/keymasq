@@ -898,6 +898,26 @@ async def test_set_profile_enabled_does_not_reload_for_its_own_profile_write(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("profile_name", "enabled"), [("Nav", False), ("Missing", True)])
+async def test_set_profile_enabled_keeps_watcher_reloads_when_it_writes_nothing(
+    temp_config_dir,
+    profile_name: str,
+    enabled: bool,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+
+    await coordinator.set_profile_enabled(manager, profile_name, enabled)
+    # Someone else edits a config file right afterwards.
+    manager._schedule_config_reload()
+
+    assert manager.config_reload_timer is not None
+    manager.config_reload_timer.cancel()
+
+
+@pytest.mark.asyncio
 async def test_explicit_profile_disable_cancels_runtime_activation(
     temp_config_dir,
 ) -> None:

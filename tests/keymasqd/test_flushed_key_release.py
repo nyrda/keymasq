@@ -103,6 +103,29 @@ def test_release_already_read_from_the_kernel_is_not_replayed(monkeypatch) -> No
     assert len(device.state.input_event_buffer) == 1
 
 
+def test_release_is_replayed_for_a_key_tracked_by_number() -> None:
+    unnamed_code = 0x2FE
+    assert unnamed_code not in evdev.ecodes.bytype[evdev.ecodes.EV_KEY]
+    device = SimpleNamespace(
+        device=_KeyStateDevice(active=[]),
+        state=SimpleNamespace(
+            input_event_buffer=deque(),
+            analog_deferred_keys=[],
+            held_source_keys={str(unnamed_code)},
+            held_source_actions={},
+            input_event_ready=None,
+        ),
+    )
+
+    grab.queue_flushed_key_releases(device, set())  # type: ignore[arg-type]
+
+    queued = [(int(e.type), int(e.code), int(e.value)) for e in device.state.input_event_buffer]
+    assert queued == [
+        (evdev.ecodes.EV_KEY, unnamed_code, 0),
+        (evdev.ecodes.EV_SYN, 0, 0),
+    ]
+
+
 def test_queue_input_events_wakes_a_parked_reader() -> None:
     ready = asyncio.Event()
     runtime = SimpleNamespace(

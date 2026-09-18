@@ -26,15 +26,18 @@ async def set_profile_enabled(
     reevaluate: ReevaluateProfiles,
 ) -> JsonObject:
     """Persist profile enablement and reconcile its runtime activation state."""
-    # The write below is this session's own and is applied right here; without
-    # this the config watcher would answer it with a redundant full reload.
-    manager.suppress_config_watcher_reload()
+    previous = manager.profiles.get_profile(profile_name)
+    was_enabled = previous.config.enabled if previous is not None else None
     profile = await asyncio.to_thread(
         manager.profiles.set_profile_enabled,
         profile_name,
         enabled,
     )
-    manager.suppress_config_watcher_reload()
+    if was_enabled is not None and profile is not None and was_enabled != profile.enabled:
+        # That write is this session's own and is applied right here; without
+        # this the config watcher would answer it with a redundant full reload.
+        # Calls that wrote nothing must not hide someone else's edit.
+        manager.suppress_config_watcher_reload()
     if profile is None:
         manager.send_notification(
             "Keymasq: Profile Not Found",

@@ -22,6 +22,7 @@ from keymasq.gui.widgets.macro_editor.clipboard import (
 )
 from keymasq.gui.widgets.macro_editor.model import _format_time_us
 from keymasq.gui.widgets.macro_editor.panel.controls import _set_entry_text_if_needed
+from keymasq.gui.widgets.macro_editor.panel.rows import field_row, unit_label
 from keymasq.gui.widgets.macro_editor.timing_ops import TimelineLists, sort_timeline_items
 
 # Keep the fragment alive when its source dialog closes. The native clipboard
@@ -426,7 +427,9 @@ class SelectionControllerMixin:
         box.append(switcher)
         box.append(stack)
         inputs: dict[str, Gtk.SpinButton] = {}
-        unit_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
+        # Labels share one column across the tabs; spins share the inspector's control width.
+        label_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
+        control_group: Gtk.SizeGroup | None = getattr(self, "_control_width_group", None)
 
         def page(
             name: str,
@@ -439,29 +442,19 @@ class SelectionControllerMixin:
             help_text: str,
         ) -> Gtk.Box:
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            text = Gtk.Label(label=label, xalign=0)
-            text.set_hexpand(True)
-            line.append(text)
             spin = Gtk.SpinButton.new_with_range(low, high, 1)
             spin.set_digits(1 if name == "scale" else 3)
             spin.set_numeric(True)
-            spin.set_width_chars(7)
+            spin.set_width_chars(8)
             spin.set_value(value)
             spin.set_tooltip_text(label)
             spin.connect("activate", lambda _s: apply())
             inputs[name] = spin
-            line.append(spin)
-            unit_label = Gtk.Label(label=unit, xalign=0)
-            unit_group.add_widget(unit_label)
-            line.append(unit_label)
-            content.append(line)
-            help_label = Gtk.Label(label=help_text, xalign=0)
-            help_label.set_wrap(True)
-            help_label.set_max_width_chars(60)
-            help_label.add_css_class("dim-label")
-            help_label.add_css_class("caption")
-            content.append(help_label)
+            if control_group is not None:
+                control_group.add_widget(spin)
+            row = field_row(label, spin, unit_label(unit), subtitle=help_text)
+            row.bind_label_column(label_group)
+            content.append(row)
             stack.add_titled(content, name, title)
             return content
 
@@ -479,7 +472,7 @@ class SelectionControllerMixin:
         page(
             "pauses",
             "Pauses",
-            "Pause between actions",
+            "Pause",
             "ms",
             0,
             3_600_000,

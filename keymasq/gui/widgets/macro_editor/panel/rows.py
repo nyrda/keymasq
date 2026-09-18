@@ -8,6 +8,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
+LABEL_COLUMN_CHARS = 10
+
 
 class FieldRow(Gtk.Box):
     """One inspector line: an aligned label column followed by its controls."""
@@ -23,6 +25,8 @@ class FieldRow(Gtk.Box):
         self.title_label = Gtk.Label(label=title)
         self.title_label.set_halign(Gtk.Align.END)
         self.title_label.set_xalign(1.0)
+        # A shared floor keeps the control column at the same x across panels.
+        self.title_label.set_width_chars(LABEL_COLUMN_CHARS)
         self.controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.controls.set_hexpand(True)
         for control in controls:
@@ -33,8 +37,9 @@ class FieldRow(Gtk.Box):
         self.subtitle_label.add_css_class("caption")
         self.subtitle_label.set_halign(Gtk.Align.START)
         self.subtitle_label.set_xalign(0.0)
-        self.subtitle_label.set_wrap(True)
-        self.subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        # One ellipsized line: wrapped labels report inconsistent heights inside grids.
+        self.subtitle_label.set_single_line_mode(True)
+        self.subtitle_label.set_ellipsize(Pango.EllipsizeMode.END)
         # The subtitle sits under the controls so it stays in the control column.
         grid = Gtk.Grid(row_spacing=1, column_spacing=8)
         grid.set_hexpand(True)

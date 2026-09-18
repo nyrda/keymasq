@@ -19,7 +19,7 @@ class PauseTimeoutControl(FieldRow):
         self.seconds.set_width_chars(6)
         self.seconds.set_value(60)
         self.never = Gtk.CheckButton(label="Never")
-        super().__init__("Discard pause after", self.seconds, unit_label("s"), self.never)
+        super().__init__("Discard after", self.seconds, unit_label("s"), self.never)
         self.set_tooltip_text(
             "Time since trigger release. Expiry cancels this macro and its children, "
             "including their active mouse moves and waitable commands. "

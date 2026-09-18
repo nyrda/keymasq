@@ -51,6 +51,7 @@ compositor-aware behavior through three processes:
 
 ## Checks
 
+Xvfb: always use display ≥ :90. Never use `-displayfd` or `xvfb-run -a`. Never touch `/tmp/.X11-unix/X0*` or `/tmp/.X0-lock`.
 Before handing off Python code changes, run `./scripts/check.sh`. It includes
 `ruff`, `basedpyright`, and the relevant pytest suite in the pinned Nix environment.
 `./scripts/check.sh` is the full handoff gate for agent work; nothing beyond it

@@ -7,21 +7,19 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.macro_editor.panel.rows import FieldRow, unit_label
 
-class PauseTimeoutControl(Gtk.Box):
+
+class PauseTimeoutControl(FieldRow):
     def __init__(self, on_changed: Callable[[float], None]) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._on_changed = on_changed
         self._syncing = False
-        self.append(Gtk.Label(label="Discard paused playback after:"))
         self.seconds = Gtk.SpinButton.new_with_range(1, 2_147_483_647, 1)
         self.seconds.set_digits(0)
         self.seconds.set_width_chars(6)
         self.seconds.set_value(60)
-        self.append(self.seconds)
-        self.append(Gtk.Label(label="seconds"))
         self.never = Gtk.CheckButton(label="Never")
-        self.append(self.never)
+        super().__init__("Discard pause after", self.seconds, unit_label("s"), self.never)
         self.set_tooltip_text(
             "Time since trigger release. Expiry cancels this macro and its children, "
             "including their active mouse moves and waitable commands. "

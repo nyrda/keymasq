@@ -28,7 +28,6 @@ class PositionCaptureMixin:
         for widget in self._move_capture_widgets:
             widget.set_visible(enabled)
         show_delay = enabled and not self._selected_move_capture.slurp_available
-        self._move_capture_delay_label.set_visible(show_delay)
         self._move_capture_delay_spin.set_visible(show_delay)
         self._move_capture_delay_unit_label.set_visible(show_delay)
         if self._selected_move_capture.slurp_available:
@@ -38,14 +37,6 @@ class PositionCaptureMixin:
                 enabled and not self._selected_move_capture.pending
             )
         self._move_capture_btn.set_sensitive(enabled and not self._selected_move_capture.pending)
-
-    def _on_capture_start_position_clicked(self, btn: Gtk.Button) -> None:
-        self._start_position_capture.begin(
-            button=self._macro_capture_btn,
-            status_label=self._macro_capture_status,
-            delay_seconds=float(self._macro_capture_delay_spin.get_value()),
-            apply_position=self._apply_start_capture_position,
-        )
 
     def _on_capture_selected_move_clicked(self, btn: Gtk.Button) -> None:
         selected_obj = self._timeline._selected
@@ -62,12 +53,6 @@ class PositionCaptureMixin:
                 self._apply_selected_move_capture_position(move, x, y)
             ),
         )
-
-    def _apply_start_capture_position(self, x: int, y: int) -> None:
-        self._macro_start_x_spin.set_value(x)
-        self._macro_start_y_spin.set_value(y)
-        self._macro_move_to_start_check.set_active(True)
-        self._sync_close_guard()
 
     def _apply_selected_move_capture_position(
         self,
@@ -93,9 +78,6 @@ class PositionCaptureMixin:
         self._sync_close_guard()
         return True
 
-    def _on_slurp_capture_result(self, request_id: int, result) -> None:
-        self._start_position_capture.on_slurp_result(request_id, result)
-
     def _on_move_slurp_capture_result(
         self,
         request_id: int,
@@ -108,10 +90,6 @@ class PositionCaptureMixin:
             )
         self._selected_move_capture.on_slurp_result(request_id, result)
 
-    def _capture_start_position_after_delay(self, request_id: int) -> bool:
-        result = self._start_position_capture.capture_after_delay(request_id)
-        return result
-
     def _capture_selected_move_after_delay(
         self,
         request_id: int,
@@ -122,14 +100,6 @@ class PositionCaptureMixin:
                 self._apply_selected_move_capture_position(move, x, y)
             )
         result = self._selected_move_capture.capture_after_delay(request_id)
-        return result
-
-    def _on_capture_start_position_response(
-        self,
-        request_id: int,
-        response: dict | None,
-    ) -> bool:
-        result = self._start_position_capture.on_response(request_id, response)
         return result
 
     def _on_capture_selected_move_response(
@@ -144,9 +114,6 @@ class PositionCaptureMixin:
             )
         result = self._selected_move_capture.on_response(request_id, response)
         return result
-
-    def _cancel_capture_start_position(self, status_text: str) -> None:
-        self._start_position_capture.cancel(status_text)
 
     def _cancel_capture_selected_move(self, status_text: str) -> None:
         self._selected_move_capture.cancel(status_text)

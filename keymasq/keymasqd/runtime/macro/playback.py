@@ -249,9 +249,6 @@ def _start_macro_instance(
             speed=max(0.01, playback_options.speed),
             loop_mode=normalized_loop,
             loop_count=loop_count,
-            move_to_start=playback_options.move_to_start,
-            start_x=int(playback_options.start_x),
-            start_y=int(playback_options.start_y),
             block_mouse_movement=playback_options.block_mouse_movement,
             deps=deps,
         )

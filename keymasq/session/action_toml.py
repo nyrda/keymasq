@@ -142,9 +142,6 @@ def mapping_action_from_toml(
             macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
                 action_data.get("loop_stop_behavior")
             ),
-            macro_move_to_start=bool(action_data.get("move_to_start", False)),
-            macro_start_x=coerce_int(action_data.get("start_x"), 0),
-            macro_start_y=coerce_int(action_data.get("start_y"), 0),
             macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
         )
 
@@ -296,9 +293,6 @@ def mapping_action_to_toml(
         action_data["loop_count"] = int(action.macro_loop_count)
         action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
         action_data["pause_timeout_s"] = action.macro_pause_timeout_s
-        action_data["move_to_start"] = bool(action.macro_move_to_start)
-        action_data["start_x"] = int(action.macro_start_x)
-        action_data["start_y"] = int(action.macro_start_y)
         action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
     if action.action_type in MACRO_RECORDING_SLOT_ACTION_TYPES and action.macro_recording_slot:
         action_data["recording_slot"] = int(action.macro_recording_slot)

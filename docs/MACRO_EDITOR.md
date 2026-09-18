@@ -86,11 +86,13 @@ the Ctrl hold begin before C and end after C.
 The gamepad picker also offers axis values. Gamepad events retain the virtual
 or hardware gamepad output chosen in the picker.
 
-Click an action to show its properties below the timeline. For a held key or
-button, edit **Press**, **Duration**, and **Release** in milliseconds. Use
-**Change Key…** to change the input. Other action types show their own timing
-and configuration fields. Properties edit the selected action immediately;
-[saving](#save-and-undo-changes) writes the changes to the macro library.
+Click an action to show its properties in the inspector below the timeline. The
+inspector has two columns: the selected action on the left and the macro's own
+settings on the right. For a held key or button, edit **Press**, **Duration**,
+and **Release** in milliseconds. Use **Change Key…** to change the input. Other
+action types show their own timing and configuration fields. Properties edit
+the selected action immediately; [saving](#save-and-undo-changes) writes the
+changes to the macro library.
 
 ### Rapidfire keys and buttons
 

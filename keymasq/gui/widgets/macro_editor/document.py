@@ -30,10 +30,6 @@ class MacroDocument:
     moves: list[EditableMove]
     controls: list[EditableControl]
     duration_us: int
-    has_move_to_start_setting: bool
-    move_to_start: bool
-    start_x: int
-    start_y: int
     block_mouse_movement: bool
     loop_mode: str
     loop_count: int
@@ -61,10 +57,6 @@ class MacroDocument:
             moves=moves,
             controls=controls,
             duration_us=duration_us,
-            has_move_to_start_setting="move_to_start" in source,
-            move_to_start=bool(source.get("move_to_start", False)),
-            start_x=int(source.get("start_x", 0) or 0),
-            start_y=int(source.get("start_y", 0) or 0),
             block_mouse_movement=bool(source.get("block_mouse_movement", False)),
             loop_mode=str(source.get("loop_mode", "none") or "none"),
             loop_count=max(1, int(source.get("loop_count", 1) or 1)),
@@ -79,9 +71,6 @@ class MacroDocument:
         loop_mode: str,
         loop_count: int,
         loop_stop_behavior: str,
-        move_to_start: bool,
-        start_x: int,
-        start_y: int,
         block_mouse_movement: bool,
         pause_timeout_s: float | None = None,
     ) -> dict[str, Any]:
@@ -116,14 +105,9 @@ class MacroDocument:
                 "block_mouse_movement": bool(block_mouse_movement),
             }
         )
-        if self.has_move_to_start_setting:
-            data["move_to_start"] = bool(move_to_start)
-            data["start_x"] = int(start_x)
-            data["start_y"] = int(start_y)
-        else:
-            data.pop("move_to_start", None)
-            data.pop("start_x", None)
-            data.pop("start_y", None)
+        # Legacy move-to-start keys are dropped; the first natural move holds the start position.
+        for legacy_key in ("move_to_start", "start_x", "start_y"):
+            data.pop(legacy_key, None)
 
         if raw_events != self.source.get("events", []):
             for key in (

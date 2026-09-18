@@ -63,7 +63,6 @@ class LifecycleControllerMixin:
         self._dialog_closed = True
         if getattr(self, "_paste_cancellable", None) is not None:
             self._paste_cancellable.cancel()
-        self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self.set_can_close(True)
         self.force_close()

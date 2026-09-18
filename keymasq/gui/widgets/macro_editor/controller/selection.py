@@ -97,7 +97,6 @@ class SelectionControllerMixin:
         }
         self._history_restoring = True
         try:
-            self._cancel_capture_start_position("")
             self._cancel_capture_selected_move("")
             self._apply_macro_state({**payload, **metadata})
             self._timeline.set_selection([])

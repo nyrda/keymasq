@@ -175,13 +175,6 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_loop_count_spin.get_visible() is True
     assert dialog._macro_loop_finish_check.get_active() is False
     assert dialog._macro_loop_finish_check.get_visible() is False
-    assert dialog._macro_move_to_start_check.get_active() is True
-    assert dialog._macro_start_x_spin.get_value_as_int() == 320
-    assert dialog._macro_start_y_spin.get_value_as_int() == 240
-    assert dialog._macro_start_x_spin.get_sensitive() is True
-    assert dialog._macro_start_y_spin.get_sensitive() is True
-    assert dialog._move_to_start_row.get_visible() is True
-    assert dialog._move_to_start_capture_row.get_visible() is True
     assert dialog._macro_block_mouse_check.get_active() is True
 
 
@@ -377,8 +370,8 @@ def test_macro_editor_gamepad_axis_event_is_editable_and_serialized(monkeypatch)
     assert event.release_t_us == 5001
     assert event.value == 123
     assert dialog._prop_title.get_label() == "Left Stick X"
-    assert dialog._move_x_label.get_label() == "Value:"
-    assert dialog._move_y_spin.get_visible() is False
+    assert dialog._move_x_row.get_title() == "Value"
+    assert dialog._move_y_row.get_visible() is False
     assert dialog._change_key_btn.get_label() == "Change Axis..."
     assert dialog._stats_label.get_label() == "0.005s · 1 events"
     assert dialog._build_macro_payload("axis_macro")["events"] == [
@@ -507,26 +500,20 @@ def test_macro_editor_wait_controls_show_edit_fields(monkeypatch) -> None:
     dialog._on_selection_changed(fixed)
 
     assert dialog._press_spin.get_value_as_int() == 12
-    assert dialog._control_ab_row.get_visible() is True
-    assert dialog._control_a_label.get_visible() is True
-    assert dialog._control_a_spin.get_visible() is True
-    assert dialog._control_a_label.get_label() == "Duration (ms):"
+    assert dialog._control_a_row.get_visible() is True
+    assert dialog._control_a_row.get_title() == "Duration"
     assert dialog._control_a_spin.get_value_as_int() == 75
-    assert dialog._control_b_label.get_visible() is False
-    assert dialog._control_b_spin.get_visible() is False
+    assert dialog._control_b_row.get_visible() is False
 
     random_wait = EditableControl(mode="wait_random", t_us=34_000, min_us=10_000, max_us=80_000)
     dialog._timeline._selected = random_wait
     dialog._on_selection_changed(random_wait)
 
     assert dialog._press_spin.get_value_as_int() == 34
-    assert dialog._control_ab_row.get_visible() is True
-    assert dialog._control_a_label.get_visible() is True
-    assert dialog._control_a_spin.get_visible() is True
-    assert dialog._control_b_label.get_visible() is True
-    assert dialog._control_b_spin.get_visible() is True
-    assert dialog._control_a_label.get_label() == "Min (ms):"
-    assert dialog._control_b_label.get_label() == "Max (ms):"
+    assert dialog._control_a_row.get_visible() is True
+    assert dialog._control_b_row.get_visible() is True
+    assert dialog._control_a_row.get_title() == "Min"
+    assert dialog._control_b_row.get_title() == "Max"
     assert dialog._control_a_spin.get_value_as_int() == 10
     assert dialog._control_b_spin.get_value_as_int() == 80
 
@@ -569,7 +556,6 @@ def test_macro_call_selection_shows_called_macro_in_heading(monkeypatch) -> None
     assert dialog._prop_title.get_label() == "Macro Call:"
     assert dialog._prop_context_label.get_label() == "a2"
     assert dialog._prop_context_label.get_visible() is True
-    assert dialog._control_mode_label.get_visible() is False
     assert dialog._key_info_label.get_label() == "Run in parallel, 6 times"
 
 
@@ -743,14 +729,14 @@ def test_macro_editor_exec_mode_switch_updates_event_and_sync_options(monkeypatc
     assert control.mode == "exec_parallel"
     assert dialog._control_exec_mode_dropdown.get_selected() == 1
     assert dialog._control_sync_row.get_visible() is True
-    assert dialog._control_timeout_hint_label.get_visible() is True
+    assert dialog._control_sync_row.get_subtitle() != ""
 
     dialog._control_exec_mode_dropdown.set_selected(2)
 
     assert control.mode == "exec_async"
     assert dialog._control_exec_mode_dropdown.get_selected() == 2
     assert dialog._control_sync_row.get_visible() is False
-    assert dialog._control_timeout_hint_label.get_visible() is False
+    assert dialog._control_sync_row.get_subtitle() == ""
 
     dialog._control_exec_mode_dropdown.set_selected(0)
 
@@ -760,7 +746,7 @@ def test_macro_editor_exec_mode_switch_updates_event_and_sync_options(monkeypatc
     assert dialog._control_sync_row.get_visible() is True
 
 
-def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> None:
+def test_macro_editor_loop_controls(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
 
     _set_dropdown_selected_id(
@@ -771,68 +757,11 @@ def test_macro_editor_loop_and_capture_start_position_controls(monkeypatch) -> N
     dialog._on_macro_loop_mode_changed(dialog._macro_loop_mode_combo)
     dialog._macro_loop_count_spin.set_value(4)
     dialog._on_macro_loop_count_changed(dialog._macro_loop_count_spin)
-    dialog._macro_move_to_start_check.set_active(True)
-    dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
-
-    class _Result:
-        def __init__(self, x: int, y: int) -> None:
-            self.x = x
-            self.y = y
-
-    dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
-    assert dialog._test_slurp.capture_callback is not None
-    dialog._test_slurp.capture_callback(_Result(640, 480))
 
     assert dialog._macro_loop_mode == "count"
     assert dialog._macro_loop_count == 4
     assert dialog._macro_loop_count_spin.get_visible() is True
     assert dialog._macro_loop_finish_check.get_visible() is False
-    assert dialog._macro_start_x_spin.get_sensitive() is True
-    assert dialog._macro_start_y_spin.get_sensitive() is True
-    assert dialog._macro_start_x_spin.get_value_as_int() == 640
-    assert dialog._macro_start_y_spin.get_value_as_int() == 480
-    assert dialog._macro_capture_status.get_text() == "Captured: 640, 480"
-
-    dialog._on_capture_start_position_response(
-        dialog._start_position_capture.request_id,
-        {"status": "error", "message": "Unknown command: get_cursor_position"},
-    )
-
-    assert (
-        dialog._macro_capture_status.get_text() == "Please restart Keymasq Session, then try again"
-    )
-
-
-def test_macro_editor_repeated_start_capture_updates_every_run(monkeypatch) -> None:
-    dialog = _build_macro_dialog(monkeypatch, slurp_available=True)
-    dialog._macro_move_to_start_check.set_active(True)
-    dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
-
-    class _Result:
-        def __init__(self, x: int, y: int) -> None:
-            self.x = x
-            self.y = y
-
-    for x, y in ((100, 200), (300, 400), (500, 600)):
-        dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
-        assert dialog._test_slurp.capture_callback is not None
-        dialog._test_slurp.capture_callback(_Result(x, y))
-        assert dialog._macro_start_x_spin.get_value_as_int() == x
-        assert dialog._macro_start_y_spin.get_value_as_int() == y
-
-
-def test_macro_editor_delayed_start_capture_ignores_stale_response(monkeypatch) -> None:
-    run_stale_response_sequence = _install_delayed_cursor_position_capture_harness(monkeypatch)
-    dialog = _build_macro_dialog(monkeypatch, slurp_available=False)
-    dialog._macro_move_to_start_check.set_active(True)
-    dialog._on_macro_move_to_start_toggled(dialog._macro_move_to_start_check)
-
-    run_stale_response_sequence(
-        lambda: dialog._on_capture_start_position_clicked(dialog._macro_capture_btn)
-    )
-
-    assert dialog._macro_start_x_spin.get_value_as_int() == 300
-    assert dialog._macro_start_y_spin.get_value_as_int() == 400
 
 
 def test_macro_editor_delayed_abs_move_capture_ignores_stale_response(monkeypatch) -> None:
@@ -957,9 +886,6 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     )
     dialog._on_macro_loop_mode_changed(dialog._macro_loop_mode_combo)
     dialog._macro_loop_count_spin.set_value(2)
-    dialog._macro_move_to_start_check.set_active(True)
-    dialog._macro_start_x_spin.set_value(10)
-    dialog._macro_start_y_spin.set_value(20)
     dialog._macro_block_mouse_check.set_active(True)
 
     dialog._on_key_selected_for_insert(
@@ -1637,8 +1563,6 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     }
     assert dialog._on_initial_state_loaded(GuiTaskResult(value=result)) is False
 
-    assert dialog._move_to_start_row.get_visible() is False
-    assert dialog._move_to_start_capture_row.get_visible() is False
     dialog._macro_block_mouse_check.set_active(True)
     assert dialog.get_can_close() is False
 
@@ -1744,8 +1668,6 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
         "count",
     )
     dialog._macro_loop_count_spin.set_value(5)
-    dialog._macro_move_to_start_check.set_active(True)
-    dialog._macro_start_x_spin.set_value(99)
     dialog._macro_loop_finish_check.set_active(True)
 
     dialog._on_undo_all_changes(None)
@@ -1762,8 +1684,6 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert dialog._macro_loop_count_spin.get_value_as_int() == 1
     assert dialog._macro_loop_finish_check.get_visible() is True
     assert dialog._macro_loop_finish_check.get_active() is False
-    assert dialog._macro_move_to_start_check.get_active() is False
-    assert dialog._macro_start_x_spin.get_value_as_int() == 0
 
 
 def test_macro_editor_time_mapping_updates_all_event_kinds(monkeypatch) -> None:

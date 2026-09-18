@@ -460,3 +460,7 @@ button.actions-docs-button {
   opacity: 1;
   border-color: @accent_color;
 }
+
+.macro-inspector-group > label.heading {
+  margin-bottom: 2px;
+}

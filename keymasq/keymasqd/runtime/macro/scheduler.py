@@ -52,9 +52,6 @@ async def play_macro_task(
     speed: float,
     loop_mode: str,
     loop_count: int,
-    move_to_start: bool,
-    start_x: int,
-    start_y: int,
     block_mouse_movement: bool,
     *,
     deps: MacroRuntimeDeps,
@@ -141,9 +138,6 @@ async def play_macro_task(
                     deps=deps,
                 )
             loop_state.begin_iteration()
-            if move_to_start:
-                await manager.set_cursor_position(int(start_x), int(start_y))
-
             now_s = event_loop.time()
             timeline = MacroPlaybackTimeline(
                 now_s,

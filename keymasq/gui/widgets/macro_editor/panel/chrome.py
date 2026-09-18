@@ -28,14 +28,11 @@ class EditorChromeMixin:
 
         root.append(self._build_toolbar())
         root.append(Gtk.Separator())
+
         root.append(self._build_timeline_area())
         root.append(self._build_selection_bar())
         root.append(Gtk.Separator())
-        root.append(self._build_property_panel())
-        root.append(self._build_name_row())
-        footer_spacer = Gtk.Box()
-        footer_spacer.set_vexpand(True)
-        root.append(footer_spacer)
+        root.append(self._build_inspector())
         root.append(self._build_footer())
 
         frame = Gtk.Frame()
@@ -71,6 +68,40 @@ class EditorChromeMixin:
         self._editor_busy_label = busy_label
         self._set_editor_busy(True, "Loading macro…")
         GLib.idle_add(self._update_canvas_width)
+
+    def _build_inspector(self) -> Gtk.Widget:
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        columns.set_homogeneous(True)
+        columns.set_margin_top(10)
+        columns.set_margin_bottom(6)
+        columns.set_margin_start(8)
+        columns.set_margin_end(8)
+
+        selection_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._inspector_placeholder = Gtk.Label(label="Select an action on the timeline to edit it")
+        self._inspector_placeholder.add_css_class("dim-label")
+        self._inspector_placeholder.set_wrap(True)
+        self._inspector_placeholder.set_xalign(0.0)
+        self._inspector_placeholder.set_halign(Gtk.Align.START)
+        selection_column.append(self._inspector_placeholder)
+        selection_column.append(self._build_property_panel())
+        self._revealer.connect("notify::reveal-child", self._on_inspector_reveal_changed)
+        columns.append(selection_column)
+
+        macro_column = self._build_name_row()
+        macro_column.set_valign(Gtk.Align.START)
+        columns.append(macro_column)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.add_css_class("macro-inspector")
+        scrolled.set_child(columns)
+        return scrolled
+
+    def _on_inspector_reveal_changed(self, revealer: Gtk.Revealer, _pspec) -> None:
+        self._inspector_placeholder.set_visible(not revealer.get_reveal_child())
 
     def _set_editor_busy(self, busy: bool, message: str = "") -> None:
         if self._dialog_closed:
@@ -463,7 +494,6 @@ class EditorChromeMixin:
         self._sync_close_guard()
 
     def _revert_to_saved_state(self) -> None:
-        self._cancel_capture_start_position("")
         self._cancel_capture_selected_move("")
         self._apply_macro_state(self._initial_macro_data)
 
@@ -476,7 +506,6 @@ class EditorChromeMixin:
         self._timeline.clear_gap_selection()
 
         self._sync_macro_settings_controls()
-        self._macro_capture_delay_spin.set_value(self._start_position_capture.delay_seconds)
 
         self._auto_zoom_enabled = True
         self._set_timeline_scroll(0.0)

@@ -120,6 +120,7 @@ class MacroEditorMixin(
         self._timing_extend_ms_spin: Gtk.SpinButton | None = None
         self._timing_total_spin: Gtk.SpinButton | None = None
         self._timing_content: Gtk.Widget | None = None
+        self._timing_dialog: Adw.Dialog | None = None
         self._timeline_scroll_x: float = 0.0
         self._timeline_scroll_max: float = 0.0
         self._timeline_scroll_adj: Gtk.Adjustment | None = None

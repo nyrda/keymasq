@@ -274,6 +274,10 @@ class EditorChromeMixin:
         def release_content(closed_dialog: Adw.Dialog) -> None:
             wrapper.remove(content)
             closed_dialog.set_child(None)
+            if self._timing_dialog is closed_dialog:
+                self._timing_dialog = None
+
+        self._timing_dialog = dialog
 
         dialog.connect("closed", release_content)
         dialog.present(self._parent)

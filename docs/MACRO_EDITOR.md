@@ -268,7 +268,9 @@ opens the context menu in Erase mode. Undo reverses the whole erase in one step.
 
 ### Adjust selected timing
 
-Select the actions, then choose **Selection Timing…** from the right-click menu.
+Select several actions or a time span. The inspector shows Selection Timing in
+place of the add list. **Selection Timing…** in the right-click menu opens the
+same form at the pointer.
 
 | Tab | What changes |
 |---|---|
@@ -276,7 +278,7 @@ Select the actions, then choose **Selection Timing…** from the right-click men
 | **Pauses** | Set every positive idle gap between selected actions to one value, or limit each gap to a range so short pauses grow to the minimum and long ones shrink to the maximum. Holds and overlaps stay unchanged. |
 | **Scale** | Scale spacing and key hold durations around the first selected action. 50% makes the section twice as fast; 200% makes it twice as slow. |
 
-![Selection Timing with Scale set to 50 percent for three selected actions](assets/screenshots/macro_edit_selection_timing.png)
+![Selection Timing in the inspector with Scale set to 50 percent](assets/screenshots/macro_edit_selection_timing.png)
 
 Pauses keeps actions connected by overlapping holds together. For example,
 a modifier held across several keys keeps that section intact. Selected
@@ -335,7 +337,7 @@ whole macro, select all with Ctrl+A and use Selection Timing.
 | **Insert time, At End** | Add trailing silence. |
 | **Total time** | Set the macro's length by adding or removing trailing silence. It cannot end before the last action. |
 
-![Timing Tools with trimming, scaling, gap limits, duration, and wait controls](assets/screenshots/macro_edit_timing_tools.png)
+![Timing Tools dialog with trim, insert time, and total time](assets/screenshots/macro_edit_timing_tools.png)
 
 Right-click also offers **Set Startpoint** and **Set Endpoint**. These trim
 actions outside the chosen boundary; Set Startpoint moves the retained section

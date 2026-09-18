@@ -6,6 +6,7 @@ import evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
+from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import (
     resolve_gamepad_axis_code,
     resolve_output_code,
@@ -13,9 +14,11 @@ from keymasq.keymasqd.output_helpers import (
 from keymasq.keymasqd.runtime.adapters import ErrnoModule, identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import classification
+from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import queue_input_events
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     AsyncioModule,
     GrabbedDeviceRuntime,
+    InputEventLike,
     TimeModule,
 )
 
@@ -239,6 +242,8 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
         )
         return
 
+    queue_flushed_key_releases(device_runtime, {int(code) for code in active_codes})
+
     mapping = device_runtime.mapping_getter()
     for code in active_codes:
         event_name = classification.get_key_name(int(code), evdev_mod=evdev)
@@ -255,6 +260,37 @@ def seed_startup_held_actions(device_runtime: GrabbedDeviceRuntime) -> None:
         )
         device_runtime.state.held_source_actions[event_name] = action
         reconcile_startup_held_action(device_runtime, action)
+
+
+def queue_flushed_key_releases(
+    device_runtime: GrabbedDeviceRuntime,
+    active_codes: set[int],
+) -> None:
+    """Replay key releases that the key-state query removed from the input queue.
+
+    EVIOCGKEY drops every unread EV_KEY event so the returned state is current,
+    and leaves the caller to reconcile. With a live reader, a release that was
+    still unread is gone: without this its output would stay held.
+    """
+    if isinstance(device_runtime.device, NativeInputDevice):
+        return
+    state = device_runtime.state
+    key_type = int(evdev.ecodes.EV_KEY)
+    # Releases already read from the kernel reach the pipeline on their own.
+    pending_releases = {
+        int(event.code)
+        for event in (*state.input_event_buffer, *state.analog_deferred_keys)
+        if int(event.type) == key_type and int(event.value) == 0
+    }
+    releases: list[InputEventLike] = []
+    for event_name in sorted(state.held_source_keys | state.held_source_actions.keys()):
+        code = evdev.ecodes.ecodes.get(event_name.upper())
+        if not isinstance(code, int) or code in active_codes or code in pending_releases:
+            continue
+        releases.append(evdev.InputEvent(0, 0, key_type, code, 0))
+    if releases:
+        releases.append(evdev.InputEvent(0, 0, int(evdev.ecodes.EV_SYN), 0, 0))
+        queue_input_events(device_runtime, releases)
 
 
 def reconcile_startup_held_action(

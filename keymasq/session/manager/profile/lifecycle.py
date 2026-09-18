@@ -26,11 +26,15 @@ async def set_profile_enabled(
     reevaluate: ReevaluateProfiles,
 ) -> JsonObject:
     """Persist profile enablement and reconcile its runtime activation state."""
+    # The write below is this session's own and is applied right here; without
+    # this the config watcher would answer it with a redundant full reload.
+    manager.suppress_config_watcher_reload()
     profile = await asyncio.to_thread(
         manager.profiles.set_profile_enabled,
         profile_name,
         enabled,
     )
+    manager.suppress_config_watcher_reload()
     if profile is None:
         manager.send_notification(
             "Keymasq: Profile Not Found",

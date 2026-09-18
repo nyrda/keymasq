@@ -878,6 +878,26 @@ async def test_lifetime_profile_enable_rolls_back_when_daemon_rejects_tracking(
 
 
 @pytest.mark.asyncio
+async def test_set_profile_enabled_does_not_reload_for_its_own_profile_write(
+    temp_config_dir,
+) -> None:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    manager.running = True
+    manager.reload_profiles = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    result = await coordinator.set_profile_enabled(manager, "Nav", True)
+    # The watcher reports the session's own write right after it lands.
+    manager._schedule_config_reload()
+
+    assert result["enabled"] is True
+    assert manager.config_reload_timer is None
+    manager._run_scheduled_config_reload()
+    manager.reload_profiles.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_explicit_profile_disable_cancels_runtime_activation(
     temp_config_dir,
 ) -> None:

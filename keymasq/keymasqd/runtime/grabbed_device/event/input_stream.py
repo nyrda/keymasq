@@ -1,7 +1,7 @@
 """Read without python-evdev's private batch buffer, so recovery can drain input."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.runtime.grabbed_device.types import GrabbedDeviceRuntime, InputEventLike
@@ -23,6 +23,7 @@ async def read_events(runtime: GrabbedDeviceRuntime) -> AsyncIterator[InputEvent
     readable = asyncio.Event()
     fd = device.fileno()
     loop.add_reader(fd, readable.set)
+    runtime.state.input_event_ready = readable
     try:
         while runtime.running:
             if runtime.state.input_event_buffer:
@@ -38,4 +39,15 @@ async def read_events(runtime: GrabbedDeviceRuntime) -> AsyncIterator[InputEvent
             else:
                 yield event
     finally:
+        runtime.state.input_event_ready = None
         loop.remove_reader(fd)
+
+
+def queue_input_events(runtime: GrabbedDeviceRuntime, events: Sequence[InputEventLike]) -> None:
+    """Hand events to the reader so they run through the pipeline in order."""
+    if not events:
+        return
+    runtime.state.input_event_buffer.extend(events)
+    ready = runtime.state.input_event_ready
+    if ready is not None:
+        ready.set()

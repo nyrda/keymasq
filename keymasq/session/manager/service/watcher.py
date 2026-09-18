@@ -150,8 +150,9 @@ class ConfigWatcherMixin:
 
         should_reload = False
         offset = 0
+        moved_from: dict[int, str] = {}
         while offset + INOTIFY_EVENT_STRUCT.size <= len(data):
-            wd, mask, _cookie, name_len = INOTIFY_EVENT_STRUCT.unpack_from(data, offset)
+            wd, mask, cookie, name_len = INOTIFY_EVENT_STRUCT.unpack_from(data, offset)
             offset += INOTIFY_EVENT_STRUCT.size
             raw_name = data[offset : offset + name_len]
             offset += name_len
@@ -160,6 +161,12 @@ class ConfigWatcherMixin:
             if mask & IN_IGNORED:
                 self.config_watch_watches.pop(wd, None)
             if watched_path is None:
+                continue
+            if mask & IN_MOVED_FROM:
+                moved_from[cookie] = name
+            if self._config_watch_event_is_own_write(
+                watched_path, name, mask, moved_from.get(cookie)
+            ):
                 continue
             if self._config_watch_event_is_relevant(watched_path, name, mask):
                 should_reload = True
@@ -183,6 +190,42 @@ class ConfigWatcherMixin:
         if name:
             return name.endswith(".toml")
         return bool(mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB))
+
+    def expect_own_config_write(self: Any, path: Path) -> None:
+        """Ignore watcher events for one file this session is about to write.
+
+        Unlike ``suppress_config_watcher_reload`` this leaves a pending reload
+        and every other file alone, so someone else's edit is never dropped.
+        """
+        loop = asyncio.get_running_loop()
+        self._config_own_writes[path] = loop.time() + CONFIG_RELOAD_EXPLICIT_COALESCE_S
+
+    def forget_own_config_write(self: Any, path: Path) -> None:
+        self._config_own_writes.pop(path, None)
+
+    def _config_watch_event_is_own_write(
+        self: Any,
+        watched_path: Path,
+        name: str,
+        mask: int,
+        moved_from_name: str | None,
+    ) -> bool:
+        if not name or not self._config_own_writes:
+            return False
+        # The session writes a sibling temporary file and renames it into place
+        # (write_config_atomically). Only that rename is its own; any other
+        # event on the file is someone else's and must not use up the entry.
+        if not mask & IN_MOVED_TO or moved_from_name is None:
+            return False
+        if not moved_from_name.startswith(f".{name}."):
+            return False
+        now = asyncio.get_running_loop().time()
+        for path, expires_at in list(self._config_own_writes.items()):
+            if expires_at < now:
+                del self._config_own_writes[path]
+        # An atomic write reaches its final name as one rename event. Consuming
+        # the entry there keeps a later edit of the same file visible.
+        return self._config_own_writes.pop(watched_path / name, None) is not None
 
     def _schedule_config_reload(self: Any) -> None:
         loop = asyncio.get_running_loop()

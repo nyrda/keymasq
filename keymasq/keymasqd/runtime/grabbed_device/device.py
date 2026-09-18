@@ -621,7 +621,7 @@ class GrabbedDevice:
                     self.state.superkey_machines.pop(name, None)
 
                 machine.retire_when_idle(forget_machine)
-        grab.seed_startup_held_actions(self)
+        grab.request_key_state_reconcile(self)
         await update_touchpad_fuzz(self)
 
     async def reset_superkeys(self) -> None:

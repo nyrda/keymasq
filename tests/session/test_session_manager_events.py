@@ -15,6 +15,7 @@ from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager.common import device_name_for_hardware
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator, runtime_state, runtime_status
+from keymasq.session.manager.service.watcher import IN_MOVED_TO
 from keymasq.session.manager.state import ExecBinding, RuntimeProfileActivation
 
 
@@ -868,6 +869,110 @@ async def test_lifetime_profile_enable_rolls_back_when_daemon_rejects_tracking(
     assert manager.profiles.get_profile("Nav").config.enabled is False
 
 
+def _nav_manager() -> SessionManager:
+    manager = SessionManager()
+    manager.client.send_command = AsyncMock(return_value=SimpleNamespace(status="ok", data={}))
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=False, is_permanent=True))
+    manager.profiles.save_profile(ProfileConfig(name="Other", enabled=False, is_permanent=True))
+    return manager
+
+
+def _watcher_sees(manager: SessionManager, profile_name: str) -> bool:
+    """Whether the next watcher event for that profile file would cause a reload."""
+    info = manager.profiles.get_profile(profile_name)
+    assert info is not None
+    directory, name = info.path.parent, info.path.name
+    return not manager._config_watch_event_is_own_write(
+        directory, name, IN_MOVED_TO, f".{name}.tmp1234"
+    )
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_ignores_only_its_own_profile_write(temp_config_dir) -> None:
+    manager = _nav_manager()
+
+    result = await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert result["enabled"] is True
+    # An unrelated edit arriving right after the toggle still reloads.
+    assert _watcher_sees(manager, "Other")
+    assert not _watcher_sees(manager, "Nav")
+    # The own write is one rename event; a later edit of that file is external.
+    assert _watcher_sees(manager, "Nav")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mask", "moved_from_name"),
+    [
+        (0x00000008, None),  # IN_CLOSE_WRITE: an editor saving in place
+        (0x00000080, None),  # IN_MOVED_TO without a visible source
+        (0x00000080, "Nav.toml.bak"),  # IN_MOVED_TO from someone else's file
+    ],
+)
+async def test_external_event_does_not_use_up_the_own_write_entry(
+    temp_config_dir, mask: int, moved_from_name: str | None
+) -> None:
+    manager = _nav_manager()
+    info = manager.profiles.get_profile("Nav")
+    assert info is not None
+    manager.expect_own_config_write(info.path)
+
+    external = manager._config_watch_event_is_own_write(
+        info.path.parent, info.path.name, mask, moved_from_name
+    )
+
+    assert external is False
+    assert not _watcher_sees(manager, "Nav")
+    manager._schedule_config_reload()
+    assert manager.config_reload_timer is not None
+    manager.config_reload_timer.cancel()
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_keeps_an_unrelated_pending_reload(temp_config_dir) -> None:
+    manager = _nav_manager()
+    manager._schedule_config_reload()
+    pending = manager.config_reload_timer
+    assert pending is not None
+
+    await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert manager.config_reload_timer is pending
+    assert not pending.cancelled()
+    pending.cancel()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("profile_name", "enabled"), [("Nav", False), ("Missing", True)])
+async def test_set_profile_enabled_ignores_nothing_when_it_writes_nothing(
+    temp_config_dir,
+    profile_name: str,
+    enabled: bool,
+) -> None:
+    manager = _nav_manager()
+
+    await coordinator.set_profile_enabled(manager, profile_name, enabled)
+
+    assert _watcher_sees(manager, "Nav")
+
+
+@pytest.mark.asyncio
+async def test_set_profile_enabled_ignores_nothing_when_the_write_fails(
+    temp_config_dir, monkeypatch
+) -> None:
+    manager = _nav_manager()
+    monkeypatch.setattr(
+        manager.profiles, "set_profile_enabled", Mock(side_effect=OSError("disk full"))
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert _watcher_sees(manager, "Nav")
+
+
 @pytest.mark.asyncio
 async def test_explicit_profile_disable_cancels_runtime_activation(
     temp_config_dir,
@@ -930,7 +1035,8 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "config_reloaded", "status": "ok"}
     )
-    manager.suppress_config_watcher_reload.assert_called_once_with()  # type: ignore[attr-defined]
+    # The own write is matched per file; a blanket suppress would drop external edits.
+    manager.suppress_config_watcher_reload.assert_not_called()  # type: ignore[attr-defined]
     assert "Nav" not in manager.profile_state.runtime_profile_activations
     reevaluate_profiles.assert_awaited_once_with(
         manager,

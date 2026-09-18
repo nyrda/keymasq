@@ -27,12 +27,26 @@ async def set_profile_enabled(
 ) -> JsonObject:
     """Persist profile enablement and reconcile its runtime activation state."""
     previous = manager.profiles.get_profile(profile_name)
+    if previous is not None:
+        # The write below is this session's own and is applied right here. Tell
+        # the config watcher about that one file, so it neither answers with a
+        # redundant full reload nor drops anyone else's edit.
+        manager.expect_own_config_write(previous.path)
     previous_enabled = previous.config.enabled if previous is not None else None
-    profile = await asyncio.to_thread(
-        manager.profiles.set_profile_enabled,
-        profile_name,
-        enabled,
-    )
+    try:
+        profile = await asyncio.to_thread(
+            manager.profiles.set_profile_enabled,
+            profile_name,
+            enabled,
+        )
+    except BaseException:
+        if previous is not None:
+            manager.forget_own_config_write(previous.path)
+        raise
+    if previous is not None and (profile is None or previous_enabled == profile.enabled):
+        # Nothing was written, so an edit to this file is someone else's.
+        manager.forget_own_config_write(previous.path)
+
     if profile is None:
         manager.send_notification(
             "Keymasq: Profile Not Found",
@@ -52,8 +66,6 @@ async def set_profile_enabled(
 
     if previous_enabled != profile.enabled:
         # The enabled flag is persisted config; clients must refresh their profile models.
-        # The in-memory profile is already current, so skip the watcher reload for our write.
-        manager.suppress_config_watcher_reload()
         manager.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
     await reevaluate(f"profile {profile_name} enabled={profile.enabled}")
     return {

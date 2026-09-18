@@ -844,7 +844,6 @@ def _broadcast_profiles_changed(manager: "SessionManager") -> None:
     manager.broadcast_to_session_clients(
         {
             "event": "profiles_changed",
-            "runtime_only": True,
             **runtime_status.build_active_profiles_payload(manager),
         }
     )

@@ -26,6 +26,8 @@ async def set_profile_enabled(
     reevaluate: ReevaluateProfiles,
 ) -> JsonObject:
     """Persist profile enablement and reconcile its runtime activation state."""
+    previous = manager.profiles.get_profile(profile_name)
+    previous_enabled = previous.config.enabled if previous is not None else None
     profile = await asyncio.to_thread(
         manager.profiles.set_profile_enabled,
         profile_name,
@@ -48,6 +50,11 @@ async def set_profile_enabled(
             reevaluate=None,
         )
 
+    if previous_enabled != profile.enabled:
+        # The enabled flag is persisted config; clients must refresh their profile models.
+        # The in-memory profile is already current, so skip the watcher reload for our write.
+        manager.suppress_config_watcher_reload()
+        manager.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
     await reevaluate(f"profile {profile_name} enabled={profile.enabled}")
     return {
         "status": "ok",

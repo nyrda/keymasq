@@ -853,6 +853,50 @@ class TestDeviceManagerHelpers:
         assert manager.grabbed_devices == {}
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("bulk", [True, False])
+    async def test_cancelled_release_still_restores_already_released_sources(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        bulk: bool,
+    ) -> None:
+        restored: list[str] = []
+
+        class _Device:
+            def __init__(self, path: str, *, cancel: bool = False) -> None:
+                self.path = path
+                self.cancel = cancel
+
+            async def stop_event_loop(self) -> None:
+                pass
+
+            async def release(self, *, restore_source: bool = True) -> None:
+                if self.cancel:
+                    raise asyncio.CancelledError()
+
+            async def restore_hidden_source(self) -> None:
+                restored.append(self.path)
+
+        gamepad = _Device("/dev/input/event22")
+        stuck = _Device("/dev/input/event23", cancel=True)
+        manager = DeviceManager()
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+
+        manager.grabbed_devices = {"045e:02a1": [gamepad, stuck]}
+
+        with pytest.raises(asyncio.CancelledError):
+            if bulk:
+                await manager.release_all_devices()
+            else:
+                await release.release_device_unlocked(
+                    manager, "045e:02a1", log=logging.getLogger("test")
+                )
+
+        assert restored == ["/dev/input/event22"]
+        assert [device for devices in manager.grabbed_devices.values() for device in devices] == [
+            stuck
+        ]
+
+    @pytest.mark.asyncio
     async def test_grab_device_waits_for_udev_to_grant_probe_access(
         self,
         monkeypatch: pytest.MonkeyPatch,

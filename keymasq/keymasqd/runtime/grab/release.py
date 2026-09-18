@@ -53,6 +53,16 @@ def hardware_release_decision(
     return HardwareReleaseDecision("release")
 
 
+async def run_source_policy(steps: list[SourcePolicyStep]) -> None:
+    """Drain queued source-hiding steps; each runs once even if a caller retries."""
+    while steps:
+        step = steps.pop(0)
+        try:
+            await step()
+        except Exception:
+            log.exception("Source hiding policy step failed during release")
+
+
 async def release_device_unlocked(
     manager: GrabManager,
     hardware_id: str,
@@ -102,6 +112,10 @@ async def release_device_unlocked(
         except asyncio.CancelledError:
             unreleased.extend(devices[index:])
             manager.grabbed_devices[hardware_id] = unreleased
+            # Handles closed so far are no longer tracked; restore their
+            # sources now or they stay hidden until the next reconcile.
+            if deferred_source_policy is None:
+                await run_source_policy(policy_steps)
             raise
         except Exception as exc:
             failures.append(exc)
@@ -119,8 +133,7 @@ async def release_device_unlocked(
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
     if deferred_source_policy is None:
-        for step in policy_steps:
-            await step()
+        await run_source_policy(policy_steps)
     if failures:
         raise failures[0]
     log.info("Released device %s", hardware_id)
@@ -417,14 +430,16 @@ async def release_all_devices(
         # source-hiding job is awaited, or a slow gamepad restore would leave a
         # keyboard or mouse grabbed and unread.
         source_policy: list[SourcePolicyStep] = []
-        for hardware_id in list(hardware_ids):
-            await attempt(
-                f"releasing {hardware_id}",
-                lambda hardware_id=hardware_id: release_device_unlocked(
-                    manager, hardware_id, log=log, deferred_source_policy=source_policy
-                ),
-            )
-        for step in source_policy:
-            await attempt("restoring source hiding policy", step)
+        try:
+            for hardware_id in list(hardware_ids):
+                await attempt(
+                    f"releasing {hardware_id}",
+                    lambda hardware_id=hardware_id: release_device_unlocked(
+                        manager, hardware_id, log=log, deferred_source_policy=source_policy
+                    ),
+                )
+        finally:
+            # Also on cancellation: released handles must not stay hidden.
+            await run_source_policy(source_policy)
         if errors:
             raise errors[0]

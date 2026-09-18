@@ -897,6 +897,59 @@ class TestDeviceManagerHelpers:
         ]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("bulk", [True, False])
+    async def test_release_cancelled_during_restore_still_restores_every_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        bulk: bool,
+    ) -> None:
+        restored: list[str] = []
+        first_restore_started = asyncio.Event()
+        restore_barrier = asyncio.Event()
+
+        class _Device:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            async def stop_event_loop(self) -> None:
+                pass
+
+            async def release(self, *, restore_source: bool = True) -> None:
+                pass
+
+            async def restore_hidden_source(self) -> None:
+                first_restore_started.set()
+                await restore_barrier.wait()
+                restored.append(self.path)
+
+        manager = DeviceManager()
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+        manager.grabbed_devices = {
+            "045e:02a1": [_Device("/dev/input/event22"), _Device("/dev/input/event23")]
+        }
+
+        async def run_release() -> None:
+            if bulk:
+                await manager.release_all_devices()
+            else:
+                await release.release_device_unlocked(
+                    manager, "045e:02a1", log=logging.getLogger("test")
+                )
+
+        release_task = asyncio.create_task(run_release())
+        await first_restore_started.wait()
+        release_task.cancel()
+        await asyncio.sleep(0)
+        assert not release_task.done()
+
+        restore_barrier.set()
+        with pytest.raises(asyncio.CancelledError):
+            await release_task
+
+        assert restored == ["/dev/input/event22", "/dev/input/event23"]
+        assert manager.grabbed_devices == {}
+
+    @pytest.mark.asyncio
     async def test_grab_device_waits_for_udev_to_grant_probe_access(
         self,
         monkeypatch: pytest.MonkeyPatch,

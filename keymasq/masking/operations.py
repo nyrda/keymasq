@@ -33,7 +33,9 @@ MAX_REQUEST = 65536
 MAX_TRIGGER_NODES = 64
 # The daemon waits 15s for a named-node job and 30s for a subsystem one (see
 # keymasqd/runtime/source_hiding.py). udevadm must give up first, leaving room
-# for the unit and helper start, so the daemon always reads a real result.
+# for the unit and helper start, so the daemon normally reads a real result.
+# A job that outlives the daemon's wait is harmless: a trigger only replays
+# the flag files, which stay the source of truth.
 NODE_TRIGGER_TIMEOUT_S = 8.0
 SUBSYSTEM_TRIGGER_TIMEOUT_S = 20.0
 log = logging.getLogger("keymasq.masking")

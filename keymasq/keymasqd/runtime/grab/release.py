@@ -53,14 +53,34 @@ def hardware_release_decision(
     return HardwareReleaseDecision("release")
 
 
-async def run_source_policy(steps: list[SourcePolicyStep]) -> None:
-    """Drain queued source-hiding steps; each runs once even if a caller retries."""
+async def _drain_source_policy(steps: list[SourcePolicyStep]) -> None:
     while steps:
         step = steps.pop(0)
         try:
             await step()
         except Exception:
             log.exception("Source hiding policy step failed during release")
+
+
+async def run_source_policy(steps: list[SourcePolicyStep]) -> None:
+    """Drain queued source-hiding steps; each runs once even if a caller retries.
+
+    The devices behind these steps are already untracked, so nothing can
+    rebuild a dropped step. A cancelled caller therefore waits for the bounded
+    drain to finish before the cancellation propagates.
+    """
+    if not steps:
+        return
+    drain = asyncio.ensure_future(_drain_source_policy(steps))
+    try:
+        await asyncio.shield(drain)
+    except asyncio.CancelledError:
+        while not drain.done():
+            try:
+                await asyncio.shield(drain)
+            except asyncio.CancelledError:
+                continue
+        raise
 
 
 async def release_device_unlocked(

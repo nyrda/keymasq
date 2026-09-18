@@ -51,6 +51,7 @@ def binding(node: int = 7) -> Binding:
 def test_ultimate2_captured_report_and_normalization():
     device = binding()
     assert device.driver.matches(device.endpoint)
+    assert Ultimate2Driver().matches(replace(device.endpoint, bus=5))
     values = device.driver.decode(CAPTURED_REPORT)
     assert values == {
         "accel_x": -445,
@@ -90,7 +91,7 @@ def test_ultimate2_does_not_claim_other_modes_or_interfaces():
     endpoint = binding().endpoint
     for altered in (
         replace(endpoint, product=0x6013),
-        replace(endpoint, bus=5),
+        replace(endpoint, bus=0),
         replace(endpoint, vendor=0x057E, product=0x2009),
         replace(endpoint, descriptor=b"\x06\xa0\xff"),
     ):

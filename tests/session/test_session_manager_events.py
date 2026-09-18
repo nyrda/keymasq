@@ -943,6 +943,22 @@ async def test_set_profile_enabled_cancels_runtime_activation_with_single_reeval
 
 
 @pytest.mark.asyncio
+async def test_set_profile_enabled_without_change_does_not_broadcast_config_reloaded(
+    temp_config_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.profiles.save_profile(ProfileConfig(name="Nav", enabled=True, is_permanent=True))
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", AsyncMock())
+
+    result = await coordinator.set_profile_enabled(manager, "Nav", True)
+
+    assert result["enabled"] is True
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
 async def test_lifetime_profile_toggle_creates_and_cancels_runtime_activation(
     temp_config_dir,
 ) -> None:

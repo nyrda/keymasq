@@ -27,7 +27,10 @@ async def read_events(runtime: GrabbedDeviceRuntime) -> AsyncIterator[InputEvent
     runtime.state.input_event_ready = readable
     try:
         while runtime.running:
-            if runtime.state.key_state_reconcile_requested:
+            if (
+                runtime.state.key_state_reconcile_requested
+                and not runtime.state.input_event_buffer
+            ):
                 # The previous event is fully processed here, so nothing is in flight.
                 runtime.state.key_state_reconcile_requested = False
                 reconcile_live_key_state(runtime)

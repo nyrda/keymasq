@@ -310,6 +310,11 @@ def reconcile_live_key_state(device_runtime: GrabbedDeviceRuntime) -> None:
         if event is None:
             break
         state.input_event_buffer.append(event)
+    else:
+        # Still not empty: querying now would discard what is left. The reader
+        # asks again once it has delivered this batch.
+        state.key_state_reconcile_requested = True
+        return
 
     active_codes = read_active_key_codes(device_runtime)
     if active_codes is None:

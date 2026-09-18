@@ -15,6 +15,7 @@ from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.manager.common import device_name_for_hardware
 from keymasq.session.manager.core import SessionManager
 from keymasq.session.manager.profile import coordinator, runtime_state, runtime_status
+from keymasq.session.manager.service.watcher import IN_MOVED_TO
 from keymasq.session.manager.state import ExecBinding, RuntimeProfileActivation
 
 
@@ -891,7 +892,9 @@ def _watcher_sees(manager: SessionManager, profile_name: str) -> bool:
     info = manager.profiles.get_profile(profile_name)
     assert info is not None
     directory, name = info.path.parent, info.path.name
-    return not manager._config_watch_event_is_own_write(directory, name)
+    return not manager._config_watch_event_is_own_write(
+        directory, name, IN_MOVED_TO, f".{name}.tmp1234"
+    )
 
 
 @pytest.mark.asyncio
@@ -906,6 +909,31 @@ async def test_set_profile_enabled_ignores_only_its_own_profile_write(temp_confi
     assert not _watcher_sees(manager, "Nav")
     # The own write is one rename event; a later edit of that file is external.
     assert _watcher_sees(manager, "Nav")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mask", "moved_from_name"),
+    [
+        (0x00000008, None),  # IN_CLOSE_WRITE: an editor saving in place
+        (0x00000080, None),  # IN_MOVED_TO without a visible source
+        (0x00000080, "Nav.toml.bak"),  # IN_MOVED_TO from someone else's file
+    ],
+)
+async def test_external_event_does_not_use_up_the_own_write_entry(
+    temp_config_dir, mask: int, moved_from_name: str | None
+) -> None:
+    manager = _nav_manager()
+    info = manager.profiles.get_profile("Nav")
+    assert info is not None
+    manager.expect_own_config_write(info.path)
+
+    external = manager._config_watch_event_is_own_write(
+        info.path.parent, info.path.name, mask, moved_from_name
+    )
+
+    assert external is False
+    assert not _watcher_sees(manager, "Nav")
     manager._schedule_config_reload()
     assert manager.config_reload_timer is not None
     manager.config_reload_timer.cancel()

@@ -161,6 +161,54 @@ def test_lost_press_after_a_buffered_release_is_replayed_after_it(kernel_device)
     ]
 
 
+def test_query_is_deferred_while_the_queue_cannot_be_drained(kernel_device, monkeypatch) -> None:
+    monkeypatch.setattr(grab, "KEY_STATE_DRAIN_LIMIT", 2)
+    kernel_device.down = {KEY_L}
+    runtime = _runtime(kernel_device, held={"key_l"})
+    kernel_device.feed(
+        _event(REL, evdev.ecodes.REL_X, 1),
+        _event(SYN, 0, 0),
+        _event(KEY, KEY_L, 0),
+        _event(SYN, 0, 0),
+    )
+
+    grab.reconcile_live_key_state(runtime)  # type: ignore[arg-type]
+
+    # Querying now would discard the unread release, so it has to wait.
+    assert kernel_device.queries == 0
+    assert runtime.state.key_state_reconcile_requested
+    assert len(runtime.state.input_event_buffer) == 2
+
+
+@pytest.mark.asyncio
+async def test_reader_delivers_a_deferred_batch_before_it_queries_again(
+    kernel_device, monkeypatch
+) -> None:
+    monkeypatch.setattr(grab, "KEY_STATE_DRAIN_LIMIT", 2)
+    kernel_device.down = {KEY_L}
+    runtime = _runtime(kernel_device, held={"key_l"})
+    reader = read_events(runtime)  # type: ignore[arg-type]
+    kernel_device.feed(_event(SYN, 0, 0))
+    await asyncio.wait_for(anext(reader), timeout=1.0)
+    kernel_device.feed(
+        _event(REL, evdev.ecodes.REL_X, 1),
+        _event(SYN, 0, 0),
+        _event(KEY, KEY_L, 0),
+        _event(SYN, 0, 0),
+    )
+    grab.request_key_state_reconcile(runtime)  # type: ignore[arg-type]
+
+    delivered = [await asyncio.wait_for(anext(reader), timeout=1.0) for _ in range(4)]
+    await reader.aclose()
+
+    assert _triples(delivered) == [
+        (REL, evdev.ecodes.REL_X, 1),
+        (SYN, 0, 0),
+        (KEY, KEY_L, 0),
+        (SYN, 0, 0),
+    ]
+
+
 def test_single_buffered_release_is_not_repaired_twice(kernel_device) -> None:
     runtime = _runtime(kernel_device, held={"key_l"})
     runtime.state.input_event_buffer.append(_event(KEY, KEY_L, 0))

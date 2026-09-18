@@ -10,8 +10,14 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
+from keymasq.gui.widgets.compositor_actions.core import (
+    CompositorActionDefinition,
+    CompositorActionPreset,
+)
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
+    _control_to_compositor_action,
     _describe_compositor_control,
 )
 from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
@@ -98,8 +104,8 @@ def control_editor_state(
             else _CONTROL_DETAILS.get(control.mode, control.mode.replace("_", " ").title())
         ),
         mode_label=control.mode.replace("_", " ").title(),
-        change_label="Change Action..." if is_compositor else "Change Key...",
-        show_change=is_compositor,
+        change_label="Change Key...",
+        show_change=False,
     )
     if control.mode == "wait":
         return replace(
@@ -291,6 +297,34 @@ class ControlEditorMixin:
             self._on_control_macro_pause_timeout_changed
         )
 
+        # Compositor actions edit inline: preset, then the raw dispatcher fields.
+        self._control_compositor_definition: CompositorActionDefinition | None = None
+        # The action whose preset was explicitly set to Custom; rebuilds keep that choice.
+        self._control_compositor_custom_for: EditableControl | None = None
+        self._control_compositor_preset_dropdown = Gtk.DropDown.new_from_strings([])
+        self._control_compositor_preset_dropdown.connect(
+            "notify::selected", self._on_control_compositor_preset_changed
+        )
+        self._control_compositor_preset_row = field_row(
+            "Preset", self._control_compositor_preset_dropdown
+        )
+        self._control_compositor_dispatcher_entry = Gtk.Entry()
+        self._control_compositor_dispatcher_entry.set_hexpand(True)
+        self._control_compositor_dispatcher_entry.connect(
+            "changed", self._on_control_compositor_field_changed
+        )
+        self._control_compositor_dispatcher_row = field_row(
+            "Dispatcher", self._control_compositor_dispatcher_entry
+        )
+        self._control_compositor_args_entry = Gtk.Entry()
+        self._control_compositor_args_entry.set_hexpand(True)
+        self._control_compositor_args_entry.connect(
+            "changed", self._on_control_compositor_field_changed
+        )
+        self._control_compositor_args_row = field_row(
+            "Arguments", self._control_compositor_args_entry
+        )
+
         self._control_rows: tuple[Gtk.Widget, ...] = (
             self._control_a_row,
             self._control_b_row,
@@ -306,6 +340,9 @@ class ControlEditorMixin:
             self._control_macro_clicks_row,
             self._control_macro_stop_row,
             self._control_macro_pause_timeout,
+            self._control_compositor_preset_row,
+            self._control_compositor_dispatcher_row,
+            self._control_compositor_args_row,
         )
         self._set_control_rows_visible(False)
 
@@ -357,6 +394,7 @@ class ControlEditorMixin:
                 state.show_macro and state.macro_loop_stop_behavior == "pause_run"
             )
             self._control_macro_pause_timeout.set_timeout(state.macro_pause_timeout_s)
+            self._show_compositor_rows(control if control.mode == "compositor_dispatch" else None)
             if state.show_command:
                 _set_entry_text_if_needed(self._control_cmd_entry, state.command)
             if state.show_exec_mode:
@@ -397,6 +435,166 @@ class ControlEditorMixin:
         finally:
             self._updating_props = False
         self._update_selected_move_capture_controls(None)
+
+    # -- compositor actions -------------------------------------------------
+
+    def _compositor_definition_for(
+        self, control: EditableControl
+    ) -> CompositorActionDefinition | None:
+        action = _control_to_compositor_action(control)
+        compositor_id = str(control.compositor_id or "").strip()
+        for definition in COMPOSITOR_ACTION_DEFINITIONS:
+            if compositor_id and definition.compositor_id == compositor_id:
+                return definition
+        status = self._resolve_compositor_action_status()
+        if not status.get("compositor_dispatch_available"):
+            status = self._resolve_compositor_action_status(self._compositor_action_status)
+        for definition in COMPOSITOR_ACTION_DEFINITIONS:
+            if definition.is_available(action, dict(status)):
+                return definition
+        return None
+
+    def _compositor_selected_preset(self) -> CompositorActionPreset | None:
+        definition = self._control_compositor_definition
+        if definition is None:
+            return None
+        index = int(self._control_compositor_preset_dropdown.get_selected())
+        if definition.allow_custom:
+            index -= 1
+        if index < 0 or index >= len(definition.presets):
+            return None
+        return definition.presets[index]
+
+    def _show_compositor_rows(self, control: EditableControl | None) -> None:
+        """Fill the compositor rows for ``control``; hide them when it is ``None``."""
+        preset_row = self._control_compositor_preset_row
+        dispatcher_row = self._control_compositor_dispatcher_row
+        args_row = self._control_compositor_args_row
+        if control is None:
+            self._control_compositor_definition = None
+            self._control_compositor_custom_for = None
+            for row in (preset_row, dispatcher_row, args_row):
+                row.set_visible(False)
+            return
+        if self._control_compositor_custom_for is not control:
+            self._control_compositor_custom_for = None
+
+        definition = self._compositor_definition_for(control)
+        self._control_compositor_definition = definition
+        dispatcher = str(control.compositor_dispatcher or "")
+        args = str(control.compositor_args or "")
+        _set_entry_text_if_needed(self._control_compositor_dispatcher_entry, dispatcher)
+        _set_entry_text_if_needed(self._control_compositor_args_entry, args)
+        self._control_compositor_dispatcher_entry.set_placeholder_text(
+            definition.dispatcher_placeholder if definition is not None else "dispatcher"
+        )
+        self._control_compositor_args_entry.set_placeholder_text(
+            definition.args_placeholder if definition is not None else ""
+        )
+        if definition is None:
+            # Unknown compositor: expose the raw fields so the action stays editable.
+            preset_row.set_visible(False)
+            for entry in (
+                self._control_compositor_dispatcher_entry,
+                self._control_compositor_args_entry,
+            ):
+                entry.set_editable(True)
+            dispatcher_row.set_visible(True)
+            dispatcher_row.set_subtitle("")
+            args_row.set_visible(True)
+            return
+
+        labels = (["Custom"] if definition.allow_custom else []) + [
+            preset.label for preset in definition.presets
+        ]
+        model = self._control_compositor_preset_dropdown.get_model()
+        if (
+            not isinstance(model, Gtk.StringList)
+            or [model.get_string(i) for i in range(model.get_n_items())] != labels
+        ):
+            self._control_compositor_preset_dropdown.set_model(Gtk.StringList.new(labels))
+        selected = 0
+        keep_custom = definition.allow_custom and self._control_compositor_custom_for is control
+        for index, preset in enumerate(definition.presets):
+            if keep_custom or preset.dispatcher != dispatcher:
+                continue
+            if preset.args != args and not preset.captures_position:
+                continue
+            selected = index + 1 if definition.allow_custom else index
+            break
+        self._control_compositor_preset_dropdown.set_selected(selected)
+        for entry in (
+            self._control_compositor_dispatcher_entry,
+            self._control_compositor_args_entry,
+        ):
+            entry.set_editable(definition.allow_custom)
+        preset_row.set_visible(True)
+        self._update_compositor_row_state()
+
+    def _update_compositor_row_state(self) -> None:
+        definition = self._control_compositor_definition
+        if definition is None:
+            return
+        preset = self._compositor_selected_preset()
+        show_raw = definition.show_fields_for_presets or preset is None
+        self._control_compositor_dispatcher_row.set_visible(show_raw)
+        self._control_compositor_args_row.set_visible(
+            (definition.args_visible and show_raw)
+            or (preset is not None and preset.captures_position)
+        )
+        dispatcher = self._control_compositor_dispatcher_entry.get_text().strip()
+        args = self._control_compositor_args_entry.get_text().strip()
+        if preset is not None:
+            hint = preset.hint
+        elif not dispatcher:
+            hint = "Choose a preset or enter a dispatcher manually."
+        elif not definition.args_visible:
+            hint = f"Dispatch this Lua expression through {definition.title}."
+        else:
+            hint = (
+                f"Dispatch '{dispatcher}{' ' + args if args else ''}' through {definition.title}."
+            )
+        self._control_compositor_preset_row.set_subtitle(hint)
+
+    def _on_control_compositor_preset_changed(self, _dropdown: Gtk.DropDown, _param) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if (
+            not isinstance(selected_obj, EditableControl)
+            or selected_obj.mode != "compositor_dispatch"
+        ):
+            return
+        preset = self._compositor_selected_preset()
+        if preset is None:
+            # Custom keeps the current fields and simply exposes them for editing.
+            self._control_compositor_custom_for = selected_obj
+            self._update_compositor_row_state()
+            self._control_compositor_dispatcher_entry.grab_focus()
+            return
+        self._control_compositor_custom_for = None
+        selected_obj.compositor_dispatcher = preset.dispatcher
+        selected_obj.compositor_args = preset.args
+        self._refresh_after_control_change(selected_obj)
+
+    def _on_control_compositor_field_changed(self, _entry: Gtk.Entry) -> None:
+        if self._updating_props:
+            return
+        selected_obj = self._timeline._selected
+        if (
+            not isinstance(selected_obj, EditableControl)
+            or selected_obj.mode != "compositor_dispatch"
+        ):
+            return
+        # Like the command entry, avoid rebuilding the panel so typing keeps focus.
+        selected_obj.compositor_dispatcher = (
+            self._control_compositor_dispatcher_entry.get_text().strip()
+        )
+        selected_obj.compositor_args = self._control_compositor_args_entry.get_text().strip()
+        self._key_info_label.set_label(_describe_compositor_control(selected_obj))
+        self._update_compositor_row_state()
+        self._timeline.queue_draw()
+        self._sync_close_guard()
 
     def _refresh_after_control_change(self, control: EditableControl) -> None:
         self._control_events.sort(key=lambda c: c.t_us)

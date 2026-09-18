@@ -1220,7 +1220,7 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
 
             def _insert_compositor(_b, _t=t_us, _p=popover):
                 _p.popdown()
-                self._editor._present_compositor_action_dialog(default_t_us=_t)
+                self._editor._insert_compositor_action(default_t_us=_t)
 
             compositor_btn.connect("clicked", _insert_compositor)
             box.append(compositor_btn)

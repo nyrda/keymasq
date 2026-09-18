@@ -121,8 +121,7 @@ def test_control_editor_state_resolves_compositor_action() -> None:
     )
 
     assert state.title == "Compositor Action"
-    assert state.show_change is True
-    assert state.change_label == "Change Action..."
+    assert state.show_change is False
     assert "workspace" in state.detail
 
 

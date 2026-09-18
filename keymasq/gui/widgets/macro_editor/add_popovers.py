@@ -11,6 +11,7 @@ from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.gui.widgets.compositor_actions import build_compositor_action_pages
+from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -18,6 +19,12 @@ from keymasq.gui.widgets.macro_editor.model import (
     _apply_mapping_action_to_move,
     _control_to_compositor_action,
     _move_to_mapping_action,
+)
+from keymasq.gui.widgets.macro_editor.panel.rows import (
+    check_row,
+    field_row,
+    rows_list,
+    unit_label,
 )
 
 
@@ -204,6 +211,29 @@ class MacroEditorAddPopoversMixin:
         else:
             self._refresh_after_control_change(target)
 
+    def _insert_compositor_action(self, default_t_us: int | None = None) -> None:
+        """Insert a compositor action at ``default_t_us`` and edit it in the inspector."""
+        status = self._resolve_compositor_action_status()
+        if not status.get("compositor_dispatch_available"):
+            status = self._resolve_compositor_action_status(self._compositor_action_status)
+        definition = next(
+            (d for d in COMPOSITOR_ACTION_DEFINITIONS if d.is_available(None, dict(status))),
+            None,
+        )
+        if definition is None:
+            # No compositor listener: the picker dialog explains why.
+            self._present_compositor_action_dialog(default_t_us=default_t_us)
+            return
+        first = definition.presets[0] if definition.presets else None
+        control = EditableControl(
+            mode="compositor_dispatch",
+            t_us=max(0, int(default_t_us or 0)),
+            compositor_id=definition.compositor_id,
+            compositor_dispatcher=first.dispatcher if first is not None else "",
+            compositor_args=first.args if first is not None else "",
+        )
+        self._insert_control_event(control)
+
     def _present_compositor_action_dialog(
         self,
         default_t_us: int | None = None,
@@ -218,17 +248,17 @@ class MacroEditorAddPopoversMixin:
         box.set_margin_start(12)
         box.set_margin_end(12)
 
-        at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        at_row.append(Gtk.Label(label="At (ms):"))
-        at_value_us = control.t_us if control is not None else (default_t_us or 0)
         at_spin = Gtk.SpinButton()
         at_spin.set_adjustment(
-            Gtk.Adjustment(value=at_value_us / 1000, lower=0, upper=3600000, step_increment=1)
+            Gtk.Adjustment(
+                value=(default_t_us or 0) / 1000, lower=0, upper=3600000, step_increment=1
+            )
         )
         at_spin.set_digits(0)
         at_spin.set_width_chars(8)
-        at_row.append(at_spin)
-        box.append(at_row)
+        if control is None:
+            # When editing, the inspector's own At row already owns the time.
+            box.append(rows_list(field_row("At", at_spin, unit_label("ms"))))
 
         current_action = _control_to_compositor_action(control) if control is not None else None
 
@@ -237,7 +267,8 @@ class MacroEditorAddPopoversMixin:
             if not dispatcher:
                 return
             target = control or EditableControl(mode="compositor_dispatch", t_us=0)
-            target.t_us = max(0, int(at_spin.get_value() * 1000))
+            if control is None:
+                target.t_us = max(0, int(at_spin.get_value() * 1000))
             target.compositor_id = str(action.compositor_id or "")
             target.compositor_dispatcher = dispatcher
             target.compositor_args = str(action.compositor_args or "")
@@ -316,8 +347,6 @@ class MacroEditorAddPopoversMixin:
         title.set_halign(Gtk.Align.START)
         box.append(title)
 
-        at_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        at_row.append(Gtk.Label(label="At (ms):"))
         at_spin = Gtk.SpinButton()
         at_spin.set_adjustment(
             Gtk.Adjustment(
@@ -325,9 +354,8 @@ class MacroEditorAddPopoversMixin:
             )
         )
         at_spin.set_digits(0)
-        at_spin.set_width_chars(7)
-        at_row.append(at_spin)
-        box.append(at_row)
+        at_spin.set_width_chars(8)
+        rows: list[Gtk.Widget] = [field_row("At", at_spin, unit_label("ms"))]
 
         duration_spin: Gtk.SpinButton | None = None
         min_spin: Gtk.SpinButton | None = None
@@ -336,79 +364,51 @@ class MacroEditorAddPopoversMixin:
         inhibit_check: Gtk.CheckButton | None = None
         cmd_entry: Gtk.Entry | None = None
 
+        def spin(value: float, low: float, high: float, step: float) -> Gtk.SpinButton:
+            widget = Gtk.SpinButton()
+            widget.set_adjustment(
+                Gtk.Adjustment(value=value, lower=low, upper=high, step_increment=step)
+            )
+            widget.set_digits(0)
+            widget.set_width_chars(8)
+            return widget
+
         if control_mode == "wait":
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row.append(Gtk.Label(label="Duration (ms):"))
-            duration_spin_widget = Gtk.SpinButton()
-            duration_spin = duration_spin_widget
-            duration_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=100, lower=0, upper=600000, step_increment=10)
-            )
-            duration_spin_widget.set_digits(0)
-            duration_spin_widget.set_width_chars(8)
-            row.append(duration_spin_widget)
-            box.append(row)
+            duration_spin = spin(100, 0, 600000, 10)
+            rows.append(field_row("Duration", duration_spin, unit_label("ms")))
         elif control_mode == "wait_random":
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row.append(Gtk.Label(label="Min (ms):"))
-            min_spin_widget = Gtk.SpinButton()
-            min_spin = min_spin_widget
-            min_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=50, lower=0, upper=600000, step_increment=10)
-            )
-            min_spin_widget.set_digits(0)
-            min_spin_widget.set_width_chars(7)
-            row.append(min_spin_widget)
-            row.append(Gtk.Label(label="Max (ms):"))
-            max_spin_widget = Gtk.SpinButton()
-            max_spin = max_spin_widget
-            max_spin_widget.set_adjustment(
-                Gtk.Adjustment(value=150, lower=0, upper=600000, step_increment=10)
-            )
-            max_spin_widget.set_digits(0)
-            max_spin_widget.set_width_chars(7)
-            row.append(max_spin_widget)
-            box.append(row)
+            min_spin = spin(50, 0, 600000, 10)
+            max_spin = spin(150, 0, 600000, 10)
+            rows.append(field_row("Min", min_spin, unit_label("ms")))
+            rows.append(field_row("Max", max_spin, unit_label("ms")))
         elif control_mode in {"exec_sync", "exec_parallel", "exec_async"}:
-            cmd_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            cmd_label = Gtk.Label(label="Command:")
-            cmd_label.set_halign(Gtk.Align.START)
-            cmd_row.append(cmd_label)
             cmd_entry_widget = Gtk.Entry()
             cmd_entry = cmd_entry_widget
+            cmd_entry_widget.set_hexpand(True)
+            cmd_entry_widget.set_width_chars(28)
             cmd_entry_widget.set_placeholder_text("/absolute/path/to/script.sh")
-            cmd_row.append(cmd_entry_widget)
-            box.append(cmd_row)
+            rows.append(field_row("Command", cmd_entry_widget))
 
             if control_mode in {"exec_sync", "exec_parallel"}:
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                row.append(Gtk.Label(label="Timeout (ms):"))
-                timeout_spin_widget = Gtk.SpinButton()
-                timeout_spin = timeout_spin_widget
-                timeout_spin_widget.set_adjustment(
-                    Gtk.Adjustment(
-                        value=min(30000, self._macro_exec_timeout_max_ms),
-                        lower=1,
-                        upper=self._macro_exec_timeout_max_ms,
-                        step_increment=100,
+                timeout_spin = spin(
+                    min(30000, self._macro_exec_timeout_max_ms),
+                    1,
+                    self._macro_exec_timeout_max_ms,
+                    100,
+                )
+                rows.append(
+                    field_row(
+                        "Timeout",
+                        timeout_spin,
+                        unit_label("ms"),
+                        subtitle=f"Policy max timeout: {self._macro_exec_timeout_max_ms}ms",
                     )
                 )
-                timeout_spin_widget.set_digits(0)
-                timeout_spin_widget.set_width_chars(8)
-                row.append(timeout_spin_widget)
-                box.append(row)
-
-                timeout_hint = Gtk.Label(
-                    label=f"Policy max timeout: {self._macro_exec_timeout_max_ms}ms"
-                )
-                timeout_hint.add_css_class("dim-label")
-                timeout_hint.set_halign(Gtk.Align.START)
-                box.append(timeout_hint)
-
-                inhibit_check_widget = Gtk.CheckButton(label="Inhibit mouse movement while waiting")
+                inhibit_check_widget = Gtk.CheckButton()
                 inhibit_check = inhibit_check_widget
                 inhibit_check_widget.set_active(False)
-                box.append(inhibit_check_widget)
+                rows.append(check_row("Inhibit mouse while waiting", inhibit_check_widget))
+        box.append(rows_list(*rows))
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_halign(Gtk.Align.END)

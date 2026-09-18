@@ -16,6 +16,7 @@ from gi.repository import Gtk
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.actions import MappingAction
 from keymasq.gui.widgets.macro_editor import dialog as macro_editor_dialog_module
+from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -534,10 +535,47 @@ def test_macro_editor_compositor_control_selection_shows_action(monkeypatch) -> 
     assert dialog._prop_title.get_label() == "Compositor Action"
     assert dialog._press_spin.get_value_as_int() == 12
     assert "workspace e+1" in dialog._key_info_label.get_label()
-    assert dialog._change_key_btn.get_visible() is True
-    assert dialog._change_key_btn.get_label() == "Change Action..."
+    assert dialog._change_key_btn.get_visible() is False
     assert dialog._control_cmd_row.get_visible() is False
     assert dialog._control_sync_row.get_visible() is False
+    assert dialog._control_compositor_preset_row.get_visible() is True
+    assert dialog._control_compositor_dispatcher_entry.get_text() == "workspace"
+    assert dialog._control_compositor_args_entry.get_text() == "e+1"
+
+    dialog._control_compositor_dispatcher_entry.set_text("fullscreen")
+    dialog._control_compositor_args_entry.set_text("")
+    assert control.compositor_dispatcher == "fullscreen"
+    assert control.compositor_args == ""
+
+
+def test_macro_editor_compositor_custom_preset_sticks(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    definition = next(d for d in COMPOSITOR_ACTION_DEFINITIONS if d.compositor_id == "hyprland")
+    preset = definition.presets[0]
+    control = EditableControl(
+        mode="compositor_dispatch",
+        t_us=12_000,
+        compositor_id="hyprland",
+        compositor_dispatcher=preset.dispatcher,
+        compositor_args=preset.args,
+    )
+    dialog._timeline._selected = control
+    dialog._control_events.append(control)
+    dialog._on_selection_changed(control)
+    dropdown = dialog._control_compositor_preset_dropdown
+    assert dropdown.get_selected() == 1
+
+    dropdown.set_selected(0)
+
+    assert dropdown.get_selected() == 0
+    assert control.compositor_dispatcher == preset.dispatcher
+    assert dialog._control_compositor_dispatcher_row.get_visible() is True
+    dialog._on_selection_changed(control)
+    assert dropdown.get_selected() == 0
+
+    dropdown.set_selected(2)
+    assert control.compositor_dispatcher == definition.presets[1].dispatcher
+    assert dropdown.get_selected() == 2
 
 
 def test_macro_call_selection_shows_called_macro_in_heading(monkeypatch) -> None:

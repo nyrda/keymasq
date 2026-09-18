@@ -464,3 +464,7 @@ button.actions-docs-button {
 .macro-inspector-group > label.heading {
   margin-bottom: 2px;
 }
+
+.macro-selection-tabs button {
+  min-width: 48px;
+}

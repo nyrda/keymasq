@@ -30,7 +30,6 @@ class EditorChromeMixin:
         root.append(Gtk.Separator())
 
         root.append(self._build_timeline_area())
-        root.append(self._build_selection_bar())
         root.append(Gtk.Separator())
         root.append(self._build_inspector())
         root.append(self._build_footer())
@@ -79,11 +78,7 @@ class EditorChromeMixin:
         columns.set_margin_end(8)
 
         selection_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self._inspector_placeholder = Gtk.Label(label="Select an action on the timeline to edit it")
-        self._inspector_placeholder.add_css_class("dim-label")
-        self._inspector_placeholder.set_wrap(True)
-        self._inspector_placeholder.set_xalign(0.0)
-        self._inspector_placeholder.set_halign(Gtk.Align.START)
+        self._inspector_placeholder = self._build_selection_panel()
         selection_column.append(self._inspector_placeholder)
         selection_column.append(self._build_property_panel())
         self._revealer.connect("notify::reveal-child", self._on_inspector_reveal_changed)
@@ -132,17 +127,14 @@ class EditorChromeMixin:
         bar.set_margin_start(4)
         bar.set_margin_end(4)
 
-        timing_btn = Gtk.MenuButton(label="Timing Tools")
-        timing_btn.add_css_class("flat")
-        timing_btn.set_popover(self._build_timing_popover())
-        bar.append(timing_btn)
-
         self._undo_button = Gtk.Button(icon_name="edit-undo-symbolic")
+        self._undo_button.add_css_class("flat")
         self._undo_button.set_tooltip_text("Undo (Ctrl+Z)")
         self._undo_button.set_sensitive(False)
         self._undo_button.connect("clicked", self._on_undo_clicked)
         bar.append(self._undo_button)
         self._redo_button = Gtk.Button(icon_name="edit-redo-symbolic")
+        self._redo_button.add_css_class("flat")
         self._redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
         self._redo_button.set_sensitive(False)
         self._redo_button.connect("clicked", self._on_redo_clicked)
@@ -170,9 +162,9 @@ class EditorChromeMixin:
         zoom_in_btn.connect("clicked", self._on_zoom_in)
         bar.append(zoom_in_btn)
 
-        reset_fit_btn = Gtk.Button(label="Reset Fit")
+        reset_fit_btn = Gtk.Button(label="Fit")
         reset_fit_btn.add_css_class("flat")
-        reset_fit_btn.set_tooltip_text("Fit timeline to visible width")
+        reset_fit_btn.set_tooltip_text("Reset fit: fit timeline to visible width")
         reset_fit_btn.connect("clicked", self._on_reset_fit)
         bar.append(reset_fit_btn)
 

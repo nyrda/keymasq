@@ -468,7 +468,7 @@ def test_selection_timing_tabs_apply_one_operation(monkeypatch, tab, value, butt
     monkeypatch.setattr(Gtk.Popover, "popup", lambda p: popovers.append(p))
     dialog._show_selection_timing()
     popover = popovers[-1]
-    assert popover.get_parent() is dialog._selection_menu_button
+    assert popover.get_parent() is dialog._timeline
     stack = collect_widgets(popover.get_child(), Gtk.Stack)[0]
     stack.set_visible_child_name(tab)
     spin = collect_widgets(stack.get_visible_child(), Gtk.SpinButton)[0]
@@ -563,7 +563,7 @@ def test_selection_timing_explains_unavailable_pauses_and_blocks_apply(monkeypat
     stack = collect_widgets(popover.get_child(), Gtk.Stack)[0]
     stack.set_visible_child_name("pauses")
     assert any(
-        "There are no pauses to adjust" in label.get_label()
+        "No pauses to adjust" in label.get_label()
         for label in collect_widgets(stack.get_visible_child(), Gtk.Label)
     )
     spin = collect_widgets(stack.get_visible_child(), Gtk.SpinButton)[0]

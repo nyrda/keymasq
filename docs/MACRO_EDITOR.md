@@ -57,8 +57,8 @@ separately. Recorded movement and other raw events can also be selected.
 
 The **insertion cursor** is the dotted vertical line. It marks where Ctrl+V
 will paste and where a Shift+click time selection starts. Click empty timeline
-space or the ruler to place it, or enter an exact time in **Paste at** below
-the timeline. Right-clicking also moves it. It starts at zero in a newly opened
+space or the ruler to place it, or enter an exact time in **Paste at** in the
+inspector while nothing is selected. Right-clicking also moves it. It starts at zero in a newly opened
 editor and does not indicate playback progress.
 
 Use **+** and **−** to zoom, or hold Ctrl or Shift while scrolling over the
@@ -158,8 +158,7 @@ Drag empty track space to draw a selection box; Ctrl+drag adds to the current
 selection. The box selects every action it touches, including complete held
 keys, mouse buttons, recorded movement samples, and raw event markers.
 
-Use Ctrl+A or **Edit Selection > Select All** to select every action. Select All
-is not in the right-click menu. Escape clears the selection and gap highlight.
+Use Ctrl+A or **Select All** in the right-click menu to select every action. Escape clears the selection and gap highlight.
 
 ### Select a time span, including silence
 
@@ -197,7 +196,8 @@ its Move operation preserves the same padding and stops the whole range at zero.
 
 ## Copy and paste
 
-Copy with Ctrl+C or **Copy** in Edit Selection or the right-click menu. Ctrl+X
+Copy with Ctrl+C or **Copy** in the right-click menu. The menu only lists
+commands that apply to the current selection. Ctrl+X
 cuts the selection: it copies the actions and removes them without collapsing
 the surrounding time.
 
@@ -242,7 +242,7 @@ their normal text paste behavior.
 Select actions and press **Delete** or **Backspace** to remove them immediately,
 without confirmation. This keeps the surrounding time in place, including
 when the actions were selected using a time span. **Delete Selected Actions**
-in Edit Selection or the right-click menu does the same thing.
+in the right-click menu does the same thing.
 
 To remove time as well, turn on **Erase** and left-drag across the interval on
 any track or the ruler. The red band spans all tracks and shows the duration
@@ -260,8 +260,7 @@ opens the context menu in Erase mode. Undo reverses the whole erase in one step.
 
 ### Adjust selected timing
 
-Select the actions, then choose **Selection Timing…** from Edit Selection or
-the right-click menu.
+Select the actions, then choose **Selection Timing…** from the right-click menu.
 
 | Tab | What changes |
 |---|---|
@@ -315,7 +314,7 @@ editor and clears its highlight.
 
 ### Use Timing Tools
 
-The toolbar's **Timing Tools** menu works on the macro's timing independently
+The **Timing…** menu in the Macro column works on the macro's timing independently
 of the current selection. Use Selection Timing when only a group should change.
 
 | Tool | What it does |
@@ -333,7 +332,7 @@ of the current selection. Use Selection Timing when only a group should change.
 
 For recorded movement and raw events, use Selection Timing when you need all
 selected samples to participate in scaling. Explicit waits keep their duration
-when the toolbar's Scale changes event timestamps.
+when the Timing menu's Scale changes event timestamps.
 
 Right-click also offers **Set Startpoint** and **Set Endpoint**. These trim
 actions outside the chosen boundary; Set Startpoint moves the retained section

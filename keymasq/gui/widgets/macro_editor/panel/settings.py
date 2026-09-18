@@ -89,6 +89,15 @@ class MacroSettingsMixin:
         title = Gtk.Label(label="Macro")
         title.add_css_class("heading")
         title.set_halign(Gtk.Align.START)
+        title.set_hexpand(True)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        header.append(title)
+        timing_btn = Gtk.MenuButton(label="Timing…")
+        timing_btn.add_css_class("flat")
+        timing_btn.set_valign(Gtk.Align.CENTER)
+        timing_btn.set_tooltip_text("Trim, scale, and reshape the whole macro's timing")
+        timing_btn.set_popover(self._build_timing_popover())
+        header.append(timing_btn)
 
         self._name_entry = Gtk.Entry()
         self._name_entry.set_text(self._macro_name)
@@ -162,6 +171,7 @@ class MacroSettingsMixin:
         self._exec_summary_label.add_css_class("caption")
         self._exec_summary_label.set_halign(Gtk.Align.START)
         self._exec_summary_label.set_xalign(0.0)
+        summary = self._exec_summary_label
 
         fields = rows_list(name_row, loop_row, self._macro_loop_count_row)
         toggles = rows_list(
@@ -171,7 +181,7 @@ class MacroSettingsMixin:
             block_mouse_row,
         )
         toggles.set_margin_top(8)
-        outer = group_box(title, fields, toggles, self._exec_summary_label)
+        outer = group_box(header, fields, toggles, summary)
 
         self._update_loop_controls()
         self._update_exec_summary_label()

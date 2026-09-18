@@ -139,13 +139,24 @@ class SelectionControllerMixin:
             self._history_restoring = False
         self._sync_close_guard()
 
-    def _finish_selection_edit(self) -> None:
+    def _content_end_us(self) -> int:
+        return selection.bounds(selection.items(self._timeline_lists()))[1]
+
+    def _finish_selection_edit(self, *, trailing_us: int | None = None) -> None:
+        """Refresh after a selection edit.
+
+        By default the macro only grows to fit moved actions. Selection Timing passes the
+        trailing silence it measured before the edit, so the macro ends that long after the
+        last action again. That lets a whole-macro Scale or pause limit shorten the macro
+        without touching silence the user added on purpose.
+        """
         sort_timeline_items(*self._timeline_lists())
-        self._duration_us = max(
-            self._duration_us, selection.bounds(selection.items(self._timeline_lists()))[1]
-        )
-        if self._timeline._time_selection is not None:
-            self._duration_us = max(self._duration_us, self._timeline._time_selection[1])
+        if trailing_us is not None:
+            self._duration_us = self._content_end_us() + max(0, trailing_us)
+        else:
+            self._duration_us = max(self._duration_us, self._content_end_us())
+            if self._timeline._time_selection is not None:
+                self._duration_us = max(self._duration_us, self._timeline._time_selection[1])
         self._refresh_after_timing_edit(recompute_duration=False)
         self._update_selection_summary()
 
@@ -368,9 +379,22 @@ class SelectionControllerMixin:
         paste_buttons.append(self._paste_shift_button)
         panel.append(paste_buttons)
 
-        self._timeline.get_clipboard().connect("changed", lambda _c: self._refresh_paste_buttons())
+        # The clipboard outlives the editor, so the handler is disconnected on close.
+        self._clipboard = self._timeline.get_clipboard()
+        self._clipboard_handler_id = self._clipboard.connect(
+            "changed", lambda _c: self._refresh_paste_buttons()
+        )
         self._refresh_paste_buttons()
         return panel
+
+    def _disconnect_clipboard_listener(self) -> None:
+        """Drop the clipboard handler. Safe to call more than once."""
+        clipboard = getattr(self, "_clipboard", None)
+        handler_id = getattr(self, "_clipboard_handler_id", 0)
+        if clipboard is not None and handler_id:
+            clipboard.disconnect(handler_id)
+        self._clipboard = None
+        self._clipboard_handler_id = 0
 
     def _add_input_at_cursor(self, device_type: str) -> None:
         self._present_add_key_dialog(
@@ -386,7 +410,7 @@ class SelectionControllerMixin:
         )
 
     def _refresh_paste_buttons(self) -> None:
-        if not hasattr(self, "_paste_button"):
+        if not hasattr(self, "_paste_button") or self._dialog_closed:
             return
         available = has_macro_fragment(self._timeline.get_clipboard())
         self._paste_buttons.set_visible(available)
@@ -668,6 +692,7 @@ class SelectionControllerMixin:
             spin.update()
             value = spin.get_value()
             self._record_edit_history()
+            trailing_us = max(0, self._duration_us - self._content_end_us())
             if name == "move":
                 time_range = self._timeline._time_selection
                 delta = round(value * 1000)
@@ -689,7 +714,7 @@ class SelectionControllerMixin:
                 selection.set_pauses(selected, round(value * 1000))
             else:
                 selection.scale(selected, value / 100, scale_waits=wait_check.get_active())
-            self._finish_selection_edit()
+            self._finish_selection_edit(trailing_us=trailing_us)
             if on_done is not None:
                 on_done()
 

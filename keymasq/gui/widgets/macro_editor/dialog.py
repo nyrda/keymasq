@@ -160,6 +160,7 @@ class MacroEditorMixin(
         self.connect("closed", self._on_host_closed)
 
     def _on_host_closed(self, _host: object) -> None:
+        self._disconnect_clipboard_listener()
         if not self._dialog_closed:
             self._dialog_closed = True
             if self._paste_cancellable is not None:

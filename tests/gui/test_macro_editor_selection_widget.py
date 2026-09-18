@@ -243,11 +243,13 @@ def test_action_selection_discards_ruler_padding(monkeypatch) -> None:
     assert not timeline._on_selection_key(None, Gdk.KEY_d, 0, Gdk.ModifierType.CONTROL_MASK)
 
 
-def test_deleting_last_action_from_properties_clears_selected_time_range(monkeypatch) -> None:
+def test_deleting_last_action_in_time_range_clears_the_range(monkeypatch) -> None:
     dialog = _loaded_dialog(monkeypatch)
     timeline = dialog._timeline
     timeline.set_time_selection(250_000, 450_000)
-    dialog._on_delete_event(None)
+    # A time span shows Selection Timing, not the single action's properties.
+    assert dialog._revealer.get_reveal_child() is False
+    dialog._delete_selection()
     assert timeline.selected_items() == []
     assert timeline._time_selection is None
     assert dialog._capture_selection() is None
@@ -883,3 +885,74 @@ def test_editor_shortcuts_work_on_buttons_but_leave_text_fields_alone(monkeypatc
     finally:
         dialog._force_close_without_warning()
         dialog._parent.destroy()
+
+
+def _apply_selection_timing(dialog, monkeypatch, tab: str, value: float) -> None:
+    from gi.repository import Gtk
+
+    from tests.gui.support import collect_widgets
+
+    popovers = []
+    monkeypatch.setattr(Gtk.Popover, "popup", lambda p: popovers.append(p))
+    dialog._show_selection_timing()
+    popover = popovers[-1]
+    stack = collect_widgets(popover.get_child(), Gtk.Stack)[0]
+    stack.set_visible_child_name(tab)
+    collect_widgets(stack.get_visible_child(), Gtk.SpinButton)[0].set_value(value)
+    apply = next(
+        b
+        for b in collect_widgets(popover.get_child(), Gtk.Button)
+        if b.has_css_class("suggested-action")
+    )
+    apply.emit("clicked")
+
+
+def test_whole_macro_scale_keeps_trailing_silence_amount(monkeypatch) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    content_end = dialog._content_end_us()
+    dialog._duration_us = content_end + 400_000
+    dialog._select_all()
+
+    _apply_selection_timing(dialog, monkeypatch, "scale", 50)
+
+    assert dialog._content_end_us() < content_end
+    assert dialog._duration_us == dialog._content_end_us() + 400_000
+    payload = dialog._build_macro_payload("scaled")
+    assert payload["duration_us"] == dialog._duration_us
+
+    dialog._select_all()
+    _apply_selection_timing(dialog, monkeypatch, "scale", 200)
+    dialog._select_all()
+    _apply_selection_timing(dialog, monkeypatch, "scale", 50)
+
+    assert dialog._duration_us == dialog._content_end_us() + 400_000
+
+
+def test_closing_editor_disconnects_clipboard_listener(monkeypatch) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    clipboard = dialog._clipboard
+    handler_id = dialog._clipboard_handler_id
+    assert clipboard is not None
+    assert clipboard.handler_is_connected(handler_id)
+
+    dialog._force_close_without_warning()
+
+    assert not clipboard.handler_is_connected(handler_id)
+    assert dialog._clipboard is None
+    dialog._disconnect_clipboard_listener()
+
+
+def test_time_range_around_one_action_shows_selection_timing(monkeypatch) -> None:
+    dialog = _loaded_dialog(monkeypatch)
+    event = dialog._events[0]
+
+    dialog._timeline.set_selection([event])
+    assert dialog._revealer.get_reveal_child() is True
+
+    dialog._timeline.set_selection(
+        [event], time_range=(max(0, event.press_t_us - 10_000), event.release_t_us + 10_000)
+    )
+
+    assert dialog._revealer.get_reveal_child() is False
+    assert dialog._selection_timing_box.get_visible() is True
+    assert dialog._timeline.selected_items() == [event]

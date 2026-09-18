@@ -47,7 +47,9 @@ class TimelineSelectionMixin:
     ) -> None:
         self._selection = list({id(item): item for item in selected}.values())
         self._time_selection = time_range
-        self._selected = self._selection[0] if len(self._selection) == 1 else None
+        # A time span edits the span, so it never opens a single action's properties.
+        single = len(self._selection) == 1 and time_range is None
+        self._selected = self._selection[0] if single else None
         self._editor._on_selection_changed(self._selected)
         self._editor._update_selection_summary()
         self.queue_draw()

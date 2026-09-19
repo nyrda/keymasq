@@ -2,6 +2,7 @@ import pytest
 
 from keymasq.keymasqd.runtime.analog.touchpad_contact import (
     LIFT_HOLD_S,
+    SETTLE_MIN_S,
     SETTLE_S,
     TouchpadContact,
 )
@@ -24,6 +25,28 @@ def test_first_position_and_landing_only_move_the_reference():
 
     contact.move(SETTLE_S, 0.53, 0.5)
     assert contact.drain(SETTLE_S + LIFT_HOLD_S) == pytest.approx((0.01, 0.0))
+
+
+def test_landing_that_overshoots_and_comes_back_is_not_emitted():
+    # Shape of a firm landing on a Steam Deck pad: a jump in the first report,
+    # then a transient that decays over some 50 ms and partly returns.
+    landing = [(0.05, 0.0), (0.01, 0.0), (0.006, 0.0), (-0.008, 0.0), (-0.007, 0.0)]
+    landing += [(-0.006, 0.0), (-0.004, 0.0), (-0.004, 0.0), (-0.002, 0.0), (-0.002, 0.0)]
+    rest = [(0.0, 0.0)] * 30
+
+    assert replay(touch(landing + rest)) == (0.0, 0.0)
+
+
+def test_swipe_ends_settling_early():
+    contact = TouchpadContact()
+    contact.move(0.0, 0.0, 0.0)
+    emitted = 0.0
+    for step in range(1, 16):  # 5 half-widths per second from the first report
+        emitted += contact.move(step * REPORT_S, step * 0.02, 0.0)[0]
+
+    # Only the reports before SETTLE_MIN_S are consumed by the landing.
+    consumed = round(SETTLE_MIN_S / REPORT_S) - 1
+    assert emitted == pytest.approx((15 - consumed) * 0.02)
 
 
 def test_step_out_of_rest_is_held_until_the_hold_expires():
@@ -105,5 +128,5 @@ def test_flick_keeps_its_travel():
 
     emitted_x, _ = replay(positions)
 
-    settled_x = next(x for now, x, _ in reversed(positions) if now < SETTLE_S)
+    settled_x = next(x for now, x, _ in reversed(positions) if now < SETTLE_MIN_S)
     assert emitted_x == pytest.approx(positions[-1][1] - settled_x, rel=0.02)

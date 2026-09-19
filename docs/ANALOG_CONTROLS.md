@@ -111,7 +111,9 @@ A finger's contact patch grows while it lands and shrinks while it lifts, which
 shifts the reported position although the finger did not travel. Two rules keep
 that out of the pointer:
 
-- Movement during the first 20 ms of a touch only moves the reference.
+- Movement while a touch settles only moves the reference. Settling takes 60 ms,
+  or ends after 20 ms once the finger is evidently swiping (three pad
+  half-widths per second over 12 ms), so a flick keeps its travel.
 - Movement that starts from rest is held for up to 24 ms and is dropped if the
   touch ends first. The hold shrinks as the finger speeds up and reaches zero at
   three pad half-widths per second, measured over the preceding 40 ms, so

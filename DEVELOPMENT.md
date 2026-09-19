@@ -214,7 +214,9 @@ used by the host-side pytest fixtures and test-mode output devices.
 Keymasq is pure Python, so Python-only changes do not need a new AppImage.
 `scripts/appimage-dev-sync.sh` pushes the worktree's `keymasq/` package to a
 remote host, such as a Steam Deck, that already has the AppImage installed and
-is reachable over SSH with key login and passwordless sudo:
+is reachable over SSH with key login and passwordless sudo. Connect as the
+desktop user that installed the AppImage, because `keymasq-session` runs in
+that user's systemd manager:
 
 ```bash
 export KEYMASQ_DEV_HOST=deck@<deck-ip>

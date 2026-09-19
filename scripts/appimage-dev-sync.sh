@@ -11,29 +11,36 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV_HOST="${KEYMASQ_DEV_HOST:-}"
 DEV_RUNTIME=/opt/keymasq/dev-runtime
 DROPIN_NAME=90-dev-runtime.conf
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 "${DEV_HOST}")
+SSH_OPTIONS=(-o BatchMode=yes -o ConnectTimeout=8)
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [sync [--no-restart] | revert | status | logs]
 
-  sync     Sync keymasq/ to ${DEV_RUNTIME} and restart the services on it (default)
+  sync     Sync keymasq/ to ${DEV_RUNTIME} and restart the services on it (default).
+           --no-restart only stages the files; services keep their current runtime.
   revert   Point the services back at the installed AppImage runtime
   status   Show which runtime the services use and whether they are active
   logs     Follow keymasqd and keymasq-session logs
 
-Host: KEYMASQ_DEV_HOST=user@host (required; SSH key login and passwordless sudo)
+Host: KEYMASQ_DEV_HOST=user@host (required; SSH key login and passwordless sudo).
+The SSH user must be the desktop user that installed the AppImage.
 GUI/CLI on the dev runtime: KEYMASQ_APPDIR=${DEV_RUNTIME} /opt/keymasq/bin/keymasq
 EOF
 }
 
 remote() {
-  "${SSH[@]}" "DEV_RUNTIME=${DEV_RUNTIME} DROPIN_NAME=${DROPIN_NAME} bash -s" -- "$@"
+  ssh "${SSH_OPTIONS[@]}" "${DEV_HOST}" "DEV_RUNTIME=${DEV_RUNTIME} DROPIN_NAME=${DROPIN_NAME} bash -s" -- "$@"
 }
 
 prepare_runtime() {
   remote <<'EOF'
 set -euo pipefail
+# The session drop-in and restart go through this user's systemd manager.
+if ! systemctl --user cat keymasq-session.service >/dev/null 2>&1; then
+  echo "keymasq-session.service is not installed for $(id -un); connect as the desktop user that installed the AppImage." >&2
+  exit 1
+fi
 base="$(readlink -f /opt/keymasq/runtime/current)"
 if [[ "$(cat "${DEV_RUNTIME}/.base" 2>/dev/null || true)" != "${base}" ]]; then
   echo "Cloning ${base##*/} into ${DEV_RUNTIME}"
@@ -115,7 +122,7 @@ EOF
     status
     ;;
   logs)
-    exec "${SSH[@]}" -t \
+    exec ssh "${SSH_OPTIONS[@]}" -t "${DEV_HOST}" \
       "sudo journalctl -f -n 40 _SYSTEMD_UNIT=keymasqd.service + _SYSTEMD_USER_UNIT=keymasq-session.service"
     ;;
   -h | --help | help)

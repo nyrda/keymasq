@@ -765,8 +765,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         )
 
     def _discoverable_input_paths(self, paths: list[str] | None = None) -> list[str]:
-        # evdev.list_devices uses access(), which omits source-hidden nodes even
-        # when this daemon can reopen them through CAP_DAC_OVERRIDE.
+        # evdev.list_devices uses access(), which omits reserved nodes while the
+        # hiding or masking rules are still re-granting the daemon's ACL.
         reserved = [
             path for paths in list(self.mask_registry.hardware_paths.values()) for path in paths
         ]

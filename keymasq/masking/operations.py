@@ -27,7 +27,17 @@ from keymasq.masking.backend import (
 REQUESTS = Path("/run/keymasq/hardware-requests")
 REQUEST_ID = re.compile(r"[0-9a-f]{32}\Z")
 ATTACHMENT_ID = re.compile(r"[0-9a-f]{24}\Z")
+INPUT_NODE_NAME = re.compile(r"(event|js)[0-9]{1,5}\Z")
+SYS_CLASS_INPUT = Path("/sys/class/input")
 MAX_REQUEST = 65536
+MAX_TRIGGER_NODES = 64
+# The daemon waits 15s for a named-node job and 30s for a subsystem one (see
+# keymasqd/runtime/source_hiding.py). udevadm must give up first, leaving room
+# for the unit and helper start, so the daemon normally reads a real result.
+# A job that outlives the daemon's wait is harmless: a trigger only replays
+# the flag files, which stay the source of truth.
+NODE_TRIGGER_TIMEOUT_S = 8.0
+SUBSYSTEM_TRIGGER_TIMEOUT_S = 20.0
 log = logging.getLogger("keymasq.masking")
 
 
@@ -57,8 +67,51 @@ def open_request(token: str) -> int:
     return fd
 
 
+def trigger_nodes(message: JsonObject) -> list[str] | None:
+    """Validate a source-hiding udev trigger; the daemon supplies only node names."""
+    raw_names = message.get("names")
+    if raw_names is None:
+        return None
+    if not isinstance(raw_names, list) or not raw_names or len(raw_names) > MAX_TRIGGER_NODES:
+        raise ValueError("Invalid input node list for udev trigger")
+    names: list[str] = []
+    for raw_name in cast(list[object], raw_names):
+        if not isinstance(raw_name, str) or not INPUT_NODE_NAME.fullmatch(raw_name):
+            raise ValueError("Invalid input node name for udev trigger")
+        if raw_name not in names:
+            names.append(raw_name)
+    # A node that disappeared before the job ran has nothing left to re-evaluate.
+    return [name for name in names if (SYS_CLASS_INPUT / name).exists()]
+
+
+async def trigger_input(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
+    """Re-run udev rules so 99-keymasq-hide-grabbed.rules sees changed hiding flags.
+
+    Writing a sysfs uevent file needs root, which is the only privilege source
+    hiding needs; the flag files themselves belong to the daemon.
+    """
+    nodes = await finish_io(trigger_nodes, message)
+    if nodes is not None and not nodes:
+        return {"triggered": []}
+    await finish_io(root.prepare_directories)
+    with (root.runtime_dir / "operations.lock").open("a") as global_lock:
+        fcntl.flock(global_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        await run_host(
+            "udevadm",
+            "trigger",
+            "--subsystem-match=input",
+            "--action=change",
+            *(f"--sysname-match={name}" for name in nodes or ()),
+            "--settle",
+            timeout=SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S,
+        )
+    return {"triggered": nodes if nodes is not None else ["input"]}
+
+
 async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
     operation = message.get("operation")
+    if operation == "trigger":
+        return await trigger_input(message, root)
     if operation not in {"activate", "arm", "refresh", "recover"}:
         raise ValueError("Unknown privileged hardware operation")
     identity = str(message.get("id", ""))

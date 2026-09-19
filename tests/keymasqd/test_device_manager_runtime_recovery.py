@@ -795,6 +795,231 @@ class TestDeviceManagerHelpers:
         assert raw_device.close_count == 1
 
     @pytest.mark.asyncio
+    async def test_release_all_frees_every_handle_before_awaiting_source_restore(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        restore_barrier = asyncio.Event()
+        restore_started = asyncio.Event()
+        order: list[str] = []
+
+        class _Device:
+            def __init__(self, path: str, *, hidden: bool) -> None:
+                self.path = path
+                self.hidden = hidden
+                self.grabbed = True
+
+            async def stop_event_loop(self) -> None:
+                pass
+
+            async def release(self, *, restore_source: bool = True) -> None:
+                assert not restore_source
+                self.grabbed = False
+                order.append(f"release:{self.path}")
+
+            async def restore_hidden_source(self) -> None:
+                if not self.hidden:
+                    return
+                order.append(f"restore:{self.path}")
+                restore_started.set()
+                await restore_barrier.wait()
+
+        gamepad = _Device("/dev/input/event22", hidden=True)
+        keyboard = _Device("/dev/input/event3", hidden=False)
+        mouse = _Device("/dev/input/event4", hidden=False)
+        manager = DeviceManager()
+        # The gamepad is released first; its restore job must not hold the rest.
+        manager.grabbed_devices = {
+            "045e:02a1": [gamepad],
+            "1234:0001": [keyboard],
+            "1234:0002": [mouse],
+        }
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+
+        release_task = asyncio.create_task(manager.release_all_devices())
+        await asyncio.wait_for(restore_started.wait(), timeout=1.0)
+
+        assert not release_task.done()
+        assert not (gamepad.grabbed or keyboard.grabbed or mouse.grabbed)
+        assert order[-1] == "restore:/dev/input/event22"
+        assert sorted(order[:-1]) == [
+            "release:/dev/input/event22",
+            "release:/dev/input/event3",
+            "release:/dev/input/event4",
+        ]
+
+        restore_barrier.set()
+        await release_task
+        assert manager.grabbed_devices == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bulk", [True, False])
+    async def test_cancelled_release_still_restores_already_released_sources(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        bulk: bool,
+    ) -> None:
+        restored: list[str] = []
+
+        class _Device:
+            def __init__(self, path: str, *, cancel: bool = False) -> None:
+                self.path = path
+                self.cancel = cancel
+
+            async def stop_event_loop(self) -> None:
+                pass
+
+            async def release(self, *, restore_source: bool = True) -> None:
+                if self.cancel:
+                    raise asyncio.CancelledError()
+
+            async def restore_hidden_source(self) -> None:
+                restored.append(self.path)
+
+        gamepad = _Device("/dev/input/event22")
+        stuck = _Device("/dev/input/event23", cancel=True)
+        manager = DeviceManager()
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+
+        manager.grabbed_devices = {"045e:02a1": [gamepad, stuck]}
+
+        with pytest.raises(asyncio.CancelledError):
+            if bulk:
+                await manager.release_all_devices()
+            else:
+                await release.release_device_unlocked(
+                    manager, "045e:02a1", log=logging.getLogger("test")
+                )
+
+        assert restored == ["/dev/input/event22"]
+        assert [device for devices in manager.grabbed_devices.values() for device in devices] == [
+            stuck
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bulk", [True, False])
+    async def test_release_cancelled_during_restore_still_restores_every_source(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        bulk: bool,
+    ) -> None:
+        restored: list[str] = []
+        first_restore_started = asyncio.Event()
+        restore_barrier = asyncio.Event()
+
+        class _Device:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+            async def stop_event_loop(self) -> None:
+                pass
+
+            async def release(self, *, restore_source: bool = True) -> None:
+                pass
+
+            async def restore_hidden_source(self) -> None:
+                first_restore_started.set()
+                await restore_barrier.wait()
+                restored.append(self.path)
+
+        manager = DeviceManager()
+        monkeypatch.setattr(outputs, "destroy_global_uinputs", Mock())
+        manager.grabbed_devices = {
+            "045e:02a1": [_Device("/dev/input/event22"), _Device("/dev/input/event23")]
+        }
+
+        async def run_release() -> None:
+            if bulk:
+                await manager.release_all_devices()
+            else:
+                await release.release_device_unlocked(
+                    manager, "045e:02a1", log=logging.getLogger("test")
+                )
+
+        release_task = asyncio.create_task(run_release())
+        await asyncio.wait_for(first_restore_started.wait(), timeout=1.0)
+        release_task.cancel()
+        await asyncio.sleep(0)
+        assert not release_task.done()
+
+        restore_barrier.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(release_task, timeout=1.0)
+
+        assert restored == ["/dev/input/event22", "/dev/input/event23"]
+        assert manager.grabbed_devices == {}
+
+    @pytest.mark.asyncio
+    async def test_grab_device_waits_for_udev_to_grant_probe_access(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _RawInputDevice:
+            info = SimpleNamespace(vendor=0x1234, product=0x5678)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A]}
+
+            def close(self) -> None:
+                pass
+
+        class _ManagedDevice:
+            def __init__(self, **kwargs) -> None:
+                self.path = kwargs["path"]
+
+            async def grab(self) -> None:
+                pass
+
+        opens: list[str] = []
+
+        def device_input(path: str) -> _RawInputDevice:
+            opens.append(path)
+            if len(opens) == 1:
+                raise PermissionError(errno.EACCES, "Permission denied")
+            return _RawInputDevice()
+
+        sleep_calls: list[float] = []
+
+        async def sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        manager = DeviceManager()
+        manager._device_input = device_input  # type: ignore[method-assign]
+        monkeypatch.setattr(manager, "_detect_device_types", lambda _device: ["keyboard"])
+        monkeypatch.setattr(device_manager, "GrabbedDevice", _ManagedDevice)
+        monkeypatch.setattr(outputs, "create_global_uinputs", Mock())
+        monkeypatch.setattr(adapters.ASYNCIO_RUNTIME, "sleep", sleep)
+
+        result = await manager.grab_device(
+            "1234:5678",
+            ["/dev/input/event0"],
+            {"source": "key_a"},
+        )
+
+        assert result["grabbed_count"] == 1
+        # The claim path may be resolved from the host; only the retry matters.
+        assert len(opens) == 2 and opens[0] == opens[1]
+        assert sleep_calls == [acquisition.PROBE_ACCESS_RETRY_DELAYS_S[0]]
+
+    @pytest.mark.asyncio
+    async def test_probe_does_not_retry_other_open_errors(self) -> None:
+        manager = DeviceManager()
+        opens: list[str] = []
+
+        def device_input(path: str) -> object:
+            opens.append(path)
+            raise OSError(errno.ENODEV, "gone")
+
+        manager._device_input = device_input  # type: ignore[method-assign]
+
+        with pytest.raises(OSError, match="gone"):
+            await acquisition.probe_interface_device_with_retry(
+                manager, "/dev/input/event0", log=logging.getLogger("test")
+            )
+
+        assert opens == ["/dev/input/event0"]
+
+    @pytest.mark.asyncio
     async def test_grab_with_retry_waits_for_busy_device_then_succeeds(self) -> None:
         sleep_calls: list[float] = []
 
@@ -823,6 +1048,63 @@ class TestDeviceManagerHelpers:
 
         assert device.attempts == 3
         assert sleep_calls == [0.05, 0.10]
+
+    @pytest.mark.asyncio
+    async def test_grab_with_retry_waits_for_udev_to_grant_access(self) -> None:
+        sleep_calls: list[float] = []
+
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                sleep_calls.append(delay)
+
+        class _NotYetAccessibleDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                if self.attempts < 2:
+                    raise PermissionError(errno.EACCES, "Permission denied")
+
+        device = _NotYetAccessibleDevice()
+
+        await acquisition.grab_with_retry(
+            device,
+            "/dev/input/event0",
+            asyncio_mod=_Asyncio(),
+            log=logging.getLogger("test"),
+            errno_mod=errno,
+        )
+
+        assert device.attempts == 2
+        assert sleep_calls == [0.05]
+
+    @pytest.mark.asyncio
+    async def test_grab_with_retry_does_not_retry_other_errors(self) -> None:
+        class _Asyncio:
+            async def sleep(self, delay: float) -> None:
+                raise AssertionError("no retry expected")
+
+        class _MissingDevice:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            async def grab(self) -> None:
+                self.attempts += 1
+                raise OSError(errno.ENODEV, "gone")
+
+        device = _MissingDevice()
+
+        with pytest.raises(OSError, match="gone"):
+            await acquisition.grab_with_retry(
+                device,
+                "/dev/input/event0",
+                asyncio_mod=_Asyncio(),
+                log=logging.getLogger("test"),
+                errno_mod=errno,
+            )
+
+        assert device.attempts == 1
 
     @pytest.mark.asyncio
     async def test_grab_with_retry_reraises_last_busy_error_after_retries(self) -> None:

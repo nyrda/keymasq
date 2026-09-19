@@ -2,9 +2,12 @@
 
 import concurrent.futures
 import contextlib
+import grp
 import json
 import os
+import pwd
 import socket
+import struct
 import subprocess
 import time
 from collections.abc import Callable
@@ -17,8 +20,15 @@ import evdev
 
 HARDWARE_ID = "cafe:0001"
 SECOND_HARDWARE_ID = "cafe:0002"
+GAMEPAD_HARDWARE_ID = "cafe:0003"
 SOURCE_NAME = "keymasq-integration-source-keyboard"
 SECOND_SOURCE_NAME = "keymasq-integration-secondary-keyboard"
+# Not "keymasq-*" and not the python-evdev phys: the daemon treats those as its
+# own virtual outputs and never resolves a keymasq:<vendor>:<product> path to them.
+GAMEPAD_SOURCE_NAME = "integration-source-gamepad"
+GAMEPAD_SOURCE_PHYS = "integration-gamepad/input0"
+SOURCE_HIDING_PROFILE_NAME = "Integration Source Hiding"
+HIDDEN_FLAG_DIR = Path("/run/keymasq/hidden")
 PROFILE_NAME = "Integration Core Smoke"
 SECOND_PROFILE_NAME = "Integration Priority Override"
 LOWER_PROFILE_NAME = "Integration Lower Fallback"
@@ -246,6 +256,172 @@ class ScenarioContext:
             raise AssertionError("source uinput did not expose an evdev path")
         time.sleep(0.5)
         return device
+
+    def create_source_gamepad(self) -> evdev.UInput:
+        """A joystick-classified uinput source for the source hiding scenario."""
+        device = evdev.UInput(
+            events={
+                evdev.ecodes.EV_KEY: [
+                    evdev.ecodes.BTN_SOUTH,
+                    evdev.ecodes.BTN_EAST,
+                    evdev.ecodes.BTN_NORTH,
+                    evdev.ecodes.BTN_WEST,
+                    evdev.ecodes.BTN_TL,
+                    evdev.ecodes.BTN_TR,
+                    evdev.ecodes.BTN_SELECT,
+                    evdev.ecodes.BTN_START,
+                ],
+                evdev.ecodes.EV_ABS: [
+                    (evdev.ecodes.ABS_X, evdev.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+                    (evdev.ecodes.ABS_Y, evdev.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+                    (evdev.ecodes.ABS_RX, evdev.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+                    (evdev.ecodes.ABS_RY, evdev.AbsInfo(0, -32768, 32767, 16, 128, 0)),
+                    (evdev.ecodes.ABS_Z, evdev.AbsInfo(0, 0, 255, 0, 0, 0)),
+                    (evdev.ecodes.ABS_RZ, evdev.AbsInfo(0, 0, 255, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT0X, evdev.AbsInfo(0, -1, 1, 0, 0, 0)),
+                    (evdev.ecodes.ABS_HAT0Y, evdev.AbsInfo(0, -1, 1, 0, 0, 0)),
+                ],
+            },
+            name=GAMEPAD_SOURCE_NAME,
+            vendor=0xCAFE,
+            product=0x0003,
+            phys=GAMEPAD_SOURCE_PHYS,
+        )
+        self.settle_udev()
+        source_device = self.wait_for_source_device(
+            GAMEPAD_SOURCE_NAME, vendor=0xCAFE, product=0x0003
+        )
+        existing_device = getattr(device, "device", None)
+        if existing_device is not None and existing_device is not source_device:
+            with contextlib.suppress(OSError, RuntimeError):
+                existing_device.close()
+        device.device = source_device
+        time.sleep(0.5)
+        return device
+
+    def write_gamepad_hardware_config(self) -> None:
+        """Hardware plus a mapped profile: the session only grabs mapped hardware."""
+        hardware_dir = self.config_dir / "hardware"
+        profiles_dir = self.config_dir / "profiles"
+        hardware_dir.mkdir(parents=True, exist_ok=True)
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        values = {
+            "GAMEPAD_HARDWARE_ID": GAMEPAD_HARDWARE_ID,
+            "SOURCE_HIDING_PROFILE_NAME": SOURCE_HIDING_PROFILE_NAME,
+        }
+        self.write_fixture(hardware_dir / "cafe_0003.toml", "hardware/gamepad.toml", values)
+        self.write_fixture(
+            profiles_dir / "source-hiding.toml", "profiles/source-hiding.toml", values
+        )
+
+    def remove_gamepad_hardware_config(self) -> None:
+        (self.config_dir / "hardware" / "cafe_0003.toml").unlink(missing_ok=True)
+        (self.config_dir / "profiles" / "source-hiding.toml").unlink(missing_ok=True)
+
+    def hidden_flag_path(self, event_name: str) -> Path:
+        return HIDDEN_FLAG_DIR / event_name
+
+    def udev_properties(self, node_path: str) -> dict[str, str]:
+        result = subprocess.run(
+            ["udevadm", "info", "--query=property", f"--name={node_path}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return {}
+        properties: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            key, separator, value = line.partition("=")
+            if separator:
+                properties[key.strip()] = value.strip()
+        return properties
+
+    def node_ownership(self, node_path: str) -> tuple[str, str, int]:
+        info = os.stat(node_path)
+        try:
+            owner = pwd.getpwuid(info.st_uid).pw_name
+        except KeyError:
+            owner = str(info.st_uid)
+        try:
+            group = grp.getgrgid(info.st_gid).gr_name
+        except KeyError:
+            group = str(info.st_gid)
+        return owner, group, info.st_mode & 0o777
+
+    def node_acl_user_permissions(self, node_path: str) -> dict[str, str]:
+        """Named-user ACL entries, read from the raw xattr so no acl tools are needed."""
+        try:
+            raw = os.getxattr(node_path, "system.posix_acl_access")
+        except OSError:
+            return {}
+        entries: dict[str, str] = {}
+        for offset in range(4, len(raw) - 7, 8):
+            tag, perm, uid = struct.unpack_from("<HHI", raw, offset)
+            if tag != 0x02:
+                continue
+            try:
+                name = pwd.getpwuid(uid).pw_name
+            except KeyError:
+                name = str(uid)
+            entries[name] = "".join(
+                letter for bit, letter in ((4, "r"), (2, "w"), (1, "x")) if perm & bit
+            )
+        return entries
+
+    def node_diagnostics(self, node_path: str | None = None) -> str:
+        """udev's view of every input node, for scenario failure messages."""
+        chunks: list[str] = []
+        for node in sorted(Path("/dev/input").glob("event*")):
+            info = os.stat(node)
+            ownership = self.node_ownership(str(node))
+            acl = self.node_acl_user_permissions(str(node))
+            chunks.append(f"{node}: {ownership} acl={acl}")
+            db = Path(f"/run/udev/data/c{os.major(info.st_rdev)}:{os.minor(info.st_rdev)}")
+            with contextlib.suppress(OSError):
+                chunks.append(db.read_text(encoding="utf-8", errors="replace"))
+        for path in sorted(Path("/run/keymasq").glob("hidden*/*")):
+            chunks.append(f"flag {path}")
+        target = Path("/sys/class/input") / Path(node_path).name if node_path else None
+        if target is not None and target.exists():
+            simulation = subprocess.run(
+                ["udevadm", "test", "--action=change", str(target)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            lines = [
+                line
+                for line in (simulation.stdout + simulation.stderr).splitlines()
+                if "userdb" not in line and "libnss" not in line and "varlink" not in line
+            ]
+            chunks.append(f"udevadm test {target} exit={simulation.returncode}")
+            chunks.extend(lines[-60:])
+        return "\n".join(chunks)
+
+    def daemon_effective_capabilities(self) -> int:
+        result = subprocess.run(
+            [
+                os.environ.get("KEYMASQ_INTEGRATION_SYSTEMCTL", "systemctl"),
+                "show",
+                "--property=MainPID",
+                "--value",
+                "keymasqd.service",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        pid = int(result.stdout.strip() or "0")
+        if pid <= 0:
+            raise AssertionError("keymasqd.service has no main process")
+        for line in Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("CapEff:"):
+                return int(line.split(":", 1)[1].strip(), 16)
+        raise AssertionError(f"no CapEff entry for keymasqd pid {pid}")
 
     def wait_for_source_device(self, name: str, *, vendor: int, product: int) -> evdev.InputDevice:
         deadline = time.monotonic() + 10

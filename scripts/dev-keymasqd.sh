@@ -35,7 +35,6 @@ fi
 SYSTEMCTL_COMMAND="$(host_command systemctl || true)"
 INSTALL_COMMAND="$(host_command install)"
 ENV_COMMAND="$(host_command env)"
-SETPRIV_COMMAND="$(host_command setpriv 2>/dev/null || true)"
 
 # Normal sudo uses a matching NOPASSWD rule automatically, and otherwise
 # authenticates as usual. Do not retry executed commands on failure: a daemon
@@ -91,25 +90,10 @@ export PYTHONPATH="${STAGED_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}"
 stop_installed_daemon_service
 prepare_runtime_dirs
 
-# Match keymasqd.service: run as keymasq with exactly one ambient capability.
-# `udevadm trigger` writes root-owned sysfs uevent files during source hide and
-# restore; plain `sudo -u keymasq` grants no capabilities, so those triggers
-# fail with "Permission denied" in the foreground daemon. Do not widen this set.
-if [[ -n "${SETPRIV_COMMAND}" ]]; then
-  exec "${SUDO_COMMAND}" "${SETPRIV_COMMAND}" \
-    --reuid=keymasq --regid=keymasq --init-groups \
-    --bounding-set=-all,+dac_override \
-    --inh-caps=+dac_override \
-    --ambient-caps=+dac_override \
-    --no-new-privs \
-    "${ENV_COMMAND}" \
-    HOME=/var/lib/keymasq \
-    PATH="${PATH}" \
-    PYTHONPATH="${PYTHONPATH}" \
-    python -m keymasq.keymasqd "$@"
-fi
-
-echo "setpriv not found; starting without CAP_DAC_OVERRIDE (source hiding will log permission errors)" >&2
+# Match keymasqd.service: run as keymasq without capabilities. Source hiding
+# triggers udev through the installed keymasq-hardware@ jobs, so those units
+# and the Polkit rule must be installed for hiding to work in the foreground
+# daemon; everything else runs without them.
 exec "${SUDO_COMMAND}" -u keymasq "${ENV_COMMAND}" \
   HOME=/var/lib/keymasq \
   PATH="${PATH}" \

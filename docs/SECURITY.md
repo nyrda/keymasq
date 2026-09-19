@@ -150,48 +150,58 @@ user switching and stale session processes.
 ## Daemon Capability and Service Hardening
 
 `keymasqd` runs as the dedicated `keymasq` system user inside a hardened
-systemd service, with exactly one Linux capability:
+systemd service with no Linux capabilities at all:
 
 ```ini
 NoNewPrivileges=true
-AmbientCapabilities=CAP_DAC_OVERRIDE
-CapabilityBoundingSet=CAP_DAC_OVERRIDE
+CapabilityBoundingSet=
+DevicePolicy=closed
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
+DeviceAllow=char-hidraw r
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
 PrivateTmp=true
 ReadWritePaths=/run/keymasq /var/lib/keymasq
 ```
 
-`CAP_DAC_OVERRIDE` is an accepted, deliberate part of the trusted runtime —
-not leftover privilege. It exists for the physical-source management and
-force-feedback passthrough design, and these are the exact operations that
-require it:
+Everything the daemon touches is reachable through ordinary permissions:
 
-- **sysfs uevent writes for source hide/restore.** Hiding or restoring a
-  grabbed physical source runs `udevadm trigger`, which writes root-owned
-  `/sys/.../uevent` files so `99-keymasq-hide-grabbed.rules` re-evaluates the
-  node. The daemon is the unprivileged `keymasq` user, so the `udevadm` child
-  relies on the inherited ambient capability. This covers per-node hide and
-  restore, hardware-level hotplug hiding, and the startup/shutdown
-  reconciliation pass (`keymasq/keymasqd/runtime/source_hiding.py`).
-- **Device permission resets on hidden nodes.** The hide rules deliberately
-  reset hidden `event*`/`js*` nodes to `root:root` mode `0600`, strip ACLs,
-  and then re-grant the `keymasq` ACL. The capability guarantees the daemon
-  keeps opening and writing those nodes across that reset, including the
-  window before the udev `RUN` ACL re-grant lands on a freshly hidden or
-  hotplugged node.
-- **Force-feedback passthrough.** Rumble proxying writes `EV_FF` uploads,
-  erases, and play events to the grabbed physical gamepad node
-  (`keymasq/keymasqd/runtime/force_feedback.py`) — which is exactly such a
-  hidden, permission-reset node while a game is running.
+- **Input devices and uinput.** Reads of `/dev/input/event*`, writes to
+  `/dev/uinput`, and read-only hidraw access are granted through explicit
+  ACLs (`setfacl` in `ExecStartPre` and `91-keymasq-acl.rules`). The device
+  policy additionally limits the service to input, uinput, and read-only
+  hidraw nodes, so the daemon cannot open other users' devices, block
+  devices, or anything else under `/dev` even if a rule or ACL is
+  misconfigured. Its writable state lives in its own
+  `RuntimeDirectory`/`StateDirectory`.
+- **Source hide/restore.** Hiding a grabbed gamepad source writes a flag file
+  under the daemon's own `/run/keymasq/hidden` directory. Making udev act on
+  that flag needs `udevadm trigger`, which writes root-owned `/sys/.../uevent`
+  files. The daemon requests that trigger as a bounded `keymasq-hardware@`
+  root job (see Hardware Masking Jobs below): the job validates the `event*`
+  and `js*` names, checks them against `/sys/class/input`, and runs the
+  trigger. Per-node hide and restore, model-wide hotplug hiding, and the
+  startup reconcile all use this path
+  (`keymasq/keymasqd/runtime/source_hiding.py`). `ProtectKernelTunables`
+  keeps sysfs read-only inside the daemon itself. No input waits on these
+  jobs: a grabbed source is already being read when its hide job is requested,
+  and a release closes every physical handle before any restore job runs.
+- **Permission resets on hidden nodes.** The hide rules reset hidden
+  `event*`/`js*` nodes to `root:root` mode `0600`, strip ACLs, and re-grant
+  the `keymasq` ACL within the same udev event. The daemon opens and grabs a
+  source before it asks to hide it and keeps that handle for the lifetime of
+  the grab, so the reset never affects a grabbed node. Force-feedback
+  passthrough (`keymasq/keymasqd/runtime/force_feedback.py`) writes `EV_FF`
+  uploads, erases, and play events through that same handle. A node that
+  udev has not finished processing yet, such as a reconnecting controller,
+  can briefly refuse the open; grabs retry on `EACCES` for a short bounded
+  period instead of relying on a capability.
 
-What does **not** rely on the capability: normal input device reads and
-`/dev/uinput` access are granted through explicit ACLs (`setfacl` in
-`ExecStartPre` and `91-keymasq-acl.rules`), and the daemon's writable state
-lives in its own `RuntimeDirectory`/`StateDirectory`. Failure messages are
-distinct per mechanism, so a missing input ACL, missing uinput access, and a
-missing capability are directly distinguishable in the logs (see
-[TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
+Failure messages are distinct per mechanism, so a missing input ACL, missing
+uinput access, and a failing hide job are directly distinguishable in the
+logs (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
 
 Native motion drivers also use explicit ACLs in `91-keymasq-acl.rules`.
 The daemon user gets read access to hidraw nodes, including devices with no
@@ -200,20 +210,19 @@ opens; it is not a permission boundary. The rule does not grant write access
 or change device ownership. The Ultimate 2 driver opens its node read-only
 and sends no commands. Future drivers that write need an explicit access policy.
 
-The containment around the capability is retained deliberately: dedicated
-service user, `NoNewPrivileges`, bounding set limited to this single
-capability, protected system and home paths, and writable directories
-restricted to `/run/keymasq` and `/var/lib/keymasq`. All maintained package
-formats (Debian, RPM, Arch/AUR, AppImage/SteamOS, NixOS module) grant this
-same minimal set; none adds any other ambient or bounding capability. The
-service files carry matching comments so the grant and its consumers stay in
-sync.
+The containment around the daemon is retained deliberately: dedicated
+service user, `NoNewPrivileges`, an empty capability bounding set, a closed
+device policy, protected system and home paths, read-only kernel tunables,
+and writable directories restricted to `/run/keymasq` and `/var/lib/keymasq`.
+All maintained package formats (Debian, RPM, Arch/AUR, AppImage/SteamOS,
+NixOS module) ship this same capability-free unit; none adds an ambient or
+bounding capability. The service files carry matching comments so the unit
+and the code that depends on it stay in sync.
 
-A narrower design — delegating the udev trigger and hidden-node access to a
-separate root helper so the daemon itself drops the capability — remains a
-future option only. It adds IPC surface and failure modes of its own, so it
-is not worth adopting unless a concrete security or operational problem with
-the current single-capability model justifies that complexity.
+Delegating the udev trigger to a root job adds IPC surface and failure modes
+of its own. They are bounded: the daemon supplies only `event*`/`js*` kernel
+names, the job validates them again as root, and a failed or timed-out job is
+logged distinctly while remapping keeps working.
 
 ## Peer Identity and ACL
 
@@ -434,7 +443,11 @@ or capture authorization through pkexec does not authorize these hardware comman
 
 The helper opens a daemon-owned request inode with `O_NOFOLLOW`, rejects unsafe
 permissions and hard links, and reads a bounded JSON request. It accepts only
-activation, offline arming, interface refresh, and recovery. Attachment identities
+activation, offline arming, interface refresh, recovery, and source-hiding udev
+triggers. A trigger request carries at most a list of `event*`/`js*` kernel
+names; the helper validates them, drops names absent from `/sys/class/input`,
+and runs `udevadm trigger` for the rest, so the daemon cannot supply paths or
+other arguments. Attachment identities
 and current generations resolve through root's sysfs inventory. The daemon cannot
 supply driver names, mutation paths, shell commands, or permission snapshots.
 The response is written through the pinned descriptor, not a reopened path.
@@ -493,7 +506,7 @@ inspect input content. USB reconnect records and validates the individual port's
 identity before changing it, refuses hubs and ganged power switching, and repairs
 an interrupted port operation during recovery. Current desktop grants come from
 udev after static permissions are restored; old session ACLs are not replayed.
-`keymasqd` retains its existing capability set. See
+`keymasqd` itself holds no capabilities. See
 [Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
 [Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
 

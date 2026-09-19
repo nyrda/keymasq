@@ -71,21 +71,22 @@ wrapper behavior, not as the fastest GUI iteration loop.
 
 `dev-keymasqd.sh` needs root for a fixed set of commands: stopping the installed
 `keymasqd.service`, creating `/run/keymasq` and `/var/lib/keymasq`, and starting
-the daemon. The daemon itself starts through `setpriv`, which switches to the
-`keymasq` user and grants the single `CAP_DAC_OVERRIDE` ambient capability that
-`keymasqd.service` also grants. Without it, `udevadm trigger` cannot write
-sysfs `uevent` files and source hiding logs `Permission denied` warnings (see
-`docs/TROUBLESHOOTING.md`). If `setpriv` is missing, the launcher falls back to
-plain `sudo -u keymasq` and warns.
+the daemon as the `keymasq` user through `sudo -u keymasq`. Like
+`keymasqd.service`, the foreground daemon holds no capabilities. Source hiding
+runs its `udevadm trigger` calls through the installed `keymasq-hardware@`
+jobs, so the hardware job unit and its Polkit rule must be installed for
+hiding to work; without them the daemon logs `udev trigger job failed`
+warnings (see `docs/TROUBLESHOOTING.md`) and everything else keeps working.
 
 Without any sudo rule the launcher prompts for your password on every restart.
 The three setup commands are fixed and safe to allow without a password. The
-daemon start is not: it runs whatever the worktree contains, with a capability
-that bypasses file permission checks and without the service's sandbox. A
-passwordless rule for it would give every process running as your desktop user
-root-equivalent access, so let that command keep prompting. Sudo's credential
-cache reduces the prompts; `Defaults timestamp_timeout=30` in your sudoers
-keeps one password per half hour.
+daemon start is not: it runs whatever the worktree contains as the daemon
+account, with its input device access and its authority to start root hardware
+jobs, and without the service's sandbox. A passwordless rule for it would hand
+that to every process running as your desktop user, so let that command keep
+prompting. Sudo's credential cache reduces the prompts;
+`Defaults timestamp_timeout=30` in your sudoers keeps one password per half
+hour.
 
 The launcher prefers stable `/run/current-system/sw/bin` paths on NixOS so one
 rule keeps matching across worktrees with different nixpkgs pins. Replace `alice`

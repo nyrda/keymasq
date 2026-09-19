@@ -480,3 +480,143 @@ async def test_watchdog_keeps_feeding_while_masking_waits_for_recovery(
             await request
         await masking.stop_monitor()
         await masking.release_runtime()
+
+
+def _trigger_root(tmp_path):
+    root = LinuxMaskBackend(runtime_dir=tmp_path / "run", state_dir=tmp_path / "state")
+    root.prepare_directories()
+    return root
+
+
+@pytest.mark.asyncio
+async def test_trigger_job_runs_udevadm_for_present_nodes_only(tmp_path, monkeypatch):
+    sys_input = tmp_path / "sys" / "class" / "input"
+    (sys_input / "event7").mkdir(parents=True)
+    (sys_input / "js0").mkdir(parents=True)
+    monkeypatch.setattr(operations, "SYS_CLASS_INPUT", sys_input)
+    calls = []
+
+    async def udevadm(*args, **kwargs):
+        calls.append((args, kwargs.get("timeout")))
+        return ""
+
+    monkeypatch.setattr(operations, "run_host", udevadm)
+    result = await operations.execute(
+        {"operation": "trigger", "id": "", "names": ["event7", "js0", "event7", "event9"]},
+        _trigger_root(tmp_path),
+    )
+    assert result == {"triggered": ["event7", "js0"]}
+    assert calls == [
+        (
+            (
+                "udevadm",
+                "trigger",
+                "--subsystem-match=input",
+                "--action=change",
+                "--sysname-match=event7",
+                "--sysname-match=js0",
+                "--settle",
+            ),
+            operations.NODE_TRIGGER_TIMEOUT_S,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trigger_job_without_names_reevaluates_the_input_subsystem(tmp_path, monkeypatch):
+    calls = []
+
+    async def udevadm(*args, **kwargs):
+        calls.append((args, kwargs.get("timeout")))
+        return ""
+
+    monkeypatch.setattr(operations, "run_host", udevadm)
+    result = await operations.execute({"operation": "trigger", "id": ""}, _trigger_root(tmp_path))
+    assert result == {"triggered": ["input"]}
+    assert calls == [
+        (
+            ("udevadm", "trigger", "--subsystem-match=input", "--action=change", "--settle"),
+            operations.SUBSYSTEM_TRIGGER_TIMEOUT_S,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trigger_job_is_a_no_op_when_every_node_is_gone(tmp_path, monkeypatch):
+    monkeypatch.setattr(operations, "SYS_CLASS_INPUT", tmp_path / "missing")
+    udevadm = AsyncMock()
+    monkeypatch.setattr(operations, "run_host", udevadm)
+    result = await operations.execute(
+        {"operation": "trigger", "id": "", "names": ["event7"]}, _trigger_root(tmp_path)
+    )
+    assert result == {"triggered": []}
+    udevadm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "names",
+    [
+        [],
+        "event7",
+        ["../event7"],
+        ["event"],
+        ["/dev/input/event7"],
+        ["event7\n"],
+        ["mouse0"],
+        [7],
+        [f"event{index}" for index in range(operations.MAX_TRIGGER_NODES + 1)],
+    ],
+)
+async def test_trigger_job_rejects_anything_but_input_node_names(tmp_path, monkeypatch, names):
+    sys_input = tmp_path / "sys" / "class" / "input"
+    sys_input.mkdir(parents=True)
+    monkeypatch.setattr(operations, "SYS_CLASS_INPUT", sys_input)
+    udevadm = AsyncMock()
+    monkeypatch.setattr(operations, "run_host", udevadm)
+    with pytest.raises(ValueError):
+        await operations.execute(
+            {"operation": "trigger", "id": "", "names": names}, _trigger_root(tmp_path)
+        )
+    udevadm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_global_recovery_cannot_race_a_trigger_job(tmp_path, monkeypatch):
+    root = _trigger_root(tmp_path)
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def udevadm(*args, **kwargs):
+        started.set()
+        await finish.wait()
+        return ""
+
+    monkeypatch.setattr(operations, "run_host", udevadm)
+    task = asyncio.create_task(operations.execute({"operation": "trigger", "id": ""}, root))
+    await started.wait()
+    with pytest.raises(BlockingIOError):
+        await operations.recover_all(root)
+    finish.set()
+    await task
+    monkeypatch.setattr(LinuxMaskBackend, "recover", AsyncMock())
+    await operations.recover_all(root)
+
+
+@pytest.mark.parametrize(
+    "unit_path",
+    ["systemd/keymasqd.service", "packaging/appimage/assets/keymasqd.service"],
+)
+def test_daemon_service_holds_no_capabilities(unit_path):
+    root = Path(__file__).resolve().parents[2]
+    lines = (root / unit_path).read_text().splitlines()
+    settings = [line for line in lines if "=" in line and not line.startswith("#")]
+    assert not any(line.startswith("AmbientCapabilities=") for line in settings)
+    assert "CapabilityBoundingSet=" in settings
+    assert "NoNewPrivileges=true" in settings
+    assert "DevicePolicy=closed" in settings
+    assert "ProtectKernelTunables=true" in settings
+    assert {line for line in settings if line.startswith("DeviceAllow=")} == {
+        "DeviceAllow=char-input rw",
+        "DeviceAllow=/dev/uinput rw",
+        "DeviceAllow=char-hidraw r",
+    }

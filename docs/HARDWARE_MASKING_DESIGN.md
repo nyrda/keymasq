@@ -16,6 +16,12 @@ bindings, and installs runtime udev rules. The root process exits when the
 operation ends. Listing hardware and monitoring unchanged masks do not start
 privileged jobs.
 
+Source hiding for grabbed gamepads uses the same job path for its
+`udevadm trigger` calls. The daemon owns the hiding flags under
+`/run/keymasq/hidden` and `/run/keymasq/hidden-hardware`; a `trigger` job only
+re-runs udev rules for validated `event*`/`js*` names or for the whole input
+subsystem, which is why `keymasqd` needs no capability of its own.
+
 Within the daemon, `HardwareMasking` owns the monitor loop and lifecycle cleanup.
 `MaskCoordinator` manages independent `MaskReservation` policies, deadlines, and
 transaction locks; `MaskRuntime` owns each reservation's readers and remapping

@@ -822,21 +822,6 @@ class GrabbedDevice:
             )
             self.device.grab()
             await update_touchpad_fuzz(self)
-            if is_gamepad_passthrough and not self.source_reserved:
-                self.source_hidden_kernel_names = []
-                self.source_pending_hidden_kernel_names = source_hiding.node_kernel_names(
-                    self.resolved_event_path
-                )
-                try:
-                    self.source_hidden_kernel_names = await source_hiding.hide_source(
-                        self.resolved_event_path
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    log.exception("Unexpected failure hiding source for %s", self.path)
-                finally:
-                    self.source_pending_hidden_kernel_names = []
         except asyncio.CancelledError:
             await self._cleanup_failed_grab()
             raise
@@ -852,6 +837,27 @@ class GrabbedDevice:
                 log=log,
             )
         )
+
+        # Hiding waits on a root job. The reader is already running, so a slow
+        # job never leaves a grabbed source unread.
+        if is_gamepad_passthrough and not self.source_reserved:
+            self.source_hidden_kernel_names = []
+            self.source_pending_hidden_kernel_names = source_hiding.node_kernel_names(
+                self.resolved_event_path
+            )
+            try:
+                self.source_hidden_kernel_names = await source_hiding.hide_source(
+                    self.resolved_event_path
+                )
+            except asyncio.CancelledError:
+                # The reader may already have forwarded input; a full release
+                # also lets go of anything it left held on the outputs.
+                await self.release()
+                raise
+            except Exception:
+                log.exception("Unexpected failure hiding source for %s", self.path)
+            finally:
+                self.source_pending_hidden_kernel_names = []
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 
@@ -876,10 +882,14 @@ class GrabbedDevice:
         except Exception:
             log.exception("Release cleanup failed while %s for %s; continuing", label, self.path)
 
-    async def release(self) -> None:
+    async def release(self, *, restore_source: bool = True) -> None:
         # A disconnected device routinely fails the optional runtime cleanup
         # below. Those failures are logged; ungrab and close still run so the
         # handle never outlives the release.
+        #
+        # Restoring a hidden source waits on a root job. A caller releasing
+        # several devices passes ``restore_source=False`` and calls
+        # ``restore_hidden_source`` once every physical handle is free.
         await self._release_step("stopping the reader", self.stop_event_loop)
         await self._release_step(
             "resetting touchpad fuzz", lambda: update_touchpad_fuzz(self, releasing=True)
@@ -936,16 +946,20 @@ class GrabbedDevice:
         self.device = None
         self.uinput = None
         self.state.analog_original_fuzz.clear()
+        self.source_pending_hidden_kernel_names = []
+        if restore_source:
+            await self.restore_hidden_source()
+
+        log.info("Released %s", self.path)
+
+    async def restore_hidden_source(self) -> None:
         hidden_names = self.source_hidden_kernel_names
         self.source_hidden_kernel_names = []
-        self.source_pending_hidden_kernel_names = []
         if hidden_names:
             try:
                 await source_hiding.restore_source_by_kernel_names(hidden_names)
             except Exception:
                 log.exception("Unexpected failure restoring hidden source for %s", self.path)
-
-        log.info("Released %s", self.path)
 
     def _start_output_feedback_proxy(self) -> None:
         if self.uinput is None or self.device is None:

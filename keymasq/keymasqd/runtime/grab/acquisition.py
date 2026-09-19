@@ -1,6 +1,7 @@
 """Acquisition transaction for reconciling and grabbing evdev interfaces."""
 
 import asyncio
+import errno
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -270,6 +271,36 @@ def probe_interface_device_sync(
     return probe_device, caps
 
 
+PROBE_ACCESS_RETRY_DELAYS_S = (0.05, 0.10, 0.20, 0.40)
+
+
+async def probe_interface_device_with_retry(
+    manager: GrabManager,
+    path: str,
+    *,
+    log: logging.Logger,
+) -> tuple[ManagedGrabbedDevice, dict[int, Sequence[object]]]:
+    """Open a source for probing, waiting out udev's ACL grant.
+
+    This is the first open of the node, so it meets the same race as the grab:
+    a node udev is still processing, or one the hiding rules just reset to
+    root:root, refuses the daemon until its ACL is granted again.
+    """
+    for delay in (*PROBE_ACCESS_RETRY_DELAYS_S, None):
+        try:
+            return await adapters.ASYNCIO_RUNTIME.to_thread(
+                probe_interface_device_sync,
+                manager,
+                path,
+            )
+        except OSError as exc:
+            if exc.errno != errno.EACCES or delay is None:
+                raise
+            log.warning("Device %s not yet accessible for probing, retrying in %.2fs", path, delay)
+            await adapters.ASYNCIO_RUNTIME.sleep(delay)
+    raise AssertionError("unreachable")
+
+
 async def grab_one_interface(
     manager: GrabManager,
     request: GrabRequest,
@@ -293,11 +324,7 @@ async def grab_one_interface(
             parent = await adapters.ASYNCIO_RUNTIME.to_thread(input_attachment_path, path)
             if any(parent.is_relative_to(attachment) for attachment in blocked):
                 return
-        probe_device, caps = await adapters.ASYNCIO_RUNTIME.to_thread(
-            probe_interface_device_sync,
-            manager,
-            path,
-        )
+        probe_device, caps = await probe_interface_device_with_retry(manager, path, log=log)
         raw_device = probe_device
         if not device_path_resolver.device_matches_hardware_model(
             probe_device, request.hardware_id
@@ -488,13 +515,16 @@ async def grab_with_retry(
             return
         except OSError as exc:
             last_error = exc
-            if exc.errno != errno_mod.EBUSY:
+            # EACCES: udev may not have granted the daemon ACL yet on a node that
+            # was just created, or that the hiding rules just reset to root:root.
+            if exc.errno not in {errno_mod.EBUSY, errno_mod.EACCES}:
                 raise
             if attempt >= len(delays):
                 break
             log.warning(
-                "Device %s busy during grab (attempt %d/%d), retrying in %.2fs",
+                "Device %s %s during grab (attempt %d/%d), retrying in %.2fs",
                 path,
+                "busy" if exc.errno == errno_mod.EBUSY else "not yet accessible",
                 attempt,
                 len(delays),
                 delay,

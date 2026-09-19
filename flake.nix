@@ -427,11 +427,17 @@
               description = "Keymasq Input Remapping Daemon";
               path = [ pkgs.systemd pkgs.acl pkgs.coreutils ];
               wantedBy = [ "multi-user.target" ];
+              # DeviceAllow=char-hidraw resolves at unit start; load hid (which
+              # owns the hidraw major) first so later controllers stay reachable.
               after = [
                 "systemd-udevd.service"
                 "systemd-udev-trigger.service"
+                "modprobe@hid.service"
               ];
-              wants = [ "systemd-udev-trigger.service" ];
+              wants = [
+                "systemd-udev-trigger.service"
+                "modprobe@hid.service"
+              ];
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "notify";
@@ -453,15 +459,20 @@
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
-                # CAP_DAC_OVERRIDE, the only granted capability: udevadm
-                # trigger writes root-owned sysfs uevent files during source
-                # hide/restore, and hidden nodes reset to root:root 0600 must
-                # stay usable for grabs and force-feedback passthrough. Do not
-                # add capabilities in any variant; see docs/SECURITY.md.
-                AmbientCapabilities = [ "CAP_DAC_OVERRIDE" ];
-                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" ];
+                # keymasqd holds no capabilities. Device access comes from the
+                # ACLs granted above and by the udev rules; source hiding runs
+                # its udev triggers as bounded keymasq-hardware@ root jobs. Do
+                # not add capabilities in any variant; see docs/SECURITY.md.
+                CapabilityBoundingSet = "";
+                DevicePolicy = "closed";
+                DeviceAllow = [
+                  "char-input rw"
+                  "/dev/uinput rw"
+                  "char-hidraw r"
+                ];
                 ProtectSystem = "strict";
                 ProtectHome = true;
+                ProtectKernelTunables = true;
                 PrivateTmp = true;
                 RuntimeDirectory = "keymasq";
                 RuntimeDirectoryMode = "0755";

@@ -86,11 +86,27 @@ exec ${PYTHON_BIN} -m keymasq.session.manager "\$@"
 EOF
 chmod 0755 /usr/local/bin/keymasq-session-wrapper
 
+cat >/usr/local/bin/keymasq-record-wrapper <<EOF
+#!/usr/bin/env bash
+exec ${PYTHON_BIN} -m keymasq.record "\$@"
+EOF
+chmod 0755 /usr/local/bin/keymasq-record-wrapper
+
+# Source hiding and hardware masking run their privileged steps as bounded
+# root jobs; the daemon itself holds no capabilities.
+install -d -m 0755 /run/udev/rules.d
+sed 's#^ExecStart=/usr/bin/keymasq-record #ExecStart=/usr/local/bin/keymasq-record-wrapper #' \
+  "${REPO_ROOT}/systemd/keymasq-hardware@.service" >/etc/systemd/system/keymasq-hardware@.service
+install -Dm644 "${REPO_ROOT}/polkit/49-keymasq-hardware.rules" /etc/polkit-1/rules.d/49-keymasq-hardware.rules
+
 cat >/etc/systemd/system/keymasqd.service <<'EOF'
 [Unit]
 Description=Keymasq Input Remapping Daemon
-After=systemd-udevd.service systemd-udev-trigger.service
-Wants=systemd-udev-trigger.service
+# DeviceAllow=char-hidraw resolves when the unit starts; a group the kernel has
+# not registered yet is dropped from the allow-list. Load hid (which owns the
+# hidraw major) first so controllers connected later stay reachable.
+After=systemd-udevd.service systemd-udev-trigger.service modprobe@hid.service
+Wants=systemd-udev-trigger.service modprobe@hid.service
 
 [Service]
 Type=simple
@@ -100,15 +116,22 @@ SupplementaryGroups=input
 Nice=-5
 # Apply native-driver ACLs to controllers already connected at startup.
 ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
+ExecStartPre=+/usr/local/bin/keymasq-record-wrapper recover-hardware
 ExecStart=/usr/local/bin/keymasqd-wrapper
+ExecStopPost=+/usr/local/bin/keymasq-record-wrapper recover-hardware
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
-# Required for udevadm trigger to write sysfs uevent files during source hide/restore.
-AmbientCapabilities=CAP_DAC_OVERRIDE
-CapabilityBoundingSet=CAP_DAC_OVERRIDE
+# keymasqd holds no capabilities; source hiding triggers udev through
+# keymasq-hardware@ root jobs.
+CapabilityBoundingSet=
+DevicePolicy=closed
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
+DeviceAllow=char-hidraw r
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
 PrivateTmp=true
 RuntimeDirectory=keymasq
 RuntimeDirectoryMode=0755

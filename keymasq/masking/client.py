@@ -23,7 +23,13 @@ from keymasq.masking.paths import (
 )
 
 
-async def request(operation: str, identity: str, **data: object) -> JsonObject:
+async def request(
+    operation: str,
+    identity: str,
+    *,
+    timeout: float = HARDWARE_JOB_TIMEOUT,
+    **data: object,
+) -> JsonObject:
     token = uuid.uuid4().hex
     path = REQUESTS / token
 
@@ -43,7 +49,7 @@ async def request(operation: str, identity: str, **data: object) -> JsonObject:
                 "start",
                 "--job-mode=fail",
                 f"keymasq-hardware@{token}.service",
-                timeout=HARDWARE_JOB_TIMEOUT,
+                timeout=timeout,
             )
             result = cast(JsonObject, json.loads(await finish_io(path.read_text)))
             if result.get("status") != "ok":

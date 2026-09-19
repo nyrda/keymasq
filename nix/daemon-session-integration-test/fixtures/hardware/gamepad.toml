@@ -1,0 +1,36 @@
+[hardware]
+name = "Keymasq Integration Gamepad"
+vendor_id = "cafe"
+product_id = "0003"
+
+[[hardware.evdev.devices]]
+path = "keymasq:cafe:0003"
+type = "gamepad"
+id = "pad"
+
+[hardware.layout]
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_south"
+label = "A"
+evdev = "btn_south"
+source = "pad"
+type = "key"
+
+[[hardware.layout.buttons]]
+id = "btn_east"
+label = "B"
+evdev = "btn_east"
+source = "pad"
+type = "key"
+
+[[hardware.layout.analogs]]
+id = "left_stick"
+label = "Left Stick"
+type = "stick"
+source = "pad"
+axes = [
+  { role = "x", evdev = "abs_x", minimum = -32768, maximum = 32767, center = 0 },
+  { role = "y", evdev = "abs_y", minimum = -32768, maximum = 32767, center = 0 },
+]

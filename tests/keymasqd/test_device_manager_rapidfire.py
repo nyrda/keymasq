@@ -1053,6 +1053,9 @@ class TestRapidfireRelease:
             def grab(self) -> None:
                 events.append("grab")
 
+            def ungrab(self) -> None:
+                events.append("ungrab")
+
             def close(self) -> None:
                 events.append("input-close")
 
@@ -1094,12 +1097,16 @@ class TestRapidfireRelease:
         with pytest.raises(asyncio.CancelledError):
             await device.grab()
 
+        # The reader starts before the hide job, so cancellation is a full
+        # release rather than a failed-grab cleanup.
         assert device.source_hidden_kernel_names == []
+        assert device.task is None
         assert events == [
             "grab",
             "hide:/dev/input/event22",
-            "uinput-close",
+            "ungrab",
             "input-close",
+            "uinput-close",
         ]
 
     @pytest.mark.asyncio

@@ -91,7 +91,7 @@ EOF
 }
 
 command="${1:-sync}"
-shift || true
+option="${2:-}"
 if [[ -z "${DEV_HOST}" && ! "${command}" =~ ^(-h|--help|help)$ ]]; then
   echo "Set KEYMASQ_DEV_HOST=user@host to the AppImage host." >&2
   exit 2
@@ -103,7 +103,7 @@ case "${command}" in
       --exclude=__pycache__ --exclude=/common/build_paths.py \
       --out-format='%o %n' -e "ssh -o BatchMode=yes" \
       "${REPO_ROOT}/keymasq/" "${DEV_HOST}:${package_path}/"
-    if [[ "${1:-}" != "--no-restart" ]]; then
+    if [[ "${option}" != "--no-restart" ]]; then
       install_dropins
       restart_services
       status

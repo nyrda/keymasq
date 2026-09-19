@@ -229,7 +229,7 @@ export KEYMASQ_DEV_HOST=deck@<deck-ip>
 The installed runtime is never modified. The script hardlink-clones
 `/opt/keymasq/runtime/current` to `/opt/keymasq/dev-runtime`, gives the clone a
 private copy of the `keymasq` package, and adds systemd drop-ins that set
-`KEYMASQ_APPDIR` for both services. The clone is rebuilt automatically after an
+`KEYMASQ_APPDIR` for both services and the privileged `keymasq-hardware@` helper. The clone is rebuilt automatically after an
 AppImage update. The build-generated `common/build_paths.py` is preserved. Run
 the GUI or CLI on the synced code with
 `KEYMASQ_APPDIR=/opt/keymasq/dev-runtime /opt/keymasq/bin/keymasq`.

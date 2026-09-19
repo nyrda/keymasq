@@ -580,3 +580,60 @@ async def test_missing_bindings_after_usb_reconnect_still_restores_access(tmp_pa
     await backend.recover()
     assert not backend.journal.exists()
     rebind.assert_awaited_once()
+
+
+def i2c_hid(tmp_path: Path):
+    from keymasq.masking.inventory import HardwareInventory
+
+    sys = tmp_path / "sys"
+    hid = sys / "devices/pci/i2c_designware.0/i2c-1/i2c-ABCD0001:00/0018:ABCD:9876.0003"
+    write(hid / "uevent", "HID_NAME=I2C touchpad\n")
+    driver = sys / "bus/hid/drivers/hid-multitouch"
+    write(driver / "bind", "")
+    write(driver / "unbind", "")
+    (hid / "driver").symlink_to(driver)
+    bus = sys / "bus/hid/devices"
+    bus.mkdir(parents=True)
+    (bus / hid.name).symlink_to(hid)
+    write(hid / "hidraw/hidraw2/dev", "")
+    raw = sys / "class/hidraw/hidraw2"
+    raw.mkdir(parents=True)
+    (raw / "device").symlink_to(hid)
+    write(tmp_path / "dev/hidraw2", "")
+    inventory = HardwareInventory(sys, tmp_path / "dev")
+    return inventory, inventory.scan()[0], hid, driver
+
+
+@pytest.mark.asyncio
+async def test_recovery_rebinds_an_i2c_hid_left_without_driver_or_raw_endpoint(
+    tmp_path, monkeypatch
+):
+    inventory, attachment, hid, driver = i2c_hid(tmp_path)
+    assert attachment.transport == "hid"
+    backend = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    backend.prepare_directories()
+    save_json(
+        backend.journal,
+        {
+            "id": attachment.identity,
+            "generation": attachment.generation,
+            "selector": inventory.selector(attachment),
+            "bindings": {hid.name: driver.name},
+            "mode": "",
+            "nodes": {},
+        },
+    )
+    # The unbind succeeded and the bind failed. The HID device is still attached.
+    (hid / "driver").unlink()
+    (hid / "hidraw/hidraw2/dev").unlink()
+    (hid / "hidraw/hidraw2").rmdir()
+    (inventory.sys_root / "class/hidraw/hidraw2/device").unlink()
+    (inventory.dev_root / "hidraw2").unlink()
+    assert inventory.scan() == []
+    monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
+
+    await backend.recover()
+
+    assert (driver / "bind").read_text() == hid.name
+    assert (driver / "unbind").read_text() == ""
+    assert not backend.journal.exists()

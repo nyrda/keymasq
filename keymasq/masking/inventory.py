@@ -89,6 +89,9 @@ class HardwareInventory:
         )
 
     def scan(self) -> list[Attachment]:
+        return self._scan(require_endpoints=True)
+
+    def _scan(self, *, require_endpoints: bool) -> list[Attachment]:
         devices: list[Attachment] = []
         hid_paths = list((self.sys_root / "bus/hid/devices").glob("*"))
         input_parents = [
@@ -161,7 +164,10 @@ class HardwareInventory:
             bluetooth = path.name.startswith("0005:")
             if not bluetooth and (self.sys_root / "devices/virtual") in real_path.parents:
                 continue
-            if not bluetooth and not any(real_path.glob("hidraw/hidraw*")):
+            # A HID device without a raw endpoint has nothing to mask. resolve()
+            # still finds it, because an unbind removes the endpoint of a device
+            # that stays attached and recovery must rebind it.
+            if require_endpoints and not bluetooth and not any(real_path.glob("hidraw/hidraw*")):
                 continue
             properties = dict(
                 line.split("=", 1)
@@ -246,9 +252,10 @@ class HardwareInventory:
         return result
 
     def resolve(self, identity: str, generation: str) -> Attachment:
-        for attachment in self.scan():
-            if attachment.identity == identity and attachment.generation == generation:
-                return attachment
+        for attachments in (self.scan, lambda: self._scan(require_endpoints=False)):
+            for attachment in attachments():
+                if attachment.identity == identity and attachment.generation == generation:
+                    return attachment
         raise ValueError("Hardware disconnected or changed; refresh the hardware list")
 
     def nodes(self, attachment: Attachment) -> list[Path]:

@@ -258,7 +258,9 @@ class KeymasqBridge {
         }
 
         try {
-            const seat = Clutter.get_default_backend()?.get_default_seat?.() || null
+            // GNOME 51 removed Clutter.get_default_backend(). Keep older Shells working.
+            const backend = global.stage.context?.get_backend?.() ?? Clutter.get_default_backend?.()
+            const seat = backend?.get_default_seat?.() || null
             if (!seat || typeof seat.warp_pointer !== 'function') {
                 this._pointerSetResult(requestId, false, 'GNOME pointer warp unavailable', x, y)
                 return

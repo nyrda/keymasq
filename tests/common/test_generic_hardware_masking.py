@@ -409,6 +409,57 @@ def test_denied_fd_inspection_refuses_masking_with_clear_error(tmp_path, monkeyp
     assert isinstance(failure.value.__cause__, PermissionError)
 
 
+PORTAL_MOUNT = (
+    "53 300 0:72 / /run/user/1000/doc rw,nosuid,nodev,relatime shared:349 - fuse.portal portal rw"
+)
+
+
+@pytest.mark.parametrize(
+    ("mountinfo", "fdinfo", "refused"),
+    [
+        (PORTAL_MOUNT, "pos:\t0\nflags:\t0100000\nmnt_id:\t53\n", False),
+        (PORTAL_MOUNT.replace(",nodev", ""), "mnt_id:\t53\n", True),
+        (PORTAL_MOUNT.replace("fuse.portal", "ext4"), "mnt_id:\t53\n", True),
+        (PORTAL_MOUNT, "mnt_id:\t54\n", True),
+        (PORTAL_MOUNT, None, True),
+    ],
+    ids=["nodev-fuse", "fuse-with-dev", "not-fuse", "mount-not-visible", "fdinfo-unreadable"],
+)
+def test_denied_descriptor_is_only_skipped_on_a_nodev_fuse_mount(
+    tmp_path, monkeypatch, mountinfo, fdinfo, refused
+):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    process = tmp_path / "proc/1234"
+    descriptor = process / "fd/7"
+    descriptor.parent.mkdir(parents=True)
+    descriptor.touch()
+    (process / "mountinfo").write_text(mountinfo + "\n")
+    if fdinfo is not None:
+        (process / "fdinfo").mkdir()
+        (process / "fdinfo/7").write_text(fdinfo)
+    original_iterdir = Path.iterdir
+    original_stat = Path.stat
+
+    def stat(path, *args, **kwargs):
+        if path == descriptor:
+            raise PermissionError("FD target denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        Path,
+        "iterdir",
+        lambda path: iter([process]) if path == Path("/proc") else original_iterdir(path),
+    )
+    monkeypatch.setattr(Path, "stat", stat)
+
+    backend = LinuxMaskBackend(inventory)
+    if refused:
+        with pytest.raises(PermissionError, match="Cannot inspect existing device handles"):
+            backend.reject_unrevoked_handles(attachment)
+    else:
+        backend.reject_unrevoked_handles(attachment)
+
+
 @pytest.mark.asyncio
 async def test_missing_raw_endpoint_restores_even_when_attachment_remains(tmp_path):
     from tests.common.test_hardware_masking import begin

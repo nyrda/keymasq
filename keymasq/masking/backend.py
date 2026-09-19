@@ -238,6 +238,10 @@ class LinuxMaskBackend:
                         info = descriptor.stat()
                     except FileNotFoundError:
                         continue
+                    except PermissionError:
+                        if self._descriptor_cannot_be_a_device(process, descriptor.name):
+                            continue
+                        raise
                     if stat.S_ISCHR(info.st_mode) and info.st_rdev in protected:
                         try:
                             application = (
@@ -255,6 +259,33 @@ class LinuxMaskBackend:
                     f"Cannot inspect existing device handles for process {process.name}; "
                     "masking cannot safely continue"
                 ) from error
+
+    @staticmethod
+    def _descriptor_cannot_be_a_device(process: Path, descriptor: str) -> bool:
+        """Whether a descriptor that denies stat() sits on a nodev FUSE mount.
+
+        A user's FUSE mount, such as the Flatpak document portal, denies even
+        root. The kernel refuses to open device nodes through a nodev mount, so
+        such a descriptor cannot be a handle to a protected device. fdinfo and
+        mountinfo identify the mount without touching the filesystem.
+        """
+        try:
+            fdinfo = (process / "fdinfo" / descriptor).read_text()
+            mountinfo = (process / "mountinfo").read_text()
+        except OSError:
+            return False
+        mount_id = next(
+            (line.split()[1] for line in fdinfo.splitlines() if line.startswith("mnt_id:")),
+            None,
+        )
+        for line in mountinfo.splitlines():
+            mount, separator, filesystem = line.partition(" - ")
+            fields = mount.split()
+            if not separator or len(fields) < 6 or fields[0] != mount_id:
+                continue
+            fstype = filesystem.split()[0]
+            return fstype.startswith("fuse") and "nodev" in fields[5].split(",")
+        return False
 
     def rule_matches(self, attachment: Attachment) -> list[str]:
         self.inventory.validate(attachment)

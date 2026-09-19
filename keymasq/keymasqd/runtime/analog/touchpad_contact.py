@@ -30,6 +30,8 @@ class TouchpadContact:
     a touch only moves the reference.
     """
 
+    # Deadline the owner's flush timer currently sleeps for, if any.
+    flush_armed_for: float | None = None
     _started: float | None = None
     _position: tuple[float, float] = (0.0, 0.0)
     _recent: deque[tuple[float, float]] = field(default_factory=deque)

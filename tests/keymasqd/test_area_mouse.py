@@ -674,3 +674,34 @@ async def test_touchpad_release_drops_motion_still_held_from_the_lift(area_mouse
     await _report(device, mouse, -16384)
     await asyncio.sleep(0.06)
     assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+async def test_touchpad_retouch_during_a_pending_flush_still_flushes(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.02)
+
+    await _report(device, mouse, 8192, -16384)
+    await _report(device, mouse, 16384, -8192)
+    await _report(device, mouse, 0, 0)
+    # The first touch's flush timer has not fired yet.
+    await _report(device, mouse, -24576, 8192)
+    await _report(device, mouse, -16384)
+    await asyncio.sleep(0.06)
+
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+async def test_touchpad_flush_follows_a_hold_shortened_by_speed(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.4)
+
+    await _report(device, mouse, 1024, 0)
+    await _report(device, mouse, 3648)  # out of rest: held for the full 0.4 s
+    await asyncio.sleep(0.01)  # let the flush timer start sleeping for that deadline
+    await _report(device, mouse, 6272)  # now at 2 half-widths per second: 0.2 s
+    assert mouse.writes == []
+
+    await asyncio.sleep(0.3)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 64)]

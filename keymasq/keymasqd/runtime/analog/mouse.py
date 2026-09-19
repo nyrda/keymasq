@@ -197,6 +197,9 @@ async def emit_mouse_area_motion(
     if touchpad and x == 0.0 and y == 0.0:
         # Motion still held by the contact filter belongs to the lift and is dropped.
         state.analog_touchpad_contacts.pop(state_key, None)
+        flush_task = state.analog_mouse_tasks.pop(state_key, None)
+        if flush_task is not None:
+            flush_task.cancel()
         state.analog_mouse_area_positions.pop(state_key, None)
         state.analog_mouse_accumulators.pop(state_key, None)
         state.analog_mouse_area_needs_release.discard(state_key)
@@ -247,11 +250,16 @@ def _ensure_touchpad_flush_task(
     deps: ActionExecutionDeps,
 ) -> None:
     """Emit held motion on time even when the pad reports nothing further."""
-    if contact.next_due() is None:
+    due = contact.next_due()
+    if due is None:
         return
     task = device_runtime.state.analog_mouse_tasks.get(state_key)
     if task is not None and not task.done():
-        return
+        if contact.flush_armed_for is not None and contact.flush_armed_for <= due:
+            return
+        # The task sleeps for another contact or past a deadline that moved forward.
+        task.cancel()
+    contact.flush_armed_for = due
     device_runtime.state.analog_mouse_tasks[state_key] = deps.asyncio_mod.create_task(
         _touchpad_flush_loop(device_runtime, state_key, contact, motion, deps=deps)
     )
@@ -267,6 +275,7 @@ async def _touchpad_flush_loop(
 ) -> None:
     state = device_runtime.state
     while (due := contact.next_due()) is not None:
+        contact.flush_armed_for = due
         await deps.asyncio_mod.sleep(max(0.0, due - time.monotonic()))
         # A release or reset in the meantime discards what this contact held.
         if state.analog_touchpad_contacts.get(state_key) is not contact:
@@ -275,6 +284,7 @@ async def _touchpad_flush_loop(
             return
         dx, dy = mouse_area_position(*contact.drain(time.monotonic()), motion)
         await _emit_mouse_delta(device_runtime, state_key, dx, dy, deps=deps)
+    contact.flush_armed_for = None
 
 
 def axis_motion_delta(

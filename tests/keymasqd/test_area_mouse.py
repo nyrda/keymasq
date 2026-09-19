@@ -12,6 +12,7 @@ import pytest
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
 from keymasq.common.model.core import ActionType
+from keymasq.keymasqd.runtime.analog import touchpad_contact
 from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
 from keymasq.keymasqd.runtime.grabbed_device.event.input_stream import read_events
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import process_event
@@ -24,6 +25,9 @@ from tests.keymasqd.device_manager_support import (
 
 @pytest.fixture
 def area_mouse(monkeypatch):
+    # These tests cover position semantics; contact timing has its own tests.
+    monkeypatch.setattr(touchpad_contact, "SETTLE_S", 0.0)
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.0)
     mouse = FakeUInput()
     config = AnalogControlConfig(
         name="Touchpad Mouse",
@@ -448,10 +452,12 @@ async def test_snapshot_does_not_replay_reports_older_than_ioctl_state(area_mous
     # Recovery must retain button transitions even when their report's area
     # coordinates are too old to use. Exercise the real reader's shared queue.
     queued.appendleft(evdev.InputEvent(0, 0, ec.EV_KEY, ec.KEY_A, 1))
-    queued.extend([
-        evdev.InputEvent(0, 0, ec.EV_KEY, ec.KEY_A, 0),
-        evdev.InputEvent(0, 0, ec.EV_SYN, ec.SYN_REPORT, 0),
-    ])
+    queued.extend(
+        [
+            evdev.InputEvent(0, 0, ec.EV_KEY, ec.KEY_A, 0),
+            evdev.InputEvent(0, 0, ec.EV_SYN, ec.SYN_REPORT, 0),
+        ]
+    )
     device.device.read_one = lambda: queued.popleft() if queued else None
     await _event(device, ec.EV_SYN, ec.SYN_REPORT)
     read_fd, write_fd = os.pipe()
@@ -468,7 +474,8 @@ async def test_snapshot_does_not_replay_reports_older_than_ioctl_state(area_mous
         os.close(read_fd)
         os.close(write_fd)
     assert [
-        args.args[4] for args in device.event_callback.await_args_list
+        args.args[4]
+        for args in device.event_callback.await_args_list
         if args.args[2:4] == (ec.EV_KEY, ec.KEY_A)
     ] == [1, 0]
     assert mouse.writes == []
@@ -632,3 +639,69 @@ async def test_fuzz_error_does_not_skip_motion_and_superkey_cleanup(area_mouse):
     machine.stop.assert_awaited_once()
     assert device.state.superkey_machines == {}
     assert device.state.motion_mouse_accumulators == {}
+
+
+@pytest.mark.asyncio
+async def test_touchpad_motion_out_of_rest_is_emitted_after_the_lift_hold(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.02)
+
+    await _report(device, mouse, 8192, -16384)
+    await _report(device, mouse, 16384, -8192)
+    assert mouse.writes == []
+
+    # The pad reports nothing while the finger rests, so a timer has to flush.
+    await asyncio.sleep(0.06)
+    assert mouse.writes == [
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100),
+        (evdev.ecodes.EV_REL, evdev.ecodes.REL_Y, 50),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_touchpad_release_drops_motion_still_held_from_the_lift(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.02)
+
+    await _report(device, mouse, 8192, -16384)
+    await _report(device, mouse, 16384, -8192)
+    await _report(device, mouse, 0, 0)
+    await asyncio.sleep(0.06)
+    assert mouse.writes == []
+
+    # The next touch starts clean and is not affected by the dropped motion.
+    await _report(device, mouse, -24576, 8192)
+    await _report(device, mouse, -16384)
+    await asyncio.sleep(0.06)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+async def test_touchpad_retouch_during_a_pending_flush_still_flushes(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.02)
+
+    await _report(device, mouse, 8192, -16384)
+    await _report(device, mouse, 16384, -8192)
+    await _report(device, mouse, 0, 0)
+    # The first touch's flush timer has not fired yet.
+    await _report(device, mouse, -24576, 8192)
+    await _report(device, mouse, -16384)
+    await asyncio.sleep(0.06)
+
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 100)]
+
+
+@pytest.mark.asyncio
+async def test_touchpad_flush_follows_a_hold_shortened_by_speed(area_mouse, monkeypatch):
+    device, mouse, _ = area_mouse
+    monkeypatch.setattr(touchpad_contact, "LIFT_HOLD_S", 0.4)
+
+    await _report(device, mouse, 1024, 0)
+    await _report(device, mouse, 3648)  # out of rest: held for the full 0.4 s
+    await asyncio.sleep(0.01)  # let the flush timer start sleeping for that deadline
+    await _report(device, mouse, 6272)  # now at 2 half-widths per second: 0.2 s
+    assert mouse.writes == []
+
+    await asyncio.sleep(0.3)
+    assert mouse.writes == [(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 64)]

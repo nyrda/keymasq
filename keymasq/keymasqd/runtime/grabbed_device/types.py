@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.adapters import (
     DeviceInfo,
     UInputWriter,
 )
+from keymasq.keymasqd.runtime.analog.touchpad_contact import TouchpadContact
 from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
@@ -254,6 +255,7 @@ class GrabbedDeviceState:
         default_factory=dict
     )
     analog_mouse_area_needs_release: set[str] = field(default_factory=set)
+    analog_touchpad_contacts: dict[str, TouchpadContact] = field(default_factory=dict)
     analog_mouse_area_resyncing: bool = False
     analog_gamepad_outputs: dict[str, AnalogGamepadOutputState] = field(default_factory=dict)
     motion_frame_values: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)

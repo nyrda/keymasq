@@ -107,8 +107,19 @@ produces 800 relative mouse units across the full normalized range from -1 to 1.
 Desktop pointer settings can further affect the displayed distance.
 `invert_x` and `invert_y` reverse the corresponding movement.
 
+A finger's contact patch grows while it lands and shrinks while it lifts, which
+shifts the reported position although the finger did not travel. Two rules keep
+that out of the pointer:
+
+- Movement during the first 20 ms of a touch only moves the reference.
+- Movement that starts from rest is held for up to 24 ms and is dropped if the
+  touch ends first. The hold shrinks as the finger speeds up and reaches zero at
+  three pad half-widths per second, measured over the preceding 40 ms, so
+  ongoing movement and flicks add no latency. Held movement is emitted on time
+  even when the pad sends no further reports.
+
 Returning to exactly `(0.0, 0.0)` ends the touch without emitting movement and
-clears the reference and fractional remainder. The next touch can start anywhere
+clears the reference, held movement, and fractional remainder. The next touch can start anywhere
 without jumping. Either axis alone may be zero while the other remains nonzero.
 Holding still produces no movement and has no timeout. A touch that actually
 reports the exact zero pair also ends the stroke.

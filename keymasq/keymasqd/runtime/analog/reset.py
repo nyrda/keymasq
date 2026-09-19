@@ -126,6 +126,11 @@ async def reset_analog_controls(
         preserved,
         state_key_prefix,
     )
+    _discard_reset_state_keys(
+        device_runtime.state.analog_touchpad_contacts,
+        preserved,
+        state_key_prefix,
+    )
     for state_key in list(device_runtime.state.analog_mouse_area_needs_release):
         if _should_reset_state_key(state_key, preserved, state_key_prefix):
             device_runtime.state.analog_mouse_area_needs_release.discard(state_key)

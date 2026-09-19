@@ -13,6 +13,7 @@ from keymasq.keymasqd.runtime.analog.curves import (
     apply_control_axis_output_curve,
     apply_signed_axis_output_curve,
 )
+from keymasq.keymasqd.runtime.analog.touchpad_contact import TouchpadContact
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -194,6 +195,8 @@ async def emit_mouse_area_motion(
     motion = config.mouse_motion
     touchpad = motion.area_input_style == "touchpad"
     if touchpad and x == 0.0 and y == 0.0:
+        # Motion still held by the contact filter belongs to the lift and is dropped.
+        state.analog_touchpad_contacts.pop(state_key, None)
         state.analog_mouse_area_positions.pop(state_key, None)
         state.analog_mouse_accumulators.pop(state_key, None)
         state.analog_mouse_area_needs_release.discard(state_key)
@@ -203,9 +206,16 @@ async def emit_mouse_area_motion(
 
     target = mouse_area_position(x, y, motion)
     previous = state.analog_mouse_area_positions.get(state_key)
-    if touchpad and previous is None:
+    if touchpad:
+        if previous is None:
+            state.analog_touchpad_contacts[state_key] = TouchpadContact()
+            state.analog_mouse_accumulators.pop(state_key, None)
         state.analog_mouse_area_positions[state_key] = target
-        state.analog_mouse_accumulators.pop(state_key, None)
+        contact = state.analog_touchpad_contacts.setdefault(state_key, TouchpadContact())
+        # The filter's speed thresholds are in normalized units; scale afterwards.
+        dx, dy = mouse_area_position(*contact.move(time.monotonic(), x, y), motion)
+        await _emit_mouse_delta(device_runtime, state_key, dx, dy, deps=deps)
+        _ensure_touchpad_flush_task(device_runtime, state_key, contact, motion, deps=deps)
         return
     if previous is None:
         previous = (0.0, 0.0)
@@ -226,6 +236,45 @@ async def emit_mouse_area_motion(
         target[1] - previous[1],
         deps=deps,
     )
+
+
+def _ensure_touchpad_flush_task(
+    device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
+    contact: TouchpadContact,
+    motion: AnalogMouseMotionConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    """Emit held motion on time even when the pad reports nothing further."""
+    if contact.next_due() is None:
+        return
+    task = device_runtime.state.analog_mouse_tasks.get(state_key)
+    if task is not None and not task.done():
+        return
+    device_runtime.state.analog_mouse_tasks[state_key] = deps.asyncio_mod.create_task(
+        _touchpad_flush_loop(device_runtime, state_key, contact, motion, deps=deps)
+    )
+
+
+async def _touchpad_flush_loop(
+    device_runtime: GrabbedDeviceRuntime,
+    state_key: str,
+    contact: TouchpadContact,
+    motion: AnalogMouseMotionConfig,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    state = device_runtime.state
+    while (due := contact.next_due()) is not None:
+        await deps.asyncio_mod.sleep(max(0.0, due - time.monotonic()))
+        # A release or reset in the meantime discards what this contact held.
+        if state.analog_touchpad_contacts.get(state_key) is not contact:
+            return
+        if state_key not in state.analog_mouse_area_positions:
+            return
+        dx, dy = mouse_area_position(*contact.drain(time.monotonic()), motion)
+        await _emit_mouse_delta(device_runtime, state_key, dx, dy, deps=deps)
 
 
 def axis_motion_delta(

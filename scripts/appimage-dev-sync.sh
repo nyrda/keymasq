@@ -63,8 +63,11 @@ install_dropins() {
   remote <<'EOF'
 set -euo pipefail
 dropin="$(printf '[Service]\nEnvironment=KEYMASQ_APPDIR=%s\n' "${DEV_RUNTIME}")"
-sudo mkdir -p /etc/systemd/system/keymasqd.service.d
-echo "${dropin}" | sudo tee "/etc/systemd/system/keymasqd.service.d/${DROPIN_NAME}" >/dev/null
+# The privileged hardware helper is a separate unit and must run the same code.
+for unit in keymasqd.service keymasq-hardware@.service; do
+  sudo mkdir -p "/etc/systemd/system/${unit}.d"
+  echo "${dropin}" | sudo tee "/etc/systemd/system/${unit}.d/${DROPIN_NAME}" >/dev/null
+done
 mkdir -p ~/.config/systemd/user/keymasq-session.service.d
 echo "${dropin}" > ~/.config/systemd/user/keymasq-session.service.d/"${DROPIN_NAME}"
 EOF
@@ -112,7 +115,8 @@ case "${command}" in
   revert)
     remote <<'EOF'
 set -euo pipefail
-sudo rm -f "/etc/systemd/system/keymasqd.service.d/${DROPIN_NAME}"
+sudo rm -f "/etc/systemd/system/keymasqd.service.d/${DROPIN_NAME}" \
+  "/etc/systemd/system/keymasq-hardware@.service.d/${DROPIN_NAME}"
 rm -f ~/.config/systemd/user/keymasq-session.service.d/"${DROPIN_NAME}"
 EOF
     restart_services

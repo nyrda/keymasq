@@ -209,6 +209,32 @@ sudo udevadm trigger --subsystem-match=input --action=add
 The rule ignores test devices named `keymasq-test-*`, which is the identity
 used by the host-side pytest fixtures and test-mode output devices.
 
+## Testing On An AppImage Host Without Rebuilding The AppImage
+
+Keymasq is pure Python, so Python-only changes do not need a new AppImage.
+`scripts/appimage-dev-sync.sh` pushes the worktree's `keymasq/` package to a
+remote host, such as a Steam Deck, that already has the AppImage installed and
+is reachable over SSH with key login and passwordless sudo:
+
+```bash
+export KEYMASQ_DEV_HOST=deck@<deck-ip>
+./scripts/appimage-dev-sync.sh          # sync, then restart keymasqd and keymasq-session on it
+./scripts/appimage-dev-sync.sh status   # which runtime the services use
+./scripts/appimage-dev-sync.sh logs     # follow both service logs
+./scripts/appimage-dev-sync.sh revert   # back to the installed AppImage runtime
+```
+
+The installed runtime is never modified. The script hardlink-clones
+`/opt/keymasq/runtime/current` to `/opt/keymasq/dev-runtime`, gives the clone a
+private copy of the `keymasq` package, and adds systemd drop-ins that set
+`KEYMASQ_APPDIR` for both services. The clone is rebuilt automatically after an
+AppImage update. The build-generated `common/build_paths.py` is preserved. Run
+the GUI or CLI on the synced code with
+`KEYMASQ_APPDIR=/opt/keymasq/dev-runtime /opt/keymasq/bin/keymasq`.
+
+Changes to bundled dependencies, native libraries, units, or udev rules still
+need a real AppImage build.
+
 ## Notes
 
 - `keymasqd` is expected to run as the `keymasq` user during normal installed-host development.

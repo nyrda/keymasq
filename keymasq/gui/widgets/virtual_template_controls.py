@@ -142,9 +142,10 @@ class TemplateStickRow(Adw.ExpanderRow):
     ) -> None:
         super().__init__(title=stick.label)
         self._on_axes_changed = on_axes_changed
-        # IDs the editor chose. It may replace these, but never one the user typed.
-        self.generated_ids: set[str] = set()
+        # The editor may replace an ID it chose, but never one the user typed.
+        self.id_is_generated = False
         self.fallback_id: str | None = None
+        self._setting_id = False
         self.label_row = entry_row("Label", stick.label)
         self.id_row = entry_row("Stick ID", stick.id)
         self.id_row.set_tooltip_text("Stable ID used to refer to this stick in analog mappings")
@@ -176,6 +177,7 @@ class TemplateStickRow(Adw.ExpanderRow):
         remove.connect("clicked", self._remove_clicked)
         self.add_suffix(remove)
         self.label_row.connect("changed", self._update_summary)
+        self.id_row.connect("changed", self._id_edited)
         self._syncing = False
         self.set_axis_rows(axis_rows)
 
@@ -209,6 +211,16 @@ class TemplateStickRow(Adw.ExpanderRow):
         self._update_summary()
         if self._on_axes_changed is not None:
             self._on_axes_changed(self)
+
+    def set_generated_id(self, stick_id: str) -> None:
+        self._setting_id = True
+        self.id_row.set_text(stick_id)
+        self._setting_id = False
+        self.id_is_generated = True
+
+    def _id_edited(self, *_args: object) -> None:
+        if not self._setting_id:
+            self.id_is_generated = False
 
     def axis_id(self, role: str) -> str | None:
         row = self._selected[role]

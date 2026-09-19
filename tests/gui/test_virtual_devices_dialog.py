@@ -442,6 +442,12 @@ def test_declaring_an_automatic_stick_keeps_its_analog_id(dialog_module):
     stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
     assert stick.id_row.get_text() == "my-stick"
 
+    # Typing an ID the editor produced earlier still makes it the user's.
+    stick.id_row.set_text("stick-1")
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("twist"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    assert stick.id_row.get_text() == "stick-1"
+
 
 def test_numbered_buttons_avoid_stick_ids(dialog_module):
     from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE

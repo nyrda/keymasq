@@ -241,17 +241,15 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
 
     def _keep_inferred_stick_id(self, row: TemplateStickRow) -> None:
         """Declaring an automatic stick keeps its analog ID, which saved mappings target."""
-        if row.id_row.get_text() not in row.generated_ids:
+        if not row.id_is_generated:
             return
         x_id, y_id = row.axis_id("x"), row.axis_id("y")
         x_code, y_code = row.axis_code("x"), row.axis_code("y")
         if x_id is None or y_id is None or x_code is None or y_code is None:
             return
         stick_id = inferred_stick_id(x_id, x_code, y_id, y_code) or row.fallback_id
-        if stick_id is None:
-            return
-        row.generated_ids.add(stick_id)
-        row.id_row.set_text(stick_id)
+        if stick_id is not None:
+            row.set_generated_id(stick_id)
 
     def _refresh_stick_axes(self, *_args: object) -> None:
         for row in self._stick_rows:
@@ -280,8 +278,8 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         while (stick_id := f"stick-{index}") in used_ids:
             index += 1
         self._append_stick(VirtualStick(stick_id, f"Stick {index}", x_id, y_id))
-        self._stick_rows[-1].generated_ids.add(stick_id)
         self._stick_rows[-1].fallback_id = stick_id
+        self._stick_rows[-1].set_generated_id(stick_id)
         self._keep_inferred_stick_id(self._stick_rows[-1])
         self._stick_rows[-1].set_expanded(True)
         self._stick_rows[-1].label_row.grab_focus()

@@ -138,8 +138,13 @@ class TemplateStickRow(Adw.ExpanderRow):
         stick: VirtualStick,
         axis_rows: list[TemplateControlRow],
         on_remove: Callable[["TemplateStickRow"], None],
+        on_axes_changed: Callable[["TemplateStickRow"], None] | None = None,
     ) -> None:
         super().__init__(title=stick.label)
+        self._on_axes_changed = on_axes_changed
+        # IDs the editor chose. It may replace these, but never one the user typed.
+        self.generated_ids: set[str] = set()
+        self.fallback_id: str | None = None
         self.label_row = entry_row("Label", stick.label)
         self.id_row = entry_row("Stick ID", stick.id)
         self.id_row.set_tooltip_text("Stable ID used to refer to this stick in analog mappings")
@@ -202,10 +207,16 @@ class TemplateStickRow(Adw.ExpanderRow):
         index = int(choice.get_selected())
         self._selected[role] = self._axis_rows[index] if index < len(self._axis_rows) else None
         self._update_summary()
+        if self._on_axes_changed is not None:
+            self._on_axes_changed(self)
 
     def axis_id(self, role: str) -> str | None:
         row = self._selected[role]
         return row.id_row.get_text() if row is not None else None
+
+    def axis_code(self, role: str) -> str | None:
+        row = self._selected[role]
+        return row.codes[int(row.code_row.get_selected())] if row is not None else None
 
     def _update_summary(self, *_args: object) -> None:
         self.set_title(self.label_row.get_text() or "Unnamed stick")

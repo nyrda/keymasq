@@ -26,6 +26,7 @@ from keymasq.common.virtual_device_templates import (
     VirtualStick,
     config_from_json,
     config_to_json,
+    inferred_stick_id,
     instance_from_data,
     instance_to_data,
     numbered_button_batch,
@@ -226,7 +227,9 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self._update_control_limits()
 
     def _append_stick(self, stick: VirtualStick) -> None:
-        row = TemplateStickRow(stick, self._axis_rows, self._remove_stick)
+        row = TemplateStickRow(
+            stick, self._axis_rows, self._remove_stick, self._keep_inferred_stick_id
+        )
         self._stick_rows.append(row)
         self._sticks_group.add(row)
         self._update_control_limits()
@@ -235,6 +238,20 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self._stick_rows.remove(row)
         self._sticks_group.remove(row)
         self._update_control_limits()
+
+    def _keep_inferred_stick_id(self, row: TemplateStickRow) -> None:
+        """Declaring an automatic stick keeps its analog ID, which saved mappings target."""
+        if row.id_row.get_text() not in row.generated_ids:
+            return
+        x_id, y_id = row.axis_id("x"), row.axis_id("y")
+        x_code, y_code = row.axis_code("x"), row.axis_code("y")
+        if x_id is None or y_id is None or x_code is None or y_code is None:
+            return
+        stick_id = inferred_stick_id(x_id, x_code, y_id, y_code) or row.fallback_id
+        if stick_id is None:
+            return
+        row.generated_ids.add(stick_id)
+        row.id_row.set_text(stick_id)
 
     def _refresh_stick_axes(self, *_args: object) -> None:
         for row in self._stick_rows:
@@ -250,6 +267,11 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         free = self._unpaired_axis_ids()
         if len(free) < 2:
             return
+        # Offer axes that are not a stick yet before the automatic X/Y and RX/RY pairs.
+        codes = {row.id_row.get_text(): row.to_data()["evdev"] for row in self._axis_rows}
+        automatic = {"abs_x", "abs_y", "abs_rx", "abs_ry"}
+        loose = [axis_id for axis_id in free if codes[axis_id] not in automatic]
+        x_id, y_id = loose[:2] if len(loose) >= 2 else free[:2]
         used_ids = {
             row.id_row.get_text()
             for row in (*self._button_rows, *self._axis_rows, *self._stick_rows)
@@ -257,7 +279,10 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         index = len(self._stick_rows) + 1
         while (stick_id := f"stick-{index}") in used_ids:
             index += 1
-        self._append_stick(VirtualStick(stick_id, f"Stick {index}", free[0], free[1]))
+        self._append_stick(VirtualStick(stick_id, f"Stick {index}", x_id, y_id))
+        self._stick_rows[-1].generated_ids.add(stick_id)
+        self._stick_rows[-1].fallback_id = stick_id
+        self._keep_inferred_stick_id(self._stick_rows[-1])
         self._stick_rows[-1].set_expanded(True)
         self._stick_rows[-1].label_row.grab_focus()
 
@@ -331,7 +356,11 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         ]
         try:
             added = numbered_button_batch(
-                buttons, count, reserved_ids={row.id_row.get_text() for row in self._axis_rows}
+                buttons,
+                count,
+                reserved_ids={
+                    row.id_row.get_text() for row in (*self._axis_rows, *self._stick_rows)
+                },
             )
         except VirtualDeviceConfigError as exc:
             self._status.set_text(str(exc))

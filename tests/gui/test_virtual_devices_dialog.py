@@ -407,3 +407,53 @@ def test_new_controls_avoid_stick_ids(dialog_module):
     assert dialog._axis_rows[-1].id_row.get_text() == "abs-z-2"
     dialog._save(None)
     assert len(saved) == 1
+
+
+def test_declaring_an_automatic_stick_keeps_its_analog_id(dialog_module):
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        template_analog_inputs,
+    )
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    assert "stick-x__stick-y" in template_analog_inputs(template)
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    # Add stick offers loose axes first, so the automatic X/Y stick is left alone.
+    assert (stick.axis_id("x"), stick.axis_id("y")) == ("twist", "throttle")
+    assert stick.id_row.get_text() == "stick-1"
+
+    axis_ids = [row.id_row.get_text() for row in dialog._axis_rows]
+    stick.axis_choice_rows["x"].set_selected(axis_ids.index("stick-x"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    stick.side_row.set_selected(1)
+    assert stick.id_row.get_text() == "stick-x__stick-y"
+    dialog._save(None)
+    assert saved[0].sticks[0].side == "left"
+    assert "stick-x__stick-y" in template_analog_inputs(saved[0])
+
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("twist"))
+    assert stick.id_row.get_text() == "stick-1"
+    stick.id_row.set_text("my-stick")
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    assert stick.id_row.get_text() == "my-stick"
+
+
+def test_numbered_buttons_avoid_stick_ids(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    dialog._stick_rows[0].id_row.set_text("extra-button-1")
+    dialog._append_numbered_buttons(1)
+    assert dialog._button_rows[-1].id_row.get_text() == "extra-button-1-2"
+    dialog._save(None)
+    assert len(saved) == 1

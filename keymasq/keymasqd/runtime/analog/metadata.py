@@ -159,7 +159,14 @@ def resolve_virtual_output_config(
     # Left and Right name a side, so a declared side wins. Same follows the source's
     # event codes first and uses the side only when the destination lacks those codes.
     by_side = _declared_side_stick_id(device_runtime, source_id, config, target)
-    by_code = _code_matched_analog_id(target, config.input_type, roles, codes)
+    requested = config.gamepad_output.target
+    by_code = _code_matched_analog_id(
+        target,
+        config.input_type,
+        roles,
+        codes,
+        excluded_side={"left": "right", "right": "left"}.get(requested),
+    )
     analog_id = (
         (by_code or by_side) if config.gamepad_output.target == "same" else (by_side or by_code)
     )
@@ -176,12 +183,16 @@ def _code_matched_analog_id(
     input_type: str,
     roles: tuple[str, ...],
     codes: tuple[int, ...] | None,
+    *,
+    excluded_side: str | None = None,
 ) -> str | None:
     if codes is None:
         return None
     for analog_id, raw_analog in (target_analog_inputs(target) or {}).items():
         analog = _typed_analog_input(raw_analog, expected_type=input_type)
         if analog is None:
+            continue
+        if excluded_side is not None and analog.get("side") == excluded_side:
             continue
         if all(
             (axis := target_axis(analog, role)) is not None and axis_evdev_code(axis) == code

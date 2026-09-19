@@ -553,6 +553,13 @@ def template_output_axes(template: VirtualDeviceTemplate) -> tuple[OutputAxis, .
     )
 
 
+def inferred_stick_id(x_id: str, x_code: str, y_id: str, y_code: str) -> str | None:
+    """Return the analog ID an undeclared stick on these axes has, if the codes infer one."""
+    if any((x_code, y_code) == (x, y) for x, y, _side in _INFERRED_STICK_CODES):
+        return f"{x_id}__{y_id}"
+    return None
+
+
 def template_sticks(template: VirtualDeviceTemplate) -> tuple[VirtualStick, ...]:
     """Return declared sticks, then the X/Y and RX/RY pairs no declared stick uses."""
     axes_by_id = {axis.id: axis for axis in template.axes}
@@ -581,7 +588,7 @@ def template_sticks(template: VirtualDeviceTemplate) -> tuple[VirtualStick, ...]
             continue
         sticks.append(
             VirtualStick(
-                id=f"{x_axis.id}__{y_axis.id}",
+                id=cast(str, inferred_stick_id(x_axis.id, x_code, y_axis.id, y_code)),
                 label=f"{x_axis.label} / {y_axis.label}",
                 x=x_axis.id,
                 y=y_axis.id,

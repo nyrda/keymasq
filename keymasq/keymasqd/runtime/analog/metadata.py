@@ -156,22 +156,72 @@ def resolve_virtual_output_config(
         code = trigger_outputaxis_code(device_runtime, source_id, config, deps=deps)
         codes = (code,) if code is not None else None
         roles = ("x",)
+    # Left and Right name a side, so a declared side wins. Same follows the source's
+    # event codes first and uses the side only when the destination lacks those codes.
+    by_side = _declared_side_stick_id(device_runtime, source_id, config, target)
+    requested = config.gamepad_output.target
+    by_code = _code_matched_analog_id(
+        target,
+        config.input_type,
+        roles,
+        codes,
+        excluded_side={"left": "right", "right": "left"}.get(requested),
+    )
+    analog_id = (
+        (by_code or by_side) if config.gamepad_output.target == "same" else (by_side or by_code)
+    )
+    if analog_id is None:
+        return None
+    return replace(
+        config,
+        gamepad_output=replace(config.gamepad_output, target="analog", target_analog_id=analog_id),
+    )
+
+
+def _code_matched_analog_id(
+    target: object,
+    input_type: str,
+    roles: tuple[str, ...],
+    codes: tuple[int, ...] | None,
+    *,
+    excluded_side: str | None = None,
+) -> str | None:
     if codes is None:
         return None
     for analog_id, raw_analog in (target_analog_inputs(target) or {}).items():
-        analog = _typed_analog_input(raw_analog, expected_type=config.input_type)
+        analog = _typed_analog_input(raw_analog, expected_type=input_type)
         if analog is None:
+            continue
+        if excluded_side is not None and analog.get("side") == excluded_side:
             continue
         if all(
             (axis := target_axis(analog, role)) is not None and axis_evdev_code(axis) == code
             for role, code in zip(roles, codes, strict=True)
         ):
-            return replace(
-                config,
-                gamepad_output=replace(
-                    config.gamepad_output, target="analog", target_analog_id=analog_id
-                ),
-            )
+            return analog_id
+    return None
+
+
+def _declared_side_stick_id(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    config: AnalogControlConfig,
+    target: object,
+) -> str | None:
+    """Find the destination stick whose template declares the requested side."""
+    if config.input_type != "stick":
+        return None
+    side = (
+        _source_stick_side(device_runtime, source_id)
+        if config.gamepad_output.target == "same"
+        else config.gamepad_output.target
+    )
+    if side not in {"left", "right"}:
+        return None
+    for analog_id, raw_analog in (target_analog_inputs(target) or {}).items():
+        analog = _typed_analog_input(raw_analog, expected_type="stick")
+        if analog is not None and analog.get("side") == side:
+            return analog_id
     return None
 
 
@@ -364,6 +414,8 @@ def _source_stick_side(
 
 
 def _analog_stick_side(analog_id: str, analog: dict[str, object]) -> str | None:
+    if analog.get("side") in {"left", "right"}:
+        return str(analog["side"])
     label = str(analog.get("label", "") or "")
     text = f"{analog_id} {label}".lower().replace("-", "_").replace(" ", "_")
     if "left_stick" in text or "stick_left" in text:

@@ -334,3 +334,132 @@ def test_numbered_button_availability_updates_on_edit_and_removal(dialog_module)
     dialog._append_numbered_buttons(1)
     assert dialog._button_rows[-1].to_data()["evdev"] == "btn_trigger_happy1"
     assert not dialog._batch_button.get_sensitive()
+
+
+def test_sticks_tab_pairs_axes_and_follows_axis_renames(dialog_module):
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        template_analog_inputs,
+    )
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    assert not dialog._stick_rows
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    axis_ids = [row.id_row.get_text() for row in dialog._axis_rows]
+    stick.axis_choice_rows["x"].set_selected(axis_ids.index("hat-x"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("hat-y"))
+    stick.label_row.set_text("Hat stick")
+    stick.side_row.set_selected(2)
+    dialog._axis_rows[axis_ids.index("hat-x")].id_row.set_text("pov-x")
+    dialog._save(None)
+
+    assert [(item.id, item.x, item.y, item.side) for item in saved[0].sticks] == [
+        ("stick-1", "pov-x", "hat-y", "right")
+    ]
+    assert "stick-1" in template_analog_inputs(saved[0])
+
+    reopened = dialog_module.VirtualTemplateEditorDialog(saved[0], lambda value: True)
+    assert reopened._stick_rows[0].to_data() == {
+        "id": "stick-1",
+        "label": "Hat stick",
+        "x": "pov-x",
+        "y": "hat-y",
+        "side": "right",
+    }
+
+
+def test_removing_a_stick_axis_keeps_the_editor_open(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    dialog._remove_control(
+        next(row for row in dialog._axis_rows if row.id_row.get_text() == stick.axis_id("x"))
+    )
+    dialog._save(None)
+
+    assert not saved
+    assert "Choose both axes" in dialog._status.get_text()
+
+
+def test_new_controls_avoid_stick_ids(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    dialog._stick_rows[0].id_row.set_text("abs-z")
+    dialog._new_control(axis=True)
+    assert dialog._axis_rows[-1].to_data()["evdev"] == "abs_z"
+    assert dialog._axis_rows[-1].id_row.get_text() == "abs-z-2"
+    dialog._save(None)
+    assert len(saved) == 1
+
+
+def test_declaring_an_automatic_stick_keeps_its_analog_id(dialog_module):
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        template_analog_inputs,
+    )
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    assert "stick-x__stick-y" in template_analog_inputs(template)
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    # Add stick offers loose axes first, so the automatic X/Y stick is left alone.
+    assert (stick.axis_id("x"), stick.axis_id("y")) == ("twist", "throttle")
+    assert stick.id_row.get_text() == "stick-1"
+
+    axis_ids = [row.id_row.get_text() for row in dialog._axis_rows]
+    stick.axis_choice_rows["x"].set_selected(axis_ids.index("stick-x"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    stick.side_row.set_selected(1)
+    assert stick.id_row.get_text() == "stick-x__stick-y"
+    dialog._save(None)
+    assert saved[0].sticks[0].side == "left"
+    assert "stick-x__stick-y" in template_analog_inputs(saved[0])
+
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("twist"))
+    assert stick.id_row.get_text() == "stick-1"
+    stick.id_row.set_text("my-stick")
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    assert stick.id_row.get_text() == "my-stick"
+
+    # Typing an ID the editor produced earlier still makes it the user's.
+    stick.id_row.set_text("stick-1")
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("twist"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("stick-y"))
+    assert stick.id_row.get_text() == "stick-1"
+
+
+def test_numbered_buttons_avoid_stick_ids(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    dialog._stick_rows[0].id_row.set_text("extra-button-1")
+    dialog._append_numbered_buttons(1)
+    assert dialog._button_rows[-1].id_row.get_text() == "extra-button-1-2"
+    dialog._save(None)
+    assert len(saved) == 1

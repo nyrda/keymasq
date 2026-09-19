@@ -13,6 +13,7 @@ from keymasq.common.virtual_device_templates import (
     VirtualAxis,
     VirtualDeviceConfig,
     VirtualDeviceInstance,
+    VirtualStick,
     resolve_virtual_devices,
     validate_template,
 )
@@ -213,3 +214,158 @@ def test_template_hat_preserves_hysteresis(flight_output):
     assert [call.args for call in writer.write.call_args_list] == [
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0X, value) for value in (0, 1, 1, 0, -1, 0)
     ]
+
+
+@pytest.fixture
+def hat_stick_output(flight_output):
+    """A pad whose right stick is on Z/RZ and whose extra stick is a pair of hat axes."""
+    template = replace(
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        id="hat-stick-pad",
+        builtin=False,
+        axes=(
+            VirtualAxis("lx", "LX", "abs_x", 0, 255, 128),
+            VirtualAxis("ly", "LY", "abs_y", 0, 255, 128),
+            VirtualAxis("rx", "RX", "abs_z", 0, 255, 128),
+            VirtualAxis("ry", "RY", "abs_rz", 0, 255, 128),
+            VirtualAxis("pad-x", "Pad X", "abs_hat1x", -1000, 1000),
+            VirtualAxis("pad-y", "Pad Y", "abs_hat1y", -1000, 1000),
+        ),
+        sticks=(
+            VirtualStick("right-stick", "Right stick", "rx", "ry", "right"),
+            VirtualStick("pad", "Pad", "pad-x", "pad-y"),
+        ),
+    )
+    validate_template(template)
+    runtime, deps, _writer = flight_output
+    writer = Mock()
+    config = VirtualDeviceConfig(
+        templates=(template,), devices=(VirtualDeviceInstance("pad-test", template.id),)
+    )
+    outputs = SimpleNamespace(
+        virtual_gamepad_uinputs={"pad-test": writer},
+        virtual_device_specs={
+            device.output_id: device for device in resolve_virtual_devices(0, config)
+        },
+    )
+    target = GamepadOutputRouter(logging.getLogger(__name__)).resolve(outputs, {}, "pad-test")
+    assert target is not None
+    runtime.resolve_gamepad_output = lambda *_args: target
+    runtime.analog_axis_output_codes[("right_stick", "x")] = evdev.ecodes.ABS_RX
+    runtime.analog_axis_output_codes[("right_stick", "y")] = evdev.ecodes.ABS_RY
+    return runtime, deps, writer
+
+
+@pytest.mark.parametrize("target", ["same", "right"])
+def test_declared_side_routes_a_stick_to_non_standard_codes(hat_stick_output, target):
+    runtime, deps, writer = hat_stick_output
+    config = AnalogControlConfig(
+        name="Stick",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True, output_id="pad-test", target=target
+        ),
+    )
+    runtime.state.analog_axis_values["stick"] = {"x": 1.0, "y": 0.0}
+    emit_gamepad_output(runtime, "stick", "right_stick", config, deps=deps)
+    assert [call.args for call in writer.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z, 255),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_RZ, 128),
+    ]
+
+
+def test_same_prefers_matching_codes_over_a_declared_side(hat_stick_output):
+    runtime, deps, writer = hat_stick_output
+    config = AnalogControlConfig(
+        name="Stick",
+        gamepad_output=AnalogGamepadOutputConfig(enabled=True, output_id="pad-test"),
+    )
+    runtime.state.analog_axis_values["stick"] = {"x": -1.0, "y": 0.0}
+    emit_gamepad_output(runtime, "stick", "left_stick", config, deps=deps)
+    assert [call.args for call in writer.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Y, 128),
+    ]
+
+
+def test_named_hat_pair_stick_emits_and_resets_both_axes(hat_stick_output):
+    runtime, deps, writer = hat_stick_output
+    config = AnalogControlConfig(
+        name="Stick",
+        gamepad_output=AnalogGamepadOutputConfig(
+            enabled=True, output_id="pad-test", target="analog", target_analog_id="pad"
+        ),
+    )
+    runtime.state.analog_axis_values["stick"] = {"x": 0.0, "y": 1.0}
+    emit_gamepad_output(runtime, "stick", "left_stick", config, deps=deps)
+    assert [call.args for call in writer.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT1X, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT1Y, 1000),
+    ]
+    writer.reset_mock()
+    reset_gamepad_output(runtime, "stick", "left_stick", config, deps=deps)
+    assert [call.args for call in writer.write.call_args_list] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT1X, 0),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT1Y, 0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("codes", "declared", "requested", "source"),
+    [
+        (("abs_x", "abs_y"), "right", "left", "left_stick"),
+        (("abs_rx", "abs_ry"), "left", "right", "right_stick"),
+    ],
+)
+def test_explicit_side_never_falls_back_to_the_opposite_stick(
+    flight_output, codes, declared, requested, source
+):
+    axes = [
+        VirtualAxis("x", "X", "abs_x", 0, 255, 128),
+        VirtualAxis("y", "Y", "abs_y", 0, 255, 128),
+        VirtualAxis("u", "U", "abs_rx", 0, 255, 128),
+        VirtualAxis("v", "V", "abs_ry", 0, 255, 128),
+    ]
+    ids = [axis.id for axis in axes if axis.evdev in codes]
+    # Pair the other two axes side-less so no stick exists for the requested side.
+    others = [axis.id for axis in axes if axis.evdev not in codes]
+    template = replace(
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        id="one-sided",
+        builtin=False,
+        axes=tuple(axes),
+        sticks=(
+            VirtualStick("only", "Only", ids[0], ids[1], declared),
+            VirtualStick("spare", "Spare", others[1], others[0]),
+        ),
+    )
+    validate_template(template)
+    runtime, deps, _writer = flight_output
+    writer = Mock()
+    config = VirtualDeviceConfig(
+        templates=(template,), devices=(VirtualDeviceInstance("one-sided-test", template.id),)
+    )
+    outputs = SimpleNamespace(
+        virtual_gamepad_uinputs={"one-sided-test": writer},
+        virtual_device_specs={
+            device.output_id: device for device in resolve_virtual_devices(0, config)
+        },
+    )
+    target = GamepadOutputRouter(logging.getLogger(__name__)).resolve(
+        outputs, {}, "one-sided-test"
+    )
+    runtime.resolve_gamepad_output = lambda *_args: target
+    runtime.state.analog_axis_values["stick"] = {"x": 1.0, "y": 0.0}
+
+    def emit(side):
+        writer.reset_mock()
+        control = AnalogControlConfig(
+            name="Stick",
+            gamepad_output=AnalogGamepadOutputConfig(
+                enabled=True, output_id="one-sided-test", target=side
+            ),
+        )
+        emit_gamepad_output(runtime, "stick", source, control, deps=deps)
+        return [call.args[1] for call in writer.write.call_args_list]
+
+    assert emit(requested) == []
+    assert emit(declared) == [getattr(evdev.ecodes, code.upper()) for code in codes]

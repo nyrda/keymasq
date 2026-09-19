@@ -11,6 +11,7 @@ from keymasq.common.virtual_device_templates import (
     config_to_json,
     resolve_virtual_devices,
     template_analog_inputs,
+    template_sticks,
     virtual_device_config_from_toml,
 )
 
@@ -130,7 +131,7 @@ def test_joystick_template_exposes_named_analog_targets() -> None:
         ),
         (
             lambda data: data["templates"][0]["axes"].pop(),
-            "2..8 axes",
+            "2..16 axes",
         ),
         (
             lambda data: data["templates"][0]["buttons"].append(
@@ -303,3 +304,117 @@ def test_existing_generated_analog_ids_remain_stable():
     data = _custom_config_data()
     config = virtual_device_config_from_toml(data)
     assert set(template_analog_inputs(config.templates[0])) == {"x__y"}
+
+
+def _stick_config_data(sticks: list[dict[str, object]]) -> dict[str, object]:
+    data = _custom_config_data()
+    template = cast(list[dict[str, object]], data["templates"])[0]
+    axes = cast(list[dict[str, object]], template["axes"])
+    for axis_id, code in (
+        ("rx", "abs_z"),
+        ("ry", "abs_rz"),
+        ("pad-x", "abs_hat1x"),
+        ("pad-y", "abs_hat1y"),
+    ):
+        axes.append(
+            {
+                "id": axis_id,
+                "label": axis_id,
+                "evdev": code,
+                "minimum": -100,
+                "maximum": 100,
+                "rest": 0,
+            }
+        )
+    template["sticks"] = sticks
+    return data
+
+
+def test_declared_sticks_pair_any_axes_and_keep_inferred_pairs() -> None:
+    data = _stick_config_data(
+        [
+            {"id": "right-stick", "label": "Right stick", "x": "rx", "y": "ry", "side": "right"},
+            {"id": "touchpad", "label": "Touchpad", "x": "pad-x", "y": "pad-y"},
+        ]
+    )
+    config = virtual_device_config_from_toml(data)
+
+    assert config_from_json(config_to_json(config)) == config
+    template = config.templates[0]
+    assert [(stick.id, stick.side) for stick in template_sticks(template)] == [
+        ("right-stick", "right"),
+        ("touchpad", None),
+        ("x__y", "left"),
+    ]
+    analogs = cast(dict[str, dict[str, object]], template_analog_inputs(template))
+    assert set(analogs) == {"right-stick", "touchpad", "x__y"}
+    assert analogs["right-stick"]["side"] == "right"
+    touchpad_axes = cast(list[dict[str, object]], analogs["touchpad"]["axes"])
+    assert [(axis["role"], axis["evdev"]) for axis in touchpad_axes] == [
+        ("x", "abs_hat1x"),
+        ("y", "abs_hat1y"),
+    ]
+
+
+def test_declared_stick_replaces_the_inferred_pair_on_its_axes() -> None:
+    data = _stick_config_data([{"id": "main", "label": "Main", "x": "x", "y": "y"}])
+    template = virtual_device_config_from_toml(data).templates[0]
+
+    assert set(template_analog_inputs(template)) == {"main", "rx", "ry", "pad-x", "pad-y"}
+
+
+def test_templates_without_sticks_keep_their_saved_format() -> None:
+    config = virtual_device_config_from_toml(_custom_config_data())
+    templates = cast(list[dict[str, object]], config_to_json(config)["templates"])
+    assert "sticks" not in templates[0]
+
+
+@pytest.mark.parametrize(
+    ("sticks", "message"),
+    [
+        ([{"id": "s", "label": "S", "x": "rx", "y": "missing"}], "unknown axis"),
+        ([{"id": "s", "label": "S", "x": "rx", "y": "rx"}], "two different axes"),
+        (
+            [
+                {"id": "s", "label": "S", "x": "rx", "y": "ry"},
+                {"id": "t", "label": "T", "x": "ry", "y": "pad-x"},
+            ],
+            "more than one stick",
+        ),
+        (
+            [
+                {"id": "s", "label": "S", "x": "rx", "y": "ry", "side": "left"},
+                {"id": "t", "label": "T", "x": "pad-x", "y": "pad-y", "side": "left"},
+            ],
+            "one stick can be declared for each side",
+        ),
+        ([{"id": "s", "label": "S", "x": "rx", "y": "ry", "side": "up"}], "left or right"),
+        ([{"id": "rx", "label": "S", "x": "rx", "y": "ry"}], "control IDs must be unique"),
+        ([{"id": "x__y", "label": "S", "x": "rx", "y": "ry"}], "derived analog ID"),
+    ],
+)
+def test_invalid_stick_declarations_are_rejected(sticks, message: str) -> None:
+    with pytest.raises(VirtualDeviceConfigError, match=message):
+        virtual_device_config_from_toml(_stick_config_data(sticks))
+
+
+@pytest.mark.parametrize(("count", "accepted"), [(9, True), (16, True), (17, False)])
+def test_axis_limit_accepts_up_to_sixteen_axes(count: int, accepted: bool) -> None:
+    codes = ["abs_x", "abs_y", "abs_z", "abs_rx", "abs_ry", "abs_rz", "abs_throttle"]
+    codes += ["abs_rudder", "abs_wheel", "abs_gas", "abs_brake"]
+    codes += [f"abs_hat{index}{axis}" for index in range(3) for axis in "xy"]
+    data = _custom_config_data()
+    template = cast(list[dict[str, object]], data["templates"])[0]
+    template["axes"] = [
+        {"id": f"axis-{index}", "label": code, "evdev": code, "minimum": -100, "maximum": 100}
+        for index, code in enumerate(codes[:count])
+    ]
+    if not accepted:
+        with pytest.raises(VirtualDeviceConfigError, match="2..16 axes"):
+            virtual_device_config_from_toml(data)
+        return
+    config = virtual_device_config_from_toml(data)
+    assert config_from_json(config_to_json(config)) == config
+    assert len(config.templates[0].axes) == count
+    # X/Y and RX/RY each pair into one stick. Every other axis stays standalone.
+    assert len(template_analog_inputs(config.templates[0])) == count - 2

@@ -22,11 +22,14 @@ TEMPLATE_BUTTON_CODES = {
 }
 # Aliases name the same input and do not provide additional button capacity.
 MAX_TEMPLATE_BUTTONS = len(set(TEMPLATE_BUTTON_CODES.values()))
-MAX_TEMPLATE_AXES = 8
+MAX_TEMPLATE_AXES = 16
 XBOX_360_TEMPLATE_ID = "xbox-360"
 LOGITECH_EXTREME_3D_TEMPLATE_ID = "logitech-extreme-3d-pro"
 
 _ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+STICK_SIDES = ("left", "right")
+# Axis pairs that form a stick without a declaration, with the side they imply.
+_INFERRED_STICK_CODES = (("abs_x", "abs_y", "left"), ("abs_rx", "abs_ry", "right"))
 _SDL_CLASSIFIER_AXES = {
     "abs_rx",
     "abs_ry",
@@ -70,6 +73,17 @@ class VirtualAxis:
 
 
 @dataclass(frozen=True, slots=True)
+class VirtualStick:
+    """Two template axes, referenced by axis ID, that move together as one stick."""
+
+    id: str
+    label: str
+    x: str
+    y: str
+    side: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class VirtualDeviceTemplate:
     id: str
     label: str
@@ -82,6 +96,7 @@ class VirtualDeviceTemplate:
     axes: tuple[VirtualAxis, ...]
     builtin: bool = False
     layout: str = "gamepad"
+    sticks: tuple[VirtualStick, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +322,20 @@ def _axis_from_data(value: object) -> VirtualAxis:
     )
 
 
+def _stick_from_data(value: object) -> VirtualStick:
+    data = _dict(value, "stick")
+    side = str(data.get("side") or "").strip().lower() or None
+    if side is not None and side not in STICK_SIDES:
+        raise VirtualDeviceConfigError("stick.side must be left or right")
+    return VirtualStick(
+        id=_require_id(data.get("id"), "stick.id"),
+        label=_require_label(data.get("label"), "stick.label"),
+        x=_require_id(data.get("x"), "stick.x"),
+        y=_require_id(data.get("y"), "stick.y"),
+        side=side,
+    )
+
+
 def _integer(value: object, field: str) -> int:
     try:
         parsed = int(value)  # type: ignore[arg-type]
@@ -333,6 +362,7 @@ def template_from_data(value: object) -> VirtualDeviceTemplate:
         buttons=buttons,
         axes=axes,
         layout=str(data.get("layout", "gamepad")),
+        sticks=tuple(_stick_from_data(item) for item in _list(data.get("sticks"), "sticks")),
     )
     validate_template(template)
     return template
@@ -357,7 +387,7 @@ def validate_template(template: VirtualDeviceTemplate) -> None:
         raise VirtualDeviceConfigError(f"template must define 1..{MAX_TEMPLATE_BUTTONS} buttons")
     if not 2 <= len(template.axes) <= MAX_TEMPLATE_AXES:
         raise VirtualDeviceConfigError(f"template must define 2..{MAX_TEMPLATE_AXES} axes")
-    control_ids = [item.id for item in (*template.buttons, *template.axes)]
+    control_ids = [item.id for item in (*template.buttons, *template.axes, *template.sticks)]
     if len(control_ids) != len(set(control_ids)):
         raise VirtualDeviceConfigError("template control IDs must be unique")
     event_codes = [
@@ -455,12 +485,19 @@ def _axis_to_data(axis: VirtualAxis) -> dict[str, object]:
     }
 
 
+def _stick_to_data(stick: VirtualStick) -> dict[str, object]:
+    data: dict[str, object] = {"id": stick.id, "label": stick.label, "x": stick.x, "y": stick.y}
+    if stick.side is not None:
+        data["side"] = stick.side
+    return data
+
+
 def _hex(value: int) -> str:
     return f"{value:04x}"
 
 
 def template_to_data(template: VirtualDeviceTemplate) -> dict[str, object]:
-    return {
+    data: dict[str, object] = {
         "id": template.id,
         "layout": template.layout,
         "label": template.label,
@@ -472,6 +509,10 @@ def template_to_data(template: VirtualDeviceTemplate) -> dict[str, object]:
         "buttons": [_button_to_data(button) for button in template.buttons],
         "axes": [_axis_to_data(axis) for axis in template.axes],
     }
+    # Templates without declared sticks keep the file format they were saved with.
+    if template.sticks:
+        data["sticks"] = [_stick_to_data(stick) for stick in template.sticks]
+    return data
 
 
 def instance_to_data(instance: VirtualDeviceInstance) -> dict[str, object]:
@@ -512,28 +553,71 @@ def template_output_axes(template: VirtualDeviceTemplate) -> tuple[OutputAxis, .
     )
 
 
-def template_analog_inputs(template: VirtualDeviceTemplate) -> dict[str, object]:
-    inputs: dict[str, object] = {}
+def inferred_stick_id(x_id: str, x_code: str, y_id: str, y_code: str) -> str | None:
+    """Return the analog ID an undeclared stick on these axes has, if the codes infer one."""
+    if any((x_code, y_code) == (x, y) for x, y, _side in _INFERRED_STICK_CODES):
+        return f"{x_id}__{y_id}"
+    return None
+
+
+def template_sticks(template: VirtualDeviceTemplate) -> tuple[VirtualStick, ...]:
+    """Return declared sticks, then the X/Y and RX/RY pairs no declared stick uses."""
+    axes_by_id = {axis.id: axis for axis in template.axes}
     axes_by_evdev = {axis.evdev: axis for axis in template.axes}
-    paired_codes = (("abs_x", "abs_y"), ("abs_rx", "abs_ry"))
+    sticks: list[VirtualStick] = []
     paired_axis_ids: set[str] = set()
-    for x_code, y_code in paired_codes:
+    for stick in template.sticks:
+        if stick.x == stick.y:
+            raise VirtualDeviceConfigError(f"stick {stick.id!r} needs two different axes")
+        for axis_id in (stick.x, stick.y):
+            if axis_id not in axes_by_id:
+                raise VirtualDeviceConfigError(
+                    f"stick {stick.id!r} references unknown axis {axis_id!r}"
+                )
+            if axis_id in paired_axis_ids:
+                raise VirtualDeviceConfigError(f"axis {axis_id!r} belongs to more than one stick")
+            paired_axis_ids.add(axis_id)
+        sticks.append(stick)
+    declared_sides = [stick.side for stick in sticks if stick.side is not None]
+    if len(declared_sides) != len(set(declared_sides)):
+        raise VirtualDeviceConfigError("only one stick can be declared for each side")
+    for x_code, y_code, side in _INFERRED_STICK_CODES:
         x_axis = axes_by_evdev.get(x_code)
         y_axis = axes_by_evdev.get(y_code)
-        if x_axis is None or y_axis is None:
+        if x_axis is None or y_axis is None or paired_axis_ids & {x_axis.id, y_axis.id}:
             continue
-        analog_id = f"{x_axis.id}__{y_axis.id}"
-        if analog_id in inputs:
-            raise VirtualDeviceConfigError(f"derived analog ID {analog_id!r} is not unique")
-        inputs[analog_id] = {
-            "label": f"{x_axis.label} / {y_axis.label}",
+        sticks.append(
+            VirtualStick(
+                id=cast(str, inferred_stick_id(x_axis.id, x_code, y_axis.id, y_code)),
+                label=f"{x_axis.label} / {y_axis.label}",
+                x=x_axis.id,
+                y=y_axis.id,
+                side=None if side in declared_sides else side,
+            )
+        )
+        paired_axis_ids.update((x_axis.id, y_axis.id))
+    return tuple(sticks)
+
+
+def template_analog_inputs(template: VirtualDeviceTemplate) -> dict[str, object]:
+    inputs: dict[str, object] = {}
+    axes_by_id = {axis.id: axis for axis in template.axes}
+    paired_axis_ids: set[str] = set()
+    for stick in template_sticks(template):
+        if stick.id in inputs:
+            raise VirtualDeviceConfigError(f"derived analog ID {stick.id!r} is not unique")
+        analog: dict[str, object] = {
+            "label": stick.label,
             "type": "stick",
             "axes": [
-                _axis_analog_data(x_axis, role="x"),
-                _axis_analog_data(y_axis, role="y"),
+                _axis_analog_data(axes_by_id[stick.x], role="x"),
+                _axis_analog_data(axes_by_id[stick.y], role="y"),
             ],
         }
-        paired_axis_ids.update((x_axis.id, y_axis.id))
+        if stick.side is not None:
+            analog["side"] = stick.side
+        inputs[stick.id] = analog
+        paired_axis_ids.update((stick.x, stick.y))
     for axis in template.axes:
         if axis.id in paired_axis_ids:
             continue

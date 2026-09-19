@@ -23,8 +23,10 @@ from keymasq.common.virtual_device_templates import (
     VirtualDeviceConfigError,
     VirtualDeviceInstance,
     VirtualDeviceTemplate,
+    VirtualStick,
     config_from_json,
     config_to_json,
+    inferred_stick_id,
     instance_from_data,
     instance_to_data,
     numbered_button_batch,
@@ -33,7 +35,11 @@ from keymasq.common.virtual_device_templates import (
     unused_numbered_button_codes,
 )
 from keymasq.gui.session_client import session_request_async
-from keymasq.gui.widgets.virtual_template_controls import TemplateControlRow, event_names
+from keymasq.gui.widgets.virtual_template_controls import (
+    TemplateControlRow,
+    TemplateStickRow,
+    event_names,
+)
 from keymasq.session.virtual_devices import load_virtual_device_config
 
 
@@ -84,7 +90,9 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         axes_page = Adw.PreferencesPage()
         pages.add_titled(page, "identity", "Identity")
         pages.add_titled(buttons_page, "buttons", "Buttons")
+        sticks_page = Adw.PreferencesPage()
         pages.add_titled(axes_page, "axes", "Axes")
+        pages.add_titled(sticks_page, "sticks", "Sticks")
         switcher = Gtk.StackSwitcher(stack=pages, halign=Gtk.Align.CENTER)
         switcher.set_margin_top(8)
         switcher.set_margin_bottom(8)
@@ -134,6 +142,7 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
 
         self._button_rows: list[TemplateControlRow] = []
         self._axis_rows: list[TemplateControlRow] = []
+        self._stick_rows: list[TemplateStickRow] = []
         self._buttons_group = Adw.PreferencesGroup(title="Buttons")
         self._axes_group = Adw.PreferencesGroup(
             title="Axes",
@@ -150,8 +159,20 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self._add_axis = Gtk.Button(label="Add axis", valign=Gtk.Align.CENTER)
         self._add_axis.connect("clicked", self._new_axis)
         self._axes_group.set_header_suffix(self._add_axis)
+        self._sticks_group = Adw.PreferencesGroup(
+            title="Sticks",
+            description=(
+                "ABS_X with ABS_Y and ABS_RX with ABS_RY are sticks without an entry here. "
+                "Add a stick to pair other axes, such as two hat axes, or to name a stick "
+                "and set its side."
+            ),
+        )
+        self._add_stick = Gtk.Button(label="Add stick", valign=Gtk.Align.CENTER)
+        self._add_stick.connect("clicked", self._new_stick)
+        self._sticks_group.set_header_suffix(self._add_stick)
         buttons_page.add(self._buttons_group)
         axes_page.add(self._axes_group)
+        sticks_page.add(self._sticks_group)
         buttons = (
             template.buttons if template else (VirtualButton("trigger", "Trigger", "btn_trigger"),)
         )
@@ -165,6 +186,8 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         )
         for control in (*buttons, *axes):
             self._append_control(control)
+        for stick in template.sticks if template else ():
+            self._append_stick(stick)
 
         footer = Gtk.ActionBar()
         self._status = Gtk.Label(xalign=0, hexpand=True, wrap=True)
@@ -187,6 +210,9 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         if isinstance(control, VirtualAxis):
             self._axis_rows.append(row)
             self._axes_group.add(row)
+            for entry in (row.id_row, row.label_row):
+                entry.connect("changed", self._refresh_stick_axes)
+            row.code_row.connect("notify::selected", self._refresh_stick_axes)
         else:
             self._button_rows.append(row)
             self._buttons_group.add(row)
@@ -199,6 +225,64 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         rows.remove(row)
         group.remove(row)
         self._update_control_limits()
+
+    def _append_stick(self, stick: VirtualStick) -> None:
+        row = TemplateStickRow(
+            stick, self._axis_rows, self._remove_stick, self._keep_inferred_stick_id
+        )
+        self._stick_rows.append(row)
+        self._sticks_group.add(row)
+        self._update_control_limits()
+
+    def _remove_stick(self, row: TemplateStickRow) -> None:
+        self._stick_rows.remove(row)
+        self._sticks_group.remove(row)
+        self._update_control_limits()
+
+    def _keep_inferred_stick_id(self, row: TemplateStickRow) -> None:
+        """Declaring an automatic stick keeps its analog ID, which saved mappings target."""
+        if not row.id_is_generated:
+            return
+        x_id, y_id = row.axis_id("x"), row.axis_id("y")
+        x_code, y_code = row.axis_code("x"), row.axis_code("y")
+        if x_id is None or y_id is None or x_code is None or y_code is None:
+            return
+        stick_id = inferred_stick_id(x_id, x_code, y_id, y_code) or row.fallback_id
+        if stick_id is not None:
+            row.set_generated_id(stick_id)
+
+    def _refresh_stick_axes(self, *_args: object) -> None:
+        for row in self._stick_rows:
+            row.set_axis_rows(self._axis_rows)
+
+    def _unpaired_axis_ids(self) -> list[str]:
+        paired = {row.axis_id(role) for row in self._stick_rows for role in ("x", "y")}
+        return [
+            axis_id for row in self._axis_rows if (axis_id := row.id_row.get_text()) not in paired
+        ]
+
+    def _new_stick(self, _button: Gtk.Button) -> None:
+        free = self._unpaired_axis_ids()
+        if len(free) < 2:
+            return
+        # Offer axes that are not a stick yet before the automatic X/Y and RX/RY pairs.
+        codes = {row.id_row.get_text(): row.to_data()["evdev"] for row in self._axis_rows}
+        automatic = {"abs_x", "abs_y", "abs_rx", "abs_ry"}
+        loose = [axis_id for axis_id in free if codes[axis_id] not in automatic]
+        x_id, y_id = loose[:2] if len(loose) >= 2 else free[:2]
+        used_ids = {
+            row.id_row.get_text()
+            for row in (*self._button_rows, *self._axis_rows, *self._stick_rows)
+        }
+        index = len(self._stick_rows) + 1
+        while (stick_id := f"stick-{index}") in used_ids:
+            index += 1
+        self._append_stick(VirtualStick(stick_id, f"Stick {index}", x_id, y_id))
+        self._stick_rows[-1].fallback_id = stick_id
+        self._stick_rows[-1].set_generated_id(stick_id)
+        self._keep_inferred_stick_id(self._stick_rows[-1])
+        self._stick_rows[-1].set_expanded(True)
+        self._stick_rows[-1].label_row.grab_focus()
 
     def _numbered_button_capacity(self) -> int:
         codes = [row.codes[int(row.code_row.get_selected())] for row in self._button_rows]
@@ -213,6 +297,9 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self._add_axis.set_sensitive(len(self._axis_rows) < MAX_TEMPLATE_AXES)
         self._buttons_group.set_title(f"Buttons · {len(self._button_rows)}")
         self._axes_group.set_title(f"Axes · {len(self._axis_rows)}")
+        self._refresh_stick_axes()
+        self._add_stick.set_sensitive(len(self._unpaired_axis_ids()) >= 2)
+        self._sticks_group.set_title(f"Sticks · {len(self._stick_rows)}")
 
     def _new_button(self, _button: Gtk.Button) -> None:
         self._new_control(axis=False)
@@ -267,7 +354,11 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         ]
         try:
             added = numbered_button_batch(
-                buttons, count, reserved_ids={row.id_row.get_text() for row in self._axis_rows}
+                buttons,
+                count,
+                reserved_ids={
+                    row.id_row.get_text() for row in (*self._axis_rows, *self._stick_rows)
+                },
             )
         except VirtualDeviceConfigError as exc:
             self._status.set_text(str(exc))
@@ -285,7 +376,10 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         used_button_codes = (
             {TEMPLATE_BUTTON_CODES[str(code)] for code in used_codes} if not axis else set()
         )
-        used_ids = {row.id_row.get_text() for row in (*self._button_rows, *self._axis_rows)}
+        used_ids = {
+            row.id_row.get_text()
+            for row in (*self._button_rows, *self._axis_rows, *self._stick_rows)
+        }
         preferred = (
             ("abs_x", "abs_y", "abs_z", "abs_rx", "abs_ry", "abs_rz", "abs_hat0x", "abs_hat0y")
             if axis
@@ -316,6 +410,10 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         self.close()
 
     def _save(self, _button: Gtk.Button) -> None:
+        for row in self._stick_rows:
+            if row.axis_id("x") is None or row.axis_id("y") is None:
+                self._status.set_text(f"Choose both axes for {row.get_title()}.")
+                return
         try:
             template = template_from_data(
                 {
@@ -329,6 +427,7 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
                     "bustype": self._bustype_row.get_text(),
                     "buttons": [row.to_data() for row in self._button_rows],
                     "axes": [row.to_data() for row in self._axis_rows],
+                    "sticks": [row.to_data() for row in self._stick_rows],
                 }
             )
         except VirtualDeviceConfigError as exc:

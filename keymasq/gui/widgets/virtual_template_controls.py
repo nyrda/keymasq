@@ -9,7 +9,12 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.virtual_device_templates import VirtualAxis, VirtualButton
+from keymasq.common.virtual_device_templates import (
+    STICK_SIDES,
+    VirtualAxis,
+    VirtualButton,
+    VirtualStick,
+)
 
 
 def entry_row(title: str, value: str) -> Adw.EntryRow:
@@ -122,4 +127,126 @@ class TemplateControlRow(Adw.ExpanderRow):
         for key, row in self.range_rows.items():
             row.update()
             data[key] = int(row.get_value())
+        return data
+
+
+class TemplateStickRow(Adw.ExpanderRow):
+    """Pairs two axis rows into a stick. Axes are tracked by row so ID edits carry over."""
+
+    def __init__(
+        self,
+        stick: VirtualStick,
+        axis_rows: list[TemplateControlRow],
+        on_remove: Callable[["TemplateStickRow"], None],
+        on_axes_changed: Callable[["TemplateStickRow"], None] | None = None,
+    ) -> None:
+        super().__init__(title=stick.label)
+        self._on_axes_changed = on_axes_changed
+        # The editor may replace an ID it chose, but never one the user typed.
+        self.id_is_generated = False
+        self.fallback_id: str | None = None
+        self._setting_id = False
+        self.label_row = entry_row("Label", stick.label)
+        self.id_row = entry_row("Stick ID", stick.id)
+        self.id_row.set_tooltip_text("Stable ID used to refer to this stick in analog mappings")
+        self.add_row(self.label_row)
+        self._axis_rows: list[TemplateControlRow] = []
+        self._selected: dict[str, TemplateControlRow | None] = {
+            role: next((row for row in axis_rows if row.id_row.get_text() == axis_id), None)
+            for role, axis_id in (("x", stick.x), ("y", stick.y))
+        }
+        self.axis_choice_rows = {
+            "x": Adw.ComboRow(title="Horizontal axis"),
+            "y": Adw.ComboRow(title="Vertical axis"),
+        }
+        for role, row in self.axis_choice_rows.items():
+            row.connect("notify::selected", self._axis_selected, role)
+            self.add_row(row)
+        self.side_row = Adw.ComboRow(
+            title="Side",
+            subtitle="Left and Right stick mappings route to the stick declared for that side",
+        )
+        self.side_row.set_model(Gtk.StringList.new(["None", "Left", "Right"]))
+        self.side_row.set_selected(STICK_SIDES.index(stick.side) + 1 if stick.side else 0)
+        self.add_row(self.side_row)
+        self.add_row(self.id_row)
+        remove = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER)
+        remove.add_css_class("flat")
+        remove.set_tooltip_text(f"Remove {stick.label}")
+        self._on_remove = on_remove
+        remove.connect("clicked", self._remove_clicked)
+        self.add_suffix(remove)
+        self.label_row.connect("changed", self._update_summary)
+        self.id_row.connect("changed", self._id_edited)
+        self._syncing = False
+        self.set_axis_rows(axis_rows)
+
+    def _remove_clicked(self, _button: Gtk.Button) -> None:
+        self._on_remove(self)
+
+    def set_axis_rows(self, axis_rows: list[TemplateControlRow]) -> None:
+        """Rebuild the axis choices after axes were added, removed, or renamed."""
+        self._axis_rows = list(axis_rows)
+        labels = [
+            f"{row.label_row.get_text() or row.id_row.get_text()} · {row.id_row.get_text()}"
+            for row in self._axis_rows
+        ]
+        self._syncing = True
+        for role, choice in self.axis_choice_rows.items():
+            choice.set_model(Gtk.StringList.new(labels))
+            selected = self._selected[role]
+            if selected in self._axis_rows:
+                choice.set_selected(self._axis_rows.index(selected))
+            else:
+                self._selected[role] = None
+                choice.set_selected(Gtk.INVALID_LIST_POSITION)
+        self._syncing = False
+        self._update_summary()
+
+    def _axis_selected(self, choice: Adw.ComboRow, _param: object, role: str) -> None:
+        if self._syncing:
+            return
+        index = int(choice.get_selected())
+        self._selected[role] = self._axis_rows[index] if index < len(self._axis_rows) else None
+        self._update_summary()
+        if self._on_axes_changed is not None:
+            self._on_axes_changed(self)
+
+    def set_generated_id(self, stick_id: str) -> None:
+        self._setting_id = True
+        self.id_row.set_text(stick_id)
+        self._setting_id = False
+        self.id_is_generated = True
+
+    def _id_edited(self, *_args: object) -> None:
+        if not self._setting_id:
+            self.id_is_generated = False
+
+    def axis_id(self, role: str) -> str | None:
+        row = self._selected[role]
+        return row.id_row.get_text() if row is not None else None
+
+    def axis_code(self, role: str) -> str | None:
+        row = self._selected[role]
+        return row.codes[int(row.code_row.get_selected())] if row is not None else None
+
+    def _update_summary(self, *_args: object) -> None:
+        self.set_title(self.label_row.get_text() or "Unnamed stick")
+        self.set_subtitle(
+            " / ".join(
+                row.codes[int(row.code_row.get_selected())].upper() if row is not None else "?"
+                for row in (self._selected["x"], self._selected["y"])
+            )
+        )
+
+    def to_data(self) -> dict[str, object]:
+        data: dict[str, object] = {
+            "id": self.id_row.get_text(),
+            "label": self.label_row.get_text(),
+            "x": self.axis_id("x") or "",
+            "y": self.axis_id("y") or "",
+        }
+        side = int(self.side_row.get_selected())
+        if side > 0:
+            data["side"] = STICK_SIDES[side - 1]
         return data

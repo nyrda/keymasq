@@ -13,6 +13,7 @@ from keymasq.common.virtual_device_templates import (
     XBOX_360_TEMPLATE,
     VirtualAxis,
     VirtualDeviceTemplate,
+    template_sticks,
 )
 from keymasq.gui.widgets.flight_stick_artwork import FlightStickDrawing
 from keymasq.gui.widgets.input_picker_shared import _get_gamepad_image_path, mark_bound_target
@@ -49,6 +50,14 @@ class VirtualDevicePicker(Gtk.Box):
             int(getattr(evdev.ecodes, item.evdev.upper())): item for item in template.buttons
         }
         self._shown_buttons: set[int] = set()
+        axis_codes = {axis.id: axis.evdev for axis in template.axes}
+        self._sticks = [
+            (stick, axis_codes[stick.x], axis_codes[stick.y]) for stick in template_sticks(template)
+        ]
+        self._stick_codes = {
+            code for _, x_code, y_code in self._sticks for code in (x_code, y_code)
+        }
+        self._shown_pads: set[tuple[str, str]] = set()
         self._syncing = False
         self._extras_jump = Gtk.Button(halign=Gtk.Align.END)
         self._extras_jump.add_css_class("flat")
@@ -68,6 +77,7 @@ class VirtualDevicePicker(Gtk.Box):
             self._flight_layout(left, center, right)
         else:
             self._gamepad_layout(left, center, right)
+        self._build_extra_sticks()
 
         editor = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
         editor.append(Gtk.Label(label="Axis"))
@@ -111,7 +121,7 @@ class VirtualDevicePicker(Gtk.Box):
         turns.append(self._axis_shortcut("↶ Left", "abs_rz", -100, "Twist left"))
         turns.append(self._axis_shortcut("Right ↷", "abs_rz", 100, "Twist right"))
         twist.append(turns)
-        twist.set_visible("abs_rz" in self._axes)
+        twist.set_visible(self._is_single_axis("abs_rz"))
         left.append(twist)
         throttle = self._section("Throttle")
         levels = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
@@ -120,7 +130,7 @@ class VirtualDevicePicker(Gtk.Box):
                 self._axis_shortcut(caption, "abs_throttle", percent, f"Throttle {percent}%")
             )
         throttle.append(levels)
-        throttle.set_visible("abs_throttle" in self._axes)
+        throttle.set_visible(self._is_single_axis("abs_throttle"))
         left.append(throttle)
 
         center.append(FlightStickDrawing())
@@ -175,7 +185,11 @@ class VirtualDevicePicker(Gtk.Box):
                 self._axis_shortcut("LT" if column is left else "RT", axis, 100, "Trigger")
             )
             column.append(self._button("LB" if column is left else "RB", shoulder, "Shoulder"))
-        left.append(self._direction_pad("Left stick", "abs_x", "abs_y", stick_button="btn_thumbl"))
+        left.append(
+            self._direction_pad(
+                "Left stick", *self._side_codes("left", "abs_x", "abs_y"), stick_button="btn_thumbl"
+            )
+        )
         navigation = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
         for label, code in (
             ("Select", "btn_select"),
@@ -198,7 +212,11 @@ class VirtualDevicePicker(Gtk.Box):
             face.attach(self._button(label, code, label), x, y, 1, 1)
         right.append(face)
         right.append(
-            self._direction_pad("Right stick", "abs_rx", "abs_ry", stick_button="btn_thumbr")
+            self._direction_pad(
+                "Right stick",
+                *self._side_codes("right", "abs_rx", "abs_ry"),
+                stick_button="btn_thumbr",
+            )
         )
         left.append(self._direction_pad("D-pad axes", "abs_hat0x", "abs_hat0y"))
         dpad = self._section("D-pad buttons")
@@ -219,9 +237,37 @@ class VirtualDevicePicker(Gtk.Box):
         )
         center.append(dpad)
 
+    def _is_single_axis(self, code: str) -> bool:
+        return code in self._axes and code not in self._stick_codes
+
+    def _side_codes(self, side: str, x_code: str, y_code: str) -> tuple[str, str]:
+        """Use the stick declared for a side in place of the layout's default codes."""
+        for stick, stick_x, stick_y in self._sticks:
+            if stick.side == side:
+                return stick_x, stick_y
+        for stick, stick_x, stick_y in self._sticks:
+            if (stick_x, stick_y) == (x_code, y_code) and stick.side not in {None, side}:
+                # The default pair belongs to the other side, so this pad has no stick.
+                return "", ""
+        return x_code, y_code
+
+    def _build_extra_sticks(self) -> None:
+        extra = [
+            (stick, x_code, y_code)
+            for stick, x_code, y_code in self._sticks
+            if (x_code, y_code) not in self._shown_pads
+        ]
+        if not extra:
+            return
+        self.extra_sticks = Gtk.Box(spacing=24, halign=Gtk.Align.CENTER)
+        for stick, x_code, y_code in extra:
+            self.extra_sticks.append(self._direction_pad(stick.label, x_code, y_code))
+        self.append(self.extra_sticks)
+
     def _axis_shortcut(self, label: str, code: str, percent: float, tooltip: str) -> Gtk.Widget:
         axis = self._axes.get(code)
-        if axis is None or code in self._unknown_rest_axes:
+        # A trigger or twist shortcut would mislabel an axis that belongs to a stick.
+        if axis is None or code in self._unknown_rest_axes or code in self._stick_codes:
             return Gtk.Box(visible=False)
         return self._axis_button(label, code, axis_percent_value(axis, percent), tooltip)
 
@@ -347,9 +393,15 @@ class VirtualDevicePicker(Gtk.Box):
         box = self._section(title)
         grid = Gtk.Grid(column_spacing=6, row_spacing=6, halign=Gtk.Align.CENTER)
         x_axis, y_axis = self._axes.get(x_code), self._axes.get(y_code)
-        if x_axis is None and y_axis is None:
+        pair = (x_code, y_code)
+        stick_pairs = {(stick_x, stick_y) for _, stick_x, stick_y in self._sticks}
+        # A layout's default pad must not show an axis that a declared stick pairs
+        # differently, and no pair is drawn twice.
+        claimed_elsewhere = pair not in stick_pairs and bool(self._stick_codes & set(pair))
+        if (x_axis is None and y_axis is None) or claimed_elsewhere or pair in self._shown_pads:
             box.set_visible(False)
             return box
+        self._shown_pads.add(pair)
         for label, code, value, col, row, direction in (
             (
                 "↑",

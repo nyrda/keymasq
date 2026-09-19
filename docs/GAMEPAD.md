@@ -524,11 +524,13 @@ The shortcut above the illustration jumps to this grid; search by label, number,
 control ID, or Linux code to find a button.
 
 Analog mappings to a virtual template resolve **Same**, **Left**, and **Right**
-using the destination's event codes, ranges, and rest values. A destination that
-does not contain the requested control receives no axis events. Choose a named
-destination control when the source and destination use different codes. Motion
-mappings also offer the template's named sticks instead of assuming two gamepad
-sticks.
+using the destination's event codes, ranges, and rest values. **Left** and
+**Right** go to the stick the template declares for that side, if it declares
+one. **Same** matches the source's event codes first and uses the declared side
+only when the destination lacks those codes. A destination that does not contain
+the requested control receives no axis events. Choose a named destination control
+when the source and destination use different codes. Motion mappings also offer
+the template's named sticks instead of assuming two gamepad sticks.
 
 Use **Add output** on a template to create a controller from it. The output
 dialog selects that template and suggests an unused output ID. Identity overrides
@@ -549,7 +551,7 @@ saving. **New template** lets you start from the gamepad or flight stick. The
 **Layout** choice controls the mapping illustration independently of the template
 ID. Changing it preserves the configured buttons, axes, and device identity.
 
-The template editor has **Identity**, **Buttons**, and **Axes** tabs. Expand a
+The template editor has **Identity**, **Buttons**, **Axes**, and **Sticks** tabs. Expand a
 control to edit its label and select a Linux code from a searchable list. Axis
 controls remain available in the mapping picker's axis selector. **Add numbered
 buttons** adds a batch of buttons using unused `BTN_TRIGGER_HAPPY*` codes. All
@@ -561,6 +563,17 @@ resolution are under **Advanced**; the Linux device name, USB IDs, and bus type 
 identity**. Validation errors keep the editor open with your changes intact.
 Axis metadata must fit signed 32-bit integers. Linux aliases for the same button
 or axis count as one event code and cannot define separate controls.
+
+The **Sticks** tab pairs two axes into one stick. `ABS_X` with `ABS_Y` and
+`ABS_RX` with `ABS_RY` are sticks without an entry. Add a stick for any other
+pair, such as `ABS_Z` with `ABS_RZ` on a DirectInput-style pad or two hat axes
+given an analog range. A stick has a label, a horizontal axis, a vertical axis,
+and an optional side. An axis can belong to one stick, and each side can be
+declared once. A declared stick that uses `ABS_X`/`ABS_Y` or `ABS_RX`/`ABS_RY`
+replaces the automatic one. Declared sticks appear as stick destinations in
+Analog Controls and Motion Controls, and the mapping picker draws a direction pad
+for each. In the gamepad layout, the **Left stick** and **Right stick** pads use
+the stick declared for that side.
 Output IDs cannot use the reserved `same-device` routing identifier or numbered
 `virtual-gamepad-N` IDs. Axis IDs must also produce unique analog-control IDs:
 the generated X/Y stick ID `x__y`, for example, cannot also name a standalone axis.
@@ -572,8 +585,9 @@ A template defines:
 - One or more named buttons, each bound to a distinct Linux `BTN_*` code.
   Capacity is the number of distinct supported button codes, with aliases counted
   once. Ordinary buttons and the 40 TriggerHappy buttons can be used together.
-- 2–8 named axes, each bound to an `ABS_*` code with minimum, maximum, rest,
+- 2–16 named axes, each bound to an `ABS_*` code with minimum, maximum, rest,
   fuzz, flat, and resolution values
+- Optional sticks, each pairing two of the template's axes by axis ID
 
 Keymasq requires `ABS_X` and `ABS_Y` plus a joystick-classifying button or
 axis. This prevents custom devices that Linux exposes through uinput but SDL
@@ -661,10 +675,22 @@ minimum = -32768
 maximum = 32767
 rest = 0
 
+[[templates.sticks]]
+id = "main-stick"
+label = "Main stick"
+x = "x"
+y = "y"
+side = "left"
+
 [[devices]]
 output_id = "space-rig"
 template = "space-panel"
 ```
+
+`x` and `y` name axis IDs from the same template. `side` is optional and accepts
+`left` or `right`. The stick `id` is the analog-control ID that Analog Controls
+store as the destination, so keep it stable. Without a `sticks` entry, the
+automatic stick on `ABS_X`/`ABS_Y` has the ID `x__y`, built from its axis IDs.
 
 The mapper shows the selected template's control labels and axis endpoints.
 Profiles continue to store the corresponding evdev target, such as

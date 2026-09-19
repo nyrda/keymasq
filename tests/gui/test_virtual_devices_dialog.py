@@ -334,3 +334,59 @@ def test_numbered_button_availability_updates_on_edit_and_removal(dialog_module)
     dialog._append_numbered_buttons(1)
     assert dialog._button_rows[-1].to_data()["evdev"] == "btn_trigger_happy1"
     assert not dialog._batch_button.get_sensitive()
+
+
+def test_sticks_tab_pairs_axes_and_follows_axis_renames(dialog_module):
+    from keymasq.common.virtual_device_templates import (
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        template_analog_inputs,
+    )
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    assert not dialog._stick_rows
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    axis_ids = [row.id_row.get_text() for row in dialog._axis_rows]
+    stick.axis_choice_rows["x"].set_selected(axis_ids.index("hat-x"))
+    stick.axis_choice_rows["y"].set_selected(axis_ids.index("hat-y"))
+    stick.label_row.set_text("Hat stick")
+    stick.side_row.set_selected(2)
+    dialog._axis_rows[axis_ids.index("hat-x")].id_row.set_text("pov-x")
+    dialog._save(None)
+
+    assert [(item.id, item.x, item.y, item.side) for item in saved[0].sticks] == [
+        ("stick-1", "pov-x", "hat-y", "right")
+    ]
+    assert "stick-1" in template_analog_inputs(saved[0])
+
+    reopened = dialog_module.VirtualTemplateEditorDialog(saved[0], lambda value: True)
+    assert reopened._stick_rows[0].to_data() == {
+        "id": "stick-1",
+        "label": "Hat stick",
+        "x": "pov-x",
+        "y": "hat-y",
+        "side": "right",
+    }
+
+
+def test_removing_a_stick_axis_keeps_the_editor_open(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    stick = dialog._stick_rows[0]
+    dialog._remove_control(
+        next(row for row in dialog._axis_rows if row.id_row.get_text() == stick.axis_id("x"))
+    )
+    dialog._save(None)
+
+    assert not saved
+    assert "Choose both axes" in dialog._status.get_text()

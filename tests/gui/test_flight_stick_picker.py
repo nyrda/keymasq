@@ -181,3 +181,34 @@ def test_custom_flight_shortcuts_use_edited_ranges():
     next(button for button in buttons(widget) if button.get_label() == "↶ Left").emit("clicked")
     next(button for button in buttons(widget) if button.get_label() == "Right ↷").emit("clicked")
     assert selected == [("abs_rz", -1000), ("abs_rz", 1000)]
+
+
+def test_declared_sticks_get_direction_pads_and_replace_side_defaults():
+    from dataclasses import replace
+
+    from keymasq.common.virtual_device_templates import XBOX_360_TEMPLATE, VirtualAxis, VirtualStick
+
+    template = replace(
+        XBOX_360_TEMPLATE,
+        id="hat-stick-pad",
+        builtin=False,
+        axes=(
+            *(axis for axis in XBOX_360_TEMPLATE.axes if axis.evdev not in {"abs_rx", "abs_ry"}),
+            VirtualAxis("pad-x", "Pad X", "abs_hat1x", -1000, 1000),
+            VirtualAxis("pad-y", "Pad Y", "abs_hat1y", -1000, 1000),
+        ),
+        sticks=(
+            VirtualStick("right-stick", "Right stick", "left-trigger", "right-trigger", "right"),
+            VirtualStick("pad", "Pad", "pad-x", "pad-y"),
+        ),
+    )
+    selected = []
+    widget = VirtualDevicePicker(
+        template, lambda *args: None, lambda button, code, value: selected.append((code, value))
+    )
+    tooltips = {button.get_tooltip_text() for button in buttons(widget)}
+
+    assert "Right stick right · abs_rz = 255" not in tooltips
+    assert "Right stick right · abs_z = 255" in tooltips
+    assert "Pad up · abs_hat1y = -1000" in tooltips
+    assert not any((text or "").startswith("Trigger") for text in tooltips)

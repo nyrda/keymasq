@@ -118,26 +118,74 @@ def _near_center_release(ctx: ScenarioContext) -> None:
         ctx.expect_mouse_motion()
 
 
-def _drag(ctx: ScenarioContext) -> None:
+def _contact_filter(ctx: ScenarioContext, pad: int) -> None:
+    # Queue landing reports together, then let the contact settle. The drift
+    # must update the reference without moving the pointer.
+    _report(ctx, pad, -24576, -16384)
+    _report(ctx, pad, -23552, -15360)
+    ctx.expect_mouse_motion()
+    _report(ctx, pad, -15360, -7168)
+    # No more source reports: the lift-hold timer must emit this movement.
+    ctx.expect_mouse_motion(100, 50)
+
+    # The assertion above waits for silence, so this small step starts from
+    # rest. A release in the next report must discard it before the timer fires.
+    _report(ctx, pad, -14336, -6144)
+    _report(ctx, pad, 0, 0)
+    ctx.expect_mouse_motion()
+    _stroke(ctx, pad)  # Retouch must not inherit the discarded displacement.
+
+
+def _button_report(ctx: ScenarioContext, x: int, y: int, pressed: int) -> None:
+    assert ctx.source is not None
+    ec = evdev.ecodes
+    ctx.source.write(ec.EV_ABS, PADS[0][0], x)
+    ctx.source.write(ec.EV_ABS, PADS[0][1], y)
+    ctx.source.write(ec.EV_KEY, ec.KEY_F23, pressed)
+    ctx.source.syn()
+
+
+def _drag_from_rest(ctx: ScenarioContext) -> None:
     assert ctx.source is not None
     ec = evdev.ecodes
     _report(ctx, 0, -24576, -16384)
     ctx.expect_mouse_motion()
     for x, y, pressed in [(-16384, -8192, 1), (-8192, 0, 0)]:
-        ctx.source.write(ec.EV_ABS, PADS[0][0], x)
-        ctx.source.write(ec.EV_ABS, PADS[0][1], y)
-        ctx.source.write(ec.EV_KEY, ec.KEY_F23, pressed)
-        ctx.source.syn()
+        _button_report(ctx, x, y, pressed)
+        # Buttons are immediate, while motion out of rest waits for the lift
+        # hold. The silence check between iterations returns the pad to rest.
         ctx.expect_mouse_events(
             [
+                (ec.EV_KEY, ec.BTN_LEFT, pressed),
                 (ec.EV_REL, ec.REL_X, 100),
                 (ec.EV_REL, ec.REL_Y, 50),
-                (ec.EV_KEY, ec.BTN_LEFT, pressed),
             ]
         )
         ctx.expect_no_mouse_events()
     _report(ctx, 0, 0, 0)
     ctx.expect_mouse_motion()
+
+
+def _drag_in_motion(ctx: ScenarioContext) -> None:
+    ec = evdev.ecodes
+    for pressed in (1, 0):
+        _report(ctx, 0, -24576, -16384)
+        ctx.expect_mouse_motion()
+        # Queue two moving reports without an output wait between them. The
+        # first step establishes speed; the second releases both steps without
+        # a lift hold, before dispatching the button in that report.
+        _report(ctx, 0, -16384, -8192)
+        _button_report(ctx, -8192, 0, pressed)
+        ctx.expect_mouse_events(
+            [
+                (ec.EV_REL, ec.REL_X, 200),
+                (ec.EV_REL, ec.REL_Y, 100),
+                (ec.EV_KEY, ec.BTN_LEFT, pressed),
+            ]
+        )
+        ctx.expect_no_mouse_events()
+        _report(ctx, 0, 0, 0)
+        ctx.expect_mouse_motion()
 
 
 def run(ctx: ScenarioContext) -> None:
@@ -150,10 +198,16 @@ def run(ctx: ScenarioContext) -> None:
         )
         ctx.subtest("HAT1 touch, slide, hold, release, retouch", lambda: _stroke(ctx, 0))
         ctx.subtest("HAT2 touch, slide, hold, release, retouch", lambda: _stroke(ctx, 1))
+        ctx.subtest("HAT1 landing, idle flush, lift and retouch", lambda: _contact_filter(ctx, 0))
+        ctx.subtest("HAT2 landing, idle flush, lift and retouch", lambda: _contact_filter(ctx, 1))
         ctx.subtest("changed and unchanged touchpad mappings", lambda: _profile_change(ctx))
         ctx.subtest("daemon restart with a held touch", lambda: _restart(ctx))
-        ctx.subtest("axis movement precedes drag button transitions", lambda: _drag(ctx))
+        ctx.subtest("drag buttons precede held motion from rest", lambda: _drag_from_rest(ctx))
+        ctx.subtest(
+            "continuous motion precedes drag button transitions", lambda: _drag_in_motion(ctx)
+        )
     finally:
+        ctx.source_key(evdev.ecodes.KEY_F23, 0)
         for pad in range(2):
             _report(ctx, pad, 0, 0)
         ctx.set_profile_enabled(OVERRIDE, enabled=False)

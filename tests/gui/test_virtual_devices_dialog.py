@@ -390,3 +390,20 @@ def test_removing_a_stick_axis_keeps_the_editor_open(dialog_module):
 
     assert not saved
     assert "Choose both axes" in dialog._status.get_text()
+
+
+def test_new_controls_avoid_stick_ids(dialog_module):
+    from keymasq.common.virtual_device_templates import LOGITECH_EXTREME_3D_TEMPLATE
+
+    template = dialog_module.unique_template_copy(LOGITECH_EXTREME_3D_TEMPLATE, ())
+    saved = []
+    dialog = dialog_module.VirtualTemplateEditorDialog(
+        template, lambda value: saved.append(value) or True, creating=True
+    )
+    dialog._new_stick(None)
+    dialog._stick_rows[0].id_row.set_text("abs-z")
+    dialog._new_control(axis=True)
+    assert dialog._axis_rows[-1].to_data()["evdev"] == "abs_z"
+    assert dialog._axis_rows[-1].id_row.get_text() == "abs-z-2"
+    dialog._save(None)
+    assert len(saved) == 1

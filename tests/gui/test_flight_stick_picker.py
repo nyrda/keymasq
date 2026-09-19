@@ -212,3 +212,33 @@ def test_declared_sticks_get_direction_pads_and_replace_side_defaults():
     assert "Right stick right · abs_z = 255" in tooltips
     assert "Pad up · abs_hat1y = -1000" in tooltips
     assert not any((text or "").startswith("Trigger") for text in tooltips)
+
+
+@pytest.mark.parametrize(
+    ("layout", "stick", "pad_tooltip"),
+    [
+        ("flight-stick", ("stick-y", "stick-x", None), "Swapped right · abs_y = 1023"),
+        ("flight-stick", ("stick-x", "twist", None), "Swapped right · abs_x = 1023"),
+        ("gamepad", ("stick-x", "stick-y", "right"), "Right stick right · abs_x = 1023"),
+    ],
+)
+def test_an_axis_never_appears_in_two_direction_pads(layout, stick, pad_tooltip):
+    from dataclasses import replace
+
+    from keymasq.common.virtual_device_templates import VirtualStick
+
+    x_axis, y_axis, side = stick
+    template = replace(
+        LOGITECH_EXTREME_3D_TEMPLATE,
+        id="swapped",
+        builtin=False,
+        layout=layout,
+        sticks=(VirtualStick("swapped", "Swapped", x_axis, y_axis, side),),
+    )
+    widget = VirtualDevicePicker(template, lambda *args: None, lambda *args: None)
+    tooltips = [button.get_tooltip_text() or "" for button in buttons(widget)]
+
+    assert pad_tooltip in tooltips
+    for code in ("abs_x", "abs_y"):
+        arrows = [text for text in tooltips if f"· {code} = " in text and "Twist" not in text]
+        assert len(arrows) <= 2, arrows

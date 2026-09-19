@@ -245,6 +245,10 @@ class VirtualDevicePicker(Gtk.Box):
         for stick, stick_x, stick_y in self._sticks:
             if stick.side == side:
                 return stick_x, stick_y
+        for stick, stick_x, stick_y in self._sticks:
+            if (stick_x, stick_y) == (x_code, y_code) and stick.side not in {None, side}:
+                # The default pair belongs to the other side, so this pad has no stick.
+                return "", ""
         return x_code, y_code
 
     def _build_extra_sticks(self) -> None:
@@ -389,10 +393,15 @@ class VirtualDevicePicker(Gtk.Box):
         box = self._section(title)
         grid = Gtk.Grid(column_spacing=6, row_spacing=6, halign=Gtk.Align.CENTER)
         x_axis, y_axis = self._axes.get(x_code), self._axes.get(y_code)
-        if x_axis is None and y_axis is None:
+        pair = (x_code, y_code)
+        stick_pairs = {(stick_x, stick_y) for _, stick_x, stick_y in self._sticks}
+        # A layout's default pad must not show an axis that a declared stick pairs
+        # differently, and no pair is drawn twice.
+        claimed_elsewhere = pair not in stick_pairs and bool(self._stick_codes & set(pair))
+        if (x_axis is None and y_axis is None) or claimed_elsewhere or pair in self._shown_pads:
             box.set_visible(False)
             return box
-        self._shown_pads.add((x_code, y_code))
+        self._shown_pads.add(pair)
         for label, code, value, col, row, direction in (
             (
                 "↑",

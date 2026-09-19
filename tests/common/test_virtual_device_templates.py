@@ -396,3 +396,25 @@ def test_templates_without_sticks_keep_their_saved_format() -> None:
 def test_invalid_stick_declarations_are_rejected(sticks, message: str) -> None:
     with pytest.raises(VirtualDeviceConfigError, match=message):
         virtual_device_config_from_toml(_stick_config_data(sticks))
+
+
+@pytest.mark.parametrize(("count", "accepted"), [(9, True), (16, True), (17, False)])
+def test_axis_limit_accepts_up_to_sixteen_axes(count: int, accepted: bool) -> None:
+    codes = ["abs_x", "abs_y", "abs_z", "abs_rx", "abs_ry", "abs_rz", "abs_throttle"]
+    codes += ["abs_rudder", "abs_wheel", "abs_gas", "abs_brake"]
+    codes += [f"abs_hat{index}{axis}" for index in range(3) for axis in "xy"]
+    data = _custom_config_data()
+    template = cast(list[dict[str, object]], data["templates"])[0]
+    template["axes"] = [
+        {"id": f"axis-{index}", "label": code, "evdev": code, "minimum": -100, "maximum": 100}
+        for index, code in enumerate(codes[:count])
+    ]
+    if not accepted:
+        with pytest.raises(VirtualDeviceConfigError, match="2..16 axes"):
+            virtual_device_config_from_toml(data)
+        return
+    config = virtual_device_config_from_toml(data)
+    assert config_from_json(config_to_json(config)) == config
+    assert len(config.templates[0].axes) == count
+    # X/Y and RX/RY each pair into one stick. Every other axis stays standalone.
+    assert len(template_analog_inputs(config.templates[0])) == count - 2

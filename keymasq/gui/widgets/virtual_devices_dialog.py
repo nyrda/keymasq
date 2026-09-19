@@ -349,7 +349,10 @@ class VirtualTemplateEditorDialog(Adw.Dialog):
         used_button_codes = (
             {TEMPLATE_BUTTON_CODES[str(code)] for code in used_codes} if not axis else set()
         )
-        used_ids = {row.id_row.get_text() for row in (*self._button_rows, *self._axis_rows)}
+        used_ids = {
+            row.id_row.get_text()
+            for row in (*self._button_rows, *self._axis_rows, *self._stick_rows)
+        }
         preferred = (
             ("abs_x", "abs_y", "abs_z", "abs_rx", "abs_ry", "abs_rz", "abs_hat0x", "abs_hat0y")
             if axis

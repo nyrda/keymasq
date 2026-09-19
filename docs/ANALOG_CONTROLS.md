@@ -131,8 +131,11 @@ from the complete pair. Fractional movement accumulates during a touch. Stick de
 sensitivity, response curve, velocity, tick interval, and area start-position
 settings do not affect Touchpad style. There is no inertia or automatic clicking;
 map a separate button for clicks or dragging.
-Buttons following area axes in a report are dispatched after its complete X/Y
-movement, so a drag release uses the final pointer position.
+Buttons following area axes in a report are dispatched after processing its
+complete X/Y pair. During continuous movement, motion precedes the button, so a
+drag release uses the final pointer position. From rest, the button is immediate
+while movement waits for the lift hold; that movement can arrive after the
+button transition or be discarded if the touch ends first.
 
 Changed or removed mappings clear their touch state; unchanged controls retain
 it during profile updates. Physical coordinates survive control resets.

@@ -35,7 +35,8 @@ coverage. It verifies that the core runtime classes still work together:
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output
 - gamepad button and analog axis output
 - controller touchpad strokes, sparse reports, profile changes, held-touch restart,
-  near-center release with kernel fuzz, fuzz restoration, and movement before drag buttons
+  near-center release with kernel fuzz, fuzz restoration, landing/lift filtering,
+  and drag button ordering during rest and continuous movement
 - emergency reset
 - capture, combo capture, recording save, and playback
 - session restart, daemon restart, and secondary device hotplug/replug
@@ -130,6 +131,17 @@ mocked. The kernel filters unchanged ABS values, exercising sparse reports.
 | The other pad's mapping remains unchanged | Preserve its existing stroke across the same profile update |
 | Remove the override | Reanchor and restore the original scale without losing the unchanged coordinate |
 | Restart the daemon with a finger held down | Recover the unreported axis from the real device state and resume without a jump |
+| Small landing drift in consecutive reports | No movement; use the final landing position as the reference for the next step |
+| Move from rest, then send no further reports | The lift-hold timer emits exactly the expected displacement |
+| Small movement from rest followed immediately by a zero-pair release | Discard the held movement; the next touch starts cleanly |
+| Movement from rest and a drag button transition in one report | Emit the button immediately, then the held movement |
+| Two consecutive moving reports, with a drag button transition in the second | Release the accumulated movement before the button as speed removes the lift hold |
+
+The usual motion assertions include a 250 ms silence check, allowing landing to
+settle and returning the speed filter to rest before the next step. Landing, lift,
+and continuous-motion cases queue consecutive reports without an intervening
+output wait. Both button press and release are checked. Exact timing thresholds
+and timer rearming remain covered by the focused daemon tests.
 
 Every output assertion rejects unexpected movement as well as incorrect deltas,
 and checks for trailing events. Both pads return to zero and the scenario disables

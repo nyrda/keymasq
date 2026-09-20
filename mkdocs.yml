@@ -84,6 +84,10 @@ markdown_extensions:
 plugins:
   - search
 
+# Preserve bookmarks and links emitted by older Keymasq releases.
+hooks:
+  - scripts/docs_redirects.py
+
 # Docs intentionally omitted from the published site (developer-facing):
 #   - dependencies.md
 #   - listener-vm-tests.md

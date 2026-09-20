@@ -245,3 +245,11 @@ need a real AppImage build.
   development.
 - `keymasq-session` and the GUI run as your desktop user.
 - For packaging work and broader install testing, see `docs/packaging.md`.
+
+## Documentation URLs
+
+Documentation filenames use lowercase words separated by hyphens. The MkDocs
+build hook in `scripts/docs_redirects.py` preserves the uppercase public URLs
+that existed before the September 2026 rename. Redirects stay within the current
+documentation version and retain query strings and section anchors. Keep these
+aliases for bookmarks, external links, and help links in older releases.

@@ -16,11 +16,11 @@ when in doubt.
 
 | Suite | Command | Documented in |
 | ----- | ------- | ------------- |
-| Daemon/session runtime | `./scripts/integration.sh daemon-session` | [DAEMON_SESSION_INTEGRATION_TEST.md](DAEMON_SESSION_INTEGRATION_TEST.md) |
+| Daemon/session runtime | `./scripts/integration.sh daemon-session` | [daemon-session-integration-test.md](daemon-session-integration-test.md) |
 | AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [AppImage/Brotway artifact gate](#appimagebrotway-artifact-gate) |
-| Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [LISTENER_VM_TESTS.md](LISTENER_VM_TESTS.md) |
-| Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|gnome-bridge>` | [LISTENER_VM_TESTS.md](LISTENER_VM_TESTS.md) |
-| Documentation screenshots | `scripts/check-doc-screenshots` | [SCREENSHOTS.md](SCREENSHOTS.md) |
+| Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [listener-vm-tests.md](listener-vm-tests.md) |
+| Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
+| Documentation screenshots | `scripts/check-doc-screenshots` | [screenshots.md](screenshots.md) |
 
 List every integration shortcut with `./scripts/integration.sh --help`.
 `./scripts/integration.sh all` runs the daemon/session suite plus the full

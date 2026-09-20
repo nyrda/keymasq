@@ -1,8 +1,8 @@
 # Dependency reference
 
 This document summarizes the dependencies Keymasq needs at runtime, for
-packaging, and for development. It complements `docs/INSTALL.md` and
-`docs/PACKAGING.md`.
+packaging, and for development. It complements `docs/install.md` and
+`docs/packaging.md`.
 
 ## Scope
 
@@ -61,7 +61,7 @@ What they are used for:
 `keymasq-session` install `uvloop.EventLoopPolicy` as the default `asyncio`
 policy. When it is missing or broken, they log a warning and fall back to the
 stdlib event loop. Without it Keymasq loses no feature, only latency/jitter
-headroom (see `docs/PERFORMANCE.md`).
+headroom (see `docs/performance.md`).
 
 Most maintained packages install it by default anyway:
 
@@ -190,7 +190,7 @@ bus restarts.
 - the helper path and Polkit policy must agree on the same absolute executable
   path
 
-See `docs/SECURITY.md` and `docs/PACKAGING.md` for details.
+See `docs/security.md` and `docs/packaging.md` for details.
 
 ## Development and test dependencies
 

@@ -3,7 +3,7 @@
 This document explains which installable packages Keymasq provides, what each
 package contains, and how this repository builds and tests them.
 
-For end-user installation steps, see `docs/INSTALL.md`. This file is for
+For end-user installation steps, see `docs/install.md`. This file is for
 someone reading the project to understand how packaging is organized.
 
 ## Overview
@@ -78,7 +78,7 @@ Nightlies appear only as GitHub prereleases with tags such as
 `nightly-20260909100000`. Downloads include the AppImage, Debian, Arch, Fedora,
 openSUSE, source archive, and checksums. RPMs are unsigned. GitHub records
 build attestations separately. See
-[Build attestations](SECURITY.md#build-attestations) for
+[Build attestations](security.md#build-attestations) for
 `gh attestation verify` instructions. The release stays a draft until all files
 have uploaded and downloaded copies pass checksum verification. Nightlies never
 update AUR, COPR, the project package repositories, the stable AppImage update
@@ -105,7 +105,7 @@ source.
 ## Release checklist
 
 Before tagging a stable `v*` release, run the manual VM gates from
-[VM_TESTING.md](VM_TESTING.md) in full, regardless of what changed since the
+[vm-testing.md](vm-testing.md) in full, regardless of what changed since the
 last tag:
 
 - [ ] `./scripts/check.sh full`
@@ -253,7 +253,7 @@ default `asyncio` policy for `keymasqd` and `keymasq-session` when available,
 and falls back to the stdlib loop with a warning if it is missing or broken.
 Most maintained packages still install it by default. It is a hard dependency
 on Arch and Debian, bundled in the AppImage and Nix builds, and a weak
-dependency on the RPM targets. See `docs/DEPENDENCIES.md`.
+dependency on the RPM targets. See `docs/dependencies.md`.
 
 Source-hiding udev rules call `setfacl` from the ACL utilities when hiding a
 grabbed physical gamepad source. Source builds and downstream packages must
@@ -317,7 +317,7 @@ keep-list does not manage it. The installer runs `systemd-sysusers` and
 normal boot-time systemd units reapply the persisted sysusers/tmpfiles
 configuration. Installed services and CLI wrappers run from
 `/opt/keymasq/runtime/current`, so daemon restarts do not re-extract the
-AppImage into a private temp directory. See `docs/STEAMOS.md` for the full
+AppImage into a private temp directory. See `docs/steamos.md` for the full
 layout and update semantics.
 
 Stable repository publishing copies the AppImage to

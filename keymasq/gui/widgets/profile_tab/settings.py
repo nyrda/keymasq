@@ -196,7 +196,7 @@ class ProfileSettingsMixin:
             self._profile_settings_dialog = None
 
     def _on_profiles_docs_clicked(self: Any, _button: Gtk.Button) -> None:
-        url = docs_page_url("PROFILES", version=__version__)
+        url = docs_page_url("profiles", version=__version__)
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)

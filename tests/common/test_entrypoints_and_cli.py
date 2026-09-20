@@ -110,9 +110,9 @@ def test_cli_main_type_help_includes_inline_controls_and_docs(
     out = capsys.readouterr().out
     assert 'Example: keymasq type "user<tab><wait:100:250>password<enter>"' in out
     assert (
-        "Type inline controls: https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+        "Type inline controls: https://keymasq.tools/docs/v1.2.3/macros/#type-macro-inline-controls"
     ) in out
-    assert "https://keymasq.tools/docs/v1.2.3/CLI.md" in out
+    assert "https://keymasq.tools/docs/v1.2.3/cli/" in out
 
 
 def test_cli_main_help_does_not_include_removed_play_command(

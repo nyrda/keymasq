@@ -1,6 +1,6 @@
 # Getting started
 
-This guide takes you through your first remap after [installing Keymasq](INSTALL.md).
+This guide takes you through your first remap after [installing Keymasq](install.md).
 
 ## Open Keymasq
 
@@ -44,11 +44,11 @@ To undo, click the key and choose **Passthrough** from the Special tab.
 
 That is your first remap. These pages cover the rest:
 
-- [Profiles](PROFILES.md) — create profiles for different apps or contexts
-- [Actions](ACTIONS.md) — all available action types
-- [Macros](MACROS.md) — record and play input sequences
-- [Macro timeline editor](MACRO_EDITOR.md) — build macros and refine recordings
-- [Combos](COMBOS.md) — trigger actions from key combinations
-- [Super Keys](SUPERKEYS.md) — tap, hold, and double-tap behaviors
+- [Profiles](profiles.md) — create profiles for different apps or contexts
+- [Actions](actions.md) — all available action types
+- [Macros](macros.md) — record and play input sequences
+- [Macro timeline editor](macro-editor.md) — build macros and refine recordings
+- [Combos](combos.md) — trigger actions from key combinations
+- [Super Keys](superkeys.md) — tap, hold, and double-tap behaviors
 
-If remaps don't work, see [Troubleshooting](TROUBLESHOOTING.md).
+If remaps don't work, see [Troubleshooting](troubleshooting.md).

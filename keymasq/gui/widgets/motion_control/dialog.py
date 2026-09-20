@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 
 
 def motion_controls_docs_url() -> str:
-    return docs_page_url("MOTION_CONTROLS", version=__version__)
+    return docs_page_url("motion-controls", version=__version__)
 
 
 def motion_control_search_text(config: MotionControlConfig | None, name: str) -> str:

@@ -24,7 +24,7 @@ or unlock steps.
 1. Open the Keymasq GUI and go to **Macro Manager**.
 2. Click **Empty** and give it a name.
 3. The macro editor opens with a blank timeline. Add the key presses or mouse
-   actions you want. See [Add and edit actions](MACRO_EDITOR.md#add-and-edit-actions)
+   actions you want. See [Add and edit actions](macro-editor.md#add-and-edit-actions)
    for a Ctrl+C example.
 4. Save the macro.
 5. Go to the **Device** tab for your keyboard, pick a key, and set its action
@@ -32,7 +32,7 @@ or unlock steps.
 6. Press that key. Your macro plays back exactly as you built it.
 
 This guide covers recording, type templates, and playback. Use the
-[Macro timeline editor guide](MACRO_EDITOR.md) to build and refine the sequence.
+[Macro timeline editor guide](macro-editor.md) to build and refine the sequence.
 
 ![Macro Manager with saved macros and the Empty and Type creation buttons](assets/screenshots/keymasq_macros.png)
 
@@ -83,7 +83,7 @@ your profiles.
 5. Press the same **Toggle Recording** key again to stop.
 6. Save the temporary slot from the save dialog, or click **Later** and save it
    from Macro Manager.
-7. Open the saved macro to [edit its timeline](MACRO_EDITOR.md).
+7. Open the saved macro to [edit its timeline](macro-editor.md).
 
 The session sends desktop notifications when a recording starts and when it
 stops, including the temporary slot number.
@@ -176,7 +176,7 @@ events you need.
 to capture live timing. Examples are a simple keyboard shortcut, a short
 button sequence, or a starting point you plan to refine in the editor.
 
-Continue with [Add and edit actions](MACRO_EDITOR.md#add-and-edit-actions) in
+Continue with [Add and edit actions](macro-editor.md#add-and-edit-actions) in
 the editor guide. It explains the tracks, input picker, and timing fields.
 
 ### Type macro template
@@ -277,7 +277,7 @@ Once a macro is saved, you can trigger it in several ways:
 
 `keymasq macros play` accepts a `--speed` multiplier, `--wait` to wait for
 completion, and `--ordered` to queue playback with other ordered requests.
-See the [CLI reference](CLI.md#macros) for details. Mapped macro actions expose
+See the [CLI reference](cli.md#macros) for details. Mapped macro actions expose
 these playback options in the mapping dialog:
 
 - **Speed multiplier** — make the macro faster or slower than it was recorded.
@@ -300,7 +300,7 @@ One straightforward setup:
 2. Right-click the mouse track and add a click, such as left click.
 3. Select the click and set its hold duration. The editor creates the press and
    release together.
-4. If needed, [adjust the timing](MACRO_EDITOR.md#adjust-timing) between clicks.
+4. If needed, [adjust the timing](macro-editor.md#adjust-timing) between clicks.
 5. Save the macro with a clear name such as `auto_left_click`.
 6. Go to the **Device** tab and bind a key or mouse button to **Play Macro**.
 7. Set the loop mode to **While Held** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
@@ -313,7 +313,7 @@ Use this approach when you want:
 - a trigger that starts and stops on toggle instead of only while held
 
 For a simpler autoclicker, map a mouse button action and enable
-[Rapidfire](ACTIONS.md#rapidfire) instead.
+[Rapidfire](actions.md#rapidfire) instead.
 
 ### Loop modes
 
@@ -426,7 +426,7 @@ During playback, the wait delays those later events. Use this when an
 application needs a fixed pause even if the surrounding key sequence runs
 faster.
 
-See [adding and editing waits](MACRO_EDITOR.md#waits-commands-and-macro-calls).
+See [adding and editing waits](macro-editor.md#waits-commands-and-macro-calls).
 
 ### Mouse movement
 
@@ -439,7 +439,7 @@ after a timeout or missing cursor feedback.
 Use natural movement for fixed screen targets when realtime cursor feedback is
 available. Relative moves use offsets from the current position. The older
 absolute move is a fallback when natural movement is unavailable. See
-[editing mouse movement](MACRO_EDITOR.md#mouse-movement) for the controls.
+[editing mouse movement](macro-editor.md#mouse-movement) for the controls.
 
 ### Commands and compositor actions
 
@@ -469,14 +469,14 @@ Compositor events fire at their timestamp and macro playback continues
 immediately. They are available only when the current session has a supported
 compositor listener with compositor dispatch enabled.
 
-See the [editor guide](MACRO_EDITOR.md#waits-commands-and-macro-calls) to insert
+See the [editor guide](macro-editor.md#waits-commands-and-macro-calls) to insert
 and configure these actions.
 
 ### Calling macros from macros
 
 A macro can call another saved macro at a timestamp in its timeline. The call
 may wait for the child or run it in parallel. See the
-[editor guide](MACRO_EDITOR.md#waits-commands-and-macro-calls) to add a call.
+[editor guide](macro-editor.md#waits-commands-and-macro-calls) to add a call.
 
 - **Run and wait** pauses the parent at the marker until the child completes.
   Later parent deadlines move back by the time spent in the child.
@@ -522,7 +522,7 @@ Open **Macro Manager** and click a saved macro's row or pencil button to edit
 it. Temporary recording slots must be saved as regular macros first. You can
 also open the editor from a profile's macro action context menu.
 
-The separate [Macro timeline editor guide](MACRO_EDITOR.md) covers the timeline,
+The separate [Macro timeline editor guide](macro-editor.md) covers the timeline,
 adding actions, selecting time, moving groups, copying and pasting, deleting or
 erasing, timing tools, and saving changes.
 

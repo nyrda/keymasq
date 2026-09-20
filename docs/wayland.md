@@ -112,7 +112,7 @@ version, normal input remapping can still work, but GNOME window profiles,
 GNOME compositor actions, and the **Set Cursor** compositor action are
 unavailable until the bridge reconnects.
 
-See [GNOME.md](GNOME.md) for setup and troubleshooting.
+See [gnome.md](gnome.md) for setup and troubleshooting.
 
 ### KDE Plasma
 
@@ -195,7 +195,7 @@ journalctl --user -u keymasq-session -f
 Common things to check:
 
 - On GNOME, make sure the extension is installed, enabled, and loaded by the
-  current GNOME Shell session. See [GNOME.md](GNOME.md).
+  current GNOME Shell session. See [gnome.md](gnome.md).
 - For generic Wayland pointer reads, make sure the compositor exposes
   `zwlr_layer_shell_v1` and `zxdg_output_manager_v1`.
 - For GUI Capture through `slurp`, make sure `slurp` is installed and can run in

@@ -1,7 +1,7 @@
 # Analog Controls config format
 
 This is the TOML reference for analog control configs. For an overview of
-the feature, modes, and GUI workflow, see [Game controller support](GAMEPAD.md).
+the feature, modes, and GUI workflow, see [Game controller support](gamepad.md).
 
 Configs live in `~/.config/keymasq/analog_controls/`. Profiles map a
 hardware analog source to a saved config:
@@ -302,7 +302,7 @@ For new users, the mapping dialog's **Presets** tab offers one-click starting
 points. Stick presets are Mouse Move, Mouse Area, Scroll Wheel, and WASD.
 Trigger presets are Trigger Left Click, Trigger Right Click, Trigger Scroll Up,
 and Trigger Scroll Down. A preset saves a normal, fully editable config and maps
-it to the input. See [Game controller support](GAMEPAD.md) for the GUI workflow.
+it to the input. See [Game controller support](gamepad.md) for the GUI workflow.
 
 ## Templates
 

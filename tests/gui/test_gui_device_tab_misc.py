@@ -3840,7 +3840,7 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Media documentation"
     assert dialog._active_actions_docs_link() == ("media", "Media")
     assert dialog_module._actions_docs_url("media") == (
-        "https://keymasq.tools/docs/v1.2.3/ACTIONS/#media"
+        "https://keymasq.tools/docs/v1.2.3/actions/#media"
     )
 
     dialog.stack.set_visible_child_name("mouse")
@@ -3852,12 +3852,12 @@ def test_key_selector_dialog_docs_button_tracks_visible_tab(monkeypatch: pytest.
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Type documentation"
     assert dialog._active_actions_docs_link() == ("type-macro-inline-controls", "Type")
     assert dialog_module._actions_docs_url("type-macro-inline-controls") == (
-        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+        "https://keymasq.tools/docs/v1.2.3/macros/#type-macro-inline-controls"
     )
 
     monkeypatch.setattr(dialog_module, "__version__", "1.2.3.dev1")
     assert dialog_module._actions_docs_url("mouse") == (
-        "https://keymasq.tools/docs/master/ACTIONS/#mouse"
+        "https://keymasq.tools/docs/master/actions/#mouse"
     )
 
 

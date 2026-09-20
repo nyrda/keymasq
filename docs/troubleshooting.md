@@ -223,7 +223,7 @@ when the device is recreated.
 
 Hiding or restoring a grabbed gamepad source runs `udevadm trigger` as a
 bounded `keymasq-hardware@<request-id>.service` root job that the daemon
-starts (see [SECURITY.md](SECURITY.md)). `keymasqd` itself holds no
+starts (see [security.md](security.md)). `keymasqd` itself holds no
 capabilities. The job needs the `keymasq-hardware@.service` template and the
 `49-keymasq-hardware.rules` Polkit rule that lets the `keymasq` user start it.
 Both ship with every package and with the NixOS module.
@@ -255,7 +255,7 @@ slow logs a timeout for the trigger instead.
 `keymasqd` accepts exactly one `keymasq-session` connection at a time. The
 first allowed session connection becomes the daemon owner, and the daemon
 rejects every later client until the owner disconnects. See the daemon
-single-owner model in [SECURITY.md](SECURITY.md).
+single-owner model in [security.md](security.md).
 
 Symptoms:
 
@@ -465,7 +465,7 @@ Important:
 - restarting `keymasq-session` alone is not always enough if GNOME Shell has
   not reloaded the extension into the current session yet
 
-See [GNOME.md](GNOME.md) for the bridge installation and verification
+See [gnome.md](gnome.md) for the bridge installation and verification
 steps.
 
 ### Unsupported or partially supported compositor setup

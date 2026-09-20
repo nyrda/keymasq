@@ -17,7 +17,7 @@ GNOME_BRIDGE_UUID = "gnome-bridge@keymasq.tools"
 log = logging.getLogger("keymasq.gui.widgets.gnome_setup_dialog")
 
 
-GNOME_SETUP_DOCS_URL = docs_page_url("GNOME", version=__version__)
+GNOME_SETUP_DOCS_URL = docs_page_url("gnome", version=__version__)
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@
 
 Use the timeline editor to build a macro by hand, refine a recording, or reuse
 parts of an existing macro. For recording, assigning triggers, and playback
-settings, see [Macros](MACROS.md).
+settings, see [Macros](macros.md).
 
 - [Open the editor](#open-the-editor)
 - [Read and navigate the timeline](#read-and-navigate-the-timeline)
@@ -127,7 +127,7 @@ is available for the current session.
 
 For natural moves, use **Stop macro if target can't be reached** when later
 clicks should not run after a failed move. See
-[mouse movement playback](MACROS.md#mouse-movement) for how moves affect timing.
+[mouse movement playback](macros.md#mouse-movement) for how moves affect timing.
 
 ### Waits, commands, and macro calls
 
@@ -141,19 +141,19 @@ change its delay or position.
 An empty timeline gap and a Wait are different. Playback speed scales an
 empty gap, while an explicit Wait keeps its configured duration. Inserting a
 Wait does not move later actions in the editor. See
-[Wait Controls](MACROS.md#wait-controls) for playback behavior.
+[Wait Controls](macros.md#wait-controls) for playback behavior.
 
 **Run Command** inserts a command at the clicked time. In its properties,
 choose **Wait for completion**, **Run in parallel**, or **Run detached** and
 set the timeout where available. See
-[commands and compositor actions](MACROS.md#commands-and-compositor-actions)
+[commands and compositor actions](macros.md#commands-and-compositor-actions)
 for their playback and cancellation behavior.
 
 **Call Macro** opens the Macro Library. Pick a saved macro, then configure
 **Run and wait** or **Run in parallel**, repeat behavior, speed, and mouse replay
 options in its properties. The **MW** or **MP** marker remains editable. A call
 uses the saved macro by name. Pasting creates independent actions instead.
-See [Calling macros from macros](MACROS.md#calling-macros-from-macros).
+See [Calling macros from macros](macros.md#calling-macros-from-macros).
 
 **Insert Compositor Action** uses the same action picker as normal mappings.
 It is available when the session supports compositor dispatch.
@@ -359,8 +359,8 @@ numbers, underscores, and hyphens. Existing names are not overwritten. Renaming
 does not update references from profiles or other macros.
 
 The controls below the timeline also set the macro's loop behavior, starting
-cursor options, and mouse blocking. See [Loop Modes](MACROS.md#loop-modes) and
-[Playback Triggers](MACROS.md#playback-triggers) for what these settings mean.
+cursor options, and mouse blocking. See [Loop Modes](macros.md#loop-modes) and
+[Playback Triggers](macros.md#playback-triggers) for what these settings mean.
 
 Closing with unsaved changes asks whether to save, discard, or keep editing.
 The editor is temporarily read-only while loading or saving. If loading fails,

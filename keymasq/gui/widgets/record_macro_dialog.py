@@ -18,7 +18,7 @@ log = logging.getLogger("keymasq.gui.widgets.record_macro_dialog")
 
 
 def _macro_recording_docs_url() -> str:
-    return docs_page_url("MACROS", anchor="live-recording", version=__version__)
+    return docs_page_url("macros", anchor="live-recording", version=__version__)
 
 
 class RecordMacroDialog(Adw.Dialog):

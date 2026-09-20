@@ -167,7 +167,7 @@ The installer asks for your password. A stock Steam Deck has no user password
 yet, so set one first with `passwd`.
 
 For the full layout, update, and uninstall behavior, see
-[STEAMOS.md](STEAMOS.md).
+[steamos.md](steamos.md).
 
 ### openSUSE Tumbleweed / Leap
 
@@ -269,7 +269,7 @@ gnome-extensions info gnome-bridge@keymasq.tools
 
 Without the bridge, Keymasq still runs on GNOME, but window-aware profiles,
 pointer-position features, and GNOME compositor actions are unavailable. For
-details and manual-install steps, see [GNOME.md](GNOME.md).
+details and manual-install steps, see [gnome.md](gnome.md).
 
 ## 2. Advanced: manual install
 
@@ -339,7 +339,7 @@ combo:
 emergency_cancel_combo_enabled = false
 ```
 
-For all available settings, see [SECURITY.md](SECURITY.md) and
+For all available settings, see [security.md](security.md) and
 [examples/security.toml](https://github.com/nyrda/keymasq/blob/master/examples/security.toml).
 
 ## 3. Verification
@@ -359,7 +359,7 @@ method that:
 - `keymasq` can connect and profile activation works on real device input
 
 For debugging service startup, permissions, compositor integration, or verbose
-logging, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+logging, see [troubleshooting.md](troubleshooting.md).
 
 For development work, use the Nix-based flow in
 [DEVELOPMENT.md](https://github.com/nyrda/keymasq/blob/master/DEVELOPMENT.md).

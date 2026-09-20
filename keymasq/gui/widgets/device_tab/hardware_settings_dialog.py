@@ -41,7 +41,7 @@ RenameDeviceCallback = Callable[[Callable[[], None]], None]
 
 
 def _hardware_docs_url() -> str:
-    return docs_page_url("HARDWARE", version=__version__)
+    return docs_page_url("hardware", version=__version__)
 
 
 def append_unique_evdev_devices(

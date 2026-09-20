@@ -63,7 +63,7 @@ default, unsupported characters fall back to Linux Unicode input
 
 Type text supports inline controls such as `<tab>`, `<shortcut:ctrl+l>`,
 `<move:X:Y>`, `<click:X:Y>`, and `<wait:MS>`. See
-[Type Macro Inline Controls](MACROS.md#type-macro-inline-controls) for the
+[Type Macro Inline Controls](macros.md#type-macro-inline-controls) for the
 full reference.
 
 ### profiles
@@ -188,5 +188,5 @@ remap-action paths. Use `--include combo` for combo-specific timing and
 `--include macro` for stored-macro loading and playback timing, or
 `--include internal` for low-level daemon details.
 
-See [Playback requests](PLAYBACK_REQUESTS.md) for completion results, exit codes,
+See [Playback requests](playback-requests.md) for completion results, exit codes,
 and the session protocol for third-party clients.

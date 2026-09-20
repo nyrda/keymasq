@@ -33,4 +33,4 @@ Security-sensitive areas include:
 
 ## Hardening And Design Notes
 
-The detailed security model lives in [docs/SECURITY.md](docs/SECURITY.md).
+The detailed security model lives in [docs/security.md](docs/security.md).

@@ -1,7 +1,7 @@
 # Manual VM integration gate.
 #
 # The VM suites are deliberate manual gates before PRs, merges, and releases
-# (see docs/VM_TESTING.md). They are too resource-heavy for the regular CI
+# (see docs/vm-testing.md). They are too resource-heavy for the regular CI
 # flow, so this workflow only runs via workflow_dispatch and must never gain
 # push or pull_request triggers. Local KVM runs remain the primary path; use
 # this when a local KVM host is unavailable.

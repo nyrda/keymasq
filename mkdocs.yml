@@ -84,39 +84,43 @@ markdown_extensions:
 plugins:
   - search
 
+# Preserve bookmarks and links emitted by older Keymasq releases.
+hooks:
+  - scripts/docs_redirects.py
+
 # Docs intentionally omitted from the published site (developer-facing):
-#   - DEPENDENCIES.md
-#   - LISTENER_VM_TESTS.md
-#   - PACKAGING.md
-#   - SCREENSHOTS.md
-#   - VM_TESTING.md
+#   - dependencies.md
+#   - listener-vm-tests.md
+#   - packaging.md
+#   - screenshots.md
+#   - vm-testing.md
 # They stay in the repo; just not linked from nav.
 nav:
   - Home: index.md
-  - Install: INSTALL.md
-  - Getting Started: GETTING_STARTED.md
+  - Install: install.md
+  - Getting Started: getting-started.md
   - User Guide:
-      - Profiles: PROFILES.md
-      - Actions: ACTIONS.md
-      - Analog Controls: ANALOG_CONTROLS.md
-      - Motion Controls: MOTION_CONTROLS.md
-      - Superkeys: SUPERKEYS.md
-      - Combos: COMBOS.md
-      - Macros: MACROS.md
-      - Macro Timeline Editor: MACRO_EDITOR.md
-      - Gamepad: GAMEPAD.md
+      - Profiles: profiles.md
+      - Actions: actions.md
+      - Analog Controls: analog-controls.md
+      - Motion Controls: motion-controls.md
+      - Superkeys: superkeys.md
+      - Combos: combos.md
+      - Macros: macros.md
+      - Macro Timeline Editor: macro-editor.md
+      - Gamepad: gamepad.md
   - Examples:
-      - Overview: EXAMPLES.md
+      - Overview: examples.md
       - Custom Modifier Combos: examples/custom-modifier-combos.md
       - Mouse UI Automation: examples/mouse-ui-automation.md
       - Text Snippet Macro: examples/text-snippet-macro.md
       - Universal Copy and Paste: examples/universal-copy-paste.md
       - Volume Rocker Key: examples/volume-rocker-superkey.md
   - Desktop Support:
-      - Wayland: WAYLAND.md
-      - GNOME: GNOME.md
+      - Wayland: wayland.md
+      - GNOME: gnome.md
   - Reference:
-      - CLI: CLI.md
-      - Performance: PERFORMANCE.md
-      - Security: SECURITY.md
-      - Troubleshooting: TROUBLESHOOTING.md
+      - CLI: cli.md
+      - Performance: performance.md
+      - Security: security.md
+      - Troubleshooting: troubleshooting.md

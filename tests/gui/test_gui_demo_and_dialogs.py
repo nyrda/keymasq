@@ -125,12 +125,12 @@ class TestRecordMacroDialog:
         assert dialog.recording_docs_btn.get_label() == "?"
         assert dialog.recording_docs_btn.get_tooltip_text() == "Open macro recording documentation"
         assert record_macro_dialog_module._macro_recording_docs_url() == (
-            "https://keymasq.tools/docs/v1.2.3/MACROS/#live-recording"
+            "https://keymasq.tools/docs/v1.2.3/macros/#live-recording"
         )
 
         monkeypatch.setattr(record_macro_dialog_module, "__version__", "1.2.3.dev1")
         assert record_macro_dialog_module._macro_recording_docs_url() == (
-            "https://keymasq.tools/docs/master/MACROS/#live-recording"
+            "https://keymasq.tools/docs/master/macros/#live-recording"
         )
 
     def test_record_dialog_live_settings_footer_uses_done_without_cancel(self, monkeypatch):
@@ -1775,12 +1775,12 @@ class TestDialogConstruction:
             dialog.shell.documentation_button.get_tooltip_text() == "Open Super Keys documentation"
         )
         assert superkey_dialog_module._superkeys_docs_url() == (
-            "https://keymasq.tools/docs/v1.2.3/SUPERKEYS/"
+            "https://keymasq.tools/docs/v1.2.3/superkeys/"
         )
 
         monkeypatch.setattr(superkey_dialog_module, "__version__", "1.2.3.dev1")
         assert superkey_dialog_module._superkeys_docs_url() == (
-            "https://keymasq.tools/docs/master/SUPERKEYS/"
+            "https://keymasq.tools/docs/master/superkeys/"
         )
 
     def test_application_presents_superkey_dialog_on_main_window(self, monkeypatch):
@@ -2103,12 +2103,12 @@ class TestDialogConstruction:
         assert dialog.macros_docs_btn.get_label() == "?"
         assert dialog.macros_docs_btn.get_tooltip_text() == "Open Macros documentation"
         assert macro_manager_dialog_module._macros_docs_url() == (
-            "https://keymasq.tools/docs/v1.2.3/MACROS/"
+            "https://keymasq.tools/docs/v1.2.3/macros/"
         )
 
         monkeypatch.setattr(macro_manager_dialog_module, "__version__", "1.2.3.dev1")
         assert macro_manager_dialog_module._macros_docs_url() == (
-            "https://keymasq.tools/docs/master/MACROS/"
+            "https://keymasq.tools/docs/master/macros/"
         )
 
     def test_type_macro_builder_normalizes_common_pasted_text(self):

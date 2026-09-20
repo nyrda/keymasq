@@ -43,7 +43,7 @@ log = logging.getLogger("keymasq.gui.widgets.superkey_editor.dialog")
 
 
 def _superkeys_docs_url() -> str:
-    return docs_page_url("SUPERKEYS", version=__version__)
+    return docs_page_url("superkeys", version=__version__)
 
 
 class SuperkeyDialog(Adw.Dialog):

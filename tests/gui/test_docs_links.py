@@ -9,18 +9,18 @@ def test_docs_version_normalizes_empty_dev_and_release_versions() -> None:
 
 
 def test_docs_page_urls_use_shared_versioned_base() -> None:
-    assert docs_page_url("PERFORMANCE", anchor="diagnostics-labels", version="1.2.3") == (
-        "https://keymasq.tools/docs/v1.2.3/PERFORMANCE/#diagnostics-labels"
+    assert docs_page_url("performance", anchor="diagnostics-labels", version="1.2.3") == (
+        "https://keymasq.tools/docs/v1.2.3/performance/#diagnostics-labels"
     )
-    assert docs_page_url("MACROS", anchor="live-recording", version="") == (
-        "https://keymasq.tools/docs/master/MACROS/#live-recording"
+    assert docs_page_url("macros", anchor="live-recording", version="") == (
+        "https://keymasq.tools/docs/master/macros/#live-recording"
     )
     assert actions_docs_url("media", version="1.2.3") == (
-        "https://keymasq.tools/docs/v1.2.3/ACTIONS/#media"
+        "https://keymasq.tools/docs/v1.2.3/actions/#media"
     )
     assert actions_docs_url("analog-controls", version="1.2.3") == (
-        "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
+        "https://keymasq.tools/docs/v1.2.3/analog-controls/"
     )
     assert actions_docs_url("type-macro-inline-controls", version="1.2.3") == (
-        "https://keymasq.tools/docs/v1.2.3/MACROS/#type-macro-inline-controls"
+        "https://keymasq.tools/docs/v1.2.3/macros/#type-macro-inline-controls"
     )

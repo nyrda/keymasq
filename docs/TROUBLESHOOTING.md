@@ -45,7 +45,7 @@ Both services support `-v` and `-vv`.
 - `keymasq-session -v`: more detailed session and compositor logging,
   including daemon event flow.
 
-## Inspect a Device
+## Inspect a device
 
 Use the Device Inspector from a device tab when you need to see the final
 resolved mapping and the raw events coming from that device. Enable suppression
@@ -179,8 +179,8 @@ sudo journalctl -u keymasqd --rotate --vacuum-time=1s
 
 If `keymasqd` or `keymasq-session` stops or crashes, your input devices continue
 working normally. Keymasq only intercepts input when both services are running
-and a profile is active. No remapping means passthrough—your keyboard and mouse
-behave as if Keymasq were not installed.
+and a profile is active. No remapping means passthrough, so your keyboard and
+mouse behave as if Keymasq were not installed.
 
 ### `uinput` or input-device access problems
 
@@ -205,31 +205,32 @@ What to verify:
 - the `keymasqd` service is running as the `keymasq` user
 - udev rules were installed
 - the service has permission to access `/dev/uinput` and the input event devices
-- no other input remapping tool has already grabbed the device — only one program can exclusively
-  hold a device at a time
+- no other input remapping tool has already grabbed the device, because only
+  one program can exclusively hold a device at a time
 
 ### Native gyro reports permission denied
 
 Native motion reads `/dev/hidrawN` as the daemon user `keymasq`. Access granted
 only to your desktop user is insufficient. Check the node named in the daemon
-log with `getfacl /dev/hidrawN`; hidraw devices should have a `user:keymasq:r--`
-entry. Install the updated package rules, or rebuild the NixOS configuration
-with the updated Keymasq module/package, then restart the daemon. The startup
-hook reapplies native ACLs to connected controllers. Reconnecting also applies
-the rule. A manual ACL is temporary and disappears when the device is recreated.
+log with `getfacl /dev/hidrawN`. Hidraw devices should have a
+`user:keymasq:r--` entry. Install the updated package rules, or rebuild the
+NixOS configuration with the updated Keymasq module/package, then restart the
+daemon. The startup hook reapplies native ACLs to connected controllers.
+Reconnecting also applies the rule. A manual ACL is temporary and disappears
+when the device is recreated.
 
 ### Source hiding jobs fail
 
 Hiding or restoring a grabbed gamepad source runs `udevadm trigger` as a
 bounded `keymasq-hardware@<request-id>.service` root job that the daemon
-starts (see [SECURITY.md](SECURITY.md)); `keymasqd` itself holds no
+starts (see [SECURITY.md](SECURITY.md)). `keymasqd` itself holds no
 capabilities. The job needs the `keymasq-hardware@.service` template and the
 `49-keymasq-hardware.rules` Polkit rule that lets the `keymasq` user start it.
 Both ship with every package and with the NixOS module.
 
-Symptoms: grabbed gamepads stay visible to games (or stay hidden after
-release), and the daemon log shows `udev trigger job failed ...` with a hint
-pointing at this section, while remapping, macros, and grabbing work
+The symptoms are that grabbed gamepads stay visible to games (or stay hidden
+after release), and the daemon log shows `udev trigger job failed ...` with a
+hint pointing at this section, while remapping, macros, and grabbing work
 normally.
 
 Checks:
@@ -243,18 +244,18 @@ systemctl show keymasqd -p CapabilityBoundingSet -p DevicePolicy
 
 A missing template unit or a Polkit refusal of
 `org.freedesktop.systemd1.manage-units` for the `keymasq` user means the
-package files were not installed or a local override removed them. The
-daemon's `CapabilityBoundingSet` should be empty and `DevicePolicy` should be
-`closed`; do not add capabilities in a drop-in override, no Keymasq feature
-needs them. Each job also waits for `udevadm settle`, so a host where udev is
-very slow logs a timeout for the trigger instead.
+package files were not installed or a local override removed them. The daemon's
+`CapabilityBoundingSet` should be empty and `DevicePolicy` should be `closed`.
+Do not add capabilities in a drop-in override, because no Keymasq feature needs
+them. Each job also waits for `udevadm settle`, so a host where udev is very
+slow logs a timeout for the trigger instead.
 
 ### Daemon ownership conflicts
 
 `keymasqd` accepts exactly one `keymasq-session` connection at a time. The
-first allowed session connection becomes the daemon owner; every later client
-is rejected until the owner disconnects. See the Daemon Single-Owner Model in
-[SECURITY.md](SECURITY.md).
+first allowed session connection becomes the daemon owner, and the daemon
+rejects every later client until the owner disconnects. See the daemon
+single-owner model in [SECURITY.md](SECURITY.md).
 
 Symptoms:
 
@@ -282,10 +283,10 @@ ps -o user,pid,cmd -p <owner_pid>
 Common causes:
 
 **Fast user switching.** The first user's `keymasq-session` keeps daemon
-ownership while their session is still alive in the background, so the second
-user's broker is rejected and retries until the first user logs out fully.
-This is the intended single-seat behavior. Switching users without logging out
-does not hand over the daemon.
+ownership while their session is still alive in the background, so the daemon
+rejects the second user's broker, which retries until the first user logs out
+fully. This is the intended single-seat behavior. Switching users without
+logging out does not hand over the daemon.
 
 **Stale session process.** A leftover `keymasq-session` from a previous
 desktop session (crashed logout, lingering user services, a manually started
@@ -302,17 +303,18 @@ The daemon releases devices and frees ownership on that disconnect, and your
 current session's broker reconnects automatically within its retry backoff
 (at most 30 seconds).
 
-**Repeated systemd restarts.** If `keymasqd` restarts, every session broker is
-disconnected and reconnects with backoff; the first one back claims ownership.
-If `keymasq-session` restarts repeatedly (crash loop), ownership churns with
-it — check `journalctl --user -u keymasq-session` for the underlying crash
-rather than treating the ownership messages as the fault. Paired
+**Repeated systemd restarts.** If `keymasqd` restarts, every session broker
+disconnects and reconnects with backoff, and the first one back claims
+ownership. If `keymasq-session` restarts repeatedly (crash loop), ownership
+changes hands with each restart. Check `journalctl --user -u keymasq-session`
+for the underlying crash instead of treating the ownership messages as the
+fault. Paired
 claim/release lines with increasing `connection` numbers are the normal trace
 of restarts, not a conflict.
 
-A short passthrough window after an owner disconnect is expected: the daemon
+A short passthrough window after an owner disconnect is expected. The daemon
 clears the runtime capture unlock, discards pending recordings, and releases
-all grabbed devices before the next owner can claim, and remapping resumes
+all grabbed devices before the next owner can claim. Remapping resumes
 when the session reconnects and reapplies profiles.
 
 ### Duplicate hardware cannot be identified reliably
@@ -390,7 +392,7 @@ systemctl --user kill --signal=HUP keymasq-session
 ```
 
 SIGHUP reloads use a 500 ms debounce. Additional SIGHUP requests received while
-the reload is pending or running are dropped rather than queued.
+the reload is pending or running are dropped instead of queued.
 
 ### `keymasq-session` user service does not start
 
@@ -458,8 +460,8 @@ Important:
 - after installing the Keymasq package into an already running GNOME session,
   log out and back in before enabling the GNOME Shell bridge extension
 - if `gnome-extensions enable gnome-bridge@keymasq.tools` says the extension does
-  not exist, GNOME Shell has usually not rescanned extensions yet; log out and
-  back in, then run the enable command again
+  not exist, GNOME Shell has usually not rescanned extensions yet, so log out
+  and back in, then run the enable command again
 - restarting `keymasq-session` alone is not always enough if GNOME Shell has
   not reloaded the extension into the current session yet
 

@@ -1,14 +1,14 @@
-# Daemon Session Integration Test
+# Daemon session integration test
 
 Keymasq includes a NixOS VM integration test for the `keymasqd` daemon plus
 `keymasq-session` broker. It runs without the GTK GUI. A Python client script
 acts like the GUI by writing profile, hardware, superkey, and macro state,
 then driving virtual input devices and asserting the daemon's virtual outputs.
 
-## What It Covers
+## What it covers
 
-The test is intentionally a smoke/integration suite, not exhaustive unit
-coverage. It verifies that the core runtime classes still work together:
+The test is a smoke/integration suite, not exhaustive unit coverage. It verifies
+that the core runtime classes still work together:
 
 - simple keyboard remap
 - extended function, media, microphone mute, and brightness keyboard outputs
@@ -20,8 +20,9 @@ coverage. It verifies that the core runtime classes still work together:
 - macro create/update/rename/delete plus loop count
 - macro pause/resume with exact cleanup and continuation events
 - child pause expiry while a parent configured with Never retains its progress
-- parallel-child failure aborts a parent paused with Never and releases a sibling's
-  held key without another trigger press; the next press starts a fresh invocation
+- parallel-child failure aborts a parent paused with Never and releases a
+  sibling's held key without another trigger press, and the next press starts a
+  fresh invocation
 - superkey tap
 - overloaded superkey with multiple press and release actions
 - chord, multi-step, prefix-shadowing, overlapping, negative, and multi-source combos
@@ -55,17 +56,19 @@ The runner source lives in:
 nix/daemon-session-integration-test/
 ```
 
-Important subdirectories:
+Subdirectories and files:
 
-- `fixtures/` - TOML templates rendered into the VM user's `~/.config/keymasq`.
-- `scenarios/` - one scenario file per integration case.
-- `support.py` - VM test harness helpers for sockets, virtual devices, fixture rendering, and output assertions.
-- `runner.py` - loads and runs the scenario list.
+- `fixtures/` holds TOML templates rendered into the VM user's
+  `~/.config/keymasq`.
+- `scenarios/` holds one scenario file per integration case.
+- `support.py` provides VM test harness helpers for sockets, virtual devices,
+  fixture rendering, and output assertions.
+- `runner.py` loads and runs the scenario list.
 
-Fixtures are rendered through `support.py` by loading template files from
-`fixtures/` and substituting runtime values such as the virtual evdev paths.
+`support.py` renders fixtures by loading template files from `fixtures/` and
+substituting runtime values such as the virtual evdev paths.
 
-## Running It
+## Running it
 
 Run the VM check from the repository root:
 
@@ -93,8 +96,7 @@ Use the `path:` flake reference while the VM files are uncommitted. A plain
 `.#...` build evaluates the Git snapshot and can miss newly added fixture or
 scenario files.
 
-The test is VM-heavy. A Linux host with KVM acceleration is strongly
-recommended.
+The test is VM-heavy. Use a Linux host with KVM acceleration.
 
 ## Area mouse scenarios
 
@@ -112,11 +114,12 @@ single deadzone setting, sensitivity, and a nonlinear response curve. Returning
 inside the deadzone must return the pointer to its origin.
 
 The virtual source exposes `ABS_HAT1X/Y` and `ABS_HAT2X/Y` with the Steam
-Controller's signed 16-bit axis range. TOML fixtures define paired analog inputs,
-Area Mouse controls with Touchpad style, and two layered profiles. The real session broker loads
-the configuration and applies profile changes through daemon IPC. Assertions read
-the daemon's mouse output through evdev; runtime state and output methods are not
-mocked. The kernel filters unchanged ABS values, exercising sparse reports.
+Controller's signed 16-bit axis range. TOML fixtures define paired analog
+inputs, Area Mouse controls with Touchpad style, and two layered profiles. The
+real session broker loads the configuration and applies profile changes through
+daemon IPC. Assertions read the daemon's mouse output through evdev, and the
+test does not mock runtime state or output methods. The kernel filters unchanged
+ABS values, exercising sparse reports.
 
 | Case | Required output |
 | --- | --- |
@@ -127,31 +130,31 @@ mocked. The kernel filters unchanged ABS values, exercising sparse reports.
 | X reaches zero before Y changes in the same report | Use the complete pair without a false release |
 | Both axes return to zero | No return movement |
 | Retouch elsewhere with Y remaining zero | Anchor silently, then move normally on an X-only report |
-| Higher-priority profile changes one pad's scale and inversion | Reanchor that pad using both current coordinates; apply the new scale and inversion |
+| Higher-priority profile changes one pad's scale and inversion | Reanchor that pad using both current coordinates and apply the new scale and inversion |
 | The other pad's mapping remains unchanged | Preserve its existing stroke across the same profile update |
 | Remove the override | Reanchor and restore the original scale without losing the unchanged coordinate |
 | Restart the daemon with a finger held down | Recover the unreported axis from the real device state and resume without a jump |
-| Small landing drift in consecutive reports | No movement; use the final landing position as the reference for the next step |
+| Small landing drift in consecutive reports | No movement. Use the final landing position as the reference for the next step |
 | Move from rest, then send no further reports | The lift-hold timer emits exactly the expected displacement |
-| Small movement from rest followed immediately by a zero-pair release | Discard the held movement; the next touch starts cleanly |
+| Small movement from rest followed immediately by a zero-pair release | Discard the held movement. The next touch starts cleanly |
 | Movement from rest and a drag button transition in one report | Emit the button immediately, then the held movement |
 | Two consecutive moving reports, with a drag button transition in the second | Release the accumulated movement before the button as speed removes the lift hold |
 
 The usual motion assertions include a 250 ms silence check, allowing landing to
-settle and returning the speed filter to rest before the next step. Landing, lift,
-and continuous-motion cases queue consecutive reports without an intervening
-output wait. Both button press and release are checked. Exact timing thresholds
-and timer rearming remain covered by the focused daemon tests.
+settle and returning the speed filter to rest before the next step. Landing,
+lift, and continuous-motion cases queue consecutive reports without an
+intervening output wait. The scenario checks both button press and release. The
+focused daemon tests still cover exact timing thresholds and timer rearming.
 
 Every output assertion rejects unexpected movement as well as incorrect deltas,
 and checks for trailing events. Both pads return to zero and the scenario disables
 its profiles during cleanup. Use `--repeat 3` to check repeated execution.
 
 This scenario does not emulate the Steam Controller firmware or force an evdev
-queue overflow. `SYN_DROPPED` recovery and failed device-state reads remain covered
-by the focused daemon tests. Physical touch feel still needs hardware testing.
+queue overflow. The focused daemon tests still cover `SYN_DROPPED` recovery and
+failed device-state reads. Physical touch feel still needs hardware testing.
 
-## Debugging Failures
+## Debugging failures
 
 On failure, Nix prints the failed derivation path and suggests a `nix log`
 command. Run that command to see:
@@ -166,7 +169,7 @@ command. Run that command to see:
 The runner prints each scenario name as it starts. The last printed
 `integration: ...` line identifies the scenario that failed.
 
-## Adding Scenarios
+## Adding scenarios
 
 Add one file under:
 

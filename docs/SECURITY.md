@@ -1,10 +1,10 @@
-# Security Model
+# Security model
 
-## How Keymasq Works Around Wayland Restrictions
+## How Keymasq works around Wayland restrictions
 
 Wayland intentionally prevents applications from reading or injecting input
 across windows. Keymasq bypasses this by operating at the kernel level using
-evdev and uinput — the same layer where compositors themselves read input.
+evdev and uinput, the same layer where compositors themselves read input.
 
 A privileged system daemon (`keymasqd`) reads from `/dev/input/*` devices and
 writes to a virtual device via `/dev/uinput`. This happens below Wayland, so
@@ -13,10 +13,10 @@ the compositor sees Keymasq's output as normal hardware input.
 **Why this is still safe:**
 
 - The daemon runs as a dedicated `keymasq` system user, not root
-- GUI and CLI never touch input devices directly — they talk to a per-user
+- GUI and CLI never touch input devices directly. They talk to a per-user
   session broker, which talks to the daemon
 - Macro recording is disabled until the user opts in through the Polkit-backed
-  helper; capture features require an explicit Polkit unlock
+  helper, and capture features require an explicit Polkit unlock
 - The daemon accepts only one session connection at a time, preventing rogue
   processes from issuing commands
 
@@ -33,11 +33,11 @@ Keymasq uses a two-broker design:
 
 GUI and CLI do not access kernel input devices directly.
 
-## Target Environment
+## Target environment
 
-Keymasq is designed for single-user Linux desktops. The default security policy reflects this: open access with optional UID allowlists for multi-user systems.
+Keymasq is designed for single-user Linux desktops. The default security policy reflects this, with open access and optional UID allowlists for multi-user systems.
 
-## Connection Chain
+## Connection chain
 
 The runtime forms a single-connection chain:
 
@@ -45,29 +45,29 @@ The runtime forms a single-connection chain:
 
 Each link accepts exactly one upstream connection at a time:
 
-- `keymasqd` accepts one `keymasq-session` connection. A second session is rejected while the first is alive.
+- `keymasqd` accepts one `keymasq-session` connection. It rejects a second session while the first is alive.
 - `keymasq-session` is the sole bridge between GUI/CLI clients and the daemon.
 - GUI and CLI talk only to `keymasq-session`, never directly to `keymasqd`.
 
 This means there is always a single linear path from GUI to hardware. No parallel connections can issue competing privileged commands.
 
-## Trust Boundaries
+## Trust boundaries
 
-1. GUI/CLI -> `keymasq-session` over the per-user session socket
-2. `keymasq-session` -> `keymasqd` over the daemon socket
+1. GUI/CLI → `keymasq-session` over the per-user session socket
+2. `keymasq-session` → `keymasqd` over the daemon socket
 
-Both layers enforce authorization. Session-side checks are not advisory; daemon-side checks remain the final authority.
+Both layers enforce authorization. Session-side checks are not advisory, and daemon-side checks remain the final authority.
 
-## Privileged Helper Path Pinning
+## Privileged helper path pinning
 
 The GUI capture unlock flow uses `pkexec` to run the `keymasq-record` helper.
 
 - Keymasq does not resolve that helper from `$PATH` during privileged execution
-- The helper path is treated as a trusted absolute executable path
+- Keymasq treats the helper path as a trusted absolute executable path
 - The Polkit rule pins the same executable via `org.freedesktop.policykit.exec.path`
 - Package builds may substitute a different absolute path, but the runtime helper path and Polkit path must match exactly
 
-This is intentional. Allowing `$PATH` lookup for the `pkexec` target would weaken the trust boundary by letting environment-dependent command resolution influence which program is executed with elevated privileges.
+This is intentional. Allowing `$PATH` lookup for the `pkexec` target would weaken the trust boundary by letting environment-dependent command resolution influence which program runs with elevated privileges.
 
 In practice:
 
@@ -75,26 +75,27 @@ In practice:
 - Nix/NixOS builds stamp the helper to the package store path
 - both remain safe because the elevated path is fixed by the package, not chosen from the caller's environment
 
-## Daemon Single-Owner Model
+## Daemon single-owner model
 
 `keymasqd` allows exactly one active session-side client connection at a time.
 
 - The first daemon client connection that passes peer validation becomes the
   active owner, identified by (`uid`, `pid`, `connection_id`).
-- Additional daemon client connections are denied while that owner is alive.
-  They are closed immediately at accept time, before any command is processed.
-- Ownership is released only when the owning connection disconnects. There is
-  no takeover, transfer, or preemption path.
+- `keymasqd` denies additional daemon client connections while that owner is
+  alive. It closes them immediately at accept time, before it processes any
+  command.
+- `keymasqd` releases ownership only when the owning connection disconnects.
+  There is no takeover, transfer, or preemption path.
 
 This prevents a second local process from concurrently issuing privileged daemon commands while a legitimate session broker is connected.
 
 ### First-valid-session ownership is intentional
 
 Keymasq targets single-seat desktops, and first-valid-session ownership is the
-deliberate design for that target — not a placeholder for something smarter:
+deliberate design for that target, not a placeholder for something smarter:
 
 - Ownership is **not** bound to an "installing user". Package installation
-  cannot identify a reliable desktop owner: installs commonly run as root,
+  cannot identify a reliable desktop owner. Installs commonly run as root,
   through configuration-management automation, inside an image build, or as
   declarative NixOS configuration. None of those contexts name the human who
   will sit at the machine, and several produce systems with no such user at
@@ -107,24 +108,24 @@ deliberate design for that target — not a placeholder for something smarter:
 On a single-seat desktop, the first allowed `keymasq-session` to connect is the
 logged-in user's broker, which is exactly the process that should own the
 daemon. For unusual shared-system installations, `daemon_allowed_uids` in
-`/etc/keymasq/security.toml` is the explicit control: it restricts which UIDs
-may connect at all, so ownership can only ever be claimed by a listed user.
-This remains the supported mechanism; do not rely on install-time or
+`/etc/keymasq/security.toml` is the explicit control. It restricts which UIDs
+may connect at all, so only a listed user can ever claim ownership.
+This remains the supported mechanism. Do not rely on install-time or
 seat-inference behavior that Keymasq intentionally does not have.
 
 ### Ownership lifecycle and cleanup
 
-When the owning connection disconnects — clean shutdown, crash, or daemon
-restart of `keymasq-session` — `keymasqd` runs disconnect cleanup before the
-next client can claim ownership:
+When the owning connection disconnects, whether through a clean shutdown, a
+crash, or a daemon restart of `keymasq-session`, `keymasqd` runs disconnect
+cleanup before the next client can claim ownership:
 
-1. The runtime capture unlock held by that owner is cleared.
-2. Any active recording is aborted without producing or persisting a recording.
-3. All live capture sessions are closed and unused capture authorizations are revoked.
-4. All non-slot pending (unsaved) recordings are discarded.
-5. All grabbed input devices are released, so hardware returns to passthrough.
+1. It clears the runtime capture unlock held by that owner.
+2. It aborts any active recording without producing or persisting a recording.
+3. It closes all live capture sessions and revokes unused capture authorizations.
+4. It discards all non-slot pending (unsaved) recordings.
+5. It releases all grabbed input devices, so hardware returns to passthrough.
 
-Ownership release is then logged and the owner slot becomes free. The
+`keymasqd` then logs the ownership release, and the owner slot becomes free. The
 per-user `keymasq-session` broker reconnects automatically with exponential
 backoff (1 s doubling up to 30 s), reclaims ownership, and reapplies active
 profiles. A brief passthrough window between disconnect and reconnection is
@@ -147,7 +148,7 @@ or competing `keymasq-session` process. See the ownership section in
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for conflict scenarios such as fast
 user switching and stale session processes.
 
-## Daemon Capability and Service Hardening
+## Daemon capability and service hardening
 
 `keymasqd` runs as the dedicated `keymasq` system user inside a hardened
 systemd service with no Linux capabilities at all:
@@ -168,9 +169,9 @@ ReadWritePaths=/run/keymasq /var/lib/keymasq
 
 Everything the daemon touches is reachable through ordinary permissions:
 
-- **Input devices and uinput.** Reads of `/dev/input/event*`, writes to
-  `/dev/uinput`, and read-only hidraw access are granted through explicit
-  ACLs (`setfacl` in `ExecStartPre` and `91-keymasq-acl.rules`). The device
+- **Input devices and uinput.** Explicit ACLs (`setfacl` in `ExecStartPre`
+  and `91-keymasq-acl.rules`) grant reads of `/dev/input/event*`, writes to
+  `/dev/uinput`, and read-only hidraw access. The device
   policy additionally limits the service to input, uinput, and read-only
   hidraw nodes, so the daemon cannot open other users' devices, block
   devices, or anything else under `/dev` even if a rule or ACL is
@@ -180,13 +181,13 @@ Everything the daemon touches is reachable through ordinary permissions:
   under the daemon's own `/run/keymasq/hidden` directory. Making udev act on
   that flag needs `udevadm trigger`, which writes root-owned `/sys/.../uevent`
   files. The daemon requests that trigger as a bounded `keymasq-hardware@`
-  root job (see Hardware Masking Jobs below): the job validates the `event*`
+  root job (see Hardware masking jobs below). The job validates the `event*`
   and `js*` names, checks them against `/sys/class/input`, and runs the
   trigger. Per-node hide and restore, model-wide hotplug hiding, and the
   startup reconcile all use this path
   (`keymasq/keymasqd/runtime/source_hiding.py`). `ProtectKernelTunables`
   keeps sysfs read-only inside the daemon itself. No input waits on these
-  jobs: a grabbed source is already being read when its hide job is requested,
+  jobs. A grabbed source is already being read when its hide job is requested,
   and a release closes every physical handle before any restore job runs.
 - **Permission resets on hidden nodes.** The hide rules reset hidden
   `event*`/`js*` nodes to `root:root` mode `0600`, strip ACLs, and re-grant
@@ -196,7 +197,7 @@ Everything the daemon touches is reachable through ordinary permissions:
   passthrough (`keymasq/keymasqd/runtime/force_feedback.py`) writes `EV_FF`
   uploads, erases, and play events through that same handle. A node that
   udev has not finished processing yet, such as a reconnecting controller,
-  can briefly refuse the open; grabs retry on `EACCES` for a short bounded
+  can briefly refuse the open. Grabs retry on `EACCES` for a short bounded
   period instead of relying on a capability.
 
 Failure messages are distinct per mechanism, so a missing input ACL, missing
@@ -206,7 +207,7 @@ logs (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
 Native motion drivers also use explicit ACLs in `91-keymasq-acl.rules`.
 The daemon user gets read access to hidraw nodes, including devices with no
 registered driver. The registry controls which endpoints Keymasq actually
-opens; it is not a permission boundary. The rule does not grant write access
+opens. It is not a permission boundary. The rule does not grant write access
 or change device ownership. The Ultimate 2 driver opens its node read-only
 and sends no commands. Future drivers that write need an explicit access policy.
 
@@ -215,27 +216,27 @@ service user, `NoNewPrivileges`, an empty capability bounding set, a closed
 device policy, protected system and home paths, read-only kernel tunables,
 and writable directories restricted to `/run/keymasq` and `/var/lib/keymasq`.
 All maintained package formats (Debian, RPM, Arch/AUR, AppImage/SteamOS,
-NixOS module) ship this same capability-free unit; none adds an ambient or
+NixOS module) ship this same capability-free unit, and none adds an ambient or
 bounding capability. The service files carry matching comments so the unit
 and the code that depends on it stay in sync.
 
 Delegating the udev trigger to a root job adds IPC surface and failure modes
-of its own. They are bounded: the daemon supplies only `event*`/`js*` kernel
+of its own. They are bounded. The daemon supplies only `event*`/`js*` kernel
 names, the job validates them again as root, and a failed or timed-out job is
 logged distinctly while remapping keeps working.
 
-## Peer Identity and ACL
+## Peer identity and ACL
 
 On each accepted Unix socket connection, Keymasq reads `SO_PEERCRED` (`pid`, `uid`, `gid`).
 
 Optional UID allowlists can restrict which local users may connect to the session and daemon sockets.
 
-## Recording Guard
+## Recording guard
 
 Keymasq treats recording and capture features as sensitive because they can observe original input.
 
 - Macro recording requires a user opt-in recorded by the Polkit-backed
-  `keymasq-record` helper; the GUI exposes this under
+  `keymasq-record` helper. The GUI exposes this under
   **Settings > Macro recording** and allows opting out again
 - Recording always writes into one of four explicit temporary slots
 - Capture commands require an active unlock lease by default
@@ -251,18 +252,18 @@ Temporary macro slots are pending recording handles, not inspectable macro
 bodies. They can be replayed only through an explicit slot playback action and
 cannot be fetched through the macro body APIs. Slot data is kept in
 daemon-private storage so slots survive daemon restarts. Saving a slot copies
-it into normal macro storage and leaves the slot in place; deleting or
+it into normal macro storage and leaves the slot in place. Deleting or
 overwriting a slot removes the pending recording.
 
 Saving a temporary slot into the macro library requires the capture unlock
-flow when `unlock_required = true`. This is enforced in the GUI, the
-session broker, and the daemon command handler.
+flow when `unlock_required = true`. The GUI, the session broker, and the
+daemon command handler all enforce this.
 
 If `macro_edit_requires_unlock = true`, macro inspection and every persistent
 edit operation (create, update, rename, and delete) are promoted into the same
 sensitive class.
 
-## Runtime Unlock Ownership Chain
+## Runtime unlock ownership chain
 
 Runtime unlock refresh is bound to the same GUI process and same socket connection:
 
@@ -274,10 +275,10 @@ Runtime unlock refresh is bound to the same GUI process and same socket connecti
 
 Ownership is checked at both hops:
 
-- GUI -> session: same GUI process and same session socket connection
-- Session -> daemon: same session process and same daemon connection
+- GUI → session: same GUI process and same session socket connection
+- Session → daemon: same session process and same daemon connection
 
-If the owner process or connection changes, refresh is rejected and the runtime unlock is actively cleared by the next lower layer:
+If the owner process or connection changes, refresh is rejected and the next lower layer actively clears the runtime unlock:
 
 - On normal GUI shutdown, the owner explicitly locks the runtime unlock.
 - If the GUI disconnects or crashes, `keymasq-session` clears the runtime unlock for that UID when the last same-UID session client disappears.
@@ -285,7 +286,7 @@ If the owner process or connection changes, refresh is rejected and the runtime 
 
 The runtime TTL remains a bounded fallback, but normal and abnormal disconnect paths now clean up the runtime unlock immediately instead of waiting for expiry.
 
-## Sensitive Command Binding
+## Sensitive command binding
 
 Sensitive commands are bound to the active recording owner, not just to UID admission.
 
@@ -313,7 +314,7 @@ It is instead gated by the macro-recording opt-in file. This keeps the macro
 recording workflow unified after opt-in while preventing recording from being
 an available default attack surface.
 
-## Combo Capture Security Model
+## Combo capture security model
 
 Combo recording uses the same guarded original-input path as recording and capture.
 
@@ -331,9 +332,9 @@ In practice, this means:
 - an unlocked lease alone is not enough if another process owns the sensitive-command chain
 - GUI capture of combos is intentionally tied to the capture unlock owner chain
 
-## Compositor Dispatch
+## Compositor dispatch
 
-Compositor dispatch actions are routed through the active window-listener implementation.
+Keymasq routes compositor dispatch actions through the active window-listener implementation.
 
 - The action is modeled generically as compositor dispatch
 - Dispatch actions can carry an explicit compositor target to avoid cross-compositor overlap
@@ -349,7 +350,7 @@ Compositor dispatch actions are routed through the active window-listener implem
 
 This keeps compositor-specific control inside the listener boundary instead of treating it as unrestricted command execution.
 
-## Policy File
+## Policy file
 
 Security policy path:
 
@@ -360,21 +361,21 @@ Relevant controls:
 - `session_allowed_uids`
 - `daemon_allowed_uids`
 - `[macro]`
-  - `exec_timeout_max_ms`: maximum `exec_sync` wait time; the daemon clamps macro
-    payloads to this limit and the session uses the same value as the subprocess
-    timeout, killing the command if it is exceeded.
+  - `exec_timeout_max_ms`: maximum `exec_sync` wait time. The daemon clamps
+    macro payloads to this limit. The session uses the same value as the
+    subprocess timeout and kills the command if it is exceeded.
 - `[gui]`
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
   - `unlock_required`
-  - `macro_recording_time_limit`: maximum macro recording duration in whole minutes;
-    defaults to `10`, and `0` disables the time limit
+  - `macro_recording_time_limit`: maximum macro recording duration in whole
+    minutes. It defaults to `10`, and `0` disables the time limit
   - `macro_edit_requires_unlock`
 
-Policy boolean values must use the TOML literals `true` or `false`. Strings,
-numbers, arrays, and other types are rejected rather than interpreted by
-truthiness. An invalid security policy prevents both `keymasqd` and
-`keymasq-session` from starting; their logs identify the invalid field so the
+Policy boolean values must use the TOML literals `true` or `false`. Keymasq
+rejects strings, numbers, arrays, and other types instead of interpreting them
+by truthiness. An invalid security policy prevents both `keymasqd` and
+`keymasq-session` from starting. Their logs identify the invalid field so the
 administrator can correct `/etc/keymasq/security.toml` and restart the services.
 
 Empty UID allowlists mean no UID restriction. This is the default and is appropriate for single-user desktops. On multi-user systems, populate `daemon_allowed_uids` and `session_allowed_uids` to restrict access to specific users.
@@ -432,11 +433,11 @@ When `emergency_cancel_combo_enabled = false`, the daemon does not inject the
 combo and the GUI allows it to be assigned like any other combo. Disabling it
 is not recommended unless you intentionally need that exact trigger.
 
-## Hardware Masking Jobs
+## Hardware masking jobs
 
 Masking coordination runs inside `keymasqd`. The existing `keymasq-record`
-entry point performs privileged hardware changes in short-lived systemd jobs;
-there is no resident root masking process. A Polkit rule lets only the dedicated
+entry point performs privileged hardware changes in short-lived systemd jobs.
+There is no resident root masking process. A Polkit rule lets only the dedicated
 `keymasq` account start the fixed `keymasq-hardware@<request-id>.service` template.
 It does not authorize arbitrary units, unit properties, or commands. Recording
 or capture authorization through pkexec does not authorize these hardware commands.
@@ -445,7 +446,7 @@ The helper opens a daemon-owned request inode with `O_NOFOLLOW`, rejects unsafe
 permissions and hard links, and reads a bounded JSON request. It accepts only
 activation, offline arming, interface refresh, recovery, and source-hiding udev
 triggers. A trigger request carries at most a list of `event*`/`js*` kernel
-names; the helper validates them, drops names absent from `/sys/class/input`,
+names. The helper validates them, drops names absent from `/sys/class/input`,
 and runs `udevadm trigger` for the rest, so the daemon cannot supply paths or
 other arguments. Attachment identities
 and current generations resolve through root's sysfs inventory. The daemon cannot
@@ -458,7 +459,7 @@ They must remain inside the sysfs devices tree, including while devices are offl
 Masking subprocesses and generated udev rules use the same trusted executable
 resolver. Nix packages pin commands to their dependency store paths. Other
 packages and source checkouts search only `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`,
-and `/run/current-system/sw/bin`; the caller's `PATH` is ignored. Missing commands
+and `/run/current-system/sw/bin`, and they ignore the caller's `PATH`. Missing commands
 are reported before arming restrictions, and a missing package-pinned executable
 does not fall back to another location.
 
@@ -481,16 +482,16 @@ hardware is disconnected, without a running privileged helper.
 Masking state is shared between users admitted by `daemon_allowed_uids`.
 The current daemon owner can see saved device names and identities from other
 users and request physical access restoration. Status tokens guard against stale
-requests; they are not authorization secrets. Automatic masking and changes to
+requests. They are not authorization secrets. Automatic masking and changes to
 saved startup preferences still check the authenticated owner's UID.
 
 Root-owned journals and static permission baselines survive a daemon failure.
 The daemon's systemd cleanup hook stops all outstanding hardware jobs before
-restoring permissions. Per-attachment locks serialize mutations; a global
+restoring permissions. Per-attachment locks serialize mutations, and a global
 recovery lock excludes all hardware jobs. `ExecStopPost` restores every remaining
 reservation, and `ExecStartPre` requires recovery to succeed before remapping
 starts again. A 20-second systemd watchdog kills a blocked daemon, releasing all
-its grabs and outputs. Heartbeats run on the input loop; awaiting a bounded
+its grabs and outputs. Heartbeats run on the input loop, and awaiting a bounded
 hardware job does not suppress them. This protects ordinary remapping as well as masking, but
 does not detect every logical error in a responsive loop.
 
@@ -500,28 +501,28 @@ and ACL restoration, and inspection of `/proc/*/fd` device identities.
 FD targets. The scan selects USB reconnect when an application holds a direct
 USB handle, then checks for remaining handles after takeover. Ordinary driver
 rebind does not revoke an application's open usbfs handle. Inspection failures
-therefore fail the operation; inaccessible processes are not silently skipped.
+therefore fail the operation. Inaccessible processes are not silently skipped.
 This capability belongs only to the short-lived root job. The scan does not
 inspect input content. USB reconnect records and validates the individual port's
 identity before changing it, refuses hubs and ganged power switching, and repairs
 an interrupted port operation during recovery. Current desktop grants come from
-udev after static permissions are restored; old session ACLs are not replayed.
+udev after static permissions are restored. Old session ACLs are not replayed.
 `keymasqd` itself holds no capabilities. See
 [Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
 [Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
 
-## Socket Paths
+## Socket paths
 
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)
 - session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)
 
-The daemon socket is world-accessible because `keymasqd` starts as a system service before any user session exists. Any user's `keymasq-session` must be able to connect and claim ownership. Access control is not enforced at the filesystem level but through the single-owner model: once a session claims the daemon, all other connections are rejected. On multi-user systems, use `daemon_allowed_uids` to restrict which UIDs may connect.
+The daemon socket is world-accessible because `keymasqd` starts as a system service before any user session exists. Any user's `keymasq-session` must be able to connect and claim ownership. Access control is not enforced at the filesystem level but through the single-owner model. Once a session claims the daemon, all other connections are rejected. On multi-user systems, use `daemon_allowed_uids` to restrict which UIDs may connect.
 
 The session socket is restricted to the owning user via `XDG_RUNTIME_DIR` permissions and explicit `0o700` on the socket directory.
 
 Socket permissions only gate connection attempts. Sensitive command authority still depends on peer identity, unlock state, and owner binding.
 
-## Security Goal
+## Security goal
 
 Default operation should avoid repeated auth prompts while still protecting privileged input-observation flows.
 
@@ -534,11 +535,11 @@ The effective security model is:
 - recording guard for original-input observation features
 - listener-scoped compositor dispatch instead of shell execution
 
-## Build Attestations
+## Build attestations
 
 GitHub releases include build attestations for published artifacts (`.deb`,
-`.rpm`, `SHA256SUMS`). These are signed statements from GitHub Actions proving
-the artifact was produced by the Keymasq release workflow.
+`.rpm`, `SHA256SUMS`). These are signed statements from GitHub Actions that
+prove the Keymasq release workflow produced the artifact.
 
 With the GitHub CLI, verify an artifact:
 
@@ -549,10 +550,10 @@ gh attestation verify ./SHA256SUMS -R nyrda/keymasq
 ```
 
 This is useful if you want to verify the build chain, not just the checksum.
-Most users installing from the package repository do not need this—repository
-packages are already signed.
+Most users installing from the package repository do not need this, because
+repository packages are already signed.
 
-## Diagnostics Mode
+## Diagnostics mode
 
 Keymasqd includes an optional diagnostics mode for internal latency measurement.
 

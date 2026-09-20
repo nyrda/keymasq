@@ -1,6 +1,6 @@
 # Examples
 
-Small task-focused guides for common Keymasq workflows.
+These are small task-focused guides for common Keymasq workflows.
 
 | Goal | Use this when |
 |---|---|

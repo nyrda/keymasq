@@ -1,4 +1,4 @@
-# Profile System
+# Profile system
 
 The profile system is how Keymasq stores and applies remaps. A profile is a
 named set of mappings that can include layers for one device or several
@@ -18,7 +18,7 @@ the selector.
 > **Profiles are global, not per-device.** A single profile can contain
 > mappings for your keyboard, mouse, and gamepad together.
 
-## Mental Model
+## Mental model
 
 The easiest way to think about profiles is:
 
@@ -65,8 +65,8 @@ output_id = "virtual-gamepad-2"
 ```
 
 Valid output IDs are `virtual-gamepad-1` through `virtual-gamepad-4`, or a
-configured hardware gamepad ID. Explicit output IDs are strict: unavailable
-outputs log a daemon warning and emit nothing.
+configured hardware gamepad ID. Explicit output IDs are strict. For an
+unavailable output, the daemon logs a warning and emits nothing.
 
 Simple example:
 
@@ -91,7 +91,7 @@ When you focus the game window:
 So the system is not "one profile per device". It is "one or more active
 profiles, each of which may contribute a layer to each device".
 
-## Where Profiles Live
+## Where profiles live
 
 Profiles are stored in:
 
@@ -104,7 +104,7 @@ The visible profile name can contain arbitrary characters. The on-disk filename 
 Keymasq keeps at least one editable profile. On startup when no valid profile can
 be loaded, and whenever the session reloads an empty profiles directory,
 `keymasq-session` seeds a permanent profile named `Default` so new devices can
-be remapped immediately. Existing files are never overwritten; filename
+be remapped immediately. Keymasq never overwrites existing files. Filename
 collisions use `Default_2.toml`, `Default_3.toml`, and so on.
 
 Hardware definitions are still separate:
@@ -116,7 +116,7 @@ Hardware definitions are still separate:
 See [Hardware Configuration](HARDWARE.md) for hardware IDs, attached evdev
 devices, detection methods, and source button/key IDs.
 
-## Profile Types
+## Profile types
 
 There are two runtime profile types. In the GUI, the type is derived from
 Window Rules:
@@ -138,7 +138,7 @@ To make a profile permanent again, remove its window rules.
 - Applied after permanent profiles
 - Good for app-specific or game-specific overlays
 
-## Activation And Merge Rules
+## Activation and merge rules
 
 Keymasq can have more than one active profile at once.
 
@@ -161,9 +161,9 @@ The last applied mapping wins. In practice:
 - if both are equal, name order is the tiebreaker
 
 `created_at` is internal ordering bookkeeping. Keymasq stores it as a quoted,
-timezone-naive ISO timestamp. Missing, malformed, timezone-aware, or native TOML
-datetime values are replaced with the current time and repaired to that
-canonical form when the profile loads.
+timezone-naive ISO timestamp. When the profile loads, Keymasq replaces missing,
+malformed, timezone-aware, or native TOML datetime values with the current time
+and repairs them to that canonical form.
 
 Conditional profiles always override permanent profiles, even if the permanent profile has a higher numeric priority.
 
@@ -174,16 +174,16 @@ once at the runtime overlay position. When the runtime activation expires, the
 profile falls back to its normal active position if it is still enabled and
 matches the current window.
 
-Action-count activations behave like one-shot keyboard layers: each grabbed
+Action-count activations behave like one-shot keyboard layers. Each grabbed
 input press consumes one count, even when that input falls through to a lower
 profile or has no mapping. Combo completions, wheel ticks, and top-level
 superkey activations each consume one count.
 
 Only one runtime activation can own a profile at a time. A new runtime
-activation for the same profile replaces the previous activation and stale
-expiry events from the daemon are ignored by the session.
+activation for the same profile replaces the previous activation, and the
+session ignores stale expiry events from the daemon.
 
-## Unmapped Buttons and Overrides
+## Unmapped buttons and overrides
 
 Buttons not listed in a device layer pass through unchanged.
 
@@ -191,7 +191,7 @@ If a higher-priority profile does not map a button, lower-priority profiles can
 still map it. To override a lower-priority remap and restore the button's
 original behavior, bind the button to its own original key or button.
 
-## Exclusive Input Capture
+## Exclusive input capture
 
 `always_grab_all` is a per-device layer setting that makes Keymasq capture all
 input from the device, even buttons that are not remapped. This prevents the
@@ -200,7 +200,7 @@ original input from reaching your apps.
 For a given device, this is enabled if any active layer for that device sets it
 to `true`.
 
-## Window Rules
+## Window rules
 
 Conditional profiles use window rules to decide when to activate. All rules in
 a profile must match for it to become active.
@@ -213,7 +213,7 @@ Typical fields are:
 - `title` — the window title text.
 - `tag` — the workspace or tag name (compositor-dependent).
 
-## TOML Format
+## TOML format
 
 Each profile file contains:
 
@@ -260,16 +260,16 @@ action = "mpris"
 command = "play_pause"
 ```
 
-Window-rule fields are `class`, `title`, and `tag`. The hand-edited alias
-`tags` is accepted and normalized to `tag` on the next save. Unknown fields and
-unexpected non-string class/title values safely fail to match instead of
-interrupting profile resolution.
+Window-rule fields are `class`, `title`, and `tag`. Keymasq accepts the
+hand-edited alias `tags` and normalizes it to `tag` on the next save. Unknown
+fields and unexpected non-string class/title values fail to match and do not
+interrupt profile resolution.
 
 `keymasq-session` tracks the full window state for display, but it only
-re-runs profile resolution when a changed field is actually used by an enabled
-conditional profile. Rapid title-only churn (music players, browser tabs,
-terminals) therefore skips the grab/mapping reevaluation unless some enabled
-conditional profile has a `title` rule.
+re-runs profile resolution when an enabled conditional profile uses a changed
+field. Rapid title-only changes (music players, browser tabs, terminals)
+therefore skip the grab/mapping reevaluation unless some enabled conditional
+profile has a `title` rule.
 
 `activation_macro` and `deactivation_macro` are optional stored macro names.
 When set, `keymasq-session` asks `keymasqd` to play the macro after the global
@@ -277,7 +277,7 @@ active profile set changes. They fire once when a profile enters or leaves the
 active set, not on unchanged reevaluations, device reconnects, or mapping-only
 refreshes.
 
-## Common Patterns
+## Common patterns
 
 ### Base profile plus app overlay
 
@@ -308,7 +308,7 @@ action = "mouse"
 target = "btn_extra"
 ```
 
-## GUI Behavior
+## GUI behavior
 
 In the GUI:
 
@@ -347,7 +347,7 @@ keymasq profiles toggle Gaming
 - which devices each profile has layers for
 - active profiles per device
 
-## Profile Actions
+## Profile actions
 
 Profile control actions inside mappings now target only a profile name:
 
@@ -361,7 +361,7 @@ behavior: enable/toggle writes `enabled = true`, disable/toggle off writes
 profile.
 
 With a temporary activation mode, Enable creates a runtime-only profile
-activation. Toggle with a temporary activation mode is also runtime-only: it
+activation. Toggle with a temporary activation mode is also runtime-only. It
 creates the activation when the profile is not temporarily active, and cancels
 the current activation when it is. Disable does not use temporary activation
 modes and also cancels any runtime activation for the profile.
@@ -370,6 +370,6 @@ modes and also cancels any runtime activation for the profile.
 
 Profiles can also contain combo definitions.
 
-Combos follow the same active-profile ordering rules as mappings, but runtime prefix conflicts are resolved by the combo matcher, not by the GUI.
+Combos follow the same active-profile ordering rules as mappings, but the combo matcher resolves runtime prefix conflicts, not the GUI.
 
 See `docs/COMBOS.md` for combo behavior, timeouts, storage, and shadowing rules.

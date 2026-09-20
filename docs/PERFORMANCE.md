@@ -1,6 +1,6 @@
 # Performance
 
-## Input Latency
+## Input latency
 
 Keymasq adds **15–50 microseconds** (0.015–0.05 ms) to input events during
 remapping. This is the round-trip time through the Python userspace daemon,
@@ -16,7 +16,7 @@ including kernel syscalls for reading from evdev and writing to uinput.
 
 ### Context
 
-| Reference Point | Latency |
+| Reference point | Latency |
 |---|---|
 | Keymasq overhead | 0.015–0.05 ms |
 | Human perception threshold | ~1 ms |
@@ -30,7 +30,7 @@ perceptible, and 100–300x lower than a single frame at typical refresh rates.
 For competitive gaming, the latency is still only 2–5% of the frame budget
 even at 1000 Hz.
 
-## Macro Replay Fidelity
+## Macro replay fidelity
 
 Macro playback uses anchored-deadline scheduling to maintain timing accuracy.
 Benchmark results show:
@@ -42,7 +42,7 @@ Benchmark results show:
 With `uvloop` installed (recommended), jitter improves further, especially for
 high-frequency mouse macros and keyboard bursts.
 
-## Live Diagnostics
+## Live diagnostics
 
 You can measure latency on your own system with the built-in diagnostics mode:
 
@@ -73,7 +73,7 @@ Disable when done:
 keymasq diagnostics off
 ```
 
-## Rapidfire Throughput
+## Rapidfire throughput
 
 You can measure rapidfire output rate externally on the Keymasq virtual output
 device with `evtest` and `pv`.
@@ -101,16 +101,15 @@ sudo evtest /dev/input/eventX \
   | pv -l -i 1 > /dev/null
 ```
 
-### Informal Result
+### Informal result
 
 On one local test system, six concurrent rapidfire mouse-button mappings
 reached roughly **2.8k mouse events/sec** on the `keymasq-mouse` virtual
 device while using about **11% of one CPU core**.
 
 That is an informal measurement, not a guaranteed minimum or maximum across
-systems. It is included here as a practical data point showing that very fast
-rapidfire settings do not immediately hit an obvious Python-side throughput
-limit.
+systems. It is a data point that shows very fast rapidfire settings do not
+immediately hit an obvious Python-side throughput limit.
 
 ### Caveat
 
@@ -120,7 +119,7 @@ share one output code, so their press and release streams can overlap. Mixed
 outputs such as `BTN_LEFT` and `BTN_RIGHT` can scale more cleanly because they
 do not collapse onto the same logical button state.
 
-## Detailed Benchmarks
+## Detailed benchmarks
 
 For methodology and full results, see:
 
@@ -129,10 +128,10 @@ For methodology and full results, see:
 - [benchmarks/MACRO_REPLAY_FIDELITY.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/MACRO_REPLAY_FIDELITY.md) —
   macro timing accuracy across scenarios
 
-Keymasq only grabs devices that have active remappings. Devices without
-remappings are not touched and operate at their native polling rate.
+Keymasq only grabs devices that have active remappings. It does not touch
+devices without remappings, and they operate at their native polling rate.
 
-## Diagnostics Labels
+## Diagnostics labels
 
 Diagnostics measure Keymasq's daemon-side handling time for events that pass
 through grabbed devices. They are not the full time from your finger movement to
@@ -141,10 +140,10 @@ processing, rendering, display latency, or the physical switch/button travel.
 For passthrough devices, normal input events and their source `SYN_REPORT`
 frame flush are measured separately so multi-event device frames stay intact.
 
-### Mainline Diagnostics
+### Mainline diagnostics
 
-These are shown by default and are the most useful labels for checking normal
-input overhead.
+Diagnostics shows these by default. They are the most useful labels for
+checking normal input overhead.
 
 | Label | What it means | Example |
 |---|---|---|
@@ -155,7 +154,7 @@ input overhead.
 | `wheel_passthrough` | A mouse wheel event passed through by an explicit passthrough mapping. | Scrolling normally when the wheel has a passthrough action. |
 | `action_*` | A configured remap action ran. The suffix names the action type. | Pressing a remapped button, a suppressed key, or a mapped wheel direction. |
 
-### Combo Diagnostics
+### Combo diagnostics
 
 Enable with:
 
@@ -172,7 +171,7 @@ latency baseline.
 | `combo_passthrough_held` | A later event for a combo key that was already allowed through. | Releasing that first combo key after it had been passed through. |
 | `combo_release_action_*` | A combo-related release event triggered an action. | Releasing a held combo chord that fires a remapped button. |
 
-### Macro Diagnostics
+### Macro diagnostics
 
 Enable with:
 
@@ -185,13 +184,13 @@ playback iteration.
 
 | Label | What it means |
 |---|---|
-| `macro_load` | Time spent resolving the stored revision and obtaining its events. Streamed iterations include worker batches that decompress and parse the file; cache hits include only revision validation and cache retrieval. Timeline sleeps, wait controls, and command execution are excluded. |
+| `macro_load` | Time spent resolving the stored revision and obtaining its events. Streamed iterations include worker batches that decompress and parse the file, while cache hits include only revision validation and cache retrieval. Timeline sleeps, wait controls, and command execution are excluded. |
 | `macro_iteration` | Wall-clock runtime of one normally completed iteration, including event timing, explicit and random waits, synchronous commands, and trailing macro duration. Inter-iteration scheduling yields are excluded. |
 
 Only stored macros are sampled. Cancelled, interrupted, or failed iterations
 do not produce a complete iteration sample.
 
-### Internal Diagnostics
+### Internal diagnostics
 
 Enable with:
 

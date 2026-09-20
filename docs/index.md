@@ -1,12 +1,9 @@
 # Keymasq
 
-Keyboard, mouse, and controller remapper with GUI configuration, per-window
-profiles, and macros.
-
-Keymasq supports keyboard, mouse, and game controller remapping with layered
-profiles, window-aware activation, macros, superkeys, and combos. Use it for
-workflows like a Linux autoclicker, game auto-fire, app-specific shortcuts,
-and multi-step automation.
+Keymasq remaps keyboards, mice, and game controllers on Linux. You configure
+it in a GUI. Profiles are layered and can activate when a given window has
+focus. It also has macros, superkeys, and combos. Use it to build an
+autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 
 ## Common use cases
 
@@ -24,18 +21,18 @@ and multi-step automation.
   create your first remap after installing.
 - [Hardware Configuration](HARDWARE.md) — hardware IDs, event devices, source
   controls, and detection methods.
-- [Profiles](PROFILES.md) — the layered, window-aware profile model that
-  everything else builds on.
+- [Profiles](PROFILES.md) — the layered, window-aware profile model. The other
+  features all attach to profiles.
 - [Actions](ACTIONS.md) — what each mapping can do.
-- [Examples](EXAMPLES.md) — small task-focused recipes for common workflows.
-- [Macros](MACROS.md): create, record, and play input sequences, including autoclicker loops.
+- [Examples](EXAMPLES.md) — short recipes for common tasks.
+- [Macros](MACROS.md) — create, record, and play input sequences, including autoclicker loops.
 
 ## User guide
 
-- [Superkeys](SUPERKEYS.md) — one key fires multiple actions, or different actions for tap vs hold vs double-tap.
+- [Superkeys](SUPERKEYS.md) — one key fires multiple actions, or different actions for tap, hold, and double-tap.
 - [Combos](COMBOS.md) — trigger actions or superkeys from any input combination, even across devices.
-- [Macros](MACROS.md): creation, recording, triggers, and playback settings.
-- [Macro timeline editor](MACRO_EDITOR.md): add actions, select and reuse sections, and adjust timing.
+- [Macros](MACROS.md) — creation, recording, triggers, and playback settings.
+- [Macro timeline editor](MACRO_EDITOR.md) — add actions, select and reuse sections, and adjust timing.
 - [Gamepad](GAMEPAD.md) — controller remapping, analog controls, and virtual gamepads.
 - [Motion Controls](MOTION_CONTROLS.md) — controller gyro setup, normalization, and outputs.
 - [Device Inspector](DEVICE_INSPECTOR.md) — inspect final mappings, raw events,
@@ -54,5 +51,5 @@ and multi-step automation.
 
 ---
 
-Keymasq is MIT-licensed. Source is on
+Keymasq is MIT-licensed. The source is on
 [GitHub](https://github.com/nyrda/keymasq).

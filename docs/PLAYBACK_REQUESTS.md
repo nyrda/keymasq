@@ -45,7 +45,7 @@ for completion do not serialize requests.
 
 Add `"ordered":true` to a text or named macro request to opt into a shared FIFO
 queue across session clients. Compilation and playback finish before the next
-ordered request starts. Only requests that opt in use this queue; ordinary
+ordered request starts. Only requests that opt in use this queue, so ordinary
 requests and hardware-triggered macros can still run concurrently. Ordering
 follows acceptance order at the session socket, not shell process launch order.
 
@@ -75,8 +75,8 @@ this timeout does not multiply by the number of requests.
 Cancelling queued work prevents it from starting. Cancelling running work stops
 that macro and its children and releases their held outputs. Requests belong to
 the socket connection that submitted them. Another connection cannot query or
-cancel them, even with a known playback ID. Caller-supplied IDs on submissions
-are ignored.
+cancel them, even with a known playback ID. The session ignores caller-supplied
+IDs on submissions.
 
 Tracked requests default to `"cancel_on_disconnect":true`. Closing the connection
 cancels its queued and active requests. Set `"cancel_on_disconnect":false` to let
@@ -85,9 +85,9 @@ Ownership cannot transfer to a new connection.
 
 The session accepts at most 128 active or queued requests and retains the last
 256 terminal results across connected clients. Older IDs return an unknown-ID
-error. Detached completed requests are discarded. A daemon disconnect reports
-failure with an unknown playback outcome and clears pending work. Requests are
-not replayed after reconnect.
+error. The session discards detached completed requests. A daemon disconnect
+reports failure with an unknown playback outcome and clears pending work. The
+session does not replay requests after reconnect.
 
 The existing `cancel_macro_playback` command and global stop bindings still stop
 all macros. They also cancel queued requests. `cancel_macro_request` is the
@@ -105,7 +105,7 @@ keymasq type --ordered --wait 'hello'
 
 `--ordered` opts into the shared FIFO. `--wait` alone permits concurrent playback
 and keeps the CLI connected until a terminal result arrives. Successful
-completion exits with status 0; cancellation or failure exits with status 1.
+completion exits with status 0, and cancellation or failure exits with status 1.
 SIGINT, including Ctrl+C, cancels this request and exits with status 130. SIGTERM
 cancels it and exits with status 143. The CLI waits up to three seconds for the
 cancellation event before closing its connection, which also requests cancellation.

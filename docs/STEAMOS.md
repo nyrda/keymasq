@@ -1,9 +1,9 @@
 # SteamOS / Steam Deck (AppImage)
 
 Keymasq ships an AppImage for SteamOS and other distributions without a
-native package. It is self-contained and installs itself, including the
-system services and device rules Keymasq needs, and it survives SteamOS
-updates.
+native package. The AppImage bundles its own runtime and installs itself,
+along with the system services and device rules Keymasq needs. SteamOS
+updates do not remove the install.
 
 ## Install
 
@@ -37,47 +37,46 @@ the same terminal:
 
 The plain `keymasq` command works in terminals opened after your next login.
 
-After setup, you can go back to Game Mode: remapping runs as a background
+After setup, you can go back to Game Mode. Remapping runs as a background
 service and does not need the GUI or Desktop Mode.
 
-The rest of this page documents what the installer puts on disk and how
-updates, persistence, and uninstall behave.
+The rest of this page covers what the installer puts on disk, how the install
+persists across SteamOS updates, and how to update and uninstall Keymasq.
 
-## Install Model
+## Install model
 
-The install lives in two places:
+The installer writes to two system locations:
 
-- `/opt/keymasq`: the application itself — the AppImage, the extracted
-  runtime it runs from, and the commands under `/opt/keymasq/bin`
-- `/etc`: the system integration — the `keymasqd` service, udev rules,
-  macro-recording polkit rule, `/etc/keymasq/security.toml`,
-  `/etc/profile.d/keymasq.sh`, and the SteamOS keep-list
+- `/opt/keymasq` holds the application. That is the AppImage, the extracted
+  runtime it runs from, and the commands under `/opt/keymasq/bin`.
+- `/etc` holds the system integration. That is the `keymasqd` service, udev
+  rules, macro-recording polkit rule, `/etc/keymasq/security.toml`,
+  `/etc/profile.d/keymasq.sh`, and the SteamOS keep-list.
 
-The desktop entry, the `keymasq-session` user service, and the `~/.local/bin`
-wrappers are installed for the invoking desktop user. The installer enables
-and starts both services.
+The installer also sets up the desktop entry, the `keymasq-session` user
+service, and the `~/.local/bin` wrappers for the desktop user who ran it. It
+then enables and starts both services.
 
-Existing commands in `~/.local/bin` are never replaced unless they are
-recognizable wrappers from an earlier Keymasq AppImage install. This includes
-`waypipe`; move or rename a conflicting user-managed command before installing
-if you want Keymasq to create its wrapper there.
+The installer only replaces a command in `~/.local/bin` if it recognizes that
+command as a wrapper from an earlier Keymasq AppImage install. This applies to
+`waypipe` too. If you have your own command with a conflicting name and want
+Keymasq to create its wrapper there, move or rename yours before installing.
 
-The full file layout and the runtime extraction model are documented in
-`packaging/appimage/README.md`.
+`packaging/appimage/README.md` documents the full file layout and the runtime
+extraction model.
 
-## SteamOS Persistence
+## SteamOS persistence
 
-A SteamOS update replaces the OS but does not touch Keymasq: nothing needs to
-be reinstalled or re-run afterwards.
+A SteamOS update replaces the OS but leaves Keymasq in place. You do not need
+to reinstall or re-run anything afterwards.
 
-Most of the install persists on its own. On SteamOS, `/opt` lives on the same
-persistent partition as `/home`, so the runtime under `/opt/keymasq` — like
-your configuration in `/home` — survives OS updates without help. SteamOS
-does clean third-party files out of `/etc` during updates, so the installer
-registers everything it put there in a keep-list at
-`/etc/atomic-update.conf.d/keymasq.conf`.
+On SteamOS, `/opt` is on the same persistent partition as `/home`. OS updates
+leave that partition alone, so the runtime under `/opt/keymasq` and your
+configuration in `/home` both survive them. SteamOS does delete third-party
+files from `/etc` during updates. To prevent that, the installer lists every
+file it put there in a keep-list at `/etc/atomic-update.conf.d/keymasq.conf`.
 
-## Security Defaults
+## Security defaults
 
 SteamOS/AppImage installs disable the recording unlock requirement in
 `/etc/keymasq/security.toml`:
@@ -88,50 +87,50 @@ unlock_required = false
 macro_recording_time_limit = 10
 ```
 
-Recording works out of the box, without a per-session unlock.
+With this setting, you can record macros without unlocking recording in each
+session.
 
-## Remote Configuration (waypipe)
+## Remote configuration (waypipe)
 
-The GUI is only needed for setup, not at runtime, so on a Steam Deck you do not
-have to leave Game Mode to configure Keymasq. The AppImage bundles
-[`waypipe`](https://gitlab.freedesktop.org/mstoeckl/waypipe), so the Deck side
-needs nothing extra — install a compatible `waypipe` on your workstation
-(ideally the same version; the 0.10+ Rust series), then forward the GUI over
-SSH:
+You only need the GUI for setup, so on a Steam Deck you can configure Keymasq
+without leaving Game Mode. The AppImage bundles
+[`waypipe`](https://gitlab.freedesktop.org/mstoeckl/waypipe), so you do not
+have to install anything on the Deck. On your workstation, install a compatible
+`waypipe` from the 0.10+ Rust series, ideally the same version the AppImage
+bundles. Then forward the GUI over SSH:
 
 ```bash
 waypipe -n --remote-bin /opt/keymasq/bin/waypipe ssh deck@<deck-ip> \
   /opt/keymasq/bin/keymasq
 ```
 
-The GUI runs on the Deck and connects to the running `keymasq-session` there,
-while it renders on your workstation's Wayland display. gamescope is not
-involved: `waypipe` gives the GUI its own Wayland display, so the Deck keeps
-running Game Mode untouched. This needs a Wayland compositor on your
-workstation.
+The GUI runs on the Deck and connects to the `keymasq-session` running there,
+but it renders on your workstation's Wayland display. `waypipe` gives the GUI
+its own Wayland display, so the GUI never goes through gamescope and the Deck
+stays in Game Mode. Your workstation needs a Wayland compositor for this.
 
-## Remote Configuration in a Browser
+## Remote configuration in a browser
 
-The AppImage bundles gtk-brotway so the real GTK4 GUI can be used from a web
-browser. Prefer an SSH tunnel because the Brotway endpoint does not provide
-authentication:
+The AppImage bundles gtk-brotway, which lets you use the GTK4 GUI from a web
+browser. The Brotway endpoint has no authentication, so connect through an SSH
+tunnel:
 
 ```bash
 ssh -L 18101:127.0.0.1:18101 deck@<deck-ip> \
   /opt/keymasq/bin/gtk4-brotway-run --port 18101 /opt/keymasq/bin/keymasq
 ```
 
-Then open `http://127.0.0.1:18101/` locally. The AppImage launcher defaults to
-binding Brotway only to `127.0.0.1`; the endpoint has no authentication. On a
-trusted private network, an explicit `--address 0.0.0.0` makes it reachable
-directly. Do not expose such a listener to an untrusted network. The launcher
-also forces the selected Brotway display, so an inherited SSH X11 `DISPLAY`
-cannot redirect the GUI away from Brotway.
+Then open `http://127.0.0.1:18101/` on your workstation. By default the
+AppImage launcher binds Brotway to `127.0.0.1` only. On a trusted private
+network, you can pass `--address 0.0.0.0` to reach it without a tunnel. Do not
+expose that listener to an untrusted network. The launcher also forces the GUI
+onto the selected Brotway display, so a `DISPLAY` variable inherited from SSH
+X11 forwarding cannot send the GUI somewhere else.
 
 ## Updates
 
-Self-updates run through polkit and prompt for your password like the
-installer:
+The self-update runs through polkit and asks for your password, as the
+installer does:
 
 ```bash
 keymasq --self-update
@@ -139,30 +138,35 @@ keymasq --self-update
 
 The update verifier uses the host `gpg` command, which SteamOS provides.
 
-The updater downloads a JSON manifest and detached signature from the Keymasq
-repository, verifies the manifest with the public key installed under
-`/opt/keymasq/share/keymasq/appimage-update.gpg.asc`, verifies that the manifest
-architecture matches the running system, downloads the referenced AppImage,
-checks its SHA-256, extracts it into
-`/opt/keymasq/runtime/<sha256>`, atomically replaces
-`/opt/keymasq/Keymasq.AppImage`, atomically repoints
-`/opt/keymasq/runtime/current`, refreshes installed host integration files, and
-restarts services.
+The updater runs these steps in order:
 
-If either systemd service cannot be restarted, the updater exits with an error
-that states the files were installed but service recovery is required; it does
-not report the update as fully successful.
+1. It downloads a JSON manifest and a detached signature from the Keymasq
+   repository.
+2. It verifies the manifest with the public key installed under
+   `/opt/keymasq/share/keymasq/appimage-update.gpg.asc`.
+3. It checks that the manifest architecture matches the running system.
+4. It downloads the AppImage the manifest references and checks its SHA-256.
+5. It extracts the AppImage into `/opt/keymasq/runtime/<sha256>`.
+6. It atomically replaces `/opt/keymasq/Keymasq.AppImage` and repoints
+   `/opt/keymasq/runtime/current`.
+7. It refreshes the installed host integration files and restarts the
+   services.
 
-Signed manifest replays cannot downgrade an installed build by default: the
-updater compares the manifest version with the installed Keymasq version and
-refuses older versions. For an intentional rollback, use:
+If the updater cannot restart either systemd service, it exits with an error.
+The error says that the files were installed but the services still need to be
+recovered. The updater does not report such an update as successful.
+
+The updater compares the manifest version with the installed Keymasq version
+and refuses older versions. An attacker who replays an old signed manifest
+therefore cannot downgrade your install. To roll back on purpose, use:
 
 ```bash
 keymasq --self-update --allow-downgrade
 ```
 
-The embedded update public key is the repository/package signing public key
-published at `https://repo.keymasq.tools/gpg-key.asc`.
+The update public key embedded in the AppImage is the same key that signs the
+package repository. It is published at
+`https://repo.keymasq.tools/gpg-key.asc`.
 
 ## Uninstall
 
@@ -170,10 +174,10 @@ published at `https://repo.keymasq.tools/gpg-key.asc`.
 keymasq --uninstall
 ```
 
-Uninstall removes AppImage integration, systemd units, udev rules,
-Keymasq-managed wrappers, desktop files, and the SteamOS keep-list. It
-preserves user-managed commands with the same names. Existing input devices
-are retriggered after hidden-source flags and Keymasq ACL entries are removed,
-so uninstall does not require a reboot or device replug. It intentionally
-leaves `/etc/keymasq`, `/var/lib/keymasq`, and user configuration/macros in
-place.
+The uninstaller removes the AppImage integration, systemd units, udev rules,
+Keymasq-managed wrappers, desktop files, and the SteamOS keep-list. It keeps
+any commands of your own that share a name with a Keymasq wrapper. After it
+removes the hidden-source flags and Keymasq ACL entries, it retriggers the
+connected input devices, so you do not need to reboot or replug anything. It
+leaves `/etc/keymasq`, `/var/lib/keymasq`, and your configuration and macros in
+place on purpose.

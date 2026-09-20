@@ -1,4 +1,4 @@
-# Dependency Reference
+# Dependency reference
 
 This document summarizes the dependencies Keymasq needs at runtime, for
 packaging, and for development. It complements `docs/INSTALL.md` and
@@ -28,14 +28,14 @@ If you are packaging Keymasq, check the package definitions directly:
 - `packaging/rpm/build-opensuse-rpm.sh`
 - `flake.nix`
 
-## Python Version
+## Python version
 
 - Minimum supported Python version: `3.12`
 
 Keymasq uses the Python 3.12 standard library `tomllib` for TOML reads, so it
 does not depend on the older `tomli` package.
 
-## Base Python Runtime Dependencies
+## Base Python runtime dependencies
 
 Defined in `pyproject.toml` under `[project].dependencies`:
 
@@ -56,11 +56,11 @@ What they are used for:
 
 ### Optional Python speedup: uvloop
 
-`uvloop` is not a required base dependency. It is declared in the `speedups`
-extra in `pyproject.toml`. When it is importable, `keymasqd` and
+`uvloop` is not a required base dependency. The `speedups` extra in
+`pyproject.toml` declares it. When it is importable, `keymasqd` and
 `keymasq-session` install `uvloop.EventLoopPolicy` as the default `asyncio`
-policy; when it is missing or broken, they log a warning and fall back to the
-stdlib event loop. No feature is lost without it — only latency/jitter
+policy. When it is missing or broken, they log a warning and fall back to the
+stdlib event loop. Without it Keymasq loses no feature, only latency/jitter
 headroom (see `docs/PERFORMANCE.md`).
 
 Most maintained packages install it by default anyway:
@@ -95,10 +95,10 @@ available, but the virtual device's advertised maximum effect count cannot be
 capped to the physical device's exact value until `evdev 1.7.0+`.
 
 
-## System Runtime Dependencies
+## System runtime dependencies
 
-These are not fully expressed by Python package metadata alone, but they are
-required for a usable desktop install.
+Python package metadata does not fully express these, but a usable desktop
+install requires them.
 
 Core system integration:
 
@@ -126,10 +126,10 @@ Notes:
 - The `keymasqd` daemon relies on system integration from the package or local
   setup: service units, a `keymasq` system user, tmpfiles, and udev ACL rules.
 
-## Feature-Specific Dependencies
+## Feature-specific dependencies
 
-These are optional in the sense that Keymasq can run without them, but the
-related feature will be unavailable or degraded.
+Keymasq can run without these, but the related feature will be unavailable or
+degraded.
 
 ### Compositor and desktop support
 
@@ -143,25 +143,24 @@ related feature will be unavailable or degraded.
   `gnome-extension/`
 - X11: requires `python-xlib`, which is part of the base Python dependency set
 
-No extra Python package is currently required specifically for Hyprland, Niri,
-KDE, COSMIC, wlroots Wayland, or GNOME beyond the base runtime set. The
-differentiator is the compositor/session environment itself.
+Hyprland, Niri, KDE, COSMIC, wlroots Wayland, and GNOME currently need no
+extra Python package beyond the base runtime set. What differs is the
+compositor/session environment.
 
 ### Pointer capture helpers
 
 - Session cursor-position reads on generic Wayland use an internal
-  `zwlr_layer_shell_v1` + `zxdg_output_manager_v1` backend; they do not spawn
+  `zwlr_layer_shell_v1` + `zxdg_output_manager_v1` backend and do not spawn
   `slurp`
-- `slurp` is used only by GUI point-picking Capture on compatible compositors:
-  `hyprland`, `wayland`, `wayland-wlr`, `wayland-layer-shell`, `kde`,
-  `cosmic`, and `niri`
+- Only GUI point-picking Capture uses `slurp`, and only on compatible
+  compositors: `hyprland`, `wayland`, `wayland-wlr`, `wayland-layer-shell`,
+  `kde`, `cosmic`, and `niri`
 - On unsupported compositors, GUI `slurp` capture is not used
 - AppImage builds bundle `slurp` and prefer the extracted AppImage runtime path
 - Other builds check the embedded build path first, then `/usr/bin/slurp`,
   `/run/current-system/sw/bin/slurp`, and finally `PATH`
-- `SLURP_PATH` overrides auto-detection entirely:
-  set it to an absolute path to force that binary, or set it to an empty string
-  to disable GUI `slurp` capture
+- `SLURP_PATH` overrides auto-detection. Set it to an absolute path to force
+  that binary, or set it to an empty string to disable GUI `slurp` capture
 
 `slurp` is not a universal base runtime dependency. It is a GUI Capture helper
 for supported Wayland environments.
@@ -180,8 +179,8 @@ bus restarts.
 - The AppImage bundles the checksum-pinned `nyrda/gtk-brotway` Arch overlay.
 - gtk-brotway supplies a private Broadway-only `libgtk-4`, `gtk4-broadwayd`,
   its launcher, and debug menu. The `gtk4-brotway-run` and
-  `gtk4-brotway-debugmenu` wrappers activate the private backend; stock GTK
-  remains the default elsewhere.
+  `gtk4-brotway-debugmenu` wrappers activate the private backend, and stock
+  GTK remains the default elsewhere.
 - Native packages do not depend on or install gtk-brotway.
 
 ### Capture unlock helper
@@ -193,7 +192,7 @@ bus restarts.
 
 See `docs/SECURITY.md` and `docs/PACKAGING.md` for details.
 
-## Development and Test Dependencies
+## Development and test dependencies
 
 Defined in `pyproject.toml` under `[project.optional-dependencies]`:
 
@@ -215,10 +214,10 @@ Defined in `pyproject.toml` under `[project.optional-dependencies]`:
 The Nix dev shell in `flake.nix` also provides the system-side pieces needed to
 run the test suite and quality checks locally.
 
-## Packaged Runtime Dependencies
+## Packaged runtime dependencies
 
-The package manifests are authoritative, and this document intentionally does
-not duplicate their full dependency lists. Check them directly:
+The package manifests are authoritative, and this document does not duplicate
+their full dependency lists. Check them directly:
 
 - Arch / AUR: `PKGBUILD` and `packaging/aur/PKGBUILD` (`depends`)
 - Debian: `debian/control` (`Depends` / `Recommends` / `Suggests`)
@@ -248,15 +247,15 @@ use case.
 ### RPM packaging notes
 
 Fedora relies on Fedora's `%pyproject_*` macros, so RPMs are built per Fedora
-release rather than as one cross-release RPM. Fedora resolves `uvloop`
-through `python3dist(uvloop)` metadata (provided by `python3-uvloop`);
-openSUSE follows its versioned Python package pattern, for example
-`python313-uvloop`.
+release rather than as one cross-release RPM. Fedora resolves `uvloop` through
+`python3dist(uvloop)` metadata (provided by `python3-uvloop`). openSUSE
+follows its versioned Python package pattern, for example `python313-uvloop`.
 
 Keymasq keeps `uvloop` as a weak RPM dependency instead of a hard one because
 Fedora 43 does not currently expose a stable `python3-uvloop` package in the
 same way Fedora 42 does. RPM installs therefore remain valid without `uvloop`,
-and the runtime falls back cleanly with a warning when it is unavailable.
+and the runtime falls back to the stdlib event loop with a warning when it is
+unavailable.
 
 ### Nix package and NixOS module
 

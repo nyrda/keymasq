@@ -1,4 +1,4 @@
-# Mouse UI Automation
+# Mouse UI automation
 
 Use a macro to click fixed positions in an application that does not have good
 keyboard shortcuts.
@@ -13,15 +13,15 @@ Examples:
 For reliable UI automation, build the click sequence manually with natural mouse
 move events when realtime cursor feedback is available. Use a high natural move
 speed for near-instant positioning. Avoid replaying recorded mouse movement for
-this kind of workflow; pointer paths are fragile, while fixed positions and
-explicit waits are easier to inspect and adjust on the timeline.
+this kind of workflow. Recorded pointer paths break easily, while fixed
+positions and explicit waits are easier to inspect and adjust on the timeline.
 
-## Bind A Cancel Key First
+## Bind a cancel key first
 
 Before testing mouse automation, bind **Cancel Macro Playback** to a key or combo.
 Use it as an emergency stop if anything goes wrong.
 
-## Create An Empty Macro
+## Create an empty macro
 
 1. Click **Open Macros**.
 2. Click **Empty**.
@@ -31,7 +31,7 @@ Use it as an emergency stop if anything goes wrong.
 open_export_dialog
 ```
 
-## Add A Fixed Click
+## Add a fixed click
 
 In the macro editor, the middle lane is the mouse movement lane.
 
@@ -52,7 +52,7 @@ Use a small delay between the natural move and the click, for example:
 
 Repeat the same pattern for each UI target.
 
-## Position Events On The Timeline
+## Position events on the timeline
 
 Place later events far enough apart for the target app to react:
 
@@ -64,7 +64,7 @@ For example, if a menu takes time to open, place the next natural move and click
 later in the timeline. Start with conservative spacing, then reduce it
 after testing if the app responds reliably.
 
-## Bind The Macro
+## Bind the macro
 
 Bind the macro to a key, mouse button, combo, or superkey slot.
 
@@ -72,7 +72,7 @@ When choosing the macro action:
 
 | Option | Recommended value |
 |---|---|
-| Replay mouse movement | Off. This disables recorded pointer paths; manually added natural or absolute move events still run. |
+| Replay mouse movement | Off. This disables recorded pointer paths. Manually added natural or absolute move events still run. |
 | Replay mouse clicks | On |
 | Speed | Start at `1.0` |
 
@@ -80,7 +80,7 @@ Keep macro playback **Speed** at `1.0` until the macro works reliably. Tune the
 natural move event's own `kpx/s` speed for cursor positioning. If the app misses
 clicks or opens the wrong menu, move the fragile step later in the timeline.
 
-## Reliability Tips
+## Reliability tips
 
 - Keep the target window in the same position and size.
 - Use a conditional profile so the macro only runs for the intended app.

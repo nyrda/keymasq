@@ -85,13 +85,11 @@ plugins:
   - search
 
 # Docs intentionally omitted from the published site (developer-facing):
-#   - APPIMAGE_BROTWAY_INTEGRATION_TEST.md
 #   - DEPENDENCIES.md
 #   - LISTENER_VM_TESTS.md
 #   - PACKAGING.md
 #   - SCREENSHOTS.md
 #   - VM_TESTING.md
-#   - WAYLAND_PROTOCOL_TRACKERS.md
 # They stay in the repo; just not linked from nav.
 nav:
   - Home: index.md

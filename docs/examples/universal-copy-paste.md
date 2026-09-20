@@ -1,4 +1,4 @@
-# Universal Copy And Paste
+# Universal copy and paste
 
 Use one key or combo for copy and paste everywhere, while still handling apps
 that use different shortcuts.
@@ -14,7 +14,7 @@ Example behavior:
 This uses one permanent profile for the normal behavior, then conditional
 profiles that override the same key or combo for specific windows.
 
-## Create The Default Superkey
+## Create the default superkey
 
 Open **Super Keys** and create a **Pattern** superkey:
 
@@ -31,7 +31,7 @@ Set the slots:
 | Hold | Keyboard: `key_leftctrl` + `key_v` |
 | Tap + Hold | Keyboard: `key_leftctrl` + `key_leftshift` + `key_v` |
 
-## Add It To A Permanent Profile
+## Add it to a permanent profile
 
 Create or select a permanent profile such as:
 
@@ -48,7 +48,7 @@ copy_paste_default
 This is the fallback behavior used everywhere unless a conditional profile
 overrides it.
 
-## Create A Terminal Override
+## Create a terminal override
 
 Open **Super Keys** and create another **Pattern** superkey:
 
@@ -91,7 +91,7 @@ If you use a combo trigger, create the same combo in the conditional profile.
 When the trigger is identical, the active conditional profile replaces the
 permanent profile's combo action.
 
-## Optional: Insert-Style Override
+## Optional: insert-style override
 
 Some applications handle `Ctrl+Insert` and `Shift+Insert` more reliably than
 `Ctrl+C` and `Ctrl+V`.
@@ -114,7 +114,7 @@ Set the slots:
 Then create a conditional profile for those apps and bind the same trigger to
 `copy_paste_insert`.
 
-## Regex Notes
+## Regex notes
 
 Window rules use regular expressions. To match several apps with one rule,
 use `|` as "or":
@@ -143,7 +143,7 @@ If you capture the active window from the GUI, Keymasq may add both class and
 title rules. Delete the title rule when you want one class regex to match all
 windows from several apps.
 
-## Why This Shape
+## Why this approach
 
 Keep the normal binding in a permanent profile. Put only the app-specific
 replacement in conditional profiles.

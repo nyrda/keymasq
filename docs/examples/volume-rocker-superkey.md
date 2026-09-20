@@ -1,4 +1,4 @@
-# Volume Rocker Key
+# Volume rocker key
 
 Use one key as a small volume rocker:
 
@@ -13,7 +13,7 @@ Use the **rapidfire system-key** setup first. It is simpler and does not need
 macros. Use the **PipeWire command macro** setup when you want Keymasq to call
 `wpctl` directly instead of sending `key_volumeup` and `key_volumedown`.
 
-## Option A: System Keys With Rapidfire
+## Option A: system keys with rapidfire
 
 Open **Super Keys**, create a new superkey, and choose **Pattern** mode.
 
@@ -41,7 +41,7 @@ For the held actions, start with:
 
 Increase **Rapidfire Wait** if the volume changes too quickly.
 
-## Option B: PipeWire Command Macros
+## Option B: PipeWire command macros
 
 Use this path when media keys are not handled correctly by your desktop, or
 when you want fixed volume steps controlled by PipeWire.
@@ -99,9 +99,9 @@ Then create the same **Pattern** superkey, but use macro actions:
 | Hold | Play Macro: `volume_down` |
 | Tap + Hold | Play Macro: `volume_up` |
 
-Macros bound to tap slots do not keep looping, so the same **While Held**
-macro can be used for both tap and hold patterns. Tap runs one volume step;
-hold repeats the macro until you release the key.
+Macros bound to tap slots do not keep looping, so you can use the same
+**While Held** macro for both tap and hold patterns. Tap runs one volume step,
+and hold repeats the macro until you release the key.
 
 The completed superkey actions should look similar to this:
 
@@ -122,12 +122,13 @@ Suggested superkey timing:
 Use shorter timings if the key feels sluggish. Use longer timings if double
 tap or tap + hold is hard to trigger reliably.
 
-## Bind It To A Key Or Combo
+## Bind it to a key or combo
 
 Bind `volume_rocker` anywhere a superkey can be used:
 
-- **Device tab**: choose a key or button and set its action to **Super Key**.
-- **Combos tab**: create a combo and set its action to **Super Key**.
+- In the **Device** tab, choose a key or button and set its action to
+  **Super Key**.
+- In the **Combos** tab, create a combo and set its action to **Super Key**.
 
 In either place, select:
 
@@ -135,7 +136,7 @@ In either place, select:
 volume_rocker
 ```
 
-## Which Option To Pick
+## Which option to pick
 
 Use **Option A** when your desktop already reacts to volume media keys. It is
 the normal Keymasq setup for this workflow.

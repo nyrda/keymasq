@@ -1,4 +1,4 @@
-# Text Snippet Macro
+# Text snippet macro
 
 Use a macro to type a reusable text snippet, such as an email address, support
 reply, command, or signature.
@@ -8,7 +8,7 @@ language or keyboard layout. For localized text, accents, symbols, or anything
 layout-sensitive, record the text on your own keyboard layout and then clean up
 the timing in the macro editor.
 
-## When To Use Type Macro
+## When to use Type Macro
 
 Use **Type Macro** for simple snippets made from standard letters, numbers, and
 common symbols. If the snippet contains Unicode characters, the dialog can also
@@ -24,9 +24,9 @@ For text in your preferred language, text with accented characters, or text
 that depends on your keyboard layout, test Type Macro's Unicode option first.
 If the target app does not accept those sequences, use a recording instead.
 
-## Record The Snippet
+## Record the snippet
 
-Create a recording with the layout you actually type with:
+Create a recording with the layout you type with:
 
 1. Enable macro recording and bind **Toggle Recording** slot 1 to a temporary key.
 2. Open a plain text editor.
@@ -42,7 +42,7 @@ email_signature
 Do not worry about typing speed while recording. The next step normalizes the
 timing.
 
-## Normalize The Timing
+## Normalize the timing
 
 Open the recorded macro in the editor.
 
@@ -56,11 +56,10 @@ Use **Timing Tools** to shape the replay:
 
 ![Timing Tools for trimming and normalizing macro gaps](../assets/screenshots/examples/timing_tools.png)
 
-The goal is not to make every key instant. The goal is to remove human pauses
-and leave a steady sequence that the target application can still receive
-reliably.
+The goal is to remove human pauses and leave a steady sequence that the target
+application can still receive reliably. The keys do not need to be instant.
 
-## Bind The Macro
+## Bind the macro
 
 Bind the macro to a key, mouse button, combo, or superkey slot.
 
@@ -74,7 +73,7 @@ When choosing the macro action, use **Speed** as the final tuning control:
 Shape the macro once in the timeline. Fine-tune replay speed where you bind
 the macro.
 
-## Why This Shape
+## Why this approach
 
 The recording captures the exact key events your layout produces. The editor
 then turns that human recording into a fast, reusable macro without Keymasq

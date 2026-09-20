@@ -1,4 +1,4 @@
-# Custom Modifier Combos
+# Custom modifier combos
 
 Use any spare key or button as a modifier-like combo leader.
 
@@ -17,7 +17,7 @@ Example:
 This is useful when you want a compact navigation layer without changing your
 keyboard layout or relying on app-specific shortcuts.
 
-## Suppress The Leader
+## Suppress the leader
 
 Pick the key or button that should act like your custom modifier.
 
@@ -31,7 +31,7 @@ Suppressing the leader keeps it from reaching applications when pressed by
 itself. Keymasq combo capture still sees the original physical key, so the
 same key can be used in combo triggers.
 
-## Add The Combos
+## Add the combos
 
 Go to the **Combos** tab and add one combo per action.
 
@@ -49,7 +49,7 @@ Create these single-step combos:
 When capturing each combo, hold Caps Lock and press the second key. Save the
 combo with the matching keyboard action.
 
-## Optional: Use Superkeys As Combo Actions
+## Optional: use superkeys as combo actions
 
 Combo actions can point at saved superkeys.
 
@@ -65,10 +65,10 @@ Then bind a combo to it:
 |---|---|
 | Caps Lock + W | Super Key: `nav_word_select` |
 
-This lets a custom modifier combo trigger richer tap, double-tap, hold, or
+This lets a custom modifier combo trigger tap, double-tap, hold, or
 tap-and-hold behavior.
 
-## Other Leader Inputs
+## Other leader inputs
 
 The same pattern works with other keys and buttons:
 
@@ -87,7 +87,7 @@ Mouse Back + V -> Paste
 Combos can also span devices, so the leader can be on a mouse while the second
 input is on a keyboard.
 
-## App-Specific Overrides
+## App-specific overrides
 
 Put the default combos in a permanent profile. Then create conditional
 profiles for apps that need different actions.

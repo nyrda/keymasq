@@ -1,7 +1,7 @@
-# Analog Controls — Config Format
+# Analog Controls config format
 
 This is the TOML reference for analog control configs. For an overview of
-the feature, modes, and GUI workflow, see [Game Controller Support](GAMEPAD.md).
+the feature, modes, and GUI workflow, see [Game controller support](GAMEPAD.md).
 
 Configs live in `~/.config/keymasq/analog_controls/`. Profiles map a
 hardware analog source to a saved config:
@@ -21,7 +21,7 @@ action = "analog_control"
 analog_control_names = ["FPS Mouse", "WASD"]
 ```
 
-## Top-Level Fields
+## Top-level fields
 
 ```toml
 name = "FPS Mouse"
@@ -29,7 +29,7 @@ description = "Right stick mouse"
 input_type = "stick"         # "stick" (2D) or "axis" (1D)
 ```
 
-## Mouse Motion
+## Mouse motion
 
 ```toml
 [mouse_motion]
@@ -86,9 +86,9 @@ Returning to rest brings the pointer back to the origin. When
 #### Touchpad input style
 
 Use `mode = "area"` and `area_input_style = "touchpad"` for controller touchpads
-exposed as paired analog axes
-that return to exactly normalized `(0.0, 0.0)` when released. Existing axis
-detection and normalization apply; no separate touch button is required.
+exposed as paired analog axes that return to exactly normalized `(0.0, 0.0)`
+when released. Existing axis detection and normalization apply, and no separate
+touch button is required.
 The daemon temporarily sets kernel fuzz to zero on these axes so filtering cannot
 prevent an exact zero release. It restores the original fuzz when the touchpad
 mapping is removed or the device is released.
@@ -108,44 +108,45 @@ Desktop pointer settings can further affect the displayed distance.
 `invert_x` and `invert_y` reverse the corresponding movement.
 
 A finger's contact patch grows while it lands and shrinks while it lifts, which
-shifts the reported position although the finger did not travel. Two rules keep
-that out of the pointer:
+shifts the reported position although the finger did not travel. Two rules stop
+that shift from moving the pointer:
 
 - Movement while a touch settles only moves the reference. Settling takes 60 ms,
   or ends after 20 ms once the finger is evidently swiping (three pad
   half-widths per second over 12 ms), so a flick keeps its travel.
-- Movement that starts from rest is held for up to 24 ms and is dropped if the
-  touch ends first. The hold shrinks as the finger speeds up and reaches zero at
+- The daemon holds movement that starts from rest for up to 24 ms and drops it
+  if the touch ends first. The hold shrinks as the finger speeds up and reaches zero at
   three pad half-widths per second, measured over the preceding 40 ms, so
-  ongoing movement and flicks add no latency. Held movement is emitted on time
-  even when the pad sends no further reports.
+  ongoing movement and flicks add no latency. The daemon emits held movement on
+  time even when the pad sends no further reports.
 
 Returning to exactly `(0.0, 0.0)` ends the touch without emitting movement and
-clears the reference, held movement, and fractional remainder. The next touch can start anywhere
-without jumping. Either axis alone may be zero while the other remains nonzero.
+clears the reference, held movement, and fractional remainder. The next touch
+can start anywhere without jumping. Either axis alone may be zero while the
+other remains nonzero.
 Holding still produces no movement and has no timeout. A touch that actually
 reports the exact zero pair also ends the stroke.
 
-X and Y updates are collected through `SYN_REPORT` before movement is calculated
-from the complete pair. Fractional movement accumulates during a touch. Stick deadzone,
-sensitivity, response curve, velocity, tick interval, and area start-position
-settings do not affect Touchpad style. There is no inertia or automatic clicking;
-map a separate button for clicks or dragging.
-Buttons following area axes in a report are dispatched after processing its
-complete X/Y pair. During continuous movement, motion precedes the button, so a
-drag release uses the final pointer position. From rest, the button is immediate
-while movement waits for the lift hold; that movement can arrive after the
-button transition or be discarded if the touch ends first.
+The daemon collects X and Y updates through `SYN_REPORT` before it calculates
+movement from the complete pair. Fractional movement accumulates during a touch.
+Stick deadzone, sensitivity, response curve, velocity, tick interval, and area
+start-position settings do not affect Touchpad style. There is no inertia or
+automatic clicking. Map a separate button for clicks or dragging.
+The daemon dispatches buttons that follow area axes in a report after it
+processes the complete X/Y pair. During continuous movement, motion precedes the
+button, so a drag release uses the final pointer position. From rest, the button
+is immediate while movement waits for the lift hold. That movement can arrive
+after the button transition or be discarded if the touch ends first.
 
-Changed or removed mappings clear their touch state; unchanged controls retain
-it during profile updates. Physical coordinates survive control resets.
+Changed or removed mappings clear their touch state, and unchanged controls
+retain it during profile updates. Physical coordinates survive control resets.
 After `SYN_DROPPED`, the daemon ignores the damaged report and reads the current
 axes from the device. Reports older than that snapshot cannot emit area movement.
-A held touch must be released before movement resumes;
-a recovered zero pair permits a new touch immediately. Stick style rebases to
-the recovered position and follows subsequent movement without requiring release.
+You must release a held touch before movement resumes. A recovered zero pair
+permits a new touch immediately. Stick style rebases to the recovered position
+and follows subsequent movement without requiring release.
 
-## Gamepad Output
+## Gamepad output
 
 ```toml
 [gamepad_output]
@@ -171,9 +172,9 @@ response_curve = 1.0         # 0.25–4.0
   `abs_rx`, `abs_ry`, `abs_z`, `abs_rz`, `abs_hat0x`, and `abs_hat0y`.
   Hardware outputs expose learned axes with valid ranges, including individual
   components of a stick and custom axes such as `abs_throttle`.
-  At runtime, missing saved ranges and rest values are filled from the
-  destination's grab-time calibration. Valid numeric-only `evdev_code` identities
-  are also supported by the daemon's output capability resolver.
+  At runtime, the destination's grab-time calibration fills missing saved
+  ranges and rest values. The daemon's output capability resolver also supports
+  valid numeric-only `evdev_code` identities.
 - `same` — preserves the source side: `left_stick` writes `ABS_X`/`ABS_Y`,
   `right_stick` writes `ABS_RX`/`ABS_RY`, `left_trigger` writes `ABS_Z`,
   `right_trigger` writes `ABS_RZ`.
@@ -201,8 +202,8 @@ output around the rest value.
 ### Stick output inversion
 
 For stick-to-stick output, `output_invert_x` and `output_invert_y` flip each
-output axis independently after deadzone/sensitivity/curve shaping. Learned
-hardware target-axis inversion is still honored and combines with these
+output axis independently after deadzone/sensitivity/curve shaping. Keymasq
+still honors learned hardware target-axis inversion and combines it with these
 per-control flags.
 
 Virtual Xbox gamepads also accept the legacy left/right stick and trigger
@@ -216,13 +217,14 @@ throttle, hats, and custom axes. Existing named axis targets remain readable.
 
 The editor's **Output Axis** dropdown lists axes on the selected destination.
 **Use Axis Neutral** keeps the rest value automatic. Turn it off to enter a
-raw rest override. Saved unavailable selections remain visible and are not
-silently replaced. With the default same-device output, the editor offers
-standard axes; availability and neutral are resolved against the hardware's
-default output at runtime. With normal passthrough, it uses the source device's
-passthrough clone. Select a specific hardware or template output to choose its custom
-axes. Template outputs use their configured ranges and rest values. For example,
-the built-in flight stick centers Stick X at 511 and releases Throttle at 255.
+raw rest override. Saved unavailable selections remain visible, and the editor
+does not silently replace them. With the default same-device output, the editor
+offers standard axes. At runtime, Keymasq resolves availability and neutral
+against the hardware's default output. With normal passthrough, it uses the
+source device's passthrough clone. Select a specific hardware or template output
+to choose its custom axes. Template outputs use their configured ranges and rest
+values. For example, the built-in flight stick centers Stick X at 511 and
+releases Throttle at 255.
 
 For example, a trigger can drive the negative half of a stick:
 
@@ -241,8 +243,8 @@ output_direction = "min"
 Released input writes zero and full input writes -32768. With `max`, full
 input writes 32767. `both` uses signed input on either side of neutral, with
 optional inversion. Deadzone, sensitivity, and response curve apply before
-conversion to the destination range. Rest overrides and emitted values are
-clamped to that range. Only the selected axis is written and reset, including
+conversion to the destination range. Keymasq clamps rest overrides and emitted
+values to that range. It writes and resets only the selected axis, including
 when a profile is removed or replaced. Single stick-axis output also preserves
 the existing gyro-offset behavior.
 
@@ -251,10 +253,9 @@ at 55% displacement from zero and releases at 45%. This hysteresis prevents
 chatter near the threshold. Release/reset clears the previous hat state.
 
 Existing `same`, `left`, `right`, and `analog` configurations remain readable.
-Standard targets now use destination axis metadata too. Unsupported axes emit
-no output, rather than falling back to a different axis. Selecting an axis does
-not add capabilities to an output device; additional virtual-device axes must
-be advertised by its provider. See [Output axis metadata](OUTPUT_AXES.md).
+Available axes and their ranges depend on the selected output device.
+Unsupported axes emit no output. Selecting an axis does not add capabilities
+to an output device.
 
 ## Thresholds (Digital Actions)
 
@@ -275,10 +276,10 @@ releases when it leaves the release range. The trigger range must be inside
 the release range for explicit hysteresis.
 
 Stick and 1D axis thresholds use `-1.0` to `1.0`. Positive ranges cover one
-direction; negative ranges cover the opposite direction. Overlapping thresholds
-are valid and evaluated independently.
+direction, and negative ranges cover the opposite direction. Overlapping
+thresholds are valid, and Keymasq evaluates each one independently.
 
-## Input Shaping
+## Input shaping
 
 Mouse motion and analog output share the same curve:
 
@@ -298,15 +299,15 @@ The curve mirrors for negative stick directions and for `output_direction = "bot
 ## Presets
 
 For new users, the mapping dialog's **Presets** tab offers one-click starting
-points (Mouse Move, Mouse Area, Scroll Wheel, WASD for sticks; Trigger Left
-Click, Trigger Right Click, Trigger Scroll Up, Trigger Scroll Down for
-triggers). A preset saves a normal, fully editable config and maps it to the
-input — see [Game Controller Support](GAMEPAD.md) for the GUI workflow.
+points. Stick presets are Mouse Move, Mouse Area, Scroll Wheel, and WASD.
+Trigger presets are Trigger Left Click, Trigger Right Click, Trigger Scroll Up,
+and Trigger Scroll Down. A preset saves a normal, fully editable config and maps
+it to the input. See [Game controller support](GAMEPAD.md) for the GUI workflow.
 
 ## Templates
 
 The GUI provides templates for stick digital actions. Templates append
-thresholds to the existing list; the result is fully editable.
+thresholds to the existing list, and you can edit the result.
 
 | Template | Thresholds | Actions |
 |----------|-----------|---------|
@@ -314,7 +315,7 @@ thresholds to the existing list; the result is fully editable.
 | Arrow Keys | 4 (±X, ±Y at 0.65) | `key_up`, `key_down`, `key_left`, `key_right` |
 | Mouse Wheel | 4 (±X, ±Y at 0.55) | Scroll up/down (Y) and side-scroll left/right (X) with rapidfire (hold 20ms, wait 60ms) |
 
-## Full Example
+## Full example
 
 ```toml
 name = "FPS Mouse"

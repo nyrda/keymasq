@@ -3,19 +3,19 @@
 ## Overview
 
 An action is what Keymasq does when a mapped key, combo, or super key fires.
-Every mapping in Keymasq — whether it's a single key remap, a combo trigger,
-or a super key slot — points to one action.
+Every mapping in Keymasq points to one action, whether it is a single key
+remap, a combo trigger, or a super key slot.
 
 After setting up your input devices, you can reassign every key to any action
-Keymasq supports — a different key, a mouse button, a macro, a shell
-command, and more.
+Keymasq supports, such as a different key, a mouse button, a macro, or a shell
+command.
 
-## Quick Start: Remapping a Key
+## Quick start: remapping a key
 
 1. Open the Keymasq GUI and go to the **Device** tab for the device you want
    to remap.
 2. Click the key or button you want to change.
-3. The action chooser dialog opens — pick the action you want from the tabs.
+3. The action chooser dialog opens. Pick the action you want from the tabs.
 4. Click **Map** (or the equivalent button for your chosen action).
 5. The key now performs the new action instead of its original one.
 
@@ -36,7 +36,7 @@ profile does map the key, that lower-priority mapping still applies.
 
 ### Suppress
 
-Block the key entirely. Nothing is sent — the key press is silently consumed.
+Block the key entirely. Keymasq consumes the key press and sends nothing.
 Use this to disable a key you never want to fire.
 
 ### Repeat Last Action
@@ -58,8 +58,8 @@ All five toggles are enabled by default. If every toggle is off, the dialog
 will not let you map the Repeat action.
 
 Repeat never records itself, passthrough mapping actions, suppress actions,
-profile actions, or the emergency reset action. Original passthrough mouse
-movement is not recorded.
+profile actions, or the emergency reset action. It also does not record
+original passthrough mouse movement.
 Repeating a remembered action also refreshes Repeat's history, so pressing
 Repeat several times in a row keeps replaying the same resolved action until
 another repeatable action takes its place.
@@ -77,13 +77,14 @@ action. Super Key paths that contain profile actions are not remembered.
 
 ### Execute Shell Command
 
-Run a shell command when the key is pressed. The command runs inside your
-user session (delegated to keymasq-session, not the privileged daemon).
-Keymasq launches it in the background and continues handling later input.
+Run a shell command when the key is pressed. Keymasq delegates the command to
+keymasq-session, so it runs inside your user session and not in the privileged
+daemon. Keymasq launches it in the background and continues handling later
+input.
 
 Enter the command text and click **Map**.
 
-![Special tab — Passthrough, Suppress, and Execute Shell Command](assets/screenshots/key_selector_special.png)
+![Special tab with Passthrough, Suppress, and Execute Shell Command](assets/screenshots/key_selector_special.png)
 
 Exec actions are also the preferred way to integrate device/vendor tools that
 already solve their own hardware protocols. For example, a mouse button can
@@ -131,7 +132,7 @@ Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
 `KEY_*` code known to the installed evdev table. For a full list, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
-![Keyboard tab — visual layout with Capture Key and raw code entry](assets/screenshots/key_selector_keyboard.png)
+![Keyboard tab with the visual layout, Capture Key, and raw code entry](assets/screenshots/key_selector_keyboard.png)
 
 ## Navigation
 
@@ -142,14 +143,14 @@ A focused set of navigation and function keys for quick access:
 - Insert, Delete
 - Extended function keys F13–F24 (via dropdown)
 
-These are the same as Keyboard actions — the Navigation tab is just a
-convenience for finding these keys faster.
+These are the same as Keyboard actions. The Navigation tab only makes these
+keys faster to find.
 
-![Navigation tab — arrow keys, Home/End, Page Up/Down, Insert, Delete](assets/screenshots/key_selector_navigation.png)
+![Navigation tab with arrow keys, Home/End, Page Up/Down, Insert, and Delete](assets/screenshots/key_selector_navigation.png)
 
 ## Media
 
-Quick access to player controls and raw transport keys:
+The Media tab gives quick access to player controls and raw transport keys.
 
 ### Player Controls
 
@@ -162,7 +163,7 @@ across applications. Two notions of "most recent" drive that policy:
   appear on the bus.
 
 The `play`, `next`, and `previous` commands skip any player that reports it
-can't honor the request, so a player that can't change tracks won't swallow a
+can't honor the request, so a player that can't change tracks never receives a
 `next`.
 
 Supported commands:
@@ -176,8 +177,8 @@ Supported commands:
 | `previous` | Skip back on the most recently detected player that can change tracks. |
 | `stop` | Stop every currently playing player. |
 
-Pausing and stopping are intentionally **cross-application**: because browsers
-and many other apps register as MPRIS players, `play_pause`, `pause`, and `stop`
+Pausing and stopping are intentionally **cross-application**. Browsers and
+many other apps register as MPRIS players, so `play_pause`, `pause`, and `stop`
 act on every matching player at once, not just one. Track controls (`next` /
 `previous`) target the most recently detected capable player, which may not be
 the same player that `play` or `play_pause` would resume.
@@ -192,11 +193,11 @@ The Media tab also offers standard playback key actions:
 Playback media keys remain useful when you want to emit standard
 Linux input key codes such as `key_playpause`, `key_play`, or `key_nextsong`.
 
-![Media tab — MPRIS controls and raw transport key actions](assets/screenshots/key_selector_media.png)
+![Media tab with MPRIS controls and raw transport key actions](assets/screenshots/key_selector_media.png)
 
 ## Mouse
 
-### Mouse Buttons
+### Mouse buttons
 
 Map to a mouse button press: Left, Right, Middle, Side, Extra, Forward, Back,
 or Task (`btn_task`).
@@ -224,12 +225,12 @@ positioning on supported desktops.
 
 Set the X and Y values with the spin buttons, or use **Capture** to select a
 point on screen. On supported platforms (Wayland compositors with slurp),
-Capture opens a crosshair overlay — click anywhere to set the coordinates.
+Capture opens a crosshair overlay. Click anywhere to set the coordinates.
 On other platforms, Capture gives you 2 seconds to move your cursor to the
 desired position, then reads the coordinates automatically.
 
-Absolute and Natural mouse moves are emitted by `keymasqd` through Keymasq's
-virtual mouse device as relative `REL_X`/`REL_Y` events. This keeps them visible
+`keymasqd` emits Absolute and Natural mouse moves through Keymasq's virtual
+mouse device as relative `REL_X`/`REL_Y` events. This keeps them visible
 as normal input to games or other windows that lock the pointer and ignore
 compositor cursor warps. Because these are not native compositor cursor warps,
 the final position can still depend on how the desktop processes relative
@@ -272,7 +273,7 @@ For desktop automation on GNOME or Hyprland, the compositor action **Set
 Cursor** preset is also available when you specifically need the compositor to
 place the pointer at an absolute desktop coordinate.
 
-![Mouse tab — buttons and Move Cursor with Natural/Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
+![Mouse tab with buttons and Move Cursor in Natural/Relative/Absolute mode](assets/screenshots/key_selector_mouse.png)
 
 ## Gamepad
 
@@ -280,19 +281,19 @@ Map to a gamepad button, trigger axis, or stick axis. Available inputs include:
 
 - Face buttons (A, B, X, Y)
 - Shoulder buttons (LB, RB)
-- Triggers (LT, RT) — these output analog values, not simple on/off
-- Stick axes (left/right X and Y) — set a specific analog value while held
+- Triggers (LT, RT), which output analog values, not simple on/off
+- Stick axes (left/right X and Y), which set a specific analog value while held
 - Stick clicks (LS, RS)
 - D-Pad (Up, Down, Left, Right)
 - Select, Start, Guide
 
-![Gamepad tab — face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/key_selector_gamepad.png)
+![Gamepad tab with face buttons, shoulders, triggers, D-pad, and sticks](assets/screenshots/key_selector_gamepad.png)
 
 To map a button outside the template, use the **Button code** field below the
 controller diagram. It accepts an evdev button name (such as `btn_c` or
 `btn_trigger_happy1`) or a numeric key code (decimal or `0x`-prefixed), and
-routes through the same output selected above. This is an advanced option: the
-chosen output must actually support the button code for it to emit. Hardware
+routes through the same output selected above. This is an advanced option. The
+chosen output must support the button code for it to emit. Hardware
 gamepad outputs expose whatever buttons the physical device advertises. The
 built-in Xbox outputs advertise the standard Xbox 360 button set, while
 template-backed outputs advertise their declared buttons and show their
@@ -302,23 +303,23 @@ Gamepad actions can route to a specific output with `output_id`. Use
 `virtual-gamepad-1` through `virtual-gamepad-4` for configured virtual Xbox
 360 outputs, or a configured hardware gamepad ID such as `045e:028e@2`.
 Omitting `output_id` uses the default output, `virtual-gamepad-1` when it
-exists. Explicit targets never fall back: if the daemon cannot route to the
+exists. Explicit targets never fall back. If the daemon cannot route to the
 configured output, it logs a warning and drops the gamepad event.
 
 Analog axis actions use `action = "gamepad_axis"`, a target such as `abs_x`
 or `abs_rz`, and a raw evdev `value`. Built-in Xbox stick axes accept
-`-32768..32767`; trigger axes accept `0..255`. Other virtual outputs use their
-template's ranges. Releasing the source input returns a virtual axis to the
-selected output's declared rest value. The built-in Xbox axes declare `0`.
-Direct axis actions targeting physical hardware currently release to `0`;
-using learned or advertised target metadata is supported by
-[analog-control mappings](GAMEPAD.md#analog-output).
-LT and RT are axis actions (`abs_z` and `abs_rz`); `gamepad` actions are button-only.
+`-32768..32767`, and trigger axes accept `0..255`. Other virtual outputs use
+their template's ranges. Releasing the source input returns a virtual axis to
+the selected output's declared rest value. The built-in Xbox axes declare `0`.
+Direct axis actions targeting physical hardware currently release to `0`.
+[Analog-control mappings](GAMEPAD.md#analog-output) support learned or
+advertised target metadata.
+LT and RT are axis actions (`abs_z` and `abs_rz`). `gamepad` actions are button-only.
 
 To target an axis outside the template, pick **Custom** in the axis dropdown
 and enter an evdev axis name (such as `abs_hat0x`, `abs_hat0y`, `abs_throttle`,
 or `abs_rudder`) or a numeric code, then enter the raw value to send. As with
-custom buttons, the chosen output must support the axis for it to emit; the
+custom buttons, the chosen output must support the axis for it to emit. The
 built-in Xbox outputs include the standard stick, trigger, and `abs_hat0`
 axes. Template-backed outputs include exactly the axes declared by their
 template.
@@ -352,8 +353,8 @@ action = "analog_control"
 analog_control_names = ["FPS Mouse", "WASD"]
 ```
 
-Overlapping action ranges are allowed and evaluated independently. Mouse wheel
-and WASD-style behavior are templates over normal threshold actions, not
+Action ranges can overlap, and Keymasq evaluates each one independently. Mouse
+wheel and WASD-style behavior are templates over normal threshold actions, not
 separate runtime modes.
 
 ## Compositor
@@ -383,7 +384,7 @@ a custom `hl.dsp.*` dispatcher expression manually.
 For custom dispatchers, enter the Lua dispatcher expression in the dispatcher
 field and leave args empty, for example `hl.dsp.focus({ workspace = "3" })`.
 
-![Hyprland tab — preset dropdown](assets/screenshots/key_selector_hyprland.png)
+![Hyprland tab with the preset dropdown](assets/screenshots/key_selector_hyprland.png)
 
 ### Niri
 
@@ -430,12 +431,12 @@ Choose from a preset dropdown of supported KWin actions.
 | All Desktops Toggle | Show or hide the focused window on all desktops. |
 | Show Desktop Toggle | Toggle Plasma's show-desktop mode. |
 
-KDE compositor actions are restricted to Keymasq's supported KWin action IDs.
-Unlike Hyprland dispatchers, arbitrary arguments are not supported.
+Keymasq restricts KDE compositor actions to its supported KWin action IDs.
+Unlike Hyprland dispatchers, they do not accept arbitrary arguments.
 
 ### GNOME
 
-GNOME compositor actions are routed through the Keymasq GNOME Shell bridge
+Keymasq routes GNOME compositor actions through the Keymasq GNOME Shell bridge
 extension. Unlike Hyprland, GNOME does not expose a generic dispatcher socket,
 so only a small allowlisted set of actions is available.
 
@@ -474,12 +475,12 @@ key selected.
 
 Super keys have two modes:
 
-- **Pattern**: Tap, Double Tap, Hold, and Tap + Hold choose one slot, and each
-  slot can run an ordered bundle of actions.
-- **Overload**: the source key behaves like a one-to-many normal mapping and
-  forwards its down, repeat, and up cycle to multiple child actions.
+- In **Pattern** mode, Tap, Double Tap, Hold, and Tap + Hold choose one slot,
+  and each slot can run an ordered bundle of actions.
+- In **Overload** mode, the source key behaves like a one-to-many normal mapping
+  and forwards its down, repeat, and up cycle to multiple child actions.
 
-![Super Keys tab — choose a saved super key action](assets/screenshots/key_selector_superkeys.png)
+![Super Keys tab for choosing a saved super key action](assets/screenshots/key_selector_superkeys.png)
 
 ## Macro
 
@@ -489,7 +490,7 @@ playback, or play a saved macro.
 Right-click a saved macro in the selector's Macro Library to open it in the
 macro editor.
 
-### Macro Controls
+### Macro controls
 
 Recording slot buttons and playback controls appear in the Macro tab:
 
@@ -504,7 +505,7 @@ automatically for mapped recording controls. Slot playback triggers also name
 the slot they play. If macro recording is disabled, the key selector replaces
 the slot controls with a short disabled notice and a settings shortcut.
 
-### Playing a Macro
+### Playing a macro
 
 Select a macro from the list below the controls. When the mapped key is
 pressed, the selected macro plays back.
@@ -520,7 +521,7 @@ pressed, the selected macro plays back.
 See [Macros](MACROS.md) for details on creating macros, loop modes, and
 editing.
 
-![Macro tab — recording slot controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
+![Macro tab with recording slot controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
 
 ## Profile
 
@@ -540,25 +541,25 @@ Enable and Toggle can also use an activation mode when the target profile is dis
 
 | Mode | Meaning |
 |---|---|
-| **Persistent** | Persistent behavior. The profile file is updated just like older Keymasq versions. |
+| **Persistent** | Persistent behavior. Keymasq updates the profile file, as older versions did. |
 | **While trigger is held** | Enable-only runtime layer that ends when the mapped key, combo, or superkey trigger ends. |
 | **One-shot** | Runtime-only layer that ends after the next grabbed input press or top-level combo, wheel, or superkey action. A timeout can be enabled as a fallback. |
 | **Custom** | Combine action count and timeout. Action counts are consumed by grabbed input presses and top-level combo, wheel, or superkey actions. Enable actions can also use trigger end. Timeout-only layers are configured here. |
 
-Note: One-shot layers are consumed by the next key or button press. Combos
-inside a one-shot layer usually cannot complete because the first combo input
+The next key or button press consumes a one-shot layer. Combos inside a
+one-shot layer usually cannot complete because the first combo input
 deactivates the layer.
 
 Toggle with **Persistent** mode is saved to the profile file. Toggle with any
-temporary activation mode is runtime-only: pressing it once activates the
+temporary activation mode is runtime-only. Pressing it once activates the
 temporary layer, and pressing it again cancels the same temporary layer before
 its conditions expire. Disable is always persistent and also cancels any runtime
 activation for that profile. Profile action deactivation conditions use "any"
-semantics: the first configured condition to happen deactivates the runtime
+semantics, so the first configured condition to happen deactivates the runtime
 layer.
 
-If the selected target profile is already enabled, activation controls are
-disabled in the editor. Disable that profile first to use it as a temporary
+If the selected target profile is already enabled, the editor disables the
+activation controls. Disable that profile first to use it as a temporary
 layer.
 
 TOML stores temporary activation settings under `deactivation` on profile actions:
@@ -574,22 +575,21 @@ after_actions = 1
 timeout_ms = 1500
 ```
 
-Hand-edited `on_trigger_end` values are parsed with Keymasq's tolerant boolean
-coercion for compatibility: common strings such as `"false"` and `"true"`, and
+For compatibility, Keymasq parses hand-edited `on_trigger_end` values with its
+tolerant boolean coercion. Common strings such as `"false"` and `"true"`, and
 numeric `0` and `1`, keep their expected meaning. A later save emits
-`on_trigger_end = true` only when enabled; coerced false values are omitted
-rather than written as `false`.
+`on_trigger_end = true` only when enabled. It omits coerced false values and
+does not write them as `false`.
 
-![Profile tab — Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/key_selector_profile.png)
+![Profile tab with the Toggle/Enable/Disable dropdown and profile selector](assets/screenshots/key_selector_profile.png)
 
-## Action Modifiers
+## Action modifiers
 
-Some action types support **rapidfire** and **tap** — two modifiers that
+Some action types support **rapidfire** and **tap**, two modifiers that
 change how the action behaves when you hold the key. These appear in the
 options area below the action chooser tabs.
 
-Rapidfire and tap are **mutually exclusive** — enabling one disables the
-other.
+Rapidfire and tap are mutually exclusive. Enabling one disables the other.
 
 They are available in the shared options area for: Keyboard, Mouse, Navigation,
 Media, Gamepad, and Mouse Move actions. Repeat has its own Rapidfire control in
@@ -617,11 +617,11 @@ adjusts the gaps to place the final release at the block's end. See
 
 `0 ms` hold with `1 ms` wait is the fastest supported rapidfire pattern.
 
-**Use cases:** auto-fire in games, Linux autoclicker setups, repeated key
+Use rapidfire for auto-fire in games, Linux autoclicker setups, repeated key
 presses, and continuous mouse movement.
 
 With relative and absolute mouse move actions, rapidfire repeats the movement
-offset on each cycle — useful for continuous scrolling or nudging.
+offset on each cycle, which is useful for continuous scrolling or nudging.
 
 If you want a simple autoclicker, map a key or mouse button to a mouse action
 and enable Rapidfire. Use a [macro](MACROS.md) instead when you need a more
@@ -638,18 +638,18 @@ automatically after the configured duration.
 |---|---|---|---|
 | **Hold (ms)** | How long the pulse lasts. | 10 ms | 10–500 ms |
 
-**Use cases:** sending a clean single key press from a button you might
-accidentally hold, ensuring consistent short inputs.
+Use tap to send a single key press from a button you might accidentally hold,
+or to keep short inputs consistent.
 
 With relative and absolute mouse move actions, tap emits the movement once and
 ignores how long the key is held.
 
-## Safety Note
+## Safety note
 
 The GUI warns before editing left or right mouse click mappings. Remapping a
 primary or secondary click can remove that click **everywhere**.
 
-## See Also
+## See also
 
 - [Macros](MACROS.md) — creating, editing, and playing back macros.
 - [Super Keys](SUPERKEYS.md) — pattern and overload modes for a single key.

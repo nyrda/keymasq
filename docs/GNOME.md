@@ -1,10 +1,10 @@
-# GNOME Support
+# GNOME support
 
-Keymasq supports GNOME 46 and newer through a GNOME Shell extension. Tested on
-GNOME 46 (Ubuntu 24.04 LTS) and GNOME 50. The extension uses stable Shell APIs
-with no breaking changes across this range.
+Keymasq supports GNOME 46 and newer through a GNOME Shell extension. It is
+tested on GNOME 46 (Ubuntu 24.04 LTS) and GNOME 50. The extension uses stable
+Shell APIs with no breaking changes across this range.
 
-GNOME 45 and older are not supported.
+Keymasq does not support GNOME 45 and older.
 
 ## Enable the extension
 
@@ -36,7 +36,7 @@ handles enabling the extension and restarting the session service automatically.
 
 ### Manual setup
 
-If you prefer terminal commands, the manual steps are below. Note that the GUI
+If you prefer terminal commands, the manual steps are below. The GUI
 handles all of this automatically.
 
 If you install the package while already logged into GNOME, the files may be on
@@ -87,7 +87,7 @@ GNOME does not expose window information the same way other Wayland compositors
 do. The extension runs inside GNOME Shell and forwards the focused window name
 and pointer position to Keymasq so that window-aware profiles and pointer
 features work. It also accepts an allowlisted pointer-position request from
-`keymasq-session`, which powers the GNOME **Set Cursor** compositor action.
+`keymasq-session`, which the GNOME **Set Cursor** compositor action uses.
 
 The same bridge also handles GNOME compositor actions. These are allowlisted
 bridge RPCs, not arbitrary shell commands. Keymasq currently supports:

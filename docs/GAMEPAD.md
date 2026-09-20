@@ -1,21 +1,22 @@
-# Game Controller Support
+# Game controller support
 
 Keymasq can remap game controller buttons, sticks, triggers, wheels, and
-other analog axes. It can also turn keyboard and mouse input into virtual
-gamepad output for games that expect a controller.
+other analog axes. It can also map keyboard keys and mouse buttons to virtual
+gamepad buttons and axis values for games that expect a controller. Mouse
+movement cannot drive a virtual stick.
 
-## Adding a Controller
+## Adding a controller
 
 When you add a game controller in the hardware setup flow, Keymasq detects
 its buttons and analog axes from evdev capabilities and creates the hardware
-profile automatically. Standard buttons (face, shoulders, start/select/guide,
-stick clicks, digital D-pad) are added when the controller reports them.
-Third-party uinput controllers and wheels are shown in the picker when they
-report gamepad capabilities; Keymasq's own virtual output devices stay hidden.
+profile automatically. Keymasq adds standard buttons (face, shoulders,
+start/select/guide, stick clicks, digital D-pad) when the controller reports
+them. The picker shows third-party uinput controllers and wheels when they
+report gamepad capabilities. Keymasq's own virtual output devices stay hidden.
 
-By default, when Keymasq grabs a physical gamepad, it creates a passthrough uinput clone
-for unmapped events. That clone reuses the source controller name and input
-IDs, so Steam and other tools see it as the same controller model.
+By default, when Keymasq grabs a physical gamepad, it creates a passthrough
+uinput clone for unmapped events. That clone reuses the source controller name
+and input IDs, so Steam and other tools see it as the same controller model.
 
 If the physical controller reports force feedback, the passthrough clone
 advertises the same force-feedback capability set and Keymasq proxies effect
@@ -30,7 +31,7 @@ passthrough clone when a game needs rumble.
 While the grab is active, Keymasq hides the original physical gamepad source
 and leaves the passthrough clone visible. This prevents Steam, SDL games, and
 controller pickers from showing two identical controllers where one is the
-grabbed-but-silent original. The physical source is restored when Keymasq
+grabbed-but-silent original. Keymasq restores the physical source when it
 releases the grab or stops.
 
 ## Default controller output
@@ -38,7 +39,7 @@ releases the grab or stops.
 Choose **Controller output → Default output** during hardware setup or in
 **Hardware Settings**, directly below the hardware name. Choose passthrough or
 a configured virtual controller, including custom template instances. Setup
-starts with passthrough; choosing a virtual destination opts this hardware into
+starts with passthrough. Choosing a virtual destination opts this hardware into
 routing. Existing hardware configurations retain passthrough.
 
 The destination belongs to the hardware and stays the same across profiles.
@@ -53,14 +54,14 @@ Unmapped buttons use the same numeric evdev button code on the destination.
 Unmapped absolute axes use the same axis code, with linear conversion between
 the source and destination minimum and maximum values. Saved source bounds
 override device-reported bounds. Inputs with no matching destination code, or
-axes without usable source bounds, produce no output. Relative and miscellaneous
-events are not forwarded to the controller output.
-Current axis positions are sent when routing starts or the virtual output is
-recreated, even if the physical axes have not moved. Mapped axes keep their
+axes without usable source bounds, produce no output. Keymasq does not forward
+relative and miscellaneous events to the controller output.
+Keymasq sends current axis positions when routing starts or the virtual output
+is recreated, even if the physical axes have not moved. Mapped axes keep their
 explicit actions. Removing saved axis bounds restores the device-reported bounds.
 
 Routing does not infer control roles or convert between buttons and axes. For
-example, a digital `BTN_TL2` remains `BTN_TL2`; it does not drive `ABS_Z`.
+example, a digital `BTN_TL2` remains `BTN_TL2` and does not drive `ABS_Z`.
 `ABS_RZ` remains `ABS_RZ` even when one device calls it twist and another calls
 it a trigger. Use ordinary mappings for these exceptions.
 
@@ -82,7 +83,7 @@ default_output = "virtual-gamepad-1"
 ```
 
 Omit `default_output` or set it to `"passthrough"` for normal passthrough.
-Profiles only override individual inputs; they do not change this destination.
+Profiles only override individual inputs. They do not change this destination.
 
 An unavailable virtual destination drops default output until it is configured
 again. It does not fall back to a passthrough clone. Changing the route releases
@@ -90,13 +91,14 @@ the previous output and reopens the affected controller interfaces. Disconnects
 and virtual-output reconfiguration also release tracked buttons and axes.
 Default routing does not add force feedback to virtual controllers.
 
-## Button Mapping
+## Button mapping
 
 When you add a controller, Keymasq creates controls from its advertised
 capabilities, including joystick buttons, extra gamepad buttons, hats, and
 individual axes. Familiar gamepad controls keep their standard labels. Flight
 sticks use stick, twist, and throttle labels. Other controls use readable evdev
-names. Existing saved hardware configurations are not changed automatically.
+names. Keymasq does not change existing saved hardware configurations
+automatically.
 
 For masked or otherwise unreadable input nodes, setup uses the daemon's
 capability inventory. Numeric names such as `EV_KEY_304` and symbolic names
@@ -111,26 +113,26 @@ use the flight-stick picker, with additional buttons in its searchable list.
 For hardware with multiple gamepad interfaces, the picker offers only controls
 on the first grabbed interface with a passthrough output, matching the output
 router. Choosing a different destination interface is not currently supported.
-Axes without known ranges are not offered.
+The picker does not offer axes without known ranges.
 
-Remap any button from the device tab: click it in the grid and pick an
+To remap a button, click it in the grid on the device tab and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
 including rapidfire and tap (see [Actions](ACTIONS.md)).
 
 ![Gamepad device tab with buttons and analog controls](assets/screenshots/keymasq_gamepad_device.png)
 
-### Axis Output
+### Axis output
 
-You can map any key or button to a gamepad axis value — useful for binding
-keyboard keys to stick or trigger output. The mapping sends a fixed axis
-value while the source is held and returns to neutral on release.
+You can map any key or button to a gamepad axis value. This is useful for
+binding keyboard keys to stick or trigger output. The mapping sends a fixed
+axis value while the source is held and returns to neutral on release.
 Physical targets use their resolved center or rest value for release, tap,
 rapidfire, and cleanup. Percentage shortcuts use the same calibration, including
 the grab-time sample for an automatic rest. If rest is unavailable, percentage
 shortcuts are disabled and exact raw-value entry remains available.
 
 Triggers are analog axes, not buttons. Gamepad button mappings do not
-produce trigger output — use axis mappings instead.
+produce trigger output. Use axis mappings instead.
 
 ![Gamepad action selector with buttons, triggers, and sticks](assets/screenshots/key_selector_gamepad.png)
 
@@ -138,13 +140,13 @@ produce trigger output — use axis mappings instead.
 
 Analog Controls let you map sticks, triggers, and other analog axes to
 mouse movement, keyboard/button actions, or gamepad output. They are
-reusable configs — create one and assign it to any analog input across
+reusable configs. Create one and assign it to any analog input across
 devices and profiles.
 
-Configs are saved in `~/.config/keymasq/analog_controls/` and managed from
-the **Analog Controls** dialog (accessible from the main menu).
+Keymasq saves configs in `~/.config/keymasq/analog_controls/`. Manage them
+from the **Analog Controls** dialog in the main menu.
 
-### Learning Analog Inputs
+### Learning analog inputs
 
 Setup pairs X/Y into a stick and, for gamepads, RX/RY into the right stick.
 Each complete hat X/Y pair becomes a two-axis control. Pairs must come from
@@ -166,7 +168,7 @@ and re-adding its components as individual axes.
 5. Start the capture and move the physical control through its full range.
 6. Review the detected axes: evdev code, min/max values, and center or rest
    position. Edit if needed.
-7. Save — the input is now available for remapping.
+7. Save. The input is now available for remapping.
 
 Right-click a learned analog input label on the device tab to rename or
 delete it.
@@ -175,10 +177,10 @@ delete it.
 
 Right-click an analog input's name in the device tab to open **Edit Analog Input**.
 You can rename it and edit each axis's minimum, maximum, and center for a stick
-or rest position for a single axis. Values are raw axis units; leaving a field
+or rest position for a single axis. Values are raw axis units. Leaving a field
 blank removes that override and lets runtime calibration supply it. Minimum must
 be less than maximum, and an explicit center/rest must lie within the supplied
-bounds. Source interface and axis codes are shown for reference.
+bounds. The dialog shows the source interface and axis codes for reference.
 
 Save preserves the input ID, axis assignments, and existing profile mappings.
 Cancel leaves the configuration unchanged. Delete remains available in the same
@@ -191,22 +193,22 @@ grab-time sample when available. The editor does not treat the current axis
 position as rest or estimate unavailable values. These hints are not saved as
 overrides unless you enter a value.
 
-### Assigning an Analog Control
+### Assigning an analog control
 
 Open the **Device** tab and select the analog input. The mapping dialog opens
 on the **Presets** tab when no analog controls exist yet.
 
-**Quick start (presets):** Click a preset row. For sticks: Mouse Move, Mouse
-Area, Touchpad Mouse, Scroll Wheel, or WASD Keys; for triggers: Trigger Left Click, Trigger
-Right Click, Trigger Scroll Up, or Trigger Scroll Down. The preset is saved as a
-normal analog control, mapped to the input, and the dialog closes. Reopen the
-input later to fine-tune it or pick others.
+For a quick start, click a preset row. Stick presets are Mouse Move, Mouse
+Area, Touchpad Mouse, Scroll Wheel, and WASD Keys. Trigger presets are Trigger
+Left Click, Trigger Right Click, Trigger Scroll Up, and Trigger Scroll Down.
+Keymasq saves the preset as a normal analog control, maps it to the input, and
+closes the dialog. Reopen the input later to fine-tune it or pick others.
 
 ![Analog presets tab for a gamepad stick](assets/screenshots/keymasq_gamepad_analog_presets.png)
 
-**From saved controls:** On the **Analog Controls** tab, select one or more
-saved configs by name. Right-click a config (or use **Open Analog Controls…**)
-to edit it in the manager. One input can fan out to multiple configs — each
+To use saved controls, select one or more saved configs by name on the
+**Analog Controls** tab. Right-click a config (or use **Open Analog Controls…**)
+to edit it in the manager. One input can drive multiple configs. Each
 receives the same normalized input and handles its output independently:
 
 ```toml
@@ -215,9 +217,9 @@ action = "analog_control"
 analog_control_names = ["FPS Mouse", "WASD"]
 ```
 
-### Input Types
+### Input types
 
-| Type | Axes | Normalized Range | Use Cases |
+| Type | Axes | Normalized range | Use cases |
 |------|------|-----------------|-----------|
 | **Stick** | X + Y | `-1.0` to `1.0` per axis | Thumbsticks, flight sticks, analog D-pads |
 | **Axis** | X only | `-1.0` to `1.0` for signed ranges | Triggers, sliders, pedals, throttles |
@@ -228,9 +230,9 @@ Each analog control operates in one mode:
 
 #### Mouse Movement
 
-Converts analog input into continuous mouse cursor movement. The stick or
-axis controls the speed and direction of movement — tilt further to move
-faster.
+This mode converts analog input into continuous mouse cursor movement. The
+stick or axis controls the speed and direction of movement. Tilt further to
+move faster.
 
 **Stick settings:**
 - **Horizontal Speed** / **Vertical Speed** — maximum pixels per second for
@@ -246,10 +248,10 @@ faster.
 
 **Shared settings:**
 - **Deadzone** — fraction of travel to ignore near center (0.0–0.95)
-- **Sensitivity** — output multiplier (0.1–2.0); higher reaches full speed
+- **Sensitivity** — output multiplier (0.1–2.0), higher reaches full speed
   sooner
 - **Response Curve** — exponent shaping the input-to-output curve
-  (0.25–4.0); below 1.0 is faster near center, above 1.0 is slower near
+  (0.25–4.0), below 1.0 is faster near center, above 1.0 is slower near
   center
 
 #### Mouse Area (paired analog axes)
@@ -259,16 +261,16 @@ controller touchpad. Both use the same position-based mouse movement.
 
 ##### Stick input style
 
-Stick style maps the stick position directly to a cursor position within a 2D area.
-Instead of controlling speed, the stick controls where the cursor is — push
-right and the cursor moves right, release and it returns to the origin.
+Stick style maps the stick position directly to a cursor position within a 2D
+area. The stick controls where the cursor is instead of how fast it moves. Push
+right and the cursor moves right. Release and it returns to the origin.
 
 - **Horizontal Radius** / **Vertical Radius** — size of the area in pixels
   from the center point
 - **Anchor to a Start Position** — when enabled, the cursor jumps to a
   fixed screen coordinate when the stick first leaves rest, then moves
   relative to that anchor
-- **Start Position** — the anchor coordinate; use **Capture** to click a
+- **Start Position** — the anchor coordinate. Use **Capture** to click a
   point on screen
 - **Deadzone**, **Sensitivity**, **Response Curve** — same as Mouse
   Movement
@@ -277,9 +279,10 @@ right and the cursor moves right, release and it returns to the origin.
 ##### Touchpad input style
 
 Choose **Touchpad** style for a controller touchpad whose axes return to exactly
-normalized `(0.0, 0.0)` on release. Keymasq lists paired analog axes under **Sticks**;
-select the pad's existing analog input and choose **Mouse Area → Input Style:
-Touchpad**, or apply the **Touchpad Mouse** preset to select those settings.
+normalized `(0.0, 0.0)` on release. Keymasq lists paired analog axes under
+**Sticks**. Select the pad's existing analog input and choose **Mouse Area →
+Input Style: Touchpad**, or apply the **Touchpad Mouse** preset to select those
+settings.
 
 Touching establishes a reference without moving the pointer. Slide a finger to
 move it, then lift and touch elsewhere to continue without a jump. Holding still
@@ -287,9 +290,9 @@ keeps the pointer still. Release produces no return movement or inertia.
 
 Changing the mapping starts a new stroke reference while retaining the pad's
 current coordinates. If the input stream loses events, Keymasq reads the current
-axes from the device. A finger still touching the pad must be lifted before
-movement resumes; a release found during recovery allows the next touch to start
-normally.
+axes from the device. You must lift a finger that is still touching the pad
+before movement resumes. A release found during recovery lets the next touch
+start normally.
 
 - **Horizontal Movement Scale** / **Vertical Movement Scale** control how far
   the pointer moves for the same finger movement. These can be linked or split.
@@ -301,8 +304,8 @@ It supports controller pads exposed as analog axes, not multitouch gestures.
 
 #### Digital Actions
 
-Fires keyboard, mouse, or other actions when the analog input enters an
-activation range. Useful for turning a stick into WASD or a trigger into a
+This mode fires keyboard, mouse, or other actions when the analog input enters
+an activation range. Use it to turn a stick into WASD or a trigger into a
 button press.
 
 Each threshold defines:
@@ -316,11 +319,11 @@ Each threshold defines:
   for cases where you need to tune the hysteresis bounds directly
 - **Actions** — one or more actions to fire (keyboard, mouse, gamepad, etc.)
 
-Stick and 1D axis thresholds are shown as percentages from `-100%` to
-`100%`. Positive ranges cover one direction; negative ranges cover the
-opposite direction. Multiple thresholds can overlap — they are evaluated
-independently. The saved TOML uses normalized `-1.0` to `1.0` values; see
-[Analog Controls Config Format](ANALOG_CONTROLS.md) for the field-level
+The editor shows stick and 1D axis thresholds as percentages from `-100%` to
+`100%`. Positive ranges cover one direction, and negative ranges cover the
+opposite direction. Multiple thresholds can overlap, and Keymasq evaluates
+each one independently. The saved TOML uses normalized `-1.0` to `1.0` values.
+See [Analog Controls config format](ANALOG_CONTROLS.md) for the field-level
 reference.
 
 **Templates** (stick only):
@@ -329,8 +332,8 @@ reference.
 - **Mouse Wheel** — maps stick Y to scroll up/down and stick X to side-scroll
   left/right, all with rapidfire
 
-Templates append thresholds to the existing list and are fully editable
-after applying.
+Templates append thresholds to the existing list. You can edit them after
+applying.
 
 ![Digital action range editor with the WASD template applied](assets/screenshots/keymasq_analog_control_wasd_thresholds.png)
 
@@ -339,12 +342,12 @@ after applying.
 For a 1D control, choose an **Output Axis** on the destination: a trigger,
 an individual stick axis, a Hat 0 axis, or a learned hardware axis. Output uses
 that axis's range and neutral value. **Use Axis Neutral** supplies the default
-release value; disable it for a manual override. Hat output uses three states
+release value. Disable it for a manual override. Hat output uses three states
 with hysteresis. See [Individual axis routing](ANALOG_CONTROLS.md#individual-axis-routing)
 for direction, scaling, and compatibility details.
 
-Routes the analog source to a gamepad axis on a selected output device.
-Use this to remap one stick to another, route a trigger to a different
+This mode routes the analog source to a gamepad axis on a selected output
+device. Use it to remap one stick to another, route a trigger to a different
 controller, or pass through with adjusted tuning.
 
 - **Output** — target device: a virtual gamepad, the same physical device
@@ -359,19 +362,19 @@ controller, or pass through with adjusted tuning.
 - **Output Deadzone** — values below this are sent as centered/released
 - **Output Rest** — manual release value when **Use Axis Neutral** is disabled
 - **Output Direction** — `Min`, `Max`, or `Both` (1D axes):
-  - `Min` maps from rest toward the minimum endpoint
-  - `Max` maps from rest toward the maximum endpoint
-  - `Both` treats the input as signed across the full range
+  - `Min` maps from rest toward the minimum endpoint.
+  - `Max` maps from rest toward the maximum endpoint.
+  - `Both` treats the input as signed across the full range.
 - **Invert Output Axis** — for 1D axes using `Both`, reverse the signed
   output around the rest value
 - **Invert Output Axes** — for stick output, flip X and/or Y independently
 - **Sensitivity** — output multiplier (0.1–2.0)
 - **Response Curve** — exponent for output shaping (0.25–4.0)
 
-### Tuning: Sensitivity and Response Curve
+### Tuning: sensitivity and response curve
 
-All modes share the same input shaping math. The analog input is first
-normalized and deadzone-removed, then shaped:
+All modes share the same input shaping math. Keymasq first normalizes the
+analog input and removes the deadzone, then shapes the result:
 
 ```text
 distance = magnitude of normalized input
@@ -387,13 +390,13 @@ shaped   = clamp((distance ^ response_curve) * sensitivity, 0, 1)
 Stick controls apply this radially. Mouse Movement then multiplies the
 shaped value by speed. Analog Output maps it to the target axis range.
 
-### Creating and Editing Analog Controls
+### Creating and editing analog controls
 
 Open **Analog Controls** from the GUI main menu. The dialog has two panels:
 
-- **Left panel**: lists all saved analog controls, grouped by type
+- The left panel lists all saved analog controls, grouped by type
   (sticks / axes). Use **+** to create or **Delete** to remove.
-- **Right panel**: edit the selected config's name, description, input
+- In the right panel, edit the selected config's name, description, input
   type, mode, and mode-specific settings.
 
 Start typing while focus is outside an editor field to search the saved Analog
@@ -404,7 +407,7 @@ Controls immediately. Ctrl+F and the search button provide the same filter.
 Use **Save** to apply changes. If you switch selection or close the dialog
 with unsaved edits, Keymasq asks whether to save, discard, or keep editing.
 
-## Example Profile
+## Example profile
 
 ```toml
 [profile]
@@ -442,7 +445,7 @@ action = "analog_control"
 analog_control_names = ["WASD", "Mouse Wheel"]
 ```
 
-## Game Compatibility
+## Game compatibility
 
 The built-in Xbox output appears as a standard Xbox 360 controller:
 
@@ -460,16 +463,16 @@ template in Steam's gamepad configurator.
 Use [jstest-gtk](https://github.com/Grumbel/jstest-gtk) to verify that
 your virtual gamepad buttons and axes are working as expected.
 
-## Technical Details
+## Technical details
 
-### Virtual Gamepads
+### Virtual gamepads
 
 When you map an input to a gamepad action, Keymasq creates virtual gaming
 devices with Linux uinput. The existing virtual gamepads are instances of the
 built-in Xbox 360 template.
 
 Keymasq creates one virtual gamepad by default. You can configure 0–4 from
-the GUI hamburger menu under **Settings**. The setting is stored in
+the GUI hamburger menu under **Settings**. Keymasq stores the setting in
 `~/.config/keymasq/settings.toml`:
 
 ```toml
@@ -477,9 +480,8 @@ the GUI hamburger menu under **Settings**. The setting is stored in
 virtual_count = 1
 ```
 
-If the setting cannot be written to disk, the requested count remains active
-for the current session and Keymasq shows a warning that it may revert after a
-restart.
+If Keymasq cannot write the setting to disk, the requested count remains active
+for the current session and Keymasq warns that it may revert after a restart.
 
 Each standard numbered virtual gamepad uses Xbox 360 hardware IDs:
 
@@ -501,26 +503,26 @@ from a template. Keymasq ships two built-in templates:
 The standard gamepad uses the Xbox 360 identity (`045e:028e`). The flight stick
 uses the Logitech Extreme 3D Pro identity (`046d:c215`) and Linux capability
 layout. These model references describe the emulated identities used for game
-detection; the GUI uses generic template names. Existing template IDs, Linux
+detection. The GUI uses generic template names. Existing template IDs, Linux
 device names, and vendor/product IDs remain unchanged.
 
-An output instance keeps its configured
-`output_id` across restarts, so profiles do not depend on discovery order.
+An output instance keeps its configured `output_id` across restarts, so
+profiles do not depend on discovery order.
 
 The built-in flight stick has a dedicated mapping picker. Direction pads select
-stick and hat directions; twist selects left or right, and throttle shortcuts
+stick and hat directions. Twist selects left or right, and throttle shortcuts
 select Idle, Half, or Full. Grip buttons and base buttons surround a joystick
-illustration. Base buttons 7–12 correspond to the template's Base 1–6 controls.
-Tooltips show each control's Linux code.
+illustration. Base buttons 7–12 correspond to the template's Base 1–6
+controls. Tooltips show each control's Linux code.
 
 The axis editor accepts exact values or percentages of travel from rest. Stick
-and twist percentages range from -100 to 100; throttle ranges from 0 at idle to
-100 at full travel. The throttle's raw range is reversed: idle is 255 and full
-is 0. Select **Map axis** to use the chosen value. Custom templates retain their
+and twist percentages range from -100 to 100, and throttle ranges from 0 at idle
+to 100 at full travel. The throttle's raw range is reversed, so idle is 255 and
+full is 0. Select **Map axis** to use the chosen value. Custom templates retain their
 gamepad or flight stick layout, with shortcuts using the configured axis ranges.
 Only controls defined by the template are available to map. Other buttons appear
 in a numbered **Additional buttons** grid below the illustration and axis editor.
-The shortcut above the illustration jumps to this grid; search by label, number,
+The shortcut above the illustration jumps to this grid. Search by label, number,
 control ID, or Linux code to find a button.
 
 Analog mappings to a virtual template resolve **Same**, **Left**, and **Right**
@@ -559,8 +561,9 @@ buttons** adds a batch of buttons using unused `BTN_TRIGGER_HAPPY*` codes. All
 counts unused codes, including changes made by editing or removing buttons.
 Rename these buttons to describe their purpose.
 Axis rows include minimum, maximum, and rest fields. Control IDs, fuzz, flat, and
-resolution are under **Advanced**; the Linux device name, USB IDs, and bus type are under **Device
-identity**. Validation errors keep the editor open with your changes intact.
+resolution are under **Advanced**. The Linux device name, USB IDs, and bus type
+are under **Device identity**. Validation errors keep the editor open with your
+changes intact.
 Axis metadata must fit signed 32-bit integers. Linux aliases for the same button
 or axis count as one event code and cannot define separate controls.
 
@@ -575,12 +578,13 @@ Analog Controls and Motion Controls, and the mapping picker draws a direction pa
 for each. In the gamepad layout, the **Left stick** and **Right stick** pads use
 the stick declared for that side.
 Output IDs cannot use the reserved `same-device` routing identifier or numbered
-`virtual-gamepad-N` IDs. Axis IDs must also produce unique analog-control IDs:
-the generated X/Y stick ID `x__y`, for example, cannot also name a standalone axis.
+`virtual-gamepad-N` IDs. Axis IDs must also produce unique analog-control IDs.
+For example, the generated X/Y stick ID `x__y` cannot also name a standalone
+axis.
 
 A template defines:
 
-- a template ID, display label, Linux device name, bus type, vendor ID,
+- A template ID, display label, Linux device name, bus type, vendor ID,
   product ID, and version
 - One or more named buttons, each bound to a distinct Linux `BTN_*` code.
   Capacity is the number of distinct supported button codes, with aliases counted
@@ -596,18 +600,18 @@ made only from TriggerHappy buttons still needs a classifying axis such as
 `ABS_RZ`.
 
 **Use changes** returns edits to the virtual devices dialog. Changes are drafts
-until **Apply** is pressed; closing with unapplied changes asks before discarding
-them. Applying reconnects affected
-uinput devices, so close games that currently have them open first.
+until you press **Apply**. If you close with unapplied changes, Keymasq asks
+before discarding them. Applying reconnects affected uinput devices, so close
+games that currently have them open first.
 
 Named virtual outputs preserve raw axis values when mappings and superkeys are
 saved. At runtime, Keymasq limits those values to the target template's axis
 range and releases the axis to its declared rest value. The standard numbered
 virtual gamepads retain their existing axis limits.
 
-The advanced format is stored in
-`~/.config/keymasq/virtual_devices.toml`. Built-in templates are referenced by
-ID and are not copied into the file. This creates a flight stick output:
+Keymasq stores the advanced format in
+`~/.config/keymasq/virtual_devices.toml`. The file references built-in templates
+by ID and does not contain copies of them. This creates a flight stick output:
 
 ```toml
 [[devices]]
@@ -697,7 +701,7 @@ Profiles continue to store the corresponding evdev target, such as
 `btn_trigger_happy1` or `abs_rz`, together with the stable `output_id`. Axis
 actions return to the template's declared `rest` value when released.
 
-### Output Routing
+### Output routing
 
 Gamepad actions can set `output_id` to route output to a specific device.
 Valid values:
@@ -723,15 +727,18 @@ Button positions are based on physical location, not labels.
 
 ## Limitations
 
-- **Touchpads**: Mouse Area with Touchpad style supports controller pads exposed as paired analog
-  axes that return to normalized zero on release. Separate touchpad interfaces
-  and multitouch gestures are not supported for remapping.
-- **Dedicated drivers**: vendor-specific features may still need their
+- **Touchpads.** Mouse Area with Touchpad style supports controller pads exposed
+  as paired analog axes that return to normalized zero on release. Keymasq
+  cannot remap separate touchpad interfaces or multitouch gestures.
+- **Mouse movement as stick input.** Analog controls read absolute axes such
+  as sticks and triggers. Keymasq cannot turn relative mouse movement into
+  gamepad stick output.
+- **Dedicated drivers.** Vendor-specific features may still need their
   native driver or Steam Input.
 
-## See Also
+## See also
 
-- [Analog Controls Config Format](ANALOG_CONTROLS.md) — TOML reference for
+- [Analog Controls config format](ANALOG_CONTROLS.md) — TOML reference for
   analog control configs
 - [Actions](ACTIONS.md)
 - [Super Keys](SUPERKEYS.md)

@@ -29,8 +29,8 @@ lost. A few isolated noisy readings are fine.
 
 After measurement, Keymasq restores normal profile handling before saving the result. The
 Close button is disabled during this brief finishing step. If cleanup fails, use **Retry
-cleanup**. You may close the dialog at that point; Keymasq will keep trying in the background
-and save a completed calibration once cleanup succeeds. Closing while measurement is still in
+cleanup**. You may close the dialog at that point. Keymasq keeps trying in the background
+and saves a completed calibration once cleanup succeeds. Closing while measurement is still in
 progress cancels that run.
 
 Guided calibration corrects gyro drift and measures sensor noise. It does not change axis
@@ -62,40 +62,40 @@ not require this additional grab.
 Same-device output is a software copy of the controller, retaining its original name and
 controller identity. It does not modify the physical controller's HID reports. Steam or a
 game using a direct HID driver can bypass this output by reading the physical controller
-through `hidraw`; Keymasq's source hiding covers evdev and joystick nodes, not `hidraw`.
+through `hidraw`. Keymasq's source hiding covers evdev and joystick nodes, not `hidraw`.
 In that case, select a virtual gamepad such as `keymasq-gamepad` and route both the Analog
-Stick Control and Gyro Stick to it. The game must use that virtual controller. Matching names
-can be distinguished by the software device's `/devices/virtual/input/` sysfs path.
+Stick Control and Gyro Stick to it. The game must use that virtual controller. You can tell
+matching names apart by the software device's `/devices/virtual/input/` sysfs path.
 
 Gyro Stick adds a rotation-based adjustment to the latest passthrough stick or Analog Stick
 Control output from the same source controller, when both target the same output stick. Each
 axis is clamped to the destination's range. Each gyro axis returns to neutral as soon as its
 unsmoothed rate enters the configured gyro deadzone. Smoothing does not prolong minimum-output
-compensation after input stops. Disabling the motion mapping restores the stored stick position. A held
-stick does not need to move again. At full stick deflection, gyro cannot increase the output
-further in that direction.
+compensation after input stops. Disabling the motion mapping restores the stored stick
+position. A held stick does not need to move again. At full stick deflection, gyro cannot
+increase the output further in that direction.
 
 New Gyro Stick controls default to a **90°/s full stick rate** and a **0°/s deadzone**.
 The full stick rate measures rotation speed, not the angle at which you hold the controller.
-It is the rotation speed needed to reach full stick output. Lower values make aiming faster;
-higher values make it slower. With a linear curve and zero deadzone, rotating at 45°/s gives
+It is the rotation speed needed to reach full stick output. Lower values make aiming faster,
+and higher values make it slower. With a linear curve and zero deadzone, rotating at 45°/s gives
 50% output at a 90°/s full stick rate, or 25% at 180°/s, before minimum-output compensation.
-Existing saved values are kept; edit your current control to try these defaults.
+Keymasq keeps existing saved values. Edit your current control to try these defaults.
 
 **Minimum stick output (%)** compensates for deadzones in Steam or a game. It defaults to 25%.
 For example, a 25% minimum turns a 1% signal into about 25.75% output. Tune it to the game's
-deadzone: lower it if aiming jumps, or increase it if slow rotation still does not register.
+deadzone. Lower it if aiming jumps, or increase it if slow rotation still does not register.
 Higher values can amplify gyro noise.
 The setting applies per axis to the combined stick-plus-gyro position while that axis has a
 nonzero gyro contribution. Exact cancellation stays neutral, and when gyro stops or is
-disabled the ordinary stick position is restored without compensation. The output is still
-limited to the destination axis range. This setting is stored as `gamepad.minimum_output`,
+disabled Keymasq restores the ordinary stick position without compensation. The output is still
+limited to the destination axis range. Keymasq stores this setting as `gamepad.minimum_output`,
 a fraction from 0 to 1.
 
 Ordinary stick inputs still overwrite one another rather than being added. A stick from
 another source controller is not paired with the gyro. Competing mappings to one destination
 can still overwrite each other. Tilt Stick and Motion to Analog retain their existing output
-behavior; this adjustment applies only to Gyro Stick.
+behavior. This adjustment applies only to Gyro Stick.
 
 For more specialized mappings, **Motion to Analog** sends gyro movement or tilt into a saved
 [Analog Control](ANALOG_CONTROLS.md). The Analog Control supplies its own deadzones, response
@@ -106,18 +106,18 @@ curve, digital actions, mouse behavior, and gamepad target.
 Each gyro axis can drive the horizontal channel, the vertical channel, or neither. The default
 routing is:
 
-- yaw to horizontal;
-- pitch to vertical;
-- roll to horizontal.
+- Yaw drives horizontal.
+- Pitch drives vertical.
+- Roll drives horizontal.
 
 Yaw and roll add together by default. This makes horizontal movement respond both when you
 rotate a level controller and when you tilt it like a steering wheel.
 
 With the default directions:
 
-- turning left or right moves left or right;
-- tilting the top edge toward you moves up;
-- tilting the controller like a steering wheel moves left or right.
+- Turning left or right moves left or right.
+- Tilting the top edge toward you moves up.
+- Tilting the controller like a steering wheel moves left or right.
 
 Use the horizontal and vertical inversion switches if either direction feels wrong. Sensitivity
 sets the overall output strength. Deadzone ignores small movement near rest. Smoothing reduces
@@ -194,8 +194,8 @@ evdev, including the four extra buttons.
 
 Native motion uses the existing bias calibration, noise threshold, smoothing,
 and mouse/stick/analog output processing. DInput calibration is separate from
-Nintendo-mode calibration. Report times are estimated from monotonic arrival
-time; repeated sensor values are retained.
+Nintendo-mode calibration. Keymasq estimates report times from monotonic
+arrival time and retains repeated sensor values.
 
 See [Native input drivers](INPUT_DRIVER_DESIGN.md) for configuration and extension
 points.

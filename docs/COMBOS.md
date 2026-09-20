@@ -1,4 +1,4 @@
-# Combo System
+# Combo system
 
 ## Overview
 
@@ -11,18 +11,18 @@ A combo can be:
 - **Single-step** — one combo trigger, like `Alt+1`.
 - **Multi-step** — a sequence of combo triggers, like `Alt+R` then `1`.
 
-When a combo matches, it triggers an action — a key press, a mouse click, a
-macro, a shell command, or anything else Keymasq can map to.
+When a combo matches, it triggers an action. That action can be a key press, a
+mouse click, a macro, a shell command, or anything else Keymasq can map to.
 
-Combos are stored inside profiles. They can include events from multiple
+Keymasq stores combos inside profiles. They can include events from multiple
 devices, so a combo can combine a keyboard key and a mouse button if needed.
 
-## Quick Start: Your First Combo
+## Quick start: your first combo
 
 1. Open the Keymasq GUI and go to the **Combo** tab.
 2. Select the profile you want the combo to belong to.
 3. Click **Add Combo**.
-4. Keymasq enters capture mode — press the key combination you want as the
+4. Keymasq enters capture mode. Press the key combination you want as the
    trigger (for example, hold `Alt` and press `1`).
 5. Choose the action to fire when the combo matches.
 6. Save.
@@ -32,7 +32,7 @@ sending the keys to your apps.
 
 ![Combo tab with combos listed for the selected profile](assets/screenshots/keymasq_combos_tab_example.png)
 
-![Add combo dialog — define steps for the trigger](assets/screenshots/keymasq_add_combo_dialog.png)
+![Add combo dialog for defining the trigger steps](assets/screenshots/keymasq_add_combo_dialog.png)
 
 ![Choose the action to fire when the combo matches](assets/screenshots/keymasq_combo_select_action_dialog.png)
 
@@ -41,27 +41,27 @@ search field and filter the combo list immediately. Ctrl+F and the search button
 remain available as explicit alternatives.
 
 Combo searches match visible name, trigger, action, and profile details, or one
-individual device/source field; unrelated hidden metadata is not combined.
+individual device/source field. The search does not combine unrelated hidden
+metadata.
 
-## How Combos Work
+## How combos work
 
-### Single-Step Combos
+### Single-step combos
 
 Here's what happens when you use a single-step combo like `Alt+1`:
 
-1. You press and hold `Alt` — nothing special happens yet.
-2. You press `1` — the combo is complete, so Keymasq fires the action.
-3. The normal `1` key press is consumed and does not reach your apps.
-4. `Alt` stays held (since you're still physically holding it), so modifier
+1. You press and hold `Alt`. Nothing special happens yet.
+2. You press `1`. The combo is complete, so Keymasq fires the action.
+3. Keymasq consumes the normal `1` key press, so it does not reach your apps.
+4. `Alt` stays held because you're still physically holding it, so modifier
    behavior in your compositor and apps works normally.
 
 If you never press `1`, `Alt` just behaves like a normal key. No combo fires.
 
-**Re-triggering:** if you release `1` while still holding `Alt` and press `1`
-again, the combo fires again — you don't need to release everything and start
-over.
+To re-trigger, release `1` while still holding `Alt` and press `1` again. The
+combo fires again, so you don't need to release everything and start over.
 
-Single-step combos are evaluated from the current held state of their first
+Keymasq evaluates single-step combos from the current held state of their first
 step. Unrelated extra input does not cancel them. For example, you can hold
 `Alt`, press `C`, release `C`, click the mouse or type another key, and then
 press `V` to trigger a separate `Alt+V` combo without releasing `Alt`.
@@ -76,7 +76,7 @@ Mouse wheel directions can be used as pulse inputs in combos. For example,
 the other trigger input is held. Wheel directions do not stay held, so
 wheel-triggered combo actions are pressed and released immediately.
 
-### Multi-Step Combos
+### Multi-step combos
 
 Multi-step combos also use held-state matching for step 1, then advance one
 step at a time:
@@ -87,15 +87,15 @@ step at a time:
 4. The action fires.
 
 Wheel directions can also complete a later step, such as `Alt+R`, then
-`Scroll Down`. A wheel-only first step is only valid for a single-step combo;
-multi-step combos need a held key or button with the wheel in step 1.
+`Scroll Down`. A wheel-only first step is only valid for a single-step combo.
+Multi-step combos need a held key or button with the wheel in step 1.
 
-**Timeouts:** step 1 has no timeout — you can take as long as you need. Steps
-2 and onward each have a timeout (default 600 ms). If you don't complete the
-next step in time, the combo is silently cancelled. You can change per-step
-timeouts in the combo editor.
+Step 1 has no timeout, so you can take as long as you need. Steps 2 and onward
+each have a timeout (default 600 ms). If you don't complete the next step in
+time, Keymasq silently cancels the combo. You can change per-step timeouts in
+the combo editor.
 
-### Trigger Recall And Restore
+### Trigger recall and restore
 
 Sometimes a held modifier interferes with the combo action. For example:
 
@@ -117,10 +117,10 @@ keys should be restored afterward.
 By default, combo trigger keys keep their normal passthrough behavior and are
 not recalled.
 
-## Combo Capture
+## Combo capture
 
 When you create or edit a combo's trigger, Keymasq enters capture mode and
-records the raw physical input directly from your devices — not the remapped
+records the raw physical input directly from your devices, not the remapped
 output. This means:
 
 - The combo is tied to the actual physical key, regardless of what it's
@@ -142,10 +142,10 @@ output. This means:
   or a mouse interface. Omitting it makes the combo match the evdev code on any
   grabbed interface in scope.
 
-Capture uses the same security model as macro recording — it observes original
+Capture uses the same security model as macro recording. It observes original
 input and requires the capture unlock flow.
 
-## Trigger Scope
+## Trigger scope
 
 Every combo event has one required field and two optional scope fields:
 
@@ -182,8 +182,8 @@ is not already grabbed by mappings, force-grab, device inspector, or another
 active configuration path, the combo will not see it.
 
 The combo-level `match_across_devices = true` option is the reversible way to
-make a captured combo portable. The GUI uses this for **Match Across Devices**:
-it preserves captured event scope in storage, then the session sends the daemon
+make a captured combo portable. The GUI uses this for **Match Across Devices**.
+It preserves captured event scope in storage, then the session sends the daemon
 a runtime combo with empty `hardware_id` and `source` fields. Hand-edited combos
 may also omit either field directly when that wildcard behavior is desired.
 
@@ -199,7 +199,7 @@ Combos can trigger the same kinds of actions as normal key mappings:
 | **Macro** | Play a saved macro. |
 | **Super Key** | Run a saved overload or pattern super key. |
 | **Command** | Run a shell command. |
-| **Suppress** | Block the key — do nothing. |
+| **Suppress** | Block the key and do nothing. |
 | **[Profile](ACTIONS.md)** | Enable, disable, or toggle a profile. |
 
 For actions with a press/release lifecycle (keyboard output,
@@ -210,19 +210,19 @@ of the combo controls the lifecycle:
 - The action stops when any key from the final step is released.
 
 If the final combo input is a wheel direction, Keymasq treats it as an
-instantaneous pulse: the action starts and then stops immediately for that
+instantaneous pulse. The action starts and then stops immediately for that
 wheel tick.
 
 One-shot actions (commands, profile toggles) fire once when the combo
 completes.
 
-### Super Key Combo Actions
+### Super Key combo actions
 
 Combos can trigger saved **Super Keys**.
 
 #### Overload
 
-`Overload` superkeys fit naturally into combo actions:
+`Overload` superkeys behave like this as combo actions:
 
 - When the combo completes, Main Actions start in list order.
 - On Press actions then run once as quick press-and-release pulses.
@@ -231,11 +231,11 @@ Combos can trigger saved **Super Keys**.
 - Held Main Actions then stop again.
 - One-shot child actions like commands, profile actions, and compositor
   actions still fire once on combo completion.
-- Nested **Super Key** child actions are rejected inside superkeys so saved
+- Keymasq rejects nested **Super Key** child actions inside superkeys, so saved
   superkeys cannot recursively expand into other superkeys.
 
 This is the same order used when an overload superkey is assigned directly
-to a key or button: Main Actions wrap the On Press and On Release pulse
+to a key or button. Main Actions wrap the On Press and On Release pulse
 lists, so held modifiers in Main Actions are active for both pulse phases.
 
 #### Pattern
@@ -258,9 +258,9 @@ Combos reference saved superkeys by name. If a referenced superkey is deleted
 or changed, the combo uses the current saved definition the next time runtime
 state is applied.
 
-## Profile Resolution
+## Profile resolution
 
-Combos follow the same active-profile ordering as normal mappings — later
+Combos follow the same active-profile ordering as normal mappings, so later
 profiles win over earlier ones. See [Profiles](PROFILES.md) for the full
 ordering rules.
 
@@ -275,11 +275,11 @@ secondary click can remove that click **everywhere**.
 `Ctrl+Alt+Esc` is reserved by default as Keymasq's emergency combo on grabbed
 keyboards. The daemon injects it into the active combo set, and the GUI rejects
 that exact trigger while the safety combo is enabled. One tap cancels macro
-playback and releases tracked held outputs after a 200 ms double-tap window; a
+playback and releases tracked held outputs after a 200 ms double-tap window. A
 double tap releases all grabbed devices and asks the session to reapply active
 profiles.
 
-## Overlap And Conflicts
+## Overlap and conflicts
 
 Combos with overlapping first steps can coexist:
 
@@ -301,12 +301,12 @@ The combo editor intentionally stays conservative. It blocks:
 - `Ctrl+Alt+Esc` while the emergency combo is enabled.
 
 It does **not** try to detect cross-profile exact-trigger conflicts.
-The runtime behavior is the source of truth.
+The runtime decides which combo wins.
 
 ## Storage
 
-Combos are stored inside profile TOML files — they are not separate files like
-macros or super keys.
+Keymasq stores combos inside profile TOML files. They are not separate files
+like macros or super keys.
 
 ```toml
 [[combos]]
@@ -334,11 +334,11 @@ y = 20
 
 Each event stores the captured `evdev` code and may also store `hardware_id`
 and `source` for more precise scope. If `hardware_id` or `source` is omitted or
-empty, that part of the scope is treated as a wildcard over already-grabbed
-inputs. If `match_across_devices = true`, stored `hardware_id` and `source`
-values are preserved but ignored at runtime.
+empty, Keymasq treats that part of the scope as a wildcard over already-grabbed
+inputs. If `match_across_devices = true`, Keymasq preserves stored `hardware_id`
+and `source` values but ignores them at runtime.
 
-## Security Notes
+## Security notes
 
 - **Command actions** run shell commands inside your user session (delegated
   to keymasq-session, not the privileged daemon). They still execute
@@ -347,24 +347,24 @@ values are preserved but ignored at runtime.
 - **Compositor dispatcher actions** can send commands to your compositor
   (e.g. Hyprland). These interact with your desktop environment directly, so
   review what they do before assigning them to a combo.
-- **Combo capture** uses the same security model as macro recording — it
+- **Combo capture** uses the same security model as macro recording. It
   observes original input and requires the capture unlock flow.
 
 ## Troubleshooting
 
-- **Combo doesn't fire** — check that all first-step keys are still physically
-  held when you expect the combo to activate, and check that later multi-step
-  steps are being entered in the right order.
-- **Combo fires the wrong action** — check profile ordering. A later profile
+- **Combo doesn't fire.** Check that all first-step keys are still physically
+  held when you expect the combo to activate, and check that you enter later
+  multi-step steps in the right order.
+- **Combo fires the wrong action.** Check profile ordering. A later profile
   may have a combo with the same exact trigger that takes priority.
-- **Multi-step combo times out** — increase the timeout for the step that's
+- **Multi-step combo times out.** Increase the timeout for the step that's
   expiring. The default is 600 ms, which may be too short for complex
   sequences.
-- **Combo works on one device but not another** — combos are tied to exact
+- **Combo works on one device but not another.** Combos are tied to exact
   hardware IDs. If you moved to a different device, you need to recapture the
   trigger.
 
-## Best Practices
+## Best practices
 
 - **Start with modifier-led combos.** Combos starting with `Alt`, `Ctrl`, or
   `Meta` behave the most predictably because the modifier passes through
@@ -374,10 +374,10 @@ values are preserved but ignored at runtime.
 - **Use overlap intentionally.** Overlapping first-step combos are allowed. If
   you define `Alt+C`, `Alt+V`, and `Alt+C+V`, each one can activate when its
   held condition becomes true.
-- **Use descriptive names.** The combo name appears in the GUI list — a name
+- **Use descriptive names.** The combo name appears in the GUI list, so a name
   like `Alt+R → 1: move mouse` is easier to manage than `combo_3`.
 
-## See Also
+## See also
 
 - [Macros](MACROS.md) — record or build input sequences that combos can
   trigger.

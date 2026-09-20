@@ -1,4 +1,4 @@
-# Macro System
+# Macro system
 
 ## Overview
 
@@ -6,7 +6,7 @@ In Keymasq, a macro is a saved sequence of input actions that you can replay
 later. A macro can type text, press keys, click mouse buttons, move the mouse,
 or combine several of those actions with recorded timing.
 
-Macros are saved centrally by Keymasq and can be reused from profiles,
+Keymasq saves macros centrally, and you can reuse them from profiles,
 superkeys, combos, or the CLI. You create and edit them in the GUI, and
 Keymasq plays them back by macro name.
 
@@ -15,7 +15,7 @@ simple repeated clicks, a rapidfire mouse action is usually the fastest setup.
 Use a macro when you need more control over timing, double-click patterns,
 cursor movement, mixed keyboard and mouse input, or toggle/count playback.
 
-## Quick Start: Your First Macro
+## Quick start: your first macro
 
 The fastest way to get started is to create an empty macro, add a few events
 by hand, and assign it to a key. This doesn't require any special permissions
@@ -29,7 +29,7 @@ or unlock steps.
 4. Save the macro.
 5. Go to the **Device** tab for your keyboard, pick a key, and set its action
    to **Play Macro**. Choose the macro you just created.
-6. Press that key — your macro plays back exactly as you built it.
+6. Press that key. Your macro plays back exactly as you built it.
 
 This guide covers recording, type templates, and playback. Use the
 [Macro timeline editor guide](MACRO_EDITOR.md) to build and refine the sequence.
@@ -38,7 +38,7 @@ This guide covers recording, type templates, and playback. Use the
 
 ![A key bound to a macro appears with the macro name underneath](assets/screenshots/keymasq_macro_bound.png)
 
-## Creating Macros
+## Creating macros
 
 There are three ways to create a macro:
 
@@ -47,10 +47,10 @@ There are three ways to create a macro:
 - **Type macro template** — enter text and let Keymasq build the keystrokes
   for you.
 
-### Live Recording
+### Live recording
 
 Live recording captures your actual keyboard, mouse, and movement inputs as
-you perform them. This is the most accurate option and is recommended when:
+you perform them. This is the most accurate option. Use it when:
 
 - You need exact timing (for example, a game combo or an app shortcut).
 - Your macro involves mouse movement or clicks.
@@ -65,14 +65,13 @@ you can record in the target application without switching back to the GUI.
 Bind **Play Slot** for the same slot if you want to replay the temporary
 recording before saving it.
 The GUI does not need to stay open after recording is enabled. You should also
-bind **Cancel Macro Playback** — it immediately stops every running macro and
-is a useful safety net.
+bind **Cancel Macro Playback**, which stops every running macro immediately.
 
 When Keymasq has grabbed a keyboard, `Ctrl+Alt+Esc` is also reserved as an
 emergency combo. Tap it once to cancel all macro playback and release tracked
 held outputs after a 200 ms double-tap window. Double-tap it to run a full
 daemon runtime reset, release grabbed devices, and let the session reapply
-active profiles. It is injected by `keymasqd` and does not need to be added to
+active profiles. `keymasqd` injects it, so you do not need to add it to
 your profiles.
 
 **How to record:**
@@ -93,19 +92,17 @@ Temporary recording slots live in daemon-private slot storage until they are
 overwritten or deleted. They survive `keymasqd` restarts and can be relisted by
 Macro Manager after the session reconnects. Saving a slot duplicates it into a
 regular macro and keeps the slot available for playback. Closing the save
-dialog keeps the slot for Macro Manager; deleting a slot from Macro Manager
-removes it.
-If slot metadata is temporarily unreadable during daemon startup, Keymasq
-preserves every possibly related event file and retries on a later restart.
-Malformed temporary-slot metadata is discarded, and its unreferenced event
-data is removed during orphan cleanup.
-The slot that is currently recording cannot be played until recording stops;
-pressing its **Play Slot** action is ignored and Keymasq sends a desktop
-notification. Completed recordings in other slots remain playable.
-Starting a new recording in the same slot replaces that slot; starting a
-different slot requires a binding that explicitly names that different slot.
-Keymasq never round-robins or infers a recording slot for mapped recording
-triggers.
+dialog keeps the slot for Macro Manager. Deleting a slot from Macro Manager
+removes it. If slot metadata is temporarily unreadable during daemon startup,
+Keymasq preserves every possibly related event file and retries on a later
+restart. Malformed temporary-slot metadata is discarded, and its unreferenced
+event data is removed during orphan cleanup. You cannot play the slot that is
+currently recording until recording stops. Keymasq ignores its **Play Slot**
+action and sends a desktop notification. Completed recordings in other slots
+remain playable. Starting a new recording in the same slot replaces that slot.
+Starting a different slot requires a binding that explicitly names that
+different slot. Keymasq never round-robins or infers a recording slot for
+mapped recording triggers.
 
 Recordings stop after 10 minutes by default. You can change the limit in
 `/etc/keymasq/security.toml`, or set it to `0` to disable automatic stopping:
@@ -126,8 +123,8 @@ buttons in the GUI to start or stop, those clicks and any mouse movement to
 reach them will be captured too, which is rarely what you want.
 
 > **Fallback:** you can also select a slot and click **Record** in Macro
-> Manager, then **Stop** in the GUI, but be aware that interacting with the GUI
-> during a recording will capture those inputs.
+> Manager, then **Stop** in the GUI, but the recording captures any input you
+> make in the GUI.
 
 **Recording and save options:**
 
@@ -144,27 +141,27 @@ devices from direct physical input sources.
 - Use **Direct Input Sources** only when you explicitly need raw hardware events
   before Keymasq remapping.
 - **Selected sources below are authoritative.** The quick-selection buttons for
-  keyboards, mice, and gamepads only update the source list below; they are not
+  keyboards, mice, and gamepads only update the source list below. They are not
   separate recording state.
 - If both a managed physical device and its matching Keymasq passthrough device
   are selected, Keymasq records the passthrough stream and skips the matching
   raw stream to avoid duplicate events.
 
-Recording preferences are stored in
+Keymasq stores recording preferences in
 `~/.config/keymasq/recording_settings.toml`. Device-specific overrides use
 stable recording IDs instead of volatile `/dev/input/eventN` paths.
 If the preferences cannot be written to disk, they remain active for the
 current session and Keymasq warns that they may revert after a restart.
 
-![Recording settings — initial mouse position and source options](assets/screenshots/keymasq_macro_recording_settings.png)
+![Recording settings with initial mouse position and source options](assets/screenshots/keymasq_macro_recording_settings.png)
 
-![Save dialog — name your recorded macro before saving](assets/screenshots/keymasq_save_macro_dialog.png)
+![Save dialog for naming your recorded macro before saving](assets/screenshots/keymasq_save_macro_dialog.png)
 
-### Empty Macro
+### Empty macro
 
 An empty macro gives you a blank timeline that you build up manually in the
-editor. No recording, no unlock step — just open the editor and add the events
-you need.
+editor. It needs no recording and no unlock step. Open the editor and add the
+events you need.
 
 **How to create one:**
 
@@ -176,24 +173,24 @@ you need.
 5. Save.
 
 **When to use it:** when you know exactly which inputs you want and don't need
-to capture live timing — for example, a simple keyboard shortcut, a short
+to capture live timing. Examples are a simple keyboard shortcut, a short
 button sequence, or a starting point you plan to refine in the editor.
 
 Continue with [Add and edit actions](MACRO_EDITOR.md#add-and-edit-actions) in
 the editor guide. It explains the tracks, input picker, and timing fields.
 
-### Type Macro Template
+### Type macro template
 
 Type macro templates are a shortcut for creating simple text-typing macros
 without recording. You type the text you want, choose a delay between
 keystrokes, and Keymasq builds the macro automatically.
 
 If the text contains Unicode or formatted characters, the dialog shows an
-optional Unicode input mode. When enabled, unsupported characters are emitted
+optional Unicode input mode. When enabled, Keymasq emits unsupported characters
 by pressing `Ctrl+Shift+U`, releasing all three keys, typing the hexadecimal
 codepoint, then pressing `Space` to confirm. Space avoids sending Enter if the
 target does not recognize Unicode input. This is
-best-effort: it works in many text fields, but some apps, games, terminals,
+best-effort. It works in many text fields, but some apps, games, terminals,
 remote sessions, or input method setups may not accept it.
 
 Previously saved macros keep their compiled key events. Recreate a type macro
@@ -212,11 +209,11 @@ any short text that doesn't need precise timing.
 
 **When to prefer live recording instead:** if you use a non-QWERTY layout, if
 the target app does not accept Unicode input sequences, or if you need exact
-control over timing, live recording will give more reliable results.
+control over timing, live recording gives more reliable results.
 
-![Type Macro dialog — enter text, set key-down and pause timing](assets/screenshots/keymasq_type_macro_creation.png)
+![Type Macro dialog with text entry and key-down and pause timing](assets/screenshots/keymasq_type_macro_creation.png)
 
-### Type Binding
+### Type binding
 
 When mapping a key or button, use the **Type** tab to bind typed text directly.
 This creates a normal type macro with a generated `type_text_*` name and maps it
@@ -226,7 +223,7 @@ reused, or deleted like any other macro.
 Use the Macro Manager's **Type** button instead when you want a named,
 reusable macro that can be edited and selected from multiple mappings.
 
-### Type Macro Inline Controls
+### Type macro inline controls
 
 Type macro text supports inline controls. These work from the Macro Manager's
 **Type** dialog, the key selector's **Type** tab, and `keymasq type`.
@@ -242,8 +239,8 @@ Type macro text supports inline controls. These work from the Macro Manager's
 | `<up>` / `<down>` / `<left>` / `<right>` | Press an arrow key |
 | `<home>` / `<end>` | Press Home or End |
 | `<pageup>` / `<pagedown>` | Press Page Up or Page Down |
-| `<KEY:COUNT>` | Repeat a named key control up to 100 times; for example, `<tab:3>` or `<down:5>` |
-| `<shortcut:MOD+KEY>` | Press a keyboard shortcut; for example, `<shortcut:ctrl+l>` or `<shortcut:ctrl+shift+v>` |
+| `<KEY:COUNT>` | Repeat a named key control up to 100 times, for example `<tab:3>` or `<down:5>` |
+| `<shortcut:MOD+KEY>` | Press a keyboard shortcut, for example `<shortcut:ctrl+l>` or `<shortcut:ctrl+shift+v>` |
 | `<move:X:Y>` | Move the pointer to absolute coordinates using the fast natural-move defaults |
 | `<click>` / `<lclick>` / `<leftclick>` | Left click |
 | `<rclick>` / `<rightclick>` | Right click |
@@ -264,9 +261,9 @@ tuning arguments for this control.
 Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
 text, so `\\<tab>` types `\<tab>`.
 
-## Using Macros
+## Using macros
 
-### Playback Triggers
+### Playback triggers
 
 Once a macro is saved, you can trigger it in several ways:
 
@@ -275,7 +272,7 @@ Once a macro is saved, you can trigger it in several ways:
 | Mapped key or button | Device tab → pick a key → set action to **Play Macro** |
 | Superkey action | Superkey editor → add a macro action |
 | Combo | Combo tab → set the combo's action to **Play Macro** |
-| CLI command | Terminal: `keymasq macros play <name> [--speed SPEED]` |
+| CLI command | In a terminal, run `keymasq macros play <name> [--speed SPEED]` |
 | GUI button | Macro Manager → click **Play** next to a macro |
 
 `keymasq macros play` supports only the macro name and optional `--speed`
@@ -288,9 +285,9 @@ dialog:
 - **Block mouse movement** — temporarily prevent mouse movement during
   playback (requires a grabbed mouse device).
 
-![Mapping dialog — pick a macro, set speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
+![Mapping dialog for picking a macro and setting speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
 
-### Example: Build a Linux Autoclicker with a Macro
+### Example: build a Linux autoclicker with a macro
 
 If you want Keymasq to act as a Linux autoclicker, a looped macro is the
 better choice when you need a specific click pattern instead of a simple
@@ -317,7 +314,7 @@ Use this approach when you want:
 For a simpler autoclicker, map a mouse button action and enable
 [Rapidfire](ACTIONS.md#rapidfire) instead.
 
-### Loop Modes
+### Loop modes
 
 By default a macro plays once and stops. Loop modes let you repeat it
 automatically.
@@ -329,7 +326,7 @@ automatically.
 | **While Held** | Keep replaying for as long as you hold the trigger key down. Release stops after the current run by default. |
 | **Toggle** | Press the trigger once to start looping. Press it again to stop after the current run by default. |
 
-**While Held** and **Toggle** are especially useful for repeated actions — auto-fire
+**While Held** and **Toggle** suit repeated actions such as auto-fire
 in a game, continuous scrolling, or any workflow where you want the macro to
 keep running without pressing the trigger again and again.
 
@@ -350,22 +347,22 @@ Ordinary timeline gaps retain their remaining duration. An explicit wait
 already in progress keeps counting real time while paused. For example, a
 10-second wait paused after 2 seconds and resumed 5 seconds later has 3
 seconds left. A wait not yet reached receives no credit for earlier pauses.
-Active commands and natural mouse moves continue, including command timeouts;
-finishing them does not advance a paused timeline until the trigger is held
+Active commands and natural mouse moves continue, including command timeouts.
+Finishing them does not advance a paused timeline until you hold the trigger
 again. Cancel All still cancels playback, including paused instances and
 waitable commands.
 
-Once finishes after one pass; Count preserves its repetition count; While
+Once finishes after one pass, Count preserves its repetition count, and While
 Held continues repeating while held. After completion, the next press starts
 fresh. Toggle does not offer pause on release. Playback without a trigger
 lifecycle, such as GUI or CLI playback, ignores pause on release.
 
 With pause enabled, **Discard paused playback after** sets a timeout in
 seconds. **Never** disables expiry. Newly enabling pause starts with 60
-seconds; existing pause configurations without a timeout retain Never.
+seconds. Existing pause configurations without a timeout retain Never.
 
 The timeout counts real time from trigger release, including time spent in
-an active wait, command, or mouse move. Resuming clears it; another release
+an active wait, command, or mouse move. Resuming clears it, and another release
 starts a fresh timer. Expiry discards that instance's progress and cancels it
 and its descendants, including their active natural mouse moves and waitable
 commands. Its parent, siblings, and unrelated invocations keep their own
@@ -375,16 +372,16 @@ Each child call can set its own timeout. If a child expires while its parent
 is paused with Never, the parent stays paused and retains its position. On
 resume, a synchronous parent continues after the expired child call without
 restarting it. An ordinary parent without pause enabled can continue as soon
-as its synchronous child expires. Never disables an instance's own timeout;
+as its synchronous child expires. Never disables an instance's own timeout, but
 it does not protect children from cancellation when their ancestor expires.
 A child reached after release counts from that release,
 not from when the child was created. The JSON field is `pause_timeout_s`, with
-`0` meaning Never; mapping payloads use `macro_pause_timeout_s` internally.
+`0` meaning Never. Mapping payloads use `macro_pause_timeout_s` internally.
 
 Macro duration is the minimum timeline length of one pass. If the pass reaches
 the end of its events before `duration_us`, playback waits until that duration
-has elapsed before looping or finishing. This trailing duration is scaled by
-macro speed; explicit wait controls keep their own wall-clock duration.
+has elapsed before looping or finishing. Macro speed scales this trailing
+duration. Explicit wait controls keep their own wall-clock duration.
 
 Editing, renaming, or deleting a macro stops any looped playback of that macro
 before its next repetition. A repetition already in progress finishes using
@@ -403,7 +400,7 @@ works:
 - **While Held** macros will not start a second copy from the same trigger while one
   is already running. Releasing the trigger finishes, cancels, or pauses the
   current run, depending on the macro's release behavior.
-- **Toggle** macros use the trigger as an on/off switch — pressing it while
+- **Toggle** macros use the trigger as an on/off switch. Pressing it while
   the macro is running either finishes the current run or cancels it
   immediately, depending on the macro's loop stop behavior.
 - **Cancel All** (from the GUI or CLI) stops every running macro at once, not
@@ -413,19 +410,20 @@ There is no built-in limit on how many macros can run at once or how long they
 can be. If you create a very long macro or trigger many simultaneously, you're
 responsible for the result.
 
-Playback failures during a sequence, such as a missing target device, are not
-reported by the GUI.
+The GUI does not report playback failures during a sequence, such as a missing
+target device.
 
-### Wait Controls
+### Wait controls
 
-A Wait pauses playback for a fixed duration; a Random Wait chooses a duration
+A Wait pauses playback for a fixed duration. A Random Wait chooses a duration
 between its configured minimum and maximum. Both are explicit macro events.
 They keep their configured wall-clock duration when macro speed changes.
 
 An empty timeline gap is different: its elapsed playback time scales with macro
-speed. Inserting a Wait leaves later event timestamps unchanged in the editor;
-during playback, the wait delays those later events. Use this when an application
-needs a fixed pause even if the surrounding key sequence runs faster.
+speed. Inserting a Wait leaves later event timestamps unchanged in the editor.
+During playback, the wait delays those later events. Use this when an
+application needs a fixed pause even if the surrounding key sequence runs
+faster.
 
 See [adding and editing waits](MACRO_EDITOR.md#waits-commands-and-macro-calls).
 
@@ -438,14 +436,14 @@ reached** on a natural move when later clicks or key presses should not run
 after a timeout or missing cursor feedback.
 
 Use natural movement for fixed screen targets when realtime cursor feedback is
-available. Relative moves use offsets from the current position; the older
+available. Relative moves use offsets from the current position. The older
 absolute move is a fallback when natural movement is unavailable. See
 [editing mouse movement](MACRO_EDITOR.md#mouse-movement) for the controls.
 
 ### Commands and compositor actions
 
 Waitable Exec events (**Wait for completion** and **Run in parallel**) use the
-configured timeout. A command that reaches it is killed by the session process.
+configured timeout. The session process kills a command that reaches it.
 Detached commands instead use the session's default 300-second command timeout.
 The three execution modes are:
 
@@ -458,7 +456,7 @@ The three execution modes are:
   command. The command can outlive the macro.
 
 Exec events are the recommended way to call existing hardware/vendor tooling
-from a macro. For example, DPI changes can be delegated to OpenRazer or
+from a macro. For example, you can delegate DPI changes to OpenRazer or
 ratbagd tooling:
 
 ```sh
@@ -482,7 +480,7 @@ may wait for the child or run it in parallel. See the
 - **Run and wait** pauses the parent at the marker until the child completes.
   Later parent deadlines move back by the time spent in the child.
 - **Run in parallel** lets the parent timeline continue. It is still a child,
-  not a detached task: the parent iteration waits for it at the end before the
+  not a detached task. The parent iteration waits for it at the end before the
   next Count/Hold/Toggle iteration can start.
 - Each call chooses its own Once, Count, or While Held playback, speed, and
   mouse replay options. Toggle is intentionally a top-level trigger mode and
@@ -496,8 +494,8 @@ may wait for the child or run it in parallel. See the
 Child calls can select **Pause and resume** under **On release**, independently
 of the parent's setting. Every child shares the original trigger's state and
 applies its own release behavior. Pausing the parent does not pause ordinary
-children or release their outputs. A synchronous parent waits for its child;
-a parallel parent can continue its timeline but still joins its children at
+children or release their outputs. A synchronous parent waits for its child.
+A parallel parent can continue its timeline but still joins its children at
 the end of the pass. A child with pause enabled that is reached after release
 starts paused instead of being skipped.
 
@@ -512,12 +510,12 @@ take effect without rebuilding the parent. Renaming or deleting a child does
 not rewrite callers. A missing or failed child aborts the parent call tree,
 even while a parent is paused, releases the remaining children's held outputs,
 and logs the full call chain. A child's discard-timeout cancellation is not a
-playback failure; the parent and siblings retain their own policies.
+playback failure. The parent and siblings retain their own policies.
 If a macro tries to call a name already present in
 its active parent chain, Keymasq stops the call tree and logs the attempted
 cycle. This runtime check does not scan or rewrite saved macros.
 
-## Editing Macros
+## Editing macros
 
 Open **Macro Manager** and click a saved macro's row or pencil button to edit
 it. Temporary recording slots must be saved as regular macros first. You can
@@ -532,10 +530,10 @@ or event count. Right-click a saved macro for **Copy Name**, **Play**, **Edit**,
 **Duplicate**, and **Delete**. Copy Name gives you its exact name for use in
 profiles, superkeys, combos, or the CLI.
 
-## CLI Usage
+## CLI usage
 
 The `keymasq` CLI lets you work with macros from a terminal. It's best for
-quick operations — use the GUI for creating and editing.
+quick operations. Use the GUI for creating and editing.
 
 | Command | What it does |
 |---|---|
@@ -545,26 +543,26 @@ quick operations — use the GUI for creating and editing.
 
 ## Storage
 
-Macros are stored in `/var/lib/keymasq/macros/`, owned by the `keymasq`
+Keymasq stores macros in `/var/lib/keymasq/macros/`, owned by the `keymasq`
 system user. Persistent macros use compressed `.kmacro.xz` files. Do not edit
-these files by hand — use the GUI or CLI instead.
+these files by hand. Use the GUI or CLI instead.
 
 During live recording, Keymasq keeps unsaved recordings in temporary slots
 backed by daemon-owned private files instead of sending the full event list
 through the session. Saving a slot copies that pending recording into
-compressed macro storage and leaves the slot in place; deleting or overwriting
+compressed macro storage and leaves the slot in place. Deleting or overwriting
 the slot removes the temporary recording.
 
-### Deleting Macros
+### Deleting macros
 
 To delete a macro, open **Macro Manager** and click the delete button next to
 it.
 
 Deleting a macro does **not** automatically unbind it from keys, superkeys, or
-combos that reference it. Those mappings will stay in place but stop working —
-pressing the trigger will do nothing because the macro no longer exists.
+combos that reference it. Those mappings stay in place but stop working.
+Pressing the trigger does nothing because the macro no longer exists.
 
-## Security Notes
+## Security notes
 
 Keymasq treats macros with care because recording captures raw input, which
 could be misused as a keylogger.
@@ -573,12 +571,12 @@ could be misused as a keylogger.
   until you enable it through the Polkit-backed `keymasq-record` helper.
   You can disable the opt-in again from **Settings > Macro recording**.
   Playback and normal macro management remain available. This makes macro
-  recording a deliberate user choice instead of an always-available background
-  capture surface.
+  recording a deliberate user choice instead of a background capture
+  feature that is always available.
 
 - **Temporary slots are not macro bodies.** Recording creates an opaque
   pending slot. It can be replayed only through an explicit **Play Slot**
-  action for that slot; it cannot be fetched, inspected, or edited as a macro
+  action for that slot. It cannot be fetched, inspected, or edited as a macro
   until it is saved into normal macro storage. Slot storage is daemon-private
   and exists so slots survive daemon restarts, not as a macro library API.
 
@@ -588,7 +586,7 @@ could be misused as a keylogger.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
   system user, not mixed into your profile files. They are compressed on disk.
-  The GUI asks Keymasq to save or play them; it does not write files there
+  The GUI asks Keymasq to save or play them. It does not write files there
   directly.
 
 - **Emergency playback cancellation** is enabled by default. Tap `Ctrl+Alt+Esc`
@@ -596,8 +594,8 @@ could be misused as a keylogger.
   release tracked held outputs after a 200 ms double-tap window. Double-tap it
   to release all grabbed devices and rebuild the active runtime mappings.
 
-**Optional security settings** (in `/etc/keymasq/security.toml`). Most users
-do not need to change these — they are intended for system administrators:
+**Optional security settings** (in `/etc/keymasq/security.toml`). These are
+intended for system administrators, and most users do not need to change them:
 
 - **Disable the capture unlock requirement** (not recommended). Macro recording
   still requires its separate opt-in:
@@ -607,7 +605,7 @@ do not need to change these — they are intended for system administrators:
   unlock_required = false
   ```
 
-- **Change the maximum recording duration.** The default is 10 minutes; `0`
+- **Change the maximum recording duration.** The default is 10 minutes, and `0`
   disables automatic stopping:
 
   ```toml
@@ -629,7 +627,7 @@ do not need to change these — they are intended for system administrators:
   emergency_cancel_combo_enabled = false
   ```
 
-## Best Practices
+## Best practices
 
 - **Name macros clearly.** Use descriptive, stable names like
   `fps_loot_cycle` or `email_signature`. Profiles and combos refer to macros

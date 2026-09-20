@@ -1,4 +1,4 @@
-# Momentary WASD Navigation Layer
+# Momentary WASD navigation layer
 
 Use one held key as a temporary navigation layer:
 
@@ -17,7 +17,7 @@ This works like a keyboard firmware layer, but it uses a disabled Keymasq
 profile and a temporary profile activation. Hold the layer key, navigate with
 WASD, then release the layer key to return to your normal layout.
 
-## Create The Layer Profile
+## Create the layer profile
 
 Open **Profiles** and create a profile named:
 
@@ -25,8 +25,8 @@ Open **Profiles** and create a profile named:
 WASD Navigation
 ```
 
-Keep it disabled by default. This profile is only enabled while the layer key
-is held.
+Keep it disabled by default. Keymasq only enables this profile while you hold
+the layer key.
 
 In the **Device** tab, select `WASD Navigation` and add these mappings:
 
@@ -41,12 +41,11 @@ In the **Device** tab, select `WASD Navigation` and add these mappings:
 | `key_r` | Mouse: Scroll Up | On |
 | `key_f` | Mouse: Scroll Down | On |
 
-Use **Rapidfire** for the scroll actions. This gives you explicit speed
-control: lower **Wait (ms)** for faster
-scrolling, raise it for slower scrolling, and adjust **Hold (ms)** if an app
-needs a longer wheel pulse.
+Use **Rapidfire** for the scroll actions so you can control the scroll speed.
+Lower **Wait (ms)** for faster scrolling, raise it for slower scrolling, and
+adjust **Hold (ms)** if an app needs a longer wheel pulse.
 
-## Bind It To A Hold Key
+## Bind it to a hold key
 
 In the **Device** tab or **Combos** tab, choose a key, mouse button, or combo.
 Open the **Profile** action tab and set:
@@ -64,7 +63,7 @@ changing the saved profile's disabled state.
 Good layer keys are keys you can hold comfortably while pressing WASD, such
 as Caps Lock, a thumb key, or a mouse side button.
 
-## How It Feels
+## What it does
 
 Hold the layer key:
 
@@ -75,7 +74,7 @@ Hold the layer key:
 
 Release the layer key:
 
-- The temporary `WASD Navigation` activation is removed.
+- Keymasq removes the temporary `WASD Navigation` activation.
 - Your normal keyboard mappings come back.
 
 This is useful in games, editors, terminals, and browsers where your hand is

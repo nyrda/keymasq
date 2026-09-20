@@ -1,8 +1,8 @@
-# Listener VM Tests
+# Listener VM tests
 
 Keymasq includes a NixOS VM matrix for listener integration tests.
 
-## Support Status
+## Support status
 
 This page distinguishes between:
 
@@ -10,8 +10,8 @@ This page distinguishes between:
 - environments expected to work through a shared listener path, but not
   currently covered by a dedicated VM in this matrix
 
-The first group is the tested support matrix. The second group should be read
-as best-effort compatibility until dedicated VM coverage is added.
+The first group is the tested support matrix. Treat the second group as
+best-effort compatibility until it gets dedicated VM coverage.
 
 ### Tested support matrix
 
@@ -41,7 +41,7 @@ not currently part of the dedicated VM integration matrix:
 - Muffin
 - gamescope sessions
 
-## Passing Tests
+## Passing tests
 
 | Test | Compositor | Desktop | Status |
 | ---- | ---------- | ------- | ------ |
@@ -54,22 +54,22 @@ not currently part of the dedicated VM integration matrix:
 | `listener-vm-cosmic` | cosmic | COSMIC | ✓ passing |
 | `listener-vm-sway` | wayland | Sway (wlroots fallback) | ✓ passing |
 
-## What The Tests Exercise
+## What the tests exercise
 
 Each desktop test validates:
 
-1. **Compositor detection** — `get_compositor` returns the correct compositor ID.
-2. **Listener startup** — `keymasq-session` starts and the compositor-specific listener becomes active.
-3. **Window open** — a GTK4 window is opened via `window-lab`; the listener reports its title.
-4. **Focus switching** — a second window is opened, then focus moves back to the first; the listener tracks each change.
-5. **Title change** — an existing window is retitled; the listener picks up the new title.
-6. **Window close** — a window is closed; the listener reports focus moving to the remaining window.
-7. **Cursor position** — where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
-8. **Listener-scoped dispatch** — compositor-specific tests can trigger a compositor dispatch through Keymasq and verify the observable result.
+1. **Compositor detection.** `get_compositor` returns the correct compositor ID.
+2. **Listener startup.** `keymasq-session` starts and the compositor-specific listener becomes active.
+3. **Window open.** The test opens a GTK4 window via `window-lab`, and the listener reports its title.
+4. **Focus switching.** The test opens a second window, then moves focus back to the first. The listener tracks each change.
+5. **Title change.** The test retitles an existing window, and the listener picks up the new title.
+6. **Window close.** The test closes a window, and the listener reports focus moving to the remaining window.
+7. **Cursor position.** Where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
+8. **Listener-scoped dispatch.** Compositor-specific tests can trigger a compositor dispatch through Keymasq and verify the observable result.
 
 The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
-## Running A Desktop VM Test
+## Running a desktop VM test
 
 Use the integration helper from the repository root:
 
@@ -105,9 +105,9 @@ nix build 'path:.#checks.x86_64-linux.listener-vm-sway'
 
 Use the `path:` flake reference while the VM files are uncommitted. A plain `.#...` build can miss new files because it evaluates the Git snapshot.
 
-These tests are heavy. A Linux host with KVM acceleration is strongly recommended.
+These tests are heavy. Use a Linux host with KVM acceleration.
 
-## Helper Tools
+## Helper tools
 
 The VM environments install:
 
@@ -123,21 +123,21 @@ The VM environments install:
 - retitle the first window
 - close windows
 
-## Compositor-Specific Notes
+## Compositor-specific notes
 
 ### GNOME
 
 The GNOME VM installs and enables the `gnome-bridge@keymasq.tools` Shell extension automatically. The GNOME listener depends on that bridge for active-window and pointer updates.
 
-**Focus and title tracking**: GNOME Wayland has aggressive focus-stealing prevention. GTK's `window.present()` is not sufficient to programmatically switch focus. The bridge extension handles this by:
+**Focus and title tracking.** GNOME Wayland has aggressive focus-stealing prevention. GTK's `window.present()` is not sufficient to switch focus from code. The bridge extension handles this by:
 
 - Tracking `notify::focus-window` on `global.display` for focus changes.
 - Tracking `notify::title` on the currently focused `Meta.Window` for title renames.
 - Accepting `activate_title` messages from the listener, which call `meta_window.activate()` from inside the Shell process to bypass Wayland focus restrictions.
 
-The `activate_title` bridge command is used by the GNOME VM test to switch focus between windows, and is also exposed as the `activate_title` session command.
+The GNOME VM test uses the `activate_title` bridge command to switch focus between windows. The same command is also available as the `activate_title` session command.
 
-**Bridge preflight**: The dedicated `listener-vm-gnome-bridge` check starts GNOME, binds to the raw `gnome-bridge.sock`, and validates:
+**Bridge preflight.** The dedicated `listener-vm-gnome-bridge` check starts GNOME, binds to the raw `gnome-bridge.sock`, and validates:
 
 - extension connection
 - `hello` handshake
@@ -147,7 +147,7 @@ The `activate_title` bridge command is used by the GNOME VM test to switch focus
 
 The full `listener-vm-gnome` test exercises the keymasq-session GNOME listener end-to-end (compositor detection → bridge connection → window tracking → cursor position). The two tests are separate to avoid socket conflicts between the probe and `keymasq-session`.
 
-**Set Cursor dispatch**: The full GNOME listener VM test exercises the
+**Set Cursor dispatch.** The full GNOME listener VM test exercises the
 `set_cursor_position` compositor action through `keymasq-session` and verifies
 that the pointer lands at the requested coordinates.
 
@@ -160,7 +160,7 @@ The KDE test does not use a generic Wayland foreign-toplevel protocol. It exerci
 - it injects a temporary KWin JavaScript plugin
 - that plugin reports active-window changes back to `keymasq-session` over the exported `keymasq.kde.Listener` D-Bus interface
 
-The VM test now asserts both:
+The VM test asserts both:
 
 - `org.kde.KWin` is present on the session bus
 - `keymasq-session` logs `KDE listener script loaded`, proving the KWin script/plugin path is active
@@ -169,27 +169,27 @@ Window switching in the test still uses the GTK lab app's normal activation path
 
 ### Hyprland
 
-The Hyprland test uses the Hyprland listener which connects to `.socket2.sock` for `activewindow>>` events and `.socket.sock` for IPC commands. UWSM (Universal Wayland Session Manager) handles session setup and exports `HYPRLAND_INSTANCE_SIGNATURE` to the systemd user environment.
+The Hyprland test uses the Hyprland listener, which connects to `.socket2.sock` for `activewindow>>` events and `.socket.sock` for IPC commands. UWSM (Universal Wayland Session Manager) handles session setup and exports `HYPRLAND_INSTANCE_SIGNATURE` to the systemd user environment.
 
-**Focus switching**: The test uses
+**Focus switching.** The test uses
 `hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` to switch focus,
 which is Hyprland's native IPC mechanism.
 
-**Window tags**: Hyprland is the only compositor in the matrix that supports window tags. The test verifies that `get_active_window` returns a `tags` field (currently `[]` for the test windows).
+**Window tags.** Hyprland is the only compositor in the matrix that supports window tags. The test verifies that `get_active_window` returns a `tags` field (currently `[]` for the test windows).
 
-**Set Cursor dispatch**: The Hyprland VM test exercises the
+**Set Cursor dispatch.** The Hyprland VM test exercises the
 `set_cursor_position` compositor action through the Hyprland listener and
 confirms that the compositor reports the exact requested coordinates afterward.
 
 ### Niri
 
-The Niri test uses the dedicated Niri listener which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keymasq uses two separate connections: one event-stream socket for focused-window tracking and one command socket for compositor actions.
+The Niri test uses the dedicated Niri listener, which connects to `$NIRI_SOCKET` directly. As with the upstream Niri IPC design, Keymasq uses two separate connections. One is an event-stream socket for focused-window tracking, and the other is a command socket for compositor actions.
 
-**Focus switching**: The test activates windows through Keymasq's Niri listener path (`activate_title`) so the listener's cached focused-window state stays coherent even when the VM seat does not report a focused Niri window.
+**Focus switching.** The test activates windows through Keymasq's Niri listener path (`activate_title`) so the listener's cached focused-window state stays consistent even when the VM seat does not report a focused Niri window.
 
-**Dispatch path**: The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
+**Dispatch path.** The test sends `dispatch_compositor` through the session socket for the Niri `toggle-window-floating` action and verifies that the Beta window's `is_floating` state changes through `niri msg --json windows`.
 
-**Cursor position**: The Niri VM test uses the native layer-shell cursor feedback
+**Cursor position.** The Niri VM test uses the native layer-shell cursor feedback
 path, just like Sway and COSMIC when they expose `zwlr_layer_shell_v1` and
 `zxdg_output_manager_v1`. The test grabs the QEMU AT keyboard so keymasqd
 creates uinput devices (including `keymasq-mouse`), then verifies that
@@ -198,46 +198,46 @@ attempts) handles VM timing variance where the compositor may need extra time to
 register the new uinput mouse or where the temporary layer surfaces are not ready
 before the synthetic cursor sample nudge runs.
 
-**Software renderer patch**: Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. The niri version is pinned via `niriExpectedVersion`; a Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
+**Software renderer patch.** Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. `niriExpectedVersion` pins the niri version. A Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
 
 ### COSMIC
 
 The COSMIC test uses the COSMIC listener backed by `ext_foreign_toplevel_list_v1` and `zcosmic_toplevel_info_v1` Wayland protocols. The compositor (`cosmic-comp`) is Smithay-based and implements the `xdg-activation-v1` protocol, so GTK's `window.present()` works for focus switching without compositor-specific helpers.
 
-Note: the COSMIC VM briefly shows `com.system76.CosmicInitialSetup` as the active window before test windows appear. The test tolerates this by polling until the expected title is observed.
+The COSMIC VM briefly shows `com.system76.CosmicInitialSetup` as the active window before test windows appear. The test tolerates this by polling until it observes the expected title.
 
 ### Sway (wlroots fallback)
 
-The Sway test validates the wlroots fallback listener (`WlrootsWaylandListener`) which uses `zwlr_foreign_toplevel_manager_v1`. This is the generic Wayland listener that works on any compositor implementing the wlroots foreign-toplevel protocol. The compositor is detected as `"wayland"`.
+The Sway test validates the wlroots fallback listener (`WlrootsWaylandListener`), which uses `zwlr_foreign_toplevel_manager_v1`. This is the generic Wayland listener that works on any compositor implementing the wlroots foreign-toplevel protocol. Keymasq detects the compositor as `"wayland"`.
 
-**Focus switching**: The test uses `swaymsg "[title=<name>] focus"` to switch focus via Sway's native IPC, with `SWAYSOCK` extracted from the systemd user environment.
+**Focus switching.** The test uses `swaymsg "[title=<name>] focus"` to switch focus via Sway's native IPC, with `SWAYSOCK` extracted from the systemd user environment.
 
 ### XFCE (X11)
 
-The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads `_NET_ACTIVE_WINDOW` from the X root window and watches `PropertyNotify` events for title and class changes. On X11, GTK's `window.present()` works for focus switching, so no compositor-specific activation helpers are needed.
+The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads `_NET_ACTIVE_WINDOW` from the X root window and watches `PropertyNotify` events for title and class changes. On X11, GTK's `window.present()` works for focus switching, so the test needs no compositor-specific activation helpers.
 
-**Cursor position**: The X11 listener reads cursor coordinates with
+**Cursor position.** The X11 listener reads cursor coordinates with
 `query_pointer()`. Absolute mouse workflows use keymasqd's virtual mouse
 movement path.
 
-## Focus Switching Summary
+## Focus switching summary
 
 | Compositor | `present()` works? | Activation method |
 | ---------- | ------------------ | ----------------- |
 | GNOME | no | bridge `activate_title` → `meta_window.activate()` |
-| KDE | yes | GTK activation; listener events come from injected KWin script over D-Bus |
+| KDE | yes | GTK activation. Listener events come from the injected KWin script over D-Bus |
 | Hyprland | no | `hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` |
-| Niri | no | Keymasq `activate_title` -> Niri `FocusWindow { id }` |
+| Niri | no | Keymasq `activate_title` → Niri `FocusWindow { id }` |
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | `swaymsg "[title=<name>] focus"` |
 | X11/XFCE | yes | GTK `window.present()` |
 
-## Next Iteration
+## Next iteration
 
-The matrix is designed to be extended with:
+The matrix can grow to include:
 
 - screenshots or video capture on failure
 - workspace switching checks
 - Hyprland window tag assertions beyond the empty default
-- richer GNOME bridge assertions beyond startup and focus propagation
+- more GNOME bridge assertions beyond startup and focus propagation
 - COSMIC initial-setup suppression for cleaner test output

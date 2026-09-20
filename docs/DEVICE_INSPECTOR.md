@@ -7,7 +7,7 @@ Open it from a device tab with the inspect button. Keymasq uses the capture
 unlock flow before the window can start, because the inspector observes
 original hardware events.
 
-## What It Shows
+## What it shows
 
 - the final resolved mapping for the selected device
 - the profiles that produced those final mappings
@@ -22,15 +22,15 @@ The analog viewer only shows inputs already configured in the hardware setup.
 Unknown raw axis events still appear in the raw event stream so you can identify
 which event names and codes to add to the device setup.
 
-The raw event stream shows buttons and keys by default. Axes, mouse movement,
-and `EV_SYN` reports can be enabled from the filter buttons in the inspector.
+The raw event stream shows buttons and keys by default. Enable axes, mouse
+movement, and `EV_SYN` reports from the filter buttons in the inspector.
 The window keeps the most recent 100 events per filter category and displays
 the most recent 100 events that match the active filters.
 
-Rapid absolute-axis updates and normal `EV_SYN` reports are coalesced for the
-inspector at 60 Hz, retaining the latest value per axis and interface. Button
-presses and releases, relative movement, and dropped-frame reports retain their
-order. This limits display traffic from motion sensors; remapping and recording
+The inspector coalesces rapid absolute-axis updates and normal `EV_SYN` reports
+at 60 Hz and retains the latest value per axis and interface. Button presses
+and releases, relative movement, and dropped-frame reports retain their
+order. This limits display traffic from motion sensors. Remapping and recording
 still process every input sample. The inspector stream is a sampled view, not a
 lossless recording. Per-event inspector logging requires `-vv`.
 
@@ -42,14 +42,15 @@ accessible in smaller windows.
 
 Each sensor has a shaded controller preview with a green mark at its front.
 The preview estimates orientation from calibrated gyro and accelerometer samples.
-Gyro-only sensors show relative rotation; accelerometer-only sensors show tilt.
-Heading is relative and can drift. **Recenter preview** uses the current pose as
-the visual reference without changing sensor calibration, mappings, or output.
-Profile changes preserve that reference when the sensor configuration is unchanged.
+Gyro-only sensors show relative rotation, and accelerometer-only sensors show
+tilt. Heading is relative and can drift. **Recenter preview** uses the current
+pose as the visual reference without changing sensor calibration, mappings, or
+output. Profile changes preserve that reference when the sensor configuration
+is unchanged.
 
 Signed pitch, yaw, and roll bars show rotation speeds in degrees per second.
-The bars span −360 to +360 °/s; the numeric readings retain speeds beyond that
-range. **Sensor details** expands to show calibrated gyro values in rad/s,
+The bars span −360 to +360 °/s, and the numeric readings retain speeds beyond
+that range. **Sensor details** expands to show calibrated gyro values in rad/s,
 accelerometer values in m/s², and their original raw counts.
 
 The preview updates independently of the raw-event filters and continues while
@@ -59,7 +60,7 @@ disconnects. Dropped event frames discard the old estimate and incomplete sample
 Accelerometer correction waits for all three axes and ignores readings far from
 normal gravity, such as free fall or a strong shake.
 
-## Suppression Mode
+## Suppression mode
 
 The inspector has a suppression switch for testing mappings safely. When
 suppression is on:
@@ -70,8 +71,8 @@ suppression is on:
 - any raw `KEY_ESC` press seen by `keymasqd` turns active inspector suppression
   off, even when the suppressed device is a mouse
 
-The Escape press is consumed by the inspector escape path and is not emitted as
-normal output. Escape release events and non-Escape events do not disable
+The inspector escape path consumes the Escape press, and Keymasq does not emit
+it as normal output. Escape release events and non-Escape events do not disable
 suppression.
 
 Suppression is scoped to the inspected hardware ID. Closing the inspector stops
@@ -86,6 +87,6 @@ that owns the capture unlock flow, just like macro recording and live input
 capture.
 
 The inspector force-grabs configured interfaces for the selected device while it
-is open so raw events can be observed even if the current profile has no mapping
+is open so you can observe raw events even if the current profile has no mapping
 on a particular interface. It does not guess or create new controls from unknown
 events.

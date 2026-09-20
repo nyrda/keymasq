@@ -1,9 +1,9 @@
 # Hardware masking
 
 Masking stops other applications from opening a physical input device while
-Keymasq keeps access for remapping. It is system-wide device access control:
-the hardware stays visible in sysfs and may linger in cached application lists,
-but ordinary applications can no longer read it. Root and other privileged input
+Keymasq keeps access for remapping. It is system-wide device access control. The
+hardware stays visible in sysfs and may linger in cached application lists, but
+ordinary applications can no longer read it. Root and other privileged input
 services remain trusted.
 
 Masking works for USB and Bluetooth devices without needing a known vendor,
@@ -41,7 +41,7 @@ without repeating the confirmation, including while it is unplugged.
 
 If another application holds the device open, the row names it when possible and
 offers **Retry**. Close that application and retry. For USB devices, Keymasq can
-also reconnect the device's individual port to force the takeover; this briefly
+also reconnect the device's individual port to force the takeover. This briefly
 interrupts every function of that device, including audio or storage. If port
 control is unavailable, reconnect the device by hand. **Copy diagnostics**
 collects the technical details for a bug report.
@@ -70,19 +70,19 @@ Available to add**. See [controller routing](GAMEPAD.md) for output behavior.
 
 ## Saved masks, restarts, and reconnects
 
-Confirmed masks are reapplied after reboot or service restart by the background
-user session, including in Steam Deck Gaming Mode, without opening the GUI or
+The background user session reapplies confirmed masks after a reboot or service
+restart, including in Steam Deck Gaming Mode, without opening the GUI or
 confirming again. Closing the GUI leaves masks active. A normal shutdown or
 suspend restores physical access, and startup or wake reapplies enabled masks.
 
-A confirmed device keeps its switch on while unplugged and shows **Waiting for
-device**. It is masked again automatically when it returns. For USB devices the
-access restriction is already in place when the device reconnects, before the
-desktop is granted access. Without a serial number the saved choice identifies
-the port and model, so another unit of the same model on that port inherits it.
-Bluetooth devices are identified by their remote address, so pairing survives
-reconnects, but their restriction is reapplied a few seconds after they
-reconnect rather than ahead of it.
+A confirmed device keeps its switch on while unplugged and shows
+**Waiting for device**. Keymasq masks it again when it returns. For USB devices
+the access restriction is already in place when the device reconnects, before
+the desktop is granted access. Without a serial number the saved choice
+identifies the port and model, so another unit of the same model on that port
+inherits it. Bluetooth devices are identified by their remote address, so
+pairing survives reconnects, but their restriction is reapplied a few seconds
+after they reconnect rather than ahead of it.
 
 Each saved mask reports one state: **off**, **starting**, **waiting for device**,
 **saved incomplete**, **attention**, **activating**, **trial**, **masked**, or
@@ -92,13 +92,13 @@ seconds, doubling up to one minute. Connecting or disconnecting the device,
 turning its switch on, or pressing **Retry** resets that delay. Absent devices
 list the time they were last connected under their details.
 
-A mask confirmed by an earlier build may show **Waiting for device · confirm
-again when connected**. Connect the device and confirm masking once more; it
-then behaves like any other saved mask.
+A mask confirmed by an earlier build may show
+**Waiting for device · confirm again when connected**. Connect the device and
+confirm masking once more. It then behaves like any other saved mask.
 
 Keymasq listens for kernel hotplug events, so a returning device is picked up
 immediately. Plugging a wireless controller into a masked receiver, or removing
-it, does not drop the mask; Keymasq reacquires the changed interfaces.
+it, does not drop the mask. Keymasq reacquires the changed interfaces.
 
 ## When masking stops
 
@@ -110,9 +110,9 @@ row shows **Not masked** until the retry succeeds.
 
 Emergency reset stops remapping, releases input devices, and restores every
 mask, including disconnected devices and masks still starting. Afterwards the
-dialog offers **Enable remapping**; it stays unavailable while device access is
-still being repaired. Saved but inactive masks never pause remapping on their
-own.
+dialog offers **Enable remapping**, which stays unavailable while Keymasq is
+still repairing device access. Saved but inactive masks never pause remapping on
+their own.
 
 ## Administrative recovery
 
@@ -134,15 +134,15 @@ For the installed AppImage, use `/opt/keymasq/bin/keymasq-record`.
 Recovery only changes devices it can positively identify. If an undo journal is
 damaged, recovery still removes that device's rules and restores what it can
 prove, then reports an error and keeps daemon startup blocked. Do not delete the
-journal to bypass this; it may hold the information needed to repair an
-interrupted hardware operation. Restart `keymasqd` when recovery succeeds. User
-profiles, hardware configurations, and confirmed masking preferences are
-preserved.
+journal to bypass this, because it may hold the information needed to repair an
+interrupted hardware operation. Restart `keymasqd` when recovery succeeds.
+Recovery preserves user profiles, hardware configurations, and confirmed masking
+preferences.
 
 ## Further reading
 
 - [Hardware masking design](HARDWARE_MASKING_DESIGN.md) describes the privileged
   jobs, udev rules, permission baselines, USB takeover, and recovery journals.
 - [Security model](SECURITY.md) covers the trust boundary of the root job.
-- [Troubleshooting](TROUBLESHOOTING.md) for daemon capability and permission
+- [Troubleshooting](TROUBLESHOOTING.md) covers daemon capability and permission
   problems.

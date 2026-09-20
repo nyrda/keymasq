@@ -1,12 +1,10 @@
 # Packaging
 
 This document explains which installable packages Keymasq provides, what each
-package contains, and how those packages are built and tested in this
-repository.
+package contains, and how this repository builds and tests them.
 
-If you are looking for end-user installation steps, see `docs/INSTALL.md`.
-This file is for someone inspecting the project itself and trying to understand
-how packaging is organized.
+For end-user installation steps, see `docs/INSTALL.md`. This file is for
+someone reading the project to understand how packaging is organized.
 
 ## Overview
 
@@ -46,7 +44,7 @@ hidraw devices and wait for udev to apply the ACLs. Systemd units and the NixOS
 module do this before daemon startup too, covering already-connected devices.
 AppImage's non-systemd instructions include the same step, and its uninstall
 removes the daemon's hidraw ACLs. Installing the Nix package alone does not
-activate system services or udev rules; NixOS users must enable the module.
+activate system services or udev rules. NixOS users must enable the module.
 
 Adding another read-only native driver requires no packaging changes.
 Drivers that send device commands need an explicit write-access policy.
@@ -55,10 +53,10 @@ Drivers that send device commands need an explicit write-access policy.
 
 The repository uses three packaging channels:
 
-- Stable releases are created from stable `v*` tags. These are the only runs
-  that sign RPMs, publish GitHub release artifacts as the official release, and
+- Stable releases come from stable `v*` tags. These are the only runs that sign
+  RPMs, publish GitHub release artifacts as the official release, and
   optionally push AUR and external package repositories.
-- Prereleases are created manually with the `Package` workflow's
+- Maintainers create prereleases by hand with the `Package` workflow's
   `workflow_dispatch` inputs. They build from an explicit ref, upload unsigned
   artifacts to a GitHub prerelease, and do not publish to AUR or external
   repositories.
@@ -78,30 +76,31 @@ master without publishing, so workflow changes can be verified before merging.
 
 Nightlies appear only as GitHub prereleases with tags such as
 `nightly-20260909100000`. Downloads include the AppImage, Debian, Arch, Fedora,
-openSUSE, source archive, and checksums. RPMs are unsigned. GitHub records build
-attestations separately; see [Build attestations](SECURITY.md#build-attestations)
-for `gh attestation verify` instructions.
-The release stays a draft until all files have uploaded and downloaded copies
-pass checksum verification. Nightlies never update
-AUR, COPR, the project package repositories, the stable AppImage update manifest,
-or GitHub's latest stable release.
+openSUSE, source archive, and checksums. RPMs are unsigned. GitHub records
+build attestations separately. See
+[Build attestations](SECURITY.md#build-attestations) for
+`gh attestation verify` instructions. The release stays a draft until all files
+have uploaded and downloaded copies pass checksum verification. Nightlies never
+update AUR, COPR, the project package repositories, the stable AppImage update
+manifest, or GitHub's latest stable release.
 
 Versions use the next patch after the highest published stable version, with a
 UTC build timestamp. For stable `0.19.0`, a nightly uses
 `0.19.1.dev20260909100000` in Python and the AppImage,
-`0.19.1~dev20260909100000` in Debian/RPM, and
-`0.19.1dev20260909100000` in Arch. Each format sorts after `0.19.0` and before
-`0.19.1`. Version rewrites happen only in the build checkout. GitHub download
-filenames replace `~` with `.` before checksums are generated because GitHub
-normalizes asset names. The versions inside Debian and RPM packages retain `~`.
+`0.19.1~dev20260909100000` in Debian/RPM, and `0.19.1dev20260909100000` in
+Arch. Each format sorts after `0.19.0` and before `0.19.1`. Version rewrites
+happen only in the build checkout. GitHub download filenames replace `~` with
+`.` before the workflow generates checksums, because GitHub normalizes asset
+names. The versions inside Debian and RPM packages retain `~`.
 
 Development versions link to <https://keymasq.tools/docs/master/> in the app
 and release notes. These docs follow current master, including when reading
-from an older nightly. Native packages replace the installed package; returning
-to an older stable release requires a package-manager downgrade. Installing the
-nightly AppImage replaces the installed AppImage; use
+from an older nightly. Native packages replace the installed package, so
+returning to an older stable release requires a package-manager downgrade.
+Installing the nightly AppImage replaces the installed AppImage. Use
 `keymasq --self-update --allow-downgrade` to return to the stable updater's
-release. Source-archive users must rebuild or reinstall the desired stable source.
+release. Source-archive users must rebuild or reinstall the desired stable
+source.
 
 ## Release checklist
 
@@ -114,21 +113,20 @@ last tag:
 - [ ] `./scripts/integration.sh listeners`
 - [ ] `scripts/check-doc-screenshots`
 
-These suites are manual gates and are not run by CI. Prereleases should meet
-the same bar unless the prerelease exists specifically to test packaging
+These suites are manual gates, and CI does not run them. Prereleases should
+pass the same gates unless the prerelease exists specifically to test packaging
 changes.
 
 ## Version bump workflow
 
-Use `scripts/release-version.py` as the single entrypoint for release-version
-updates:
+Use `scripts/release-version.py` for every release-version update:
 
 ```bash
 python3 scripts/release-version.py 0.3.1
 ```
 
-The script updates the maintained version surfaces and regenerates the derived
-pacman packaging outputs from `packaging/pacman/templates/`. In particular it
+The script updates every file that carries the version and regenerates the
+derived pacman packaging outputs from `packaging/pacman/templates/`. It
 updates:
 
 - `pyproject.toml`
@@ -146,7 +144,7 @@ them from `packaging/pacman/render.py`, and the package workflow later reruns
 that renderer with the final release tarball checksum before publishing to AUR.
 
 Before running the script for a release, update the top release notes content
-that should be preserved in place:
+that the script should preserve in place:
 
 - the top `CHANGELOG.md` section body for the new version if you are writing it
   before the bump
@@ -157,8 +155,8 @@ that should be preserved in place:
 The script then normalizes or inserts the top `CHANGELOG.md` section for the
 requested version, updates the current release date in Debian changelog and
 AppStream metadata, and refreshes the generated packaging files. Use
-`--dry-run` to preview the file set, or `--release-date YYYY-MM-DD` when a
-non-today date is required.
+`--dry-run` to preview the file set, or `--release-date YYYY-MM-DD` when the
+release date is not today.
 
 When writing `CHANGELOG.md`, only include user-facing software changes:
 
@@ -172,8 +170,8 @@ When writing `CHANGELOG.md`, only include user-facing software changes:
 ## Shared package payload
 
 Most package formats reuse the same top-level asset directories. The packaging
-metadata changes by distribution, but the installed payload is intentionally
-kept as similar as possible.
+metadata changes by distribution, but the installed payload stays as similar as
+possible.
 
 These directories provide the shared package contents:
 
@@ -186,7 +184,7 @@ These directories provide the shared package contents:
 - `examples/`: sample configuration files
 - `gnome-extension/`: optional GNOME bridge extension
 
-In practice, the distro packages all install the same user-visible pieces:
+The distro packages all install the same user-visible pieces:
 
 - executable commands in `/usr/bin/`
 - a system service for `keymasqd`
@@ -205,12 +203,11 @@ install. Users should explicitly enable `keymasqd` and `keymasq-session`.
 On upgrades, Debian, Arch, Fedora, and openSUSE packages try to restart
 `keymasqd` only if it is already running. The NixOS module uses systemd
 `restartTriggers` for the same package-change behavior. The packaged
-`keymasq-session` user unit is configured to exit after an established
-`keymasqd` connection is lost, so systemd's `Restart=on-failure` restarts the
-session service without root package scripts needing to manage per-user systemd
-instances.
+`keymasq-session` user unit exits after it loses an established `keymasqd`
+connection. Systemd's `Restart=on-failure` then restarts the session service,
+so root package scripts do not need to manage per-user systemd instances.
 
-The GUI is never restarted by packaging.
+Packaging never restarts the GUI.
 
 The Nix outputs split that payload slightly differently:
 
@@ -254,9 +251,9 @@ The Python module path differs by package family:
 `pyproject.toml`, not a required base dependency. Keymasq uses it as the
 default `asyncio` policy for `keymasqd` and `keymasq-session` when available,
 and falls back to the stdlib loop with a warning if it is missing or broken.
-Most maintained packages still install it by default (hard dependency on
-Arch and Debian, bundled in the AppImage and Nix builds, weak dependency on
-the RPM targets); see `docs/DEPENDENCIES.md`.
+Most maintained packages still install it by default. It is a hard dependency
+on Arch and Debian, bundled in the AppImage and Nix builds, and a weak
+dependency on the RPM targets. See `docs/DEPENDENCIES.md`.
 
 Source-hiding udev rules call `setfacl` from the ACL utilities when hiding a
 grabbed physical gamepad source. Source builds and downstream packages must
@@ -280,46 +277,45 @@ bash packaging/appimage/make-appimage.sh
 bash packaging/appimage/verify-appimage.sh "$(echo dist/appimage/Keymasq-*.AppImage)"
 ```
 
-The output is written to `dist/appimage/`. The GitHub Actions package workflow
-does this in `archlinux:base-devel`, installing dependencies with `pacman` and
-downloading the pinned AnyLinux `quick-sharun` helper from
+The build writes its output to `dist/appimage/`. The GitHub Actions package
+workflow does this in `archlinux:base-devel`, installing dependencies with
+`pacman` and downloading the pinned AnyLinux `quick-sharun` helper from
 `pkgforge-dev/Anylinux-AppImages`. The helper's `sharun`, `appimagetool`, and
 `uruntime`, `mkdwarfs`, and `anylinux.c` inputs are separately
 version/checksum-pinned and prepared before the helper runs, so release builds
 do not let those helpers fetch optional transitive inputs. The
 `archlinux:base-devel` image and packages installed from Arch's rolling
-repositories are not snapshot-pinned; they supply the bundled libraries,
+repositories are not snapshot-pinned. They supply the bundled libraries,
 gtk-brotway ELF dependencies, `adwaita-icon-theme`, and `rsvg-convert` used for
 the private raster icon payload.
 
-The gtk-brotway overlay is built against Arch in the dedicated
-`nyrda/gtk-brotway` repository. Keymasq consumes its minimal release archive,
-verifies the pinned SHA-256, and keeps its `libgtk-4` under
-`lib/gtk4-brotway`; stock GTK remains the default for every other AppImage
-command.
+The dedicated `nyrda/gtk-brotway` repository builds the gtk-brotway overlay
+against Arch. Keymasq consumes its minimal release archive, verifies the pinned
+SHA-256, and keeps its `libgtk-4` under `lib/gtk4-brotway`. Stock GTK remains
+the default for every other AppImage command.
 
 The AppImage also contains a private rasterized `Keymasq` icon theme covering
 every GTK icon name in `packaging/appimage/assets/gui-icon-names.txt`, plus PNG
-input-picker artwork. AppImage GUI startup selects it from `$APPDIR`; other
-package formats continue using the host icon theme. This avoids depending on a
-SteamOS icon theme or SVG/Glycin loader. The extracted-runtime verifier decodes
-every manifest icon with the bundled GTK, and the Brotway VM gate renders the
-matching one-shot gallery in Chromium.
+input-picker artwork. AppImage GUI startup selects it from `$APPDIR`, while
+other package formats continue using the host icon theme. This avoids depending
+on a SteamOS icon theme or SVG/Glycin loader. The extracted-runtime verifier
+decodes every manifest icon with the bundled GTK, and the Brotway VM gate
+renders the matching one-shot gallery in Chromium.
 
 The AppImage installs the signed payload at `/opt/keymasq/Keymasq.AppImage`,
 extracts it once into `/opt/keymasq/runtime/<sha256>`, points
 `/opt/keymasq/runtime/current` at that extracted runtime, installs stable
 wrappers in `/opt/keymasq/bin` and the target user's `~/.local/bin`, writes
 system integration under `/etc`, and creates
-`/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc` integration
-files across atomic OS updates. On mutable non-SteamOS hosts, it also installs
-the `/opt/keymasq/bin/keymasq-record` polkit action under
-`/usr/share/polkit-1/actions` when that directory is writable. `/opt/keymasq` is
-installed under SteamOS' persistent `/opt` offload mount, not managed by the
-atomic update keep-list. It
-runs `systemd-sysusers` and `systemd-tmpfiles --create` once during install;
-after SteamOS updates, the normal boot-time systemd units reapply the persisted
-sysusers/tmpfiles configuration. Installed services and CLI wrappers run from
+`/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc`
+integration files across atomic OS updates. On mutable non-SteamOS hosts, it
+also installs the `/opt/keymasq/bin/keymasq-record` polkit action under
+`/usr/share/polkit-1/actions` when that directory is writable. `/opt/keymasq`
+lives under SteamOS' persistent `/opt` offload mount, and the atomic update
+keep-list does not manage it. The installer runs `systemd-sysusers` and
+`systemd-tmpfiles --create` once during install. After SteamOS updates, the
+normal boot-time systemd units reapply the persisted sysusers/tmpfiles
+configuration. Installed services and CLI wrappers run from
 `/opt/keymasq/runtime/current`, so daemon restarts do not re-extract the
 AppImage into a private temp directory. See `docs/STEAMOS.md` for the full
 layout and update semantics.
@@ -328,20 +324,20 @@ Stable repository publishing copies the AppImage to
 `https://repo.keymasq.tools/appimage/`, writes `latest-x86_64.json`, and signs
 that manifest with the same GitHub Actions-only package signing key used for
 repository metadata and RPM packages. The self-updater refuses signed manifest
-replays that would downgrade the installed version unless
-`--allow-downgrade` is passed explicitly.
+replays that would downgrade the installed version unless you pass
+`--allow-downgrade`.
 
 ### Nix package and NixOS module
 
-`flake.nix` exposes two important outputs:
+`flake.nix` exposes two outputs:
 
 - `packages.<system>.default`: a build of the Keymasq package itself
 - `nixosModules.default`: a NixOS module that installs the package and wires up
   the system daemon, user session service, udev access, tmpfiles, and the
   generated `/etc/keymasq/security.toml`
 
-This is the most self-contained packaging path in the repository. It is useful
-both for Nix users and for developers who want a reproducible build shell.
+This is the most self-contained packaging path in the repository. It serves Nix
+users and developers who want a reproducible build shell.
 
 The flake currently exports Linux builds for:
 
@@ -367,7 +363,7 @@ The dev shell provides the repo's standard quality tools and local packaging
 helpers, including `pytest`, `ruff`, `basedpyright`, RPM build tools, Python
 wheel build tools, `git`, and `ssh`.
 
-For NixOS, the intended consumption path is the module. It exposes:
+On NixOS, use the module. It exposes:
 
 - `services.keymasq.enable`
 - `services.keymasq.package`
@@ -399,8 +395,8 @@ Functional module usage:
 
 ### Arch Linux
 
-Pacman packaging is generated from shared templates under
-`packaging/pacman/templates/` by:
+This command generates the pacman packaging from shared templates under
+`packaging/pacman/templates/`:
 
 ```bash
 python3 packaging/pacman/render.py
@@ -418,14 +414,14 @@ the current checkout into `$srcdir`, builds a wheel from that local snapshot,
 and does not fetch an external archive or VCS source.
 
 The `packaging/aur/` subtree is for release publishing. It expects the
-`https://repo.keymasq.tools/releases/keymasq-$pkgver.tar.gz` release tarball URL
-and checksum. The GitHub release workflow is the intended path for updating and
-pushing that subtree to the AUR repo.
+`https://repo.keymasq.tools/releases/keymasq-$pkgver.tar.gz` release tarball
+URL and checksum. Use the GitHub release workflow to update that subtree and
+push it to the AUR repo.
 
 The workflow also builds the rendered Arch package from the release tarball and
 installs that exact artifact in a fresh Arch environment for smoke testing.
-Real AUR publication is gated behind the repository variable
-`ENABLE_AUR_PUBLISH=true`.
+Real AUR publication happens only when the repository variable
+`ENABLE_AUR_PUBLISH=true` is set.
 
 Both variants build a Python wheel, install the shared service and integration
 files, and produce the same pacman package payload.
@@ -472,7 +468,7 @@ dpkg-deb -c ../keymasq_0.1.0-1_all.deb
 
 #### Manual current-worktree build via Debian container
 
-Unlike the RPM flow, the Debian package is not currently set up for a host-side
+Unlike the RPM flow, the Debian package does not currently support a host-side
 `nix develop` build. The supported local dev path is to run the same Debian
 container job used in GitHub Actions against the current worktree:
 
@@ -500,15 +496,15 @@ docker run --rm \
   '
 ```
 
-This also builds from the current worktree, so local uncommitted changes in the
-packaged files are included. Output artifacts are copied into:
+This also builds from the current worktree, so it includes local uncommitted
+changes in the packaged files. The build copies output artifacts into:
 
 ```text
 dist/debian/
 ```
 
-That is the same path used by `packaging/debian/ci-build.sh` and the
-`build-deb` GitHub Actions job.
+`packaging/debian/ci-build.sh` and the `build-deb` GitHub Actions job use the
+same path.
 
 ### Fedora COPR and project-hosted RPMs
 
@@ -518,9 +514,8 @@ as an alternate install path for users who do not want to enable COPR.
 
 ### Fedora and openSUSE RPMs
 
-RPM packaging is driven by `packaging/rpm/metadata.env`,
-`scripts/build-packages.sh`, and separate distro-native build paths for Fedora
-and openSUSE.
+RPM packaging uses `packaging/rpm/metadata.env`, `scripts/build-packages.sh`,
+and separate distro-native build paths for Fedora and openSUSE.
 
 This packaging path exists because the payload is mostly identical across the
 RPM-based targets, while dependency names, Python library paths, and build
@@ -533,10 +528,10 @@ That includes the new `uvloop` runtime package recommendation:
 - openSUSE follows the versioned Python package pattern used elsewhere in the
   script, for example `python313-uvloop`
 
-For RPMs this is intentionally a weak dependency rather than a hard one, so the
-package remains installable on Fedora releases where `uvloop` is not yet
-available in the tested repositories. At runtime, Keymasq still prefers
-`uvloop` and logs a warning before falling back to the stdlib `asyncio` loop.
+For RPMs this is a weak dependency rather than a hard one, so the package
+remains installable on Fedora releases where `uvloop` is not yet available in
+the tested repositories. At runtime, Keymasq still prefers `uvloop` and logs a
+warning before falling back to the stdlib `asyncio` loop.
 
 The RPM build flow now splits by distro:
 
@@ -546,11 +541,11 @@ The RPM build flow now splits by distro:
 2. openSUSE builds a wheel, stages the shared payload, resolves the target
    Python `site-packages` path, and runs its own rpmbuild wrapper
 
-`scripts/build-packages.sh` builds from the current working tree. Fedora RPMs
-are emitted per Fedora release, for example `fc43` and `fc44`, rather than as
-a single generic Fedora artifact. The Fedora package itself is
-architecture-independent and is built as `noarch`; runtime dependencies remain
-resolved by the target Fedora architecture.
+`scripts/build-packages.sh` builds from the current working tree. It emits
+Fedora RPMs per Fedora release, for example `fc43` and `fc44`, rather than as a
+single generic Fedora artifact. The Fedora package itself is
+architecture-independent and builds as `noarch`. The target Fedora architecture
+still resolves runtime dependencies.
 
 Repository publishing keeps those Fedora artifacts in matching release-specific
 RPM repositories:
@@ -618,12 +613,12 @@ dist/keymasq-0.1.0-1.opensuse.x86_64.rpm
 If you only provide one compatible build host, the script builds only that RPM
 variant.
 
-Release RPMs are signed after the Fedora and openSUSE build jobs complete.
-GitHub Actions imports the armored private key from the
+The workflow signs release RPMs after the Fedora and openSUSE build jobs
+complete. GitHub Actions imports the armored private key from the
 `RPM_SIGNING_KEY_PRIVATE_ASC` repository secret, signs the generated `.rpm`
 files with `rpmsign`, verifies the resulting signatures, and publishes the
 matching armored public key as `rpm-signing-key.asc` alongside the release
-artifacts. The public key is intended to be mirrored at:
+artifacts. The intended mirror location for the public key is:
 
 ```text
 https://keymasq.tools/keys/keymasq-rpm-signing-key.asc
@@ -667,9 +662,9 @@ sudo apt-get install -y \
   virtinst
 ```
 
-RPM builds additionally require access to a Fedora or openSUSE environment with
-the right Python and RPM metadata available. In this repository that is usually
-handled through `scripts/build-packages.sh`.
+RPM builds also require access to a Fedora or openSUSE environment with the
+right Python and RPM metadata available. In this repository
+`scripts/build-packages.sh` usually handles that.
 
 ## Testing and verification
 
@@ -730,7 +725,7 @@ sh debian/tests/installed-cli
 
 The package workflow lives in `.github/workflows/package.yml`.
 
-At a high level, CI:
+CI does the following:
 
 1. Runs source checks
 2. Builds the rendered Arch package from the release tarball
@@ -760,12 +755,12 @@ act -j test-rpm-fedora -W .github/workflows/package.yml
 
 ## Known packaging notes
 
-- Fedora and openSUSE RPMs now have separate build paths: Fedora uses a
+- Fedora and openSUSE RPMs now have separate build paths. Fedora uses a
   Fedora-native spec and release-specific buildroots, while openSUSE keeps its
   own rpmbuild wrapper around the shared staged payload.
-- The GNOME bridge extension files are installed by the package, but GNOME users
-  must enable the extension explicitly after installation. Packages install the
-  files; they do not enable the GNOME Shell extension on the user's behalf.
+- Packages install the GNOME bridge extension files, but they do not enable the
+  GNOME Shell extension on the user's behalf. GNOME users must enable it after
+  installation.
 - Debian packaging is native and repo-local under `debian/`, while RPM
   packaging stays under `packaging/rpm/` with distro-specific rpmbuild
   wrappers. This split is intentional.

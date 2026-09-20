@@ -41,7 +41,7 @@ def _plain_bullets(text: str) -> set[str]:
 
 def test_documented_base_dependencies_match_pyproject() -> None:
     declared = set(_pyproject()["project"]["dependencies"])
-    section = _doc_section("Base Python Runtime Dependencies")
+    section = _doc_section("Base Python runtime dependencies")
     listing = section.split("What they are used for:")[0]
 
     assert _plain_bullets(listing) == declared
@@ -53,13 +53,13 @@ def test_uvloop_is_speedups_extra_not_base_dependency() -> None:
     assert not any("uvloop" in dep for dep in project["dependencies"])
     assert project["optional-dependencies"]["speedups"] == ["uvloop"]
     assert "not a required base dependency" in _doc_section(
-        "Base Python Runtime Dependencies"
+        "Base Python runtime dependencies"
     )
 
 
 def test_documented_extras_match_pyproject() -> None:
     declared = _pyproject()["project"]["optional-dependencies"]
-    section = _doc_section("Development and Test Dependencies")
+    section = _doc_section("Development and test dependencies")
 
     documented: dict[str, set[str]] = {}
     current: str | None = None

@@ -52,8 +52,8 @@ the tracks. It changes between seconds and milliseconds as you zoom.
 
 A key or button rectangle spans its press and release. Overlapping actions
 appear in separate lanes within the same track. A selected press/release pair
-counts as one action; the event count at the top counts its press and release
-separately. Recorded movement and other raw events can also be selected.
+counts as one action, but the event count at the top counts its press and
+release separately. Recorded movement and other raw events can also be selected.
 
 The **insertion cursor** is the dotted vertical line. It marks where new
 actions are added, where Ctrl+V pastes, and where a Shift+click time selection
@@ -72,7 +72,7 @@ near either edge scrolls while you select or move actions.
 With nothing selected, the inspector lists everything that can be added at the
 insertion cursor: **Key**, **Mouse Button**, **Gamepad Button**, **Mouse Move**,
 **Wait**, **Run Command**, **Call Macro**, and **Compositor Action**. Waits,
-commands, and compositor actions are inserted immediately and selected so you
+commands, and compositor actions go in immediately and stay selected so you
 can finish them in the inspector.
 
 Right-clicking at the desired time offers the same commands. The track you
@@ -86,7 +86,8 @@ click determines the input action in the menu:
 | Movement/control track | **Add Mouse Move**, **Insert Wait**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
 
 Choose the key, button, or action in the dialog that opens. A key or mouse-button
-action includes its press and release; you do not need to insert them separately.
+action includes its press and release, so you do not need to insert them
+separately.
 For example, to build Ctrl+C, add Ctrl and C on the keyboard track, then make
 the Ctrl hold begin before C and end after C.
 
@@ -94,12 +95,12 @@ The gamepad picker also offers axis values. Gamepad events retain the virtual
 or hardware gamepad output chosen in the picker.
 
 Click an action to show its properties in the inspector below the timeline. The
-inspector has two columns: the selected action on the left and the macro's own
-settings on the right. For a held key or button, edit **Press**, **Duration**,
-and **Release** in milliseconds. Use **Change Key…** to change the input. Other
-action types show their own timing and configuration fields. Properties edit
-the selected action immediately; [saving](#save-and-undo-changes) writes the
-changes to the macro library.
+inspector has two columns, with the selected action on the left and the macro's
+own settings on the right. For a held key or button, edit **Press**,
+**Duration**, and **Release** in milliseconds. Use **Change Key…** to change
+the input. Other action types show their own timing and configuration fields.
+Properties edit the selected action immediately, and
+[saving](#save-and-undo-changes) writes the changes to the macro library.
 
 ### Rapidfire keys and buttons
 
@@ -137,7 +138,7 @@ change its delay or position.
 
 ![Wait and random-wait markers on the movement/control track](assets/screenshots/macro_edit_wait_wait_random_markers.png)
 
-An empty timeline gap and a Wait are different: playback speed scales an
+An empty timeline gap and a Wait are different. Playback speed scales an
 empty gap, while an explicit Wait keeps its configured duration. Inserting a
 Wait does not move later actions in the editor. See
 [Wait Controls](MACROS.md#wait-controls) for playback behavior.
@@ -151,7 +152,7 @@ for their playback and cancellation behavior.
 **Call Macro** opens the Macro Library. Pick a saved macro, then configure
 **Run and wait** or **Run in parallel**, repeat behavior, speed, and mouse replay
 options in its properties. The **MW** or **MP** marker remains editable. A call
-uses the saved macro by name; pasting creates independent actions instead.
+uses the saved macro by name. Pasting creates independent actions instead.
 See [Calling macros from macros](MACROS.md#calling-macros-from-macros).
 
 **Insert Compositor Action** uses the same action picker as normal mappings.
@@ -162,7 +163,7 @@ It is available when the session supports compositor dispatch.
 ### Select individual actions
 
 Click an action to select it. Ctrl+click adds or removes individual actions.
-Drag empty track space to draw a selection box; Ctrl+drag adds to the current
+Drag empty track space to draw a selection box. Ctrl+drag adds to the current
 selection. The box selects every action it touches, including complete held
 keys, mouse buttons, recorded movement samples, and raw event markers.
 
@@ -197,21 +198,21 @@ The button uses the theme's accent color while enabled. Selection and keyboard
 editing also work with Move Actions off, which is the default.
 
 The group keeps its relative timing, holds, and overlaps. Moving left stops
-the whole group at time zero; moving right can extend the macro. A time
+the whole group at time zero. Moving right can extend the macro. A time
 selection keeps its leading and trailing silence. Unselected actions stay in
-place. Use [Selection Timing](#adjust-selected-timing) for an exact offset;
-its Move operation preserves the same padding and stops the whole range at zero.
+place. Use [Selection Timing](#adjust-selected-timing) for an exact offset.
+Its Move operation preserves the same padding and stops the whole range at zero.
 
 ## Copy and paste
 
 Copy with Ctrl+C or **Copy** in the right-click menu. The menu only lists
 commands that apply to the current selection. Ctrl+X
-cuts the selection: it copies the actions and removes them without collapsing
+cuts the selection. It copies the actions and removes them without collapsing
 the surrounding time.
 
 For action selection, the copied section runs from the earliest selected
-action to the latest selected end. Unselected actions and outer silence are
-not copied. A time selection copies its full span, including silence.
+action to the latest selected end. Copy leaves out unselected actions and outer
+silence. A time selection copies its full span, including silence.
 
 | Paste command | Result |
 |---|---|
@@ -242,7 +243,7 @@ section into a separate macro:
 
 The clipboard survives closing the source editor. Copying other content
 replaces it. Calls inside a copied section keep referring to their original
-saved macro names. Ctrl+V works as soon as the editor opens; text fields keep
+saved macro names. Ctrl+V works as soon as the editor opens. Text fields keep
 their normal text paste behavior.
 
 ## Delete actions or erase time
@@ -276,7 +277,7 @@ same form at the pointer.
 |---|---|
 | **Move** | Shift selected actions by an exact number of milliseconds. Negative values move earlier. Holds and spacing stay unchanged. |
 | **Pauses** | Set every positive idle gap between selected actions to one value, or limit each gap to a range so short pauses grow to the minimum and long ones shrink to the maximum. Holds and overlaps stay unchanged. |
-| **Scale** | Scale spacing and key hold durations around the first selected action. 50% makes the section twice as fast; 200% makes it twice as slow. |
+| **Scale** | Scale spacing and key hold durations around the first selected action. 50% makes the section twice as fast, and 200% makes it twice as slow. |
 
 ![Selection Timing in the inspector with Scale set to 50 percent](assets/screenshots/macro_edit_selection_timing.png)
 
@@ -294,14 +295,14 @@ Scale leaves explicit Wait and Random Wait durations unchanged unless
 and natural movement settings stay unchanged.
 
 Choose an operation, enter its value, and apply it. Enter in the value field
-also applies it; Escape cancels. Each application is one Undo step. These
+also applies it, and Escape cancels. Each application is one Undo step. These
 operations leave unselected actions in place, so their results can overlap
 other actions. Recorded movement and raw events participate in selection timing.
 
 ### Edit an individual gap
 
 Double-click empty time between two actions to open the gap editor. Turning
-on **Move Actions** also highlights gaps on hover; a single click on a
+on **Move Actions** also highlights gaps on hover, and a single click on a
 highlighted gap opens it. Enter the gap in milliseconds. Negative values
 create an overlap.
 
@@ -340,7 +341,7 @@ whole macro, select all with Ctrl+A and use Selection Timing.
 ![Timing Tools dialog with trim, insert time, and total time](assets/screenshots/macro_edit_timing_tools.png)
 
 Right-click also offers **Set Startpoint** and **Set Endpoint**. These trim
-actions outside the chosen boundary; Set Startpoint moves the retained section
+actions outside the chosen boundary. Set Startpoint moves the retained section
 to time zero. Use Total time to adjust trailing silence without trimming actions.
 
 ## Save and undo changes
@@ -368,7 +369,7 @@ failures are reported without discarding edits. If a rename saves the new macro
 but cannot remove the old one, it reports that both names remain.
 
 Undo history holds up to 100 edits for the open editor. Applying changes keeps
-that history; closing the editor ends it.
+that history, and closing the editor ends it.
 
 ## Keyboard shortcuts
 

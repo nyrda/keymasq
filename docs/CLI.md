@@ -1,9 +1,9 @@
-# CLI Reference
+# CLI reference
 
 The `keymasq` command-line interface provides quick access to status, macros,
 profiles, and diagnostics without opening the GUI.
 
-## Global Options
+## Global options
 
 ```
 keymasq [--json] [--version] <command>
@@ -54,7 +54,7 @@ keymasq type --print-json "hello"
 | `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
 | `--ordered` | Serialize with other requests that opt into ordering |
-| `--wait` | Wait for completion; SIGINT or SIGTERM cancels this request |
+| `--wait` | Wait for completion. SIGINT or SIGTERM cancels this request |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
 
 When no text argument is given, `type` reads the full text from stdin. By
@@ -137,9 +137,9 @@ keymasq macros cancel
 
 | Option | Description |
 |---|---|
-| `--speed SPEED` | Playback speed multiplier for event timestamps; explicit wait controls are not scaled |
-| `--wait` | Wait for the terminal playback result; interruption cancels this request |
-| `--ordered` | Opt into the shared FIFO with other ordered requests; concurrent playback is the default |
+| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls are not scaled |
+| `--wait` | Wait for the terminal playback result. Interruption cancels this request |
+| `--ordered` | Opt into the shared FIFO with other ordered requests. Concurrent playback is the default |
 
 **Options for `create`:**
 
@@ -149,10 +149,10 @@ keymasq macros cancel
 
 `macros create` reads canonical macro JSON from stdin when no JSON argument is
 provided. It accepts either a macro object with an `events` field or a raw
-event list. The CLI-provided name is always used as the stored macro name.
-These are normal timeline macros: they can contain the complete event schema
-and can be opened and edited in the GUI. Stored macros are written by keymasqd
-as compressed `.kmacro.xz` files.
+event list. The stored macro always uses the name given on the command line.
+These are normal timeline macros. They can contain the complete event schema,
+and you can open and edit them in the GUI. keymasqd writes stored macros as
+compressed `.kmacro.xz` files.
 
 ```bash
 keymasq type "test123üäß<tab><wait:20>12345<tab><wait:20>" --print-json \
@@ -171,7 +171,7 @@ keymasq diagnostics off
 ```
 
 When enabled, keymasqd logs periodic latency percentiles (p50, p95, p99, max).
-View with:
+View them with:
 
 ```bash
 journalctl -u keymasqd -f

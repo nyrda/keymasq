@@ -1,15 +1,15 @@
-# Wayland Support
+# Wayland support
 
 Keymasq's normal key and button remapping happens below the desktop through
-`keymasqd`. That part does not depend on a Wayland compositor API: the desktop
-sees Keymasq output as normal keyboard, mouse, and gamepad input.
+`keymasqd`. That part does not depend on a Wayland compositor API, because the
+desktop sees Keymasq output as normal keyboard, mouse, and gamepad input.
 
 Wayland support matters for desktop-aware features:
 
-- switching profiles based on the focused app or window title
+- activating and deactivating profiles based on the focused app or window title
 - reading the active window for the GUI and CLI
-- reading the current pointer position for macro recording and point capture
-- moving the pointer to a screen position through absolute mouse actions
+- reading the current pointer position for Natural mouse movement, macro
+  recording, and point capture
 - sending compositor actions such as workspace, focus, tiling, or close-window
   commands
 - asking supported desktops to set the compositor cursor position explicitly
@@ -19,32 +19,32 @@ protocols, some provide compositor-specific IPC, and GNOME needs a Shell
 extension because GNOME Shell does not expose the same window information as
 wlroots-based compositors.
 
-## Support Matrix
+## Support matrix
 
-| Desktop or compositor | Window profiles | Pointer position | Absolute mouse action | Compositor actions | Notes |
-| --- | --- | --- | --- | --- | --- |
-| **GNOME Wayland** | Yes | Native | Virtual mouse | [Limited allowlist](#gnome-wayland) | Requires GNOME 46 or newer and the Keymasq GNOME Shell extension. Includes a **Set Cursor** compositor action. |
-| **KDE Plasma Wayland** | Yes | Native | Virtual mouse | [Limited presets](#kde-plasma-wayland) | Uses a temporary KWin script over session D-Bus. |
-| **Hyprland** | Yes | Native | Virtual mouse | Yes | Uses Hyprland sockets. Includes a **Set Cursor** compositor action and Hyprland window tags. |
-| **Niri** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Virtual mouse | Yes | Uses Niri's event and command socket, with `niri msg action` fallback for custom actions. |
-| **COSMIC Wayland** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Virtual mouse | No | Uses COSMIC Wayland protocols for active-window tracking. |
-| **Sway and generic wlroots** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Virtual mouse | No | Works on wlroots-based compositors such as Sway, Wayfire, river, and labwc. |
-| **Generic layer-shell Wayland** | No | [Layer-shell feedback](#layer-shell-pointer-feedback) | Virtual mouse | No | Fallback for compositors with `zwlr_layer_shell_v1` and `zxdg_output_manager_v1` but no supported active-window protocol. |
-| **X11** | Yes | Native | Virtual mouse | No | Not Wayland, but useful as a comparison point. |
+| Desktop or compositor | Window profiles | Cursor feedback | Compositor actions | Notes |
+| --- | --- | --- | --- | --- |
+| **GNOME** | Yes | Native | [Limited allowlist](#gnome) | Requires GNOME 46 or newer and the Keymasq GNOME Shell extension. Includes a **Set Cursor** compositor action. |
+| **KDE Plasma** | Yes | Native | [Limited presets](#kde-plasma) | Uses a temporary KWin script over session D-Bus. |
+| **Hyprland** | Yes | Native | [Yes, including Lua dispatchers](#hyprland) | Uses Hyprland sockets. Includes a **Set Cursor** compositor action and Hyprland window tags. |
+| **Niri** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Yes | Uses Niri's event and command socket, with `niri msg action` fallback for custom actions. |
+| **COSMIC** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Uses COSMIC Wayland protocols for active-window tracking. |
+| **Sway and generic wlroots** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Works on wlroots-based compositors such as Sway, Wayfire, river, and labwc. |
+| **Generic layer-shell Wayland** | No | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Fallback for compositors with `zwlr_layer_shell_v1` and `zxdg_output_manager_v1` but no supported active-window protocol. |
+| **X11** | Yes | Native | No | Not Wayland, but useful as a comparison point. |
 
 ### What the columns mean
 
 **Window profiles** means Keymasq can see the focused application ID/class and
 window title, then apply window-aware profile rules.
 
-**Pointer position** means Keymasq can ask where the pointer currently is. This
-is used by recording, point capture, and macros that need a known starting
-position. Generic Wayland pointer reads use layer-shell feedback when the
-compositor exposes the required protocols.
-
-**Absolute mouse action** means Keymasq can attempt to move the pointer toward a
-requested screen coordinate by sending normal motion through its virtual mouse
-device. See [Absolute Pointer Movement](#absolute-pointer-movement).
+**Cursor feedback** describes how Keymasq reads the current cursor position.
+Natural mouse movement uses this feedback to adjust its path toward the target.
+GNOME, KDE Plasma, Hyprland, and X11 provide cursor position directly. Other
+supported Wayland desktops use [layer-shell feedback](#layer-shell-pointer-feedback),
+which requires compatible protocols and temporarily places transparent surfaces
+over the desktop to track the pointer. Those surfaces can affect how
+applications receive pointer events while movement is active. Recording, point
+capture, and macros that need a known starting position also use cursor feedback.
 
 **Compositor actions** means Keymasq can ask the desktop to perform actions such
 as changing workspace, closing the focused window, toggling fullscreen, moving
@@ -52,7 +52,7 @@ focus, or tiling a window. `keymasq-session` sends these requests through direct
 desktop communication such as compositor IPC or D-Bus. It does not run shell
 commands as a fallback.
 
-## Layer-Shell Pointer Feedback
+## Layer-shell pointer feedback
 
 On generic Wayland compositors, `keymasq-session` reads pointer position through
 an internal Wayland client. This path requires both `zwlr_layer_shell_v1` and
@@ -62,8 +62,8 @@ The session process keeps output geometry current through `zxdg_output_v1`
 logical position and size events. When a cursor read or Natural mouse movement
 needs realtime feedback, it temporarily maps transparent layer surfaces across
 the outputs. Wayland pointer enter and motion events report surface-local
-coordinates; Keymasq converts them into global compositor coordinates by adding
-the xdg-output logical origin for the focused output.
+coordinates, and Keymasq converts them into global compositor coordinates by
+adding the xdg-output logical origin for the focused output.
 
 Those temporary layer surfaces participate in pointer hit-testing while they are
 mapped. Keymasq therefore explicitly tears them down as soon as a Natural mouse
@@ -74,38 +74,32 @@ switches the active output on the next pointer enter event. If the compositor
 reports an output layout change while tracking is active, Keymasq invalidates
 old samples until it receives a fresh pointer event for the new layout.
 
-`slurp` is still used by the GUI as a point-picking helper for Capture on
-compatible Wayland compositors. It is not used for session cursor-position reads
-or Natural movement feedback.
+The GUI still uses `slurp` as a point-picking helper for Capture on
+compatible Wayland compositors. The session does not use it for cursor-position
+reads or Natural movement feedback.
 
-## Absolute Pointer Movement
-
-Absolute mouse actions use Keymasq's virtual mouse device. This does not
-teleport the pointer or ask the compositor to place it at an exact coordinate.
-It sends normal relative mouse motion through `keymasqd`: four movement events
-in two batches. First it sends a very large negative X movement and a very large
-negative Y movement to push the pointer toward the top-left corner. Then it
-sends a positive X movement and a positive Y movement toward the target
-coordinate.
-
-Because this is interpreted as ordinary mouse motion, it does not reliably work
-with desktop scaling, fractional or per-monitor scaling, or multi-monitor output
-layouts. Pointer acceleration, sensitivity, and other pointer settings can also
-shift the final position.
+## Absolute pointer movement
 
 When realtime cursor feedback is available, prefer Natural mouse movement with a
-high speed for reliable fixed-position cursor movement. Natural movement still
-uses virtual mouse motion, but it reads the cursor position during the move and
-corrects the path until the target is reached or the configured timeout expires.
+high speed for reliable fixed-position cursor movement. It reads the cursor
+position during the move and corrects the path until the target is reached or
+the configured timeout expires.
+
+Basic absolute movement first pushes the pointer toward the top-left corner,
+then sends relative motion toward the target coordinate.
+
+Because the desktop interprets this as ordinary mouse motion, it does not
+reliably work with desktop scaling, fractional or per-monitor scaling, or
+multi-monitor output layouts. Pointer acceleration, sensitivity, and other
+pointer settings can also shift the final position.
 
 For desktop UI automation on GNOME or Hyprland, the compositor action **Set
 Cursor** preset is also available when you specifically need the desktop itself
-to set the cursor position. That path is independent from absolute mouse
-actions.
+to set the cursor position.
 
-## Desktop Details
+## Desktop details
 
-### GNOME Wayland
+### GNOME
 
 GNOME does not expose focused-window and pointer information through the
 protocols used by wlroots compositors. Keymasq therefore uses a small GNOME
@@ -120,7 +114,7 @@ unavailable until the bridge reconnects.
 
 See [GNOME.md](GNOME.md) for setup and troubleshooting.
 
-### KDE Plasma Wayland
+### KDE Plasma
 
 Keymasq talks to KWin over the session D-Bus and loads a KWin JavaScript
 bridge. That bridge reports the active window back to `keymasq-session`, runs a
@@ -129,7 +123,7 @@ cursor tracking while natural mouse movement is active.
 
 KDE supports active-window tracking, window-aware profiles, pointer-position
 reads, realtime cursor feedback for natural mouse movement, and selected
-compositor actions. Absolute mouse actions use Keymasq's virtual mouse device.
+compositor actions.
 
 Supported compositor actions include switching virtual desktops, closing the
 focused window, toggling fullscreen, moving focus, moving the focused window,
@@ -144,8 +138,8 @@ pointer-position reads, Lua dispatcher actions, the **Set Cursor** compositor
 action, and Hyprland window tags.
 
 Custom compositor actions in Keymasq use Lua dispatcher expressions in the
-dispatcher field, for example `hl.dsp.focus({ workspace = "e+1" })`. The args
-field is left empty for these actions.
+dispatcher field, for example `hl.dsp.focus({ workspace = "e+1" })`. Leave the
+args field empty for these actions.
 
 ### Niri
 
@@ -158,9 +152,8 @@ back to `niri msg action` syntax.
 
 Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when Niri exposes the required Wayland protocols.
-Absolute mouse actions use Keymasq's virtual mouse device.
 
-### COSMIC Wayland
+### COSMIC
 
 Keymasq uses `ext_foreign_toplevel_list_v1` together with
 `zcosmic_toplevel_info_v1` to track the active COSMIC window. This supports
@@ -168,10 +161,9 @@ window-aware profiles and active-window queries.
 
 Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when COSMIC exposes the required Wayland protocols.
-Absolute mouse actions use Keymasq's virtual mouse device. Keymasq does not
-currently expose COSMIC compositor actions.
+Keymasq does not currently expose COSMIC compositor actions.
 
-### Sway and Generic wlroots Wayland
+### Sway and generic wlroots Wayland
 
 The generic Wayland listener works when a compositor exposes
 `zwlr_foreign_toplevel_manager_v1`. This protocol lets Keymasq read the active
@@ -183,9 +175,8 @@ tested compositor for this path.
 
 Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when the compositor exposes the required Wayland protocols.
-Absolute mouse actions use Keymasq's virtual mouse device. Generic wlroots
-support does not include compositor actions because there is no shared
-compositor-dispatch API.
+Generic wlroots support does not include compositor actions because there is
+no shared compositor-dispatch API.
 
 ## Troubleshooting
 
@@ -210,8 +201,7 @@ Common things to check:
 - For GUI Capture through `slurp`, make sure `slurp` is installed and can run in
   the current Wayland session.
 - If absolute mouse movement is unreliable, use Natural movement where realtime
-  cursor feedback is supported. Absolute movement uses normal virtual mouse
-  motion and is affected by scaling, output layout, acceleration, and
-  sensitivity settings.
+  cursor feedback is supported. Scaling, output layout, acceleration, and
+  sensitivity settings affect basic absolute movement.
 - If your supported desktop is not working as described, please open an issue
   with the desktop/compositor name, version, and `keymasq-session` logs.

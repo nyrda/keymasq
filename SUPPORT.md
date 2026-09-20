@@ -16,5 +16,4 @@ Before opening an issue, include:
 - relevant service status output
 - relevant logs from `journalctl -u keymasqd` or `journalctl --user -u keymasq-session`
 
-Security issues should not be reported publicly. See
-[SECURITY.md](SECURITY.md).
+Do not report security issues publicly. See [SECURITY.md](SECURITY.md).

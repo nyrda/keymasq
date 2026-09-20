@@ -4,29 +4,28 @@
 
 A super key lets you do more with a single key or button. Instead of one
 key doing one thing, a super key can give that key multiple jobs depending
-on how you press it — or let it do several things at once.
+on how you press it, or let it do several things at once.
 
-**Example:** you could turn your Caps Lock key into a smart Copy/Paste
-key — tap it quickly to copy, hold it down to paste. One key, two useful
-actions, no awkward finger stretching.
+For example, you could turn your Caps Lock key into a Copy/Paste key. Tap it
+quickly to copy, and hold it down to paste.
 
 Keymasq gives you two ways to set this up:
 
-- **Pattern mode** — the key watches *how* you press it (tap, double tap,
-  hold, or tap-then-hold) and each gesture can trigger one action or a
+- **Pattern mode** — Keymasq watches *how* you press the key (tap, double
+  tap, hold, or tap-then-hold), and each gesture can trigger one action or a
   whole sequence of them.
 - **Overload mode** — the key does multiple things every time you press it,
   like pressing Ctrl and C together from a single button.
 
 A super key uses one mode or the other, never both.
 
-Super keys are saved on their own, separate from profiles, so you can
+Keymasq saves super keys on their own, separate from profiles, so you can
 reuse the same super key across different devices and profiles without
 setting it up again each time.
 
 ## Modes
 
-### Pattern (Gesture Recognition)
+### Pattern (gesture recognition)
 
 Keymasq watches how you press the source key and chooses one of four
 slots:
@@ -47,7 +46,7 @@ Each slot can run an ordered bundle of actions. When a slot fires:
 That makes bundles like `Ctrl` then `C`, or `Shift` then `Tab`, behave
 correctly.
 
-### Overload (Multi-Output)
+### Overload (multi-output)
 
 Overload mode does not do gesture recognition. Instead, the source key
 behaves like a one-to-many normal mapping and forwards its down, repeat,
@@ -72,13 +71,13 @@ Overload actions use the same runtime rules as normal mappings:
   then runs that path once when repeated.
 - Nested superkeys are not allowed.
 
-## Creating And Editing Super Keys
+## Creating and editing super keys
 
 Open **Super Keys** from the GUI. The dialog has two panels:
 
-- **Left panel**: lists all saved super keys. Use **New** to create one or
+- The **left panel** lists all saved super keys. Use **New** to create one or
   **Delete** to remove one.
-- **Right panel**: edit the selected super key's name, description, mode,
+- The **right panel** edits the selected super key's name, description, mode,
   actions, and timing.
 
 Start typing while focus is outside an editor field to search the saved Super
@@ -87,7 +86,7 @@ Keys immediately. Ctrl+F and the search button provide the same filter.
 Use **Save** to apply changes. If you close the dialog or press Escape with
 unsaved edits, Keymasq asks whether to save, discard, or keep editing.
 
-### Editing Pattern Slots
+### Editing pattern slots
 
 In pattern mode, each slot has its own ordered action list:
 
@@ -122,7 +121,7 @@ When a pattern slot fires, **Repeat Last Action** remembers the resolved Super
 Key path, such as `tap`, `double_tap`, `hold`, or `tap_hold`. Repeating it
 runs that slot path once instead of replaying only the last child action.
 
-### Editing Overload Actions
+### Editing overload actions
 
 In overload mode, the editor shows three ordered action lists. All three
 use the normal mapping action picker, so overload keys can mix the same
@@ -152,8 +151,8 @@ This makes Main Actions a held context for both press/release lists. For example
 if Main Actions holds `key_leftctrl`, an On Press `key_c` cycle becomes
 `Ctrl+C`, and an On Release `key_v` cycle becomes `Ctrl+V`.
 
-Another common pattern is a temporary profile layer: On Press enables a
-profile, and On Release disables it again. See
+Another common pattern is a temporary profile layer, where On Press enables a
+profile and On Release disables it again. See
 [Momentary WASD navigation layer](examples/momentary-wasd-navigation-layer.md)
 for a full example.
 
@@ -189,9 +188,9 @@ a held gesture, the original Tap still fires.
 Overload mode ignores these timing values because it does not do gesture
 recognition.
 
-## Runtime Behavior
+## Runtime behavior
 
-### Pattern Flow
+### Pattern flow
 
 Pattern mode uses the following decision flow:
 
@@ -222,13 +221,13 @@ held child output state. The Main Actions list still uses normal held child
 output state and wraps both press/release lists: it starts before On Press and
 releases after On Release.
 
-## Profile Changes
+## Profile changes
 
 A super key started by a device button keeps its original actions until its
 gesture finishes, even if a window change replaces or deactivates its profile.
 For Overload, Main Actions remain held and On Release runs once when the source
 button comes up. Exec commands in On Release retain their original command
-binding; changing profiles does not replace or discard that command.
+binding. Changing profiles does not replace or discard that command.
 
 Pattern super keys keep their hold and double-tap timers through profile changes.
 A pending second press completes the original gesture before replacement-profile
@@ -242,7 +241,7 @@ This applies to normal profile changes, not forced runtime resets or device
 disconnects. Combo-triggered super keys still follow combo reconfiguration and
 cancellation rules.
 
-## Using Super Keys
+## Using super keys
 
 Assign a saved super key from the **Device** tab:
 
@@ -250,7 +249,7 @@ Assign a saved super key from the **Device** tab:
 2. Set the action to **Super Key**.
 3. Choose the saved super key by name.
 
-The same super key can be reused on different devices and in different
+You can reuse the same super key on different devices and in different
 profiles.
 
 Combos can also trigger saved super keys:
@@ -259,7 +258,7 @@ Combos can also trigger saved super keys:
 - `Pattern` works fully on single-step combos.
 - On multi-step combos, only the `Tap` and `Hold` slots are used.
 
-## Deleting A Super Key
+## Deleting a super key
 
 Deleting a super key replaces all profile references to it with **Suppress**.
 You will not be left with broken references.
@@ -272,10 +271,10 @@ Super keys live in:
 ~/.config/keymasq/superkeys/
 ```
 
-The file format is strict: each super key must declare `mode`, and every
+The file format is strict. Each super key must declare `mode`, and every
 action slot uses a TOML array even when it contains only one action.
 
-### Pattern Example
+### Pattern example
 
 ```toml
 name = "copy_stack"
@@ -296,7 +295,7 @@ hold = [
 ]
 ```
 
-### Overload Example
+### Overload example
 
 ```toml
 name = "ctrl_click_pair"
@@ -309,7 +308,7 @@ overload = [
 ]
 ```
 
-### Overload With On Press / Release Example
+### Overload with On Press / Release example
 
 ```toml
 name = "down_up_pair"
@@ -327,22 +326,22 @@ overload_up = [
 ]
 ```
 
-## Security Notes
+## Security notes
 
 - **Command actions** run inside your user session, not inside the privileged
   daemon, but they still execute automatically on a key press.
 - **Compositor actions** interact directly with your desktop environment.
   Review them before putting them into overload lists.
 
-## Best Practices
+## Best practices
 
 - Name super keys by purpose, not by the hardware key they are bound to.
 - Use pattern mode when timing matters and overload mode when you want plain
   one-to-many remapping.
 - Keep bundled actions in the exact order you want them pressed.
-- Prefer testing bindings with a text editor or game input viewer after changes.
+- Test bindings in a text editor or game input viewer after changes.
 
-## See Also
+## See also
 
 - [Actions](ACTIONS.md)
 - [Macros](MACROS.md)

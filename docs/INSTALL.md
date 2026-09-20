@@ -1,10 +1,10 @@
-# Installation Guide
+# Installation guide
 
-Pick your distribution below. Keymasq runs as two services: a
-privileged system daemon that accesses input devices, and a per-user
-service that manages your profiles, window tracking, and GUI requests.
+Pick your distribution below. Keymasq runs as two services. One is a
+privileged system daemon that accesses input devices, and the other is a
+per-user service that manages your profiles, window tracking, and GUI requests.
 
-## 1. Package Installs (Recommended)
+## 1. Package installs (recommended)
 
 ### Arch Linux
 
@@ -16,7 +16,7 @@ sudo systemctl enable --now keymasqd
 systemctl --user enable --now keymasq-session
 ```
 
-### Arch Linux (Build from checkout)
+### Arch Linux (build from checkout)
 
 Build from a checkout and install with pacman. The repo-root `PKGBUILD` is
 intended for this flow and packages the current worktree directly:
@@ -94,7 +94,7 @@ sudo dnf install ./keymasq-*.fc*.rpm
 
 ### Bazzite
 
-Bazzite is supported through Fedora RPM layering. COPR is the preferred channel:
+Keymasq supports Bazzite through Fedora RPM layering. COPR is the preferred channel:
 
 ```bash
 sudo dnf5 copr enable nyrda/keymasq
@@ -145,15 +145,15 @@ sudo rpm-ostree install ./keymasq-*.fc43.*.rpm
 systemctl reboot
 ```
 
-Bazzite follows the normal Atomic Desktop model: package layering changes take
-effect after reboot. Locally layered RPMs are not updated automatically by the
-Keymasq repository, so prefer the repository-backed install unless you are
-testing a specific release artifact.
+Bazzite follows the normal Atomic Desktop model, where package layering changes
+take effect after reboot. The Keymasq repository does not update locally
+layered RPMs automatically, so prefer the repository-backed install unless you
+are testing a specific release artifact.
 
 ### SteamOS and other distros (AppImage)
 
-SteamOS and other distributions without a native Keymasq package are covered by
-the AnyLinux AppImage path. The AppImage installs a self-contained runtime
+The AnyLinux AppImage covers SteamOS and other distributions without a native
+Keymasq package. The AppImage installs a self-contained runtime
 under `/opt/keymasq`. On systemd systems, it also enables the daemon and session
 services. On non-systemd systems, it installs the core files and writes
 service-manager instructions for the missing daemon supervisor:
@@ -164,7 +164,7 @@ chmod +x Keymasq-*-x86_64.AppImage
 ```
 
 The installer asks for your password. A stock Steam Deck has no user password
-yet — set one first with `passwd`.
+yet, so set one first with `passwd`.
 
 For the full layout, update, and uninstall behavior, see
 [STEAMOS.md](STEAMOS.md).
@@ -271,7 +271,7 @@ Without the bridge, Keymasq still runs on GNOME, but window-aware profiles,
 pointer-position features, and GNOME compositor actions are unavailable. For
 details and manual-install steps, see [GNOME.md](GNOME.md).
 
-## 2. Advanced: Manual Install
+## 2. Advanced: manual install
 
 This section is for advanced users with custom setups. Most users should use
 the packaged installs above.
@@ -324,13 +324,13 @@ unlock_required = false
 macro_recording_time_limit = 10
 ```
 
-This does not enable macro recording; macro recording still requires the
+This does not enable macro recording. Macro recording still requires the
 `keymasq-record` opt-in helper, exposed in the GUI under
 **Settings > Macro recording**.
 
-`Ctrl+Alt+Esc` is reserved by default as an emergency combo while Keymasq has a
+Keymasq reserves `Ctrl+Alt+Esc` by default as an emergency combo while it has a
 keyboard grabbed. One tap cancels macro playback and releases tracked held
-outputs; a double tap releases all grabbed devices and asks the session to
+outputs. A double tap releases all grabbed devices and asks the session to
 reapply active profiles. You can disable it if you really need that exact
 combo:
 
@@ -364,7 +364,7 @@ logging, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 For development work, use the Nix-based flow in
 [DEVELOPMENT.md](https://github.com/nyrda/keymasq/blob/master/DEVELOPMENT.md).
 
-## 4. Diagnostics (Optional)
+## 4. Diagnostics (optional)
 
 You can enable keymasqd latency diagnostics at runtime:
 
@@ -379,7 +379,7 @@ Disable diagnostics:
 keymasq diagnostics off
 ```
 
-## 5. Package Lifecycle
+## 5. Package lifecycle
 
 ### Upgrade
 
@@ -401,7 +401,7 @@ sudo dnf install ./keymasq-*.fc*.rpm
 sudo zypper install ./keymasq-*.opensuse.*.rpm
 ```
 
-After upgrading, make sure both services are restarted:
+After upgrading, restart both services:
 
 ```bash
 sudo systemctl restart keymasqd
@@ -425,7 +425,7 @@ systemctl --user disable --now keymasq-session
 
 ### Rollback
 
-Rolling back to an earlier packaged release is done by reinstalling the older
+To roll back to an earlier packaged release, reinstall the older
 package version with your package manager. Before rolling back:
 
 - keep a backup of `~/.config/keymasq/`
@@ -435,7 +435,7 @@ package version with your package manager. Before rolling back:
 
 ### Manual-install cleanup
 
-If you set up Keymasq manually rather than through a native package,
+If you set up Keymasq manually instead of through a native package,
 uninstall is partly manual:
 
 - remove the Python environment or package location that provides Keymasq
@@ -444,7 +444,7 @@ uninstall is partly manual:
 - keep or delete `~/.config/keymasq/` depending on whether you want to retain
   profiles and hardware config
 
-## 6. Verifying GitHub Releases (Optional)
+## 6. Verifying GitHub releases (optional)
 
 If you download packages directly from GitHub releases instead of the
 repository, you can verify their integrity.
@@ -479,6 +479,6 @@ follows [master](https://keymasq.tools/docs/master/).
 
 Native packages replace your installed package. To return to an older stable
 release, explicitly downgrade with your package manager. Installing a nightly
-AppImage replaces the installed AppImage; return to the stable updater's release
+AppImage replaces the installed AppImage. Return to the stable updater's release
 with `keymasq --self-update --allow-downgrade`. If you installed from a source
 archive, rebuild or reinstall from the desired stable source archive.

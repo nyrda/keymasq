@@ -27,7 +27,7 @@ def docs_page_url(
 
 def actions_docs_url(anchor: str, *, version: str | None = None) -> str:
     if anchor == "analog-controls":
-        return docs_page_url("ANALOG_CONTROLS", version=version)
+        return docs_page_url("analog-controls", version=version)
     if anchor == "type-macro-inline-controls":
-        return docs_page_url("MACROS", anchor=anchor, version=version)
-    return docs_page_url("ACTIONS", anchor=anchor, version=version)
+        return docs_page_url("macros", anchor=anchor, version=version)
+    return docs_page_url("actions", anchor=anchor, version=version)

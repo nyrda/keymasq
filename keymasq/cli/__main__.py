@@ -33,13 +33,13 @@ def _add_json_output(parser) -> None:
 def _docs_url() -> str:
     version = __version__.strip()
     docs_version = "master" if not version or "dev" in version else f"v{version.removeprefix('v')}"
-    return f"https://keymasq.tools/docs/{docs_version}/CLI.md"
+    return f"https://keymasq.tools/docs/{docs_version}/cli/"
 
 
 def _type_controls_docs_url() -> str:
     version = __version__.strip()
     docs_version = "master" if not version or "dev" in version else f"v{version.removeprefix('v')}"
-    return f"https://keymasq.tools/docs/{docs_version}/MACROS/#type-macro-inline-controls"
+    return f"https://keymasq.tools/docs/{docs_version}/macros/#type-macro-inline-controls"
 
 
 def main() -> None:

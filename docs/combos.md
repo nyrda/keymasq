@@ -200,10 +200,10 @@ Combos can trigger the same kinds of actions as normal key mappings:
 | **Super Key** | Run a saved overload or pattern super key. |
 | **Command** | Run a shell command. |
 | **Suppress** | Block the key and do nothing. |
-| **[Profile](ACTIONS.md)** | Enable, disable, or toggle a profile. |
+| **[Profile](actions.md)** | Enable, disable, or toggle a profile. |
 
 For actions with a press/release lifecycle (keyboard output,
-[rapidfire](ACTIONS.md), [hold macros](MACROS.md#loop-modes)), the final step
+[rapidfire](actions.md), [hold macros](macros.md#loop-modes)), the final step
 of the combo controls the lifecycle:
 
 - The action starts when the final step completes.
@@ -261,7 +261,7 @@ state is applied.
 ## Profile resolution
 
 Combos follow the same active-profile ordering as normal mappings, so later
-profiles win over earlier ones. See [Profiles](PROFILES.md) for the full
+profiles win over earlier ones. See [Profiles](profiles.md) for the full
 ordering rules.
 
 The combo editor won't let you save two combos with the same trigger sequence
@@ -379,7 +379,7 @@ and `source` values but ignores them at runtime.
 
 ## See also
 
-- [Macros](MACROS.md) — record or build input sequences that combos can
+- [Macros](macros.md) — record or build input sequences that combos can
   trigger.
-- [Super Keys](SUPERKEYS.md) — map multiple actions to a single key based on
+- [Super Keys](superkeys.md) — map multiple actions to a single key based on
   tap, hold, and double-tap interactions.

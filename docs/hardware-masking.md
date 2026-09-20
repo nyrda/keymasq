@@ -66,7 +66,7 @@ Masking does not choose a controller output or convert Deck controls into an
 Xbox layout. A masked device passes through with its kernel-reported
 capabilities until you add it through the normal hardware setup and choose a
 **Default output**. Unconfigured masked interfaces appear as **Masked ·
-Available to add**. See [controller routing](GAMEPAD.md) for output behavior.
+Available to add**. See [controller routing](gamepad.md) for output behavior.
 
 ## Saved masks, restarts, and reconnects
 
@@ -141,8 +141,8 @@ preferences.
 
 ## Further reading
 
-- [Hardware masking design](HARDWARE_MASKING_DESIGN.md) describes the privileged
+- [Hardware masking design](hardware-masking-design.md) describes the privileged
   jobs, udev rules, permission baselines, USB takeover, and recovery journals.
-- [Security model](SECURITY.md) covers the trust boundary of the root job.
-- [Troubleshooting](TROUBLESHOOTING.md) covers daemon capability and permission
+- [Security model](security.md) covers the trust boundary of the root job.
+- [Troubleshooting](troubleshooting.md) covers daemon capability and permission
   problems.

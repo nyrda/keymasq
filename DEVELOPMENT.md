@@ -76,7 +76,7 @@ the daemon as the `keymasq` user through `sudo -u keymasq`. Like
 runs its `udevadm trigger` calls through the installed `keymasq-hardware@` jobs,
 so hiding only works when the hardware job unit and its Polkit rule are
 installed. Without them the daemon logs `udev trigger job failed` warnings (see
-`docs/TROUBLESHOOTING.md`) and everything else keeps working.
+`docs/troubleshooting.md`) and everything else keeps working.
 
 Without any sudo rule the launcher prompts for your password on every restart.
 The three setup commands are fixed and safe to allow without a password. The
@@ -164,7 +164,7 @@ nix develop -c basedpyright
 ## Running integration tests
 
 The VM integration suites are manual gates before PRs, merges, and releases. CI
-does not run them, by design. `docs/VM_TESTING.md` defines which suites each
+does not run them, by design. `docs/vm-testing.md` defines which suites each
 change category requires.
 
 Keymasq has two NixOS VM integration suites:
@@ -191,9 +191,9 @@ The helper runs `nix build` against `path:.#checks.x86_64-linux...` targets so
 local builds include new or uncommitted VM files. These tests are VM-heavy, so
 use a Linux host with KVM acceleration.
 
-For detailed behavior and debugging notes, see `docs/LISTENER_VM_TESTS.md` and
-`docs/DAEMON_SESSION_INTEGRATION_TEST.md`. For the gate policy and the
-change-category matrix, see `docs/VM_TESTING.md`.
+For detailed behavior and debugging notes, see `docs/listener-vm-tests.md` and
+`docs/daemon-session-integration-test.md`. For the gate policy and the
+change-category matrix, see `docs/vm-testing.md`.
 
 ## Local test input suppression
 
@@ -244,4 +244,4 @@ need a real AppImage build.
 - `keymasqd` should run as the `keymasq` user during normal installed-host
   development.
 - `keymasq-session` and the GUI run as your desktop user.
-- For packaging work and broader install testing, see `docs/PACKAGING.md`.
+- For packaging work and broader install testing, see `docs/packaging.md`.

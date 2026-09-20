@@ -1,6 +1,6 @@
 import errno
 
-PERMISSION_TROUBLESHOOTING_REF = "docs/TROUBLESHOOTING.md#uinput-or-input-device-access-problems"
+PERMISSION_TROUBLESHOOTING_REF = "docs/troubleshooting.md#uinput-or-input-device-access-problems"
 INPUT_DEVICE_PERMISSION_HINT = (
     f"Check that keymasqd can read /dev/input/event*; see {PERMISSION_TROUBLESHOOTING_REF}."
 )
@@ -13,7 +13,7 @@ UINPUT_PERMISSION_ERROR_MARKERS = (
     "not permitted",
     "access denied",
 )
-SOURCE_HIDING_TROUBLESHOOTING_REF = "docs/TROUBLESHOOTING.md#source-hiding-jobs-fail"
+SOURCE_HIDING_TROUBLESHOOTING_REF = "docs/troubleshooting.md#source-hiding-jobs-fail"
 SOURCE_HIDING_JOB_HINT = (
     "Check that keymasq-hardware@.service and its Polkit rule are installed and that "
     f"the keymasq user may start it; see {SOURCE_HIDING_TROUBLESHOOTING_REF}."

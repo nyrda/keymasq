@@ -145,7 +145,7 @@ Daemon owner released uid=1000 pid=1234 connection=1
 View them with `journalctl -u keymasqd`. The denial line identifies both the
 rejected client and the current owner, which is usually enough to find a stale
 or competing `keymasq-session` process. See the ownership section in
-[TROUBLESHOOTING.md](TROUBLESHOOTING.md) for conflict scenarios such as fast
+[troubleshooting.md](troubleshooting.md) for conflict scenarios such as fast
 user switching and stale session processes.
 
 ## Daemon capability and service hardening
@@ -202,7 +202,7 @@ Everything the daemon touches is reachable through ordinary permissions:
 
 Failure messages are distinct per mechanism, so a missing input ACL, missing
 uinput access, and a failing hide job are directly distinguishable in the
-logs (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
+logs (see [troubleshooting.md](troubleshooting.md)).
 
 Native motion drivers also use explicit ACLs in `91-keymasq-acl.rules`.
 The daemon user gets read access to hidraw nodes, including devices with no
@@ -508,8 +508,8 @@ identity before changing it, refuses hubs and ganged power switching, and repair
 an interrupted port operation during recovery. Current desktop grants come from
 udev after static permissions are restored. Old session ACLs are not replayed.
 `keymasqd` itself holds no capabilities. See
-[Hardware masking](HARDWARE_MASKING.md) for user-facing behavior and
-[Hardware masking design](HARDWARE_MASKING_DESIGN.md) for the transaction details.
+[Hardware masking](hardware-masking.md) for user-facing behavior and
+[Hardware masking design](hardware-masking-design.md) for the transaction details.
 
 ## Socket paths
 

@@ -462,7 +462,7 @@
                 # keymasqd holds no capabilities. Device access comes from the
                 # ACLs granted above and by the udev rules; source hiding runs
                 # its udev triggers as bounded keymasq-hardware@ root jobs. Do
-                # not add capabilities in any variant; see docs/SECURITY.md.
+                # not add capabilities in any variant; see docs/security.md.
                 CapabilityBoundingSet = "";
                 DevicePolicy = "closed";
                 DeviceAllow = [

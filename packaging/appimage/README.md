@@ -2,7 +2,7 @@
 
 This README is for maintainers building and publishing the AppImage. User-facing
 install, update, uninstall, SteamOS persistence, and service behavior are
-documented in `docs/INSTALL.md` and `docs/STEAMOS.md`.
+documented in `docs/install.md` and `docs/steamos.md`.
 
 ## Scope
 

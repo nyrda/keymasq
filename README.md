@@ -55,8 +55,8 @@ fast. You can also insert, paste, and trim actions at an exact millisecond.
 
 ![Macro timeline editor with a time selection and timing tools](docs/assets/screenshots/macro_edit_selection_timing.png)
 
-See [docs/MACRO_EDITOR.md](docs/MACRO_EDITOR.md) for the editor and
-[docs/MACROS.md](docs/MACROS.md) for recording and playback.
+See [docs/macro-editor.md](docs/macro-editor.md) for the editor and
+[docs/macros.md](docs/macros.md) for recording and playback.
 
 ## Desktop support
 
@@ -69,8 +69,8 @@ GNOME requires the Keymasq GNOME Shell extension for desktop
 integration. The GUI guides you through setup.
 
 Desktop actions such as switching workspaces or tiling windows vary
-by desktop. See the [support matrix](docs/WAYLAND.md) for details
-and [GNOME setup](docs/GNOME.md) for the extension.
+by desktop. See the [support matrix](docs/wayland.md) for details
+and [GNOME setup](docs/gnome.md) for the extension.
 
 ## Quick start
 
@@ -109,7 +109,7 @@ sudo dnf install keymasq
 
 ### openSUSE / NixOS
 
-See [docs/INSTALL.md](docs/INSTALL.md) for full instructions, including the
+See [docs/install.md](docs/install.md) for full instructions, including the
 service setup.
 
 ### SteamOS / Steam Deck
@@ -130,7 +130,7 @@ chmod +x Keymasq-*-x86_64.AppImage
 The installer asks for your password. A stock Steam Deck has no user password
 yet, so set one first with `passwd`.
 
-See [docs/STEAMOS.md](docs/STEAMOS.md) for details.
+See [docs/steamos.md](docs/steamos.md) for details.
 
 ### Start the services
 
@@ -165,8 +165,8 @@ as plain TOML in `~/.config/keymasq/`:
 - `settings.toml` and `recording_settings.toml` store user preferences
 
 The daemon keeps saved macros under `/var/lib/keymasq/macros/`. Use the GUI
-or CLI to create and edit them. See [docs/HARDWARE.md](docs/HARDWARE.md) for
-hardware configuration and [docs/PROFILES.md](docs/PROFILES.md) for the
+or CLI to create and edit them. See [docs/hardware.md](docs/hardware.md) for
+hardware configuration and [docs/profiles.md](docs/profiles.md) for the
 profile format and merge rules.
 
 ## Security
@@ -177,7 +177,7 @@ that session broker and never open kernel input devices themselves.
 Macro recording requires explicit opt-in. Capture features require a temporary,
 process-bound unlock by default.
 
-See [docs/SECURITY.md](docs/SECURITY.md) for details.
+See [docs/security.md](docs/security.md) for details.
 
 ## Documentation
 
@@ -185,15 +185,15 @@ The full documentation is rendered at
 [keymasq.tools](https://keymasq.tools/), and the sources are in
 [docs/](docs/).
 
-- [Getting started](docs/GETTING_STARTED.md), your first remap
-- [Installation guide](docs/INSTALL.md), every distro and the service setup
-- [Profiles](docs/PROFILES.md) and [Actions](docs/ACTIONS.md), the core model
-- [Game controller support](docs/GAMEPAD.md), remapping, analog controls, and
+- [Getting started](docs/getting-started.md), your first remap
+- [Installation guide](docs/install.md), every distro and the service setup
+- [Profiles](docs/profiles.md) and [Actions](docs/actions.md), the core model
+- [Game controller support](docs/gamepad.md), remapping, analog controls, and
   virtual gamepads
-- [Motion controls](docs/MOTION_CONTROLS.md), gyro and tilt setup, calibration,
+- [Motion controls](docs/motion-controls.md), gyro and tilt setup, calibration,
   and outputs
-- [CLI reference](docs/CLI.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [CLI reference](docs/cli.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ## Contributing
 

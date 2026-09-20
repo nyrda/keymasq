@@ -1006,7 +1006,7 @@ def test_macro_editor_footer_is_pinned_and_includes_apply(monkeypatch) -> None:
     docs_btn.emit("clicked")
     from keymasq.gui.widgets.docs_links import docs_page_url
 
-    assert opened == [docs_page_url("MACRO_EDITOR")]
+    assert opened == [docs_page_url("macro-editor")]
     assert [
         button.get_label()
         for button in collect_widgets(footer.get_end_widget(), Gtk.Button, include_self=True)

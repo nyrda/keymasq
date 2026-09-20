@@ -158,7 +158,7 @@ for a full example.
 
 ## Rapidfire
 
-Rapidfire (see [Actions](ACTIONS.md)) only applies to hold-style pattern
+Rapidfire (see [Actions](actions.md)) only applies to hold-style pattern
 slots:
 
 - **Hold**
@@ -343,6 +343,6 @@ overload_up = [
 
 ## See also
 
-- [Actions](ACTIONS.md)
-- [Macros](MACROS.md)
-- [Combos](COMBOS.md)
+- [Actions](actions.md)
+- [Macros](macros.md)
+- [Combos](combos.md)

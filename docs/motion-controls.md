@@ -98,7 +98,7 @@ can still overwrite each other. Tilt Stick and Motion to Analog retain their exi
 behavior. This adjustment applies only to Gyro Stick.
 
 For more specialized mappings, **Motion to Analog** sends gyro movement or tilt into a saved
-[Analog Control](ANALOG_CONTROLS.md). The Analog Control supplies its own deadzones, response
+[Analog Control](analog-controls.md). The Analog Control supplies its own deadzones, response
 curve, digital actions, mouse behavior, and gamepad target.
 
 ## Tune gyroscope controls
@@ -197,5 +197,5 @@ and mouse/stick/analog output processing. DInput calibration is separate from
 Nintendo-mode calibration. Keymasq estimates report times from monotonic
 arrival time and retains repeated sensor values.
 
-See [Native input drivers](INPUT_DRIVER_DESIGN.md) for configuration and extension
+See [Native input drivers](input-driver-design.md) for configuration and extension
 points.

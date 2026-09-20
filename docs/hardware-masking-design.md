@@ -1,8 +1,8 @@
 # Hardware masking design
 
-This is the engineering reference for [hardware masking](HARDWARE_MASKING.md).
+This is the engineering reference for [hardware masking](hardware-masking.md).
 It records how the privileged transaction, the daemon-side coordination, and
-recovery behave. [SECURITY.md](SECURITY.md) describes the trust boundary of the
+recovery behave. [security.md](security.md) describes the trust boundary of the
 root job.
 
 ## Components

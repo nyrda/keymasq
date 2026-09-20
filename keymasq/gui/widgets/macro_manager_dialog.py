@@ -37,7 +37,7 @@ log = logging.getLogger("keymasq.gui.widgets.macro_manager_dialog")
 
 
 def _macros_docs_url() -> str:
-    return docs_page_url("MACROS", version=__version__)
+    return docs_page_url("macros", version=__version__)
 
 
 class MacroManagerDialog(

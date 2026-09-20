@@ -94,7 +94,7 @@ log = logging.getLogger("keymasq.gui.widgets.diagnostics_dialog")
 
 
 def _diagnostics_docs_url() -> str:
-    return docs_page_url("PERFORMANCE", anchor="diagnostics-labels", version=__version__)
+    return docs_page_url("performance", anchor="diagnostics-labels", version=__version__)
 
 
 class DiagnosticsDialog(Adw.Dialog):

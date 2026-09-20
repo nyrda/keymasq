@@ -117,7 +117,7 @@ The picker does not offer axes without known ranges.
 
 To remap a button, click it in the grid on the device tab and pick an
 action. Each button supports the same options as keyboard/mouse mappings,
-including rapidfire and tap (see [Actions](ACTIONS.md)).
+including rapidfire and tap (see [Actions](actions.md)).
 
 ![Gamepad device tab with buttons and analog controls](assets/screenshots/keymasq_gamepad_device.png)
 
@@ -323,7 +323,7 @@ The editor shows stick and 1D axis thresholds as percentages from `-100%` to
 `100%`. Positive ranges cover one direction, and negative ranges cover the
 opposite direction. Multiple thresholds can overlap, and Keymasq evaluates
 each one independently. The saved TOML uses normalized `-1.0` to `1.0` values.
-See [Analog Controls config format](ANALOG_CONTROLS.md) for the field-level
+See [Analog Controls config format](analog-controls.md) for the field-level
 reference.
 
 **Templates** (stick only):
@@ -343,7 +343,7 @@ For a 1D control, choose an **Output Axis** on the destination: a trigger,
 an individual stick axis, a Hat 0 axis, or a learned hardware axis. Output uses
 that axis's range and neutral value. **Use Axis Neutral** supplies the default
 release value. Disable it for a manual override. Hat output uses three states
-with hysteresis. See [Individual axis routing](ANALOG_CONTROLS.md#individual-axis-routing)
+with hysteresis. See [Individual axis routing](analog-controls.md#individual-axis-routing)
 for direction, scaling, and compatibility details.
 
 This mode routes the analog source to a gamepad axis on a selected output
@@ -741,7 +741,7 @@ Button positions are based on physical location, not labels.
 
 ## See also
 
-- [Analog Controls config format](ANALOG_CONTROLS.md) — TOML reference for
+- [Analog Controls config format](analog-controls.md) — TOML reference for
   analog control configs
-- [Actions](ACTIONS.md)
-- [Super Keys](SUPERKEYS.md)
+- [Actions](actions.md)
+- [Super Keys](superkeys.md)

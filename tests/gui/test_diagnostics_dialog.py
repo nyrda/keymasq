@@ -34,7 +34,7 @@ def test_diagnostics_format_helpers() -> None:
     assert _label_title("combo_passthrough") == "Combo candidate passthrough"
     assert _label_title("macro_load") == "Macro loading"
     assert _label_title("macro_iteration") == "Macro iteration"
-    assert _diagnostics_docs_url().endswith("/PERFORMANCE/#diagnostics-labels")
+    assert _diagnostics_docs_url().endswith("/performance/#diagnostics-labels")
 
 
 def test_diagnostics_dialog_sends_settings_and_renders_snapshot(monkeypatch) -> None:

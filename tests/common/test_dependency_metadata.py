@@ -1,6 +1,6 @@
 """Consistency checks between dependency documentation and package manifests.
 
-These tests pin the facts that docs/DEPENDENCIES.md states about
+These tests pin the facts that docs/dependencies.md states about
 pyproject.toml and the maintained package families, so dependency drift
 between the manifests and the documentation fails mechanically instead of
 rotting silently.
@@ -22,7 +22,7 @@ def _pyproject() -> dict:
 
 
 def _doc() -> str:
-    return _read("docs/DEPENDENCIES.md")
+    return _read("docs/dependencies.md")
 
 
 def _doc_section(title: str) -> str:
@@ -31,7 +31,7 @@ def _doc_section(title: str) -> str:
         _doc(),
         flags=re.MULTILINE | re.DOTALL,
     )
-    assert match is not None, f"missing section '## {title}' in docs/DEPENDENCIES.md"
+    assert match is not None, f"missing section '## {title}' in docs/dependencies.md"
     return match.group(1)
 
 

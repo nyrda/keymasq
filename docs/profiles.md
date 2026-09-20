@@ -113,7 +113,7 @@ Hardware definitions are still separate:
 ~/.config/keymasq/hardware/<hardware_id>.toml
 ```
 
-See [Hardware Configuration](HARDWARE.md) for hardware IDs, attached evdev
+See [Hardware Configuration](hardware.md) for hardware IDs, attached evdev
 devices, detection methods, and source button/key IDs.
 
 ## Profile types
@@ -325,7 +325,7 @@ In the GUI:
 - the app remembers the last selected device or combo tab and restores it on launch
 - selecting a profile in a device or combo tab remembers it and restores it
   the next time the GUI opens
-- hardware settings are covered in [Hardware Configuration](HARDWARE.md)
+- hardware settings are covered in [Hardware Configuration](hardware.md)
 - deleting a hardware control can clear saved mappings for that control across profiles
 
 Deleting a hardware definition does not delete global profiles. Any layers for that hardware remain in the profile file and stay dormant until that hardware exists again.
@@ -372,4 +372,4 @@ Profiles can also contain combo definitions.
 
 Combos follow the same active-profile ordering rules as mappings, but the combo matcher resolves runtime prefix conflicts, not the GUI.
 
-See `docs/COMBOS.md` for combo behavior, timeouts, storage, and shadowing rules.
+See `docs/combos.md` for combo behavior, timeouts, storage, and shadowing rules.

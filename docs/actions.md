@@ -312,7 +312,7 @@ or `abs_rz`, and a raw evdev `value`. Built-in Xbox stick axes accept
 their template's ranges. Releasing the source input returns a virtual axis to
 the selected output's declared rest value. The built-in Xbox axes declare `0`.
 Direct axis actions targeting physical hardware currently release to `0`.
-[Analog-control mappings](GAMEPAD.md#analog-output) support learned or
+[Analog-control mappings](gamepad.md#analog-output) support learned or
 advertised target metadata.
 LT and RT are axis actions (`abs_z` and `abs_rz`). `gamepad` actions are button-only.
 
@@ -463,7 +463,7 @@ so only a small allowlisted set of actions is available.
 
 ## Super Keys
 
-Assign a [super key](SUPERKEYS.md) to this button. Select one from the Super
+Assign a [super key](superkeys.md) to this button. Select one from the Super
 Keys tab, then click **Map**.
 
 On the Super Keys and Macro tabs, start typing to focus the visible search box
@@ -518,7 +518,7 @@ pressed, the selected macro plays back.
 | **Replay mouse clicks** | Whether to replay recorded mouse clicks. |
 | **Speed** | Playback speed multiplier (0.1× to 10×). |
 
-See [Macros](MACROS.md) for details on creating macros, loop modes, and
+See [Macros](macros.md) for details on creating macros, loop modes, and
 editing.
 
 ![Macro tab with recording slot controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
@@ -608,7 +608,7 @@ This continues for as long as the key is physically held down.
 The macro editor also uses this selector's Rapidfire option for keys and buttons.
 Inside a macro, the block's duration controls the pulse lifetime, and Keymasq
 adjusts the gaps to place the final release at the block's end. See
-[macro rapidfire](MACRO_EDITOR.md#rapidfire-keys-and-buttons).
+[macro rapidfire](macro-editor.md#rapidfire-keys-and-buttons).
 
 | Setting | What it controls | Default | Range |
 |---|---|---|---|
@@ -624,7 +624,7 @@ With relative and absolute mouse move actions, rapidfire repeats the movement
 offset on each cycle, which is useful for continuous scrolling or nudging.
 
 If you want a simple autoclicker, map a key or mouse button to a mouse action
-and enable Rapidfire. Use a [macro](MACROS.md) instead when you need a more
+and enable Rapidfire. Use a [macro](macros.md) instead when you need a more
 scripted pattern, such as double-clicks, cursor movement, mixed keyboard and
 mouse input, or toggle/count playback.
 
@@ -651,6 +651,6 @@ primary or secondary click can remove that click **everywhere**.
 
 ## See also
 
-- [Macros](MACROS.md) — creating, editing, and playing back macros.
-- [Super Keys](SUPERKEYS.md) — pattern and overload modes for a single key.
-- [Combos](COMBOS.md) — multi-key triggers that fire actions.
+- [Macros](macros.md) — creating, editing, and playing back macros.
+- [Super Keys](superkeys.md) — pattern and overload modes for a single key.
+- [Combos](combos.md) — multi-key triggers that fire actions.

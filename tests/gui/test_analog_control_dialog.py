@@ -208,12 +208,12 @@ def test_analog_control_dialog_docs_button_links_to_analog_controls_docs(
         dialog.shell.documentation_button.get_tooltip_text() == "Open Analog Controls documentation"
     )
     assert dialog_module.analog_controls_docs_url() == (
-        "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
+        "https://keymasq.tools/docs/v1.2.3/analog-controls/"
     )
 
     monkeypatch.setattr(dialog_module, "__version__", "1.2.3.dev1")
     assert dialog_module.analog_controls_docs_url() == (
-        "https://keymasq.tools/docs/master/ANALOG_CONTROLS/"
+        "https://keymasq.tools/docs/master/analog-controls/"
     )
 
 
@@ -1942,7 +1942,7 @@ def test_analog_selector_docs_button_links_to_analog_controls_docs(
     assert dialog.actions_docs_btn.get_tooltip_text() == "Open Analog Controls documentation"
     assert dialog._active_actions_docs_link() == ("analog-controls", "Analog Controls")
     assert dialog_module._actions_docs_url("analog-controls") == (
-        "https://keymasq.tools/docs/v1.2.3/ANALOG_CONTROLS/"
+        "https://keymasq.tools/docs/v1.2.3/analog-controls/"
     )
 
 

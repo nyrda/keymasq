@@ -33,24 +33,24 @@ directly to kernel input devices or daemon-owned macro files.
 Primary docs:
 
 - Home: https://keymasq.tools/docs/latest/
-- Install: https://keymasq.tools/docs/latest/INSTALL/
-- Getting Started: https://keymasq.tools/docs/latest/GETTING_STARTED/
-- Hardware Configuration: https://keymasq.tools/docs/latest/HARDWARE/
-- Profiles: https://keymasq.tools/docs/latest/PROFILES/
-- Actions: https://keymasq.tools/docs/latest/ACTIONS/
-- Macros: https://keymasq.tools/docs/latest/MACROS/
-- Macro timeline editor: https://keymasq.tools/docs/latest/MACRO_EDITOR/
-- Combos: https://keymasq.tools/docs/latest/COMBOS/
-- Superkeys: https://keymasq.tools/docs/latest/SUPERKEYS/
-- Gamepad: https://keymasq.tools/docs/latest/GAMEPAD/
-- Analog Controls: https://keymasq.tools/docs/latest/ANALOG_CONTROLS/
-- Examples: https://keymasq.tools/docs/latest/EXAMPLES/
-- Wayland: https://keymasq.tools/docs/latest/WAYLAND/
-- GNOME: https://keymasq.tools/docs/latest/GNOME/
-- CLI: https://keymasq.tools/docs/latest/CLI/
-- Performance: https://keymasq.tools/docs/latest/PERFORMANCE/
-- Security: https://keymasq.tools/docs/latest/SECURITY/
-- Troubleshooting: https://keymasq.tools/docs/latest/TROUBLESHOOTING/
+- Install: https://keymasq.tools/docs/latest/install/
+- Getting Started: https://keymasq.tools/docs/latest/getting-started/
+- Hardware Configuration: https://keymasq.tools/docs/latest/hardware/
+- Profiles: https://keymasq.tools/docs/latest/profiles/
+- Actions: https://keymasq.tools/docs/latest/actions/
+- Macros: https://keymasq.tools/docs/latest/macros/
+- Macro timeline editor: https://keymasq.tools/docs/latest/macro-editor/
+- Combos: https://keymasq.tools/docs/latest/combos/
+- Superkeys: https://keymasq.tools/docs/latest/superkeys/
+- Gamepad: https://keymasq.tools/docs/latest/gamepad/
+- Analog Controls: https://keymasq.tools/docs/latest/analog-controls/
+- Examples: https://keymasq.tools/docs/latest/examples/
+- Wayland: https://keymasq.tools/docs/latest/wayland/
+- GNOME: https://keymasq.tools/docs/latest/gnome/
+- CLI: https://keymasq.tools/docs/latest/cli/
+- Performance: https://keymasq.tools/docs/latest/performance/
+- Security: https://keymasq.tools/docs/latest/security/
+- Troubleshooting: https://keymasq.tools/docs/latest/troubleshooting/
 
 ## Terms
 

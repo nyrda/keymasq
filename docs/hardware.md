@@ -101,7 +101,7 @@ Exact device paths and physical connection identifiers take precedence over mode
 IDs. Ambiguous model-only configurations do not select an arbitrary controller.
 The live input's vendor and product IDs must also match the configuration, so a
 reused path in another controller mode does not add that mode's masking switch.
-See [Device masking](HARDWARE_MASKING.md) for scope and recovery behavior.
+See [Device masking](hardware-masking.md) for scope and recovery behavior.
 
 Clicking the identity row (or `Rename`) opens the same rename dialog as the
 device tab. Renaming only changes the display name. Hardware IDs, mappings, and
@@ -242,7 +242,7 @@ target = "key_1"
 ```
 
 Here `046d:c08b` is the hardware ID and `btn_back` is the button ID. Event
-device paths never appear as profile keys. See [Profiles](PROFILES.md) for
+device paths never appear as profile keys. See [Profiles](profiles.md) for
 layering and merge behavior.
 
 ## Controller output
@@ -253,4 +253,4 @@ In `[hardware]`, `default_output` defaults to `"passthrough"` and accepts virtua
 output IDs such as `"virtual-gamepad-1"`. This setting applies across profiles,
 even with none active. Virtual routing forwards
 matching button and axis codes, scales axis bounds, and drops unsupported inputs.
-Mappings override individual inputs. See [Controller output](GAMEPAD.md#default-controller-output).
+Mappings override individual inputs. See [Controller output](gamepad.md#default-controller-output).

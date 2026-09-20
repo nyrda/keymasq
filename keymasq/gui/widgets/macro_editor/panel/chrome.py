@@ -361,7 +361,7 @@ class EditorChromeMixin:
         return footer
 
     def _on_editor_docs_clicked(self, _button: Gtk.Button) -> None:
-        url = docs_page_url("MACRO_EDITOR")
+        url = docs_page_url("macro-editor")
         try:
             launcher = Gtk.UriLauncher.new(url)
             launcher.launch(None, None, None)

@@ -373,8 +373,10 @@ controller, or pass through with adjusted tuning.
 
 ### Tuning: sensitivity and response curve
 
-All modes share the same input shaping math. Keymasq first normalizes the
-analog input and removes the deadzone, then shapes the result:
+Mouse Movement, Stick-style Mouse Area, and Analog Output use input shaping.
+Touchpad-style Mouse Area uses linear movement without deadzone, sensitivity,
+or response-curve shaping. For modes that use shaping, Keymasq first normalizes
+the analog input and removes the deadzone, then shapes the result:
 
 ```text
 distance = magnitude of normalized input
@@ -387,8 +389,9 @@ shaped   = clamp((distance ^ response_curve) * sensitivity, 0, 1)
 - **Response Curve > 1.0** — finer control near center, faster at edges
   (good for aiming)
 
-Stick controls apply this radially. Mouse Movement then multiplies the
-shaped value by speed. Analog Output maps it to the target axis range.
+Stick Mouse Movement applies this radially and multiplies the shaped value by
+speed. Stick-style Mouse Area shapes each axis independently. Analog Output
+maps the shaped value to the target axis range.
 
 ### Creating and editing analog controls
 

@@ -137,6 +137,10 @@ compositor dispatch. This gives Keymasq active-window profiles,
 pointer-position reads, Lua dispatcher actions, the **Set Cursor** compositor
 action, and Hyprland window tags.
 
+Tag-based profiles update when focus moves between windows with the same class
+and title but different tags. Duplicate updates are suppressed only when class,
+title, and tags all match the previous update.
+
 Custom compositor actions in Keymasq use Lua dispatcher expressions in the
 dispatcher field, for example `hl.dsp.focus({ workspace = "e+1" })`. Leave the
 args field empty for these actions.

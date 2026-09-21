@@ -642,14 +642,15 @@ class GrabbedDevice:
             state_key_prefix=state_key_prefix,
         )
 
-    def reset_motion_controls(self) -> None:
+    def reset_motion_controls(self, *, preserve_tilt_centers: bool = False) -> None:
         self.state.motion_resyncing = False
         self.state.motion_frame_values.clear()
         self.state.motion_adaptive_filters.clear()
         self.state.motion_smoothed_values.clear()
         self.state.motion_last_frame_ns.clear()
         self.state.motion_mouse_accumulators.clear()
-        self.state.motion_tilt_centers.clear()
+        if not preserve_tilt_centers:
+            self.state.motion_tilt_centers.clear()
 
     async def _cleanup_failed_grab(self) -> None:
         await update_touchpad_fuzz(self, releasing=True)

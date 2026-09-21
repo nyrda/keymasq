@@ -133,6 +133,7 @@ Tilt controls use the controller's pose when the profile becomes active as their
 Choose **Absolute gravity** if you want a level controller to be neutral instead. Keymasq takes
 a new activation pose after a profile change, device reconnect, or device reset.
 The pose comes from the device's current axis state, including axes that have not changed.
+Report gaps and dropped input do not change the neutral pose.
 
 An accelerometer can measure pitch and roll from gravity, but it cannot determine yaw. Fast
 controller movement adds acceleration of its own, so the reported tilt may wobble briefly while

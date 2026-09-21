@@ -16,6 +16,7 @@ from keymasq.common.coercion import coerce_int, coerce_str
 from keymasq.common.devices import (
     classify_event_device_type,
     high_res_wheel_low_res_code,
+    is_motion_input_device,
     normalize_input_classes,
     resolve_stable_path,
 )
@@ -239,7 +240,8 @@ class RecordingManager:
         await self._abort_failed_start()
 
     def record_event(self, device_type: str, event: evdev.InputEvent) -> None:
-        if self._stopped:
+        # Record effective mouse/stick output, never the raw sensor stream.
+        if self._stopped or device_type == "motion":
             return
 
         if event.type in (evdev.ecodes.EV_SYN, evdev.ecodes.EV_MSC):
@@ -901,7 +903,11 @@ def _recording_device_source_key(device: RecordingDevice) -> str:
 def _build_recording_plan(
     devices: list[RecordingDevice],
 ) -> tuple[list[RecordingDevice], set[str]]:
-    selected = [device for device in devices if _recording_device_path(device)]
+    selected = [
+        device
+        for device in devices
+        if _recording_device_path(device) and not is_motion_input_device(device)
+    ]
     passthrough_sources = {
         _recording_device_source_key(device)
         for device in selected

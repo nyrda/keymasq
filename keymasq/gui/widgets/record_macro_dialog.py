@@ -10,7 +10,11 @@ from collections.abc import Callable
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq import __version__
-from keymasq.common.devices import input_class_label, normalize_input_classes
+from keymasq.common.devices import (
+    input_class_label,
+    is_motion_input_device,
+    normalize_input_classes,
+)
 from keymasq.gui.session_client import session_request
 from keymasq.gui.widgets.docs_links import docs_page_url
 
@@ -457,6 +461,7 @@ class RecordMacroDialog(Adw.Dialog):
         *,
         selectable: bool,
     ) -> Gtk.ListBoxRow:
+        selectable = selectable and not is_motion_input_device(device)
         row = Gtk.ListBoxRow()
         row.set_selectable(False)
         row.set_activatable(selectable)
@@ -557,6 +562,10 @@ class RecordMacroDialog(Adw.Dialog):
         return self._device_kind(device) in {"keymasq_output", "keymasq_passthrough"}
 
     def _device_tooltip_text(self, device: dict) -> str:
+        if is_motion_input_device(device):
+            return (
+                "Raw motion sensors cannot be recorded. Select the mapped mouse or gamepad output."
+            )
         kind = self._device_kind(device)
         if kind == "keymasq_output":
             return "Synthetic Keymasq events."
@@ -578,6 +587,8 @@ class RecordMacroDialog(Adw.Dialog):
         return "Direct physical input source."
 
     def _device_badge_text(self, device: dict, selectable: bool) -> str:
+        if is_motion_input_device(device):
+            return "Not recordable"
         kind = self._device_kind(device)
         if kind in {"keymasq_output", "keymasq_passthrough"}:
             return "Recommended"
@@ -590,6 +601,8 @@ class RecordMacroDialog(Adw.Dialog):
         return ""
 
     def _is_selected_device(self, device: dict) -> bool:
+        if is_motion_input_device(device):
+            return False
         recording_id = self._device_recording_id(device)
         if recording_id in self._device_overrides:
             return bool(self._device_overrides[recording_id])
@@ -602,6 +615,8 @@ class RecordMacroDialog(Adw.Dialog):
         return None
 
     def _store_device_selection(self, device: dict, active: bool) -> None:
+        if is_motion_input_device(device):
+            return
         recording_id = self._device_recording_id(device)
         if not recording_id:
             return
@@ -613,6 +628,8 @@ class RecordMacroDialog(Adw.Dialog):
     def _set_device_type_selection(self, device_type: str, active: bool) -> None:
         for device in self._devices:
             if device_type not in self._device_types(device):
+                continue
+            if is_motion_input_device(device):
                 continue
             self._store_device_selection(device, active)
             recording_id = self._device_recording_id(device)

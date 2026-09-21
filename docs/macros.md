@@ -49,6 +49,11 @@ There are three ways to create a macro:
 
 ### Live recording
 
+Raw gyro and accelerometer sources cannot be selected for macro recording, and
+their sensor samples are excluded from recordings. To record motion mapped to
+a stick or mouse, select the corresponding Keymasq gamepad or mouse output.
+Enable mouse movement recording when recording motion mapped to mouse movement.
+
 Live recording captures your actual keyboard, mouse, and movement inputs as
 you perform them. This is the most accurate option. Use it when:
 

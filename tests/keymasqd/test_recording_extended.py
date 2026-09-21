@@ -11,6 +11,44 @@ from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.recording_spool import RecordingSnapshot, RecordingSpool
 
 
+@pytest.mark.asyncio
+async def test_recording_excludes_raw_motion_but_keeps_effective_output(tmp_path: Path):
+    recorder = RecordingManager(spool_dir=tmp_path)
+    await recorder.start([], include_mouse_movement=True)
+    for code in range(6):
+        recorder.record_event("motion", evdev.InputEvent(10, code, 3, code, 100))
+    recorder.record_event("gamepad", evdev.InputEvent(11, 0, 3, 0, 123))
+    recorder.record_event("mouse", evdev.InputEvent(11, 100, 2, 0, 5))
+    result = await recorder.stop()
+    events = await _recorded_events(recorder, result)
+    assert [(event["device_type"], event["value"]) for event in events] == [
+        ("gamepad", 123),
+        ("mouse", 5),
+    ]
+    assert events[0]["t_us"] == 0
+
+
+@pytest.mark.parametrize("grabbed", [False, True])
+@pytest.mark.parametrize("backend", ["evdev", "hidraw"])
+def test_recording_plan_excludes_motion_sources(grabbed, backend):
+    from keymasq.keymasqd.recording import _build_recording_plan
+
+    extra, grabbed_keys = _build_recording_plan(
+        [
+            {
+                "path": "/dev/input/event10",
+                "stable_path": "/dev/input/event10",
+                "device_types": ["motion"],
+                "backend": backend,
+                "grabbed_by_keymasq": grabbed,
+            },
+            {"path": "/dev/input/event11", "device_type": "gamepad"},
+        ]
+    )
+    assert [device["path"] for device in extra] == ["/dev/input/event11"]
+    assert not grabbed_keys
+
+
 async def _recorded_events(
     recorder: RecordingManager,
     result: dict[str, object],

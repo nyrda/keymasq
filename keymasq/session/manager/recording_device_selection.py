@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
 from keymasq.common.config_files import write_toml_atomically
-from keymasq.common.devices import normalize_input_classes
+from keymasq.common.devices import is_motion_input_device, normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
 
 from .common import JsonObject, json_list, json_object
@@ -236,6 +236,8 @@ def recording_device_enabled(
     device: JsonObject,
     overrides: JsonObject,
 ) -> bool:
+    if is_motion_input_device(device):
+        return False
     recording_id = recording_device_id(device)
     if recording_id in overrides:
         return bool(overrides.get(recording_id))

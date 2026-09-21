@@ -452,6 +452,15 @@ def detect_input_classes(device: _CapabilityDevice) -> list[str]:
     return detect_input_classes_from_capabilities(device.capabilities(), input_props)
 
 
+def is_motion_input_device(device: Mapping[str, object]) -> bool:
+    """Identify sensor interfaces without confusing their axes with remapped output."""
+    classes = device.get("device_types")
+    return "motion" in normalize_input_classes(
+        cast(list[str], classes) if isinstance(classes, list) else None,
+        str(device.get("device_type", "other")),
+    )
+
+
 def primary_input_class(classes: Iterable[str | DeviceType] | None) -> DeviceType:
     normalized = normalize_input_classes(classes)
     if "motion" in normalized:

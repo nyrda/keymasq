@@ -11,6 +11,30 @@ gi = pytest.importorskip("gi")
 
 
 class TestRecordMacroDialog:
+    def test_motion_device_cannot_be_selected(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
+
+        monkeypatch.setattr(RecordMacroDialog, "_load_initial_state_async", lambda self: None)
+        dialog = RecordMacroDialog(Gtk.Window())
+        sensor = {
+            "recording_id": "imu",
+            "device_types": ["motion"],
+            "path": "/dev/input/event10",
+            "name": "Gyro",
+        }
+        dialog._devices = [sensor]
+        dialog._device_overrides = {"imu": True}
+        row = dialog._build_device_row(sensor, selectable=True)
+        assert not row.get_activatable()
+        assert "imu" not in dialog._device_checks
+        assert not dialog._is_selected_device(sensor)
+        dialog._set_device_type_selection("motion", True)
+        assert not dialog._is_selected_device(sensor)
+        assert "cannot be recorded" in row.get_tooltip_text()
+
     def test_record_dialog_uses_unlock_and_owner_state(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

@@ -15,6 +15,15 @@ from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.session.manager.core import SessionManager
 
 
+def test_motion_recording_override_cannot_enable_sensor() -> None:
+    assert not recording_device_selection_module.recording_device_enabled(
+        {"recording_id": "imu", "device_type": "motion"}, {"imu": True}
+    )
+    assert recording_device_selection_module.recording_device_enabled(
+        {"recording_id": "output", "device_type": "gamepad"}, {"output": True}
+    )
+
+
 def test_session_manager_recording_settings_path_is_test_isolated(tmp_path) -> None:
     manager = SessionManager()
 

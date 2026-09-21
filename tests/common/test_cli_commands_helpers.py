@@ -2,6 +2,7 @@ import json
 import socket
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +14,96 @@ def test_profile_kind_variants() -> None:
     assert commands._profile_kind({"is_permanent": True, "window_rule_count": 0}) == "permanent"
     assert commands._profile_kind({"window_rule_count": 2}) == "conditional"
     assert commands._profile_kind({}) == "standard"
+
+
+@pytest.fixture
+def session_socket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> MagicMock:
+    sock = MagicMock()
+    sock.__enter__.return_value = sock
+    socket_path = tmp_path / "session.sock"
+    socket_path.touch()
+    monkeypatch.setattr(commands, "SESSION_SOCKET_PATH", socket_path)
+    monkeypatch.setattr(socket, "socket", lambda *_args: sock)
+    return sock
+
+
+@pytest.mark.parametrize("command", ["enable_profile", "disable_profile", "toggle_profile"])
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("delivery", ["together", "separate", "fragmented"])
+def test_profile_cli_waits_for_reply_after_events(
+    session_socket: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    enabled: bool,
+    json_output: bool,
+    delivery: str,
+) -> None:
+    event = b'{"event":"profiles_changed","status":"ok","active_profiles":[]}\n'
+    response = {"status": "ok", "enabled": enabled, "active_profiles": ["Base"]}
+    reply = (json.dumps(response) + "\n").encode()
+    stream = event + event + reply
+    if delivery == "together":
+        chunks = [stream]
+    elif delivery == "separate":
+        chunks = [event, event, reply]
+    else:
+        chunks = [stream[index : index + 1] for index in range(len(stream))]
+    session_socket.recv.side_effect = chunks
+
+    commands.set_profile_state_cli(command, "Gaming", json_output=json_output)
+
+    output = capsys.readouterr().out
+    if json_output:
+        assert json.loads(output) == response
+    else:
+        state = "enabled" if enabled else "disabled"
+        assert output == f"Gaming is now {state}\nActive profiles: Base\n"
+    sent = session_socket.sendall.call_args.args[0]
+    assert json.loads(sent) == {"command": command, "profile_name": "Gaming"}
+    session_socket.__exit__.assert_called_once()
+
+
+def test_profile_cli_reports_error_after_event(
+    session_socket: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    session_socket.recv.side_effect = [
+        b'{"event":"profiles_changed","status":"ok"}\n'
+        b'{"status":"error","message":"Profile not found"}\n'
+    ]
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.set_profile_state_cli("enable_profile", "missing")
+
+    assert excinfo.value.code == 1
+    assert capsys.readouterr().out == "Error: Profile not found\n"
+    session_socket.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [b"", b'{"status":"ok"}', b"not json\n", b"[]\n", b"\xff\n", TimeoutError()],
+)
+def test_session_request_without_complete_valid_reply(
+    session_socket: MagicMock, tail: bytes | Exception
+) -> None:
+    session_socket.recv.side_effect = [b'{"event":"profiles_changed"}\n', tail, b""]
+
+    assert commands._session_request({"command": "get_status"}) is None
+    session_socket.__exit__.assert_called_once()
+
+
+def test_session_request_event_stream_does_not_reset_deadline(
+    session_socket: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands.time, "monotonic", MagicMock(side_effect=[0, 1, 2, 4, 5]))
+    session_socket.recv.return_value = b'{"event":"profiles_changed","status":"ok"}\n'
+
+    assert commands._session_request({"command": "get_status"}, timeout=5) is None
+
+    assert session_socket.recv.call_count == 2
+    assert [call.args[0] for call in session_socket.settimeout.call_args_list] == [5, 4, 3, 1]
+    session_socket.__exit__.assert_called_once()
 
 
 def test_session_request_sends_complete_json_line(

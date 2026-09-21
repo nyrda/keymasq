@@ -82,8 +82,8 @@ class NativeController:
     def close(self) -> None:
         self.stop.set()
         self.thread.join(timeout=2)
-        os.close(self.fd)
         if self.thread.is_alive():
             raise AssertionError("UHID feeder did not stop")
+        os.close(self.fd)
         if self.error is not None:
             raise AssertionError("UHID feeder failed") from self.error

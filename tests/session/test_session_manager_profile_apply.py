@@ -174,17 +174,25 @@ async def test_failed_mapping_update_preserves_acknowledged_exec_references() ->
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("initial", [True, False])
+@pytest.mark.parametrize("interruption", [None, "cancelled", "stale"])
 async def test_mapping_released_during_masking_retries_without_acknowledging_payload(
-    monkeypatch, initial
+    monkeypatch, initial, interruption
 ):
     manager = SessionManager()
     hardware_id = "1234:5678"
+    manager.profile_state.apply_generation = 1
     manager.profile_state.grabbed_devices.add(hardware_id)
     manager.profile_state.last_sent_grab_signatures[hardware_id] = "old-grab"
     manager.profile_state.last_sent_mapping_signatures[hardware_id] = "old-map"
-    manager.client.send_command = AsyncMock(
-        return_value=Response(status="ok", data={"updated": False, "waiting_for_device": True})
-    )
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok", data={"updated": False, "waiting_for_device": True})
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
     retry = Mock()
     monkeypatch.setattr(coordinator, "schedule_grab_retry", retry)
     resolved = ResolvedDeviceProfile(
@@ -193,12 +201,29 @@ async def test_mapping_released_during_masking_retries_without_acknowledging_pay
         mappings={"button": MappingAction(action_type=ActionType.EXEC, cmd="true")},
     )
     notify = Mock()
-    if initial:
-        await profile_application._send_set_mapping_command(
-            manager, hardware_id, resolved, notify, generation=None
-        )
+
+    async def apply_mapping() -> None:
+        if initial:
+            await profile_application._send_set_mapping_command(
+                manager, hardware_id, resolved, notify, generation=1
+            )
+        else:
+            assert not await profile_application.update_mapping(
+                manager, hardware_id, resolved, generation=1
+            )
+
+    apply_task = asyncio.create_task(apply_mapping())
+    await request_started.wait()
+    if interruption is not None:
+        manager.profile_state.apply_generation = 2
+    if interruption == "cancelled":
+        apply_task.cancel()
+    release_response.set()
+    if interruption is None:
+        await apply_task
     else:
-        assert not await profile_application.update_mapping(manager, hardware_id, resolved)
+        with pytest.raises(asyncio.CancelledError):
+            await apply_task
     notify.assert_not_called()
     assert hardware_id not in manager.profile_state.grabbed_devices
     assert hardware_id not in manager.profile_state.last_sent_grab_signatures

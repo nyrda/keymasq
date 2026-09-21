@@ -35,6 +35,7 @@ and the full listener matrix. Run all VM suites on a Linux host with KVM acceler
 | Daemon / remap runtime | `keymasq/keymasqd/**` | `daemon-session` |
 | Session broker, profiles, recording | `keymasq/session/manager/**`, `keymasq/session/*.py` | `daemon-session` |
 | Hardware masking and recovery | `keymasq/masking/**`, `keymasq/keymasqd/hardware_masking.py`, `keymasq/keymasqd/masking_registry.py`, `keymasq/session/manager/command/hardware_masking.py` | `daemon-session`, `masking-behavior`, and `masking-recovery` |
+| Masking VM fixtures and assertions | `nix/masking-*` | `masking-behavior` and `masking-recovery`, in addition to the Nix/VM infrastructure gates below |
 | Compositor listeners | `keymasq/session/listeners/**`, `keymasq/session/wayland_protocols/**` | Listener VM test(s) for the affected compositor(s). Shared listener-path or Wayland-protocol changes need the full `listeners` matrix |
 | Shared code, IPC, models | `keymasq/common/**` | `daemon-session` and the full `listeners` matrix |
 | GUI and assets | `keymasq/gui/**`, `assets/**` | `scripts/check-doc-screenshots`, or include the regenerated screenshots in the PR |
@@ -42,7 +43,7 @@ and the full listener matrix. Run all VM suites on a Linux host with KVM acceler
 | Nix/VM infrastructure | `flake.nix`, `flake.lock`, `nix/**` | `daemon-session` and the full `listeners` matrix |
 | Services, udev, packaging payload | `systemd/**`, `udev/**`, `sysusers.d/**`, `tmpfiles.d/**`, `polkit/**`, and packaged copies of these payloads (for example `packaging/appimage/assets/**`) | `daemon-session` |
 | AppImage Brotway payload, runtime, or test harness | `packaging/appimage/**` Brotway artifact, dependency collection, launcher, installer/runtime layout, or GUI startup integration. Also `nix/appimage-brotway-integration-test.nix`, `nix/appimage-brotway-integration-test/**`, and `scripts/test-appimage-brotway` | Build the candidate AppImage and run `scripts/test-appimage-brotway <artifact>` |
-| Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself. For `integration.sh` that means `daemon-session` plus at least one listener suite. For the screenshot scripts it means `scripts/check-doc-screenshots` |
+| Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself. For `integration.sh` that means `daemon-session`, `masking-behavior`, `masking-recovery`, and at least one listener suite. For the screenshot scripts it means `scripts/check-doc-screenshots` |
 | Docs, packaging metadata, unrelated tooling only | `docs/**`, `.github/**`, `scripts/**` not listed above, and `packaging/**` metadata that does not ship service/udev payloads | None |
 
 Multi-category changes take the union of the rows they touch. If a change does

@@ -448,6 +448,7 @@ async def _send_grab_device_command(
 
 
 def _defer_mapping_until_regrab(manager: "SessionManager", hardware_id: str) -> None:
+    """Record confirmed device loss even when its mapping apply was superseded."""
     from .coordinator import schedule_grab_retry
 
     clear_hardware_runtime_state(manager, hardware_id)
@@ -492,10 +493,10 @@ async def _send_set_mapping_command(
             ),
         )
         if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            _defer_mapping_until_regrab(manager, hardware_id)
             if cancelled:
                 raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
-            _defer_mapping_until_regrab(manager, hardware_id)
             return
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
@@ -847,10 +848,10 @@ async def update_mapping(
             ),
         )
         if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            _defer_mapping_until_regrab(manager, hardware_id)
             if cancelled:
                 raise asyncio.CancelledError
             raise_if_stale_profile_apply(manager, generation)
-            _defer_mapping_until_regrab(manager, hardware_id)
             return False
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)

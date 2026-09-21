@@ -486,6 +486,10 @@ requests. They are not authorization secrets. Automatic masking and changes to
 saved startup preferences still check the authenticated owner's UID.
 
 Root-owned journals and static permission baselines survive a daemon failure.
+The daemon unit uses `KillMode=mixed` so SIGTERM reaches only the daemon,
+allowing it to await its `systemctl` hardware-job clients during graceful
+shutdown. Systemd kills remaining child processes when the daemon exits or
+the stop timeout expires. Hardware jobs run in separate service cgroups.
 The daemon's systemd cleanup hook stops all outstanding hardware jobs before
 restoring permissions. Per-attachment locks serialize mutations, and a global
 recovery lock excludes all hardware jobs. `ExecStopPost` restores every remaining

@@ -119,6 +119,8 @@ ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change 
 ExecStartPre=+/usr/local/bin/keymasq-record-wrapper recover-hardware
 ExecStart=/usr/local/bin/keymasqd-wrapper
 ExecStopPost=+/usr/local/bin/keymasq-record-wrapper recover-hardware
+# Let the daemon await its hardware-job clients during graceful shutdown.
+KillMode=mixed
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

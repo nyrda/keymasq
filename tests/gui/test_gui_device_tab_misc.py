@@ -1710,8 +1710,7 @@ def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatc
             captured["root"] = root
             captured["macro_name"] = macro_name
 
-        def connect(self, signal_name, callback):
-            captured["signal_name"] = signal_name
+        def connect_refresh_handler(self, callback):
             callbacks.append(callback)
 
         def present(self, root):
@@ -1734,7 +1733,6 @@ def test_key_selector_open_macro_editor_presents_and_reloads_on_close(monkeypatc
     assert captured["root"] is parent
     assert captured["macro_name"] == "demo_macro"
     assert captured["present_root"] is parent
-    assert captured["signal_name"] == "closed"
     assert reloaded == [True]
 
 

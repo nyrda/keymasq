@@ -439,8 +439,7 @@ class MacroTabMixin:
         root = self.get_root()
         parent = root if root is not None else self._parent
         dialog = get_macro_editor(parent, name)
-        dialog.connect("saved", self._on_macro_editor_closed)
-        dialog.connect("closed", self._on_macro_editor_closed)
+        dialog.connect_refresh_handler(self._on_macro_editor_closed)
         dialog.present(parent)
 
     def _on_macro_editor_closed(self, _dialog: Adw.Dialog) -> None:

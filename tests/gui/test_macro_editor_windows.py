@@ -13,8 +13,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk
 
 from keymasq.gui.session_client import GuiTaskResult
+from keymasq.gui.widgets.key_selector.macro_tab import MacroTabMixin
 from keymasq.gui.widgets.macro_editor import dialog as editor_module
 from keymasq.gui.widgets.macro_editor.model import EditableControl, EditableEvent
+from keymasq.gui.widgets.macro_manager.actions import MacroActionsMixin
 from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
 from tests.gui.macro_editor_dialog_support import _FakeSlurpCapture
 
@@ -94,6 +96,78 @@ def test_child_pencil_opens_selected_macro_and_reuses_unsaved_editor(editor_pare
     control.macro_name = ""
     parent._on_selection_changed(control)
     assert not parent._edit_child_macro_btn.get_sensitive()
+
+
+def test_child_pencil_reuses_dialog_in_its_original_window(editor_parent, monkeypatch):
+    child = editor_module.get_macro_editor(editor_parent, "child")
+    child.present(editor_parent)
+    load_empty(child, "child")
+    child._name_entry.set_text("unsaved_name")
+    history = child._edit_history
+    window = editor_module.get_macro_editor(editor_parent, "parent", standalone=True)
+    window.present()
+    window._timeline._selected = EditableControl(
+        mode="macro_sync", t_us=0, macro_name="child"
+    )
+    presented = []
+    original_present = Adw.Dialog.present
+
+    def present(dialog, parent):
+        # Check before calling Adwaita, where the wrong host raises a critical.
+        assert parent is editor_parent
+        presented.append(dialog)
+        original_present(dialog, parent)
+
+    monkeypatch.setattr(Adw.Dialog, "present", present)
+    window._on_edit_child_macro(window._edit_child_macro_btn)
+    assert presented == [child]
+    assert child.get_root() is editor_parent
+    assert child._name_entry.get_text() == "unsaved_name"
+    assert child._edit_history is history
+    assert len(editor_module._editors) == 2
+
+
+@pytest.mark.parametrize("standalone", [False, True])
+def test_reopening_editor_connects_each_callers_refresh_once(editor_parent, standalone):
+    class Manager(MacroActionsMixin):
+        def __init__(self):
+            self._parent = editor_parent
+            self.refreshes = 0
+
+        def _load_macros(self):
+            self.refreshes += 1
+
+    class Selector(MacroTabMixin):
+        def __init__(self):
+            self._parent = editor_parent
+            self.refreshes = 0
+
+        def get_root(self):
+            return editor_parent
+
+        def _load_macro_list(self):
+            self.refreshes += 1
+            return False
+
+    editor = editor_module.get_macro_editor(editor_parent, "child", standalone=standalone)
+    manager = Manager()
+    selector = Selector()
+    for _ in range(3):
+        manager._open_macro_editor("child")
+        selector._open_macro_editor("child")
+    editor.emit("saved")
+    assert (manager.refreshes, selector.refreshes) == (1, 1)
+    editor.emit("saved")
+    assert (manager.refreshes, selector.refreshes) == (2, 2)
+    editor._force_close_without_warning()
+    if not standalone:
+        # Complete the embedded dialog's asynchronous closing animation.
+        from gi.repository import GLib
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
+    assert (manager.refreshes, selector.refreshes) == (3, 3)
 
 
 def test_window_prompts_are_owned_by_editor_and_close_can_be_cancelled(editor_parent, monkeypatch):

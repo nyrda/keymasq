@@ -295,8 +295,7 @@ class MacroActionsMixin:
             create_new=create_new,
             standalone=standalone,
         )
-        dialog.connect("saved", self._on_editor_closed)
-        dialog.connect("closed", self._on_editor_closed)
+        dialog.connect_refresh_handler(self._on_editor_closed)
         dialog.present(self._parent)
 
     def _on_editor_closed(self, _dialog: Adw.Dialog) -> None:

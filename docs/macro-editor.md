@@ -30,6 +30,7 @@ macro name opens that macro in an independent window. You can arrange the parent
 and child editors side by side and use **Apply** in either editor without closing
 it. Closing the parent editor does not close the child window. Opening a macro
 that is already being edited focuses its existing editor, including unsaved edits.
+An existing dialog stays in its original window when opened from another editor.
 
 Save a temporary recording slot as a regular macro before editing it. Clicking
 a temporary slot opens its save dialog.

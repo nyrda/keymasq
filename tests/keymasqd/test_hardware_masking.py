@@ -373,7 +373,7 @@ async def test_disabling_virtual_output_keeps_masked_input_readable(reserved_run
     from tests.keymasqd.device_manager_support import grabbed_event_processing_deps
 
     manager, device, physical, target = reserved_runtime
-    manager.output_state.device_count = 1
+    manager.output_state.initialized = True
     await device.update_default_output("virtual-gamepad-1")
     reader = device.task
     masking = runtime(manager)

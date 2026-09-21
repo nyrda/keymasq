@@ -341,7 +341,7 @@ class TestDeviceManagerHelpers:
         monkeypatch.setenv("KEYMASQ_TEST_UINPUT", "1")
         manager = SimpleNamespace(
             output_state=SimpleNamespace(
-                device_count=0,
+                initialized=False,
                 keyboard_uinput=None,
                 mouse_uinput=None,
                 gamepad_uinput=None,
@@ -365,7 +365,7 @@ class TestDeviceManagerHelpers:
             uinput_writer=lambda device: device,
         )
 
-        assert manager.output_state.device_count == 1
+        assert manager.output_state.initialized is True
         assert len(created) == 3
         assert created[0].kwargs["name"] == "keymasq-test-keyboard"
         assert created[0].kwargs["vendor"] == 0x4B46
@@ -438,7 +438,7 @@ class TestDeviceManagerHelpers:
         message = str(excinfo.value)
         assert "keyboard uinput device" in message
         assert UINPUT_PERMISSION_HINT in message
-        assert manager.output_state.device_count == 0
+        assert manager.output_state.initialized is False
 
     def test_create_global_uinputs_uinput_error_mentions_uinput(self) -> None:
         manager = SimpleNamespace(
@@ -463,7 +463,7 @@ class TestDeviceManagerHelpers:
         message = str(excinfo.value)
         assert "keyboard uinput device" in message
         assert UINPUT_PERMISSION_HINT in message
-        assert manager.output_state.device_count == 0
+        assert manager.output_state.initialized is False
 
     def test_create_global_uinputs_rolls_back_after_mouse_creation_failure(
         self,
@@ -495,7 +495,7 @@ class TestDeviceManagerHelpers:
             )
 
         keyboard.close.assert_called_once_with()
-        assert manager.output_state.device_count == 0
+        assert manager.output_state.initialized is False
         assert manager.output_state.keyboard_uinput is None
         assert manager.output_state.mouse_uinput is None
         assert manager.output_state.virtual_gamepad_uinputs == {}
@@ -541,7 +541,7 @@ class TestDeviceManagerHelpers:
         keyboard.close.assert_called_once_with()
         mouse.close.assert_called_once_with()
         first_gamepad.close.assert_called_once_with()
-        assert manager.output_state.device_count == 0
+        assert manager.output_state.initialized is False
         assert manager.output_state.keyboard_uinput is None
         assert manager.output_state.mouse_uinput is None
         assert manager.output_state.virtual_gamepad_uinputs == {}
@@ -596,7 +596,7 @@ class TestDeviceManagerHelpers:
 
         manager = SimpleNamespace(
             output_state=SimpleNamespace(
-                device_count=1,
+                initialized=True,
                 keyboard_uinput=_ClosingUInput(OSError("keyboard gone")),
                 mouse_uinput=_ClosingUInput(RuntimeError("mouse close state invalid")),
                 virtual_gamepad_uinputs={},
@@ -607,7 +607,7 @@ class TestDeviceManagerHelpers:
         with caplog.at_level(logging.DEBUG, logger="keymasqd.devices"):
             outputs.destroy_global_uinputs(manager, log=logger)
 
-        assert manager.output_state.device_count == 0
+        assert manager.output_state.initialized is False
         assert manager.output_state.keyboard_uinput is None
         assert manager.output_state.mouse_uinput is None
         assert manager.output_state.virtual_gamepad_uinputs == {}
@@ -704,7 +704,7 @@ class TestDeviceManagerHelpers:
             "waiting_for_device": False,
         }
         assert second["grabbed_count"] == 2
-        create_global_uinputs.assert_called_once()
+        assert create_global_uinputs.call_count == 2
         cancel_pending_interface_release.assert_called_once_with(
             manager, "1234:5678", "/dev/input/event1"
         )
@@ -723,7 +723,7 @@ class TestDeviceManagerHelpers:
         assert manager.grabbed_devices == {}
         assert manager.active_mappings == {}
         assert manager.grab_state.desired_paths == {}
-        destroy_global_uinputs.assert_called_once()
+        destroy_global_uinputs.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_grab_skipped_probe_closes_raw_device(self) -> None:

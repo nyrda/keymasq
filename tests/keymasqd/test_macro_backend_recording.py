@@ -992,13 +992,12 @@ async def test_play_macro_uses_daemon_lifetime_outputs_without_active_grab(
     def fake_create_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
         created.append(True)
         _manager.output_state.keyboard_uinput = MagicMock()
-        _manager.output_state.device_count += 1
+        _manager.output_state.initialized = True
 
     def fake_destroy_global_uinputs(_manager: DeviceManager, **_kwargs: object) -> None:
         destroyed.append(True)
-        _manager.output_state.device_count = max(0, _manager.output_state.device_count - 1)
-        if _manager.output_state.device_count == 0:
-            _manager.output_state.keyboard_uinput = None
+        _manager.output_state.initialized = False
+        _manager.output_state.keyboard_uinput = None
 
     monkeypatch.setattr(global_outputs, "create_global_uinputs", fake_create_global_uinputs)
     monkeypatch.setattr(global_outputs, "destroy_global_uinputs", fake_destroy_global_uinputs)

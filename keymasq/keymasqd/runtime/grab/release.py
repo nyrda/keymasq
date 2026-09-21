@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from keymasq.keymasqd.runtime import adapters, outputs
+from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.combo import lifecycle
 from keymasq.keymasqd.runtime.grab.source_hiding import (
     desired_grab_requests_gamepad_source_hiding,
@@ -148,8 +148,6 @@ async def release_device_unlocked(
     if unreleased:
         manager.grabbed_devices[hardware_id] = unreleased
 
-    if devices:
-        outputs.destroy_global_uinputs(manager, log=log)
     manager.active_mappings.pop(hardware_id, None)
     manager.grab_state.desired_paths.pop(hardware_id, None)
     if deferred_source_policy is None:
@@ -406,7 +404,6 @@ async def release_interface_unlocked(
             manager.active_mappings.pop(hardware_id, None)
             manager.grab_state.desired_paths.pop(hardware_id, None)
             manager.grab_state.desired_grabs.pop(hardware_id, None)
-        outputs.destroy_global_uinputs(manager, log=log)
 
 
 async def release_interface(

@@ -17,10 +17,7 @@ from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime import adapters, device_path_resolver
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.combo.state import ComboRuntimeDeps
-from keymasq.keymasqd.runtime.grab.outputs import (
-    destroy_transaction_outputs,
-    ensure_global_outputs,
-)
+from keymasq.keymasqd.runtime.grab.outputs import ensure_global_outputs
 from keymasq.keymasqd.runtime.grab.planning import (
     analog_input_bindings,
     build_grab_plan,
@@ -359,12 +356,7 @@ async def grab_one_interface(
         )
 
         if has_mapped_buttons or request.force_grab_unmapped:
-            ensure_global_outputs(
-                manager,
-                request.hardware_id,
-                state,
-                log=log,
-            )
+            ensure_global_outputs(manager, log=log)
             device = construct_grabbed_device(
                 manager,
                 request,
@@ -454,7 +446,6 @@ async def finalize_grab(
         and (plan.mapped_evdev_names or plan.mapped_bindings)
         and state.grabbed_count == 0
     ):
-        destroy_transaction_outputs(manager, state, log=log)
         raise ValueError(
             f"No interfaces for {request.hardware_id} matched mapped buttons "
             f"(paths={len(plan.requested_paths)}, mapped_names={len(plan.mapped_evdev_names)}, "

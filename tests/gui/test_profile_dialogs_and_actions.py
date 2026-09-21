@@ -30,7 +30,12 @@ class TestProfileCreateDialog:
 
 
 class TestProfileManagedTab:
-    def test_window_rules_summary_wraps_all_rules_in_action_row_subtitle(self):
+    @pytest.mark.parametrize(
+        "window_title",
+        ["Subscriptions - YouTube - Brave Origin", "Tom & Jerry", "value < limit", "<b>Editor</b>"],
+    )
+    def test_window_rules_summary_wraps_all_rules_in_action_row_subtitle(self, window_title):
+        import re
         from pathlib import Path
 
         from gi.repository import Gtk
@@ -54,7 +59,7 @@ class TestProfileManagedTab:
                     WindowRule(field="class", pattern="brave\\-origin|librewolf"),
                     WindowRule(
                         field="title",
-                        pattern="Subscriptions\\ \\-\\ YouTube\\ \\-\\ Brave\\ Origin",
+                        pattern=re.escape(window_title),
                     ),
                     WindowRule(field="tag", pattern="browser"),
                 ],
@@ -64,11 +69,22 @@ class TestProfileManagedTab:
         tab._update_rules_label()
 
         assert tab.window_rules_row.get_subtitle_lines() == 0
-        assert tab.window_rules_row.get_subtitle() == (
+        expected = (
             "class=brave\\-origin|librewolf\n"
-            "title=Subscriptions\\ \\-\\ YouTube\\ \\-\\ Brave\\ Origin\n"
+            f"title={re.escape(window_title)}\n"
             "tag=browser - conditional"
         )
+        assert tab.window_rules_row.get_subtitle() == expected
+
+        def label_texts(widget):
+            if isinstance(widget, Gtk.Label):
+                yield widget.get_text()
+            child = widget.get_first_child()
+            while child is not None:
+                yield from label_texts(child)
+                child = child.get_next_sibling()
+
+        assert expected in list(label_texts(tab.window_rules_row))
 
     def test_window_rule_capture_forwards_timeout_and_restores_ui(self, monkeypatch):
         from keymasq.gui.widgets import profile_managed_tab as profile_managed_tab_module

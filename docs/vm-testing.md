@@ -34,6 +34,7 @@ and the full listener matrix. Run all VM suites on a Linux host with KVM acceler
 | --------------- | ------------- | -------------------- |
 | Daemon / remap runtime | `keymasq/keymasqd/**` | `daemon-session` |
 | Session broker, profiles, recording | `keymasq/session/manager/**`, `keymasq/session/*.py` | `daemon-session` |
+| Hardware masking and recovery | `keymasq/masking/**`, `keymasq/keymasqd/hardware_masking.py`, `keymasq/keymasqd/masking_registry.py`, `keymasq/session/manager/command/hardware_masking.py` | `daemon-session`, `masking-behavior`, and `masking-recovery` |
 | Compositor listeners | `keymasq/session/listeners/**`, `keymasq/session/wayland_protocols/**` | Listener VM test(s) for the affected compositor(s). Shared listener-path or Wayland-protocol changes need the full `listeners` matrix |
 | Shared code, IPC, models | `keymasq/common/**` | `daemon-session` and the full `listeners` matrix |
 | GUI and assets | `keymasq/gui/**`, `assets/**` | `scripts/check-doc-screenshots`, or include the regenerated screenshots in the PR |
@@ -68,6 +69,7 @@ changed since the last tag:
 
 ```bash
 ./scripts/integration.sh daemon-session
+./scripts/integration.sh masking-behavior masking-recovery
 ./scripts/integration.sh listeners
 scripts/check-doc-screenshots
 ```

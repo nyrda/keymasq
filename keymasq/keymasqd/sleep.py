@@ -35,7 +35,7 @@ def _noop() -> None:
 
 
 class LogindSleepCoordinator:
-    """Run one cleanup callback before logind suspends the machine."""
+    """Neutralize input and restore hardware before logind suspends the machine."""
 
     def __init__(
         self,
@@ -43,12 +43,16 @@ class LogindSleepCoordinator:
         *,
         pause_runtime: SyncCallback = _noop,
         resume_runtime: SyncCallback = _noop,
+        cleanup_hardware: AsyncCallback | None = None,
+        resume_hardware: SyncCallback = _noop,
         bus_factory: BusFactory = _system_bus,
         close_fd: Callable[[int], None] = os.close,
     ) -> None:
         self._prepare_for_sleep = prepare_for_sleep
         self._pause_runtime = pause_runtime
         self._resume_runtime = resume_runtime
+        self._cleanup_hardware = cleanup_hardware
+        self._resume_hardware = resume_hardware
         self._bus_factory = bus_factory
         self._close_fd = close_fd
         self._bus: Any | None = None
@@ -62,6 +66,8 @@ class LogindSleepCoordinator:
         self._subscribed = False
         self._dbus_subscribed = False
         self._runtime_paused = False
+        self._sleep_requested = False
+        self._pending_neutralizations = 0
 
     async def start(self) -> bool:
         """Connect to logind, or return false when it is unavailable."""
@@ -116,9 +122,19 @@ class LogindSleepCoordinator:
             await self._close_connection()
 
     def _on_prepare_for_sleep(self, preparing: bool) -> None:
+        self._sleep_requested = bool(preparing)
         if preparing:
+            self._pending_neutralizations += 1
             self._pause_runtime_safely()
+        else:
+            self._resume_if_ready()
         self._events.put_nowait(bool(preparing))
+
+    def _resume_if_ready(self) -> None:
+        # Output neutralization must finish before accepting new input, but
+        # hardware restoration may outlive logind's delay inhibitor and wake.
+        if not self._sleep_requested and self._pending_neutralizations == 0:
+            self._resume_runtime_safely()
 
     async def _run(self) -> None:
         while True:
@@ -130,14 +146,30 @@ class LogindSleepCoordinator:
                     "Received logind suspend signal; neutralizing input runtime before suspend"
                 )
                 try:
-                    await self._prepare_for_sleep()
+                    try:
+                        await self._prepare_for_sleep()
+                    except Exception:
+                        log.exception("Pre-suspend cleanup failed")
+                    finally:
+                        self._pending_neutralizations -= 1
+                        self._resume_if_ready()
+                    if self._cleanup_hardware is not None:
+                        await self._cleanup_hardware()
                 except Exception:
-                    log.exception("Pre-suspend cleanup failed")
+                    log.exception("Pre-suspend hardware cleanup failed")
                 finally:
                     self._release_inhibitor()
                 continue
 
-            self._resume_runtime_safely()
+            # An older wake must not restart hardware or input during a newer
+            # suspend. Hardware restart remains serialized behind restoration.
+            if self._sleep_requested or self._pending_neutralizations:
+                continue
+            self._resume_if_ready()
+            try:
+                self._resume_hardware()
+            except Exception:
+                log.exception("Failed to resume hardware after suspend")
             try:
                 await self._acquire_inhibitor()
             except Exception:
@@ -189,7 +221,7 @@ class LogindSleepCoordinator:
                 await asyncio.gather(*waiters, return_exceptions=True)
 
             self._connection_refresh.clear()
-            self._events.put_nowait(False)
+            self._on_prepare_for_sleep(False)
             await self._close_connection()
 
             while True:

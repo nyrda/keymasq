@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -321,6 +321,146 @@ async def test_logind_unavailable_does_not_prevent_daemon_start() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("wake_during_neutralization", [False, True])
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_wake_resumes_input_before_slow_hardware_cleanup_finishes(
+    monkeypatch, wake_during_neutralization, cleanup_fails
+):
+    from keymasq.keymasqd.daemon import Daemon
+    from keymasq.keymasqd.device_manager import DeviceManager
+    from keymasq.keymasqd.hardware_masking import HardwareMasking
+
+    neutralizing = asyncio.Event()
+    finish_neutralizing = asyncio.Event()
+    restoring = asyncio.Event()
+    finish_restoring = asyncio.Event()
+    resumed_hardware = Mock()
+
+    async def neutralize(_self):
+        neutralizing.set()
+        await finish_neutralizing.wait()
+
+    async def restore(_self):
+        restoring.set()
+        await finish_restoring.wait()
+        if cleanup_fails:
+            raise OSError("hardware restoration failed")
+
+    monkeypatch.setattr(DeviceManager, "neutralize_runtime", neutralize)
+    monkeypatch.setattr(HardwareMasking, "suspend", restore)
+    monkeypatch.setattr(HardwareMasking, "resume", resumed_hardware)
+    daemon = Daemon()
+    coordinator = daemon.sleep_coordinator
+    manager = _FakeLoginManager()
+    coordinator._bus_factory = lambda: _FakeBus(manager)
+    closed_fds = []
+    coordinator._close_fd = closed_fds.append
+    assert await coordinator.start()
+    try:
+        manager.emit(True)
+        await asyncio.wait_for(neutralizing.wait(), 1)
+        if wake_during_neutralization:
+            manager.emit(False)
+            assert daemon.device_manager.runtime_input_paused()
+        finish_neutralizing.set()
+        await asyncio.wait_for(restoring.wait(), 1)
+        if not wake_during_neutralization:
+            assert daemon.device_manager.runtime_input_paused()
+            manager.emit(False)
+
+        assert not daemon.device_manager.runtime_input_paused()
+        resumed_hardware.assert_not_called()
+        assert closed_fds == []
+        finish_restoring.set()
+        await _wait_until(lambda: resumed_hardware.call_count == 1)
+        assert closed_fds == [41]
+        assert not daemon.device_manager.runtime_input_paused()
+    finally:
+        finish_neutralizing.set()
+        finish_restoring.set()
+        await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_new_suspend_during_cleanup_does_not_resume_on_stale_wake():
+    manager = _FakeLoginManager()
+    restoring = asyncio.Event()
+    finish_restoring = asyncio.Event()
+    runtime_events = []
+    resumed_hardware = Mock()
+    neutralize = AsyncMock()
+
+    async def restore():
+        restoring.set()
+        await finish_restoring.wait()
+
+    coordinator = LogindSleepCoordinator(
+        neutralize,
+        pause_runtime=lambda: runtime_events.append("pause"),
+        resume_runtime=lambda: runtime_events.append("resume"),
+        cleanup_hardware=restore,
+        resume_hardware=resumed_hardware,
+        bus_factory=lambda: _FakeBus(manager),
+        close_fd=lambda _fd: None,
+    )
+    assert await coordinator.start()
+    try:
+        manager.emit(True)
+        await asyncio.wait_for(restoring.wait(), 1)
+        manager.emit(False)
+        assert runtime_events == ["pause", "resume"]
+        manager.emit(True)
+        finish_restoring.set()
+        await _wait_until(lambda: neutralize.await_count == 2)
+        assert runtime_events == ["pause", "resume", "pause"]
+        resumed_hardware.assert_not_called()
+        manager.emit(False)
+        await _wait_until(lambda: resumed_hardware.call_count == 1)
+        assert runtime_events == ["pause", "resume", "pause", "resume"]
+    finally:
+        finish_restoring.set()
+        await coordinator.stop()
+
+
+@pytest.mark.asyncio
+async def test_bus_disconnect_resumes_input_during_hardware_cleanup():
+    first_manager = _FakeLoginManager((41,))
+    second_manager = _FakeLoginManager((42,))
+    first_bus = _FakeBus(first_manager)
+    second_bus = _FakeBus(second_manager)
+    buses = iter((first_bus, second_bus))
+    restoring = asyncio.Event()
+    finish_restoring = asyncio.Event()
+    resumed_input = Mock()
+    resumed_hardware = Mock()
+
+    async def restore():
+        restoring.set()
+        await finish_restoring.wait()
+
+    coordinator = LogindSleepCoordinator(
+        AsyncMock(),
+        resume_runtime=resumed_input,
+        cleanup_hardware=restore,
+        resume_hardware=resumed_hardware,
+        bus_factory=lambda: next(buses),
+        close_fd=lambda _fd: None,
+    )
+    assert await coordinator.start()
+    try:
+        first_manager.emit(True)
+        await asyncio.wait_for(restoring.wait(), 1)
+        first_bus.drop()
+        await _wait_until(lambda: resumed_input.call_count == 1)
+        resumed_hardware.assert_not_called()
+        finish_restoring.set()
+        await _wait_until(lambda: resumed_hardware.call_count == 1)
+    finally:
+        finish_restoring.set()
+        await coordinator.stop()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failed_step", ["masking", "neutralize"])
 async def test_daemon_sleep_cleanup_attempts_both_steps_before_releasing_inhibitor(
     monkeypatch, failed_step
@@ -344,9 +484,11 @@ async def test_daemon_sleep_cleanup_attempts_both_steps_before_releasing_inhibit
     monkeypatch.setattr(daemon.device_manager, "neutralize_runtime", neutralize)
     monkeypatch.setattr(daemon.hardware_masking, "suspend", masking)
     coordinator = LogindSleepCoordinator(
-        daemon.prepare_for_sleep,
+        daemon.device_manager.neutralize_runtime,
         pause_runtime=daemon.device_manager.pause_runtime_input,
-        resume_runtime=daemon.resume_after_sleep,
+        resume_runtime=daemon.device_manager.resume_runtime_input,
+        cleanup_hardware=daemon.hardware_masking.suspend,
+        resume_hardware=daemon.hardware_masking.resume,
         bus_factory=lambda: _FakeBus(manager),
         close_fd=lambda fd: order.append(f"close:{fd}"),
     )

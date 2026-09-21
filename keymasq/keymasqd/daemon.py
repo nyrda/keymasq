@@ -82,9 +82,11 @@ class Daemon:
         self.macro_store = MacroStore(STATE_DIR / "macros")
         self.capture_manager = CaptureManager()
         self.sleep_coordinator = LogindSleepCoordinator(
-            self.prepare_for_sleep,
+            self.device_manager.neutralize_runtime,
             pause_runtime=self.device_manager.pause_runtime_input,
-            resume_runtime=self.resume_after_sleep,
+            resume_runtime=self.device_manager.resume_runtime_input,
+            cleanup_hardware=self.hardware_masking.suspend,
+            resume_hardware=self.hardware_masking.resume,
         )
         self.socket_server: SocketServer | None = None
         self.running = False
@@ -98,18 +100,6 @@ class Daemon:
         self._unlock_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._macro_recording_state_last_logged: dict[int, tuple[bool, str]] = {}
         self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
-
-    async def prepare_for_sleep(self) -> None:
-        await self._run_async_cleanup(
-            "neutralize input before sleep", self.device_manager.neutralize_runtime
-        )
-        await self._run_async_cleanup(
-            "restore hardware before sleep", self.hardware_masking.suspend
-        )
-
-    def resume_after_sleep(self) -> None:
-        self.device_manager.resume_runtime_input()
-        self.hardware_masking.resume()
 
     async def start(self) -> None:
         RUN_DIR.mkdir(parents=True, exist_ok=True)

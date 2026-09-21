@@ -344,6 +344,14 @@ the saved position. Outputs released by cleanup are not pressed again, and
 their corresponding later release events are skipped. A fresh press event
 for the same output starts a new hold normally.
 
+Superkey taps and wheel ticks also send a release, so **Pause on release**
+applies to them too. A superkey tap pauses playback after its brief synthetic
+press; a wheel tick releases immediately and may pause before any macro events
+play. Playback then stays paused until the same trigger resumes it or the
+discard timeout expires. With **Never**, it does not expire. Disable **Pause
+on release** if you want a Once or Count macro triggered by a tap or wheel tick
+to run to completion.
+
 Ordinary timeline gaps retain their remaining duration. An explicit wait
 already in progress keeps counting real time while paused. For example, a
 10-second wait paused after 2 seconds and resumed 5 seconds later has 3

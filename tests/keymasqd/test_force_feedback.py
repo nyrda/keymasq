@@ -951,7 +951,7 @@ async def test_grab_starts_passthrough_output_feedback_proxy(
     assert created_uinputs[0].kwargs["max_effects"] == 4
     assert len(_Proxy.instances) == 1
     assert _Proxy.instances[0].uinput is created_uinputs[0]
-    assert _Proxy.instances[0].physical_device is physical
+    assert _Proxy.instances[0].physical_device.device is physical
     assert _Proxy.instances[0].started is True
 
     release_task = original_create_task(device.release())

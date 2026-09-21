@@ -123,10 +123,18 @@ async def handle_macro_command(
         raw_payload = data.get("macro", {})
         if not isinstance(raw_payload, dict):
             raise ValueError("macro payload must be an object")
-        macro = await asyncio.to_thread(
-            daemon.macro_store.create,
-            cast(JsonObject, raw_payload),
-        )
+        payload = cast(JsonObject, raw_payload)
+        try:
+            macro = await asyncio.to_thread(daemon.macro_store.create, payload)
+        except FileExistsError:
+            if data.get("overwrite") is not True:
+                raise
+            macro = await asyncio.to_thread(
+                daemon.macro_store.update,
+                coerce_str(payload.get("name", "")),
+                payload,
+                None,
+            )
         return {"macro": macro}
 
     if command_type == CommandType.MACRO_UPDATE:

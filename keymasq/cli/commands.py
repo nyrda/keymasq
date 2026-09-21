@@ -452,15 +452,14 @@ def create_macro_cli(
         print(f"Error: {exc}")
         sys.exit(1)
 
-    command = "update_macro" if force else "create_macro"
-    request: JsonObject = {"command": command, "macro": macro}
+    request: JsonObject = {"command": "create_macro", "macro": macro}
     if force:
-        request["name"] = name
+        request["overwrite"] = True
 
     result = _request_or_error(request)
     if _handled_json_or_error(result, json_output):
         return
-    action = "Updated" if force else "Created"
+    action = "Saved" if force else "Created"
     print(f"{action} macro: {name}")
 
 

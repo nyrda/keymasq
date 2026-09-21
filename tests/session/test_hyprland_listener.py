@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -261,7 +261,26 @@ async def test_hyprland_activewindow_event_emits_once_for_repeated_events() -> N
     await listener._handle_event("activewindow>>firefox,tab one")
 
     assert calls == [("firefox", "tab one", [])]
-    get_window_tags.assert_awaited_once()
+    assert get_window_tags.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_hyprland_activewindow_event_emits_on_tag_change_with_same_class_and_title() -> None:
+    callback = AsyncMock()
+    listener = HyprlandListener(callback)
+    listener._get_window_tags = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[["work"], ["personal"], ["work"]]
+    )
+
+    for address in ("1111", "2222", "1111"):
+        await listener._handle_event("activewindow>>kitty,zsh")
+        await listener._handle_event(f"activewindowv2>>{address}")
+
+    assert callback.await_args_list == [
+        call("kitty", "zsh", ["work"]),
+        call("kitty", "zsh", ["personal"]),
+        call("kitty", "zsh", ["work"]),
+    ]
 
 
 @pytest.mark.asyncio

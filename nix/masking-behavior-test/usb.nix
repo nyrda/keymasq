@@ -34,6 +34,8 @@
   };
 
   testScript = ''
+    import re
+
     def usb_command(command):
         return user(
             "env KEYMASQ_MASK_TEST_NAMES=mask-usb-target,mask-usb-bystander "
@@ -50,8 +52,15 @@
         machine.succeed("udevadm settle")
         usb_check(f"connected-{index}")
 
-    def usb_detach():
-        machine.succeed("usbip detach --port 0")
+    def usb_detach(port=0):
+        status = machine.succeed("cat /sys/devices/platform/vhci_hcd.0/status")
+        rows = (line.split() for line in status.splitlines()[1:])
+        busid = next(row[-1] for row in rows if int(row[1]) == port)
+        assert re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", busid), status
+        machine.succeed(f"usbip detach --port {port}")
+        # detach only queues a kernel disconnect. Reusing the port before the
+        # USB device disappears can send old URBs into the next attachment.
+        machine.wait_until_succeeds(f"test ! -e /sys/bus/usb/devices/{busid}", timeout=15)
         machine.succeed("udevadm settle")
 
     def run_usb_tests():
@@ -88,7 +97,7 @@
             with subtest("moving the original USB device to another port does not inherit the mask"):
                 usb_attach(0)
                 usb_check("moved")
-                machine.succeed("usbip detach --port 2")
+                usb_detach(2)
             usb_detach()
             usb_attach(0)
             usb_check("masked")
@@ -117,6 +126,6 @@
             machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("cleanup"), timeout=120)
             usb_detach()
-            machine.succeed("usbip detach --port 1")
+            usb_detach(1)
   '';
 }

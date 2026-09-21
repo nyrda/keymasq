@@ -444,6 +444,8 @@
                 WatchdogSec = 20;
                 WatchdogSignal = "SIGKILL";
                 TimeoutStopSec = 20;
+                # Let the daemon await its hardware-job clients during graceful shutdown.
+                KillMode = "mixed";
                 User = "keymasq";
                 Group = "keymasq";
                 SupplementaryGroups = [ "input" ];

@@ -126,6 +126,9 @@ Window Rules:
 
 To make a profile permanent again, remove its window rules.
 
+The Window Rules summary displays every rule pattern as plain text, including
+characters such as `&` and `<`.
+
 ### Permanent profiles
 
 - Always active when enabled

@@ -54,6 +54,7 @@ class ProfileSettingsMixin:
             title="Window Rules",
             subtitle="No rules",
             subtitle_lines=0,
+            use_markup=False,
         )
         self.window_rules_row.set_tooltip_text(
             "Profiles are always active unless window rules are configured."

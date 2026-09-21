@@ -169,8 +169,11 @@ for supported Wayland environments.
 
 When systemd-logind is available, `keymasqd` uses its system D-Bus API to pause
 input processing, neutralize active runtime state, and release tracked outputs
-before suspend. Input processing resumes after logind announces wake-up. The
-daemon continues normally when logind or the system bus is unavailable at
+before suspend. On wake, ordinary grabbed input resumes as soon as runtime
+neutralization finishes, even if hardware-mask restoration is still running.
+Mask monitoring restarts only after restoration finishes, so it cannot race
+the pending hardware changes. The daemon continues normally when logind or the
+system bus is unavailable at
 startup. After a successful connection, it reconnects if logind or the system
 bus restarts.
 

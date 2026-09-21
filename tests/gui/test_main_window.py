@@ -1423,6 +1423,66 @@ class TestMainWindow:
 
         assert reloads == [window]
 
+    @pytest.mark.parametrize("disconnected_status", [None, {"status": "error"}])
+    @pytest.mark.parametrize("keymasqd_connected", [False, True])
+    def test_main_window_reconnect_reloads_profiles_changed_while_disconnected(
+        self, temp_config_dir, monkeypatch, disconnected_status, keymasqd_connected
+    ):
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui.session_client import GuiTaskResult
+        from keymasq.gui.window import _runtime as window_runtime
+        from keymasq.gui.window.core import MainWindow
+        from keymasq.session.profile.manager import ProfileManager
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(ProfileConfig(name="Desktop", enabled=True))
+        window.demo_mode = False
+        monkeypatch.setattr(connection, "_set_connection_issue", lambda *args: None)
+        monkeypatch.setattr(
+            window_runtime,
+            "run_gui_task",
+            lambda worker, callback, **kwargs: callback(GuiTaskResult(value=worker())),
+        )
+
+        def respond(data):
+            window._status_query_id += 1
+            window._status_query_inflight = True
+            connection._on_status_response(window, data, window._status_query_id)
+
+        status = {"status": "ok", "keymasqd_connected": keymasqd_connected}
+        respond(status)
+        initial_manager = window.profile_manager
+        respond(disconnected_status)
+        respond(disconnected_status)
+        assert window.profile_manager is initial_manager
+
+        external_profiles = ProfileManager()
+        external_profile = external_profiles.get_profile("Desktop")
+        assert external_profile is not None
+        external_profile.config.enabled = False
+        external_profiles.save_profile(external_profile.config)
+        external_profiles.save_profile(ProfileConfig(name="Gaming"))
+
+        respond(status)
+
+        profile = window.profile_manager.get_profile("Desktop")
+        assert profile is not None
+        assert profile.config.enabled is False
+        assert window.combo_tab is not None
+        assert window.combo_tab.profile_manager is window.profile_manager
+        assert "Gaming" in window.combo_tab._profile_names
+
+        reconnected_manager = window.profile_manager
+        respond(status)
+        assert window.profile_manager is reconnected_manager
+
+        profile.config.is_permanent = True
+        window.profile_manager.save_profile(profile.config)
+        saved_profile = ProfileManager().get_profile("Desktop")
+        assert saved_profile is not None
+        assert saved_profile.config.enabled is False
+        assert saved_profile.config.is_permanent is True
+
     def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
         from keymasq.gui.window.core import MainWindow
 

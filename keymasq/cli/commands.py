@@ -2,6 +2,7 @@ import asyncio
 import json
 import socket
 import sys
+import time
 from typing import cast
 
 from keymasq.common.macro_compile import (
@@ -24,27 +25,37 @@ def _session_request(payload: JsonObject, timeout: float = 5.0) -> JsonObject | 
         return None
 
     try:
+        deadline = time.monotonic() + timeout
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(str(SESSION_SOCKET_PATH))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            sock.settimeout(remaining)
             sock.sendall((json.dumps(payload) + "\n").encode())
 
             buffer = b""
             while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                sock.settimeout(remaining)
                 chunk = sock.recv(4096)
                 if not chunk:
-                    break
+                    return None
                 buffer += chunk
-                if b"\n" in buffer:
-                    break
-
-        if not buffer:
-            return None
-        line = buffer.split(b"\n", 1)[0]
-        decoded = json.loads(line.decode())
-        if isinstance(decoded, dict):
-            return cast(JsonObject, decoded)
-        return None
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    if not line.strip():
+                        continue
+                    decoded = json.loads(line.decode())
+                    if not isinstance(decoded, dict):
+                        return None
+                    # Events and replies share the same stream, in either order.
+                    if "event" in decoded:
+                        continue
+                    return cast(JsonObject, decoded)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 

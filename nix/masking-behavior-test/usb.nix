@@ -47,9 +47,20 @@
             machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
         return machine.succeed(usb_command(command), timeout=120)
 
-    def usb_attach(index):
-        machine.succeed(f"usbip attach --remote exporter --busid usbip-vudc.{index}")
+    def usb_import(index):
+        exporter.wait_until_succeeds(
+            f"test $(cat /sys/devices/platform/usbip-vudc.{index}/usbip_status) -eq 1",
+            timeout=15,
+        )
+        # USB/IP imports can race exporter teardown. Retry transport setup;
+        # enumeration and masking assertions below must then pass independently.
+        machine.wait_until_succeeds(
+            f"usbip attach --remote exporter --busid usbip-vudc.{index}", timeout=15
+        )
         machine.succeed("udevadm settle")
+
+    def usb_attach(index):
+        usb_import(index)
         usb_check(f"connected-{index}")
 
     def usb_detach(port=0):
@@ -114,14 +125,14 @@
                     "env KEYMASQ_MASK_TEST_NAMES=mask-usb-composite,mask-usb-bystander "
                     "${testPython}/bin/python ${./shared_outputs.py} " + command
                 )
-            machine.succeed("usbip attach --remote exporter --busid usbip-vudc.3")
+            usb_import(3)
             machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("setup"), timeout=120)
             machine.succeed(shared("hold") + " > /tmp/usb-shared-output.log 2>&1 &")
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-held", timeout=45)
             usb_detach()
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-absent-ok", timeout=40)
-            machine.succeed("usbip attach --remote exporter --busid usbip-vudc.3")
+            usb_import(3)
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-returned-ok", timeout=40)
             machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("cleanup"), timeout=120)

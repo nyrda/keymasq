@@ -146,6 +146,7 @@ class MacroEditorMixin(
         self._editor_busy_spinner: Gtk.Spinner | None = None
         self._editor_busy_label: Gtk.Label | None = None
         self._dialog_closed: bool = False
+        self._refresh_handlers: set[Callable[..., None]] = set()
         self._updating_props = False
         self._drag_locked: bool = True
         self._erase_mode: bool = False
@@ -158,6 +159,13 @@ class MacroEditorMixin(
         self._load_initial_state_async()
         _editors.add(self)
         self.connect("closed", self._on_host_closed)
+
+    def connect_refresh_handler(self, callback: Callable[..., None]) -> None:
+        """Subscribe each caller once, even when it reopens the same document."""
+        if callback not in self._refresh_handlers:
+            self._refresh_handlers.add(callback)
+            self.connect("saved", callback)
+            self.connect("closed", callback)
 
     def _on_host_closed(self, _host: object) -> None:
         self._disconnect_clipboard_listener()
@@ -246,6 +254,11 @@ class MacroEditorDialog(Adw.Dialog, MacroEditorMixin):
             create_new=create_new,
         )
 
+    def present(self, parent: Gtk.Widget | None = None) -> None:
+        # Reuse can originate in another window. Keep the original dialog host.
+        self._owner.present()
+        super().present(self._owner)
+
     def do_close_attempt(self) -> None:
         self._request_close()
 
@@ -332,8 +345,6 @@ def get_macro_editor(
             )
             and isinstance(editor, (MacroEditorDialog, MacroEditorWindow))
         ):
-            if isinstance(editor, MacroEditorDialog):
-                editor._owner.present()
             return editor
     editor_type = MacroEditorWindow if standalone else MacroEditorDialog
     return editor_type(parent, macro_name, **options)

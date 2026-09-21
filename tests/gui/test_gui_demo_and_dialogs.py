@@ -2235,7 +2235,7 @@ class TestDialogConstruction:
         assert result is False
         assert captured["reason"] == "recording_locked"
 
-    def test_macro_manager_edit_opens_editor_with_closed_handler(self, monkeypatch):
+    def test_macro_manager_edit_opens_editor_with_refresh_handler(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk
 
@@ -2252,8 +2252,7 @@ class TestDialogConstruction:
                 captured["name"] = name
                 captured["create_new"] = create_new
 
-            def connect(self, signal_name, callback):
-                captured["signal_name"] = signal_name
+            def connect_refresh_handler(self, callback):
                 captured["callback"] = callback
 
             def present(self, parent):
@@ -2268,7 +2267,6 @@ class TestDialogConstruction:
         assert captured["parent"] is parent
         assert captured["name"] == "demo_macro"
         assert captured["create_new"] is False
-        assert captured["signal_name"] == "closed"
         assert captured["callback"] == dialog._on_editor_closed
         assert captured["present_parent"] is parent
 

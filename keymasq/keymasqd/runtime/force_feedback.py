@@ -40,8 +40,11 @@ class InputEventLike(Protocol):
 
 
 class ForceFeedbackTarget(Protocol):
-    path: str
-    ff_effects_count: int
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def ff_effects_count(self) -> int: ...
 
     def upload_effect(self, effect: object) -> int: ...
 

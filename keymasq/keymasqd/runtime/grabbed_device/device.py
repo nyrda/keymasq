@@ -35,6 +35,7 @@ from keymasq.keymasqd.runtime.default_controller_route import (
     DefaultControllerRoute,
     source_axis_ranges,
 )
+from keymasq.keymasqd.runtime.feedback_device import EvdevFeedbackDevice, EvdevFeedbackSource
 from keymasq.keymasqd.runtime.grabbed_device import grab, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.grabbed_device.types import (
@@ -967,7 +968,7 @@ class GrabbedDevice:
             return
         proxy = force_feedback.PassthroughFeedbackProxy(
             cast(force_feedback.ForceFeedbackUInput, self.uinput),
-            cast(force_feedback.ForceFeedbackTarget, self.device),
+            EvdevFeedbackDevice(cast(EvdevFeedbackSource, self.device)),
             label=f"{self.hardware_id}:{self.interface_id or self.path}",
         )
         proxy.start()

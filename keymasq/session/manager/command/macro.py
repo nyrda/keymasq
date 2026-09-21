@@ -67,9 +67,12 @@ async def handle_macro_commands(
         macro = json_object(request.get("macro"))
         if macro is None:
             return {"status": "error", "message": "macro payload required"}
+        create_payload: JsonObject = {"macro": macro}
+        if request.get("overwrite") is True:
+            create_payload["overwrite"] = True
         result = await send_daemon_request(
             manager,
-            Command(command=CommandType.MACRO_CREATE, data={"macro": macro}),
+            Command(command=CommandType.MACRO_CREATE, data=create_payload),
         )
         if result is None:
             return daemon_unavailable_response()

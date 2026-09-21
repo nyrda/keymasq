@@ -179,6 +179,8 @@ def _queue_initial_status_profile_reload(window) -> None:
 
 
 def _update_status_disconnected(window) -> None:
+    # Reload persisted profiles after reconnecting to catch missed config events.
+    window._initial_status_profile_reload_done = False
     window.session_status.set_label("session: 🔴")
     window.keymasqd_status.set_label("keymasqd: ⚪")
     profiles._mark_device_runtime_unknown(window)

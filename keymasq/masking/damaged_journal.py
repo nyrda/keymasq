@@ -85,7 +85,38 @@ def validate_baseline(record: JsonObject) -> None:
             raise ValueError("Invalid independent node permissions")
 
 
-async def recover_damaged_journal(backend: LinuxMaskBackend, cause: ValueError) -> NoReturn:
+def read_prearmed_selector(backend: LinuxMaskBackend) -> JsonObject | None:
+    """Validate independent records before synthesizing a missing journal."""
+    selectors: list[JsonObject] = []
+    for path in (backend.armed_record, backend.permissions):
+        try:
+            record = read_object(path)
+        except FileNotFoundError:
+            continue
+        selectors.append(
+            validated_selector(
+                backend, record.get("selector") if path == backend.permissions else record
+            )
+        )
+        if path == backend.permissions:
+            validate_baseline(record)
+    if not selectors:
+        # A saved preference alone does not mean there is runtime state to undo.
+        return None
+    try:
+        saved = read_object(backend.state_dir / "selector.json")
+    except FileNotFoundError:
+        pass
+    else:
+        selectors.append(validated_selector(backend, saved))
+    if any(selector != selectors[0] for selector in selectors):
+        raise ValueError("Conflicting independent attachment selectors")
+    return selectors[0]
+
+
+async def recover_damaged_journal(
+    backend: LinuxMaskBackend, cause: OSError | ValueError
+) -> NoReturn:
     from keymasq.masking.permissions import restore
 
     problems: list[str] = []
@@ -150,7 +181,12 @@ async def recover_damaged_journal(backend: LinuxMaskBackend, cause: ValueError) 
         except (OSError, ValueError) as exc:
             problems.append(f"attachment lookup: {exc}")
     detail = "; ".join(problems) if problems else "independent device access policy restored"
+    journal_status = (
+        f"Damaged recovery journal retained at {backend.journal}"
+        if backend.journal.exists()
+        else f"Recovery journal missing at {backend.journal}; independent records retained"
+    )
     raise OSError(
-        f"Damaged recovery journal retained at {backend.journal}: {cause}. {detail}. "
+        f"{journal_status}: {cause}. {detail}. "
         "USB port and original driver state cannot be verified; full recovery remains incomplete"
     ) from cause

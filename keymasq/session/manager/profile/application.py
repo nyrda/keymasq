@@ -320,6 +320,10 @@ async def _reconcile_existing_grab(
         if updated:
             notify()
             return _ReconcileOutcome.HANDLED
+        if hardware_id not in manager.profile_state.grabbed_devices:
+            # A deferred mapping already cleared the stale grab and scheduled
+            # reconciliation after masking finishes acquiring its readers.
+            return _ReconcileOutcome.HANDLED
         log.warning(
             "Mapping update failed for %s with same interfaces; forcing re-grab",
             hardware_id,
@@ -443,6 +447,14 @@ async def _send_grab_device_command(
         return _GrabOutcome.STOP
 
 
+def _defer_mapping_until_regrab(manager: "SessionManager", hardware_id: str) -> None:
+    from .coordinator import schedule_grab_retry
+
+    clear_hardware_runtime_state(manager, hardware_id)
+    schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
+    log.info("Device %s changed during mapping; retrying its grab", hardware_id)
+
+
 async def _send_set_mapping_command(
     manager: "SessionManager",
     hardware_id: str,
@@ -479,6 +491,12 @@ async def _send_set_mapping_command(
                 },
             ),
         )
+        if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
+            _defer_mapping_until_regrab(manager, hardware_id)
+            return
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
             keep_staged_refs = True
@@ -828,6 +846,12 @@ async def update_mapping(
                 },
             ),
         )
+        if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
+            _defer_mapping_until_regrab(manager, hardware_id)
+            return False
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
             keep_staged_refs = True

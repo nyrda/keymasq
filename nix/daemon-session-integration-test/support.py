@@ -281,11 +281,13 @@ class ScenarioContext:
                     (evdev.ecodes.ABS_HAT0X, evdev.AbsInfo(0, -1, 1, 0, 0, 0)),
                     (evdev.ecodes.ABS_HAT0Y, evdev.AbsInfo(0, -1, 1, 0, 0, 0)),
                 ],
+                evdev.ecodes.EV_FF: [evdev.ecodes.FF_RUMBLE],
             },
             name=GAMEPAD_SOURCE_NAME,
             vendor=0xCAFE,
             product=0x0003,
             phys=GAMEPAD_SOURCE_PHYS,
+            max_effects=4,
         )
         self.settle_udev()
         source_device = self.wait_for_source_device(
@@ -401,7 +403,7 @@ class ScenarioContext:
             chunks.extend(lines[-60:])
         return "\n".join(chunks)
 
-    def daemon_effective_capabilities(self) -> int:
+    def assert_daemon_has_no_capabilities(self) -> None:
         result = subprocess.run(
             [
                 os.environ.get("KEYMASQ_INTEGRATION_SYSTEMCTL", "systemctl"),
@@ -418,10 +420,15 @@ class ScenarioContext:
         pid = int(result.stdout.strip() or "0")
         if pid <= 0:
             raise AssertionError("keymasqd.service has no main process")
-        for line in Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines():
-            if line.startswith("CapEff:"):
-                return int(line.split(":", 1)[1].strip(), 16)
-        raise AssertionError(f"no CapEff entry for keymasqd pid {pid}")
+        expected = {"CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"}
+        observed = {
+            name: int(value.strip(), 16)
+            for line in Path(f"/proc/{pid}/status").read_text().splitlines()
+            for name, _, value in [line.partition(":")]
+            if name in expected
+        }
+        if observed.keys() != expected or any(observed.values()):
+            raise AssertionError(f"keymasqd pid {pid} capability sets: {observed}")
 
     def wait_for_source_device(self, name: str, *, vendor: int, product: int) -> evdev.InputDevice:
         deadline = time.monotonic() + 10
@@ -820,8 +827,10 @@ type = "key"
 
     def subtest(self, label: str, fn: Callable[[], object]) -> None:
         print(f"integration: {label}", flush=True)
+        self.assert_daemon_has_no_capabilities()
         self.drain_outputs()
         fn()
+        self.assert_daemon_has_no_capabilities()
 
     def tap_source(self, code: int, *, pause_s: float = 0.05) -> None:
         self.source_key(code, 1)

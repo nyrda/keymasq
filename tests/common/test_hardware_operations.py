@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from keymasq.masking import backend as backend_module
 from keymasq.masking import client, operations
-from keymasq.masking.backend import DeviceInUseError, LinuxMaskBackend
+from keymasq.masking.backend import DeviceInUseError, LinuxMaskBackend, save_json
+from keymasq.masking.inventory import HardwareInventory
 from tests.common.test_generic_hardware_masking import generic_usb
 
 TOKEN = "a" * 32
@@ -58,6 +60,50 @@ async def test_service_cleanup_stops_jobs_before_restoring_permissions(monkeypat
     monkeypatch.setattr(operations, "recover_all", restore)
     await operations.recover_hardware()
     assert calls == ["stopped", "restored"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damaged", [b"{broken", b"[]", b"{}", b"\xff"])
+async def test_corrupt_prearmed_record_does_not_block_other_reservations(
+    tmp_path, monkeypatch, damaged
+):
+    root = LinuxMaskBackend(
+        HardwareInventory(tmp_path / "sys", tmp_path / "dev"),
+        tmp_path / "run",
+        tmp_path / "rules",
+        tmp_path / "state",
+    )
+    root.prepare_directories()
+    broken = root.for_attachment("1" * 24)
+    healthy = root.for_attachment("2" * 24)
+    for backend in (root, broken, healthy):
+        backend.prepare_directories()
+        backend.early.write_text("mask")
+        backend.late.write_text("mask")
+    broken.armed_record.write_bytes(damaged)
+    save_json(
+        healthy.journal,
+        {
+            "id": healthy.reservation_id,
+            "generation": "gone",
+            "bindings": {},
+            "nodes": {},
+            "mode": "",
+        },
+    )
+    unrelated = root.rules_dir / "99-unrelated.rules"
+    unrelated.write_text("unrelated policy")
+    monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
+    for _ in range(2):
+        with pytest.raises(OSError, match="Hardware recovery remains incomplete") as error:
+            await operations.recover_all(root)
+        assert broken.reservation_id in str(error.value)
+        assert healthy.reservation_id not in str(error.value)
+        assert not healthy.journal.exists() and not broken.journal.exists()
+        assert broken.armed_record.read_bytes() == damaged
+        assert unrelated.read_text() == "unrelated policy"
+        for backend in (root, broken, healthy):
+            assert not backend.early.exists() and not backend.late.exists()
 
 
 @pytest.mark.asyncio

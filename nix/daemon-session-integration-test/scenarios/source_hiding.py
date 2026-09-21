@@ -7,6 +7,10 @@ it to root:root 0600 with only the keymasq ACL. Releasing the source restores
 the original policy, and a daemon restart reconciles stale flags first.
 """
 
+import contextlib
+import ctypes
+import multiprocessing
+import select
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -125,10 +129,82 @@ def _expect_forwarding(ctx: ScenarioContext, source: evdev.UInput) -> None:
     ctx.expect_keys([(evdev.ecodes.KEY_Y, 1), (evdev.ecodes.KEY_Y, 0)])
 
 
+def _play_feedback(path: str) -> None:
+    with contextlib.closing(evdev.InputDevice(path)) as output:
+        effect = evdev.ff.Effect()
+        effect.type = evdev.ecodes.FF_RUMBLE
+        effect.id = -1
+        effect.ff_replay.length = 1000
+        effect.u.ff_rumble_effect.strong_magnitude = 0x4000
+        effect_id = output.upload_effect(effect)
+        output.write(evdev.ecodes.EV_FF, effect_id, 1)
+        output.write(evdev.ecodes.EV_FF, effect_id, 0)
+        output.erase_effect(effect_id)
+
+
+def _expect_feedback(ctx: ScenarioContext, source: evdev.UInput) -> None:
+    """Round-trip real FF ioctls through the daemon while the source is hidden."""
+    with contextlib.closing(ctx.open_passthrough_output(GAMEPAD_HARDWARE_ID)) as output:
+        path = output.path
+    received = []
+    # evdev's blocking upload/erase ioctls hold the GIL. Run the application
+    # separately so the emulated physical device can acknowledge its requests.
+    client = multiprocessing.get_context("spawn").Process(target=_play_feedback, args=(path,))
+    client.start()
+    deadline = time.monotonic() + HIDE_TIMEOUT_S
+    try:
+        while client.is_alive() or received != ["upload", "play", "stop", "erase"]:
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"force feedback did not complete: {received}")
+            if client.exitcode not in (None, 0):
+                raise AssertionError(f"force-feedback client failed: {client.exitcode}; {received}")
+            if not select.select([source.fd], [], [], 0.05)[0]:
+                continue
+            for event in source.read():
+                if event.type == evdev.ecodes.EV_UINPUT:
+                    # Set request_id explicitly. Older evdev wrappers assign it
+                    # to the wrong ctypes field in begin_upload/begin_erase.
+                    if event.code == evdev.ecodes.UI_FF_UPLOAD:
+                        upload = evdev.ff.UInputUpload()
+                        upload.request_id = event.value
+                        assert source.dll._uinput_begin_upload(source.fd, ctypes.byref(upload)) == 0
+                        try:
+                            assert upload.effect.type == evdev.ecodes.FF_RUMBLE
+                            assert upload.effect.u.ff_rumble_effect.strong_magnitude == 0x4000
+                            upload.retval = 0
+                            received.append("upload")
+                        finally:
+                            source.end_upload(upload)
+                    elif event.code == evdev.ecodes.UI_FF_ERASE:
+                        erase = evdev.ff.UInputErase()
+                        erase.request_id = event.value
+                        assert source.dll._uinput_begin_erase(source.fd, ctypes.byref(erase)) == 0
+                        erase.retval = 0
+                        source.end_erase(erase)
+                        received.append("erase")
+                elif event.type == evdev.ecodes.EV_FF:
+                    # Erasing an effect also stops it in the kernel. Accept
+                    # repeated stops after the explicit application stop.
+                    action = "play" if event.value else "stop"
+                    if action != "stop" or received[-1:] != ["stop"]:
+                        received.append(action)
+        client.join(timeout=1)
+        assert client.exitcode == 0, client.exitcode
+    except BaseException:
+        # Destroying the source also releases any pending kernel FF request.
+        source.close()
+        raise
+    finally:
+        if client.is_alive():
+            client.terminate()
+        client.join(timeout=5)
+        if client.is_alive():
+            client.kill()
+            client.join(timeout=5)
+
+
 def run(ctx: ScenarioContext) -> None:
-    effective = ctx.daemon_effective_capabilities()
-    if effective != 0:
-        raise AssertionError(f"keymasqd holds capabilities: CapEff={effective:016x}")
+    ctx.assert_daemon_has_no_capabilities()
 
     source = ctx.create_source_gamepad()
     node_path = str(source.device.path)
@@ -152,6 +228,7 @@ def run(ctx: ScenarioContext) -> None:
         # hide; the permission reset must not affect the grabbed source.
         ctx.open_passthrough_output(GAMEPAD_HARDWARE_ID).close()
         _expect_forwarding(ctx, source)
+        _expect_feedback(ctx, source)
 
         # Restart: ExecStartPre recovery and the daemon's own reconcile clear
         # stale flags through root jobs, then the grab hides the source again.
@@ -159,8 +236,8 @@ def run(ctx: ScenarioContext) -> None:
         ctx.wait_for_hardware_mapping(GAMEPAD_HARDWARE_ID)
         _expect_hidden(ctx, node_path, event_name)
         _expect_forwarding(ctx, source)
-        if ctx.daemon_effective_capabilities() != 0:
-            raise AssertionError("keymasqd regained capabilities after restart")
+        _expect_feedback(ctx, source)
+        ctx.assert_daemon_has_no_capabilities()
 
         # Removing the hardware config releases the grab immediately (disabling
         # the profile alone defers the hardware release by a minute), which

@@ -173,6 +173,42 @@ async def test_failed_mapping_update_preserves_acknowledged_exec_references() ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial", [True, False])
+async def test_mapping_released_during_masking_retries_without_acknowledging_payload(
+    monkeypatch, initial
+):
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = "old-grab"
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = "old-map"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"updated": False, "waiting_for_device": True})
+    )
+    retry = Mock()
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", retry)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"button": MappingAction(action_type=ActionType.EXEC, cmd="true")},
+    )
+    notify = Mock()
+    if initial:
+        await profile_application._send_set_mapping_command(
+            manager, hardware_id, resolved, notify, generation=None
+        )
+    else:
+        assert not await profile_application.update_mapping(manager, hardware_id, resolved)
+    notify.assert_not_called()
+    assert hardware_id not in manager.profile_state.grabbed_devices
+    assert hardware_id not in manager.profile_state.last_sent_grab_signatures
+    assert hardware_id not in manager.profile_state.last_sent_mapping_signatures
+    assert not manager.exec_state.device_exec_refs.get(hardware_id)
+    assert not manager.exec_state.exec_refs
+    retry.assert_called_once_with(manager, hardware_id, manager_constants.GRAB_RETRY_DELAY_S)
+
+
+@pytest.mark.asyncio
 async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

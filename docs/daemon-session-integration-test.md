@@ -41,6 +41,15 @@ that the core runtime classes still work together:
 - emergency reset
 - capture, combo capture, recording save, and playback
 - session restart, daemon restart, and secondary device hotplug/replug
+- empty effective, permitted, inheritable, bounding, and ambient capability sets
+  before and after every scenario
+- source hiding, forwarding, and force-feedback upload/play/stop/erase through
+  the installed daemon, including after a restart while the source stays attached
+- existing macro files and the mutation lock reopened after a daemon restart
+- native motion capture through real UHID/hidraw reports, after initial connection,
+  with the controller attached across a restart, and after reconnection
+- a private user FUSE mount that denies root's descriptor inspection, and refusal
+  to skip that descriptor after the mount disappears from the holder's namespace
 
 ## Layout
 
@@ -97,6 +106,24 @@ Use the `path:` flake reference while the VM files are uncommitted. A plain
 scenario files.
 
 The test is VM-heavy. Use a Linux host with KVM acceleration.
+
+To check the daemon's capability-free device and storage access:
+
+```bash
+./scripts/integration.sh daemon-session --scenario native-hidraw-access,source-hiding,macro-lifecycle,recording-and-capture,hotplug-replug
+```
+
+The FUSE check runs during VM setup. It creates an ordinary user mount with
+`nodev`, without `allow_other`, and verifies that root cannot stat the held file.
+The exception must recognize its mount through the holder's proc metadata. A lazy
+unmount in the holder's separate mount namespace leaves the file open but removes
+the mount entry, so the same exception must then refuse it.
+
+The daemon retains the installed unit's account, ACL rules, filesystem sandbox,
+and device policy. The test client alone receives access to `/dev/uhid` to emulate
+the controller. These checks cover the emulated devices and existing daemon-owned
+state. They do not replace physical controller tests or an upgrade test of every
+distribution package.
 
 ## Area mouse scenarios
 

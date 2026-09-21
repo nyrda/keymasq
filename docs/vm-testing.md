@@ -17,14 +17,16 @@ when in doubt.
 | Suite | Command | Documented in |
 | ----- | ------- | ------------- |
 | Daemon/session runtime | `./scripts/integration.sh daemon-session` | [daemon-session-integration-test.md](daemon-session-integration-test.md) |
+| Masking behavior | `./scripts/integration.sh masking-behavior` | [masking-vm-tests.md](masking-vm-tests.md) |
+| Masking recovery | `./scripts/integration.sh masking-recovery` | [masking-vm-tests.md](masking-vm-tests.md) |
 | AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [AppImage/Brotway artifact gate](#appimagebrotway-artifact-gate) |
 | Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Documentation screenshots | `scripts/check-doc-screenshots` | [screenshots.md](screenshots.md) |
 
 List every integration shortcut with `./scripts/integration.sh --help`.
-`./scripts/integration.sh all` runs the daemon/session suite plus the full
-listener matrix. Run all VM suites on a Linux host with KVM acceleration.
+`./scripts/integration.sh all` runs the daemon/session suite, both masking suites,
+and the full listener matrix. Run all VM suites on a Linux host with KVM acceleration.
 
 ## Which suites apply to which change
 

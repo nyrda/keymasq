@@ -247,8 +247,9 @@ async def test_restore_acl_is_private_before_use_and_removed(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("damaged", [b"{broken", b"[]", b"{}", b"\xff"])
 @pytest.mark.parametrize("keep_rules", [False, True])
-async def test_damaged_journal_restores_independent_acl_but_retains_unknown_hardware_state(
-    permission_backend, monkeypatch, damaged, keep_rules
+@pytest.mark.parametrize("missing_journal", [False, True])
+async def test_damaged_metadata_restores_independent_acl_but_retains_unknown_hardware_state(
+    permission_backend, monkeypatch, damaged, keep_rules, missing_journal
 ):
     backend, attachment, node = permission_backend
 
@@ -262,8 +263,11 @@ async def test_damaged_journal_restores_independent_acl_but_retains_unknown_hard
     await permissions.capture(backend, attachment)
     baseline = backend.permissions.read_bytes()
     save_json(backend.armed_record, backend.inventory.selector(attachment))
+    if missing_journal:
+        backend.armed_record.write_bytes(damaged)
+    else:
+        backend.journal.write_bytes(damaged)
     armed = backend.armed_record.read_bytes()
-    backend.journal.write_bytes(damaged)
     await run_host("setfacl", "-b", str(node))
     node.chmod(0o660)
     backend.early.write_text("mask")
@@ -288,13 +292,105 @@ async def test_damaged_journal_restores_independent_acl_but_retains_unknown_hard
         with pytest.raises(OSError, match="full recovery remains incomplete"):
             await backend.recover(keep_rules=keep_rules)
         assert "user:32102:rw-" in await run_host("getfacl", "-cn", str(node))
-        assert backend.journal.read_bytes() == damaged
+        if missing_journal:
+            assert not backend.journal.exists()
+        else:
+            assert backend.journal.read_bytes() == damaged
         assert backend.permissions.read_bytes() == baseline
         assert backend.armed_record.read_bytes() == armed
         assert sibling_rule.read_text() == "unrelated mask"
         assert disabled_port.read_text() == "1\n"
     assert markers.await_count == 2
     rebind.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("armed", [False, True])
+@pytest.mark.parametrize(
+    "damage", ["json", "encoding", "list", "empty", "selector", "nodes", "acl", "uid"]
+)
+async def test_missing_journal_with_bad_permissions_removes_rules_without_replaying_baseline(
+    permission_backend, monkeypatch, armed, damage
+):
+    backend, attachment, node = permission_backend
+    selector = backend.inventory.selector(attachment)
+    record = {
+        "selector": selector,
+        "nodes": {"hidraw": {"uid": os.getuid(), "gid": os.getgid(), "acl": "user::rw-\n"}},
+    }
+    if damage == "selector":
+        record["selector"] = []
+    elif damage == "nodes":
+        record["nodes"] = []
+    elif damage in {"acl", "uid"}:
+        record["nodes"]["hidraw"][damage] = []
+    damaged = {
+        "json": b"{broken",
+        "encoding": b"\xff",
+        "list": b"[]",
+        "empty": b"{}",
+    }.get(damage, json.dumps(record).encode())
+    backend.permissions.write_bytes(damaged)
+    if armed:
+        save_json(backend.armed_record, selector)
+    before = await run_host("getfacl", "-cn", str(node))
+    backend.early.write_text("mask")
+    backend.late.write_text("mask")
+    restore, trigger, markers = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(permissions, "restore", restore)
+    monkeypatch.setattr(backend, "trigger", trigger)
+    monkeypatch.setattr(backend, "clear_hidden_markers", markers)
+    for _ in range(2):
+        with pytest.raises(OSError, match="full recovery remains incomplete"):
+            await backend.recover()
+        assert not backend.early.exists() and not backend.late.exists()
+        assert not backend.journal.exists()
+        assert backend.permissions.read_bytes() == damaged
+        assert backend.armed_record.exists() == armed
+        assert await run_host("getfacl", "-cn", str(node)) == before
+    restore.assert_not_awaited()
+    if armed or damage in {"nodes", "acl", "uid"}:
+        assert trigger.await_count == markers.await_count == 2
+        trigger.assert_awaited_with(attachment, "add")
+    else:
+        trigger.assert_not_awaited()
+        markers.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflicting_record", ["permissions", "saved_selector"])
+async def test_missing_journal_with_conflicting_selectors_does_not_change_device_access(
+    permission_backend, monkeypatch, conflicting_record
+):
+    backend, attachment, node = permission_backend
+    selector = backend.inventory.selector(attachment)
+    save_json(backend.armed_record, selector)
+    if conflicting_record == "permissions":
+        save_json(
+            backend.permissions,
+            {"selector": {**selector, "serial": "another device"}, "nodes": {}},
+        )
+    else:
+        save_json(backend.state_dir / "selector.json", {**selector, "serial": "another device"})
+    paths = [backend.armed_record, backend.permissions, backend.state_dir / "selector.json"]
+    records = {path: path.read_bytes() for path in paths if path.exists()}
+    before = node.stat().st_mode
+    backend.early.write_text("mask")
+    backend.late.write_text("mask")
+    restore, trigger, markers = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(permissions, "restore", restore)
+    monkeypatch.setattr(backend, "trigger", trigger)
+    monkeypatch.setattr(backend, "clear_hidden_markers", markers)
+    for _ in range(2):
+        with pytest.raises(OSError, match="no consistent independent attachment identity"):
+            await backend.recover()
+        assert not backend.early.exists() and not backend.late.exists()
+        assert not backend.journal.exists()
+        assert {path: path.read_bytes() for path in records} == records
+        assert node.stat().st_mode == before
+    restore.assert_not_awaited()
+    trigger.assert_not_awaited()
+    markers.assert_not_awaited()
 
 
 @pytest.mark.asyncio

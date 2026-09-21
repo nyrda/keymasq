@@ -417,13 +417,50 @@ PORTAL_MOUNT = (
 @pytest.mark.parametrize(
     ("mountinfo", "fdinfo", "refused"),
     [
-        (PORTAL_MOUNT, "pos:\t0\nflags:\t0100000\nmnt_id:\t53\n", False),
-        (PORTAL_MOUNT.replace(",nodev", ""), "mnt_id:\t53\n", True),
-        (PORTAL_MOUNT.replace("fuse.portal", "ext4"), "mnt_id:\t53\n", True),
-        (PORTAL_MOUNT, "mnt_id:\t54\n", True),
-        (PORTAL_MOUNT, None, True),
+        pytest.param(
+            PORTAL_MOUNT, "pos:\t0\nflags:\t0100000\nmnt_id:\t53\n", False, id="nodev-fuse"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.replace("fuse.portal", "fuse"), "mnt_id: 53", False, id="plain-fuse"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.replace("fuse.portal", "fuseblk"), "mnt_id: 53", False, id="fuseblk"
+        ),
+        pytest.param(PORTAL_MOUNT.replace(",nodev", ""), "mnt_id: 53", True, id="fuse-with-dev"),
+        pytest.param(
+            PORTAL_MOUNT.replace("fuse.portal", "ext4"), "mnt_id: 53", True, id="not-fuse"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.replace("fuse.portal", "fusectl"), "mnt_id: 53", True, id="fuse-control"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.replace("nodev", "nodevice"), "mnt_id: 53", True, id="option-prefix"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.replace(",nodev", "") + ",nodev",
+            "mnt_id: 53",
+            True,
+            id="superblock-only-nodev",
+        ),
+        pytest.param(PORTAL_MOUNT, "mnt_id: 54", True, id="foreign-or-detached-mount"),
+        pytest.param(PORTAL_MOUNT, None, True, id="fdinfo-unreadable"),
+        pytest.param(None, "mnt_id: 53", True, id="mountinfo-unreadable"),
+        pytest.param(PORTAL_MOUNT, "pos: 0", True, id="missing-mount-id"),
+        pytest.param(PORTAL_MOUNT, "mnt_id:", True, id="empty-mount-id"),
+        pytest.param(PORTAL_MOUNT, "mnt_id: 53 extra", True, id="malformed-mount-id"),
+        pytest.param(PORTAL_MOUNT, "mnt_id: 53\nmnt_id: 54", True, id="duplicate-mount-id"),
+        pytest.param(
+            PORTAL_MOUNT.replace("53 ", "invalid ", 1), "mnt_id: invalid", True, id="nonnumeric-id"
+        ),
+        pytest.param(
+            PORTAL_MOUNT.partition(" - ")[0] + " - ", "mnt_id: 53", True, id="missing-filesystem"
+        ),
+        pytest.param(
+            "53 300 0:72 / - fuse.portal portal rw", "mnt_id: 53", True, id="truncated-mount"
+        ),
+        pytest.param(PORTAL_MOUNT + "\n" + PORTAL_MOUNT, "mnt_id: 53", True, id="ambiguous-mount"),
+        pytest.param(PORTAL_MOUNT.replace(" - ", " "), "mnt_id: 53", True, id="missing-separator"),
     ],
-    ids=["nodev-fuse", "fuse-with-dev", "not-fuse", "mount-not-visible", "fdinfo-unreadable"],
 )
 def test_denied_descriptor_is_only_skipped_on_a_nodev_fuse_mount(
     tmp_path, monkeypatch, mountinfo, fdinfo, refused
@@ -433,7 +470,8 @@ def test_denied_descriptor_is_only_skipped_on_a_nodev_fuse_mount(
     descriptor = process / "fd/7"
     descriptor.parent.mkdir(parents=True)
     descriptor.touch()
-    (process / "mountinfo").write_text(mountinfo + "\n")
+    if mountinfo is not None:
+        (process / "mountinfo").write_text(mountinfo + "\n")
     if fdinfo is not None:
         (process / "fdinfo").mkdir()
         (process / "fdinfo/7").write_text(fdinfo)
@@ -458,6 +496,56 @@ def test_denied_descriptor_is_only_skipped_on_a_nodev_fuse_mount(
             backend.reject_unrevoked_handles(attachment)
     else:
         backend.reject_unrevoked_handles(attachment)
+
+
+@pytest.mark.parametrize("metadata", ["fdinfo/7", "mountinfo"])
+@pytest.mark.parametrize("error", [PermissionError, OSError, UnicodeDecodeError])
+def test_unreadable_fuse_metadata_refuses_the_exception(tmp_path, monkeypatch, metadata, error):
+    process = tmp_path / "1234"
+
+    def read_text(path, *args, **kwargs):
+        if path == process / metadata:
+            if error is UnicodeDecodeError:
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")
+            raise error("metadata unavailable")
+        return "mnt_id: 53" if path == process / "fdinfo/7" else PORTAL_MOUNT
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert not LinuxMaskBackend._descriptor_cannot_be_a_device(process, "7")
+
+
+def test_fuse_exception_does_not_skip_a_later_direct_usb_handle(tmp_path, monkeypatch):
+    inventory, attachment, _hid, _driver = generic_usb(tmp_path)
+    usb_node = inventory.dev_root / "bus/usb/003/007"
+    usb_node.unlink()
+    usb_node.symlink_to("/dev/null")
+    process = tmp_path / "proc/1234"
+    (process / "fd").mkdir(parents=True)
+    portal = process / "fd/7"
+    portal.touch()
+    usb = process / "fd/8"
+    usb.symlink_to("/dev/null")
+    (process / "fdinfo").mkdir()
+    (process / "fdinfo/7").write_text("mnt_id: 53\n")
+    (process / "mountinfo").write_text(PORTAL_MOUNT)
+    original_iterdir, original_stat = Path.iterdir, Path.stat
+
+    def iterdir(path):
+        if path == Path("/proc"):
+            return iter([process])
+        if path == process / "fd":
+            return iter([portal, usb])
+        return original_iterdir(path)
+
+    def stat(path, *args, **kwargs):
+        if path == portal:
+            raise PermissionError("portal denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    monkeypatch.setattr(Path, "stat", stat)
+    with pytest.raises(ValueError, match="Process 1234.*direct USB"):
+        LinuxMaskBackend(inventory).reject_unrevoked_handles(attachment)
 
 
 @pytest.mark.asyncio

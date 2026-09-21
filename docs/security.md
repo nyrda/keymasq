@@ -506,7 +506,13 @@ FD targets. The scan selects USB reconnect when an application holds a direct
 USB handle, then checks for remaining handles after takeover. Ordinary driver
 rebind does not revoke an application's open usbfs handle. Inspection failures
 therefore fail the operation. Inaccessible processes are not silently skipped.
-This capability belongs only to the short-lived root job. The scan does not
+The exception is an inaccessible descriptor whose `fdinfo` mount ID identifies
+exactly one FUSE mount with the per-mount `nodev` option in that process's
+`mountinfo`. Such mounts cannot open device files. Missing, unreadable, malformed,
+or ambiguous metadata refuses the exception, as does a detached mount that no
+longer appears in the process's mount table. Skipping a verified FUSE descriptor
+does not skip the process's other descriptors.
+`CAP_SYS_PTRACE` belongs only to the short-lived root job. The scan does not
 inspect input content. USB reconnect records and validates the individual port's
 identity before changing it, refuses hubs and ganged power switching, and repairs
 an interrupted port operation during recovery. Current desktop grants come from

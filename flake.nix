@@ -289,6 +289,16 @@
           checkSuffix = "-evdev161";
           evdevPackage = evdevPackages.evdev161;
         };
+      maskingRecoveryTest = import ./nix/masking-recovery-test.nix {
+        pkgs = mkPkgs "x86_64-linux";
+        keymasqPackage = packagesFor.x86_64-linux.default;
+        keymasqModule = self.nixosModules.default;
+      };
+      maskingBehaviorTest = import ./nix/masking-behavior-test.nix {
+        pkgs = mkPkgs "x86_64-linux";
+        keymasqPackage = packagesFor.x86_64-linux.default;
+        keymasqModule = self.nixosModules.default;
+      };
       daemonSessionIntegrationEvdev170Checks =
         let
           pkgs = mkPkgs "x86_64-linux";
@@ -359,6 +369,10 @@
           // daemonSessionIntegrationChecks.checks
           // daemonSessionIntegrationEvdev161Checks.checks
           // daemonSessionIntegrationEvdev170Checks.checks
+          // {
+            masking-recovery-test = maskingRecoveryTest;
+            masking-behavior-test = maskingBehaviorTest;
+          }
           // appimageBrotwayIntegrationChecks.checks
           // docshotVm.checks;
       };

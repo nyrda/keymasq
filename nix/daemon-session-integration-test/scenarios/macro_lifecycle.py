@@ -48,6 +48,8 @@ def run(ctx: ScenarioContext) -> None:
     ctx.expect_keys([(evdev.ecodes.KEY_2, 1), (evdev.ecodes.KEY_2, 0)])
 
     ctx.request({"command": "rename_macro", "old": MACRO_NAME, "new": RENAMED_MACRO_NAME})
+    # Reopen the existing daemon-owned files and mutation lock without capabilities.
+    ctx.restart_keymasqd()
     ctx.request({"command": "play_macro", "name": RENAMED_MACRO_NAME})
     ctx.expect_keys([(evdev.ecodes.KEY_2, 1), (evdev.ecodes.KEY_2, 0)])
 

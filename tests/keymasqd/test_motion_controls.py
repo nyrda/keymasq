@@ -181,13 +181,14 @@ class _Runtime:
         del preserve_state_keys
         self.analog_reset_prefixes.append(state_key_prefix)
 
-    def reset_motion_controls(self) -> None:
+    def reset_motion_controls(self, *, preserve_tilt_centers: bool = False) -> None:
         self.state.motion_frame_values.clear()
         self.state.motion_adaptive_filters.clear()
         self.state.motion_smoothed_values.clear()
         self.state.motion_last_frame_ns.clear()
         self.state.motion_mouse_accumulators.clear()
-        self.state.motion_tilt_centers.clear()
+        if not preserve_tilt_centers:
+            self.state.motion_tilt_centers.clear()
 
     def resolve_gamepad_output(self, output_id, context):
         return None
@@ -464,7 +465,7 @@ async def test_motion_only_profile_plans_and_routes_its_gamepad_output(mode, out
 
 
 @pytest.mark.asyncio
-async def test_syn_dropped_clears_motion_state_with_scoped_analog_reset() -> None:
+async def test_syn_dropped_preserves_tilt_centers_with_scoped_analog_reset() -> None:
     runtime = _Runtime()
     runtime.state.motion_frame_values["motion_1"] = {"gyro": {"yaw": 1.0}}
     runtime.state.motion_smoothed_values["motion:motion_1"] = {"x": 1.0, "y": 0.0}
@@ -483,7 +484,7 @@ async def test_syn_dropped_clears_motion_state_with_scoped_analog_reset() -> Non
     assert runtime.state.motion_smoothed_values == {}
     assert runtime.state.motion_last_frame_ns == {}
     assert runtime.state.motion_mouse_accumulators == {}
-    assert runtime.state.motion_tilt_centers == {}
+    assert runtime.state.motion_tilt_centers == {"motion:motion_1": (1.0, 2.0)}
     assert runtime.analog_reset_prefixes == ["motion:"]
 
 

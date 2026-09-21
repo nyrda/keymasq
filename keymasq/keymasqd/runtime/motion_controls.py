@@ -45,7 +45,7 @@ async def dispatch_motion_event(
     if int(event.type) != int(deps.evdev_mod.ecodes.EV_SYN):
         return False
     if int(event.code) == int(deps.evdev_mod.ecodes.SYN_DROPPED):
-        device_runtime.reset_motion_controls()
+        device_runtime.reset_motion_controls(preserve_tilt_centers=True)
         device_runtime.state.motion_resyncing = True
         await device_runtime.reset_analog_controls(state_key_prefix="motion:")
         return bool(device_runtime.motion_axis_bindings)
@@ -122,7 +122,7 @@ def initialize_motion_state(
     device_runtime: GrabbedDeviceRuntime,
     mapping: dict[str, MappingAction],
 ) -> None:
-    """Read unchanged axes and capture the activation pose before processing events."""
+    """Read unchanged axes and capture missing activation poses, preserving them on resync."""
     if not device_runtime.motion_axis_bindings or device_runtime.device is None:
         return
     device_runtime.state.motion_resyncing = not _resync_motion_values(device_runtime)
@@ -139,6 +139,8 @@ def initialize_motion_state(
         configs = _action_motion_control_configs(action)
         for index, config in enumerate(configs):
             state_key = _motion_control_state_key(sensor_id, index, len(configs))
+            if state_key in device_runtime.state.motion_tilt_centers:
+                continue
             if config.mode == "analog":
                 if config.analog.source != "tilt" or config.analog.reference != "activation":
                     continue

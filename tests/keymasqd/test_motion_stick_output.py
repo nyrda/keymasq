@@ -223,6 +223,27 @@ async def test_motion_startup_and_profile_reset_seed_unchanged_axes(monkeypatch,
     values.update({E.ABS_X: 500, E.ABS_Z: 866})
     await rig.frame(rig.motion, (E.ABS_X, 500), (E.ABS_Z, 866))
     assert rig.axis() < -32000
+
+    # A report discontinuity while tilted must not replace the activation pose.
+    rig.time_us += 150_000
+    await process_event(
+        rig.motion,
+        evdev.InputEvent(1, 150_000, E.EV_SYN, E.SYN_DROPPED, 0),
+        deps=grabbed_event_processing_deps(),
+    )
+    assert rig.axis() == 0
+    assert rig.motion.state.motion_adaptive_filters == {}
+    assert rig.motion.state.motion_last_frame_ns == {}
+    await rig.frame(rig.motion)  # Resync from the current, tilted axis state.
+    assert rig.motion.state.motion_tilt_centers["motion:imu"] == (0, 0)
+    await rig.frame(rig.motion)
+    assert rig.axis() < -32000
+
+    values.update({E.ABS_X: 0, E.ABS_Z: 1000})
+    for _ in range(100):  # Allow Motion to Analog's adaptive filter to settle.
+        await rig.frame(rig.motion, (E.ABS_X, 0), (E.ABS_Z, 1000))
+    assert rig.axis() == 0
+    values.update({E.ABS_X: 500, E.ABS_Z: 866})
     await rig.motion.reset_mapping_runtime_state()
     assert rig.axis() == 0
     assert rig.motion.state.motion_adaptive_filters == {}
@@ -231,7 +252,7 @@ async def test_motion_startup_and_profile_reset_seed_unchanged_axes(monkeypatch,
     await rig.frame(rig.motion, (E.ABS_X, 866), (E.ABS_Z, 500))
     assert rig.axis() < -32000
     assert rig.motion.state.motion_tilt_centers["motion:imu"] == center
-    assert absinfo.call_count == 8
+    assert absinfo.call_count == 12
 
 
 @pytest.mark.asyncio

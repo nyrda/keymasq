@@ -86,3 +86,59 @@ async def test_wake_forces_reconcile_with_unchanged_snapshot(monkeypatch):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_unexpected_probe_failure_does_not_block_other_readers(caplog):
+    manager = DeviceManager()
+    broken = topology.LiveInterfaceInfo(
+        hardware_id="1234:5678",
+        vendor_id="1234",
+        product_id="5678",
+        stable_path="/dev/input/by-id/broken",
+        path="/dev/input/event5",
+        interface_id="kbd",
+    )
+    healthy = replace(
+        broken,
+        hardware_id="4321:8765",
+        vendor_id="4321",
+        product_id="8765",
+        stable_path="/dev/input/by-id/healthy",
+        path="/dev/input/event6",
+    )
+    for info in (broken, healthy):
+        manager.grabbed_devices[info.hardware_id] = [
+            SimpleNamespace(
+                path=info.stable_path,
+                resolved_event_path=info.path,
+                running=True,
+                task=SimpleNamespace(done=lambda: False),
+                device=SimpleNamespace(
+                    active_keys=Mock(
+                        return_value=[],
+                        side_effect=RuntimeError("probe failed") if info is broken else None,
+                    )
+                ),
+            )
+        ]
+        manager.grab_state.desired_grabs[info.hardware_id] = object()
+    snapshot = {info.stable_path: info for info in (broken, healthy)}
+    manager.topology_state.reconciled_snapshot = snapshot.copy()
+    release = AsyncMock()
+    manager.broadcast_callback = AsyncMock()
+    deps = replace(_topology_runtime_deps(), release_interface_fn=release)
+    await topology.reconcile_topology(
+        manager, snapshot, log=logging.getLogger("test"), deps=deps, validate_readers=True
+    )
+    release.assert_awaited_once_with(manager, broken.hardware_id, broken.stable_path)
+    assert manager.grabbed_devices[healthy.hardware_id][0].device.active_keys.call_count == 1
+    connected = [
+        call.args[1]
+        for call in manager.broadcast_callback.await_args_list
+        if call.args[0] is CommandType.DEVICE_CONNECTED
+    ]
+    assert topology.live_interface_payload(healthy) in connected
+    assert topology.live_interface_payload(broken) in connected
+    assert broken.stable_path in caplog.text
+    assert "RuntimeError: probe failed" in caplog.text

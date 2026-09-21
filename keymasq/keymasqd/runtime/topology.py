@@ -317,6 +317,11 @@ def _reader_is_live(device: Any) -> bool:
         device.device.active_keys()
     except (OSError, ValueError):
         return False
+    except Exception:
+        logging.getLogger("keymasqd.devices").exception(
+            "Unexpected failure probing input reader %s after wake", device.path
+        )
+        return False
     return True
 
 

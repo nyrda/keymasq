@@ -116,7 +116,6 @@ class GrabAcquisitionState:
     grabbed_count: int = 0
     skipped_count: int = 0
     available_count: int = 0
-    created_global_uinputs: bool = False
 
     def is_waiting_for_device(self, plan: GrabPlan) -> bool:
         """Return whether configured interfaces exist but none are currently present."""

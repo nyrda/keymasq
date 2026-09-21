@@ -35,7 +35,7 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager.output_state.device_count = 1
+        manager.output_state.initialized = True
         manager.output_state.virtual_gamepad_count = 1
         finalized: list[str] = []
 
@@ -87,7 +87,7 @@ class TestRapidfireRelease:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = DeviceManager()
-        manager.output_state.device_count = 1
+        manager.output_state.initialized = True
         manager.output_state.virtual_gamepad_count = 1
         device = SimpleNamespace(
             state=SimpleNamespace(rapidfire_tasks={}),

@@ -173,9 +173,16 @@ before suspend. On wake, ordinary grabbed input resumes as soon as runtime
 neutralization finishes, even if hardware-mask restoration is still running.
 Mask monitoring restarts only after restoration finishes, so it cannot race
 the pending hardware changes. The daemon continues normally when logind or the
-system bus is unavailable at
-startup. After a successful connection, it reconnects if logind or the system
-bus restarts.
+system bus is unavailable at startup. After a successful connection, it
+reconnects if logind or the system bus restarts.
+
+Shared virtual output devices live until daemon shutdown. Suspending, restoring
+hardware masks, or disconnecting the session can release physical readers and
+held input state without closing those shared outputs. After wake, the topology
+watcher scans physical hardware and probes ordinary readers even when device
+paths are unchanged. Missing or invalid readers are released, and the session
+reapplies desired devices from the current inventory. Masked hardware remains
+under the masking coordinator, which restores and reacquires its readers.
 
 ### Browser GUI backend
 

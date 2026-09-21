@@ -42,6 +42,7 @@ class TopologyRuntimeState:
     reconcile_task: asyncio.Task[None] | None = None
     live_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
     reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
+    wake_reconcile_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,26 @@ async def topology_watch_loop(
                 log.exception("Topology scan failed: %s", exc)
                 continue
 
+            if manager.topology_state.wake_reconcile_pending:
+                task = manager.topology_state.reconcile_task
+                if task is not None and not task.done():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                try:
+                    await reconcile_topology(
+                        manager, snapshot, log=log, deps=deps, validate_readers=True
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Wake hardware reconciliation failed; retrying")
+                    continue
+                manager.topology_state.wake_reconcile_pending = False
+                manager.topology_state.live_snapshot = dict(snapshot)
+                log.info("Reconciled physical input devices after wake")
+                continue
+
             if snapshot != manager.topology_state.live_snapshot:
                 manager.topology_state.live_snapshot = dict(snapshot)
                 schedule_topology_reconcile(
@@ -197,6 +218,7 @@ async def reconcile_topology(
     *,
     log: logging.Logger,
     deps: TopologyRuntimeDeps,
+    validate_readers: bool = False,
 ) -> None:
     async with manager._op_lock:
         previous = dict(manager.topology_state.reconciled_snapshot)
@@ -209,7 +231,19 @@ async def reconcile_topology(
             desired_hardware_ids,
             hidden_source_paths=hidden_source_paths,
         )
-        await reconcile_topology_unlocked(manager, snapshot, deps=deps)
+        await reconcile_topology_unlocked(
+            manager, snapshot, deps=deps, validate_readers=validate_readers
+        )
+        if validate_readers:
+            # A device can return at the same path while its old fd is dead.
+            # Reapply desired ordinary hardware even if discovery is unchanged.
+            # Masked hardware is reapplied by its restoration coordinator.
+            masked = manager.mask_registry.hardware_paths
+            for info in snapshot.values():
+                if live_interface_matches_desired(info, desired_hardware_ids - masked.keys()):
+                    event = (manager._command_type.DEVICE_CONNECTED, live_interface_payload(info))
+                    if event not in events:
+                        events.append(event)
         manager.topology_state.reconciled_snapshot = dict(snapshot)
 
     for event_type, payload in events:
@@ -222,7 +256,11 @@ async def reconcile_topology(
 
 
 async def reconcile_topology_unlocked(
-    manager: _TopologyManager, snapshot: Snapshot, *, deps: TopologyRuntimeDeps
+    manager: _TopologyManager,
+    snapshot: Snapshot,
+    *,
+    deps: TopologyRuntimeDeps,
+    validate_readers: bool = False,
 ) -> None:
     removed: list[tuple[str, str]] = []
     registry = getattr(manager, "mask_registry", None)
@@ -233,6 +271,9 @@ async def reconcile_topology_unlocked(
             # recovery. evdev discovery can temporarily omit a hidden source.
             continue
         for device in devices:
+            if validate_readers and not await deps.asyncio_mod.to_thread(_reader_is_live, device):
+                removed.append((hardware_id, device.path))
+                continue
             hidden_source = is_hidden_grabbed_source(device)
             live_info = live_info_for_grabbed_device(
                 snapshot,
@@ -264,6 +305,19 @@ async def reconcile_topology_unlocked(
 
     for hardware_id, path in removed:
         await deps.release_interface_fn(manager, hardware_id, path)
+
+
+def _reader_is_live(device: Any) -> bool:
+    """Probe the existing fd, since matching paths do not prove it survived sleep."""
+    if not device.running or device.device is None:
+        return False
+    if device.task is None or device.task.done():
+        return False
+    try:
+        device.device.active_keys()
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def live_info_for_grabbed_device(

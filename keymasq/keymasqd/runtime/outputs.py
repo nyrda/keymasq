@@ -34,7 +34,7 @@ from keymasq.keymasqd.runtime.adapters import (
 class OutputRuntimeState:
     """Tracks the shared virtual output devices owned by the daemon."""
 
-    device_count: int = 0
+    initialized: bool = False
     keyboard_uinput: ClosableUInput | None = None
     mouse_uinput: ClosableUInput | None = None
     virtual_gamepad_uinputs: dict[str, ClosableUInput] = field(default_factory=dict)
@@ -67,7 +67,7 @@ TEST_UINPUT_PRODUCTS = {
 
 
 class _OutputState(Protocol):
-    device_count: int
+    initialized: bool
     keyboard_uinput: ClosableUInput | None
     mouse_uinput: ClosableUInput | None
     gamepad_uinput: ClosableUInput | None
@@ -441,78 +441,77 @@ def configure_virtual_gamepads(
     return count
 
 
-def _acquire_global_uinputs(
+def _initialize_global_uinputs(
     manager: _OutputManager,
     *,
     evdev_mod: _EvdevModule,
     log: logging.Logger,
     uinput_writer: UInputWriter,
 ) -> None:
-    if manager.output_state.device_count == 0:
-        log.info("Creating global output uinput devices")
+    log.info("Creating global output uinput devices")
 
-        keyboard_name, keyboard_vendor, keyboard_product = uinput_identity(
-            "keymasq-keyboard",
-            "keyboard",
-        )
-        manager.output_state.keyboard_uinput = _create_synthetic_uinput(
-            "keyboard",
-            evdev_mod,
-            events=keyboard_caps(evdev_mod),
-            name=keyboard_name,
-            vendor=keyboard_vendor,
-            product=keyboard_product,
-        )
+    keyboard_name, keyboard_vendor, keyboard_product = uinput_identity(
+        "keymasq-keyboard",
+        "keyboard",
+    )
+    manager.output_state.keyboard_uinput = _create_synthetic_uinput(
+        "keyboard",
+        evdev_mod,
+        events=keyboard_caps(evdev_mod),
+        name=keyboard_name,
+        vendor=keyboard_vendor,
+        product=keyboard_product,
+    )
 
-        mouse_caps = {
-            evdev_mod.ecodes.EV_KEY: [
-                evdev_mod.ecodes.BTN_LEFT,
-                evdev_mod.ecodes.BTN_RIGHT,
-                evdev_mod.ecodes.BTN_MIDDLE,
-                evdev_mod.ecodes.BTN_SIDE,
-                evdev_mod.ecodes.BTN_EXTRA,
-                evdev_mod.ecodes.BTN_FORWARD,
-                evdev_mod.ecodes.BTN_BACK,
-                evdev_mod.ecodes.BTN_TASK,
-            ],
-            evdev_mod.ecodes.EV_REL: [
-                evdev_mod.ecodes.REL_X,
-                evdev_mod.ecodes.REL_Y,
-                evdev_mod.ecodes.REL_WHEEL,
-                evdev_mod.ecodes.REL_HWHEEL,
-            ],
-            evdev_mod.ecodes.EV_SYN: [],
-        }
-        mouse_rel_caps = list(mouse_caps[evdev_mod.ecodes.EV_REL])
-        for high_res_code in (
-            getattr(evdev_mod.ecodes, "REL_WHEEL_HI_RES", None),
-            getattr(evdev_mod.ecodes, "REL_HWHEEL_HI_RES", None),
-        ):
-            if high_res_code is not None and high_res_code not in mouse_rel_caps:
-                mouse_rel_caps.append(high_res_code)
-        mouse_caps[evdev_mod.ecodes.EV_REL] = mouse_rel_caps
-        mouse_name, mouse_vendor, mouse_product = uinput_identity(
-            "keymasq-mouse",
-            "mouse",
-        )
-        manager.output_state.mouse_uinput = _create_synthetic_uinput(
-            "mouse",
-            evdev_mod,
-            events=mouse_caps,
-            name=mouse_name,
-            vendor=mouse_vendor,
-            product=mouse_product,
-        )
+    mouse_caps = {
+        evdev_mod.ecodes.EV_KEY: [
+            evdev_mod.ecodes.BTN_LEFT,
+            evdev_mod.ecodes.BTN_RIGHT,
+            evdev_mod.ecodes.BTN_MIDDLE,
+            evdev_mod.ecodes.BTN_SIDE,
+            evdev_mod.ecodes.BTN_EXTRA,
+            evdev_mod.ecodes.BTN_FORWARD,
+            evdev_mod.ecodes.BTN_BACK,
+            evdev_mod.ecodes.BTN_TASK,
+        ],
+        evdev_mod.ecodes.EV_REL: [
+            evdev_mod.ecodes.REL_X,
+            evdev_mod.ecodes.REL_Y,
+            evdev_mod.ecodes.REL_WHEEL,
+            evdev_mod.ecodes.REL_HWHEEL,
+        ],
+        evdev_mod.ecodes.EV_SYN: [],
+    }
+    mouse_rel_caps = list(mouse_caps[evdev_mod.ecodes.EV_REL])
+    for high_res_code in (
+        getattr(evdev_mod.ecodes, "REL_WHEEL_HI_RES", None),
+        getattr(evdev_mod.ecodes, "REL_HWHEEL_HI_RES", None),
+    ):
+        if high_res_code is not None and high_res_code not in mouse_rel_caps:
+            mouse_rel_caps.append(high_res_code)
+    mouse_caps[evdev_mod.ecodes.EV_REL] = mouse_rel_caps
+    mouse_name, mouse_vendor, mouse_product = uinput_identity(
+        "keymasq-mouse",
+        "mouse",
+    )
+    manager.output_state.mouse_uinput = _create_synthetic_uinput(
+        "mouse",
+        evdev_mod,
+        events=mouse_caps,
+        name=mouse_name,
+        vendor=mouse_vendor,
+        product=mouse_product,
+    )
 
-        configure_virtual_gamepads(
-            manager,
-            getattr(manager.output_state, "virtual_gamepad_count", 1),
-            evdev_mod=evdev_mod,
-            log=log,
-            uinput_writer=uinput_writer,
-        )
+    configure_virtual_gamepads(
+        manager,
+        getattr(manager.output_state, "virtual_gamepad_count", 1),
+        evdev_mod=evdev_mod,
+        log=log,
+        uinput_writer=uinput_writer,
+    )
 
-    manager.output_state.device_count += 1
+    manager.output_state.initialized = True
 
 
 def _close_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
@@ -545,23 +544,23 @@ def create_global_uinputs(
     log: logging.Logger,
     uinput_writer: UInputWriter,
 ) -> None:
-    should_roll_back = manager.output_state.device_count == 0
+    if manager.output_state.initialized:
+        return
     try:
-        _acquire_global_uinputs(
+        _initialize_global_uinputs(
             manager,
             evdev_mod=evdev_mod,
             log=log,
             uinput_writer=uinput_writer,
         )
     except Exception:
-        if should_roll_back:
-            _close_global_uinputs(manager, log=log)
+        _close_global_uinputs(manager, log=log)
         raise
 
 
 def destroy_global_uinputs(manager: _OutputManager, *, log: logging.Logger) -> None:
-    manager.output_state.device_count = max(0, manager.output_state.device_count - 1)
-
-    if manager.output_state.device_count == 0:
-        log.info("Destroying global output uinput devices")
-        _close_global_uinputs(manager, log=log)
+    if not manager.output_state.initialized:
+        return
+    manager.output_state.initialized = False
+    log.info("Destroying global output uinput devices")
+    _close_global_uinputs(manager, log=log)

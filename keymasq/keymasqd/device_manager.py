@@ -269,7 +269,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             result = await virtual_gamepads.reconfigure_virtual_gamepads(
                 count=clamped_count,
                 current_count=self.output_state.virtual_gamepad_count,
-                output_devices_active=self.output_state.device_count > 0,
+                output_devices_active=self.output_state.initialized,
                 grabbed_devices=cast(Any, self.grabbed_devices),
                 clear_combo_runtime=clear_runtime,
                 configure_outputs=configure_outputs,
@@ -279,7 +279,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 logger=log,
                 configuration_changed=configuration_changed,
             )
-            if self.output_state.device_count == 0 and configuration_changed:
+            if not self.output_state.initialized and configuration_changed:
                 self.output_state.virtual_device_config = config
                 self.output_state.virtual_device_specs = {
                     device.output_id: device
@@ -423,6 +423,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
 
     def resume_runtime_input(self) -> None:
         self._runtime_input_paused = False
+        self.topology_state.wake_reconcile_pending = True
 
     async def neutralize_runtime(self) -> JsonObject:
         """Stop active input runtimes and release every tracked output."""

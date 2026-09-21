@@ -352,7 +352,7 @@ async def test_finalize_grab_waits_when_interfaces_requested_but_none_available(
 
 
 @pytest.mark.asyncio
-async def test_finalize_grab_raises_no_match_and_destroys_created_uinputs(
+async def test_finalize_grab_raises_no_match_without_destroying_shared_uinputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     destroy_global_uinputs = Mock()
@@ -360,7 +360,6 @@ async def test_finalize_grab_raises_no_match_and_destroys_created_uinputs(
     state = GrabAcquisitionState(
         devices=[],
         available_count=1,
-        created_global_uinputs=True,
     )
 
     with pytest.raises(ValueError) as excinfo:
@@ -380,7 +379,7 @@ async def test_finalize_grab_raises_no_match_and_destroys_created_uinputs(
     assert "paths=1" in str(excinfo.value)
     assert "mapped_names=1" in str(excinfo.value)
     assert "mapped_bindings=1" in str(excinfo.value)
-    destroy_global_uinputs.assert_called_once()
+    destroy_global_uinputs.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -483,7 +482,6 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
         GrabAcquisitionState(
             devices=[existing, first_new],
             grabbed_count=1,
-            created_global_uinputs=True,
         ),
         "/dev/input/event3",
         exc,
@@ -502,7 +500,7 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
     )
     assert task.cancelled is True
     assert other_task.cancelled is False
-    destroy_global_uinputs.assert_called_once()
+    destroy_global_uinputs.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -533,7 +531,6 @@ async def test_rollback_failed_grab_restores_state_when_new_device_release_fails
         ),
         GrabAcquisitionState(
             devices=[existing, failing_new],
-            created_global_uinputs=True,
         ),
         "/dev/input/event3",
         exc,
@@ -547,4 +544,4 @@ async def test_rollback_failed_grab_restores_state_when_new_device_release_fails
     assert manager.grab_state.desired_grabs["2dc8:3106"] is old_config
     assert ("2dc8:3106", "/dev/input/event1") not in manager.grab_state.pending_interface_release
     assert task.cancelled is True
-    destroy_global_uinputs.assert_called_once()
+    destroy_global_uinputs.assert_not_called()

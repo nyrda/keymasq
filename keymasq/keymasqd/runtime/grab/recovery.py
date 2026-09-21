@@ -8,7 +8,6 @@ from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
 )
-from keymasq.keymasqd.runtime.grab.outputs import destroy_transaction_outputs
 from keymasq.keymasqd.runtime.grab.planning import (
     restore_desired_grab_state,
     store_grabbed_devices,
@@ -65,7 +64,6 @@ async def rollback_failed_grab_report(
                 exc_info=True,
             )
     store_grabbed_devices(manager, request.hardware_id, plan.existing_devices)
-    destroy_transaction_outputs(manager, state, log=log)
     cancel_pending_interface_releases_for_hardware(manager, request.hardware_id)
     if request.update_desired:
         restore_desired_grab_state(

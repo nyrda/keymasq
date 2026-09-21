@@ -944,7 +944,7 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         destroy_global_uinputs = Mock()
-        manager.output_state.device_count = 1
+        manager.output_state.initialized = True
         manager.grab_state.desired_paths["045e:02a1@2"] = {
             "keymasq:045e:02a1@2",
         }
@@ -965,7 +965,7 @@ class TestDeviceManager:
 
         assert result == {"released": True, "hardware_id": "045e:02a1@2"}
         destroy_global_uinputs.assert_not_called()
-        assert manager.output_state.device_count == 1
+        assert manager.output_state.initialized is True
         assert "045e:02a1@2" not in manager.grab_state.desired_paths
         assert "045e:02a1@2" not in manager.grab_state.desired_grabs
 
@@ -1455,7 +1455,9 @@ class TestDeviceManager:
     ) -> None:
         manager = DeviceManager()
         paths = ["/dev/input/event2", "/dev/input/event3"]
-        create_global_uinputs = Mock()
+        create_global_uinputs = Mock(wraps=outputs.create_global_uinputs)
+        uinput_factory = Mock(side_effect=FakeUInput)
+        monkeypatch.setattr(evdev, "UInput", uinput_factory)
 
         class _InputDevice:
             name = "Pad"
@@ -1515,7 +1517,8 @@ class TestDeviceManager:
 
         assert result["grabbed_count"] == 2
         assert [device.path for device in manager.grabbed_devices["2dc8:3106"]] == paths
-        create_global_uinputs.assert_called_once()
+        assert create_global_uinputs.call_count == 2
+        assert uinput_factory.call_count == 3
 
     @pytest.mark.asyncio
     async def test_grab_device_reuses_combo_runtime_deps_for_callbacks(

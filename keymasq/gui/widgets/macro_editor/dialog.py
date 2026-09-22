@@ -9,7 +9,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Adw,  # pyright: ignore[reportAttributeAccessIssue]
@@ -19,6 +19,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]
     Gtk,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
+from keymasq.common.keyboard_layouts import unmodified_key_outputs
 from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.slurp import get_slurp_capture
 from keymasq.gui.compositor_state import session_compositor_id
@@ -51,6 +52,7 @@ from keymasq.gui.widgets.macro_editor.panel.properties import EventPropertiesMix
 from keymasq.gui.widgets.macro_editor.panel.settings import MacroSettingsMixin
 from keymasq.gui.widgets.macro_editor.selection import EditHistory
 from keymasq.gui.widgets.position_capture import PositionCaptureController
+from keymasq.gui.widgets.type_macro_layout import TypeMacroLayout
 
 
 def _compute_macro_editor_dialog_size(parent: Gtk.Window) -> tuple[int, int]:
@@ -152,9 +154,14 @@ class MacroEditorMixin(
         self._erase_mode: bool = False
         self._edit_history = EditHistory()
         self._history_restoring = False
+        self._layout_key_outputs: Mapping[int, str] = {}
+        self._layout_output_id: str | None = None
+        self._layout_generation = 0
 
         self._install_css()
         self._build_ui()
+        self._layout_state = TypeMacroLayout(self._on_layout_changed)
+        self._layout_state.refresh()
         self.set_can_close(False)
         self._load_initial_state_async()
         _editors.add(self)
@@ -168,6 +175,8 @@ class MacroEditorMixin(
             self.connect("closed", callback)
 
     def _on_host_closed(self, _host: object) -> None:
+        self._layout_state.close()
+        self._layout_generation += 1
         self._disconnect_clipboard_listener()
         if not self._dialog_closed:
             self._dialog_closed = True
@@ -175,6 +184,30 @@ class MacroEditorMixin(
                 self._paste_cancellable.cancel()
             self._cancel_capture_selected_move("")
         _editors.discard(self)
+
+    def _on_layout_changed(self) -> None:
+        self._layout_generation += 1
+        generation = self._layout_generation
+        self._layout_key_outputs = {}
+        self._layout_output_id = None
+        self._refresh_selected_key_detail()
+        layout_id = self._layout_state.layout_id
+        if self._layout_state.loading or layout_id is None:
+            return
+
+        def load_outputs() -> Mapping[int, str]:
+            return unmodified_key_outputs(layout_id)
+
+        def on_loaded(result: GuiTaskResult[Mapping[int, str]]) -> bool:
+            if generation != self._layout_generation or self._dialog_closed:
+                return False
+            if result.ok and result.value is not None:
+                self._layout_key_outputs = result.value
+                self._layout_output_id = layout_id
+                self._refresh_selected_key_detail()
+            return False
+
+        self._run_gui_task(load_outputs, on_loaded)
 
     def _install_css(self) -> None:
         provider = Gtk.CssProvider()

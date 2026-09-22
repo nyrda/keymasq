@@ -46,6 +46,31 @@ def _event_target_name(ev: EditableEvent) -> str:
 class EventPropertiesMixin:
     """Construct and update the editor for the current timeline selection."""
 
+    def _key_detail(self, ev: EditableEvent) -> str:
+        output_suffix = f" @ {ev.output_id}" if ev.device_type == "gamepad" and ev.output_id else ""
+        detail = f"Code {ev.code}{output_suffix}"
+        if ev.device_type == "keyboard" and ev.ev_type == evdev.ecodes.EV_KEY:
+            layout_id = self._layout_output_id
+            output = self._layout_key_outputs.get(ev.code)
+            if layout_id is not None and output is not None:
+                detail += f" · {layout_id}: {output}"
+        if ev.rapidfire_enabled:
+            plan = plan_macro_rapidfire(
+                ev.release_t_us - ev.press_t_us, ev.rapidfire_hold_ms, ev.rapidfire_wait_ms
+            )
+            detail += (
+                f" · {plan.count} pulses · Hold {plan.hold_us / 1000:g} ms"
+                f" · Fitted wait {plan.wait_us / 1000:.3f} ms"
+                if plan.count > 1
+                else " · One hold spanning the duration"
+            )
+        return detail
+
+    def _refresh_selected_key_detail(self) -> None:
+        selected = self._timeline._selected
+        if isinstance(selected, EditableEvent) and not _is_gamepad_axis_event(selected):
+            self._key_info_label.set_label(self._key_detail(selected))
+
     def _build_property_panel(self) -> Gtk.Widget:
         self._revealer = Gtk.Revealer()
         self._revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
@@ -379,19 +404,7 @@ class EventPropertiesMixin:
 
         name = _get_key_name(ev.code)
         self._prop_title.set_label(f"{name} Rapidfire" if ev.rapidfire_enabled else name)
-        output_suffix = f" @ {ev.output_id}" if ev.device_type == "gamepad" and ev.output_id else ""
-        detail = f"{name} (code {ev.code}){output_suffix}"
-        if ev.rapidfire_enabled:
-            plan = plan_macro_rapidfire(
-                ev.release_t_us - ev.press_t_us, ev.rapidfire_hold_ms, ev.rapidfire_wait_ms
-            )
-            detail += (
-                f" · {plan.count} pulses · Hold {plan.hold_us / 1000:g} ms"
-                f" · Fitted wait {plan.wait_us / 1000:.3f} ms"
-                if plan.count > 1
-                else " · One hold spanning the duration"
-            )
-        self._key_info_label.set_label(detail)
+        self._key_info_label.set_label(self._key_detail(ev))
         self._press_row.set_title("Press")
         self._set_key_timing_rows_visible(True)
         self._change_key_btn.set_visible(True)

@@ -100,6 +100,11 @@ inspector has two columns, with the selected action on the left and the macro's
 own settings on the right. For a held key or button, edit **Press**,
 **Duration**, and **Release** in milliseconds. Use **Change Key…** to change
 the input. Other action types show their own timing and configuration fields.
+For a keyboard key, the small line below its name shows the evdev code and
+the unmodified character on Keymasq's configured keyboard layout, when the
+key produces one. For example, `KEY_LEFTBRACE` shows `Code 26 · de: ü` on a
+German layout. The character is a layout hint. Held modifiers and dead-key
+sequences can change what the macro types.
 Properties edit the selected action immediately, and
 [saving](#save-and-undo-changes) writes the changes to the macro library.
 

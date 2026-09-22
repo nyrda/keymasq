@@ -110,7 +110,10 @@ def format_keyboard_layout_id(layout: str, variant: str = "") -> str:
 def keyboard_layout(layout_id: object) -> KeyboardLayout:
     """Return the compiled layout, raising KeyboardLayoutError if it cannot be built."""
     layout, variant = parse_keyboard_layout_id(layout_id)
-    return _compile_layout(layout, variant)
+    compiled, error = _compile_layout(layout, variant)
+    if compiled is None:
+        raise KeyboardLayoutError(error or "keyboard layout could not be compiled")
+    return compiled
 
 
 def keyboard_layout_error(value: object) -> str | None:
@@ -150,18 +153,19 @@ def keyboard_layout_choices() -> list[tuple[str, str]]:
 
 
 @cache
-def _compile_layout(layout: str, variant: str) -> KeyboardLayout:
+def _compile_layout(layout: str, variant: str) -> tuple[KeyboardLayout | None, str | None]:
+    """Compile once per process. Failures are cached too, so the GUI can check
+    the configured layout on every keystroke without touching libxkbcommon."""
     layout_id = format_keyboard_layout_id(layout, variant)
     try:
         with xkb.Keymap(layout, variant) as keymap:
             chars = _chars_from_keymap(keymap)
-    except xkb.XkbUnavailableError as exc:
-        raise KeyboardLayoutError(str(exc)) from exc
-    except ValueError as exc:
-        raise KeyboardLayoutError(str(exc)) from exc
+    except (xkb.XkbUnavailableError, ValueError) as exc:
+        return None, str(exc)
     for char, code in _WHITESPACE_KEYS.items():
         chars[char] = TypedKey(code)
-    return KeyboardLayout(id=layout_id, name=_registry().get(layout_id, layout_id), chars=chars)
+    name = _registry().get(layout_id, layout_id)
+    return KeyboardLayout(id=layout_id, name=name, chars=chars), None
 
 
 def _chars_from_keymap(keymap: xkb.Keymap) -> dict[str, TypedKey]:

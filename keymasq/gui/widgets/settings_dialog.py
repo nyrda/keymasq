@@ -250,6 +250,13 @@ class SettingsDialog(Adw.PreferencesDialog):
                 names[layout_id] = str(entry.get("name") or layout_id)
         self._layout_names = names
         self._layout_row.set_sensitive(bool(names))
+        page = self._layout_page
+        # The page lists the choices plus the current layout, even when unknown.
+        if page is not None and set(page.layout_ids()) != set(names) | {self._keyboard_layout}:
+            # The page was opened from the GUI's own list before the session
+            # answered; do not leave rows the session would reject.
+            self._layout_page = None
+            self.pop_subpage()
         if not names:
             self._set_status(
                 "Keyboard layouts are unavailable: keymasq-session cannot load libxkbcommon"
@@ -472,6 +479,9 @@ class KeyboardLayoutPage(Adw.NavigationPage):
         self._selected = layout_id
         for row_id, row in self._rows.items():
             row._check.set_visible(row_id == layout_id)  # pyright: ignore[reportAttributeAccessIssue]
+
+    def layout_ids(self) -> list[str]:
+        return list(self._rows)
 
     def visible_layout_ids(self) -> list[str]:
         return [

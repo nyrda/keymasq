@@ -588,3 +588,48 @@ def test_present_keyboard_layout_settings_opens_on_layout_page(monkeypatch) -> N
     # The window is never mapped here, so fire the signal the dialog would emit.
     dialog.emit("closed")
     assert closed == [True]
+
+
+def test_open_layout_page_is_dropped_when_session_list_differs(monkeypatch) -> None:
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk
+
+    from keymasq.gui.widgets import settings_dialog as dialog_module
+
+    callbacks = []
+
+    def fake_session_request_async(payload, callback, timeout=5.0):
+        callbacks.append((payload, callback))
+
+    monkeypatch.setattr(dialog_module, "session_request_async", fake_session_request_async)
+    dialog = dialog_module.present_keyboard_layout_settings(Gtk.Window())
+    page = dialog._layout_page
+    assert page is not None
+    assert "de" in page.layout_ids()
+
+    # The session cannot load libxkbcommon: its list is empty, so the page built
+    # from the GUI's own list goes away and the row is disabled.
+    callbacks[0][1](
+        {
+            "status": "ok",
+            "virtual_gamepad_count": 1,
+            "keyboard_layout": "us",
+            "keyboard_layouts": [],
+        }
+    )
+    assert dialog._layout_page is None
+    assert dialog._layout_row.get_sensitive() is False
+
+    # A matching list leaves an open page alone.
+    dialog2 = dialog_module.present_keyboard_layout_settings(Gtk.Window())
+    page2 = dialog2._layout_page
+    assert page2 is not None
+    callbacks[1][1](
+        {
+            "status": "ok",
+            "virtual_gamepad_count": 1,
+            "keyboard_layout": "us",
+            "keyboard_layouts": [{"id": i, "name": n} for i, n in dialog2._layout_names.items()],
+        }
+    )
+    assert dialog2._layout_page is page2

@@ -167,6 +167,12 @@ keymasq type "test123üäß<tab><wait:20>12345<tab><wait:20>" --print-json \
 cat macro.json | keymasq macros create imported_macro
 ```
 
+`--print-json` emits the compiled event timeline only, so a macro stored this
+way is a plain event macro for the layout in effect (or `--layout`). It keeps
+those key events when the keyboard layout setting changes and does not open
+as a type macro in the editor. Create type macros with editable text in the
+GUI.
+
 ### diagnostics
 
 Toggle keymasqd latency diagnostics.

@@ -19,7 +19,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 import evdev
@@ -152,7 +152,13 @@ def keyboard_layout_choices() -> list[tuple[str, str]]:
     return list(_registry().items())
 
 
-@cache
+# A compiled layout holds about 260 KiB of character map. The setting and a few
+# ``--layout`` overrides are all a process needs; the bound keeps a client that
+# tries many layouts from growing the session indefinitely.
+_COMPILED_LAYOUT_CACHE_SIZE = 8
+
+
+@lru_cache(maxsize=_COMPILED_LAYOUT_CACHE_SIZE)
 def _compile_layout(layout: str, variant: str) -> tuple[KeyboardLayout | None, str | None]:
     """Compile once per process. Failures are cached too, so the GUI can check
     the configured layout on every keystroke without touching libxkbcommon."""

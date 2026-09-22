@@ -130,7 +130,8 @@ async def handle_settings_commands(
         )
     )
     requested_layout = request.get("keyboard_layout", manager.keyboard_layout)
-    layout_error = keyboard_layout_error(requested_layout)
+    # The first check of a layout compiles it (tens of ms); keep that off the loop.
+    layout_error = await asyncio.to_thread(keyboard_layout_error, requested_layout)
     if layout_error is not None:
         payload = _settings_payload(manager)
         payload["status"] = "error"

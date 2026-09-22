@@ -204,7 +204,8 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
         "Keymasq Settings Warning",
         result["warning"],
     )
-    assert thread_calls == [save]
+    # set_settings validates the layout in a thread first; the save is always last.
+    assert thread_calls[-1] == save
     manager.broadcast_to_session_clients.assert_called_once_with(event)  # type: ignore[attr-defined]
 
 
@@ -930,7 +931,11 @@ async def test_type_text_compiles_in_thread_and_forwards_events(
     assert set(sent_commands[0].data) == {"macro_events", "speed"}
     assert sent_commands[0].data["speed"] == 1.25
     assert len(sent_commands[0].data["macro_events"]) > 0
-    assert to_thread_calls == [macro_commands_module._compile_type_text_macro]
+    # Layout validation compiles the layout on first use, so it runs in a thread too.
+    assert to_thread_calls == [
+        macro_commands_module.keyboard_layout_error,
+        macro_commands_module._compile_type_text_macro,
+    ]
 
 
 @pytest.mark.asyncio
@@ -3890,8 +3895,10 @@ async def test_macro_commands_validate_payloads_and_compile_errors(
     manager = SessionManager()
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
-    async def fake_to_thread(_func, /, *_args, **_kwargs):
-        raise ValueError("bad macro")
+    async def fake_to_thread(func, /, *args, **kwargs):
+        if func is macro_commands_module._compile_type_text_macro:
+            raise ValueError("bad macro")
+        return func(*args, **kwargs)
 
     monkeypatch.setattr(macro_commands_module.asyncio, "to_thread", fake_to_thread)
 

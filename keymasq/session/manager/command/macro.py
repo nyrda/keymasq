@@ -199,7 +199,8 @@ async def handle_macro_commands(
         text = coerce_str(request.get("text"), "")
         speed = coerce_float(request.get("speed"), 1.0)
         layout = request.get("layout", manager.keyboard_layout)
-        layout_error = keyboard_layout_error(layout)
+        # The first check of a layout compiles it (tens of ms); keep that off the loop.
+        layout_error = await asyncio.to_thread(keyboard_layout_error, layout)
         if layout_error is not None:
             return {
                 "status": "error",

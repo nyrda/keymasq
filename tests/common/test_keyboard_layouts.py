@@ -12,6 +12,7 @@ from keymasq.common.keyboard_layouts import (
     keyboard_layout_name,
     normalize_keyboard_layout_id,
     parse_keyboard_layout_id,
+    unmodified_key_outputs,
 )
 
 K = evdev.ecodes
@@ -52,6 +53,14 @@ def test_german_layout_uses_altgr_and_dead_keys() -> None:
     assert layout.key_for("^") == TypedKey(K.KEY_GRAVE, (), (TypedKey(K.KEY_GRAVE),))
     assert layout.key_for("ê") == TypedKey(K.KEY_E, (), (TypedKey(K.KEY_GRAVE),))
     assert keyboard_layout("de(nodeadkeys)").key_for("^") == TypedKey(K.KEY_GRAVE)
+
+
+@requires_xkb
+def test_unmodified_key_outputs_use_the_physical_code_and_layout() -> None:
+    assert unmodified_key_outputs("de")[K.KEY_LEFTBRACE] == "ü"
+    assert unmodified_key_outputs("us")[K.KEY_LEFTBRACE] == "["
+    assert unmodified_key_outputs("fr")[K.KEY_LEFTBRACE] == "dead circumflex"
+    assert K.KEY_LEFTCTRL not in unmodified_key_outputs("de")
 
 
 @requires_xkb

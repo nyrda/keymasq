@@ -349,6 +349,26 @@ def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch
     assert dialog._stats_label.get_label() == "0.020s · 2 events"
 
 
+def test_macro_editor_key_detail_shows_configured_layout_output(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    event = EditableEvent(
+        device_type="keyboard",
+        ev_type=evdev.ecodes.EV_KEY,
+        code=evdev.ecodes.KEY_LEFTBRACE,
+        press_t_us=1000,
+        release_t_us=6000,
+    )
+    dialog._timeline._selected = event
+    dialog._on_selection_changed(event)
+    assert dialog._key_info_label.get_label() == "Code 26"
+
+    dialog._layout_output_id = "de"
+    dialog._layout_key_outputs = {evdev.ecodes.KEY_LEFTBRACE: "ü"}
+    dialog._refresh_selected_key_detail()
+    assert dialog._prop_title.get_label() == "KEY_LEFTBRACE"
+    assert dialog._key_info_label.get_label() == "Code 26 · de: ü"
+
+
 def test_macro_editor_gamepad_axis_event_is_editable_and_serialized(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     event = EditableEvent(
@@ -2627,4 +2647,3 @@ def test_macro_editor_insert_at_spin_shares_control_width(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
 
     assert dialog._insertion_spin in dialog._control_width_group.get_widgets()
-

@@ -144,6 +144,29 @@ def keyboard_layout_choices() -> list[tuple[str, str]]:
     return list(_registry().items())
 
 
+@lru_cache(maxsize=8)
+def unmodified_key_outputs(layout_id: str) -> Mapping[int, str]:
+    """Describe what each physical key produces without held modifiers."""
+    layout, variant = parse_keyboard_layout_id(layout_id)
+    try:
+        with xkb.Keymap(layout, variant) as keymap:
+            outputs: dict[int, str] = {}
+            for level in keymap.levels():
+                if level.level != 0 or len(level.keysyms) != 1:
+                    continue
+                keysym = level.keysyms[0]
+                char = xkb.keysym_to_char(keysym)
+                if char == " ":
+                    outputs[level.evdev_code] = "Space"
+                elif char and char.isprintable() and not char.isspace():
+                    outputs[level.evdev_code] = char
+                elif (name := xkb.keysym_name(keysym)).startswith("dead_"):
+                    outputs[level.evdev_code] = name.replace("dead_", "dead ", 1).replace("_", " ")
+            return outputs
+    except (xkb.XkbUnavailableError, ValueError) as exc:
+        raise KeyboardLayoutError(str(exc)) from exc
+
+
 # A compiled layout holds about 260 KiB of character map. The setting and a few
 # ``--layout`` overrides are all a process needs; the bound keeps a client that
 # tries many layouts from growing the session indefinitely.

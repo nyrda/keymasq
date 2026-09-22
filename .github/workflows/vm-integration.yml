@@ -17,6 +17,8 @@ on:
         default: daemon-session
         options:
           - daemon-session
+          - masking-behavior
+          - masking-recovery
           - listeners
           - all
           - gnome-bridge

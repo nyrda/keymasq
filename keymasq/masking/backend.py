@@ -272,20 +272,29 @@ class LinuxMaskBackend:
         try:
             fdinfo = (process / "fdinfo" / descriptor).read_text()
             mountinfo = (process / "mountinfo").read_text()
-        except OSError:
+        except (OSError, UnicodeError):
             return False
-        mount_id = next(
-            (line.split()[1] for line in fdinfo.splitlines() if line.startswith("mnt_id:")),
-            None,
-        )
+        mount_ids = [line.split()[1:] for line in fdinfo.splitlines() if line.startswith("mnt_id:")]
+        if len(mount_ids) != 1 or len(mount_ids[0]) != 1:
+            return False
+        mount_id = mount_ids[0][0]
+        if not mount_id.isascii() or not mount_id.isdecimal():
+            return False
+        matches = []
         for line in mountinfo.splitlines():
             mount, separator, filesystem = line.partition(" - ")
             fields = mount.split()
-            if not separator or len(fields) < 6 or fields[0] != mount_id:
+            if not fields or fields[0] != mount_id:
                 continue
-            fstype = filesystem.split()[0]
-            return fstype.startswith("fuse") and "nodev" in fields[5].split(",")
-        return False
+            filesystem_fields = filesystem.split()
+            if not separator or len(fields) < 6 or len(filesystem_fields) != 3:
+                return False
+            fstype = filesystem_fields[0]
+            matches.append(
+                (fstype in {"fuse", "fuseblk"} or fstype.startswith(("fuse.", "fuseblk.")))
+                and "nodev" in fields[5].split(",")
+            )
+        return matches == [True]
 
     def rule_matches(self, attachment: Attachment) -> list[str]:
         self.inventory.validate(attachment)
@@ -576,21 +585,22 @@ class LinuxMaskBackend:
         )
 
     async def recover(self, *, keep_rules: bool = False) -> None:
-        from keymasq.masking.damaged_journal import read_journal, recover_damaged_journal
+        from keymasq.masking.damaged_journal import (
+            read_journal,
+            read_prearmed_selector,
+            recover_damaged_journal,
+        )
         from keymasq.masking.permissions import restore
         from keymasq.masking.usb import enable_recorded_port
 
         if not self.journal.exists():
+            try:
+                selector = await finish_io(read_prearmed_selector, self)
+            except (OSError, ValueError) as exc:
+                await recover_damaged_journal(self, exc)
             if keep_rules:
                 return
-            selector = (
-                json.loads(await finish_io(self.armed_record.read_text))
-                if self.armed_record.exists()
-                else json.loads(await finish_io(self.permissions.read_text))["selector"]
-                if self.permissions.exists()
-                else {}
-            )
-            if not selector:
+            if selector is None:
                 await self.remove_rules()
                 return
             # Persist recovery intent before removing rules, including when

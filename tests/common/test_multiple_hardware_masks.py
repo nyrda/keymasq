@@ -225,7 +225,7 @@ async def test_emergency_reset_restores_masks_without_runtime_readers(
 
 
 @pytest.mark.asyncio
-async def test_same_model_masks_restore_independently(supervisor):
+async def test_same_model_masks_restore_independently(supervisor, monkeypatch):
     first, second, third = supervisor.backend.inventory.scan()
     data = await start(supervisor, first)
     await start(supervisor, second)
@@ -233,8 +233,25 @@ async def test_same_model_masks_restore_independently(supervisor):
     backends = [item.backend for item in supervisor.reservations.values()]
     assert len({item.early for item in backends}) == 3
     assert len({item.journal for item in backends}) == 3
-    result = await supervisor.request({"command": "restore", **data})
-    assert selected(result, first.identity)["state"] == "restoring"
+    recovery_started = asyncio.Event()
+    release_recovery = asyncio.Event()
+    recover = backends[0].recover
+
+    async def blocked_recover(*, keep_rules=False):
+        recovery_started.set()
+        await release_recovery.wait()
+        await recover(keep_rules=keep_rules)
+
+    monkeypatch.setattr(backends[0], "recover", blocked_recover)
+    try:
+        result = await supervisor.request({"command": "restore", **data})
+        assert selected(result, first.identity)["state"] == "restoring"
+        await asyncio.wait_for(recovery_started.wait(), timeout=5)
+        assert selected(result, second.identity)["state"] == "masked"
+        assert selected(result, third.identity)["state"] == "masked"
+        assert backends[0].journal.exists()
+    finally:
+        release_recovery.set()
     await supervisor.reservations[first.identity].recovery_task
     result = await supervisor.request({"command": "inventory"})
     assert selected(result, first.identity)["state"] == "restored"

@@ -173,6 +173,158 @@ async def test_failed_mapping_update_preserves_acknowledged_exec_references() ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial", [True, False])
+@pytest.mark.parametrize("interruption", [None, "cancelled", "stale"])
+async def test_mapping_released_during_masking_retries_without_acknowledging_payload(
+    monkeypatch, initial, interruption
+):
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.apply_generation = 1
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = "old-grab"
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = "old-map"
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok", data={"updated": False, "waiting_for_device": True})
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    retry = Mock()
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", retry)
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        active_profile_names=["Desktop"],
+        mappings={"button": MappingAction(action_type=ActionType.EXEC, cmd="true")},
+    )
+    notify = Mock()
+
+    async def apply_mapping() -> None:
+        if initial:
+            await profile_application._send_set_mapping_command(
+                manager, hardware_id, resolved, notify, generation=1
+            )
+        else:
+            assert not await profile_application.update_mapping(
+                manager, hardware_id, resolved, generation=1
+            )
+
+    apply_task = asyncio.create_task(apply_mapping())
+    await request_started.wait()
+    if interruption is not None:
+        manager.profile_state.apply_generation = 2
+    if interruption == "cancelled":
+        apply_task.cancel()
+    release_response.set()
+    if interruption is None:
+        await apply_task
+    else:
+        with pytest.raises(asyncio.CancelledError):
+            await apply_task
+    notify.assert_not_called()
+    assert hardware_id not in manager.profile_state.grabbed_devices
+    assert hardware_id not in manager.profile_state.last_sent_grab_signatures
+    assert hardware_id not in manager.profile_state.last_sent_mapping_signatures
+    assert not manager.exec_state.device_exec_refs.get(hardware_id)
+    assert not manager.exec_state.exec_refs
+    retry.assert_called_once_with(manager, hardware_id, manager_constants.GRAB_RETRY_DELAY_S)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial", [True, False])
+@pytest.mark.parametrize(
+    "successor", ["initial_grab", "grab_update", "initial_mapping", "mapping_update"]
+)
+async def test_late_device_loss_preserves_a_successor_acknowledgement(
+    monkeypatch, initial, successor
+):
+    manager = SessionManager()
+    hardware_id = "1234:5678"
+    manager.profile_state.apply_generation = 1
+    manager.profile_state.grabbed_devices.add(hardware_id)
+    manager.profile_state.grabbed_interfaces[hardware_id] = {"mouse": "/dev/input/event10"}
+    manager.profile_state.last_sent_grab_signatures[hardware_id] = "same-grab"
+    resolved = ResolvedDeviceProfile(
+        hardware_id=hardware_id,
+        mappings={"button": MappingAction(action_type=ActionType.EXEC, cmd="true")},
+    )
+    signature = mapping_payload.signature(manager, resolved, hardware_id)
+    manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
+    request_started = asyncio.Event()
+    release_response = asyncio.Event()
+
+    async def delayed_response(_command: object) -> Response:
+        request_started.set()
+        await release_response.wait()
+        return Response(status="ok", data={"updated": False, "waiting_for_device": True})
+
+    manager.client.send_command = AsyncMock(side_effect=delayed_response)
+    retry = Mock()
+    monkeypatch.setattr(coordinator, "schedule_grab_retry", retry)
+    notify = Mock()
+    if initial:
+        apply_task = asyncio.create_task(
+            profile_application._send_set_mapping_command(
+                manager, hardware_id, resolved, notify, generation=1
+            )
+        )
+    else:
+        apply_task = asyncio.create_task(
+            profile_application.update_mapping(manager, hardware_id, resolved, generation=1)
+        )
+    await request_started.wait()
+    manager.profile_state.apply_generation = 2
+    apply_task.cancel()
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"updated": True, "grabbed_count": 1})
+    )
+    try:
+        if successor == "initial_grab":
+            await profile_application._send_grab_device_command(
+                manager,
+                hardware_id,
+                resolved,
+                {"hardware_id": hardware_id},
+                "same-grab",
+                {"mouse": "/dev/input/event10"},
+                Mock(),
+                generation=2,
+            )
+        elif successor == "grab_update":
+            assert await profile_application.update_grab_device_payload(
+                manager, hardware_id, {"hardware_id": hardware_id}, "same-grab", generation=2
+            )
+        elif successor == "initial_mapping":
+            await profile_application._send_set_mapping_command(
+                manager, hardware_id, resolved, Mock(), generation=2
+            )
+        else:
+            assert await profile_application.update_mapping(
+                manager, hardware_id, resolved, generation=2
+            )
+    finally:
+        release_response.set()
+        with pytest.raises(asyncio.CancelledError):
+            await apply_task
+    assert hardware_id in manager.profile_state.grabbed_devices
+    assert manager.profile_state.grabbed_interfaces[hardware_id] == {
+        "mouse": "/dev/input/event10"
+    }
+    assert manager.profile_state.last_sent_grab_signatures[hardware_id] == "same-grab"
+    assert manager.profile_state.last_sent_mapping_signatures[hardware_id] == signature
+    if successor in {"initial_mapping", "mapping_update"}:
+        refs = manager.exec_state.device_exec_refs[hardware_id]
+        assert len(refs) == 1
+        assert set(manager.exec_state.exec_refs) == refs
+        assert not manager.exec_state.retired_exec_refs
+    notify.assert_not_called()
+    retry.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() -> None:
     manager = SessionManager()
     hardware_id = "1234:5678"

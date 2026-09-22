@@ -133,9 +133,12 @@ For the installed AppImage, use `/opt/keymasq/bin/keymasq-record`.
 
 Recovery only changes devices it can positively identify. If an undo journal is
 damaged, recovery still removes that device's rules and restores what it can
-prove, then reports an error and keeps daemon startup blocked. Do not delete the
-journal to bypass this, because it may hold the information needed to repair an
-interrupted hardware operation. Restart `keymasqd` when recovery succeeds.
+prove, then reports an error and keeps daemon startup blocked. The same applies
+when the journal is missing and the independent recovery records are malformed
+or disagree about the device. Recovery continues for other masks and retains the
+damaged records for repair. Do not delete recovery records to bypass the error,
+because they may hold information needed to repair an interrupted hardware
+operation. Restart `keymasqd` when recovery succeeds.
 Recovery preserves user profiles, hardware configurations, and confirmed masking
 preferences.
 

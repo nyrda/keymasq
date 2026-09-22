@@ -33,6 +33,7 @@ from . import (
     mouse_output,
     multi_source_combo,
     multi_step_combo,
+    native_hidraw,
     passthrough_fallback,
     profile_lifetime_combos,
     profile_lifetime_direct,
@@ -115,6 +116,7 @@ SCENARIOS = [
     ScenarioCase("restart recovery", restart_recovery.run),
     ScenarioCase("hotplug replug", hotplug_replug.run),
     ScenarioCase("source hiding", source_hiding.run),
+    ScenarioCase("native hidraw access", native_hidraw.run),
     ScenarioCase(
         "mapped macro slot playback without capture unlock",
         recording_capture.run_mapped_slot_playback_without_unlock,

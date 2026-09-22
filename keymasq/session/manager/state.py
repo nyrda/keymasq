@@ -87,6 +87,8 @@ class ProfileRuntimeState:
     topology_refresh_task: asyncio.Task[None] | None = None
     last_sent_grab_signatures: dict[str, str] = field(default_factory=dict)
     last_sent_mapping_signatures: dict[str, str] = field(default_factory=dict)
+    device_request_sequence: int = 0
+    acknowledged_device_requests: dict[str, int] = field(default_factory=dict)
     last_sent_combo_signature: str = ""
     active_profile_names: list[str] = field(default_factory=list)
     resolved_devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)

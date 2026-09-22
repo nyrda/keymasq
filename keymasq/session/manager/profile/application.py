@@ -320,6 +320,10 @@ async def _reconcile_existing_grab(
         if updated:
             notify()
             return _ReconcileOutcome.HANDLED
+        if hardware_id not in manager.profile_state.grabbed_devices:
+            # A deferred mapping already cleared the stale grab and scheduled
+            # reconciliation after masking finishes acquiring its readers.
+            return _ReconcileOutcome.HANDLED
         log.warning(
             "Mapping update failed for %s with same interfaces; forcing re-grab",
             hardware_id,
@@ -347,6 +351,7 @@ async def _send_grab_device_command(
     generation: int | None,
 ) -> _GrabOutcome:
     try:
+        request_id = _begin_device_request(manager)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.GRAB_DEVICE,
@@ -368,6 +373,7 @@ async def _send_grab_device_command(
                 manager.profile_state.grabbed_interfaces[hardware_id] = new_interfaces
                 manager.profile_state.last_sent_grab_signatures[hardware_id] = grab_signature
                 manager.profile_state.grab_status.pop(hardware_id, None)
+                _acknowledge_device_request(manager, hardware_id, request_id)
                 return _GrabOutcome.PROCEED
             manager.profile_state.grabbed_devices.discard(hardware_id)
             manager.profile_state.grabbed_interfaces.pop(hardware_id, None)
@@ -443,6 +449,33 @@ async def _send_grab_device_command(
         return _GrabOutcome.STOP
 
 
+def _begin_device_request(manager: "SessionManager") -> int:
+    manager.profile_state.device_request_sequence += 1
+    return manager.profile_state.device_request_sequence
+
+
+def _acknowledge_device_request(
+    manager: "SessionManager", hardware_id: str, request_id: int
+) -> None:
+    acknowledged = manager.profile_state.acknowledged_device_requests
+    acknowledged[hardware_id] = max(acknowledged.get(hardware_id, 0), request_id)
+
+
+def _defer_mapping_until_regrab(
+    manager: "SessionManager", hardware_id: str, request_id: int
+) -> None:
+    """Record confirmed device loss even when its mapping apply was superseded."""
+    from .coordinator import schedule_grab_retry
+
+    # A successor may have restored this device while a cancelled request
+    # settled. Compare request order, since responses can settle out of order.
+    if manager.profile_state.acknowledged_device_requests.get(hardware_id, 0) > request_id:
+        return
+    clear_hardware_runtime_state(manager, hardware_id)
+    schedule_grab_retry(manager, hardware_id, GRAB_RETRY_DELAY_S)
+    log.info("Device %s changed during mapping; retrying its grab", hardware_id)
+
+
 async def _send_set_mapping_command(
     manager: "SessionManager",
     hardware_id: str,
@@ -469,6 +502,7 @@ async def _send_set_mapping_command(
         log.debug("Mapping data: %s", mapping.log_view(prepared.payload))
         raise_if_stale_profile_apply(manager, generation)
 
+        request_id = _begin_device_request(manager)
         result, cancelled = await _send_reference_command(
             manager,
             Command(
@@ -479,6 +513,12 @@ async def _send_set_mapping_command(
                 },
             ),
         )
+        if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            _defer_mapping_until_regrab(manager, hardware_id, request_id)
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
+            return
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
             keep_staged_refs = True
@@ -490,6 +530,7 @@ async def _send_set_mapping_command(
                 resolved,
                 hardware_id,
             )
+            _acknowledge_device_request(manager, hardware_id, request_id)
             log.info(
                 "Activated resolved profiles %s for %s",
                 resolved.active_profile_names,
@@ -680,6 +721,7 @@ async def update_grab_device_payload(
     """Refresh metadata for an unchanged set of grabbed interfaces."""
     try:
         raise_if_stale_profile_apply(manager, generation)
+        request_id = _begin_device_request(manager)
         result = await manager.client.send_command(
             Command(
                 command=CommandType.GRAB_DEVICE,
@@ -706,6 +748,7 @@ async def update_grab_device_payload(
             )
             return False
         manager.profile_state.last_sent_grab_signatures[hardware_id] = signature
+        _acknowledge_device_request(manager, hardware_id, request_id)
         return True
     except OSError as exc:
         log.error(
@@ -818,6 +861,7 @@ async def update_mapping(
         assert staged_refs is not None
         references.expose(manager, staged_refs)
         raise_if_stale_profile_apply(manager, generation)
+        request_id = _begin_device_request(manager)
         result, cancelled = await _send_reference_command(
             manager,
             Command(
@@ -828,6 +872,12 @@ async def update_mapping(
                 },
             ),
         )
+        if result.status == "ok" and (json_object(result.data) or {}).get("waiting_for_device"):
+            _defer_mapping_until_regrab(manager, hardware_id, request_id)
+            if cancelled:
+                raise asyncio.CancelledError
+            raise_if_stale_profile_apply(manager, generation)
+            return False
         if result.status == "ok":
             _commit_device_references(manager, hardware_id, staged_refs, generation)
             keep_staged_refs = True
@@ -836,6 +886,7 @@ async def update_mapping(
             raise_if_stale_profile_apply(manager, generation)
             log.info("Updated mapping for %s", hardware_id)
             manager.profile_state.last_sent_mapping_signatures[hardware_id] = signature
+            _acknowledge_device_request(manager, hardware_id, request_id)
             return True
         if cancelled:
             raise asyncio.CancelledError

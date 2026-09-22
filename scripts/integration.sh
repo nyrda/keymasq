@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 SYSTEM="x86_64-linux"
 
 DAEMON_SESSION_TEST_ENTRY="daemon-session|daemon-session-integration-test|daemon/session runtime integration suite|daemon-session-integration"
+MASKING_RECOVERY_TEST_ENTRY="masking-recovery|masking-recovery-test|hardware masking crash, watchdog, and reboot recovery|"
+MASKING_BEHAVIOR_TEST_ENTRY="masking-behavior|masking-behavior-test|hardware masking confirmation, reconnect, profiles, and saved choices|"
 LISTENER_TEST_ENTRIES=(
   "gnome-bridge|listener-vm-gnome-bridge|GNOME Shell bridge listener preflight|"
   "gnome|listener-vm-gnome|GNOME listener|"
@@ -19,6 +21,8 @@ LISTENER_TEST_ENTRIES=(
 )
 INTEGRATION_TEST_ENTRIES=(
   "$DAEMON_SESSION_TEST_ENTRY"
+  "$MASKING_RECOVERY_TEST_ENTRY"
+  "$MASKING_BEHAVIOR_TEST_ENTRY"
   "${LISTENER_TEST_ENTRIES[@]}"
 )
 
@@ -53,7 +57,7 @@ EOF
   done
   cat <<'EOF'
   listeners       all listener VM tests
-  all             daemon-session plus all listener VM tests
+  all             daemon-session, both masking suites, and all listener VM tests
 
 Options:
   -s, --scenario NAME[,NAME]  Run selected daemon-session scenario keys
@@ -101,7 +105,7 @@ expand_group() {
       print_test_names "${LISTENER_TEST_ENTRIES[@]}"
       ;;
     all)
-      print_test_names "$DAEMON_SESSION_TEST_ENTRY" "${LISTENER_TEST_ENTRIES[@]}"
+      print_test_names "$DAEMON_SESSION_TEST_ENTRY" "$MASKING_RECOVERY_TEST_ENTRY" "$MASKING_BEHAVIOR_TEST_ENTRY" "${LISTENER_TEST_ENTRIES[@]}"
       ;;
     *)
       printf '%s\n' "$1"

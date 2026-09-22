@@ -12,7 +12,7 @@ let
   vmUid = 1000;
   runtimeDir = "/run/user/${toString vmUid}";
   testSource = ./daemon-session-integration-test;
-  testPython = pkgs.python3.withPackages (_ps: [ evdevPackage ]);
+  testPython = pkgs.python3.withPackages (ps: [ evdevPackage ps.fusepy ]);
 
   integrationRunner = pkgs.writeShellApplication {
     name = "keymasq-daemon-session-integration-test";
@@ -94,7 +94,13 @@ let
           time.timeZone = "UTC";
           i18n.defaultLocale = "en_US.UTF-8";
 
-          boot.kernelModules = [ "uinput" ];
+          boot.kernelModules = [ "uinput" "uhid" "fuse" ];
+          programs.fuse.enable = true;
+          # Only the test client creates emulated physical HID devices. The
+          # daemon keeps the production ACLs and device cgroup restrictions.
+          services.udev.extraRules = ''
+            SUBSYSTEM=="misc", KERNEL=="uhid", OWNER="${vmUser}", MODE="0600"
+          '';
 
           services.keymasq = {
             enable = true;
@@ -214,6 +220,31 @@ let
         start_all()
         machine.wait_for_unit("multi-user.target")
         machine.wait_for_unit("keymasqd.service")
+
+        # A document-portal-style mount rejects even root's stat of an open
+        # descriptor. Run the real mount and a detached-namespace refusal case.
+        machine.succeed("install -d -o ${vmUser} -m 0700 /run/keymasq-fuse-test /run/keymasq-fuse-test/mount")
+        machine.succeed(
+            "systemd-run --unit=keymasq-test-fuse --uid=${vmUser} "
+            "--property=RemainAfterExit=yes "
+            "--setenv=FUSE_LIBRARY_PATH=${pkgs.lib.getLib pkgs.fuse}/lib/libfuse.so.2 "
+            "--setenv=PATH=/run/wrappers/bin:${pkgs.fuse}/bin:${pkgs.coreutils}/bin "
+            "${testPython}/bin/python ${testSource}/fuse_scan.py serve /run/keymasq-fuse-test/mount"
+        )
+        # mountpoint stats the directory, which this private mount denies root.
+        wait_for_command(
+            "FUSE mount",
+            "runuser -u ${vmUser} -- mountpoint -q /run/keymasq-fuse-test/mount",
+            timeout=10,
+        )
+        try:
+            machine.succeed(
+                "PYTHONPATH=${keymasqPackage}/${pkgs.python3.sitePackages} "
+                "${testPython}/bin/python ${testSource}/fuse_scan.py check ${vmUser} /run/keymasq-fuse-test/mount"
+            )
+        finally:
+            machine.succeed("umount /run/keymasq-fuse-test/mount")
+            machine.succeed("systemctl stop keymasq-test-fuse.service")
 
         machine.succeed("modprobe uinput")
         wait_for_command("uinput device", "test -c /dev/uinput")

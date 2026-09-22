@@ -17,14 +17,16 @@ when in doubt.
 | Suite | Command | Documented in |
 | ----- | ------- | ------------- |
 | Daemon/session runtime | `./scripts/integration.sh daemon-session` | [daemon-session-integration-test.md](daemon-session-integration-test.md) |
+| Masking behavior | `./scripts/integration.sh masking-behavior` | [masking-vm-tests.md](masking-vm-tests.md) |
+| Masking recovery | `./scripts/integration.sh masking-recovery` | [masking-vm-tests.md](masking-vm-tests.md) |
 | AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [AppImage/Brotway artifact gate](#appimagebrotway-artifact-gate) |
 | Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Documentation screenshots | `scripts/check-doc-screenshots` | [screenshots.md](screenshots.md) |
 
 List every integration shortcut with `./scripts/integration.sh --help`.
-`./scripts/integration.sh all` runs the daemon/session suite plus the full
-listener matrix. Run all VM suites on a Linux host with KVM acceleration.
+`./scripts/integration.sh all` runs the daemon/session suite, both masking suites,
+and the full listener matrix. Run all VM suites on a Linux host with KVM acceleration.
 
 ## Which suites apply to which change
 
@@ -32,6 +34,8 @@ listener matrix. Run all VM suites on a Linux host with KVM acceleration.
 | --------------- | ------------- | -------------------- |
 | Daemon / remap runtime | `keymasq/keymasqd/**` | `daemon-session` |
 | Session broker, profiles, recording | `keymasq/session/manager/**`, `keymasq/session/*.py` | `daemon-session` |
+| Hardware masking and recovery | `keymasq/masking/**`, `keymasq/keymasqd/hardware_masking.py`, `keymasq/keymasqd/masking_registry.py`, `keymasq/session/manager/command/hardware_masking.py` | `daemon-session`, `masking-behavior`, and `masking-recovery` |
+| Masking VM fixtures and assertions | `nix/masking-*` | `masking-behavior` and `masking-recovery`, in addition to the Nix/VM infrastructure gates below |
 | Compositor listeners | `keymasq/session/listeners/**`, `keymasq/session/wayland_protocols/**` | Listener VM test(s) for the affected compositor(s). Shared listener-path or Wayland-protocol changes need the full `listeners` matrix |
 | Shared code, IPC, models | `keymasq/common/**` | `daemon-session` and the full `listeners` matrix |
 | GUI and assets | `keymasq/gui/**`, `assets/**` | `scripts/check-doc-screenshots`, or include the regenerated screenshots in the PR |
@@ -39,7 +43,7 @@ listener matrix. Run all VM suites on a Linux host with KVM acceleration.
 | Nix/VM infrastructure | `flake.nix`, `flake.lock`, `nix/**` | `daemon-session` and the full `listeners` matrix |
 | Services, udev, packaging payload | `systemd/**`, `udev/**`, `sysusers.d/**`, `tmpfiles.d/**`, `polkit/**`, and packaged copies of these payloads (for example `packaging/appimage/assets/**`) | `daemon-session` |
 | AppImage Brotway payload, runtime, or test harness | `packaging/appimage/**` Brotway artifact, dependency collection, launcher, installer/runtime layout, or GUI startup integration. Also `nix/appimage-brotway-integration-test.nix`, `nix/appimage-brotway-integration-test/**`, and `scripts/test-appimage-brotway` | Build the candidate AppImage and run `scripts/test-appimage-brotway <artifact>` |
-| Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself. For `integration.sh` that means `daemon-session` plus at least one listener suite. For the screenshot scripts it means `scripts/check-doc-screenshots` |
+| Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself. For `integration.sh` that means `daemon-session`, `masking-behavior`, `masking-recovery`, and at least one listener suite. For the screenshot scripts it means `scripts/check-doc-screenshots` |
 | Docs, packaging metadata, unrelated tooling only | `docs/**`, `.github/**`, `scripts/**` not listed above, and `packaging/**` metadata that does not ship service/udev payloads | None |
 
 Multi-category changes take the union of the rows they touch. If a change does
@@ -66,6 +70,7 @@ changed since the last tag:
 
 ```bash
 ./scripts/integration.sh daemon-session
+./scripts/integration.sh masking-behavior masking-recovery
 ./scripts/integration.sh listeners
 scripts/check-doc-screenshots
 ```

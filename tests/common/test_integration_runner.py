@@ -9,6 +9,8 @@ DAEMON_INTEGRATION_ROOT = REPOSITORY_ROOT / "nix" / "daemon-session-integration-
 
 EXPECTED_CHECKS = {
     "daemon-session-integration-test",
+    "masking-recovery-test",
+    "masking-behavior-test",
     "listener-vm-gnome-bridge",
     "listener-vm-gnome",
     "listener-vm-kde",
@@ -104,7 +106,7 @@ from runner import _scenario_key, selected_scenarios
 from scenarios import SCENARIOS
 
 keys = [_scenario_key(scenario.name) for scenario in SCENARIOS]
-assert len(SCENARIOS) == 55
+assert len(SCENARIOS) == 56
 assert len(keys) == len(set(keys))
 assert all(key and key.replace('-', '').isalnum() for key in keys)
 assert _scenario_key('simple 1->1 remap') == 'simple-1-1-remap'
@@ -145,9 +147,10 @@ def test_runner_lists_all_registered_scenarios_without_starting_context() -> Non
 
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 55
+    assert len(lines) == 56
     assert "superkey-profile-handoff\tsuperkey profile handoff" in lines
     assert "source-hiding\tsource hiding" in lines
+    assert "native-hidraw-access\tnative hidraw access" in lines
     assert "analog-touchpad-mouse\tanalog touchpad mouse" in lines
     assert "macro-paused-parent-child-failure\tmacro paused parent child failure" in lines
     assert "macro-pause-resume\tmacro pause resume" in lines

@@ -21,6 +21,15 @@ async def set_mapping(
     async with manager._op_lock:
         cancel_pending_hardware_release(manager, hardware_id)
         if hardware_id not in manager.grabbed_devices:
+            if hardware_id in manager.grab_state.desired_grabs:
+                # A successful grab and its mapping are separate IPC requests.
+                # Masking or hotplug can release the reader between them. Let
+                # the session reconcile again instead of accepting a stale map.
+                return {
+                    "updated": False,
+                    "waiting_for_device": True,
+                    "hardware_id": hardware_id,
+                }
             raise ValueError(f"Device {hardware_id} not grabbed")
 
         parsed_mapping: dict[str, MappingAction] = {}

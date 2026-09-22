@@ -112,6 +112,12 @@ Desktop GUI stack:
 - libadwaita
 - GObject introspection data for GTK4 and libadwaita
 
+Keyboard layouts for type macros:
+
+- `libxkbcommon` (loaded through `ctypes`; no Python binding package)
+- XKB data (`xkeyboard-config`), which libxkbcommon reads from its include
+  paths or `XKB_CONFIG_ROOT`
+
 Privileged capture unlock and macro recording opt-in flow:
 
 - `polkit`
@@ -125,6 +131,12 @@ Notes:
   helper script installed as part of the package.
 - The `keymasqd` daemon relies on system integration from the package or local
   setup: service units, a `keymasq` system user, tmpfiles, and udev ACL rules.
+- Type macros compile text into key presses for the configured keyboard layout
+  by reading the system's XKB keymap through `libxkbcommon`. GTK4 and every
+  Wayland session already depend on it. Keymasq loads it by soname, or from
+  the path in `KEYMASQ_LIBXKBCOMMON_PATH` (the Nix build stamps the store path
+  into `build_paths`). Without it, type macros fail with a clear error and
+  every other feature keeps working.
 
 ## Feature-specific dependencies
 
@@ -238,9 +250,9 @@ their full dependency lists. Check them directly:
 - Nix / NixOS: `flake.nix`
 
 Every family covers the same required core: the base Python dependencies
-above, GTK4 and libadwaita with their introspection data, polkit/pkexec,
-systemd and udev integration, and `acl` for the `setfacl`-based device access
-rules. The families differ only in how they classify the optional pieces:
+above, GTK4 and libadwaita with their introspection data, `libxkbcommon` for
+keyboard layouts, polkit/pkexec, systemd and udev integration, and `acl` for
+the `setfacl`-based device access rules. The families differ only in how they classify the optional pieces:
 
 | Package family | `uvloop` | `slurp` |
 | -------------- | -------- | ------- |

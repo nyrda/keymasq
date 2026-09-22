@@ -58,6 +58,7 @@ class ConfigWatcherMixin:
             profiles_snapshot = self.profiles.snapshot_profiles_for_reload()
             hardware_snapshot = self.hardware.snapshot_hardware()
             old_virtual_gamepad_count = self.virtual_gamepad_count
+            old_keyboard_layout = self.keyboard_layout
             old_virtual_device_config = self.virtual_device_config
 
             try:
@@ -68,6 +69,7 @@ class ConfigWatcherMixin:
                 self.hardware.reload()
                 settings = load_global_settings(strict=True)
                 self.virtual_gamepad_count = settings.virtual_gamepad_count
+                self.keyboard_layout = settings.keyboard_layout
                 self.virtual_device_config = load_virtual_device_config(strict=True)
             except Exception:
                 self.superkeys.restore_superkeys(superkeys_snapshot)
@@ -76,6 +78,7 @@ class ConfigWatcherMixin:
                 self.profiles.restore_profiles(profiles_snapshot)
                 self.hardware.restore_hardware(hardware_snapshot)
                 self.virtual_gamepad_count = old_virtual_gamepad_count
+                self.keyboard_layout = old_keyboard_layout
                 self.virtual_device_config = old_virtual_device_config
                 raise
 

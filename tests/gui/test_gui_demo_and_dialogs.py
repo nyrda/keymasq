@@ -2099,6 +2099,7 @@ class TestDialogConstruction:
         monkeypatch.setattr(session_client, "session_request", request)
         monkeypatch.setattr(session_client, "run_gui_task", run_task)
         dialog = getattr(dialogs, dialog_name)(Gtk.Window())
+        requests.clear()
         dialog._session_request_async(
             {"command": "list_macros"},
             responses.append,
@@ -2135,39 +2136,6 @@ class TestDialogConstruction:
             "https://keymasq.tools/docs/master/macros/"
         )
 
-    def test_type_macro_builder_normalizes_common_pasted_text(self):
-        gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
-        import evdev
-
-        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
-
-        dialog = TypeMacroDialog(Gtk.Window())
-
-        events = dialog._build_type_events("A\u00a0\u201cHi\u201d\u2026\r\nx\u2014y", 10, 0)
-
-        press_codes = [
-            event["code"]
-            for event in events
-            if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-        ]
-        assert evdev.ecodes.KEY_SPACE in press_codes
-        assert evdev.ecodes.KEY_APOSTROPHE in press_codes
-        assert press_codes.count(evdev.ecodes.KEY_DOT) == 3
-        assert press_codes.count(evdev.ecodes.KEY_ENTER) == 1
-        assert evdev.ecodes.KEY_MINUS in press_codes
-
-    def test_type_macro_builder_reports_unsupported_character_position(self):
-        gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
-
-        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
-
-        dialog = TypeMacroDialog(Gtk.Window())
-
-        with pytest.raises(ValueError, match=r"position 2: 'é'"):
-            dialog._build_type_events("aé", 10, 0)
-
     def test_type_macro_dialog_shows_unicode_input_option_enabled_by_default(self):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
@@ -2175,6 +2143,7 @@ class TestDialogConstruction:
         from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
 
         dialog = TypeMacroDialog(Gtk.Window())
+        dialog._layout_state._on_settings_changed({"keyboard_layout": "us"})
         buffer = dialog.text_view.get_buffer()
 
         buffer.set_text("hello")
@@ -2187,30 +2156,71 @@ class TestDialogConstruction:
             dialog.unicode_check.get_label() == "Use Ctrl+Shift+U for detected Unicode characters"
         )
 
-    def test_type_macro_builder_can_emit_unicode_input_sequence(self):
+    def test_type_macro_dialog_reports_unusable_keyboard_layout(self):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk
-        import evdev
 
         from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
 
         dialog = TypeMacroDialog(Gtk.Window())
+        dialog._layout_state._on_settings_changed({"keyboard_layout": "nonsense"})
+        assert dialog.layout_label.get_label().startswith(
+            "Keyboard layout 'nonsense' cannot be used: "
+        )
 
-        events = dialog._build_type_events("é", 10, 0, use_unicode_input=True)
+        dialog.text_view.get_buffer().set_text("hello \u2014")
+        assert dialog.unicode_check.get_visible() is False
 
-        press_codes = [
-            event["code"]
-            for event in events
-            if event["type"] == evdev.ecodes.EV_KEY and event["value"] == 1
-        ]
-        assert press_codes == [
-            evdev.ecodes.KEY_LEFTCTRL,
-            evdev.ecodes.KEY_LEFTSHIFT,
-            evdev.ecodes.KEY_U,
-            evdev.ecodes.KEY_E,
-            evdev.ecodes.KEY_9,
-            evdev.ecodes.KEY_SPACE,
-        ]
+        dialog.name_entry.set_text("greeting")
+        dialog._on_create(Gtk.Button())
+        assert dialog.error_label.get_visible() is True
+        assert dialog.error_label.get_label().startswith("Keyboard layout 'nonsense'")
+
+    def test_type_macro_dialog_links_to_keyboard_layout_settings(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager import type_dialog as type_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        opened = []
+
+        def fake_present(parent, *, on_closed=None):
+            opened.append((parent, on_closed))
+
+        monkeypatch.setattr(type_dialog_module, "present_keyboard_layout_settings", fake_present)
+        dialog = TypeMacroDialog(Gtk.Window())
+
+        assert dialog.layout_settings_link.get_label() == "Change in Settings"
+        assert dialog._on_layout_link(dialog.layout_settings_link) is True
+        assert opened == [(dialog.layout_settings_link, dialog._layout_state.refresh)]
+
+    def test_type_macro_dialog_uses_session_layout_after_unsaved_change(
+        self, monkeypatch, temp_config_dir
+    ):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.common.settings import GlobalSettings
+        from keymasq.gui.widgets import type_macro_layout
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+        from keymasq.session.settings import load_keyboard_layout, save_global_settings
+
+        save_global_settings(GlobalSettings(keyboard_layout="us"))
+        monkeypatch.setattr(
+            type_macro_layout,
+            "session_request_async",
+            lambda _request, callback, timeout=1.0: callback(
+                {"status": "ok", "keyboard_layout": "de"}
+            ),
+        )
+        dialog = TypeMacroDialog(Gtk.Window())
+        dialog.text_view.get_buffer().set_text("ä")
+
+        assert load_keyboard_layout() == "us"
+        assert dialog._keyboard_layout_id() == "de"
+        assert "German" in dialog.layout_label.get_label()
+        assert dialog.unicode_check.get_visible() is False
 
     def test_macro_manager_closes_when_recording_starts(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
@@ -2841,6 +2851,7 @@ class TestDialogConstruction:
             fake_session_request_async,
         )
         dialog = TypeMacroDialog(Gtk.Window(), on_created=lambda: created.append(True))
+        dialog._layout_state._on_settings_changed({"keyboard_layout": "us"})
 
         dialog.name_entry.set_text("")
         dialog._on_create(dialog._create_btn)
@@ -2858,11 +2869,10 @@ class TestDialogConstruction:
 
         assert requests[0]["command"] == "create_macro"
         assert requests[0]["macro"]["name"] == "typed"
-        assert requests[0]["macro"]["device_types"] == ["keyboard", "mouse"]
         assert requests[0]["macro"]["type_binding"] is True
         assert requests[0]["macro"]["type_text"] == "Hi<click>"
         assert requests[0]["macro"]["type_down_ms"] == 5
         assert requests[0]["macro"]["type_pause_ms"] == 7
         assert requests[0]["macro"]["type_use_unicode_input"] is False
-        assert requests[0]["macro"]["events"]
+        assert "events" not in requests[0]["macro"]
         assert created == [True]

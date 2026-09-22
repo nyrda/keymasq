@@ -21,6 +21,7 @@ pkgbase = keymasq
 	depends = python-cairo
 	depends = gtk4
 	depends = libadwaita
+	depends = libxkbcommon
 	depends = polkit
 	depends = systemd
 	source = keymasq-0.19.0.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.19.0.tar.gz

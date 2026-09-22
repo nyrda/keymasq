@@ -14,6 +14,7 @@ pacman -Syu --noconfirm --needed \
   libarchive \
   libadwaita \
   librsvg \
+  libxkbcommon \
   openssl \
   patchelf \
   python \

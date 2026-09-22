@@ -1040,6 +1040,7 @@ def test_key_selector_type_tab_creates_macro_and_maps_it(monkeypatch):
 
     results = []
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog._type_layout_state._on_settings_changed({"keyboard_layout": "us"})
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
     dialog.stack.set_visible_child_name("type")
     dialog.type_text_view.get_buffer().set_text("Hi")
@@ -1057,7 +1058,7 @@ def test_key_selector_type_tab_creates_macro_and_maps_it(monkeypatch):
     assert macro["type_down_ms"] == 5
     assert macro["type_pause_ms"] == 7
     assert macro["type_use_unicode_input"] is False
-    assert macro["events"]
+    assert "events" not in macro
     assert len(results) == 1
     assert results[0].action_type == ActionType.MACRO
     assert results[0].macro_name == macro["name"]
@@ -1086,6 +1087,7 @@ def test_key_selector_type_tab_allows_whitespace_only_text(monkeypatch):
     )
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog._type_layout_state._on_settings_changed({"keyboard_layout": "us"})
     dialog.stack.set_visible_child_name("type")
     dialog.type_text_view.get_buffer().set_text(" ")
 
@@ -1243,6 +1245,7 @@ def test_key_selector_type_tab_preserves_macro_playback_options(monkeypatch):
             macro_speed=1.75,
         ),
     )
+    dialog._type_layout_state._on_settings_changed({"keyboard_layout": "us"})
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
     dialog.stack.set_visible_child_name("type")
     dialog.type_text_view.get_buffer().set_text("New")
@@ -1263,6 +1266,7 @@ def test_key_selector_type_tab_resyncs_map_button_after_unicode_toggle(monkeypat
     from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     dialog = KeySelectorDialog(Gtk.Box(), "Back")
+    dialog._type_layout_state._on_settings_changed({"keyboard_layout": "us"})
     dialog.stack.set_visible_child_name("type")
     dialog.type_text_view.get_buffer().set_text("\u00ad")
 

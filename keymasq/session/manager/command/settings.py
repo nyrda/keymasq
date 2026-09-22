@@ -4,6 +4,11 @@ from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.keyboard_layouts import (
+    keyboard_layout_choices,
+    keyboard_layout_error,
+    normalize_keyboard_layout_id,
+)
 from keymasq.common.settings import GlobalSettings
 from keymasq.common.virtual_device_templates import (
     BUILTIN_VIRTUAL_DEVICE_TEMPLATES,
@@ -27,16 +32,24 @@ if TYPE_CHECKING:
     from ..core import SessionManager
 
 log = logging.getLogger("keymasq-session")
-_PERSISTENCE_WARNING = (
-    "Virtual device settings were applied for this session but could not be saved. "
-    "It may revert after Keymasq restarts."
-)
 
 
-def _warn_persistence_failed(manager: "SessionManager") -> str:
-    log.exception("Failed to persist virtual device settings; keeping the runtime value")
-    manager.send_notification("Keymasq Settings Warning", _PERSISTENCE_WARNING)
-    return _PERSISTENCE_WARNING
+def _warn_persistence_failed(
+    manager: "SessionManager",
+    subject: str = "Virtual device settings",
+) -> str:
+    """Log the save failure, notify the user, and return the warning text.
+
+    ``subject`` names what was applied, so a failed ``set_settings`` (gamepad
+    count and keyboard layout) does not blame virtual devices alone.
+    """
+    warning = (
+        f"{subject} were applied for this session but could not be saved. "
+        "They may revert after Keymasq restarts."
+    )
+    log.exception("Failed to persist %s; keeping the runtime value", subject.lower())
+    manager.send_notification("Keymasq Settings Warning", warning)
+    return warning
 
 
 async def handle_virtual_gamepad_commands(
@@ -116,6 +129,19 @@ async def handle_settings_commands(
             manager.virtual_gamepad_count,
         )
     )
+    requested_layout = request.get("keyboard_layout", manager.keyboard_layout)
+    layout = normalize_keyboard_layout_id(requested_layout)
+    if layout != manager.keyboard_layout:
+        # Only a newly chosen layout is validated. An unusable layout already in
+        # settings.toml must not block unrelated changes such as the gamepad
+        # count; it only stops type macros, which report the reason themselves.
+        # The first check of a layout compiles it (tens of ms); keep it off the loop.
+        layout_error = await asyncio.to_thread(keyboard_layout_error, layout)
+        if layout_error is not None:
+            payload = _settings_payload(manager)
+            payload["status"] = "error"
+            payload["message"] = f"keyboard layout {requested_layout!r} rejected: {layout_error}"
+            return payload
 
     if manager.connected:
         response = await send_daemon_request(
@@ -148,12 +174,15 @@ async def handle_settings_commands(
             save_global_settings,
             GlobalSettings(
                 virtual_gamepad_count=count,
+                keyboard_layout=layout,
             ),
         )
         count = saved.virtual_gamepad_count
+        layout = saved.keyboard_layout
     except OSError:
-        persistence_warning = _warn_persistence_failed(manager)
+        persistence_warning = _warn_persistence_failed(manager, "Settings")
     manager.virtual_gamepad_count = count
+    manager.keyboard_layout = layout
     payload = _settings_payload(manager)
     if persistence_warning:
         payload["persisted"] = False
@@ -162,6 +191,7 @@ async def handle_settings_commands(
         {
             "event": "settings_changed",
             "virtual_gamepad_count": int(manager.virtual_gamepad_count),
+            "keyboard_layout": manager.keyboard_layout,
         }
     )
     return payload
@@ -173,6 +203,10 @@ def _settings_payload(manager: "SessionManager") -> JsonObject:
         "virtual_gamepad_count": int(manager.virtual_gamepad_count),
         "min_virtual_gamepad_count": MIN_VIRTUAL_GAMEPADS,
         "max_virtual_gamepad_count": MAX_VIRTUAL_GAMEPADS,
+        "keyboard_layout": manager.keyboard_layout,
+        "keyboard_layouts": [
+            {"id": layout_id, "name": name} for layout_id, name in keyboard_layout_choices()
+        ],
     }
 
 

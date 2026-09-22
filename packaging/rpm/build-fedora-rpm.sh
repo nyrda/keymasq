@@ -87,6 +87,7 @@ BuildRequires:  systemd-rpm-macros
 
 Requires:       acl
 Requires:       gtk4
+Requires:       libxkbcommon
 Requires:       libadwaita
 Requires:       polkit
 Requires:       systemd

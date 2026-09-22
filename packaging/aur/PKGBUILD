@@ -26,6 +26,7 @@ depends=(
     'python-cairo'
     'gtk4'
     'libadwaita'
+    'libxkbcommon'
     'polkit'
     'systemd'
 )

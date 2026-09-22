@@ -1304,12 +1304,13 @@ def test_reload_config_from_disk_success_updates_virtual_gamepad_count(
     monkeypatch.setattr(
         config_watcher_module,
         "load_global_settings",
-        Mock(return_value=SimpleNamespace(virtual_gamepad_count=4)),
+        Mock(return_value=SimpleNamespace(virtual_gamepad_count=4, keyboard_layout="de")),
     )
 
     manager.reload_config_from_disk()
 
     assert manager.virtual_gamepad_count == 4
+    assert manager.keyboard_layout == "de"
 
 
 def test_stop_config_watcher_cancels_pending_timer() -> None:

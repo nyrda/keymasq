@@ -105,6 +105,11 @@ def main() -> None:
         action="store_true",
         help="Fail on unsupported characters instead of using Linux Ctrl+Shift+U input",
     )
+    type_parser.add_argument(
+        "--layout",
+        default=None,
+        help="Keyboard layout to type for (default: the Keymasq keyboard layout setting)",
+    )
     type_parser.add_argument("--speed", type=_positive_float, default=1.0, help="Playback speed")
     type_parser.add_argument(
         "--print-json",
@@ -243,6 +248,7 @@ def main() -> None:
             pause_ms=args.pause_ms,
             speed=args.speed,
             use_unicode_input=not args.no_unicode,
+            layout=args.layout,
             print_json=args.print_json,
             wait=args.wait,
             ordered=args.ordered,

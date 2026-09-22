@@ -554,3 +554,42 @@ def test_macro_store_list_meta_logs_unreadable_files(
 
     assert "Skipping corrupt compressed macro file" in caplog.text
     assert "broken.kmacro.xz" in caplog.text
+
+
+def test_macro_store_keeps_type_layout_and_defaults_legacy_macros_to_us(tmp_path: Path) -> None:
+    store = MacroStore(tmp_path / "macros")
+    events = [{"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0}]
+    store.create(
+        {
+            "name": "type_de",
+            "events": events,
+            "type_binding": True,
+            "type_text": "zä",
+            "type_layout": "de",
+        }
+    )
+    store.create({"name": "type_legacy", "events": events, "type_binding": True, "type_text": "z"})
+
+    listed = {macro["name"]: macro for macro in store.list_meta()}
+    assert listed["type_de"]["type_layout"] == "de"
+    assert listed["type_legacy"]["type_layout"] == "us"
+    assert store.get("type_de")["type_layout"] == "de"
+
+    rebuilt = store.update(
+        "type_de",
+        {
+            "events": [{"device_type": "keyboard", "type": 1, "code": 31, "value": 1, "t_us": 0}],
+            "type_binding": True,
+            "type_text": "zä",
+            "type_layout": "fr",
+        },
+        expected_revision=1,
+    )
+    assert rebuilt["type_layout"] == "fr"
+
+    edited = store.update(
+        "type_de",
+        {"events": [{"device_type": "keyboard", "type": 1, "code": 32, "value": 1, "t_us": 0}]},
+        expected_revision=2,
+    )
+    assert "type_layout" not in edited

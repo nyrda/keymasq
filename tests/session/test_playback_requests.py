@@ -20,6 +20,7 @@ def setup_requests():
             client=SimpleNamespace(send_command=AsyncMock()),
             security_policy=SimpleNamespace(macro_exec_timeout_max_ms=1000),
             broadcast_to_session_client_ids=Mock(),
+            keyboard_layout="us",
         ),
     )
     requests = PlaybackRequests(manager)

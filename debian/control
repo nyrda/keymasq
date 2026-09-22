@@ -23,6 +23,7 @@ Depends:
  acl,
  gir1.2-adw-1,
  gir1.2-gtk-4.0,
+ libxkbcommon0,
  pkexec,
  python3-dbus-next,
  python3-evdev,

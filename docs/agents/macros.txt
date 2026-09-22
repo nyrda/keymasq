@@ -35,6 +35,13 @@ exists. Without `--force`, an existing name is an error.
 
 Prefer the `keymasq type` compiler over hand-written event JSON when possible.
 
+Text is compiled into key presses for the keyboard layout in
+`~/.config/keymasq/settings.toml` (`[keyboard] layout = "us"`); pass
+`--layout de` or `--layout us(dvorak)` to override. Stored type macros carry
+`type_layout` (the layout they were compiled for); events are not rebuilt when
+the setting changes. Dead key characters come from the locale's compose table
+(dead key, then base letter).
+
 ```bash
 # type text immediately
 keymasq type "hello<tab><wait:20>world"

@@ -154,10 +154,17 @@ class _PersistentSessionConnection:
                         self._response_queue = None
                         self._response_generation = None
 
-    def register_callback(self, event: str, callback: Callable[[JsonDict], bool | None]) -> None:
+    def register_callback(
+        self,
+        event: str,
+        callback: Callable[[JsonDict], bool | None],
+        *,
+        connect: bool = True,
+    ) -> None:
         with self._state_lock:
             self._callbacks.setdefault(event, []).append(callback)
-        self._ensure_connected(timeout=1.0)
+        if connect:
+            self._ensure_connected(timeout=1.0)
 
     def unregister_callback(self, event: str, callback: Callable[[JsonDict], bool | None]) -> None:
         with self._state_lock:
@@ -588,8 +595,13 @@ def run_gui_task[T](
 def register_session_event_callback(
     event: str,
     callback: Callable[[JsonDict], bool | None],
+    *,
+    connect: bool = True,
 ) -> None:
-    _PERSISTENT_SESSION.register_callback(event, callback)
+    if connect:
+        _PERSISTENT_SESSION.register_callback(event, callback)
+    else:
+        _PERSISTENT_SESSION.register_callback(event, callback, connect=False)
 
 
 def unregister_session_event_callback(

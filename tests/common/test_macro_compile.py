@@ -1,4 +1,5 @@
 import json
+import re
 
 import evdev
 import pytest
@@ -427,3 +428,103 @@ def test_parse_macro_json_accepts_event_list_and_macro_object() -> None:
 def test_parse_macro_json_rejects_runtime_macro_events_payload() -> None:
     with pytest.raises(ValueError, match="event list or macro object"):
         parse_macro_json(json.dumps({"macro_events": [{"t_us": 0}]}))
+
+
+requires_xkb = pytest.mark.skipif(
+    not __import__("keymasq.common.xkb", fromlist=["is_available"]).is_available(),
+    reason="libxkbcommon unavailable",
+)
+
+
+def _presses(events: list[dict[str, object]]) -> list[int]:
+    return [int(event["code"]) for event in events if event.get("value") == 1]
+
+
+@requires_xkb
+def test_type_macro_builder_compiles_for_german_layout() -> None:
+    events = build_type_macro_events("zä@", 10, 0, layout="de")
+
+    assert _presses(events) == [
+        evdev.ecodes.KEY_Y,
+        evdev.ecodes.KEY_APOSTROPHE,
+        evdev.ecodes.KEY_RIGHTALT,
+        evdev.ecodes.KEY_Q,
+    ]
+
+
+@requires_xkb
+def test_type_macro_builder_types_dead_key_sequences() -> None:
+    # French e-circumflex: dead_circumflex, then e. Each press is released before the next.
+    events = build_type_macro_events("ê", 10, 0, layout="fr")
+    assert [(event["code"], event["value"]) for event in events] == [
+        (evdev.ecodes.KEY_LEFTBRACE, 1),
+        (evdev.ecodes.KEY_LEFTBRACE, 0),
+        (evdev.ecodes.KEY_E, 1),
+        (evdev.ecodes.KEY_E, 0),
+    ]
+    assert _presses(build_type_macro_events("á", 10, 0, layout="es")) == [
+        evdev.ecodes.KEY_APOSTROPHE,
+        evdev.ecodes.KEY_A,
+    ]
+    # The accent character itself is a compose sequence too (dead key twice on de).
+    assert _presses(build_type_macro_events("^", 10, 0, layout="de")) == [
+        evdev.ecodes.KEY_GRAVE,
+        evdev.ecodes.KEY_GRAVE,
+    ]
+    assert _presses(build_type_macro_events("^", 10, 0, layout="de(nodeadkeys)")) == [
+        evdev.ecodes.KEY_GRAVE
+    ]
+    # A composed character cannot be the key of a shortcut chord.
+    with pytest.raises(ValueError, match="dead key sequence"):
+        build_type_macro_events("<shortcut:ctrl+ê>", 10, 0, layout="fr")
+
+
+@requires_xkb
+def test_type_macro_builder_shortcuts_and_unicode_follow_layout() -> None:
+    shortcut = build_type_macro_events("<shortcut:ctrl+z>", 10, 0, layout="de")
+    assert _presses(shortcut) == [evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_Y]
+
+    unicode_events = build_type_macro_events(
+        "\U0001f600", 10, 0, use_unicode_input=True, layout="us(dvorak)"
+    )
+    # Ctrl+Shift+"u" is KEY_F on Dvorak, and the hex digits 1, f, 6, 0, 0 follow the layout too.
+    assert _presses(unicode_events) == [
+        evdev.ecodes.KEY_LEFTCTRL,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_F,
+        evdev.ecodes.KEY_1,
+        evdev.ecodes.KEY_Y,
+        evdev.ecodes.KEY_6,
+        evdev.ecodes.KEY_0,
+        evdev.ecodes.KEY_0,
+        evdev.ecodes.KEY_SPACE,
+    ]
+
+
+@requires_xkb
+def test_type_macro_builder_rejects_unknown_layout() -> None:
+    with pytest.raises(ValueError, match="unknown keyboard layout"):
+        build_type_macro_events("a", 10, 0, layout="nonsense")
+
+
+@requires_xkb
+@pytest.mark.parametrize("layout", ["ru", "gr", "il", "cz(rus)"])
+def test_unicode_input_reports_layout_capability_error(layout: str) -> None:
+    with pytest.raises(
+        ValueError,
+        match=rf"Unicode input is unavailable for keyboard layout '{re.escape(layout)}'",
+    ):
+        build_type_macro_events("\U0001f600", 10, 0, use_unicode_input=True, layout=layout)
+
+
+@requires_xkb
+def test_unreachable_direct_level_uses_unicode_fallback() -> None:
+    with pytest.raises(ValueError, match="Unsupported character"):
+        build_type_macro_events("¦", 10, 0, layout="us")
+
+    events = build_type_macro_events("¦", 10, 0, use_unicode_input=True, layout="us")
+    assert _presses(events)[:3] == [
+        evdev.ecodes.KEY_LEFTCTRL,
+        evdev.ecodes.KEY_LEFTSHIFT,
+        evdev.ecodes.KEY_U,
+    ]

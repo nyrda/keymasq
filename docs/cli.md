@@ -44,6 +44,7 @@ keymasq type "<down:5><enter>"
 keymasq type "<move:420:180><click>"
 keymasq type "<click:420:180><doubleclick>"
 keymasq type --no-unicode "café"
+keymasq type --layout de "Straße"
 keymasq type --print-json "hello"
 ```
 
@@ -53,6 +54,7 @@ keymasq type --print-json "hello"
 | `--pause-ms MS` | Pause between typed characters. Use `0` for no inter-key delay. Default: `10` |
 | `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
+| `--layout LAYOUT` | XKB layout to type for, such as `de` or `us(dvorak)`. Default: the Keymasq keyboard layout setting |
 | `--ordered` | Serialize with other requests that opt into ordering |
 | `--wait` | Wait for completion. SIGINT or SIGTERM cancels this request |
 | `--print-json` | Print the compiled macro JSON instead of playing it |
@@ -60,6 +62,10 @@ keymasq type --print-json "hello"
 When no text argument is given, `type` reads the full text from stdin. By
 default, unsupported characters fall back to Linux Unicode input
 (`Ctrl+Shift+U`). Use `--no-unicode` when you want direct key events only.
+
+Keys are chosen for the keyboard layout in **Settings > Keyboard layout**, so
+`z` presses the physical Y key on a German layout. `--layout` overrides the
+setting for one command. See [Keyboard layout](macros.md#keyboard-layout).
 
 Type text supports inline controls such as `<tab>`, `<shortcut:ctrl+l>`,
 `<move:X:Y>`, `<click:X:Y>`, and `<wait:MS>`. See
@@ -160,6 +166,12 @@ keymasq type "test123üäß<tab><wait:20>12345<tab><wait:20>" --print-json \
 
 cat macro.json | keymasq macros create imported_macro
 ```
+
+`--print-json` emits the compiled event timeline only, so a macro stored this
+way is a plain event macro for the layout in effect (or `--layout`). It keeps
+those key events when the keyboard layout setting changes and does not open
+as a type macro in the editor. Create type macros with editable text in the
+GUI.
 
 ### diagnostics
 

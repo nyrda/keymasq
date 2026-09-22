@@ -3,9 +3,15 @@ from typing import TYPE_CHECKING
 
 from keymasq.common.coercion import coerce_float, coerce_int, coerce_str
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.keyboard_layouts import (
+    keyboard_layout_error,
+    normalize_keyboard_layout_id,
+)
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
+    build_type_macro_events,
+    macro_definition_from_events,
 )
 
 from .. import recording_lifecycle
@@ -67,6 +73,10 @@ async def handle_macro_commands(
         macro = json_object(request.get("macro"))
         if macro is None:
             return {"status": "error", "message": "macro payload required"}
+        try:
+            macro = await _reconcile_type_macro_payload(manager, macro)
+        except (TypeError, ValueError) as exc:
+            return {"status": "error", "message": str(exc)}
         create_payload: JsonObject = {"macro": macro}
         if request.get("overwrite") is True:
             create_payload["overwrite"] = True
@@ -91,6 +101,10 @@ async def handle_macro_commands(
         macro = json_object(request.get("macro"))
         if macro is None:
             return {"status": "error", "message": "macro payload required"}
+        try:
+            macro = await _reconcile_type_macro_payload(manager, macro)
+        except (TypeError, ValueError) as exc:
+            return {"status": "error", "message": str(exc)}
         update_payload: JsonObject = {"name": name, "macro": macro}
         if "expected_revision" in request:
             update_payload["expected_revision"] = request.get("expected_revision")
@@ -184,6 +198,14 @@ async def handle_macro_commands(
     if command == "type_text":
         text = coerce_str(request.get("text"), "")
         speed = coerce_float(request.get("speed"), 1.0)
+        layout = request.get("layout", manager.keyboard_layout)
+        # The first check of a layout compiles it (tens of ms); keep that off the loop.
+        layout_error = await asyncio.to_thread(keyboard_layout_error, layout)
+        if layout_error is not None:
+            return {
+                "status": "error",
+                "message": f"keyboard layout {layout!r} rejected: {layout_error}",
+            }
         try:
             events = await asyncio.to_thread(
                 _compile_type_text_macro,
@@ -191,6 +213,7 @@ async def handle_macro_commands(
                 max(0, coerce_int(request.get("down_ms"), DEFAULT_TYPE_MACRO_DOWN_MS)),
                 max(0, coerce_int(request.get("pause_ms"), DEFAULT_TYPE_MACRO_PAUSE_MS)),
                 bool(request.get("use_unicode_input", True)),
+                normalize_keyboard_layout_id(layout),
             )
         except (TypeError, ValueError) as exc:
             return {"status": "error", "message": str(exc)}
@@ -220,11 +243,73 @@ async def handle_macro_commands(
     return None
 
 
+async def _reconcile_type_macro_payload(
+    manager: "SessionManager",
+    macro: JsonObject,
+) -> JsonObject:
+    """Compile type-macro source for the session's current keyboard layout."""
+    if macro.get("type_binding") is not True:
+        return macro
+    if "type_text" not in macro:
+        raise ValueError("type macro payload requires type_text")
+
+    text = coerce_str(macro.get("type_text"), "")
+    down_ms = max(0, coerce_int(macro.get("type_down_ms"), DEFAULT_TYPE_MACRO_DOWN_MS))
+    pause_ms = max(0, coerce_int(macro.get("type_pause_ms"), DEFAULT_TYPE_MACRO_PAUSE_MS))
+    use_unicode_input = bool(macro.get("type_use_unicode_input", False))
+    layout = manager.keyboard_layout
+    events = await asyncio.to_thread(
+        build_type_macro_events,
+        text,
+        down_ms,
+        pause_ms,
+        use_unicode_input=use_unicode_input,
+        layout=layout,
+    )
+    compiled = macro_definition_from_events(events)
+    # The macro editor changes the total time without touching the events
+    # (Insert time at end, Total time). A recompile that reproduces the same
+    # events must not drop that trailing silence.
+    supplied_duration = coerce_int(macro.get("duration_us"), 0)
+    compiled_duration = coerce_int(compiled.get("duration_us"), 0)
+    if supplied_duration > compiled_duration and _same_key_events(
+        json_list(macro.get("events")), events
+    ):
+        compiled["duration_us"] = supplied_duration
+    reconciled = dict(macro)
+    reconciled.update(compiled)
+    reconciled.update(
+        {
+            "type_text": text,
+            "type_down_ms": down_ms,
+            "type_pause_ms": pause_ms,
+            "type_use_unicode_input": use_unicode_input,
+            "type_layout": layout,
+        }
+    )
+    return reconciled
+
+
+def _same_key_events(supplied: list[object], compiled: list[JsonObject]) -> bool:
+    """Whether two event lists press the same keys at the same times."""
+    if len(supplied) != len(compiled):
+        return False
+    for left, right in zip(supplied, compiled, strict=True):
+        left_object = json_object(left)
+        if left_object is None:
+            return False
+        for field in ("device_type", "type", "code", "value", "t_us"):
+            if left_object.get(field) != right.get(field):
+                return False
+    return True
+
+
 def _compile_type_text_macro(
     text: str,
     down_ms: int,
     pause_ms: int,
     use_unicode_input: bool,
+    layout: str,
 ) -> list[JsonObject]:
     from keymasq.common.macro_compile import build_type_macro_events
 
@@ -233,6 +318,7 @@ def _compile_type_text_macro(
         down_ms,
         pause_ms,
         use_unicode_input=use_unicode_input,
+        layout=layout,
     )
 
 

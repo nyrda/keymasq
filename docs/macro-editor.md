@@ -103,7 +103,7 @@ the input. Other action types show their own timing and configuration fields.
 For a keyboard key, the small line below its name shows the evdev code and
 the unmodified character on Keymasq's configured keyboard layout, when the
 key produces one. For example, `KEY_LEFTBRACE` shows `Code 26 · de: ü` on a
-German layout. The character is a layout hint; held modifiers and dead-key
+German layout. The character is a layout hint. Held modifiers and dead-key
 sequences can change what the macro types.
 Properties edit the selected action immediately, and
 [saving](#save-and-undo-changes) writes the changes to the macro library.

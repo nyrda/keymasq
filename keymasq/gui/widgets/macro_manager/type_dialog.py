@@ -164,7 +164,7 @@ class TypeMacroDialogMixin:
             self.unicode_check.set_active(False)
             return
         text = self._text_buffer_text()
-        needs_unicode = self._text_needs_unicode_option(text)
+        needs_unicode = self._text_needs_unicode_option(text, layout_id)
         capability_error = unicode_input_capability_error(layout_id)
         self.unicode_check.set_sensitive(capability_error is None)
         if capability_error is None:
@@ -188,12 +188,15 @@ class TypeMacroDialogMixin:
         end = buffer.get_end_iter()
         return buffer.get_text(start, end, False)
 
-    def _text_needs_unicode_option(self, text: str) -> bool:
+    def _text_needs_unicode_option(self, text: str, layout_id: str | None = None) -> bool:
         exact_text = normalize_unicode_type_macro_text(text)
         direct_text = normalize_type_macro_text(text)
         if exact_text != direct_text:
             return True
-        return any(not self._can_type_directly(ch) for ch in direct_text)
+        # Resolve the layout once: it comes from settings.toml, not per character.
+        if layout_id is None:
+            layout_id = self._keyboard_layout_id()
+        return any(not can_type_directly(ch, layout_id) for ch in direct_text)
 
     def _on_create(self, _btn: Gtk.Button) -> None:
         layout_id = self._keyboard_layout_id()
@@ -303,8 +306,8 @@ class TypeMacroDialogMixin:
         layout_id = self._keyboard_layout_id()
         return _layout_caption(layout_id, keyboard_layout_error(layout_id))
 
-    def _can_type_directly(self, ch: str) -> bool:
-        return can_type_directly(ch, self._keyboard_layout_id())
+    def _can_type_directly(self, ch: str, layout_id: str | None = None) -> bool:
+        return can_type_directly(ch, layout_id or self._keyboard_layout_id())
 
-    def _char_to_key(self, ch: str) -> TypedKey:
-        return char_to_key(ch, self._keyboard_layout_id())
+    def _char_to_key(self, ch: str, layout_id: str | None = None) -> TypedKey:
+        return char_to_key(ch, layout_id or self._keyboard_layout_id())

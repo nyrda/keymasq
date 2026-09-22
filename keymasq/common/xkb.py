@@ -19,6 +19,7 @@ from functools import cache
 from keymasq.common.paths import LIBXKBCOMMON_PATH
 
 XKB_COMPOSE_COMPOSED = 2
+XKB_STATE_MODS_EFFECTIVE = 1 << 3
 # Unknown layouts are a normal validation outcome, so keep the library quiet.
 XKB_LOG_LEVEL_CRITICAL = 10
 _KEYSYM_NAME_BUFFER = 64
@@ -69,6 +70,8 @@ _SIGNATURES: dict[str, tuple[list[object], object]] = {
     "xkb_state_unref": ([_c_void], None),
     "xkb_state_update_key": ([_c_void, _u32, ctypes.c_int], ctypes.c_int),
     "xkb_state_key_get_one_sym": ([_c_void, _u32], _u32),
+    "xkb_state_serialize_mods": ([_c_void, ctypes.c_int], _u32),
+    "xkb_state_mod_index_is_active": ([_c_void, _u32, ctypes.c_int], ctypes.c_int),
     "xkb_keysym_to_utf32": ([_u32], _u32),
     "xkb_keysym_get_name": ([_u32, ctypes.c_char_p, ctypes.c_size_t], ctypes.c_int),
     "xkb_compose_table_new_from_locale": ([_c_void, ctypes.c_char_p, ctypes.c_int], _c_void),
@@ -235,6 +238,45 @@ class Keymap:
                         self._mask_names(masks[index]) for index in range(mask_count)
                     ),
                 )
+
+    def modifier_keys(self) -> dict[int, frozenset[str]]:
+        """Which modifiers each physical key sets while held.
+
+        Keys whose modifier stays on after release (Caps Lock on most layouts,
+        Num Lock) are left out: a macro cannot hold a latch. Which key is a
+        plain modifier depends on the layout; Neo puts the third level on Caps
+        Lock and the fifth on Right Alt.
+        """
+        lib = self._lib
+        keymap = self._keymap
+        keys: dict[int, frozenset[str]] = {}
+        for keycode in range(
+            max(_EVDEV_KEYCODE_OFFSET, lib.xkb_keymap_min_keycode(keymap)),
+            lib.xkb_keymap_max_keycode(keymap) + 1,
+        ):
+            state = lib.xkb_state_new(keymap)
+            if not state:
+                raise XkbUnavailableError("xkb_state_new failed")
+            try:
+                lib.xkb_state_update_key(state, keycode, 1)
+                if not lib.xkb_state_serialize_mods(state, XKB_STATE_MODS_EFFECTIVE):
+                    continue
+                names = frozenset(
+                    name
+                    for index, name in enumerate(self._mod_names)
+                    if name and self._mod_active(state, index)
+                )
+                lib.xkb_state_update_key(state, keycode, 0)
+                if lib.xkb_state_serialize_mods(state, XKB_STATE_MODS_EFFECTIVE):
+                    continue
+            finally:
+                lib.xkb_state_unref(state)
+            if names:
+                keys[keycode - _EVDEV_KEYCODE_OFFSET] = names
+        return keys
+
+    def _mod_active(self, state: int, index: int) -> bool:
+        return self._lib.xkb_state_mod_index_is_active(state, index, XKB_STATE_MODS_EFFECTIVE) > 0
 
     def keysym_for_chord(self, evdev_code: int, modifiers: tuple[int, ...]) -> int:
         """Return the keysym produced by a physical key chord."""

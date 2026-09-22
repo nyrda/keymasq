@@ -267,6 +267,15 @@ async def _reconcile_type_macro_payload(
         layout=layout,
     )
     compiled = macro_definition_from_events(events)
+    # The macro editor changes the total time without touching the events
+    # (Insert time at end, Total time). A recompile that reproduces the same
+    # events must not drop that trailing silence.
+    supplied_duration = coerce_int(macro.get("duration_us"), 0)
+    compiled_duration = coerce_int(compiled.get("duration_us"), 0)
+    if supplied_duration > compiled_duration and _same_key_events(
+        json_list(macro.get("events")), events
+    ):
+        compiled["duration_us"] = supplied_duration
     reconciled = dict(macro)
     reconciled.update(compiled)
     reconciled.update(
@@ -279,6 +288,20 @@ async def _reconcile_type_macro_payload(
         }
     )
     return reconciled
+
+
+def _same_key_events(supplied: list[object], compiled: list[JsonObject]) -> bool:
+    """Whether two event lists press the same keys at the same times."""
+    if len(supplied) != len(compiled):
+        return False
+    for left, right in zip(supplied, compiled, strict=True):
+        left_object = json_object(left)
+        if left_object is None:
+            return False
+        for field in ("device_type", "type", "code", "value", "t_us"):
+            if left_object.get(field) != right.get(field):
+                return False
+    return True
 
 
 def _compile_type_text_macro(

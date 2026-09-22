@@ -2228,6 +2228,28 @@ class TestDialogConstruction:
         assert dialog._on_layout_link(dialog.layout_settings_link) is True
         assert opened == [(dialog.layout_settings_link, dialog._sync_unicode_warning)]
 
+    def test_type_macro_dialog_reads_settings_once_per_text_change(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager import type_dialog as type_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        loads = []
+
+        def counting_load() -> str:
+            loads.append(1)
+            return "us"
+
+        monkeypatch.setattr(type_dialog_module, "load_keyboard_layout", counting_load)
+        dialog = TypeMacroDialog(Gtk.Window())
+        loads.clear()
+
+        dialog.text_view.get_buffer().set_text("hello world " * 500)
+
+        # One read for the caption and one for the character scan, not one per character.
+        assert len(loads) <= 2
+
     def test_type_macro_builder_can_emit_unicode_input_sequence(self):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

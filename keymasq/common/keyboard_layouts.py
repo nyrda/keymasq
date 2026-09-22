@@ -38,14 +38,6 @@ _WHITESPACE_KEYS = {
     "\n": evdev.ecodes.KEY_ENTER,
     "\t": evdev.ecodes.KEY_TAB,
 }
-# Modifier names libxkbcommon reports for a level, and the key Keymasq holds
-# to reach that level. Levels needing anything else (Lock, NumLock, Control)
-# cannot be typed and are skipped.
-_MODIFIER_KEYS = {
-    "Shift": evdev.ecodes.KEY_LEFTSHIFT,
-    "Mod5": evdev.ecodes.KEY_RIGHTALT,
-    "LevelThree": evdev.ecodes.KEY_RIGHTALT,
-}
 # Keys every physical keyboard has. Keymaps also assign characters to keypad,
 # ISO-only (KEY_102ND), and extended keys (KEY_EURO), which only win when no
 # main-block key produces the character.
@@ -217,10 +209,11 @@ def _presses_by_keysym(keymap: xkb.Keymap) -> dict[int, tuple[_Rank, TypedKey]]:
     """The cheapest verified chord for every keysym the layout produces."""
     best: dict[int, tuple[_Rank, TypedKey]] = {}
     key_codes = evdev.ecodes.bytype.get(evdev.ecodes.EV_KEY, {})
+    modifier_keys = _modifier_keys_by_name(keymap, key_codes)
     for key_level in keymap.levels():
         if key_level.evdev_code not in key_codes or len(key_level.keysyms) != 1:
             continue
-        modifiers = _modifiers_for_level(key_level.modifier_masks)
+        modifiers = _modifiers_for_level(key_level.modifier_masks, modifier_keys)
         if modifiers is None:
             continue
         keysym = key_level.keysyms[0]
@@ -242,18 +235,48 @@ def _is_typeable_char(char: str) -> bool:
     return char.isprintable() and not char.isspace()
 
 
-def _modifiers_for_level(masks: tuple[frozenset[str], ...]) -> tuple[int, ...] | None:
-    """Pick the first modifier combination Keymasq can hold to reach a level."""
+def _modifier_keys_by_name(keymap: xkb.Keymap, key_codes: Mapping[int, object]) -> dict[str, int]:
+    """One physical key to hold for each modifier the keymap lets a key set.
+
+    The keymap decides which key that is: Right Alt sets the third level on
+    most layouts, Caps Lock does on Neo. Main-block keys win over keypad or
+    ISO keys, then the lower code, so Left Shift is chosen over Right Shift.
+    """
+    chosen: dict[str, int] = {}
+    for code, names in keymap.modifier_keys().items():
+        if code not in key_codes:
+            continue
+        for name in names:
+            current = chosen.get(name)
+            if current is None or _modifier_key_order(code) < _modifier_key_order(current):
+                chosen[name] = code
+    return chosen
+
+
+def _modifier_key_order(code: int) -> tuple[bool, int]:
+    return (code > _MAIN_BLOCK_MAX_CODE or code in _OPTIONAL_CODES, code)
+
+
+def _modifiers_for_level(
+    masks: tuple[frozenset[str], ...],
+    modifier_keys: Mapping[str, int],
+) -> tuple[int, ...] | None:
+    """Pick the first modifier combination Keymasq can hold to reach a level.
+
+    Holding a key may set more modifiers than the mask names (Right Alt on
+    ``us`` is Alt); the chord is verified against the keymap afterwards, so
+    such a key is dropped when it changes the keysym.
+    """
     if not masks:
         return ()
     for mask in masks:
-        if all(name in _MODIFIER_KEYS for name in mask):
-            return tuple(sorted({_MODIFIER_KEYS[name] for name in mask}, key=_modifier_order))
+        if all(name in modifier_keys for name in mask):
+            return tuple(sorted({modifier_keys[name] for name in mask}, key=_modifier_order))
     return None
 
 
-def _modifier_order(code: int) -> int:
-    return 0 if code == evdev.ecodes.KEY_LEFTSHIFT else 1
+def _modifier_order(code: int) -> tuple[int, int]:
+    return (0 if code in (evdev.ecodes.KEY_LEFTSHIFT, evdev.ecodes.KEY_RIGHTSHIFT) else 1, code)
 
 
 # The main rules file plus the "extras" file xkeyboard-config ships for layouts

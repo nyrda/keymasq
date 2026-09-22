@@ -4277,6 +4277,93 @@ async def test_set_settings_keyboard_layout_leaves_stored_macros_alone(
 
 
 @pytest.mark.asyncio
+async def test_update_type_macro_keeps_trailing_silence_when_events_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The macro editor's Total time change must survive the layout reconcile."""
+    from keymasq.common import xkb
+    from keymasq.common.macro_compile import build_type_macro_events
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    manager = SessionManager()
+    manager.keyboard_layout = "us"
+    sent: list[Command] = []
+
+    async def send_command(command: Command, timeout: object = None) -> Response:
+        sent.append(command)
+        return Response(status="ok", data={"macro": {"name": "type_a"}})
+
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    monkeypatch.setattr(coordinator, "refresh_macro_bindings", AsyncMock())
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+    events = build_type_macro_events("a", 5, 0, layout="us")
+    base = {
+        "name": "type_a",
+        "events": events,
+        "type_binding": True,
+        "type_text": "a",
+        "type_down_ms": 5,
+        "type_pause_ms": 0,
+        "type_layout": "us",
+    }
+
+    await manager._handle_session_request(
+        {"command": "update_macro", "name": "type_a", "macro": {**base, "duration_us": 1_000_000}},
+        peer,
+        object(),
+    )
+    assert sent[-1].data["macro"]["duration_us"] == 1_000_000
+
+    # Recompiling for another layout produces different events, so the compiled
+    # duration wins and the stale tail is not carried over.
+    manager.keyboard_layout = "de"
+    await manager._handle_session_request(
+        {
+            "command": "update_macro",
+            "name": "type_a",
+            "macro": {**base, "type_text": "z", "duration_us": 1_000_000},
+        },
+        peer,
+        object(),
+    )
+    assert sent[-1].data["macro"]["duration_us"] == 5_000
+    assert sent[-1].data["macro"]["type_layout"] == "de"
+
+
+@pytest.mark.asyncio
+async def test_set_settings_unchanged_unusable_layout_does_not_block_other_settings(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    manager = SessionManager()
+    manager.keyboard_layout = "nonsense"
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    # The GUI always sends both fields; the stored layout is unchanged here.
+    result = await manager._handle_session_request(
+        {"command": "set_settings", "virtual_gamepad_count": 2, "keyboard_layout": "nonsense"},
+        peer,
+        object(),
+    )
+    assert result["status"] == "ok"
+    assert result["virtual_gamepad_count"] == 2
+    assert result["keyboard_layout"] == "nonsense"
+    assert session_settings.load_global_settings().keyboard_layout == "nonsense"
+
+    # Choosing a different unusable layout is still rejected.
+    result = await manager._handle_session_request(
+        {"command": "set_settings", "keyboard_layout": "de,us"},
+        peer,
+        object(),
+    )
+    assert result["status"] == "error"
+    assert manager.keyboard_layout == "nonsense"
+
+
+@pytest.mark.asyncio
 async def test_set_settings_rejects_unknown_keyboard_layout(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
     manager = SessionManager()

@@ -219,7 +219,10 @@ default is `us`. The list offers every layout and variant the system's XKB
 rules describe, including the "extras" set (`de`, `de(nodeadkeys)`,
 `us(dvorak)`, `de(bone)`, and so on), and Keymasq reads the
 character tables from that data through libxkbcommon, so AltGr characters
-follow the layout. Dead keys are typed the way a person types them: the dead
+follow the layout. The modifier keys come from the keymap too: most layouts
+reach their third level with Right Alt, Neo and Bone with Caps Lock or the
+key left of Backspace, and Keymasq holds whichever key the layout defines.
+Dead keys are typed the way a person types them: the dead
 key, then the base letter (`ê` on a French layout is the `^` key followed by
 `e`). The accent character itself is also a compose sequence, and Keymasq
 picks the cheapest one the table offers, such as the dead key twice or the

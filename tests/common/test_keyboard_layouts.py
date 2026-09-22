@@ -149,3 +149,31 @@ def test_unavailable_library_raises_layout_error(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(KeyboardLayoutError, match="no library"):
         keyboard_layout("xx(missing)")
     keyboard_layouts._compile_layout.cache_clear()
+
+
+@requires_xkb
+def test_modifier_keys_come_from_the_keymap() -> None:
+    """Neo puts the third level on Caps Lock and the backslash key, and the
+    fifth on Right Alt; the mapping is read from the keymap, not assumed."""
+    with xkb.Keymap("de") as keymap:
+        keys = keymap.modifier_keys()
+    assert "LevelThree" in keys[K.KEY_RIGHTALT]
+    assert "Shift" in keys[K.KEY_LEFTSHIFT]
+    assert K.KEY_CAPSLOCK not in keys  # a latch, not a modifier a macro can hold
+
+    with xkb.Keymap("de", "neo") as keymap:
+        keys = keymap.modifier_keys()
+    assert "LevelThree" in keys[K.KEY_CAPSLOCK]
+    assert "LevelThree" in keys[K.KEY_BACKSLASH]
+    assert "LevelFive" in keys[K.KEY_RIGHTALT]
+
+
+@requires_xkb
+@pytest.mark.parametrize("layout_id", ["de(neo)", "de(bone)"])
+def test_neo_family_punctuation_is_typed_directly(layout_id: str) -> None:
+    layout = keyboard_layout(layout_id)
+    for char in "[]@_{}?":
+        key = layout.key_for(char)
+        assert key is not None, char
+        assert key.dead_keys == ()
+        assert key.modifiers == (K.KEY_BACKSLASH,), char

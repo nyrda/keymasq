@@ -130,14 +130,18 @@ async def handle_settings_commands(
         )
     )
     requested_layout = request.get("keyboard_layout", manager.keyboard_layout)
-    # The first check of a layout compiles it (tens of ms); keep that off the loop.
-    layout_error = await asyncio.to_thread(keyboard_layout_error, requested_layout)
-    if layout_error is not None:
-        payload = _settings_payload(manager)
-        payload["status"] = "error"
-        payload["message"] = f"keyboard layout {requested_layout!r} rejected: {layout_error}"
-        return payload
     layout = normalize_keyboard_layout_id(requested_layout)
+    if layout != manager.keyboard_layout:
+        # Only a newly chosen layout is validated. An unusable layout already in
+        # settings.toml must not block unrelated changes such as the gamepad
+        # count; it only stops type macros, which report the reason themselves.
+        # The first check of a layout compiles it (tens of ms); keep it off the loop.
+        layout_error = await asyncio.to_thread(keyboard_layout_error, layout)
+        if layout_error is not None:
+            payload = _settings_payload(manager)
+            payload["status"] = "error"
+            payload["message"] = f"keyboard layout {requested_layout!r} rejected: {layout_error}"
+            return payload
 
     if manager.connected:
         response = await send_daemon_request(

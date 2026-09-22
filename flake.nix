@@ -120,6 +120,7 @@
             cat > keymasq/common/build_paths.py <<EOF
             KEYMASQ_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keymasq-record"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
+            LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"
             MASKING_COMMAND_PATHS = {
                 "udevadm": "${pkgs.systemd}/bin/udevadm",
                 "systemctl": "${pkgs.systemd}/bin/systemctl",
@@ -151,6 +152,7 @@
           buildInputs = [
             pkgs.gtk4
             pkgs.libadwaita
+            pkgs.libxkbcommon
             pkgs.adwaita-icon-theme
             pkgs.hicolor-icon-theme
           ];
@@ -577,6 +579,9 @@
           mkCiShell =
             evdevPackage:
             pkgs.mkShell {
+              # Type macros read keyboard layouts through libxkbcommon; the
+              # dynamic loader cannot find Nix store libraries by name.
+              KEYMASQ_LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0";
               packages = [
                 (mkTestPython evdevPackage [ ])
                 pkgs.acl
@@ -591,6 +596,9 @@
               # dev shell — matches what wrapGAppsHook4 does for the
               # installed package.
               GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+              # Type macros read keyboard layouts through libxkbcommon; the
+              # dynamic loader cannot find Nix store libraries by name.
+              KEYMASQ_LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0";
 
               packages = [
                 (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
@@ -634,6 +642,9 @@
             # dev shell — matches what wrapGAppsHook4 does for the
             # installed package.
             GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+            # Type macros read keyboard layouts through libxkbcommon; the
+            # dynamic loader cannot find Nix store libraries by name.
+            KEYMASQ_LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0";
 
             packages = [
               (devPython.withPackages (ps: with ps; [

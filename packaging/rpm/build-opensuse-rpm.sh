@@ -75,6 +75,7 @@ Requires: ${RPM_PYGOBJECT_DEP}
 Requires: ${RPM_PYGOBJECT_CAIRO_DEP}
 Requires: ${RPM_GTK_DEP}
 Requires: ${RPM_ADW_DEP}
+Requires: libxkbcommon0
 Requires: polkit
 Requires: systemd
 Recommends: slurp

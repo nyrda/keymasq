@@ -1,5 +1,6 @@
 import logging
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -9,11 +10,9 @@ from keymasq.common.settings import (
     GlobalSettings,
     global_settings_from_toml,
     global_settings_to_toml,
+    normalize_global_settings,
 )
-from keymasq.common.virtual_devices import (
-    DEFAULT_VIRTUAL_GAMEPADS,
-    clamp_virtual_gamepad_count,
-)
+from keymasq.common.virtual_devices import DEFAULT_VIRTUAL_GAMEPADS
 
 log = logging.getLogger("keymasq-session.settings")
 
@@ -42,9 +41,7 @@ def load_global_settings(*, strict: bool = False) -> GlobalSettings:
 
 
 def save_global_settings(settings: GlobalSettings) -> GlobalSettings:
-    normalized = GlobalSettings(
-        virtual_gamepad_count=clamp_virtual_gamepad_count(settings.virtual_gamepad_count),
-    )
+    normalized = normalize_global_settings(settings)
     paths.ensure_config_dirs()
     settings_path = _settings_path()
     write_toml_atomically(settings_path, global_settings_to_toml(normalized))
@@ -57,17 +54,20 @@ def load_virtual_gamepad_count() -> int:
 
 def save_virtual_gamepad_count(count: int) -> int:
     saved = save_global_settings(
-        GlobalSettings(
-            virtual_gamepad_count=count,
-        )
+        replace(load_global_settings(), virtual_gamepad_count=count),
     )
     return saved.virtual_gamepad_count
+
+
+def load_keyboard_layout() -> str:
+    return load_global_settings().keyboard_layout
 
 
 __all__ = [
     "DEFAULT_VIRTUAL_GAMEPADS",
     "GlobalSettings",
     "load_global_settings",
+    "load_keyboard_layout",
     "load_virtual_gamepad_count",
     "save_global_settings",
     "save_virtual_gamepad_count",

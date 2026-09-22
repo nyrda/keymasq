@@ -10,6 +10,7 @@ from pathlib import Path
 from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.devices import resolve_evdev_code
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.keyboard_layouts import keyboard_layout_error
 from keymasq.common.model.hardware import ButtonDefinition
 from keymasq.common.paths import (
     CONFIG_DIR,
@@ -85,6 +86,15 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self.hardware = HardwareManager()
         settings = load_global_settings()
         self.virtual_gamepad_count = settings.virtual_gamepad_count
+        self.keyboard_layout = settings.keyboard_layout
+        layout_error = keyboard_layout_error(self.keyboard_layout)
+        if layout_error is not None:
+            log.warning(
+                "Configured keyboard layout %r cannot be used: %s. Type macros will fail "
+                "until it is fixed in Settings or settings.toml",
+                self.keyboard_layout,
+                layout_error,
+            )
         self.virtual_device_config = load_virtual_device_config()
         self.action_handler: ActionHandler | None = None
         self.running = False

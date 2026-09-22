@@ -9,8 +9,12 @@ if [[ ! -f "${REPO_ROOT}/flake.nix" ]]; then
   exit 1
 fi
 
-if [[ -z "${IN_NIX_SHELL:-}" ]]; then
-  exec nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
+# Always take the environment from this checkout's current flake. An inherited
+# dev shell (for example a tmux server started before flake.nix changed) would
+# otherwise leak stale variables into the launched process.
+if [[ "${KEYMASQ_DEV_SHELL_FOR:-}" != "${REPO_ROOT}" ]]; then
+  exec env KEYMASQ_DEV_SHELL_FOR="${REPO_ROOT}" \
+    nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
 source "${REPO_ROOT}/scripts/dev-shell-env.sh"

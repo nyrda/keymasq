@@ -2187,6 +2187,47 @@ class TestDialogConstruction:
             dialog.unicode_check.get_label() == "Use Ctrl+Shift+U for detected Unicode characters"
         )
 
+    def test_type_macro_dialog_reports_unusable_keyboard_layout(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager import type_dialog as type_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        monkeypatch.setattr(type_dialog_module, "load_keyboard_layout", lambda: "nonsense")
+
+        dialog = TypeMacroDialog(Gtk.Window())
+        assert dialog.layout_label.get_label().startswith(
+            "Keyboard layout 'nonsense' cannot be used: "
+        )
+
+        dialog.text_view.get_buffer().set_text("hello \u2014")
+        assert dialog.unicode_check.get_visible() is False
+
+        dialog.name_entry.set_text("greeting")
+        dialog._on_create(Gtk.Button())
+        assert dialog.error_label.get_visible() is True
+        assert dialog.error_label.get_label().startswith("Keyboard layout 'nonsense'")
+
+    def test_type_macro_dialog_links_to_keyboard_layout_settings(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk
+
+        from keymasq.gui.widgets.macro_manager import type_dialog as type_dialog_module
+        from keymasq.gui.widgets.macro_manager_dialog import TypeMacroDialog
+
+        opened = []
+
+        def fake_present(parent, *, on_closed=None):
+            opened.append((parent, on_closed))
+
+        monkeypatch.setattr(type_dialog_module, "present_keyboard_layout_settings", fake_present)
+        dialog = TypeMacroDialog(Gtk.Window())
+
+        assert dialog.layout_settings_link.get_label() == "Change in Settings"
+        assert dialog._on_layout_link(dialog.layout_settings_link) is True
+        assert opened == [(dialog.layout_settings_link, dialog._sync_unicode_warning)]
+
     def test_type_macro_builder_can_emit_unicode_input_sequence(self):
         gi.require_version("Gtk", "4.0")
         from gi.repository import Gtk

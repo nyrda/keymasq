@@ -59,7 +59,7 @@ you perform them. This is the most accurate option. Use it when:
 
 - You need exact timing (for example, a game combo or an app shortcut).
 - Your macro involves mouse movement or clicks.
-- You use a non-standard keyboard layout.
+- You use a keyboard layout that XKB does not describe.
 - The target application is sensitive to input speed.
 
 **Before you start:** opt in to macro recording from the Macro Manager or
@@ -190,17 +190,59 @@ Type macro templates are a shortcut for creating simple text-typing macros
 without recording. You type the text you want, choose a delay between
 keystrokes, and Keymasq builds the macro automatically.
 
-If the text contains Unicode or formatted characters, the dialog shows an
-optional Unicode input mode. When enabled, Keymasq emits unsupported characters
-by pressing `Ctrl+Shift+U`, releasing all three keys, typing the hexadecimal
-codepoint, then pressing `Space` to confirm. Space avoids sending Enter if the
-target does not recognize Unicode input. This is
-best-effort. It works in many text fields, but some apps, games, terminals,
-remote sessions, or input method setups may not accept it.
+If the text contains characters the keyboard layout cannot type, the dialog
+shows an optional Unicode input mode. When enabled, Keymasq emits those
+characters by pressing `Ctrl+Shift+U`, releasing all three keys, typing the
+hexadecimal codepoint, then pressing `Space` to confirm. Space avoids sending
+Enter if the target does not recognize Unicode input. This is best-effort. It
+works in many text fields, but some apps, games, terminals, remote sessions, or
+input method setups may not accept it.
+
+The selected layout must also provide the Latin `u` chord used to start this
+input method and the hexadecimal digits used for the codepoint. Keymasq marks
+the option unavailable when it cannot generate a verified chord for that
+layout. This commonly applies to layouts that contain only non-Latin letters.
 
 Previously saved macros keep their compiled key events. Recreate a type macro
 to use this sequence, or edit its events to release the activation chord before
 the codepoint and use Space to confirm.
+
+#### Keyboard layout
+
+Keymasq sends physical key presses, and your desktop turns them into
+characters with its keyboard layout. A type macro therefore has to press
+different keys for the same text on different layouts: `z` is the physical Y
+key on a German layout, and `a` is the physical Q key on a French one.
+
+Set the layout your desktop uses under **Settings > Keyboard layout**. The
+default is `us`. The list offers every layout and variant the system's XKB
+rules describe, including the "extras" set (`de`, `de(nodeadkeys)`,
+`us(dvorak)`, `de(bone)`, and so on), and Keymasq reads the
+character tables from that data through libxkbcommon, so AltGr characters
+follow the layout. Dead keys are typed the way a person types them: the dead
+key, then the base letter (`ê` on a French layout is the `^` key followed by
+`e`). The accent character itself is also a compose sequence, and Keymasq
+picks the cheapest one the table offers, such as the dead key twice or the
+dead key followed by Space. The sequences come from the system's compose
+table for your locale, which is what GTK and Qt applications use to combine
+them. Characters that neither a key nor a compose sequence produces use the
+Unicode input mode above.
+
+The layout is applied when a type macro is created or saved. The stored events
+are ordinary key presses and are not changed afterwards, so a type macro made
+under one layout keeps typing those physical keys after you switch to another.
+Each type macro records the layout it was compiled for in `type_layout`. To
+adapt an existing type macro to a new layout, open it and save it again.
+
+Keymasq keeps the layout exactly as written in `settings.toml`. If the value
+is not a layout the system's XKB data knows, or libxkbcommon cannot be
+loaded, the session logs a warning at startup, the type macro dialogs show
+the reason instead of a layout name, and creating a type macro fails with
+that reason. Every other feature keeps working. Pick a layout in Settings to
+fix it.
+
+Recorded macros and single key mappings are not affected. They store physical
+keys, so they follow whatever layout is active when they play.
 
 **How to create one:**
 
@@ -212,9 +254,9 @@ the codepoint and use Space to confirm.
 **When to use it:** quick typed phrases, email signatures, chat responses, or
 any short text that doesn't need precise timing.
 
-**When to prefer live recording instead:** if you use a non-QWERTY layout, if
-the target app does not accept Unicode input sequences, or if you need exact
-control over timing, live recording gives more reliable results.
+**When to prefer live recording instead:** if your layout is not in the XKB
+data, if the target app does not accept Unicode input sequences, or if you
+need exact control over timing, live recording gives more reliable results.
 
 ![Type Macro dialog with text entry and key-down and pause timing](assets/screenshots/keymasq_type_macro_creation.png)
 
@@ -650,9 +692,9 @@ intended for system administrators, and most users do not need to change them:
   places, point them all at one saved macro instead of recreating it.
 - **Slow down for fragile UIs.** If a target app drops inputs, lower the speed
   multiplier. Explicit wait controls keep their configured wall-clock duration.
-- **Record layout-specific text.** Type macro templates assume a standard
-  QWERTY layout. Optional Unicode input can preserve many special characters,
-  but record the macro live if the target app does not accept those sequences
-  or if you use a different keyboard layout.
+- **Set the keyboard layout first.** Type macro templates are compiled for
+  the layout in **Settings**. Optional Unicode input can preserve characters
+  the layout cannot type, but record the macro live if the target app does
+  not accept those sequences.
 - **Use wait controls for runtime pauses.** They keep the recorded timeline
   intact while still delaying later playback.

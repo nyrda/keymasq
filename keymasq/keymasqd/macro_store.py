@@ -224,6 +224,7 @@ class MacroStore:
                         "type_down_ms",
                         "type_pause_ms",
                         "type_use_unicode_input",
+                        "type_layout",
                     ):
                         data.pop(key, None)
                     data["type_binding"] = False

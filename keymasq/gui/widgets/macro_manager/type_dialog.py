@@ -11,6 +11,11 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.keyboard_layouts import (
+    TypedKey,
+    keyboard_layout_error,
+    keyboard_layout_name,
+)
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
@@ -20,8 +25,17 @@ from keymasq.common.macro_compile import (
     macro_definition_from_events,
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
+    unicode_input_capability_error,
 )
 from keymasq.gui.session_client import JsonDict
+from keymasq.gui.widgets.settings_dialog import present_keyboard_layout_settings
+from keymasq.session.settings import load_keyboard_layout
+
+
+def _layout_caption(layout_id: str, error: str | None) -> str:
+    if error is not None:
+        return f"Keyboard layout {layout_id!r} cannot be used: {error}"
+    return f"Typed for keyboard layout: {keyboard_layout_name(layout_id)}"
 
 
 class TypeMacroDialogMixin:
@@ -69,6 +83,20 @@ class TypeMacroDialogMixin:
         )
         self.unicode_check.set_visible(False)
         main.append(self.unicode_check)
+
+        layout_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.layout_label = Gtk.Label(label=self._keyboard_layout_caption())
+        self.layout_label.add_css_class("dim-label")
+        self.layout_label.add_css_class("caption")
+        self.layout_label.set_halign(Gtk.Align.START)
+        self.layout_label.set_valign(Gtk.Align.CENTER)
+        layout_box.append(self.layout_label)
+        self.layout_settings_link = Gtk.LinkButton.new_with_label("", "Change in Settings")
+        self.layout_settings_link.add_css_class("caption")
+        self.layout_settings_link.set_tooltip_text("Open the keyboard layout setting")
+        self.layout_settings_link.connect("activate-link", self._on_layout_link)
+        layout_box.append(self.layout_settings_link)
+        main.append(layout_box)
 
         timing = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         timing.set_halign(Gtk.Align.START)
@@ -123,14 +151,35 @@ class TypeMacroDialogMixin:
     def _on_text_changed(self, _buffer: Gtk.TextBuffer) -> None:
         self._sync_unicode_warning()
 
+    def _on_layout_link(self, link: Gtk.LinkButton) -> bool:
+        present_keyboard_layout_settings(link, on_closed=self._sync_unicode_warning)
+        return True
+
     def _sync_unicode_warning(self) -> None:
+        layout_id = self._keyboard_layout_id()
+        layout_error = keyboard_layout_error(layout_id)
+        self.layout_label.set_label(_layout_caption(layout_id, layout_error))
+        if layout_error is not None:
+            self.unicode_check.set_visible(False)
+            self.unicode_check.set_active(False)
+            return
         text = self._text_buffer_text()
         needs_unicode = self._text_needs_unicode_option(text)
+        capability_error = unicode_input_capability_error(layout_id)
+        self.unicode_check.set_sensitive(capability_error is None)
+        if capability_error is None:
+            self.unicode_check.set_label("Use Ctrl+Shift+U for detected Unicode characters")
+            self.unicode_check.set_tooltip_text(
+                "Best-effort Linux Unicode input. Works in many text fields, but not every app."
+            )
+        else:
+            self.unicode_check.set_label("Ctrl+Shift+U is unavailable for this keyboard layout")
+            self.unicode_check.set_tooltip_text(capability_error)
         was_visible = self.unicode_check.get_visible()
         self.unicode_check.set_visible(needs_unicode)
-        if needs_unicode and not was_visible:
+        if needs_unicode and not was_visible and capability_error is None:
             self.unicode_check.set_active(True)
-        elif not needs_unicode:
+        elif not needs_unicode or capability_error is not None:
             self.unicode_check.set_active(False)
 
     def _text_buffer_text(self) -> str:
@@ -147,6 +196,12 @@ class TypeMacroDialogMixin:
         return any(not self._can_type_directly(ch) for ch in direct_text)
 
     def _on_create(self, _btn: Gtk.Button) -> None:
+        layout_id = self._keyboard_layout_id()
+        layout_error = keyboard_layout_error(layout_id)
+        self.layout_label.set_label(_layout_caption(layout_id, layout_error))
+        if layout_error is not None:
+            self._show_error(f"Keyboard layout {layout_id!r} cannot be used: {layout_error}")
+            return
         name = self.name_entry.get_text().strip()
         if not name:
             self._show_error("Macro name is required")
@@ -188,6 +243,7 @@ class TypeMacroDialogMixin:
                 "type_down_ms": down_ms,
                 "type_pause_ms": pause_ms,
                 "type_use_unicode_input": bool(use_unicode_input),
+                "type_layout": layout_id,
             }
         )
 
@@ -236,11 +292,19 @@ class TypeMacroDialogMixin:
                 down_ms,
                 pause_ms,
                 use_unicode_input=use_unicode_input,
+                layout=self._keyboard_layout_id(),
             )
         )
 
-    def _can_type_directly(self, ch: str) -> bool:
-        return can_type_directly(ch)
+    def _keyboard_layout_id(self) -> str:
+        return load_keyboard_layout()
 
-    def _char_to_key(self, ch: str) -> tuple[int, bool]:
-        return char_to_key(ch)
+    def _keyboard_layout_caption(self) -> str:
+        layout_id = self._keyboard_layout_id()
+        return _layout_caption(layout_id, keyboard_layout_error(layout_id))
+
+    def _can_type_directly(self, ch: str) -> bool:
+        return can_type_directly(ch, self._keyboard_layout_id())
+
+    def _char_to_key(self, ch: str) -> TypedKey:
+        return char_to_key(ch, self._keyboard_layout_id())

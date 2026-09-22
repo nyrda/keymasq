@@ -299,6 +299,7 @@ def test_macro_editor_clears_type_metadata_when_events_change(monkeypatch) -> No
         "type_down_ms": 5,
         "type_pause_ms": 10,
         "type_use_unicode_input": False,
+        "type_layout": "de",
     }
     (
         dialog._events,
@@ -316,6 +317,7 @@ def test_macro_editor_clears_type_metadata_when_events_change(monkeypatch) -> No
     assert "type_down_ms" not in payload
     assert "type_pause_ms" not in payload
     assert "type_use_unicode_input" not in payload
+    assert "type_layout" not in payload
 
 
 def test_macro_editor_event_selection_and_timing_edits_refresh_event(monkeypatch) -> None:

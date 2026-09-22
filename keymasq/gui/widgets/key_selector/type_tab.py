@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.coercion import coerce_int
+from keymasq.common.keyboard_layouts import keyboard_layout_error, keyboard_layout_name
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
@@ -20,13 +21,25 @@ from keymasq.common.macro_compile import (
     normalize_type_macro_binding_text,
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
+    unicode_input_capability_error,
 )
 from keymasq.common.model.core import ActionType
 from keymasq.common.types import JsonObject
 from keymasq.gui.session_client import session_request_async
+from keymasq.gui.widgets.settings_dialog import present_keyboard_layout_settings
+from keymasq.session.settings import load_keyboard_layout
+
+
+def _layout_caption(layout_id: str, error: str | None) -> str:
+    if error is not None:
+        return f"Keyboard layout {layout_id!r} cannot be used: {error}"
+    return f"Typed for keyboard layout: {keyboard_layout_name(layout_id)}"
 
 
 class TypeTabMixin:
+    def _type_keyboard_layout_id(self) -> str:
+        return load_keyboard_layout()
+
     def _build_type_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         outer.set_margin_top(12)
@@ -59,6 +72,20 @@ class TypeTabMixin:
         self.type_unicode_check.set_visible(False)
         self.type_unicode_check.connect("toggled", self._on_type_unicode_toggled)
         outer.append(self.type_unicode_check)
+
+        layout_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.type_layout_label = Gtk.Label()
+        self.type_layout_label.add_css_class("dim-label")
+        self.type_layout_label.add_css_class("caption")
+        self.type_layout_label.set_halign(Gtk.Align.START)
+        self.type_layout_label.set_valign(Gtk.Align.CENTER)
+        layout_box.append(self.type_layout_label)
+        self.type_layout_settings_link = Gtk.LinkButton.new_with_label("", "Change in Settings")
+        self.type_layout_settings_link.add_css_class("caption")
+        self.type_layout_settings_link.set_tooltip_text("Open the keyboard layout setting")
+        self.type_layout_settings_link.connect("activate-link", self._on_type_layout_link)
+        layout_box.append(self.type_layout_settings_link)
+        outer.append(layout_box)
 
         timing = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         timing.set_halign(Gtk.Align.START)
@@ -103,6 +130,10 @@ class TypeTabMixin:
         self._sync_type_unicode_option()
         self._sync_type_map_button()
         return outer
+
+    def _on_type_layout_link(self, link: Gtk.LinkButton) -> bool:
+        present_keyboard_layout_settings(link, on_closed=self._sync_type_unicode_option)
+        return True
 
     def _maybe_load_type_macro_details(self) -> None:
         if getattr(self, "_type_macro_details_loaded", False):
@@ -182,13 +213,32 @@ class TypeTabMixin:
         )
 
     def _sync_type_unicode_option(self) -> None:
+        layout_id = self._type_keyboard_layout_id()
+        layout_error = keyboard_layout_error(layout_id)
+        self.type_layout_label.set_label(_layout_caption(layout_id, layout_error))
+        if layout_error is not None:
+            self.type_unicode_check.set_visible(False)
+            self.type_unicode_check.set_active(False)
+            return
         text = self._type_buffer_text()
         needs_unicode = self._type_text_needs_unicode_option(text)
+        capability_error = unicode_input_capability_error(layout_id)
+        self.type_unicode_check.set_sensitive(capability_error is None)
+        if capability_error is None:
+            self.type_unicode_check.set_label("Use Ctrl+Shift+U for detected Unicode characters")
+            self.type_unicode_check.set_tooltip_text(
+                "Best-effort Linux Unicode input. Works in many text fields, but not every app."
+            )
+        else:
+            self.type_unicode_check.set_label(
+                "Ctrl+Shift+U is unavailable for this keyboard layout"
+            )
+            self.type_unicode_check.set_tooltip_text(capability_error)
         was_visible = self.type_unicode_check.get_visible()
         self.type_unicode_check.set_visible(needs_unicode)
-        if needs_unicode and not was_visible:
+        if needs_unicode and not was_visible and capability_error is None:
             self.type_unicode_check.set_active(True)
-        elif not needs_unicode:
+        elif not needs_unicode or capability_error is not None:
             self.type_unicode_check.set_active(False)
 
     def _type_text_needs_unicode_option(self, text: str) -> bool:
@@ -196,7 +246,8 @@ class TypeTabMixin:
         direct_text = normalize_type_macro_text(text)
         if exact_text != direct_text:
             return True
-        return any(not can_type_directly(ch) for ch in direct_text)
+        layout_id = self._type_keyboard_layout_id()
+        return any(not can_type_directly(ch, layout_id) for ch in direct_text)
 
     def _sync_type_map_button(self) -> None:
         map_btn = getattr(self, "map_btn", None)
@@ -207,6 +258,12 @@ class TypeTabMixin:
         map_btn.set_sensitive(bool(self._normalized_type_buffer_text()) and not pending)
 
     def _on_type_map_clicked(self, _btn: Gtk.Button) -> None:
+        layout_id = self._type_keyboard_layout_id()
+        layout_error = keyboard_layout_error(layout_id)
+        self.type_layout_label.set_label(_layout_caption(layout_id, layout_error))
+        if layout_error is not None:
+            self._show_type_error(f"Keyboard layout {layout_id!r} cannot be used: {layout_error}")
+            return
         use_unicode_input = self._type_use_unicode_input()
         text = self._normalized_type_buffer_text()
         if not text:
@@ -221,6 +278,7 @@ class TypeTabMixin:
                 down_ms,
                 pause_ms,
                 use_unicode_input=use_unicode_input,
+                layout=layout_id,
             )
         except ValueError as exc:
             self._show_type_error(str(exc))
@@ -243,6 +301,7 @@ class TypeTabMixin:
         macro["type_down_ms"] = down_ms
         macro["type_pause_ms"] = pause_ms
         macro["type_use_unicode_input"] = bool(use_unicode_input)
+        macro["type_layout"] = layout_id
 
         session_request_async({"command": "create_macro", "macro": macro}, on_created)
 

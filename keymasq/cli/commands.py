@@ -5,6 +5,11 @@ import sys
 import time
 from typing import cast
 
+from keymasq.common.keyboard_layouts import (
+    is_known_keyboard_layout,
+    keyboard_layout_choices,
+    normalize_keyboard_layout_id,
+)
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
@@ -488,24 +493,31 @@ def type_cli(
     pause_ms: int = DEFAULT_TYPE_MACRO_PAUSE_MS,
     speed: float = 1.0,
     use_unicode_input: bool = True,
+    layout: str | None = None,
     print_json: bool = False,
     wait: bool = False,
     ordered: bool = False,
     json_output: bool = False,
 ) -> None:
     text = " ".join(text_parts) if text_parts else _read_stdin_or_exit("No text provided")
+    if layout is not None and not is_known_keyboard_layout(layout):
+        known = ", ".join(layout_id for layout_id, _name in keyboard_layout_choices())
+        print(f"Error: unknown keyboard layout {layout!r} (known: {known})")
+        sys.exit(1)
     if print_json:
         try:
             from keymasq.common.macro_compile import (
                 build_type_macro_events,
                 macro_definition_from_events,
             )
+            from keymasq.session.settings import load_keyboard_layout
 
             events = build_type_macro_events(
                 text,
                 max(0, int(down_ms)),
                 max(0, int(pause_ms)),
                 use_unicode_input=use_unicode_input,
+                layout=normalize_keyboard_layout_id(layout or load_keyboard_layout()),
             )
         except ValueError as exc:
             print(f"Error: {exc}")
@@ -521,6 +533,7 @@ def type_cli(
             "pause_ms": max(0, int(pause_ms)),
             "use_unicode_input": bool(use_unicode_input),
             "speed": float(speed),
+            **({"layout": normalize_keyboard_layout_id(layout)} if layout else {}),
             **({"ordered": True} if ordered else {}),
         },
         wait,

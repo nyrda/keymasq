@@ -670,3 +670,51 @@ def test_cli_playback_ordering_is_independent_of_wait(monkeypatch, ordered, wait
     commands.play_macro_cli("hello", wait=wait, ordered=ordered)
     assert all(payload.get("ordered", False) == ordered for payload, _ in sent)
     assert all(requested_wait == wait for _, requested_wait in sent)
+
+
+def test_type_cli_sends_layout_only_when_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    sent: list[dict[str, object]] = []
+
+    def _session_request(payload: dict[str, object]) -> dict[str, object]:
+        sent.append(payload)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(commands, "_session_request", _session_request)
+
+    commands.type_cli(["z"])
+    commands.type_cli(["z"], layout=" de ")
+
+    assert "layout" not in sent[0]
+    assert sent[1]["layout"] == "de"
+
+
+def test_type_cli_rejects_unknown_layout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    monkeypatch.setattr(commands, "_session_request", lambda payload: {"status": "ok"})
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.type_cli(["z"], layout="nonsense")
+
+    assert excinfo.value.code == 1
+    assert "unknown keyboard layout 'nonsense'" in capsys.readouterr().out
+
+
+def test_type_cli_print_json_compiles_for_layout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import evdev
+
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+
+    commands.type_cli(["z"], layout="de", print_json=True, down_ms=0, pause_ms=0)
+
+    macro = json.loads(capsys.readouterr().out)
+    assert macro["events"][0]["code"] == evdev.ecodes.KEY_Y

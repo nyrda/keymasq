@@ -141,7 +141,7 @@ async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("command", "request_count_key", "save_name", "response_count_key", "event"),
+    ("command", "request_count_key", "save_name", "response_count_key", "event", "subject"),
     [
         (
             "set_virtual_gamepads",
@@ -149,13 +149,16 @@ async def test_handle_session_request_set_virtual_gamepads_keeps_state_on_daemon
             "save_virtual_gamepad_count",
             "count",
             {"event": "virtual_gamepads_changed", "count": 2},
+            "Virtual device settings",
         ),
         (
             "set_settings",
             "virtual_gamepad_count",
             "save_global_settings",
             "virtual_gamepad_count",
-            {"event": "settings_changed", "virtual_gamepad_count": 2},
+            {"event": "settings_changed", "virtual_gamepad_count": 2, "keyboard_layout": "us"},
+            # set_settings also carries the keyboard layout, so the warning is generic.
+            "Settings",
         ),
     ],
 )
@@ -166,6 +169,7 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
     save_name: str,
     response_count_key: str,
     event: dict[str, object],
+    subject: str,
 ) -> None:
     manager = SessionManager()
     manager.virtual_gamepad_count = 1
@@ -193,6 +197,7 @@ async def test_virtual_gamepad_persistence_failure_keeps_applied_runtime_value(
     assert result["status"] == "ok"
     assert result[response_count_key] == 2
     assert result["persisted"] is False
+    assert str(result["warning"]).startswith(f"{subject} were applied for this session")
     assert "may revert" in str(result["warning"])
     assert manager.virtual_gamepad_count == 2
     manager.send_notification.assert_called_once_with(  # type: ignore[attr-defined]
@@ -3184,6 +3189,57 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
 
 
 @pytest.mark.asyncio
+async def test_create_type_macro_recompiles_stale_client_payload_for_current_layout() -> None:
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    manager = SessionManager()
+    manager.keyboard_layout = "de"
+    manager.client.send_command = AsyncMock(
+        return_value=Response(status="ok", data={"macro": {"name": "type_z"}})
+    )
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {
+            "command": "create_macro",
+            "macro": {
+                "name": "type_z",
+                "events": [
+                    {
+                        "device_type": "keyboard",
+                        "type": evdev.ecodes.EV_KEY,
+                        "code": evdev.ecodes.KEY_Z,
+                        "value": 1,
+                        "t_us": 0,
+                    }
+                ],
+                "type_binding": True,
+                "type_text": "z",
+                "type_down_ms": 5,
+                "type_pause_ms": 0,
+                "type_layout": "us",
+            },
+        },
+        peer,
+        object(),
+    )
+
+    assert result is not None and result["status"] == "ok"
+    command = next(
+        call.args[0]
+        for call in manager.client.send_command.await_args_list
+        if call.args[0].command == CommandType.MACRO_CREATE
+    )
+    macro = cast(dict[str, object], command.data["macro"])
+    assert macro["type_layout"] == "de"
+    events = cast(list[dict[str, object]], macro["events"])
+    assert events[0]["code"] == evdev.ecodes.KEY_Y
+
+
+@pytest.mark.asyncio
 async def test_handle_session_request_list_macros_reports_daemon_connection_errors() -> None:
     manager = SessionManager()
     manager.client.send_command = AsyncMock(side_effect=ConnectionError("daemon down"))
@@ -3730,7 +3786,7 @@ async def test_settings_and_virtual_gamepad_commands_cover_success_and_unavailab
     assert settings_saved["status"] == "ok"
     assert settings_saved["virtual_gamepad_count"] == 4
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
-        {"event": "settings_changed", "virtual_gamepad_count": 4}
+        {"event": "settings_changed", "virtual_gamepad_count": 4, "keyboard_layout": "us"}
     )
 
 
@@ -4136,3 +4192,135 @@ async def test_capture_combo_session_command_round_trip(
             }
         ]
     }
+
+
+def _type_macro_daemon(macros: dict[str, dict[str, object]]):
+    """Fake keymasqd macro commands over an in-memory macro dict."""
+    sent: list[Command] = []
+
+    async def send_command(command: Command, timeout: object = None) -> Response:
+        sent.append(command)
+        if command.command == CommandType.MACRO_LIST_META:
+            metas = [
+                {key: value for key, value in macro.items() if key != "type_text"}
+                for macro in macros.values()
+            ]
+            return Response(status="ok", data={"macros": metas})
+        if command.command == CommandType.MACRO_GET:
+            macro = macros.get(str(command.data["name"]))
+            if macro is None:
+                return Response(status="error", error="missing")
+            return Response(status="ok", data={"macro": dict(macro)})
+        if command.command == CommandType.MACRO_UPDATE:
+            name = str(command.data["name"])
+            payload = cast(dict[str, object], command.data["macro"])
+            macros[name] = {**macros[name], **payload, "revision": 2}
+            return Response(status="ok", data={"macro": dict(macros[name])})
+        return Response(status="ok", data={"count": 1})
+
+    return send_command, sent
+
+
+@pytest.mark.asyncio
+async def test_set_settings_keyboard_layout_leaves_stored_macros_alone(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Macros are plain events; only creation adapts to the layout."""
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    macros: dict[str, dict[str, object]] = {
+        "type_z": {
+            "name": "type_z",
+            "revision": 1,
+            "type_binding": True,
+            "type_text": "z",
+            "type_layout": "us",
+        },
+    }
+    send_command, sent = _type_macro_daemon(macros)
+    manager = SessionManager()
+    manager.connected = True
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    manager.send_notification = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_settings", "keyboard_layout": "de"},
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "ok"
+    assert result["keyboard_layout"] == "de"
+    assert "type_macros_rebuilding" not in result
+    assert manager.keyboard_layout == "de"
+    assert session_settings.load_global_settings().keyboard_layout == "de"
+    assert macros["type_z"]["type_layout"] == "us"
+    assert [command.command for command in sent] == [CommandType.SET_VIRTUAL_GAMEPADS]
+    manager.send_notification.assert_not_called()  # type: ignore[attr-defined]
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "settings_changed", "virtual_gamepad_count": 1, "keyboard_layout": "de"}
+    )
+    assert {"id": "de", "name": "German"} in result["keyboard_layouts"]
+
+
+@pytest.mark.asyncio
+async def test_set_settings_rejects_unknown_keyboard_layout(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "keymasq")
+    manager = SessionManager()
+    manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
+    peer = PeerCredentials(pid=1, uid=1000, gid=1000)
+
+    result = await manager._handle_session_request(
+        {"command": "set_settings", "keyboard_layout": "de,us"},
+        peer,
+        object(),
+    )
+
+    assert result["status"] == "error"
+    assert "keyboard layout 'de,us' rejected: malformed keyboard layout id" in result["message"]
+    assert manager.keyboard_layout == "us"
+    manager.broadcast_to_session_clients.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_type_text_uses_requested_or_configured_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common import xkb
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    manager = SessionManager()
+    manager.keyboard_layout = "de"
+    sent_commands: list[Command] = []
+
+    async def send_command(command: Command, timeout: object = None) -> Response:
+        sent_commands.append(command)
+        return Response(status="ok", data={"status": "ok"})
+
+    manager.client.send_command = send_command  # type: ignore[method-assign]
+
+    configured = await macro_commands_module.handle_macro_commands(
+        manager, "type_text", {"command": "type_text", "text": "z", "down_ms": 0, "pause_ms": 0}
+    )
+    requested = await macro_commands_module.handle_macro_commands(
+        manager,
+        "type_text",
+        {"command": "type_text", "text": "z", "down_ms": 0, "pause_ms": 0, "layout": "us"},
+    )
+    unknown = await macro_commands_module.handle_macro_commands(
+        manager, "type_text", {"command": "type_text", "text": "z", "layout": "nonsense"}
+    )
+
+    assert configured is not None and configured["status"] == "ok"
+    assert requested is not None and requested["status"] == "ok"
+    assert sent_commands[0].data["macro_events"][0]["code"] == evdev.ecodes.KEY_Y
+    assert sent_commands[1].data["macro_events"][0]["code"] == evdev.ecodes.KEY_Z
+    assert unknown is not None and unknown["status"] == "error"
+    assert unknown["message"].startswith("keyboard layout 'nonsense' rejected: ")

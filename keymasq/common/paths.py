@@ -57,10 +57,12 @@ VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
 
 _build_helper_path = "/usr/bin/keymasq-record"
 _build_slurp_path = "/usr/bin/slurp"
+_build_libxkbcommon_path = ""
 with contextlib.suppress(ImportError, AttributeError):
     build_paths = importlib.import_module("keymasq.common.build_paths")
     _build_helper_path = str(build_paths.KEYMASQ_RECORD_HELPER_PATH)
     _build_slurp_path = str(getattr(build_paths, "SLURP_PATH", _build_slurp_path))
+    _build_libxkbcommon_path = str(getattr(build_paths, "LIBXKBCOMMON_PATH", ""))
 
 KEYMASQ_RECORD_HELPER_PATH = Path(_build_helper_path)
 KEYMASQ_RECORD_HELPER_FALLBACK_PATHS = (Path("/run/current-system/sw/bin/keymasq-record"),)
@@ -69,6 +71,8 @@ SLURP_FALLBACK_PATHS = (
     Path("/usr/bin/slurp"),
     Path("/run/current-system/sw/bin/slurp"),
 )
+# Empty means "let the dynamic loader find libxkbcommon by name".
+LIBXKBCOMMON_PATH = Path(_build_libxkbcommon_path) if _build_libxkbcommon_path else None
 
 
 def ensure_config_dirs() -> None:

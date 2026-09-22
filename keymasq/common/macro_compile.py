@@ -4,6 +4,12 @@ from typing import cast
 
 import evdev
 
+from keymasq.common.keyboard_layouts import (
+    DEFAULT_KEYBOARD_LAYOUT,
+    KeyboardLayout,
+    TypedKey,
+    keyboard_layout,
+)
 from keymasq.common.model.actions import (
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
@@ -107,6 +113,7 @@ def build_type_macro_events(
     pause_ms: int,
     *,
     use_unicode_input: bool = False,
+    layout: str = DEFAULT_KEYBOARD_LAYOUT,
 ) -> list[JsonObject]:
     events: list[JsonObject] = []
     t_us = 0
@@ -119,6 +126,7 @@ def build_type_macro_events(
         else normalize_type_macro_text(text)
     )
     tokens = _type_macro_tokens(normalized)
+    resolved_layout = keyboard_layout(layout)
 
     for i, (kind, value) in enumerate(tokens):
         if kind == "wait":
@@ -136,14 +144,15 @@ def build_type_macro_events(
                 t_us,
                 down_ms,
                 modifier_settle_us,
+                resolved_layout,
             )
         else:
             if kind == "key":
-                code, needs_shift = _resolve_type_macro_key(value)
+                key = _resolve_type_macro_key(value, resolved_layout)
             else:
                 ch = value
                 try:
-                    code, needs_shift = char_to_key(ch)
+                    key = _layout_key(ch, resolved_layout)
                 except ValueError as exc:
                     if use_unicode_input:
                         t_us = _append_unicode_char_events(
@@ -152,6 +161,7 @@ def build_type_macro_events(
                             t_us,
                             down_ms,
                             modifier_settle_us,
+                            resolved_layout,
                         )
                         if _should_add_type_pause(tokens, i, pause_ms):
                             t_us += pause_ms * 1000
@@ -164,8 +174,7 @@ def build_type_macro_events(
 
             t_us = _append_direct_key_events(
                 events,
-                code,
-                needs_shift,
+                key,
                 t_us,
                 down_ms,
                 modifier_settle_us,
@@ -319,81 +328,44 @@ def _should_add_type_pause(tokens: list[TypeMacroToken], index: int, pause_ms: i
     return pause_ms > 0 and index < len(tokens) - 1 and tokens[index + 1][0] != "wait"
 
 
-def can_type_directly(ch: str) -> bool:
+def can_type_directly(ch: str, layout: str = DEFAULT_KEYBOARD_LAYOUT) -> bool:
+    return keyboard_layout(layout).key_for(ch) is not None
+
+
+def unicode_input_capability_error(layout: str = DEFAULT_KEYBOARD_LAYOUT) -> str | None:
+    """Explain why Ctrl+Shift+U input cannot be generated for a layout."""
+    resolved_layout = keyboard_layout(layout)
     try:
-        char_to_key(ch)
+        u_key = _layout_key("u", resolved_layout)
     except ValueError:
-        return False
-    return True
+        return (
+            f"Unicode input is unavailable for keyboard layout {resolved_layout.id!r}: "
+            "the layout cannot type the Latin 'u' required by Ctrl+Shift+U"
+        )
+    unsupported_modifiers = [code for code in u_key.modifiers if code != evdev.ecodes.KEY_LEFTSHIFT]
+    if u_key.dead_keys or unsupported_modifiers:
+        return (
+            f"Unicode input is unavailable for keyboard layout {resolved_layout.id!r}: "
+            "its Latin 'u' requires an unverified modifier chord"
+        )
+    return None
 
 
-def char_to_key(ch: str) -> tuple[int, bool]:
-    letters = "abcdefghijklmnopqrstuvwxyz"
-    if ch.lower() in letters:
-        return getattr(evdev.ecodes, f"KEY_{ch.upper()}"), ch.isupper()
-
-    digits = {
-        "1": evdev.ecodes.KEY_1,
-        "2": evdev.ecodes.KEY_2,
-        "3": evdev.ecodes.KEY_3,
-        "4": evdev.ecodes.KEY_4,
-        "5": evdev.ecodes.KEY_5,
-        "6": evdev.ecodes.KEY_6,
-        "7": evdev.ecodes.KEY_7,
-        "8": evdev.ecodes.KEY_8,
-        "9": evdev.ecodes.KEY_9,
-        "0": evdev.ecodes.KEY_0,
-    }
-    if ch in digits:
-        return digits[ch], False
-
-    specials = {
-        " ": (evdev.ecodes.KEY_SPACE, False),
-        "\n": (evdev.ecodes.KEY_ENTER, False),
-        "\t": (evdev.ecodes.KEY_TAB, False),
-        "-": (evdev.ecodes.KEY_MINUS, False),
-        "_": (evdev.ecodes.KEY_MINUS, True),
-        "=": (evdev.ecodes.KEY_EQUAL, False),
-        "+": (evdev.ecodes.KEY_EQUAL, True),
-        "[": (evdev.ecodes.KEY_LEFTBRACE, False),
-        "{": (evdev.ecodes.KEY_LEFTBRACE, True),
-        "]": (evdev.ecodes.KEY_RIGHTBRACE, False),
-        "}": (evdev.ecodes.KEY_RIGHTBRACE, True),
-        "\\": (evdev.ecodes.KEY_BACKSLASH, False),
-        "|": (evdev.ecodes.KEY_BACKSLASH, True),
-        ";": (evdev.ecodes.KEY_SEMICOLON, False),
-        ":": (evdev.ecodes.KEY_SEMICOLON, True),
-        "'": (evdev.ecodes.KEY_APOSTROPHE, False),
-        '"': (evdev.ecodes.KEY_APOSTROPHE, True),
-        ",": (evdev.ecodes.KEY_COMMA, False),
-        "<": (evdev.ecodes.KEY_COMMA, True),
-        ".": (evdev.ecodes.KEY_DOT, False),
-        ">": (evdev.ecodes.KEY_DOT, True),
-        "/": (evdev.ecodes.KEY_SLASH, False),
-        "?": (evdev.ecodes.KEY_SLASH, True),
-        "`": (evdev.ecodes.KEY_GRAVE, False),
-        "~": (evdev.ecodes.KEY_GRAVE, True),
-        "!": (evdev.ecodes.KEY_1, True),
-        "@": (evdev.ecodes.KEY_2, True),
-        "#": (evdev.ecodes.KEY_3, True),
-        "$": (evdev.ecodes.KEY_4, True),
-        "%": (evdev.ecodes.KEY_5, True),
-        "^": (evdev.ecodes.KEY_6, True),
-        "&": (evdev.ecodes.KEY_7, True),
-        "*": (evdev.ecodes.KEY_8, True),
-        "(": (evdev.ecodes.KEY_9, True),
-        ")": (evdev.ecodes.KEY_0, True),
-    }
-    if ch in specials:
-        return specials[ch]
-
-    raise ValueError(f"Unsupported character for typing macro: {ch!r}")
+def char_to_key(ch: str, layout: str = DEFAULT_KEYBOARD_LAYOUT) -> TypedKey:
+    return _layout_key(ch, keyboard_layout(layout))
 
 
-def _resolve_type_macro_key(value: str) -> tuple[int, bool]:
+def _layout_key(ch: str, layout: KeyboardLayout) -> TypedKey:
+    key = layout.key_for(ch)
+    if key is None:
+        raise ValueError(f"Unsupported character for typing macro: {ch!r}")
+    return key
+
+
+def _resolve_type_macro_key(value: str, layout: KeyboardLayout) -> TypedKey:
     if value in _TYPE_MACRO_NAMED_KEY_CODES:
-        return _TYPE_MACRO_NAMED_KEY_CODES[value], False
-    return char_to_key(value)
+        return TypedKey(_TYPE_MACRO_NAMED_KEY_CODES[value])
+    return _layout_key(value, layout)
 
 
 def resolve_key_or_button(name: str) -> tuple[str, int]:
@@ -468,24 +440,18 @@ def _append_key_event(
 
 def _append_direct_key_events(
     events: list[JsonObject],
-    code: int,
-    needs_shift: bool,
+    key: TypedKey,
     t_us: int,
     down_ms: int,
     modifier_settle_us: int,
 ) -> int:
-    if needs_shift:
-        _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
-        t_us += modifier_settle_us
-
-    _append_key_event(events, "keyboard", code, 1, t_us)
-    t_us += down_ms * 1000
-    _append_key_event(events, "keyboard", code, 0, t_us)
-
-    if needs_shift:
-        t_us += modifier_settle_us
-        _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-
+    """Press the dead keys of a compose sequence, if any, then the key itself."""
+    for index, press in enumerate((*key.dead_keys, key)):
+        if index:
+            t_us += modifier_settle_us
+        t_us = _append_chord_events(
+            events, list(press.modifiers), press.code, t_us, down_ms, modifier_settle_us
+        )
     return t_us
 
 
@@ -495,9 +461,20 @@ def _append_type_macro_shortcut_events(
     t_us: int,
     down_ms: int,
     modifier_settle_us: int,
+    layout: KeyboardLayout,
 ) -> int:
-    modifier_codes, key_code = _parse_type_macro_shortcut(shortcut)
+    modifier_codes, key_code = _parse_type_macro_shortcut(shortcut, layout)
+    return _append_chord_events(events, modifier_codes, key_code, t_us, down_ms, modifier_settle_us)
 
+
+def _append_chord_events(
+    events: list[JsonObject],
+    modifier_codes: list[int],
+    key_code: int,
+    t_us: int,
+    down_ms: int,
+    modifier_settle_us: int,
+) -> int:
     for modifier_code in modifier_codes:
         _append_key_event(events, "keyboard", modifier_code, 1, t_us)
         t_us += modifier_settle_us
@@ -513,7 +490,7 @@ def _append_type_macro_shortcut_events(
     return t_us
 
 
-def _parse_type_macro_shortcut(shortcut: str) -> tuple[list[int], int]:
+def _parse_type_macro_shortcut(shortcut: str, layout: KeyboardLayout) -> tuple[list[int], int]:
     parts = [part.strip() for part in shortcut.split("+")]
     if len(parts) < 2 or any(not part for part in parts):
         raise ValueError("shortcut requires modifiers and a key")
@@ -531,18 +508,20 @@ def _parse_type_macro_shortcut(shortcut: str) -> tuple[list[int], int]:
             raise ValueError(f"duplicate shortcut modifier: {modifier_name}")
         modifier_codes.append(modifier_code)
 
-    key_code, needs_shift = _resolve_type_macro_shortcut_key(key_part)
-    shift_code = evdev.ecodes.KEY_LEFTSHIFT
-    if needs_shift and shift_code not in modifier_codes:
-        modifier_codes.append(shift_code)
-    return modifier_codes, key_code
+    key = _resolve_type_macro_shortcut_key(key_part, layout)
+    if key.dead_keys:
+        raise ValueError(f"shortcut key {key_part!r} needs a dead key sequence on this layout")
+    for modifier_code in key.modifiers:
+        if modifier_code not in modifier_codes:
+            modifier_codes.append(modifier_code)
+    return modifier_codes, key.code
 
 
-def _resolve_type_macro_shortcut_key(value: str) -> tuple[int, bool]:
+def _resolve_type_macro_shortcut_key(value: str, layout: KeyboardLayout) -> TypedKey:
     if value in _TYPE_MACRO_NAMED_KEY_CODES:
-        return _TYPE_MACRO_NAMED_KEY_CODES[value], False
+        return TypedKey(_TYPE_MACRO_NAMED_KEY_CODES[value])
     if len(value) == 1:
-        return char_to_key(value)
+        return _layout_key(value, layout)
 
     try:
         device_type, code = resolve_key_or_button(value)
@@ -550,7 +529,7 @@ def _resolve_type_macro_shortcut_key(value: str) -> tuple[int, bool]:
         raise ValueError(f"unknown shortcut key: {value}") from exc
     if device_type != "keyboard":
         raise ValueError(f"shortcut key must be a keyboard key: {value}")
-    return code, False
+    return TypedKey(code)
 
 
 def _append_type_macro_mouse_move_event(
@@ -623,39 +602,32 @@ def _append_unicode_char_events(
     t_us: int,
     down_ms: int,
     modifier_settle_us: int,
+    layout: KeyboardLayout,
 ) -> int:
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 1, t_us)
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 1, t_us)
-    t_us += modifier_settle_us
-
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_U, 1, t_us)
-    t_us += down_ms * 1000
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_U, 0, t_us)
-    t_us += modifier_settle_us
+    capability_error = unicode_input_capability_error(layout.id)
+    if capability_error is not None:
+        raise ValueError(capability_error)
+    # The chord is Ctrl+Shift+"u" as the compositor sees it, so "u" follows the
+    # layout. Shift is already part of the activation chord.
+    u_key = _layout_key("u", layout)
+    chord = [evdev.ecodes.KEY_LEFTCTRL, evdev.ecodes.KEY_LEFTSHIFT]
+    t_us = _append_chord_events(events, chord, u_key.code, t_us, down_ms, modifier_settle_us)
     # Finish the activation chord before entering the codepoint as plain keys.
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTSHIFT, 0, t_us)
-    t_us += modifier_settle_us
-    _append_key_event(events, "keyboard", evdev.ecodes.KEY_LEFTCTRL, 0, t_us)
     t_us += modifier_settle_us
 
     for hex_digit in f"{ord(ch):x}":
-        code, needs_shift = char_to_key(hex_digit)
         t_us = _append_direct_key_events(
             events,
-            code,
-            needs_shift,
+            _layout_key(hex_digit, layout),
             t_us,
             down_ms,
             modifier_settle_us,
         )
 
     # Space confirms Unicode input without sending Enter to an unsupported app.
-    code, needs_shift = char_to_key(" ")
     t_us = _append_direct_key_events(
         events,
-        code,
-        needs_shift,
+        TypedKey(evdev.ecodes.KEY_SPACE),
         t_us,
         down_ms,
         modifier_settle_us,

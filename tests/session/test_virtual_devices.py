@@ -66,3 +66,44 @@ def test_virtual_gamepad_output_ids_match_validator_contract() -> None:
     assert not is_virtual_gamepad_output_id("virtual-gamepad-01")
     assert not is_virtual_gamepad_output_id("virtual-gamepad-+1")
     assert not is_virtual_gamepad_output_id("virtual-gamepad-1 ")
+
+
+def test_global_settings_round_trips_keyboard_layout(tmp_path, monkeypatch) -> None:
+    from keymasq.common import paths, xkb
+    from keymasq.common.settings import GlobalSettings
+    from keymasq.session import settings
+
+    if not xkb.is_available():
+        pytest.skip("libxkbcommon unavailable")
+    config_dir = tmp_path / "keymasq"
+    monkeypatch.setattr(paths, "CONFIG_DIR", config_dir)
+
+    assert settings.load_keyboard_layout() == "us"
+    saved = settings.save_global_settings(
+        GlobalSettings(virtual_gamepad_count=2, keyboard_layout=" de(nodeadkeys) ")
+    )
+    assert saved.keyboard_layout == "de(nodeadkeys)"
+    assert (config_dir / "settings.toml").read_text().count('layout = "de(nodeadkeys)"') == 1
+    assert settings.load_keyboard_layout() == "de(nodeadkeys)"
+
+    # Saving only the gamepad count keeps the layout.
+    assert settings.save_virtual_gamepad_count(3) == 3
+    assert settings.load_global_settings() == GlobalSettings(
+        virtual_gamepad_count=3, keyboard_layout="de(nodeadkeys)"
+    )
+
+
+def test_global_settings_keep_unknown_keyboard_layout(tmp_path, monkeypatch) -> None:
+    """Loading never replaces the configured layout; using it reports the error."""
+    from keymasq.common import paths
+    from keymasq.session import settings
+
+    config_dir = tmp_path / "keymasq"
+    config_dir.mkdir()
+    (config_dir / "settings.toml").write_text('[keyboard]\nlayout = "nonsense"\n', encoding="utf-8")
+    monkeypatch.setattr(paths, "CONFIG_DIR", config_dir)
+
+    assert settings.load_global_settings().keyboard_layout == "nonsense"
+    # Saving another setting does not overwrite the user's value with the default.
+    assert settings.save_virtual_gamepad_count(2) == 2
+    assert (config_dir / "settings.toml").read_text().count('layout = "nonsense"') == 1

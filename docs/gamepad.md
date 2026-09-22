@@ -481,7 +481,13 @@ the GUI hamburger menu under **Settings**. Keymasq stores the setting in
 ```toml
 [gamepads]
 virtual_count = 1
+
+[keyboard]
+layout = "us"
 ```
+
+The `[keyboard]` table holds the keyboard layout used for type macros; see
+[Type macro template](macros.md#type-macro-template).
 
 If Keymasq cannot write the setting to disk, the requested count remains active
 for the current session and Keymasq warns that it may revert after a restart.

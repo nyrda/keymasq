@@ -13,6 +13,7 @@ from typing import BinaryIO, cast
 
 from keymasq.common.coercion import coerce_float, require_json_object
 from keymasq.common.config_files import write_config_atomically
+from keymasq.common.keyboard_layouts import DEFAULT_KEYBOARD_LAYOUT
 from keymasq.common.macro_rapidfire import macro_event_end_us
 from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
@@ -106,6 +107,7 @@ class MacroFileMeta:
     type_down_ms: int = 0
     type_pause_ms: int = 0
     type_use_unicode_input: bool = False
+    type_layout: str = ""
 
     @classmethod
     def from_payload(cls, payload: JsonObject, *, name: str | None = None) -> MacroFileMeta:
@@ -131,6 +133,7 @@ class MacroFileMeta:
             type_down_ms=macro_payload_int(payload, "type_down_ms", 0),
             type_pause_ms=macro_payload_int(payload, "type_pause_ms", 0),
             type_use_unicode_input=bool(payload.get("type_use_unicode_input", False)),
+            type_layout=macro_payload_str(payload, "type_layout"),
         )
 
     def to_payload(self, *, include_type_text: bool = False) -> JsonObject:
@@ -152,6 +155,8 @@ class MacroFileMeta:
             payload["type_down_ms"] = int(self.type_down_ms)
             payload["type_pause_ms"] = int(self.type_pause_ms)
             payload["type_use_unicode_input"] = bool(self.type_use_unicode_input)
+            # Macros saved before layouts existed were compiled for the default.
+            payload["type_layout"] = self.type_layout or DEFAULT_KEYBOARD_LAYOUT
             if include_type_text:
                 payload["type_text"] = self.type_text
         return payload

@@ -3194,7 +3194,10 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
 
 
 @pytest.mark.asyncio
-async def test_create_type_macro_recompiles_stale_client_payload_for_current_layout() -> None:
+@pytest.mark.parametrize("include_stale_events", [False, True])
+async def test_create_type_macro_compiles_client_source_for_current_layout(
+    include_stale_events: bool,
+) -> None:
     from keymasq.common import xkb
 
     if not xkb.is_available():
@@ -3207,27 +3210,27 @@ async def test_create_type_macro_recompiles_stale_client_payload_for_current_lay
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
     peer = PeerCredentials(pid=1, uid=1000, gid=1000)
 
+    macro: dict[str, object] = {
+        "name": "type_z",
+        "type_binding": True,
+        "type_text": "z",
+        "type_down_ms": 5,
+        "type_pause_ms": 0,
+    }
+    if include_stale_events:
+        macro["events"] = [
+            {
+                "device_type": "keyboard",
+                "type": evdev.ecodes.EV_KEY,
+                "code": evdev.ecodes.KEY_Z,
+                "value": 1,
+                "t_us": 0,
+            }
+        ]
+        macro["type_layout"] = "us"
+
     result = await manager._handle_session_request(
-        {
-            "command": "create_macro",
-            "macro": {
-                "name": "type_z",
-                "events": [
-                    {
-                        "device_type": "keyboard",
-                        "type": evdev.ecodes.EV_KEY,
-                        "code": evdev.ecodes.KEY_Z,
-                        "value": 1,
-                        "t_us": 0,
-                    }
-                ],
-                "type_binding": True,
-                "type_text": "z",
-                "type_down_ms": 5,
-                "type_pause_ms": 0,
-                "type_layout": "us",
-            },
-        },
+        {"command": "create_macro", "macro": macro},
         peer,
         object(),
     )

@@ -15,9 +15,7 @@ from keymasq.common.keyboard_layouts import keyboard_layout_error, keyboard_layo
 from keymasq.common.macro_compile import (
     DEFAULT_TYPE_MACRO_DOWN_MS,
     DEFAULT_TYPE_MACRO_PAUSE_MS,
-    build_type_macro_events,
     can_type_directly,
-    macro_definition_from_events,
     normalize_type_macro_binding_text,
     normalize_type_macro_text,
     normalize_unicode_type_macro_text,
@@ -27,7 +25,7 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.types import JsonObject
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.settings_dialog import present_keyboard_layout_settings
-from keymasq.session.settings import load_keyboard_layout
+from keymasq.gui.widgets.type_macro_layout import TypeMacroLayout
 
 
 def _layout_caption(layout_id: str, error: str | None) -> str:
@@ -37,8 +35,8 @@ def _layout_caption(layout_id: str, error: str | None) -> str:
 
 
 class TypeTabMixin:
-    def _type_keyboard_layout_id(self) -> str:
-        return load_keyboard_layout()
+    def _type_keyboard_layout_id(self) -> str | None:
+        return self._type_layout_state.layout_id
 
     def _build_type_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -127,13 +125,19 @@ class TypeTabMixin:
         self.type_error_label.set_visible(False)
         outer.append(self.type_error_label)
 
+        self._type_layout_state = TypeMacroLayout(self._sync_type_unicode_option)
+        self.connect("closed", self._on_type_tab_closed)
+        self._type_layout_state.refresh()
         self._sync_type_unicode_option()
         self._sync_type_map_button()
         return outer
 
     def _on_type_layout_link(self, link: Gtk.LinkButton) -> bool:
-        present_keyboard_layout_settings(link, on_closed=self._sync_type_unicode_option)
+        present_keyboard_layout_settings(link, on_closed=self._type_layout_state.refresh)
         return True
+
+    def _on_type_tab_closed(self, _dialog: Gtk.Widget) -> None:
+        self._type_layout_state.close()
 
     def _maybe_load_type_macro_details(self) -> None:
         if getattr(self, "_type_macro_details_loaded", False):
@@ -214,6 +218,16 @@ class TypeTabMixin:
 
     def _sync_type_unicode_option(self) -> None:
         layout_id = self._type_keyboard_layout_id()
+        if layout_id is None:
+            self.type_layout_label.set_label(
+                "Checking keyboard layout…"
+                if self._type_layout_state.loading
+                else "Keyboard layout unavailable: keymasq-session did not respond"
+            )
+            self.type_unicode_check.set_visible(False)
+            self.type_unicode_check.set_active(False)
+            self._sync_type_map_button()
+            return
         layout_error = keyboard_layout_error(layout_id)
         self.type_layout_label.set_label(_layout_caption(layout_id, layout_error))
         if layout_error is not None:
@@ -240,6 +254,7 @@ class TypeTabMixin:
             self.type_unicode_check.set_active(True)
         elif not needs_unicode or capability_error is not None:
             self.type_unicode_check.set_active(False)
+        self._sync_type_map_button()
 
     def _type_text_needs_unicode_option(self, text: str) -> bool:
         exact_text = normalize_unicode_type_macro_text(text)
@@ -247,6 +262,8 @@ class TypeTabMixin:
         if exact_text != direct_text:
             return True
         layout_id = self._type_keyboard_layout_id()
+        if layout_id is None:
+            return False
         return any(not can_type_directly(ch, layout_id) for ch in direct_text)
 
     def _sync_type_map_button(self) -> None:
@@ -255,10 +272,21 @@ class TypeTabMixin:
         if map_btn is None or stack is None or stack.get_visible_child_name() != "type":
             return
         pending = bool(getattr(self, "_type_create_pending", False))
-        map_btn.set_sensitive(bool(self._normalized_type_buffer_text()) and not pending)
+        map_btn.set_sensitive(
+            bool(self._normalized_type_buffer_text())
+            and self._type_keyboard_layout_id() is not None
+            and not self._type_layout_state.loading
+            and not pending
+        )
 
     def _on_type_map_clicked(self, _btn: Gtk.Button) -> None:
+        if self._type_layout_state.loading:
+            self._show_type_error("Checking keyboard layout with keymasq-session")
+            return
         layout_id = self._type_keyboard_layout_id()
+        if layout_id is None:
+            self._show_type_error("Keyboard layout unavailable: keymasq-session did not respond")
+            return
         layout_error = keyboard_layout_error(layout_id)
         self.type_layout_label.set_label(_layout_caption(layout_id, layout_error))
         if layout_error is not None:
@@ -272,18 +300,6 @@ class TypeTabMixin:
 
         down_ms = int(self.type_down_spin.get_value())
         pause_ms = int(self.type_pause_spin.get_value())
-        try:
-            events = build_type_macro_events(
-                text,
-                down_ms,
-                pause_ms,
-                use_unicode_input=use_unicode_input,
-                layout=layout_id,
-            )
-        except ValueError as exc:
-            self._show_type_error(str(exc))
-            return
-
         self._type_create_pending = True
         self._sync_type_map_button()
 
@@ -294,14 +310,15 @@ class TypeTabMixin:
                 self._on_type_macro_create_done()
 
         name = self._type_macro_name()
-        macro = macro_definition_from_events(events, name=name)
-        macro["created_at"] = datetime.now().isoformat()
-        macro["type_binding"] = True
-        macro["type_text"] = text
-        macro["type_down_ms"] = down_ms
-        macro["type_pause_ms"] = pause_ms
-        macro["type_use_unicode_input"] = bool(use_unicode_input)
-        macro["type_layout"] = layout_id
+        macro: JsonObject = {
+            "name": name,
+            "created_at": datetime.now().isoformat(),
+            "type_binding": True,
+            "type_text": text,
+            "type_down_ms": down_ms,
+            "type_pause_ms": pause_ms,
+            "type_use_unicode_input": bool(use_unicode_input),
+        }
 
         session_request_async({"command": "create_macro", "macro": macro}, on_created)
 

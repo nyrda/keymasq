@@ -18,6 +18,17 @@ def test_native_hidraw_acl_is_read_only_and_independent_of_driver_models() -> No
     assert "GROUP=" not in rule
 
 
+def test_uinput_group_access_applies_to_the_static_node() -> None:
+    lines = (ROOT / "udev/91-keymasq-acl.rules").read_text().splitlines()
+    uinput_rules = [line for line in lines if 'KERNEL=="uinput"' in line]
+    assert len(uinput_rules) == 1
+    rule = uinput_rules[0]
+    # udevd applies only the GROUP and MODE tokens that precede static_node.
+    static_node = rule.index('OPTIONS+="static_node=uinput"')
+    assert rule.index('GROUP="input"') < static_node
+    assert rule.index('MODE="0660"') < static_node
+
+
 @pytest.mark.parametrize(
     "path",
     [

@@ -11,7 +11,11 @@ from keymasq.keymasqd.runtime.macro import cleanup, loops, outputs, scheduler
 from keymasq.keymasqd.runtime.macro.events import list_macro_event_source
 from keymasq.keymasqd.runtime.macro.exceptions import MacroCallError
 from keymasq.keymasqd.runtime.macro.options import MacroPlaybackOptions
-from keymasq.keymasqd.runtime.macro.state import MacroEventSource, MacroRuntimeDeps
+from keymasq.keymasqd.runtime.macro.state import (
+    MacroEventSource,
+    MacroRuntimeDeps,
+    MacroRuntimeState,
+)
 from keymasq.keymasqd.runtime.macro.timing import MacroPauseState
 
 type MacroManager = Any
@@ -124,11 +128,16 @@ async def play_macro(
     if normalized_loop == "hold" and not (source_key[0] or source_key[1]):
         normalized_loop = "none"
 
-    if normalized_loop == "hold" and loops.find_matching_macro_instances(
-        manager.macro_state,
-        loop_mode="hold",
-        source_key=source_key,
+    if normalized_loop == "hold" and any(
+        not _is_paused(state, instance_id)
+        for instance_id in loops.find_matching_macro_instances(
+            state,
+            loop_mode="hold",
+            source_key=source_key,
+        )
     ):
+        # A paused run of another macro on this trigger, such as another superkey slot
+        # or a remapped key, waits for its own resume or timeout without blocking this one.
         return {"status": "ok", "already_running": True}
 
     event_source = macro_event_source or list_macro_event_source(
@@ -273,6 +282,11 @@ def _start_macro_instance(
 
         task.add_done_callback(finished)
     return task
+
+
+def _is_paused(state: MacroRuntimeState, instance_id: int) -> bool:
+    pause = state.pauses.get(instance_id)
+    return pause is not None and pause.paused
 
 
 async def _stop_loop_instances(

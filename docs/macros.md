@@ -458,7 +458,11 @@ works:
   resumes those invocations instead of starting another copy.
 - **While Held** macros will not start a second copy from the same trigger while one
   is already running. Releasing the trigger finishes, cancels, or pauses the
-  current run, depending on the macro's release behavior.
+  current run, depending on the macro's release behavior. A paused run of a
+  different macro on the same trigger, such as another superkey slot or the
+  previous binding of a remapped key, does not block a new While Held macro.
+  The paused run keeps its position until its own macro resumes it, its
+  discard timeout expires, or you use Cancel All.
 - **Toggle** macros use the trigger as an on/off switch. Pressing it while
   the macro is running either finishes the current run or cancels it
   immediately, depending on the macro's loop stop behavior.

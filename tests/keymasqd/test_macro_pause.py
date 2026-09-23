@@ -440,6 +440,38 @@ async def test_repress_resumes_all_overlapping_invocations(manager) -> None:
 
 
 @pytest.mark.asyncio
+async def test_paused_hold_run_does_not_block_another_hold_macro(manager) -> None:
+    async def hold(name: str, value: int, events: list[dict[str, object]]) -> dict[str, object]:
+        return await manager.play_macro(
+            macro_name=name,
+            macro_events=events,
+            load_stored_macro=False,
+            loop_mode="hold",
+            loop_stop_behavior="pause_run",
+            source_device="kbd",
+            source_button="key_f13",
+            trigger_value=value,
+        )
+
+    first = [key(30, 1), key(30, 0, 150_000)]
+    second = [key(48, 1), key(48, 0, 20_000)]
+    await hold("first", 1, first)
+    await until(lambda: writes(manager) == [(1, 30, 1)])
+    await hold("first", 0, first)
+    assert writes(manager) == [(1, 30, 1), (1, 30, 0)]
+
+    assert await hold("second", 1, second) == {"status": "ok"}
+    await until(lambda: (1, 48, 0) in writes(manager))
+    await hold("second", 0, second)
+    assert (1, 30, 1) not in writes(manager)[2:]
+
+    # The first macro keeps its position for a trigger that still maps to it.
+    assert (await hold("first", 1, first))["resumed"] is True
+    await until(lambda: writes(manager)[-1] == (1, 30, 1))
+    await manager.cancel_macro_playback()
+
+
+@pytest.mark.asyncio
 async def test_resume_does_not_reload_macro_file(manager, monkeypatch) -> None:
     await trigger(
         manager, 1, loop_stop_behavior="pause_run", macro_events=[key(30, 1), key(30, 0, 50_000)]

@@ -56,6 +56,10 @@
   freezes during force-feedback uploads.
 - Fixed Unicode type macros typing wrong characters. Type macros with Unicode
   characters saved in earlier versions must be recreated or edited by hand.
+- Fixed `keymasqd` running after the Debian package was removed, which kept
+  devices grabbed until reboot.
+- Fixed `keymasqd` failing to start after an OS image update gave the
+  `keymasq` user a new ID.
 
 ### Removed
 

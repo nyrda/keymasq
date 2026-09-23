@@ -10,6 +10,7 @@ keymasq (0.20.0-1) unstable; urgency=medium
     suspend.
   * Fix stuck keys after mapping changes, superkey releases across profile
     changes, and force-feedback forwarding.
+  * Stop keymasqd when the package is removed.
   * Remove keymasq play and move-to-start macro playback.
 
  -- nyrda <nyrda@keymasq.tools>  Wed, 23 Sep 2026 00:00:00 +0000

@@ -1,4 +1,10 @@
 #!/bin/sh
 set -e
 
+# dh_installsystemd --no-start omits its remove-time stop in debhelper 13.24.
+# Stop while ExecStopPost can still run the installed recovery helper.
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	deb-systemd-invoke stop keymasqd.service >/dev/null || true
+fi
+
 #DEBHELPER#

@@ -44,6 +44,19 @@ def test_hardware_job_does_not_expose_unrelated_runtime_files(unit_path, tmpfile
     assert ["d", "/run/udev/rules.d", "0755", "root", "root", "-"] in entries
 
 
+@pytest.mark.parametrize(
+    "tmpfiles_path",
+    ["tmpfiles.d/keymasq.conf", "packaging/appimage/assets/keymasq-tmpfiles.conf"],
+)
+def test_state_dir_ownership_is_repaired_recursively(tmpfiles_path):
+    # tmpfiles refuses Z on a subdirectory whose owner differs from its
+    # non-root parent, so the repair has to start at the state directory.
+    root = Path(__file__).resolve().parents[2]
+    entries = [line.split() for line in (root / tmpfiles_path).read_text().splitlines()]
+    assert ["Z", "/var/lib/keymasq", "-", "keymasq", "keymasq", "-"] in entries
+    assert not any(entry[:1] == ["Z"] and entry[1] != "/var/lib/keymasq" for entry in entries)
+
+
 @pytest.mark.asyncio
 async def test_service_cleanup_stops_jobs_before_restoring_permissions(monkeypatch):
     calls = []

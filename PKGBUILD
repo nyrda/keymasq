@@ -3,7 +3,7 @@
 
 # Maintainer: nyrda <nyrda@keymasq.tools>
 pkgname=keymasq
-pkgver=0.19.0
+pkgver=0.20.0
 pkgrel=1
 pkgdesc="Input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
 arch=(

@@ -118,3 +118,47 @@ async def test_tracked_toggle_requests_start_independent_instances() -> None:
     results = [await asyncio.wait_for(events.get(), 1) for _ in range(2)]
     assert {result["playback_id"] for result in results} == {"first", "second"}
     assert all(result["state"] == "cancelled" for result in results)
+
+
+@pytest.mark.parametrize("loop_stop_behavior", ["finish_run", "cancel_run"])
+@pytest.mark.asyncio
+async def test_untracked_toggle_does_not_stop_tracked_toggle(loop_stop_behavior: str) -> None:
+    manager, events = setup_manager()
+    await manager.play_macro(
+        macro_events=key_events(evdev.ecodes.KEY_A, 10_000_000),
+        playback_id="tracked",
+        loop_mode="toggle",
+        loop_stop_behavior=loop_stop_behavior,
+    )
+    started = await manager.play_macro(
+        macro_events=key_events(evdev.ecodes.KEY_B, 10_000_000),
+        loop_mode="toggle",
+        loop_stop_behavior=loop_stop_behavior,
+    )
+    assert started == {"status": "ok"}
+    assert len(manager.macro_state.tasks) == 2
+    assert all(
+        manager.macro_state.instance_meta[instance_id].get("loop_active", True)
+        for instance_id in manager.macro_state.tasks
+    )
+
+    await manager.play_macro(
+        macro_events=key_events(evdev.ecodes.KEY_B, 10_000_000),
+        loop_mode="toggle",
+        loop_stop_behavior=loop_stop_behavior,
+    )
+    active = [
+        manager.macro_state.instance_meta[instance_id]["playback_id"]
+        for instance_id, task in manager.macro_state.tasks.items()
+        if not task.done()
+        and instance_id not in manager.macro_state.cancel_instance_ids
+        and manager.macro_state.instance_meta[instance_id].get("loop_active", True)
+    ]
+    assert active == ["tracked"]
+    assert events.empty()
+
+    await manager.cancel_macro_request("tracked")
+    assert await asyncio.wait_for(events.get(), 1) == {
+        "playback_id": "tracked",
+        "state": "cancelled",
+    }

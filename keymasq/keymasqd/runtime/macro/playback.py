@@ -107,11 +107,16 @@ async def play_macro(
         return {"status": "ok", "resumed": True}
 
     if normalized_loop == "toggle" and not playback_options.playback_id:
-        toggle_instances = loops.find_matching_macro_instances(
-            manager.macro_state,
-            loop_mode="toggle",
-            source_key=source_key,
-        )
+        # Tracked requests belong to their session client; only that client may stop them.
+        toggle_instances = [
+            instance_id
+            for instance_id in loops.find_matching_macro_instances(
+                manager.macro_state,
+                loop_mode="toggle",
+                source_key=source_key,
+            )
+            if not manager.macro_state.instance_meta[instance_id].get("playback_id")
+        ]
         if toggle_instances:
             cancelled = await _stop_loop_instances(manager, toggle_instances, deps=deps)
             return {"status": "ok", "cancelled": cancelled > 0}

@@ -988,6 +988,25 @@ install_generic_integration() {
 	print_generic_service_instructions
 }
 
+repair_hardware_integration() {
+	# v0.19 installs the incoming daemon unit but does not know these assets.
+	# Its first restart reaches this through the new runtime's root pre-start.
+	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "hardware integration repair requires root"
+	assets=$(asset_dir)
+	for pair in 'keymasq-hardware@.service /etc/systemd/system/keymasq-hardware@.service' \
+		'49-keymasq-hardware.rules /etc/polkit-1/rules.d/49-keymasq-hardware.rules'; do
+		set -- $pair
+		if ! cmp -s "$assets/$1" "$(root_path "$2")"; then
+			install_file 0644 "$assets/$1" "$(root_path "$2")"
+		fi
+	done
+	if [ -f "$(root_path /etc/atomic-update.conf.d/keymasq.conf)" ] || steamos_detected; then
+		install_atomic_keep_list
+	fi
+	# Retry a previously failed reload even when the files are already present.
+	systemctl daemon-reload
+}
+
 refresh_installed_integration() {
 	target_user=$1
 	runtime_id=$2
@@ -1280,7 +1299,16 @@ self_update() {
 		trap 'rm -f "$staged_target"' EXIT HUP INT TERM
 		install_file 0755 "$new_appimage" "$staged_target"
 		prepare_runtime_from_appimage "$staged_target" "$actual_sha256"
-		refresh_installed_integration "$target_user" "$actual_sha256"
+		# The verified incoming release owns its integration schema.
+		incoming_runtime=$(runtime_path_for_sha256 "$actual_sha256")
+		if [ -f "$incoming_runtime/share/keymasq/appimage/integration-version" ]; then
+			[ "$(cat "$incoming_runtime/share/keymasq/appimage/integration-version")" = 1 ] || die "unsupported AppImage integration protocol"
+			APPDIR="$incoming_runtime" ARGV0=keymasq-appimage-runtime \
+				sh "$incoming_runtime/bin/keymasq" --refresh-integration "$target_user" "$actual_sha256"
+		else
+			# Older releases do not implement the refresh entry point.
+			refresh_installed_integration "$target_user" "$actual_sha256"
+		fi
 		mv -Tf "$staged_target" "$target"
 		trap - EXIT HUP INT TERM
 		activate_runtime "$actual_sha256"
@@ -1411,6 +1439,10 @@ dispatch_command() {
 			run_python_module keymasq.session "$@"
 			;;
 		keymasq-record)
+			if [ "${1:-}" = repair-appimage-integration ]; then
+				repair_hardware_integration
+				exit 0
+			fi
 			run_python_module keymasq.record "$@"
 			;;
 		*)
@@ -1439,6 +1471,11 @@ main() {
 	esac
 
 	case "${1:-keymasq}" in
+		--refresh-integration)
+			is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "integration refresh requires root"
+			[ "$#" = 3 ] || die "integration refresh requires user and runtime ID"
+			refresh_installed_integration "$2" "$3"
+			;;
 		--install|install)
 			shift
 			install_auto "$@"

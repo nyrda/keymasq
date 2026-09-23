@@ -1296,9 +1296,34 @@ self_update() {
 		refuse_downgrade_unless_allowed "$current_version" "$version" "$allow_downgrade"
 		previous_runtime=$(current_runtime_id || true)
 		staged_target="$target.new.$$"
-		trap 'rm -f "$staged_target"' EXIT HUP INT TERM
+		keymasq_update_unit=$(root_path /etc/systemd/system/keymasqd.service)
+		keymasq_update_unit_backup="$tmp_dir/keymasqd.service.before-update"
+		keymasq_restore_update_unit=0
+		trap '
+			keymasq_update_status=$?
+			rm -f "$staged_target"
+			if [ "$keymasq_restore_update_unit" = 1 ] && {
+				[ -e "$keymasq_update_unit" ] || [ -L "$keymasq_update_unit" ] ||
+				[ -e "$keymasq_update_unit_backup" ] || [ -L "$keymasq_update_unit_backup" ];
+			}; then
+				if [ -e "$keymasq_update_unit_backup" ] || [ -L "$keymasq_update_unit_backup" ]; then
+					mv -Tf "$keymasq_update_unit_backup" "$keymasq_update_unit" || warn "could not restore previous daemon unit"
+				else
+					rm -f "$keymasq_update_unit" || warn "could not remove unactivated daemon unit"
+				fi
+				systemctl daemon-reload || warn "could not reload restored daemon unit"
+			fi
+			exit "$keymasq_update_status"
+		' EXIT
+		trap 'exit 1' HUP INT TERM
 		install_file 0755 "$new_appimage" "$staged_target"
 		prepare_runtime_from_appimage "$staged_target" "$actual_sha256"
+		# A new unit may invoke commands absent from the active runtime. Restore
+		# its predecessor if refresh or activation fails, including after reload.
+		if [ -e "$keymasq_update_unit" ] || [ -L "$keymasq_update_unit" ]; then
+			cp -a "$keymasq_update_unit" "$keymasq_update_unit_backup"
+		fi
+		keymasq_restore_update_unit=1
 		# The verified incoming release owns its integration schema.
 		incoming_runtime=$(runtime_path_for_sha256 "$actual_sha256")
 		if [ -f "$incoming_runtime/share/keymasq/appimage/integration-version" ]; then
@@ -1310,8 +1335,9 @@ self_update() {
 			refresh_installed_integration "$target_user" "$actual_sha256"
 		fi
 		mv -Tf "$staged_target" "$target"
-		trap - EXIT HUP INT TERM
 		activate_runtime "$actual_sha256"
+		keymasq_restore_update_unit=0
+		trap - EXIT HUP INT TERM
 		write_installed_version "$version"
 		prune_old_runtimes "$actual_sha256" "$previous_runtime"
 	) 9>"$lock_path"

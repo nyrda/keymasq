@@ -1679,7 +1679,16 @@ def test_appimage_self_update_rejects_signed_downgrade(tmp_path: Path) -> None:
     assert not (fake_root / "opt/keymasq/runtime/current").exists()
 
 
-@pytest.mark.parametrize("failure", ["user-directory", "incoming-refresh", "protocol"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "user-directory",
+        "incoming-refresh",
+        "incoming-refresh-new-unit",
+        "protocol",
+        "hardware-service",
+    ],
+)
 def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     tmp_path: Path,
     failure: str,
@@ -1700,23 +1709,40 @@ def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     target.chmod(0o755)
     version_file = install_root / "version"
     version_file.write_text("1.0.0\n", encoding="utf-8")
+    daemon_unit = fake_root / "etc/systemd/system/keymasqd.service"
+    daemon_unit.parent.mkdir(parents=True)
+    if failure != "incoming-refresh-new-unit":
+        daemon_unit.write_text("old daemon unit\n", encoding="utf-8")
 
     if failure == "user-directory":
         blocked_user_dir = fake_root / "root/.local"
         blocked_user_dir.parent.mkdir(parents=True)
         blocked_user_dir.symlink_to(tmp_path)
         expected_error = "refusing to write through symlinked user directory"
-    elif failure == "incoming-refresh":
+    elif failure.startswith("incoming-refresh"):
         incoming = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq"
-        _write_executable(incoming, "#!/bin/sh\necho incoming-refresh-failed >&2\nexit 1\n")
+        _write_executable(
+            incoming,
+            """#!/bin/sh
+unit="$KEYMASQ_APPIMAGE_ROOT/etc/systemd/system/keymasqd.service"
+printf '%s\\n' 'unactivated daemon unit' > "$unit"
+systemctl daemon-reload
+echo incoming-refresh-failed >&2
+exit 1
+""",
+        )
         expected_error = "incoming-refresh-failed"
-    else:
+    elif failure == "protocol":
         protocol = (
             Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"])
             / "share/keymasq/appimage/integration-version"
         )
         protocol.write_text("999\n")
         expected_error = "unsupported AppImage integration protocol"
+    else:
+        blocked_unit = daemon_unit.with_name("keymasq-hardware@.service")
+        blocked_unit.symlink_to(tmp_path / "unrelated-unit")
+        expected_error = "refusing to install through symlinked destination"
 
     update_dir = tmp_path / "updates"
     update_dir.mkdir()
@@ -1746,6 +1772,13 @@ def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     assert target.read_text(encoding="utf-8") == "old\n"
     assert (runtime_root / "current").readlink() == Path("old-runtime")
     assert version_file.read_text(encoding="utf-8") == "1.0.0\n"
+    if failure == "incoming-refresh-new-unit":
+        assert not daemon_unit.exists()
+    else:
+        assert daemon_unit.read_text(encoding="utf-8") == "old daemon unit\n"
+    if failure.startswith("incoming-refresh"):
+        command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+        assert command_log.count("systemctl daemon-reload\n") == 2
     assert not list(install_root.glob("Keymasq.AppImage.new.*"))
 
 

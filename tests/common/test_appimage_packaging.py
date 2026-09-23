@@ -625,6 +625,8 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
     ):
         _write_executable(brotway_dir / name, "#!/bin/sh\nexit 0\n")
     shutil.copytree(assets, appdir / "share/keymasq/appimage")
+    shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq")
+    shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq-record")
     return appdir
 
 
@@ -1523,6 +1525,15 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     runtime_link.symlink_to(RUNTIME_SCRIPT)
     subprocess.run([str(runtime_link), "--self-update", "--user", "root"], check=True, env=env)
 
+    for asset, destination in (
+        ("keymasq-hardware@.service", "etc/systemd/system/keymasq-hardware@.service"),
+        ("49-keymasq-hardware.rules", "etc/polkit-1/rules.d/49-keymasq-hardware.rules"),
+    ):
+        assert (fake_root / destination).read_bytes() == (new_assets / asset).read_bytes()
+        assert (
+            f"/{destination}" in (fake_root / "etc/atomic-update.conf.d/keymasq.conf").read_text()
+        )
+
     assert target.read_text(encoding="utf-8") == "new\n"
     assert (fake_root / "opt/keymasq/runtime/current").readlink() == Path(sha256)
     assert (fake_root / f"opt/keymasq/runtime/{sha256}/bin/keymasq").is_file()
@@ -1546,6 +1557,28 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     assert "systemctl reenable keymasqd.service" in command_log
     assert "systemctl --user reenable keymasq-session.service" in command_log
     assert "systemctl try-restart keymasqd.service" in command_log
+
+
+def test_appimage_hardware_migration_refuses_symlink_destination(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    env = _env(tmp_path, fake_root, assets, tmp_path / "source.AppImage")
+    destination = fake_root / "etc/systemd/system/keymasq-hardware@.service"
+    destination.parent.mkdir(parents=True)
+    unrelated = tmp_path / "unrelated"
+    unrelated.write_text("preserve me\n")
+    destination.symlink_to(unrelated)
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "keymasq-record", "repair-appimage-integration"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "refusing to install through symlinked destination" in result.stderr
+    assert unrelated.read_text() == "preserve me\n"
+    assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
 
 
 def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
@@ -1646,8 +1679,19 @@ def test_appimage_self_update_rejects_signed_downgrade(tmp_path: Path) -> None:
     assert not (fake_root / "opt/keymasq/runtime/current").exists()
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "user-directory",
+        "incoming-refresh",
+        "incoming-refresh-new-unit",
+        "protocol",
+        "hardware-service",
+    ],
+)
 def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     tmp_path: Path,
+    failure: str,
 ) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
@@ -1665,10 +1709,40 @@ def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     target.chmod(0o755)
     version_file = install_root / "version"
     version_file.write_text("1.0.0\n", encoding="utf-8")
+    daemon_unit = fake_root / "etc/systemd/system/keymasqd.service"
+    daemon_unit.parent.mkdir(parents=True)
+    if failure != "incoming-refresh-new-unit":
+        daemon_unit.write_text("old daemon unit\n", encoding="utf-8")
 
-    blocked_user_dir = fake_root / "root/.local"
-    blocked_user_dir.parent.mkdir(parents=True)
-    blocked_user_dir.symlink_to(tmp_path)
+    if failure == "user-directory":
+        blocked_user_dir = fake_root / "root/.local"
+        blocked_user_dir.parent.mkdir(parents=True)
+        blocked_user_dir.symlink_to(tmp_path)
+        expected_error = "refusing to write through symlinked user directory"
+    elif failure.startswith("incoming-refresh"):
+        incoming = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq"
+        _write_executable(
+            incoming,
+            """#!/bin/sh
+unit="$KEYMASQ_APPIMAGE_ROOT/etc/systemd/system/keymasqd.service"
+printf '%s\\n' 'unactivated daemon unit' > "$unit"
+systemctl daemon-reload
+echo incoming-refresh-failed >&2
+exit 1
+""",
+        )
+        expected_error = "incoming-refresh-failed"
+    elif failure == "protocol":
+        protocol = (
+            Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"])
+            / "share/keymasq/appimage/integration-version"
+        )
+        protocol.write_text("999\n")
+        expected_error = "unsupported AppImage integration protocol"
+    else:
+        blocked_unit = daemon_unit.with_name("keymasq-hardware@.service")
+        blocked_unit.symlink_to(tmp_path / "unrelated-unit")
+        expected_error = "refusing to install through symlinked destination"
 
     update_dir = tmp_path / "updates"
     update_dir.mkdir()
@@ -1694,10 +1768,17 @@ def test_appimage_self_update_does_not_activate_when_integration_refresh_fails(
     )
 
     assert result.returncode != 0
-    assert "refusing to write through symlinked user directory" in result.stderr
+    assert expected_error in result.stderr
     assert target.read_text(encoding="utf-8") == "old\n"
     assert (runtime_root / "current").readlink() == Path("old-runtime")
     assert version_file.read_text(encoding="utf-8") == "1.0.0\n"
+    if failure == "incoming-refresh-new-unit":
+        assert not daemon_unit.exists()
+    else:
+        assert daemon_unit.read_text(encoding="utf-8") == "old daemon unit\n"
+    if failure.startswith("incoming-refresh"):
+        command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+        assert command_log.count("systemctl daemon-reload\n") == 2
     assert not list(install_root.glob("Keymasq.AppImage.new.*"))
 
 
@@ -1839,7 +1920,11 @@ async def test_appimage_rejects_runtime_without_privileged_helper(tmp_path: Path
     env = _env(tmp_path, fake_root, assets, source)
     (Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin/keymasq-record").unlink()
     result = await asyncio.create_subprocess_exec(
-        "sh", str(RUNTIME_SCRIPT), "--install", "--user", "root",
+        "sh",
+        str(RUNTIME_SCRIPT),
+        "--install",
+        "--user",
+        "root",
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

@@ -75,6 +75,8 @@ class FakeI3Server:
         self.commands: list[str] = []
         self.command_reply: list[dict[str, object]] = [{"success": True}]
         self.subscriptions: list[list[str]] = []
+        # Events sent to subscribers right before the next GET_TREE reply.
+        self.events_before_tree_reply: list[tuple[int, dict[str, object]]] = []
         self._subscribers: list[asyncio.StreamWriter] = []
         self._server: asyncio.Server | None = None
         self.subscribed = asyncio.Event()
@@ -103,6 +105,9 @@ class FakeI3Server:
                     reply: object = self.version
                 elif message_type == I3IpcMessage.GET_TREE:
                     reply = self.tree
+                    pending, self.events_before_tree_reply = self.events_before_tree_reply, []
+                    for event_type, event in pending:
+                        await self.emit(event_type, event)
                 elif message_type == I3IpcMessage.RUN_COMMAND:
                     self.commands.append(body)
                     reply = self.command_reply
@@ -300,6 +305,26 @@ async def test_sway_listener_tracks_focus_title_close_and_workspace(
     finally:
         await listener.stop()
     assert listener.running is False
+
+
+async def test_sway_focus_during_startup_is_not_overwritten_by_tree(
+    sway_server: FakeI3Server,
+) -> None:
+    alpha = _window(10, "Alpha", app_id="lab")
+    beta = _window(11, "Beta", app_id="lab", focused=True)
+    sway_server.tree = _tree(alpha, beta)
+    # Focus moves to Alpha after Sway built the tree reply that still says Beta.
+    sway_server.events_before_tree_reply = [
+        (I3IpcEvent.WINDOW, {"change": "focus", "container": dict(alpha, focused=True)})
+    ]
+    recorder = _Recorder()
+    listener = SwayListener(recorder)
+    await listener.start()
+    try:
+        await recorder.wait_for(("lab", "Alpha"))
+        assert recorder.calls == [("lab", "Beta", []), ("lab", "Alpha", [])]
+    finally:
+        await listener.stop()
 
 
 async def test_sway_listener_stops_on_shutdown_event(sway_server: FakeI3Server) -> None:

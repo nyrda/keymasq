@@ -294,11 +294,14 @@ class SwayListener(WindowListener):
         try:
             await self._cursor.start()
             self.running = True
+            # Seed from the tree before reading events. Events that arrive in
+            # the meantime wait on the subscribed connection and are applied
+            # afterwards, so a stale tree reply cannot overwrite a newer focus.
+            await self._refresh_from_tree()
             self._task = asyncio.create_task(
                 self._listen(reader),
                 name=f"keymasq-session:{self.name}-events",
             )
-            await self._refresh_from_tree()
         except BaseException:
             # The session manager drops a listener whose start fails without
             # calling stop, so release the event task and connections here.

@@ -42,8 +42,19 @@ to open. Device IDs and protocol matching stay in the drivers.
 Debian, RPM, Arch/AUR, source, and AppImage install/upgrade hooks retrigger
 hidraw devices and wait for udev to apply the ACLs. Systemd units and the NixOS
 module do this before daemon startup too, covering already-connected devices.
-AppImage's non-systemd instructions include the same step, and its uninstall
-removes the daemon's hidraw ACLs. Installing the Nix package alone does not
+The trigger and a bounded `udevadm settle --timeout=30` run separately.
+`udevadm trigger --settle` waits for each triggered event without a timeout, and
+it stalled during a CachyOS upgrade on systemd 261. In the service units a settle
+timeout does not fail daemon startup, because `settle` waits for the whole udev
+queue, not only Keymasq's events. The hooks send `change` events only to existing
+input event and joystick nodes and to uinput. This applies Keymasq's permissions
+without replaying unrelated `add` rules.
+Arch also applies only Keymasq's sysusers and tmpfiles definitions.
+Privileged masking jobs use the same trigger-then-settle sequence when they
+recheck input nodes or restore a masked controller.
+AppImage's non-systemd instructions include the same step. Removal on every
+format runs `keymasq-record prepare-removal`, which removes the daemon's own ACL
+entries from uinput, input, and hidraw nodes. Installing the Nix package alone does not
 activate system services or udev rules. NixOS users must enable the module.
 
 Adding another read-only native driver requires no packaging changes.

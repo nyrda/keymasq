@@ -38,6 +38,12 @@ MAX_TRIGGER_NODES = 64
 # the flag files, which stay the source of truth.
 NODE_TRIGGER_TIMEOUT_S = 8.0
 SUBSYSTEM_TRIGGER_TIMEOUT_S = 20.0
+NODE_SETTLE_TIMEOUT_S = 6
+SUBSYSTEM_SETTLE_TIMEOUT_S = 18
+# keymasqd.service allows 20s to stop, then ExecStopPost runs hardware recovery.
+DAEMON_STOP_TIMEOUT_S = 120.0
+SYSTEMD_RUNTIME = Path("/run/systemd/system")
+DEVICE_ROOT = Path("/dev")
 log = logging.getLogger("keymasq.masking")
 
 
@@ -96,15 +102,23 @@ async def trigger_input(message: JsonObject, root: LinuxMaskBackend) -> JsonObje
     await finish_io(root.prepare_directories)
     with (root.runtime_dir / "operations.lock").open("a") as global_lock:
         fcntl.flock(global_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        await run_host(
-            "udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            *(f"--sysname-match={name}" for name in nodes or ()),
-            "--settle",
-            timeout=SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S,
-        )
+        budget = SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S
+        settle_timeout = SUBSYSTEM_SETTLE_TIMEOUT_S if nodes is None else NODE_SETTLE_TIMEOUT_S
+        async with asyncio.timeout(budget):
+            await run_host(
+                "udevadm",
+                "trigger",
+                "--subsystem-match=input",
+                "--action=change",
+                *(f"--sysname-match={name}" for name in nodes or ()),
+                timeout=budget,
+            )
+            await run_host(
+                "udevadm",
+                "settle",
+                f"--timeout={settle_timeout}",
+                timeout=budget,
+            )
     return {"triggered": nodes if nodes is not None else ["input"]}
 
 
@@ -227,7 +241,8 @@ async def recover_all(root: LinuxMaskBackend | None = None) -> None:
             try:
                 await backend.for_attachment(identity).recover()
             except (OSError, ValueError) as exc:
-                failures.append(f"{identity}: {exc}")
+                # A timed-out host command raises TimeoutError without a message.
+                failures.append(f"{identity}: {str(exc) or type(exc).__name__}")
         # Interrupted early implementations used the top-level journal.
         await backend.recover()
         if failures:
@@ -241,9 +256,79 @@ async def recover_hardware() -> None:
     await recover_all()
 
 
+class RemovalBlockedError(OSError):
+    """Package removal must wait until hardware access is restored."""
+
+
+def _removal_blocked(reason: str) -> RemovalBlockedError:
+    return RemovalBlockedError(
+        f"Keymasq cannot be removed yet: {reason}. Masked devices may still be "
+        "unavailable. Reboot, or run 'sudo keymasq-record recover-hardware', "
+        "then remove Keymasq again."
+    )
+
+
+async def remove_device_grants() -> None:
+    """Remove only keymasq's named ACL entry. udev and logind own the rest."""
+    try:
+        pwd.getpwnam("keymasq")
+    except KeyError:
+        return
+
+    def device_nodes() -> list[Path]:
+        return [
+            path
+            for path in (
+                DEVICE_ROOT / "uinput",
+                *sorted((DEVICE_ROOT / "input").glob("event*")),
+                *sorted((DEVICE_ROOT / "input").glob("js*")),
+                *sorted(DEVICE_ROOT.glob("hidraw*")),
+            )
+            if path.exists()
+        ]
+
+    for node in await finish_io(device_nodes):
+        try:
+            await run_host("setfacl", "-x", "u:keymasq", str(node))
+        except OSError as exc:
+            log.warning("Could not remove the keymasq ACL from %s: %s", node, exc)
+
+
+async def prepare_removal() -> None:
+    """Stop keymasqd and finish hardware recovery before the package goes away.
+
+    Package managers call this while the recovery helper is still installed. A
+    failure must stop the removal, so the helper stays available to finish.
+    """
+    if not await finish_io(SYSTEMD_RUNTIME.is_dir):
+        # Without systemd there is no daemon service or hardware job to recover.
+        return
+    try:
+        await run_host("systemctl", "stop", "keymasqd.service", timeout=DAEMON_STOP_TIMEOUT_S)
+    except OSError as exc:
+        # systemctl reports success even when ExecStopPost recovery fails, so
+        # the checks below decide whether removal may continue.
+        log.warning("Stopping keymasqd.service failed: %s", exc)
+    state = (
+        await run_host("systemctl", "show", "keymasqd.service", "-p", "ActiveState", "--value")
+    ).strip()
+    if state not in {"inactive", "failed"}:
+        raise _removal_blocked(f"keymasqd.service is still {state or 'running'}")
+    try:
+        await recover_hardware()
+    except (OSError, ValueError) as exc:
+        raise _removal_blocked(str(exc)) from exc
+    await remove_device_grants()
+
+
 def main(operation: str, token: str = "") -> None:
     if os.geteuid() != 0:
         raise PermissionError("Hardware operations require root")
     if "PKEXEC_UID" in os.environ:
         raise PermissionError("Recording authorization does not authorize hardware operations")
-    asyncio.run(run_request(token) if operation == "hardware-operation" else recover_hardware())
+    if operation == "hardware-operation":
+        asyncio.run(run_request(token))
+    elif operation == "prepare-removal":
+        asyncio.run(prepare_removal())
+    else:
+        asyncio.run(recover_hardware())

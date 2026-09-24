@@ -1,0 +1,13 @@
+# pacman ignores install script failures. This hook aborts the removal
+# transaction instead, keeping the recovery helper installed, when keymasqd
+# cannot stop or hardware recovery is incomplete.
+[Trigger]
+Operation = Remove
+Type = Package
+Target = keymasq
+
+[Action]
+Description = Restoring Keymasq hardware access before removal...
+When = PreTransaction
+Exec = /usr/bin/keymasq-record prepare-removal
+AbortOnFail

@@ -23,7 +23,8 @@ ExecStartPre=+/opt/keymasq/bin/keymasq-record recover-hardware
 ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
 ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
 # Apply native-driver ACLs to controllers already connected at startup.
-ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
+ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change
+ExecStartPre=-+/usr/bin/udevadm settle --timeout=30
 ExecStart=/opt/keymasq/bin/keymasqd
 ExecStopPost=+/opt/keymasq/bin/keymasq-record recover-hardware
 Restart=on-failure

@@ -142,6 +142,14 @@ operation. Restart `keymasqd` when recovery succeeds.
 Recovery preserves user profiles, hardware configurations, and confirmed masking
 preferences.
 
+## Uninstalling
+
+Removing Keymasq stops `keymasqd`, restores every masked device, and removes
+Keymasq's own ACL entries from device nodes. Other ACL entries, such as those
+from the desktop session or Steam, stay in place. If recovery cannot finish,
+removal is refused and Keymasq stays installed, so the recovery helper remains
+available. Fix the reported error or reboot, then remove Keymasq again.
+
 ## Further reading
 
 - [Hardware masking design](hardware-masking-design.md) describes the privileged

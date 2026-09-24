@@ -169,6 +169,9 @@ yet, so set one first with `passwd`.
 For the full layout, update, and uninstall behavior, see
 [steamos.md](steamos.md).
 
+Install either the AppImage or a native package, not both. See
+[Switching between the AppImage and a native package](#switching-between-the-appimage-and-a-native-package).
+
 ### openSUSE Tumbleweed / Leap
 
 Add the Keymasq repository and install:
@@ -413,6 +416,11 @@ systemctl --user restart keymasq-session
 Package removal does not remove user profiles or hardware configuration stored
 under `~/.config/keymasq/`.
 
+Removal stops `keymasqd`, restores masked devices, and removes Keymasq's ACL
+entries from device nodes. If hardware recovery cannot finish, the package
+manager refuses the removal and keeps Keymasq installed. See
+[Uninstalling](hardware-masking.md#uninstalling).
+
 Packaged installs may also leave system-level configuration in place, notably
 `/etc/keymasq/security.toml`.
 
@@ -432,6 +440,40 @@ package version with your package manager. Before rolling back:
 - keep a backup of `/etc/keymasq/security.toml` if you edited it
 - verify that your stored profiles and config remain compatible with the older
   release
+
+### Switching between the AppImage and a native package
+
+The AppImage and the native packages install services, udev rules, and polkit
+files with the same names. The AppImage's copies in `/etc` override the
+package's copies in `/usr/lib`, so only one of them can be active. The AppImage
+installer refuses to run while a native package is installed, and native
+packages print a warning when the AppImage is installed.
+
+Both use the same data paths. Profiles and hardware configuration in
+`~/.config/keymasq/`, the security policy in `/etc/keymasq/`, and macros and
+saved masks in `/var/lib/keymasq/` carry over when you switch.
+
+To move from the AppImage to a native package, run as your desktop user:
+
+```bash
+/opt/keymasq/bin/keymasq --uninstall
+```
+
+Then install the package for your distribution and enable its services:
+
+```bash
+sudo systemctl enable --now keymasqd
+systemctl --user enable --now keymasq-session
+```
+
+To move from a native package to the AppImage, remove the package with your
+package manager first, then run `--install` from the AppImage.
+
+If both are already installed, uninstall the AppImage, then enable and start
+the native services using the commands above. AppImage uninstall disables the
+shared service names. Version 0.20.0 and later preserves the native package's
+Polkit action during uninstall. Reinstall the native package if an older
+AppImage removed the action or if its files were overwritten during the overlap.
 
 ### Manual-install cleanup
 

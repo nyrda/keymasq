@@ -1,6 +1,6 @@
 pkgbase = keymasq
 	pkgdesc = Input remapper for keyboards, mice, and game controllers, with layered profiles and macros
-	pkgver = 0.19.0
+	pkgver = 0.20.0
 	pkgrel = 1
 	url = https://keymasq.tools
 	arch = any
@@ -24,7 +24,7 @@ pkgbase = keymasq
 	depends = libxkbcommon
 	depends = polkit
 	depends = systemd
-	source = keymasq-0.19.0.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.19.0.tar.gz
+	source = keymasq-0.20.0.tar.gz::https://repo.keymasq.tools/releases/keymasq-0.20.0.tar.gz
 	sha256sums = SKIP
 	install = keymasq.install
 

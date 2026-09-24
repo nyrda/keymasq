@@ -13,6 +13,10 @@ if [ "${1:-0}" -ne 0 ]; then
     exit 0
 fi
 
+# Let the remaining udev policy recompute owner, group, and mode.
+udevadm trigger --action=change --subsystem-match=input 2>/dev/null || true
+udevadm trigger --action=change --sysname-match=uinput 2>/dev/null || true
+
 echo ""
 echo "Keymasq has been removed."
 echo ""

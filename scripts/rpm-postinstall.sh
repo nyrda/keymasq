@@ -7,9 +7,11 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || tr
 
 # Reload udev rules
 udevadm control --reload-rules 2>/dev/null || true
-udevadm trigger --subsystem-match=input --action=add 2>/dev/null || true
-udevadm trigger --subsystem-match=misc --action=add 2>/dev/null || true
-udevadm trigger --subsystem-match=hidraw --action=change --settle 2>/dev/null || true
+udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=hidraw --action=change 2>/dev/null || true
+udevadm settle --timeout=30 2>/dev/null || true
 
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true
@@ -44,3 +46,13 @@ echo "  3. Launch Keymasq:"
 echo "       keymasq"
 echo ""
 echo "Security policy: /etc/keymasq/security.toml"
+
+# The AppImage's /etc units override this package's units.
+if [ -e /opt/keymasq/version ]; then
+    echo "" >&2
+    echo "Keymasq AppImage integration in /opt/keymasq overrides this package." >&2
+    echo "To switch to this package, run as your desktop user:" >&2
+    echo "  /opt/keymasq/bin/keymasq --uninstall" >&2
+    echo "  sudo systemctl enable --now keymasqd" >&2
+    echo "  systemctl --user enable --now keymasq-session" >&2
+fi

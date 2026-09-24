@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.20.0 - 2026-09-24
+
+### Added
+
+- Added hardware masking, which reserves a controller's HID, USB, and input
+  nodes so Steam and SDL cannot read it directly while Keymasq remaps it.
+  Masks are reapplied after reconnect, restart, suspend, and reboot.
+- Added gyro and tilt motion controls for mouse aiming, stick output, and
+  Analog Control mappings, with sensor calibration and a live motion preview
+  in the device inspector.
+- Added motion support for the 8BitDo Ultimate 2 in DInput mode.
+- Added configurable virtual controller templates, including a flight stick
+  layout, extra TriggerHappy buttons, and custom axes.
+- Added a default output per controller, so unmapped buttons and axes go to a
+  chosen virtual controller in every profile.
+- Controller setup now detects every button and axis a device reports, and
+  analog bounds and centers can be edited after setup.
+- 1D analog controls can now target any axis on the destination controller.
+- Added nested macros. Saved macros can now be added to the macro timeline.
+- Added Pause on release for macros. Holding the trigger again resumes
+  playback, and an optional timeout discards paused macros.
+- Added rapidfire blocks to the macro editor.
+- Added a keyboard layout setting for type macros, in Settings and as
+  `keymasq type --layout`. Layouts come from the system XKB data.
+- Added `--wait` and `--ordered` to `keymasq type` and `keymasq macros play`.
+  Ctrl+C cancels only that request.
+- Added selection, cut, copy, and paste, bulk retiming, gap editing, and a
+  Timing Tools dialog to the macro timeline.
+- Added independent macro editor windows. Shift-click a macro's edit button
+  to open one.
+- Added type-to-search in manager and selector dialogs.
+
+### Improved
+
+- `keymasqd` now runs without Linux capabilities. Source hiding runs through
+  short-lived `keymasq-hardware@` root jobs authorized by a Polkit rule.
+- Keymasq now releases held keys, macros, and outputs before suspend, and
+  checks devices again on wake.
+- Area Mouse now has Stick and Touchpad input styles. Touchpad style ignores
+  pointer jumps when a finger lands or lifts.
+- Virtual keyboards and mice now advertise all evdev key codes.
+- Repeated short macros now start faster.
+- The GUI now remembers the selected profile across restarts.
+- Macro recording now ignores motion sensors.
+- Added support for GNOME Shell 51.
+
+### Fixed
+
+- Fixed keys staying pressed when a mapping changed while the key was held.
+- Fixed superkeys losing release actions when the profile changed while held,
+  and enforced the superkey tap timeout.
+- Fixed combo actions running out of order across devices.
+- Fixed LED and force-feedback forwarding to physical devices, and daemon
+  freezes during force-feedback uploads.
+- Fixed Unicode type macros typing wrong characters. Type macros with Unicode
+  characters saved in earlier versions must be recreated or edited by hand.
+- Fixed `keymasqd` running after the Debian package was removed, which kept
+  devices grabbed until reboot.
+- Fixed `keymasqd` failing to start after an OS image update gave the
+  `keymasq` user a new ID.
+
+### Removed
+
+- Removed `keymasq play` and the compact macro syntax. Use `keymasq type`,
+  or `keymasq macros create` and `keymasq macros play`.
+- Removed move-to-start macro playback. Saved `move_to_start` fields are
+  ignored, and the first natural mouse move sets the start position.
+- Removed the in-app Feedback dialog.
+
 ## 0.19.0 - 2026-07-12
 
 ### Added

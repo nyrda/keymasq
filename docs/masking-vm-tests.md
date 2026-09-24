@@ -30,7 +30,9 @@ The runner includes uncommitted test files and forces a fresh test execution.
   rejected requests and confirmation tokens, and saved choices across reboot.
 - `masking-recovery` checks SIGKILL, watchdog expiry, interrupted activation,
   service stop, clean reboot, abrupt power loss, and reapplication of a saved
-  mask after restart. Automatic daemon restart is disabled so startup recovery
+  mask after restart. It also runs `keymasq-record prepare-removal` while
+  another process holds the hardware operations lock. The command must fail and
+  leave the mask in place, then succeed once the lock is released. Automatic daemon restart is disabled so startup recovery
   cannot conceal failed cleanup after a stop or crash.
 
 Assertions check actual device permissions and input as an ordinary user,

@@ -229,6 +229,18 @@ Startup also runs recovery before opening input devices, and fails if recovery
 is incomplete. Unexpected masking monitor errors stop remapping and attempt
 physical recovery. The daemon logs cleanup errors and the monitor keeps running.
 
+`systemctl stop` reports success even when `ExecStopPost` recovery fails, so
+package removal does not rely on it. Every package format runs
+`keymasq-record prepare-removal` before deleting files: the Debian `prerm`, the
+RPM `%preun`, an Arch `PreTransaction` alpm hook with `AbortOnFail` (pacman
+ignores install script failures), and the AppImage uninstaller. The command
+stops `keymasqd`, requires the unit to be inactive or failed, and runs the same
+recovery. If recovery is incomplete, it fails, and the package manager keeps the
+package so the helper remains available. After recovery succeeds, it removes
+only the `u:keymasq` ACL entry from uinput, input, and hidraw nodes. The
+post-removal scripts then retrigger udev so the remaining rules set owner,
+group, and mode.
+
 ## Saved state
 
 The daemon stores the confirmed startup preference in

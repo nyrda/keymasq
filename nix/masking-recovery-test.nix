@@ -1,6 +1,7 @@
 # Run from the repository root: ./scripts/integration.sh masking-recovery
 # Uses kernel UHID devices to check cleanup after SIGKILL, watchdog expiry,
-# interrupted activation, service stop, clean reboot, and abrupt power loss.
+# interrupted activation, service stop, package removal, clean reboot, and
+# abrupt power loss.
 { pkgs, keymasqPackage, keymasqModule }:
 
 let
@@ -76,6 +77,25 @@ pkgs.testers.runNixOSTest {
         ready()
         check("baseline")
 
+        with subtest("old service UID state is repaired without widening modes"):
+            state = "/var/lib/keymasq"
+            fixture = state + "/old-uid-fixture"
+            owner = machine.succeed("id -u keymasq").strip()
+            group = machine.succeed("id -g keymasq").strip()
+            assert machine.succeed("stat -c %a " + state).strip() == "750"
+            machine.succeed("install -d -m 0700 " + fixture)
+            machine.succeed("touch " + fixture + "/sample")
+            machine.succeed("chmod 0600 " + fixture + "/sample")
+            machine.succeed("chown -R 1999:1999 " + fixture)
+            machine.succeed("systemd-tmpfiles --create")
+            assert machine.succeed("stat -c %u:%g " + fixture).strip() == owner + ":" + group
+            assert machine.succeed("stat -c %u:%g " + fixture + "/sample").strip() == owner + ":" + group
+            assert machine.succeed("stat -c %a " + fixture).strip() == "700"
+            assert machine.succeed("stat -c %a " + fixture + "/sample").strip() == "600"
+            assert machine.succeed("stat -c %a " + state).strip() == "750"
+            assert machine.succeed("stat -c %U:%G /var/lib/keymasq-masking").strip() == "root:root"
+            machine.succeed("rm -r " + fixture)
+
         with subtest("SIGKILL of a daemon with a confirmed mask"):
             check("mask")
             machine.succeed("systemctl kill --kill-whom=main --signal=SIGKILL keymasqd.service")
@@ -106,6 +126,30 @@ pkgs.testers.runNixOSTest {
             check("mask")
             machine.succeed("systemctl stop keymasqd.service")
             check("restored")
+            restart()
+
+        with subtest("package removal waits for hardware recovery it cannot finish"):
+            check("mask")
+            # Every hardware job and recovery takes this lock without waiting.
+            lock = "${pkgs.util-linux}/bin/flock -n -s /run/keymasq-masking/operations.lock true"
+            machine.succeed(
+                "systemd-run --unit=keymasq-test-recovery-lock "
+                "${pkgs.util-linux}/bin/flock -x /run/keymasq-masking/operations.lock "
+                "${pkgs.coreutils}/bin/sleep infinity"
+            )
+            machine.wait_until_fails(lock, timeout=15)
+            status, output = machine.execute(
+                "${keymasqPackage}/bin/keymasq-record prepare-removal 2>&1"
+            )
+            assert status != 0, output
+            assert "cannot be removed yet" in output, output
+            assert machine.succeed(
+                "systemctl show keymasqd.service -p MainPID --value"
+            ).strip() == "0"
+            check("restricted")
+            machine.succeed("systemctl stop keymasq-test-recovery-lock.service")
+            machine.succeed("${keymasqPackage}/bin/keymasq-record prepare-removal")
+            check("removed")
             restart()
 
         with subtest("clean shutdown and next boot restore a nonpersistent mask"):

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keymasq"
-version = "0.19.0"
+version = "0.20.0"
 description = "Linux input remapper for keyboards, mice, and game controllers, with layered profiles and macros"
 readme = "README.md"
 authors = [{ name = "nyrda", email = "nyrda@keymasq.tools" }]

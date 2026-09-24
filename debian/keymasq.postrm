@@ -5,6 +5,9 @@ case "$1" in
     remove|purge)
         if command -v udevadm >/dev/null 2>&1; then
             udevadm control --reload-rules >/dev/null 2>&1 || true
+            # Let the remaining udev policy recompute owner, group, and mode.
+            udevadm trigger --action=change --subsystem-match=input >/dev/null 2>&1 || true
+            udevadm trigger --action=change --sysname-match=uinput >/dev/null 2>&1 || true
         fi
 
         if command -v systemctl >/dev/null 2>&1; then

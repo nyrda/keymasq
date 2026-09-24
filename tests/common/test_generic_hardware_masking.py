@@ -293,7 +293,7 @@ async def test_activation_waits_for_udev_to_apply_rules_to_rebound_nodes(tmp_pat
     events: list[tuple[str, ...]] = []
 
     async def host(*args, **_kwargs):
-        if args[:2] == ("udevadm", "trigger"):
+        if args[:2] in {("udevadm", "trigger"), ("udevadm", "settle")}:
             events.append(args)
         return ""
 
@@ -303,11 +303,12 @@ async def test_activation_waits_for_udev_to_apply_rules_to_rebound_nodes(tmp_pat
     async def verify_access(current):
         # udev must have processed the replacement nodes under the armed
         # rules before their ownership is checked.
-        assert events[-1][:2] == ("udevadm", "trigger")
-        assert "--action=change" in events[-1]
-        assert f"--parent-match={current.syspath}" in events[-1]
-        assert "--settle" in events[-1]
-        assert ("rebind",) in events[:-1]
+        assert events[-2][:2] == ("udevadm", "trigger")
+        assert "--action=change" in events[-2]
+        assert f"--parent-match={current.syspath}" in events[-2]
+        assert "--settle" not in events[-2]
+        assert events[-1] == ("udevadm", "settle", "--timeout=8")
+        assert ("rebind",) in events[:-2]
         events.append(("verify",))
 
     monkeypatch.setattr(backend_module, "run_host", host)

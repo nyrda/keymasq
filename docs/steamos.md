@@ -181,3 +181,7 @@ removes the hidden-source flags and Keymasq ACL entries, it retriggers the
 connected input devices, so you do not need to reboot or replug anything. It
 leaves `/etc/keymasq`, `/var/lib/keymasq`, and your configuration and macros in
 place on purpose.
+
+Before it removes anything, the uninstaller stops `keymasqd` and restores masked
+devices. If that recovery cannot finish, it stops with an error and leaves
+Keymasq installed. See [Uninstalling](hardware-masking.md#uninstalling).

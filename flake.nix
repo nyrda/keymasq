@@ -111,7 +111,7 @@
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keymasq";
-          version = "0.19.0";
+          version = "0.20.0";
           pyproject = true;
 
           src = mkCleanSrc pkgs;
@@ -432,6 +432,9 @@
             systemd.tmpfiles.rules = [
               "d /run/keymasq 0755 keymasq keymasq -"
               "d /var/lib/keymasq 0750 keymasq keymasq -"
+              # Repair state left by an older keymasq UID. The d line above
+              # fixes only the top directory, so StateDirectory= skips its chown.
+              "Z /var/lib/keymasq - keymasq keymasq -"
               "d /run/udev/rules.d 0755 root root -"
             ];
 
@@ -468,7 +471,8 @@
                 Nice = -5;
                 ExecStartPre = [
                   "+${cfg.package}/bin/keymasq-record recover-hardware"
-                  "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle"
+                  "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change"
+                  "-+${pkgs.systemd}/bin/udevadm settle --timeout=30"
                   "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
                   "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];
@@ -495,6 +499,7 @@
                 RuntimeDirectory = "keymasq";
                 RuntimeDirectoryMode = "0755";
                 StateDirectory = "keymasq";
+                StateDirectoryMode = "0750";
                 ReadWritePaths = [ "/run/keymasq" "/var/lib/keymasq" ];
               };
             };

@@ -675,9 +675,11 @@ reload_udev_rules() {
 	if ! udevadm control --reload-rules; then
 		warn "could not reload udev rules; device permissions may not update until udev is reloaded"
 	fi
-	udevadm trigger --subsystem-match=input --action=add || true
-	udevadm trigger --subsystem-match=misc --action=add || true
-	udevadm trigger --subsystem-match=hidraw --action=change --settle || true
+	udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change || true
+	udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change || true
+	udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change || true
+	udevadm trigger --subsystem-match=hidraw --action=change || true
+	udevadm settle --timeout=30 || true
 }
 
 clear_keymasq_udev_state() {
@@ -811,7 +813,8 @@ Before starting the daemon, grant device ACLs:
   install -d -o keymasq -g keymasq -m 0755 /run/keymasq
   install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq
   setfacl -m u:keymasq:rw /dev/uinput
-  udevadm trigger --subsystem-match=hidraw --action=change --settle
+  udevadm trigger --subsystem-match=hidraw --action=change
+  udevadm settle --timeout=30
   for p in /dev/input/event*; do [ -e "\$p" ] && setfacl -m u:keymasq:rw "\$p"; done
 
 The per-user session manager was installed as an XDG autostart entry for:
@@ -991,6 +994,9 @@ install_generic_integration() {
 repair_hardware_integration() {
 	# v0.19 installs the incoming daemon unit but does not know these assets.
 	# Its first restart reaches this through the new runtime's root pre-start.
+	# The macro recording action lets users run keymasq-record through pkexec
+	# with their own password. That must not authorize integration changes.
+	[ -z "${PKEXEC_UID:-}" ] || die "recording authorization does not authorize integration repair"
 	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "hardware integration repair requires root"
 	assets=$(asset_dir)
 	for pair in 'keymasq-hardware@.service /etc/systemd/system/keymasq-hardware@.service' \
@@ -1034,6 +1040,24 @@ refresh_installed_integration() {
 	fi
 }
 
+native_package_installed() {
+	# Distribution packages install the daemon unit under /usr/lib, or /lib
+	# without merged /usr. The AppImage's /etc units would override it, and both
+	# install the same polkit action file.
+	for keymasq_native_unit in \
+		/usr/lib/systemd/system/keymasqd.service \
+		/lib/systemd/system/keymasqd.service; do
+		[ -e "$(root_path "$keymasq_native_unit")" ] && return 0
+	done
+	return 1
+}
+
+refuse_native_package() {
+	if native_package_installed; then
+		die "a native Keymasq package is installed. Remove it with your package manager, then run --install again. Settings, macros, and saved masks in /etc/keymasq, /var/lib/keymasq, and ~/.config/keymasq are kept."
+	fi
+}
+
 install_auto() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1050,6 +1074,7 @@ install_auto() {
 	done
 
 	target_user=$(resolve_target_user "$target_user")
+	refuse_native_package
 	require_root_or_pkexec --install --user "$target_user"
 	validate_user_wrapper_destinations "$target_user"
 	install_common_payload "$target_user"
@@ -1096,6 +1121,21 @@ remove_user_wrapper_if_managed() {
 	fi
 }
 
+prepare_hardware_removal() {
+	# Stop keymasqd and finish hardware recovery while the helper is installed.
+	# The running AppImage performs the check, so an older runtime cannot skip it.
+	systemd_available || return 0
+	# pkexec already authorized this uninstaller as an administrator and set
+	# PKEXEC_UID. keymasq-record rejects that marker so the macro recording
+	# action cannot authorize hardware operations, so do not pass it on.
+	if [ -n "${KEYMASQ_APPIMAGE_RECORD_HELPER:-}" ]; then
+		(unset PKEXEC_UID; "$KEYMASQ_APPIMAGE_RECORD_HELPER" prepare-removal) && return 0
+	else
+		(unset PKEXEC_UID; run_python_module keymasq.record prepare-removal) && return 0
+	fi
+	die "hardware recovery is incomplete; Keymasq was left installed so recovery can finish"
+}
+
 uninstall_keymasq() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1115,6 +1155,7 @@ uninstall_keymasq() {
 	require_root_or_pkexec --uninstall --user "$target_user"
 	home=$(resolve_user_home "$target_user")
 
+	prepare_hardware_removal
 	systemctl disable --now keymasqd.service 2>/dev/null || true
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
@@ -1129,7 +1170,10 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
 	clear_keymasq_udev_state || die "failed to clear Keymasq state from existing input devices"
 	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
-	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
+	# A native package installed after the AppImage owns this shared action.
+	if ! native_package_installed; then
+		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
+	fi
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"

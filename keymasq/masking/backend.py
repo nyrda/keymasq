@@ -519,8 +519,15 @@ class LinuxMaskBackend:
             "trigger",
             f"--action={action}",
             f"--parent-match={attachment.syspath}",
-            "--settle",
             timeout=UDEV_TRIGGER_TIMEOUT_S,
+        )
+        # trigger --settle can wait indefinitely for its own completion event
+        # on systemd 261. A separate settle bounds the wait during recovery.
+        await run_host(
+            "udevadm",
+            "settle",
+            f"--timeout={UDEV_SETTLE_TIMEOUT_S}",
+            timeout=UDEV_SETTLE_PROCESS_TIMEOUT_S,
         )
 
     async def rebind_hid(

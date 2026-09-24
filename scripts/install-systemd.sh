@@ -68,9 +68,11 @@ rm -f /etc/udev/rules.d/60-keymasq-hide-grabbed.rules
 install -Dm644 "${REPO_ROOT}/udev/91-keymasq-acl.rules" /etc/udev/rules.d/91-keymasq-acl.rules
 install -Dm644 "${REPO_ROOT}/udev/99-keymasq-hide-grabbed.rules" /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 udevadm control --reload-rules
-udevadm trigger --subsystem-match=input --action=add
-udevadm trigger --subsystem-match=misc --action=add
-udevadm trigger --subsystem-match=hidraw --action=change --settle
+udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change
+udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change
+udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change
+udevadm trigger --subsystem-match=hidraw --action=change
+udevadm settle --timeout=30
 
 install -d -m 0750 -o keymasq -g keymasq /var/lib/keymasq
 
@@ -115,7 +117,8 @@ Group=keymasq
 SupplementaryGroups=input
 Nice=-5
 # Apply native-driver ACLs to controllers already connected at startup.
-ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change --settle
+ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change
+ExecStartPre=-+/usr/bin/udevadm settle --timeout=30
 ExecStartPre=+/usr/local/bin/keymasq-record-wrapper recover-hardware
 ExecStart=/usr/local/bin/keymasqd-wrapper
 ExecStopPost=+/usr/local/bin/keymasq-record-wrapper recover-hardware

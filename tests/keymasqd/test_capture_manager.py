@@ -1,5 +1,4 @@
 import errno
-import threading
 from typing import cast
 from unittest.mock import Mock
 
@@ -446,8 +445,8 @@ def test_capture_manager_combo_begin_read_end(monkeypatch) -> None:
     begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
     token = begin["token"]
 
-    first = manager.read_combo(token)
-    second = manager.read_combo(token)
+    first = manager.read_combo_nowait(token)
+    second = manager.read_combo_nowait(token)
     ended = manager.end(token)
 
     first_event = cast(dict[str, object], first["event"])
@@ -457,30 +456,6 @@ def test_capture_manager_combo_begin_read_end(monkeypatch) -> None:
     assert second_event["value"] == 0
     assert ended == {"status": "ok", "ended": True}
     assert fake.closed is True
-
-
-def test_capture_manager_read_combo_queued_session_does_not_read_device(
-    monkeypatch,
-) -> None:
-    press_event = evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
-    fake = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [press_event])
-
-    def fake_start_combo_reader(_self, session) -> None:
-        session.reader_thread = threading.Thread(target=lambda: None)
-
-    monkeypatch.setattr(evdev, "list_devices", lambda: ["/dev/input/event2"])
-    monkeypatch.setattr(evdev, "InputDevice", lambda _path: fake)
-    monkeypatch.setattr(CaptureManager, "_start_combo_reader", fake_start_combo_reader)
-
-    manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
-    token = str(begin["token"])
-
-    assert manager.read_combo(token) == {"event": None}
-    assert fake.read_one_count == 0
-    assert len(fake._events) == 1
-
-    manager.end(token)
 
 
 def test_capture_manager_combo_reader_notifies_async_waiter(monkeypatch) -> None:

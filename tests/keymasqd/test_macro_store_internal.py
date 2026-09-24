@@ -15,7 +15,6 @@ def test_register_internal_macro():
             duration_us=100_000,
         )
 
-        assert store.is_internal("__test_macro")
         macro = store.get("__test_macro")
         assert macro["name"] == "__test_macro"
         assert macro["internal"] is True
@@ -79,17 +78,6 @@ def test_cannot_rename_to_internal_prefix():
 
         with pytest.raises(ValueError, match="reserved"):
             store.rename("normal_macro", "__internal_name", None)
-
-
-def test_get_returns_copy_of_internal_macro():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = MacroStore(Path(tmpdir))
-        store.register_internal("__test", events=[{"type": "key"}])
-
-        macro1 = store.get("__test")
-        macro2 = store.get("__test")
-
-        assert macro1 is not macro2
 
 
 def test_internal_macro_reads_do_not_expose_store_state():

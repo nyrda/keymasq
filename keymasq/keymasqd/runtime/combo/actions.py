@@ -134,15 +134,6 @@ async def wait_combo_action_started(manager: ComboManager, combo_id: str) -> Non
     await state.started.wait()
 
 
-def track_combo_superkey_output(
-    manager: ComboManager,
-    action_type: str,
-    code: int,
-    value: int,
-) -> bool:
-    return superkeys.track_output(manager, action_type, code, value)
-
-
 async def _combo_superkey_machine(
     manager: ComboManager,
     combo_id: str,

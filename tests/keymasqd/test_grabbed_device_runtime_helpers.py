@@ -2881,7 +2881,7 @@ class TestGrabbedDeviceHelpers:
             remember_passthrough_event,
             repeat_category_for_action,
             repeat_execution_action,
-            select_repeated_action,
+            select_repeated_entry,
         )
 
         repeat_action = MappingAction(
@@ -2934,9 +2934,9 @@ class TestGrabbedDeviceHelpers:
             )
             == "special"
         )
-        selected_action = select_repeated_action(repeat_state, repeat_action)
-        assert selected_action is not None
-        assert selected_action.target == "key_b"
+        selected_entry = select_repeated_entry(repeat_state, repeat_action)
+        assert selected_entry is not None
+        assert selected_entry.action.target == "key_b"
 
     @pytest.mark.asyncio
     async def test_routed_gamepad_axis_release_all_keys_zeros_target_output(

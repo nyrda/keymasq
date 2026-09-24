@@ -464,29 +464,6 @@ class CaptureManager:
         self._combo_capture_authorizations.remove(token)
         return True
 
-    def read_combo(self, token: str) -> JsonObject:
-        session = self._sessions.get(token)
-        if session is None:
-            raise ValueError("Invalid capture token")
-
-        queued = self._read_combo_nowait(session)
-        if queued is not None:
-            return {"event": queued}
-        if session.event_queue is not None:
-            return {"event": None}
-
-        for device in session.devices:
-            event = _read_one_device_event(device)
-
-            if event is None:
-                continue
-
-            parsed = self._parse_combo_event(device, event, path_sources=session.path_sources)
-            if parsed is not None:
-                return {"event": parsed}
-
-        return {"event": None}
-
     def read_combo_nowait(self, token: str) -> JsonObject:
         session = self._sessions.get(token)
         if session is None:

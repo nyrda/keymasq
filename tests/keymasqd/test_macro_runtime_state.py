@@ -25,16 +25,6 @@ def test_count_loop_state_finishes_after_requested_iterations() -> None:
     assert loop.should_continue() is False
 
 
-@pytest.mark.parametrize("mode", ["hold", "toggle"])
-def test_open_ended_loop_state_stops_only_when_requested(mode: str) -> None:
-    loop = MacroLoopStateMachine(mode)
-
-    loop.begin_iteration()
-    assert loop.should_continue() is True
-    loop.request_stop()
-    assert loop.should_continue() is False
-
-
 def test_loop_stop_plan_separates_cancel_from_finish_current_run() -> None:
     state = MacroRuntimeState(
         instance_meta={

@@ -75,9 +75,6 @@ class MacroStore:
             )
         )
 
-    def is_internal(self, name: str) -> bool:
-        return name in self._internal_macros
-
     def ensure(self) -> None:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.base_dir, 0o700)

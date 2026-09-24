@@ -193,14 +193,6 @@ def remember_superkey_path(
     )
 
 
-def select_repeated_action(
-    repeat_state: RepeatRuntimeState | None,
-    repeat_action: MappingAction,
-) -> MappingAction | None:
-    entry = select_repeated_entry(repeat_state, repeat_action)
-    return entry.action if entry is not None else None
-
-
 def select_repeated_entry(
     repeat_state: RepeatRuntimeState | None,
     repeat_action: MappingAction,

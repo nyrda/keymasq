@@ -32,9 +32,6 @@ class MacroLoopStateMachine:
     def begin_iteration(self) -> None:
         self.iterations += 1
 
-    def request_stop(self) -> None:
-        self.active = False
-
     def should_continue(self) -> bool:
         if self.mode == "count":
             return self.iterations < self.count

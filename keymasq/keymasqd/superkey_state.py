@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -25,11 +24,6 @@ from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.common.model.superkeys import superkey_action_shared_kwargs
 from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.runtime.adapters import WritableUInput, identity_uinput_writer
-from keymasq.keymasqd.runtime.mouse_actions import (
-    emit_relative_pulse,
-    rapidfire_relative_pulses,
-    resolve_mouse_output_target,
-)
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_DOUBLE_TAP,
     SUPERKEY_SLOT_HOLD,
@@ -226,8 +220,6 @@ class SuperkeyMachine:
         self._press_started_at: float | None = None
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
-        self._rapidfire_tasks: list[asyncio.Task[None]] = []
-        self._rapidfire_active = False
         self._running = True
         from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
 
@@ -270,15 +262,12 @@ class SuperkeyMachine:
         self._running = False
         self._press_started_at = None
         self._action_runtime.stop()
-        self._rapidfire_active = False
         if self._hold_task:
             self._hold_task.cancel()
             self._hold_task = None
         if self._double_tap_task:
             self._double_tap_task.cancel()
             self._double_tap_task = None
-
-        await self._stop_rapidfire_tasks()
 
         if self.state == SuperkeyState.HOLDING:
             await self._emit_hold_up()
@@ -412,14 +401,10 @@ class SuperkeyMachine:
         return elapsed_ms <= max(0, self.config.tap_timeout_ms)
 
     async def _on_hold_release(self) -> None:
-        self._rapidfire_active = False
-        await self._stop_rapidfire_tasks()
         await self._emit_hold_up()
         self._become_idle()
 
     async def _on_tap_hold_release(self) -> None:
-        self._rapidfire_active = False
-        await self._stop_rapidfire_tasks()
         await self._emit_tap_hold_up()
         self._become_idle()
 
@@ -471,67 +456,6 @@ class SuperkeyMachine:
     def _record_repeat_path(self, slot: str) -> None:
         if self.repeat_path_recorder is not None:
             self.repeat_path_recorder(slot)
-
-    async def _rapidfire_loop(self, action: SuperkeyActionData) -> None:
-        hold = clamp_rapidfire_hold_ms(action.rapidfire_hold_ms) / 1000.0
-        wait = clamp_rapidfire_wait_ms(action.rapidfire_wait_ms) / 1000.0
-        mouse_target = (
-            self._resolve_mouse_target(action.target) if action.action_type == "mouse" else None
-        )
-        is_relative_mouse = bool(mouse_target and mouse_target.is_relative)
-
-        try:
-            if is_relative_mouse and mouse_target is not None:
-                await rapidfire_relative_pulses(
-                    emit_pulse=lambda: emit_relative_pulse(
-                        self.mouse_uinput,
-                        mouse_target.code,
-                        mouse_target.relative_value,
-                        ev_rel_code=evdev.ecodes.EV_REL,
-                    ),
-                    is_active=lambda: self._rapidfire_active and self._running,
-                    hold_s=hold,
-                    wait_s=wait,
-                    asyncio_mod=asyncio,
-                )
-            else:
-                while self._rapidfire_active and self._running:
-                    await self._execute_action_down(action)
-                    await asyncio.sleep(hold)
-
-                    if not self._rapidfire_active:
-                        break
-
-                    await self._execute_action_up(action)
-                    await asyncio.sleep(wait)
-        except OSError:
-            log.debug("Rapidfire loop stopped after error", exc_info=True)
-        except Exception:
-            log.exception("Rapidfire loop stopped after unexpected error")
-        finally:
-            current_task = asyncio.current_task()
-            if current_task is not None:
-                with contextlib.suppress(ValueError):
-                    self._rapidfire_tasks.remove(cast(asyncio.Task[None], current_task))
-            if not is_relative_mouse:
-                try:
-                    await self._execute_action_up(action)
-                except OSError:
-                    log.debug("Failed to release rapidfire action after loop stop", exc_info=True)
-                except Exception:
-                    log.exception("Unexpected failure releasing rapidfire action after loop stop")
-
-    async def _stop_rapidfire_tasks(self) -> None:
-        if not self._rapidfire_tasks:
-            return
-
-        tasks = list(self._rapidfire_tasks)
-        self._rapidfire_tasks.clear()
-        for task in tasks:
-            task.cancel()
-        for task in tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
 
     async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
         indexed_actions = list(enumerate(actions))
@@ -622,9 +546,6 @@ class SuperkeyMachine:
         if event_type != CommandType.ACTION_TRIGGER or self.broadcast_callback is None:
             return
         await self.broadcast_callback(data)
-
-    def _resolve_mouse_target(self, target: str | None):
-        return resolve_mouse_output_target(target)
 
     def _mapping_action(self, action: SuperkeyActionData) -> MappingAction:
         action_kwargs = superkey_action_shared_kwargs(action)

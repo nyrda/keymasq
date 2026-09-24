@@ -488,7 +488,7 @@ async def test_rollback_failed_grab_restores_existing_devices_and_desired_state(
     )
 
     assert reported.reported_exception is exc
-    assert reported.cleanup_succeeded
+    assert reported.failed_release_paths == ()
     assert first_new.release_count == 1
     assert manager.grabbed_devices["2dc8:3106"] == [existing]
     assert manager.grab_state.desired_paths["2dc8:3106"] == {"old-path"}

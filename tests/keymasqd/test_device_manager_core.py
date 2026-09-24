@@ -2399,42 +2399,6 @@ class TestDeviceDetection:
         assert result == {"updated": True, "hardware_id": "1234:5678"}
         fake_device.reset_mapping_runtime_state.assert_awaited_once()
 
-    def test_detect_device_type(self):
-        manager = DeviceManager()
-
-        class MockDevice:
-            def capabilities(self):
-                return {
-                    evdev.ecodes.EV_REL: [evdev.ecodes.REL_X, evdev.ecodes.REL_Y],
-                    evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_LEFT, evdev.ecodes.BTN_RIGHT],
-                }
-
-        result = manager._detect_device_type(MockDevice())
-        assert result == DeviceType.MOUSE
-
-        class MockKeyboard:
-            def capabilities(self):
-                return {
-                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A, evdev.ecodes.KEY_Q],
-                }
-
-        result = manager._detect_device_type(MockKeyboard())
-        assert result == DeviceType.KEYBOARD
-
-        class MockComboDevice:
-            def capabilities(self):
-                return {
-                    evdev.ecodes.EV_REL: [evdev.ecodes.REL_X, evdev.ecodes.REL_Y],
-                    evdev.ecodes.EV_KEY: [evdev.ecodes.KEY_A, evdev.ecodes.BTN_LEFT],
-                }
-
-            def input_props(self):
-                return [evdev.ecodes.INPUT_PROP_POINTING_STICK]
-
-        combo_types = manager._detect_device_types(MockComboDevice())
-        assert combo_types == ["mouse", "keyboard", "pointstick"]
-        assert manager._detect_device_type(MockComboDevice()) == DeviceType.MOUSE
-
 
 class TestListDevices:
     @pytest.fixture(autouse=True)

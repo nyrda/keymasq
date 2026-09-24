@@ -21,7 +21,6 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
-from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     config_from_json,
@@ -799,6 +798,3 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
 
     def _detect_device_types(self, device: _ManagedInputDevice) -> list[str]:
         return detect_input_classes(device)
-
-    def _detect_device_type(self, device: _ManagedInputDevice) -> DeviceType:
-        return primary_input_class(self._detect_device_types(device))

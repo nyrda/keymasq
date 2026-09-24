@@ -211,7 +211,7 @@ The COSMIC VM briefly shows `com.system76.CosmicInitialSetup` as the active wind
 
 ### Sway
 
-The Sway test uses the dedicated listener in [keymasq/session/listeners/sway.py](https://github.com/nyrda/keymasq/blob/master/keymasq/session/listeners/sway.py), which speaks Sway's i3-compatible IPC protocol. Keymasq detects the compositor as `"sway"`. The VM exports `SWAYSOCK` to the systemd user environment.
+The Sway test uses the dedicated listener in [keymasq/session/listeners/sway.py](https://github.com/nyrda/keymasq/blob/master/keymasq/session/listeners/sway.py). It tracks windows through `zwlr_foreign_toplevel_manager_v1` and sends actions over Sway's i3-compatible IPC socket. Keymasq detects the compositor as `"sway"`. The VM exports `SWAYSOCK` to the systemd user environment.
 
 **Focus switching.** New windows get focus from the window manager. The test switches back to the first window through Keymasq's `activate_title`, which sends `[con_id=<id>] focus` over IPC.
 
@@ -221,8 +221,9 @@ The Sway test uses the dedicated listener in [keymasq/session/listeners/sway.py]
 - `floating toggle` moves the Beta window into the floating layer and back
 - `workspace number 4` focuses an empty workspace, and the listener then reports no active window
 - `workspace back_and_forth` returns to Beta
+- `exec fuzzel` opens a keyboard-exclusive layer-shell launcher, and the listener reports no active window until the launcher closes and Beta returns
 
-**Set Cursor dispatch.** The test runs the `set_cursor_position` compositor action. Sway reads the pointer through layer-shell feedback, which nudges it one pixel to get a sample, so the check allows one pixel of difference.
+**Set Cursor dispatch.** The test runs the `set_cursor_position` compositor action. Sway reads the pointer through layer-shell feedback, which nudges it one pixel to get a sample, so the check allows one pixel of difference. The test then moves the output to position `(400, 300)` and checks the action again, because Sway's `cursor set` is relative to the layout origin while Keymasq uses global coordinates.
 
 ### Mango (wlroots fallback)
 

@@ -654,6 +654,19 @@ let
                     )
                     wait_for_active_title("Beta")
 
+                    # A keyboard-exclusive layer-shell launcher takes focus
+                    # without a Sway IPC window event. The active window must
+                    # still clear, then return when the launcher closes.
+                    launched = dispatch_compositor("exec", "fuzzel")
+                    assert launched.get("status") == "ok", launched
+                    wait_for_user_command("fuzzel running", "pgrep -x fuzzel")
+                    wait_for_condition(
+                        "no active window while the launcher has focus",
+                        lambda: not session_query("get_active_window").get("title"),
+                    )
+                    machine.succeed(as_user("pkill -x fuzzel"))
+                    wait_for_active_title("Beta")
+
             if "${expectedCompositor}" == "niri":
                 before = niri_window_by_title("Beta")
                 assert before is not None, before
@@ -845,6 +858,37 @@ let
                         time.sleep(1)
 
                     assert moved is not None and cursor_at_target(moved), moved
+
+                if "${expectedCompositor}" == "sway":
+                    # Sway's "cursor set" is relative to the layout origin, but
+                    # Keymasq uses global coordinates. Move the only output off
+                    # (0, 0) so the two differ.
+                    origin_x, origin_y = 400, 300
+                    swaymsg(f"output '*' pos {origin_x} {origin_y}")
+                    target_x = native_target_x + origin_x
+                    target_y = native_target_y + origin_y
+
+                    def cursor_at_offset_target(payload: dict) -> bool:
+                        return (
+                            payload.get("status") == "ok"
+                            and abs(payload.get("x", -99) - target_x) <= 1
+                            and abs(payload.get("y", -99) - target_y) <= 1
+                        )
+
+                    dispatch = dispatch_compositor(
+                        "set_cursor_position", f"{target_x} {target_y}"
+                    )
+                    assert dispatch.get("status") == "ok", dispatch
+                    moved = None
+                    deadline = time.time() + 10
+                    while time.time() < deadline:
+                        moved = session_query("get_cursor_position")
+                        machine.log(f"get_cursor_position with output at origin offset: {moved}")
+                        if cursor_at_offset_target(moved):
+                            break
+                        time.sleep(1)
+                    swaymsg("output '*' pos 0 0")
+                    assert moved is not None and cursor_at_offset_target(moved), moved
       '';
     };
 
@@ -1034,7 +1078,11 @@ in
     listener-vm-sway = mkDesktopTest {
       name = "listener-vm-sway";
       expectedCompositor = "sway";
-      extraModule = swayModule;
+      extraModule = lib.mkMerge [
+        swayModule
+        # fuzzel is a keyboard-exclusive layer-shell launcher for the focus check.
+        { environment.systemPackages = [ pkgs.fuzzel ]; }
+      ];
       memorySize = 3072;
       desktopReadyScript = ''
         wait_for_command("sway process", "pgrep -u ${toString vmUid} sway")

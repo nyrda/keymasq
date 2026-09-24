@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners._socket_helpers import (
@@ -13,9 +12,6 @@ from keymasq.session.wayland_protocols.layer_shell_cursor import (
     LayerShellCursorTracker,
 )
 from keymasq.session.wayland_protocols.registry_probe import list_registry_globals
-
-if TYPE_CHECKING:
-    from keymasq.session.client import KeymasqdClient
 
 log = logging.getLogger("keymasq-session.listeners.layer_shell")
 
@@ -117,82 +113,5 @@ class LayerShellCursorListener(WindowListener):
 
     async def stop_cursor_position_tracking(self) -> None:
         tracker = self._cursor_tracker
-        if tracker is not None:
-            await tracker.stop_cursor_position_tracking()
-
-
-class LayerShellCursorSupport:
-    """Best-effort layer-shell cursor tracking for listeners that lack a cursor API."""
-
-    def __init__(self, client: "KeymasqdClient | None", label: str) -> None:
-        self._client = client
-        self._label = label
-        self._tracker: LayerShellCursorTracker | None = None
-        self._task: asyncio.Task[None] | None = None
-
-    @property
-    def supports_cursor_tracking(self) -> bool:
-        tracker = self._tracker
-        return bool(tracker is not None and tracker.supports_cursor_tracking)
-
-    async def start(self) -> None:
-        socket_path = await pick_layer_shell_cursor_socket()
-        if socket_path is None:
-            log.debug("%s layer-shell cursor tracker unavailable: protocols missing", self._label)
-            return
-
-        tracker = LayerShellCursorTracker(self._client, socket_path=str(socket_path))
-        # Keep a reference during startup so stop() can release the tracker if
-        # the listener start is cancelled.
-        self._tracker = tracker
-        try:
-            await tracker.start()
-        except (OSError, RuntimeError):
-            log.debug("%s layer-shell cursor tracker unavailable", self._label, exc_info=True)
-            self._tracker = None
-            await tracker.stop()
-            return
-        except Exception:
-            log.exception("%s layer-shell cursor tracker failed", self._label)
-            self._tracker = None
-            await tracker.stop()
-            return
-
-        self._task = asyncio.create_task(
-            tracker.run(),
-            name=f"keymasq-session:{self._label.lower()}-layer-cursor",
-        )
-
-    async def stop(self) -> None:
-        tracker = self._tracker
-        self._tracker = None
-        if tracker is not None:
-            await tracker.stop()
-
-        task = self._task
-        self._task = None
-        if task is not None:
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:  # noqa: BLE001 - cursor task must not block listener shutdown.
-                log.debug("%s layer-shell cursor read loop stopped", self._label, exc_info=True)
-
-    async def get_cursor_position(self) -> tuple[int, int] | None:
-        tracker = self._tracker
-        if tracker is None:
-            return None
-        return await tracker.get_cursor_position()
-
-    async def prepare_cursor_position_tracking(self, duration_ms: int) -> None:
-        tracker = self._tracker
-        if tracker is not None:
-            await tracker.prepare_cursor_position_tracking(duration_ms)
-
-    async def stop_cursor_position_tracking(self) -> None:
-        tracker = self._tracker
         if tracker is not None:
             await tracker.stop_cursor_position_tracking()

@@ -1701,6 +1701,77 @@ def test_appimage_hardware_migration_refuses_symlink_destination(tmp_path: Path)
     assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
 
 
+def test_appimage_integration_repair_rejects_recording_authorization(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    env = _env(tmp_path, fake_root, assets, tmp_path / "source.AppImage")
+    env["PKEXEC_UID"] = str(os.getuid())
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "keymasq-record", "repair-appimage-integration"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "recording authorization does not authorize integration repair" in result.stderr
+    assert not (fake_root / "etc/systemd/system/keymasq-hardware@.service").exists()
+    assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
+
+
+def _write_pkexec_probe(path: Path, log: Path) -> None:
+    _write_executable(
+        path,
+        f"""#!/bin/sh
+printf '%s PKEXEC_UID=%s\\n' "$*" "${{PKEXEC_UID-unset}}" >> '{log}'
+""",
+    )
+
+
+@pytest.mark.parametrize("helper", ["override", "bundled"])
+def test_appimage_uninstall_runs_hardware_check_without_pkexec_marker(
+    tmp_path: Path, helper: str
+) -> None:
+    fake_root = tmp_path / "root"
+    (fake_root / "etc").mkdir(parents=True)
+    (fake_root / "etc/os-release").write_text("ID=steamos\n", encoding="utf-8")
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+    )
+    probe_log = tmp_path / "probe.log"
+    if helper == "override":
+        _write_pkexec_probe(tmp_path / "record-helper", probe_log)
+        env["KEYMASQ_APPIMAGE_RECORD_HELPER"] = str(tmp_path / "record-helper")
+    else:
+        # Without an override, the running AppImage's own Python runs the check.
+        del env["KEYMASQ_APPIMAGE_RECORD_HELPER"]
+        python_dir = tmp_path / "python-bin"
+        python_dir.mkdir()
+        _write_pkexec_probe(python_dir / "python", probe_log)
+        env["PATH"] = f"{python_dir}:{env['PATH']}"
+    # pkexec sets this when it runs the AppImage to uninstall it.
+    env["PKEXEC_UID"] = str(os.getuid())
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
+        check=True,
+        env=env,
+    )
+
+    calls = probe_log.read_text(encoding="utf-8").splitlines()
+    expected = "prepare-removal" if helper == "override" else "-P -m keymasq.record prepare-removal"
+    assert calls == [f"{expected} PKEXEC_UID=unset"]
+    assert not (fake_root / "etc/systemd/system/keymasqd.service").exists()
+
+
 def test_appimage_self_update_rejects_signed_cross_architecture_manifest(
     tmp_path: Path,
 ) -> None:

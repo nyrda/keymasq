@@ -994,6 +994,9 @@ install_generic_integration() {
 repair_hardware_integration() {
 	# v0.19 installs the incoming daemon unit but does not know these assets.
 	# Its first restart reaches this through the new runtime's root pre-start.
+	# The macro recording action lets users run keymasq-record through pkexec
+	# with their own password. That must not authorize integration changes.
+	[ -z "${PKEXEC_UID:-}" ] || die "recording authorization does not authorize integration repair"
 	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "hardware integration repair requires root"
 	assets=$(asset_dir)
 	for pair in 'keymasq-hardware@.service /etc/systemd/system/keymasq-hardware@.service' \
@@ -1122,10 +1125,13 @@ prepare_hardware_removal() {
 	# Stop keymasqd and finish hardware recovery while the helper is installed.
 	# The running AppImage performs the check, so an older runtime cannot skip it.
 	systemd_available || return 0
+	# pkexec already authorized this uninstaller as an administrator and set
+	# PKEXEC_UID. keymasq-record rejects that marker so the macro recording
+	# action cannot authorize hardware operations, so do not pass it on.
 	if [ -n "${KEYMASQ_APPIMAGE_RECORD_HELPER:-}" ]; then
-		"$KEYMASQ_APPIMAGE_RECORD_HELPER" prepare-removal && return 0
+		(unset PKEXEC_UID; "$KEYMASQ_APPIMAGE_RECORD_HELPER" prepare-removal) && return 0
 	else
-		(run_python_module keymasq.record prepare-removal) && return 0
+		(unset PKEXEC_UID; run_python_module keymasq.record prepare-removal) && return 0
 	fi
 	die "hardware recovery is incomplete; Keymasq was left installed so recovery can finish"
 }

@@ -48,12 +48,14 @@ _warn_unit_overrides() {
 }
 
 post_install() {
-    systemd-sysusers
-    systemd-tmpfiles --create
+    systemd-sysusers /usr/lib/sysusers.d/keymasq.conf
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf
     udevadm control --reload-rules
-    udevadm trigger --subsystem-match=input --action=add
-    udevadm trigger --subsystem-match=misc --action=add
-    udevadm trigger --subsystem-match=hidraw --action=change --settle
+    udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change
+    udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change
+    udevadm trigger --subsystem-match=hidraw --action=change
+    udevadm settle --timeout=30
 
     _warn_unit_overrides
 
@@ -82,12 +84,14 @@ post_install() {
 }
 
 post_upgrade() {
-    systemd-sysusers
-    systemd-tmpfiles --create
+    systemd-sysusers /usr/lib/sysusers.d/keymasq.conf
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf
     udevadm control --reload-rules
-    udevadm trigger --subsystem-match=input --action=add
-    udevadm trigger --subsystem-match=misc --action=add
-    udevadm trigger --subsystem-match=hidraw --action=change --settle
+    udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change
+    udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change
+    udevadm trigger --subsystem-match=hidraw --action=change
+    udevadm settle --timeout=30
 
     _warn_unit_overrides
 

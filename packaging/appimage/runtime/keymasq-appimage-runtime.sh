@@ -675,9 +675,11 @@ reload_udev_rules() {
 	if ! udevadm control --reload-rules; then
 		warn "could not reload udev rules; device permissions may not update until udev is reloaded"
 	fi
-	udevadm trigger --subsystem-match=input --action=add || true
-	udevadm trigger --subsystem-match=misc --action=add || true
-	udevadm trigger --subsystem-match=hidraw --action=change --settle || true
+	udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change || true
+	udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change || true
+	udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change || true
+	udevadm trigger --subsystem-match=hidraw --action=change || true
+	udevadm settle --timeout=30 || true
 }
 
 clear_keymasq_udev_state() {
@@ -811,7 +813,8 @@ Before starting the daemon, grant device ACLs:
   install -d -o keymasq -g keymasq -m 0755 /run/keymasq
   install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq
   setfacl -m u:keymasq:rw /dev/uinput
-  udevadm trigger --subsystem-match=hidraw --action=change --settle
+  udevadm trigger --subsystem-match=hidraw --action=change
+  udevadm settle --timeout=30
   for p in /dev/input/event*; do [ -e "\$p" ] && setfacl -m u:keymasq:rw "\$p"; done
 
 The per-user session manager was installed as an XDG autostart entry for:
@@ -1034,16 +1037,22 @@ refresh_installed_integration() {
 	fi
 }
 
-refuse_native_package() {
+native_package_installed() {
 	# Distribution packages install the daemon unit under /usr/lib, or /lib
 	# without merged /usr. The AppImage's /etc units would override it, and both
 	# install the same polkit action file.
 	for keymasq_native_unit in \
 		/usr/lib/systemd/system/keymasqd.service \
 		/lib/systemd/system/keymasqd.service; do
-		[ -e "$(root_path "$keymasq_native_unit")" ] || continue
-		die "a native Keymasq package is installed. Remove it with your package manager, then run --install again. Settings, macros, and saved masks in /etc/keymasq, /var/lib/keymasq, and ~/.config/keymasq are kept."
+		[ -e "$(root_path "$keymasq_native_unit")" ] && return 0
 	done
+	return 1
+}
+
+refuse_native_package() {
+	if native_package_installed; then
+		die "a native Keymasq package is installed. Remove it with your package manager, then run --install again. Settings, macros, and saved masks in /etc/keymasq, /var/lib/keymasq, and ~/.config/keymasq are kept."
+	fi
 }
 
 install_auto() {
@@ -1155,7 +1164,10 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
 	clear_keymasq_udev_state || die "failed to clear Keymasq state from existing input devices"
 	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
-	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
+	# A native package installed after the AppImage owns this shared action.
+	if ! native_package_installed; then
+		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
+	fi
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"

@@ -67,6 +67,20 @@ def test_state_dir_ownership_is_repaired_recursively(tmpfiles_path):
     assert not any(entry[:1] == ["Z"] and entry[1] != "/var/lib/keymasq" for entry in entries)
 
 
+def test_nixos_daemon_state_directory_mode_matches_native_units():
+    root = Path(__file__).resolve().parents[2]
+    module = (root / "flake.nix").read_text()
+    service = module.split('systemd.services.keymasqd = {', 1)[1].split(
+        'systemd.services."keymasq-hardware@"', 1
+    )[0]
+    assert 'StateDirectoryMode = "0750";' in service
+    for unit_path in (
+        "systemd/keymasqd.service",
+        "packaging/appimage/assets/keymasqd.service",
+    ):
+        assert "StateDirectoryMode=0750" in (root / unit_path).read_text()
+
+
 @pytest.mark.asyncio
 async def test_service_cleanup_stops_jobs_before_restoring_permissions(monkeypatch):
     calls = []

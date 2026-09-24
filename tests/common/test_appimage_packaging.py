@@ -51,6 +51,7 @@ async def test_appimage_detects_project_distribution_version(
         + "\nappdir_version() {"
         + function
         + '\n}\nappdir_version "$TEST_APPDIR"',
+        cwd=tmp_path,
         env={
             **os.environ,
             "TEST_PYTHON": sys.executable,
@@ -1230,14 +1231,16 @@ def test_appimage_install_generic_fallback_writes_manual_service_instructions(
     assert "install -d -o keymasq -g keymasq -m 0755 /run/keymasq" in instructions
     assert "install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq" in instructions
     assert "setfacl -m u:keymasq:rw /dev/uinput" in instructions
-    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" in instructions
+    assert "udevadm trigger --subsystem-match=hidraw --action=change" in instructions
+    assert "udevadm settle --timeout=30" in instructions
     assert current_user in instructions
     assert "systemd was not detected" in result.stderr
     assert "could not reload udev rules" in result.stderr
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
     assert "udevadm control --reload-rules" in command_log
     assert "systemctl" not in command_log
-    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" in command_log
+    assert "udevadm trigger --subsystem-match=hidraw --action=change" in command_log
+    assert "udevadm settle --timeout=30" in command_log
     assert "systemd-sysusers" not in command_log
     assert "systemd-tmpfiles" not in command_log
 
@@ -1382,6 +1385,40 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert command_log.index("keymasq-record-helper prepare-removal") < command_log.index(
         "systemctl disable --now keymasqd.service"
     )
+
+
+def test_appimage_uninstall_keeps_native_package_policy_after_overlap(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    (fake_root / "etc").mkdir(parents=True)
+    (fake_root / "etc/os-release").write_text("ID=steamos\n", encoding="utf-8")
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+    )
+    native_unit = fake_root / "usr/lib/systemd/system/keymasqd.service"
+    native_unit.parent.mkdir(parents=True)
+    native_unit.write_text("[Service]\n", encoding="utf-8")
+    native_policy = fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    native_policy.parent.mkdir(parents=True, exist_ok=True)
+    native_policy.write_text("native package policy\n", encoding="utf-8")
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
+        check=True,
+        env=env,
+    )
+
+    assert native_unit.is_file()
+    assert native_policy.read_text(encoding="utf-8") == "native package policy\n"
+    assert not (fake_root / "etc/systemd/system/keymasqd.service").exists()
 
 
 def test_appimage_uninstall_keeps_integration_when_hardware_recovery_is_incomplete(

@@ -77,6 +77,25 @@ pkgs.testers.runNixOSTest {
         ready()
         check("baseline")
 
+        with subtest("old service UID state is repaired without widening modes"):
+            state = "/var/lib/keymasq"
+            fixture = state + "/old-uid-fixture"
+            owner = machine.succeed("id -u keymasq").strip()
+            group = machine.succeed("id -g keymasq").strip()
+            assert machine.succeed("stat -c %a " + state).strip() == "750"
+            machine.succeed("install -d -m 0700 " + fixture)
+            machine.succeed("touch " + fixture + "/sample")
+            machine.succeed("chmod 0600 " + fixture + "/sample")
+            machine.succeed("chown -R 1999:1999 " + fixture)
+            machine.succeed("systemd-tmpfiles --create")
+            assert machine.succeed("stat -c %u:%g " + fixture).strip() == owner + ":" + group
+            assert machine.succeed("stat -c %u:%g " + fixture + "/sample").strip() == owner + ":" + group
+            assert machine.succeed("stat -c %a " + fixture).strip() == "700"
+            assert machine.succeed("stat -c %a " + fixture + "/sample").strip() == "600"
+            assert machine.succeed("stat -c %a " + state).strip() == "750"
+            assert machine.succeed("stat -c %U:%G /var/lib/keymasq-masking").strip() == "root:root"
+            machine.succeed("rm -r " + fixture)
+
         with subtest("SIGKILL of a daemon with a confirmed mask"):
             check("mask")
             machine.succeed("systemctl kill --kill-whom=main --signal=SIGKILL keymasqd.service")

@@ -45,9 +45,48 @@ def test_uinput_group_access_applies_to_the_static_node() -> None:
     ],
 )
 def test_install_and_startup_apply_native_acls_to_connected_devices(path: str) -> None:
-    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" in (
-        ROOT / path
-    ).read_text()
+    content = (ROOT / path).read_text()
+    assert "udevadm trigger --subsystem-match=hidraw --action=change" in content
+    assert "udevadm settle --timeout=30" in content
+    assert "udevadm trigger --subsystem-match=hidraw --action=change --settle" not in content
+
+
+@pytest.mark.parametrize(
+    "path,settle",
+    [
+        ("systemd/keymasqd.service", "ExecStartPre=-+/usr/bin/udevadm settle --timeout=30"),
+        (
+            "packaging/appimage/assets/keymasqd.service",
+            "ExecStartPre=-+/usr/bin/udevadm settle --timeout=30",
+        ),
+        ("scripts/install-systemd.sh", "ExecStartPre=-+/usr/bin/udevadm settle --timeout=30"),
+        ("flake.nix", '"-+${pkgs.systemd}/bin/udevadm settle --timeout=30"'),
+    ],
+)
+def test_startup_settle_timeout_does_not_fail_the_daemon(path: str, settle: str) -> None:
+    # settle waits for the whole udev queue. A busy boot queue must not block
+    # remapping and hardware recovery just to wait for hidraw ACLs.
+    assert settle in (ROOT / path).read_text()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "debian/keymasq.postinst",
+        "scripts/rpm-postinstall.sh",
+        "packaging/pacman/templates/keymasq.install.in",
+        "keymasq.install",
+        "packaging/aur/keymasq.install",
+        "scripts/install-systemd.sh",
+        "packaging/appimage/runtime/keymasq-appimage-runtime.sh",
+    ],
+)
+def test_install_hooks_do_not_replay_add_rules(path: str) -> None:
+    triggers = [
+        line for line in (ROOT / path).read_text().splitlines() if "udevadm trigger" in line
+    ]
+    assert triggers
+    assert not [line for line in triggers if "--action=add" in line]
 
 
 def test_hardware_hotplug_udev_rule_only_hides_joystick_event_nodes() -> None:

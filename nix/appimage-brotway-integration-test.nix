@@ -237,6 +237,13 @@ pkgs.testers.runNixOSTest {
         # installer's extracted-source test override are deliberately absent.
         deck.succeed(f"cp {artifact} /tmp/Keymasq.AppImage; chmod 0755 /tmp/Keymasq.AppImage")
         deck.succeed("test -z \"''${APPIMAGE_EXTRACT_AND_RUN:-}\"; test -z \"''${KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR:-}\"")
+        # The AppImage's tmpfiles rules must repair nested data restored from
+        # a system whose keymasq service used a different numeric UID.
+        deck.succeed(
+            "install -d -m 0750 -o 1999 -g 1999 /var/lib/keymasq; "
+            "install -d -m 0700 -o 1999 -g 1999 /var/lib/keymasq/macros; "
+            "install -m 0600 -o 1999 -g 1999 /dev/null /var/lib/keymasq/macros/old-uid-test"
+        )
         install_status, install_output = deck.execute(
             "/tmp/Keymasq.AppImage --install --user ${deckUser}", timeout=240
         )
@@ -259,6 +266,12 @@ pkgs.testers.runNixOSTest {
         deck.succeed(f"test -e {runtime}/lib/gtk4-brotway/libgtk-4.so.1")
 
         deck.wait_for_unit("keymasqd.service")
+        deck.succeed("test \"$(stat -c %U:%G /var/lib/keymasq/macros)\" = keymasq:keymasq")
+        deck.succeed("test \"$(stat -c %U:%G /var/lib/keymasq/macros/old-uid-test)\" = keymasq:keymasq")
+        deck.succeed("test \"$(stat -c %a /var/lib/keymasq)\" = 750")
+        deck.succeed("test \"$(stat -c %a /var/lib/keymasq/macros)\" = 700")
+        deck.succeed("test \"$(stat -c %a /var/lib/keymasq/macros/old-uid-test)\" = 600")
+        deck.succeed("test \"$(stat -c %U:%G /var/lib/keymasq-masking)\" = root:root")
         wait_for(
             deck,
             "installed user session service",

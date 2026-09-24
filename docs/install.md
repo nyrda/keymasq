@@ -469,9 +469,11 @@ systemctl --user enable --now keymasq-session
 To move from a native package to the AppImage, remove the package with your
 package manager first, then run `--install` from the AppImage.
 
-If both are already installed, uninstall the AppImage, then reinstall the native
-package. Older AppImage versions replaced the package's polkit action for macro
-recording and removed it on uninstall. Reinstalling restores it.
+If both are already installed, uninstall the AppImage, then enable and start
+the native services using the commands above. AppImage uninstall disables the
+shared service names. Version 0.20.0 and later preserves the native package's
+Polkit action during uninstall. Reinstall the native package if an older
+AppImage removed the action or if its files were overwritten during the overlap.
 
 ### Manual-install cleanup
 

@@ -7,9 +7,11 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || tr
 
 # Reload udev rules
 udevadm control --reload-rules 2>/dev/null || true
-udevadm trigger --subsystem-match=input --action=add 2>/dev/null || true
-udevadm trigger --subsystem-match=misc --action=add 2>/dev/null || true
-udevadm trigger --subsystem-match=hidraw --action=change --settle 2>/dev/null || true
+udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change 2>/dev/null || true
+udevadm trigger --subsystem-match=hidraw --action=change 2>/dev/null || true
+udevadm settle --timeout=30 2>/dev/null || true
 
 # Reload systemd
 systemctl daemon-reload 2>/dev/null || true

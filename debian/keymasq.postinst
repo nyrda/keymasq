@@ -13,9 +13,11 @@ case "$1" in
 
         if command -v udevadm >/dev/null 2>&1; then
             udevadm control --reload-rules >/dev/null 2>&1 || true
-            udevadm trigger --subsystem-match=input --action=add >/dev/null 2>&1 || true
-            udevadm trigger --subsystem-match=misc --action=add >/dev/null 2>&1 || true
-            udevadm trigger --subsystem-match=hidraw --action=change --settle >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=hidraw --action=change >/dev/null 2>&1 || true
+            udevadm settle --timeout=30 >/dev/null 2>&1 || true
         fi
 
         if command -v systemctl >/dev/null 2>&1; then

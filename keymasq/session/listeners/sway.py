@@ -17,7 +17,7 @@ from typing import cast
 from keymasq.common.coercion import coerce_int, json_object
 from keymasq.common.types import JsonObject
 from keymasq.session.dbus import SessionDBus
-from keymasq.session.listeners._socket_helpers import runtime_dir, unix_socket_connectable
+from keymasq.session.listeners._socket_helpers import unix_socket_connectable
 from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 from keymasq.session.listeners.layer_shell import LayerShellCursorSupport
 
@@ -207,19 +207,14 @@ def _parse_int_pair(args: str) -> tuple[int, int] | None:
         return None
 
 
-def _sway_socket_candidates_sync() -> list[Path]:
+def _sway_socket_candidates() -> list[Path]:
+    # Only trust the session environment. Scanning the runtime directory could
+    # pick another Sway session owned by the same user.
     candidates: list[Path] = []
     for variable in ("SWAYSOCK", "I3SOCK"):
         value = os.environ.get(variable, "").strip()
         if value:
             candidates.append(Path(value))
-    base_dir = runtime_dir()
-    if base_dir.is_dir():
-        sockets = [
-            path for path in base_dir.glob(f"sway-ipc.{os.getuid()}.*.sock") if path.is_socket()
-        ]
-        sockets.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-        candidates.extend(sockets)
     return candidates
 
 
@@ -256,7 +251,7 @@ class SwayListener(WindowListener):
     @classmethod
     async def resolve_socket_path(cls) -> Path | None:
         seen: set[Path] = set()
-        for path in await asyncio.to_thread(_sway_socket_candidates_sync):
+        for path in _sway_socket_candidates():
             if path in seen:
                 continue
             seen.add(path)
@@ -296,13 +291,19 @@ class SwayListener(WindowListener):
             await self._close_event_writer()
             raise
 
-        await self._cursor.start()
-        self.running = True
-        self._task = asyncio.create_task(
-            self._listen(reader),
-            name=f"keymasq-session:{self.name}-events",
-        )
-        await self._refresh_from_tree()
+        try:
+            await self._cursor.start()
+            self.running = True
+            self._task = asyncio.create_task(
+                self._listen(reader),
+                name=f"keymasq-session:{self.name}-events",
+            )
+            await self._refresh_from_tree()
+        except BaseException:
+            # The session manager drops a listener whose start fails without
+            # calling stop, so release the event task and connections here.
+            await self.stop()
+            raise
         log.info("Sway listener started on %s", self.socket_path)
 
     async def stop(self) -> None:

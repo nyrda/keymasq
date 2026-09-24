@@ -23,6 +23,7 @@ async def test_candidate_wayland_sockets_returns_sorted_runtime_sockets(monkeypa
     with tempfile.TemporaryDirectory(prefix="kmsq-", dir="/tmp") as tmp_dir:
         runtime_path = Path(tmp_dir)
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_path))
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
         (runtime_path / "wayland-1").write_text("not a socket")
         (runtime_path / "other.sock").write_text("not a wayland socket")
 
@@ -36,6 +37,26 @@ async def test_candidate_wayland_sockets_returns_sorted_runtime_sockets(monkeypa
                 runtime_path / "wayland-0",
                 runtime_path / "wayland-10",
                 runtime_path / "wayland-2",
+            ]
+        finally:
+            for sock in sockets:
+                sock.close()
+
+
+@pytest.mark.asyncio
+async def test_candidate_wayland_sockets_tries_current_display_first(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory(prefix="kmsq-", dir="/tmp") as tmp_dir:
+        runtime_path = Path(tmp_dir)
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_path))
+        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-2")
+        sockets = [
+            _bind_unix_socket(runtime_path / "wayland-0"),
+            _bind_unix_socket(runtime_path / "wayland-2"),
+        ]
+        try:
+            assert await candidate_wayland_sockets() == [
+                runtime_path / "wayland-2",
+                runtime_path / "wayland-0",
             ]
         finally:
             for sock in sockets:

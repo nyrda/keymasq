@@ -237,13 +237,27 @@ async def test_sway_probe_rejects_i3_socket(runtime_dir: Path, monkeypatch) -> N
         await server.close()
 
 
-async def test_sway_probe_finds_default_socket_without_env(runtime_dir: Path) -> None:
+async def test_sway_probe_ignores_default_socket_without_env(runtime_dir: Path) -> None:
+    # Another Sway session of the same user must not be picked up.
     server = FakeI3Server(runtime_dir / f"sway-ipc.{os.getuid()}.1234.sock", SWAY_VERSION)
     await server.start()
     try:
-        assert await SwayListener.resolve_socket_path() == server.socket_path
+        assert await SwayListener.resolve_socket_path() is None
     finally:
         await server.close()
+
+
+async def test_sway_start_failure_releases_listener(sway_server: FakeI3Server) -> None:
+    async def _failing_callback(_window_class: str, _window_title: str, _tags: list[str]) -> None:
+        raise RuntimeError("callback failed")
+
+    sway_server.tree = _tree(_window(10, "Alpha", app_id="lab", focused=True))
+    listener = SwayListener(_failing_callback)
+    with pytest.raises(RuntimeError, match="callback failed"):
+        await listener.start()
+    assert listener.running is False
+    assert listener._task is None
+    assert listener._event_writer is None
 
 
 async def test_probe_without_sockets(runtime_dir: Path) -> None:

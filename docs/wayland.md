@@ -170,11 +170,16 @@ Keymasq does not currently expose COSMIC compositor actions.
 
 ### Sway
 
-Keymasq connects to Sway's IPC socket from `SWAYSOCK`, or finds
-`$XDG_RUNTIME_DIR/sway-ipc.<uid>.<pid>.sock` when the variable is missing. It
-subscribes to window and workspace events for active-window tracking, and sends
-compositor actions as Sway commands. Switching to an empty workspace clears the
-active window.
+Keymasq connects to Sway's IPC socket from `SWAYSOCK` (or `I3SOCK`, which Sway
+also sets), so the session service needs one of them in its environment. If
+`systemctl --user show-environment` does not list `SWAYSOCK`, add
+`exec systemctl --user import-environment SWAYSOCK WAYLAND_DISPLAY` to your
+Sway config. Keymasq does not scan the runtime directory for sockets, so it
+cannot attach to another Sway session.
+
+Keymasq subscribes to window and workspace events for active-window tracking,
+and sends compositor actions as Sway commands. Switching to an empty workspace
+clears the active window.
 
 Compositor actions accept any Sway command. See
 [Sway actions](actions.md#sway). **Set Cursor** runs

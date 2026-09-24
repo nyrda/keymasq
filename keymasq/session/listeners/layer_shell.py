@@ -174,7 +174,7 @@ class LayerShellCursorSupport:
                 await task
             except asyncio.CancelledError:
                 pass
-            except (OSError, RuntimeError):
+            except Exception:  # noqa: BLE001 - cursor task must not block listener shutdown.
                 log.debug("%s layer-shell cursor read loop stopped", self._label, exc_info=True)
 
     async def get_cursor_position(self) -> tuple[int, int] | None:

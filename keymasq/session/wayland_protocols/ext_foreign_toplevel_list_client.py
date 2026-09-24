@@ -198,7 +198,3 @@ class ExtForeignToplevelListClientBase(WaylandClientTransport):
 
     def _after_toplevel_object_deleted(self, object_id: int) -> None:
         pass
-
-
-class ExtForeignToplevelListWaylandClient(ExtForeignToplevelListClientBase):
-    pass

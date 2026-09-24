@@ -56,7 +56,6 @@ class SlurpCapture:
         self._slurp_path: str | None = resolve_slurp_path()
         self._compositor_id: str | None = None
         self._available: bool | None = None
-        self._process: asyncio.subprocess.Process | None = None
 
     def set_compositor(self, compositor_id: str | None) -> None:
         if self._compositor_id != compositor_id:
@@ -75,9 +74,6 @@ class SlurpCapture:
             log.debug("slurp capture unavailable: %s", unavailable_reason)
 
         return self._available
-
-    def get_unavailable_reason(self) -> str | None:
-        return self._get_unavailable_reason()
 
     def _get_unavailable_reason(self) -> str | None:
         if not self._slurp_path:
@@ -141,7 +137,6 @@ class SlurpCapture:
                     stderr=asyncio.subprocess.PIPE,
                     env=host_subprocess_environment(),
                 )
-            self._process = process
 
             if mode == SlurpMode.POINT_IMMEDIATE:
                 log.debug("slurp waiting 150ms before triggering callback")
@@ -184,16 +179,6 @@ class SlurpCapture:
             if process:
                 await self._terminate_process_async(process)
             return None
-        finally:
-            if self._process is process:
-                self._process = None
-
-    async def cancel_async(self) -> None:
-        process = self._process
-        if process:
-            await self._terminate_process_async(process)
-        if self._process is process:
-            self._process = None
 
     async def _terminate_process_async(self, process: asyncio.subprocess.Process) -> None:
         try:

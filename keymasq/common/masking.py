@@ -39,10 +39,5 @@ def is_active(phase: object) -> bool:
     return phase in {MaskPhase.APPLYING, MaskPhase.ACQUIRING, MaskPhase.TRIAL, MaskPhase.MASKED}
 
 
-def is_transitional(phase: object) -> bool:
-    """A replacement is being acquired or awaiting confirmation."""
-    return phase in {MaskPhase.APPLYING, MaskPhase.ACQUIRING, MaskPhase.TRIAL}
-
-
 def is_recovering(phase: object) -> bool:
     return phase in {MaskPhase.RESTORING, MaskPhase.RECOVERY_FAILED}

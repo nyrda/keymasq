@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
 
 import evdev
 import gi
@@ -15,10 +14,8 @@ from keymasq.common.controller_capabilities import (
     hardware_controller_template,
     routed_controller_template,
 )
-from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import HardwareConfig
-from keymasq.common.model.superkeys import SuperkeyAction
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     XBOX_360_TEMPLATE_ID,
@@ -68,16 +65,6 @@ def _unit_label(text: str) -> Gtk.Label:
     return label
 
 
-class InputTabsHost(Protocol):
-    def _build_selected_action(
-        self,
-        action_type: ActionType,
-        **kwargs: Any,
-    ) -> MappingAction | SuperkeyAction: ...
-
-    def _emit_selected_action(self, action: MappingAction | SuperkeyAction | None) -> None: ...
-
-
 def _create_actions_docs_button() -> Gtk.Button:
     btn = Gtk.Button(label="?")
     btn.add_css_class("flat")
@@ -123,8 +110,6 @@ class SharedInputTabsMixin:
     _include_mouse_move_controls = False
     _include_mouse_move_failure_controls = False
     _mouse_move_commit_label = "Map Move"
-    _include_tap_options = False
-    _gamepad_output_selector_mode = "inline"
 
     def _close_after_selection_emit(self) -> None:
         if not self._selection_emit_closes_dialog:
@@ -540,47 +525,9 @@ class SharedInputTabsMixin:
         return box
 
     def _build_gamepad_tab(self) -> Gtk.Widget:
-        if self._gamepad_output_selector_mode == "title":
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            warning = Gtk.Label(label="")
-            warning.set_margin_top(8)
-            warning.set_margin_start(12)
-            warning.set_margin_end(12)
-            warning.set_wrap(True)
-            warning.set_xalign(0)
-            warning.add_css_class("dim-label")
-            warning.add_css_class("warning")
-            self._gamepad_output_warning_label = warning
-            box.append(warning)
-            self._append_gamepad_pickers(box)
-            self._update_gamepad_output_warning()
-            self._prefill_gamepad_inputs()
-            return box
-
-        choices = self._gamepad_output_choices()
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        outer.set_margin_top(8)
-        if len(choices) > 1 or self._selected_gamepad_output_id:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row.set_margin_start(12)
-            row.set_margin_end(12)
-            label = Gtk.Label(label="Output")
-            label.set_xalign(0)
-            label.set_hexpand(True)
-            self._gamepad_output_ids = [output_id for output_id, _label in choices]
-            dropdown = Gtk.DropDown.new_from_strings([label for _output_id, label in choices])
-            selected = 0
-            for index, output_id in enumerate(self._gamepad_output_ids):
-                if gamepad_output_choice_matches(output_id, self._selected_gamepad_output_id):
-                    selected = index
-                    break
-            dropdown.set_selected(selected)
-            dropdown.connect("notify::selected", self._on_gamepad_output_selected)
-            self._gamepad_output_dropdown = dropdown
-            row.append(label)
-            row.append(dropdown)
-            outer.append(row)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         warning = Gtk.Label(label="")
+        warning.set_margin_top(8)
         warning.set_margin_start(12)
         warning.set_margin_end(12)
         warning.set_wrap(True)
@@ -588,11 +535,11 @@ class SharedInputTabsMixin:
         warning.add_css_class("dim-label")
         warning.add_css_class("warning")
         self._gamepad_output_warning_label = warning
-        outer.append(warning)
-        self._append_gamepad_pickers(outer)
+        box.append(warning)
+        self._append_gamepad_pickers(box)
         self._update_gamepad_output_warning()
         self._prefill_gamepad_inputs()
-        return outer
+        return box
 
     def _append_gamepad_pickers(self, parent: Gtk.Box) -> None:
         self._virtual_device_config = virtual_device_config()
@@ -778,8 +725,6 @@ class SharedInputTabsMixin:
         }
 
     def _tap_fields(self, *, supported: bool = True) -> dict[str, object]:
-        if not self._include_tap_options:
-            return {}
         if not supported:
             return {"tap_enabled": False, "tap_hold_ms": 150}
         return {

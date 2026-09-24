@@ -46,10 +46,6 @@ _GAMEPAD_ABS_CODES = frozenset(
         evdev.ecodes.ABS_BRAKE,
     }
 )
-_GAMEPAD_CONTROLLER_ONLY_ABS_CODES = _GAMEPAD_ABS_CODES - {
-    evdev.ecodes.ABS_X,
-    evdev.ecodes.ABS_Y,
-}
 _GAMEPAD_BUTTON_CODES = frozenset(
     {
         evdev.ecodes.BTN_SOUTH,
@@ -373,15 +369,6 @@ def ordered_gamepad_button_names(names: Iterable[str]) -> list[str]:
     return sorted(normalized, key=lambda name: (order_map.get(name, 999), name))
 
 
-def gamepad_button_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:
-    names: list[str] = []
-    for code in caps.get(evdev.ecodes.EV_KEY, []):
-        name = capability_name(evdev.ecodes.EV_KEY, code)
-        if is_gamepad_button_name(name):
-            names.append(canonical_gamepad_button_name(name))
-    return ordered_gamepad_button_names(names)
-
-
 def detect_input_classes_from_capabilities(
     caps: Mapping[int, Sequence[object]],
     input_props: Iterable[int] | None = None,
@@ -581,13 +568,6 @@ def _is_hardware_hex_id(value: str) -> bool:
 
 def is_by_id_path(path: str) -> bool:
     return "/dev/input/by-id/" in str(path or "")
-
-
-def config_path_for_detected_event(event_path: str, vendor_id: str, product_id: str) -> str:
-    stable_path = resolve_stable_path(event_path)
-    if is_by_id_path(stable_path):
-        return stable_path
-    return make_keymasq_device_path(vendor_id, product_id)
 
 
 def clear_device_path_cache() -> None:

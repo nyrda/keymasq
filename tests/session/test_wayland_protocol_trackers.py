@@ -19,7 +19,6 @@ from keymasq.session.wayland_protocols import wlr_foreign_toplevel_client as wlr
 from keymasq.session.wayland_protocols._active_window_tracker import ActiveWindowTracker
 from keymasq.session.wayland_protocols.ext_foreign_toplevel_list_client import (
     EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE,
-    ExtForeignToplevelListWaylandClient,
 )
 from keymasq.session.wayland_protocols.wlr_foreign_toplevel_client import (
     WLR_TOPLEVEL_STATE_ACTIVATED,
@@ -442,7 +441,6 @@ def test_registry_probe_logs_timeout_as_expected_failure(
 def test_wayland_clients_send_requests_with_loop_sock_sendall() -> None:
     async def send_requests() -> None:
         clients = (
-            ExtForeignToplevelListWaylandClient(ActiveWindowTracker()),
             wlr_client_module.WlrForeignToplevelWaylandClient(
                 ActiveWindowTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
             ),
@@ -693,9 +691,9 @@ async def test_layer_shell_cursor_tracker_stop_unmaps_surfaces_immediately() -> 
     assert calls == ["roundtrip", "trigger"]
 
 
-def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
+def test_cosmic_wayland_client_dispatches_base_registry_and_toplevel_events() -> None:
     tracker = ActiveWindowTracker()
-    client = ExtForeignToplevelListWaylandClient(tracker)
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
     client._send_request = _fake_send_request_recorder(fake_socket)
@@ -735,32 +733,11 @@ def test_ext_wayland_client_dispatches_registry_and_toplevel_events() -> None:
     assert fake_socket.closed is True
 
 
-def test_ext_wayland_client_stop_destroys_handles_before_list() -> None:
-    tracker = ActiveWindowTracker()
-    client = ExtForeignToplevelListWaylandClient(tracker)
-    fake_socket = _FakeWaylandSocket()
-    client._socket = fake_socket
-    client._send_request = _fake_send_request_recorder(fake_socket)
-
-    list_id = client._allocate_object_id(EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE)
-    handle_id = client._allocate_object_id("ext_foreign_toplevel_handle_v1")
-    client._list_id = list_id
-    client._toplevel_handles.add(handle_id)
-
-    asyncio.run(client.stop())
-
-    assert [_wl_message_object_opcode(message) for message in fake_socket.sent] == [
-        (handle_id, 0),
-        (list_id, 1),
-    ]
-    assert fake_socket.closed is True
-
-
-def test_ext_wayland_client_stop_logs_unexpected_destroy_failure(
+def test_cosmic_wayland_client_stop_logs_unexpected_ext_destroy_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     tracker = ActiveWindowTracker()
-    client = ExtForeignToplevelListWaylandClient(tracker)
+    client = cosmic_client_module.CosmicToplevelInfoWaylandClient(tracker)
     fake_socket = _FakeWaylandSocket()
     client._socket = fake_socket
 
@@ -1072,14 +1049,13 @@ def test_wayland_clients_require_display_environment(monkeypatch) -> None:
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
 
     async def start_clients() -> None:
-        ext = ExtForeignToplevelListWaylandClient(ActiveWindowTracker())
         wlr = wlr_client_module.WlrForeignToplevelWaylandClient(
             ActiveWindowTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
         )
         cosmic = cosmic_client_module.CosmicToplevelInfoWaylandClient(
             ActiveWindowTracker()
         )
-        for client in (ext, wlr, cosmic):
+        for client in (wlr, cosmic):
             try:
                 await client.start()
             except RuntimeError as exc:
@@ -1125,11 +1101,6 @@ def test_wayland_clients_close_socket_when_start_fails_missing_global() -> None:
 
     async def run_clients() -> None:
         await run_client(
-            ExtForeignToplevelListWaylandClient(ActiveWindowTracker()),
-            "ext_foreign_toplevel_list_v1 is unavailable",
-            "ext-missing-global",
-        )
-        await run_client(
             wlr_client_module.WlrForeignToplevelWaylandClient(
                 ActiveWindowTracker(activated_state=WLR_TOPLEVEL_STATE_ACTIVATED)
             ),
@@ -1145,57 +1116,6 @@ def test_wayland_clients_close_socket_when_start_fails_missing_global() -> None:
         )
 
     asyncio.run(run_clients())
-
-
-def test_ext_wayland_client_start_and_run_against_minimal_socket() -> None:
-    async def run_client() -> tuple[str, str]:
-        with _short_socket_path("ext-wayland") as socket_path:
-
-            async def handle_client(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                await reader.read(4096)
-                writer.write(
-                    _wl_message(
-                        2,
-                        0,
-                        _registry_payload(1, EXT_FOREIGN_TOPLEVEL_LIST_INTERFACE, 1),
-                    )
-                    + _wl_message(3, 0)
-                )
-                await writer.drain()
-
-                await reader.read(4096)
-                writer.write(_wl_message(5, 0))
-                await writer.drain()
-
-                await asyncio.sleep(0.01)
-                writer.write(
-                    _wl_message(4, 0, struct.pack("<I", 80))
-                    + _wl_message(80, 2, _encode_string("Live Window"))
-                    + _wl_message(80, 3, _encode_string("live.app"))
-                    + _wl_message(4, 1)
-                )
-                await writer.drain()
-                await asyncio.wait_for(reader.read(4096), timeout=1.0)
-                writer.close()
-                await writer.wait_closed()
-
-            server = await asyncio.start_unix_server(handle_client, path=str(socket_path))
-            tracker = ActiveWindowTracker()
-            client = ExtForeignToplevelListWaylandClient(tracker, socket_path=str(socket_path))
-            try:
-                await client.start()
-                await client.run()
-                tracker.update_state("80", [2])
-                return tracker.get_active_window()
-            finally:
-                await client.stop()
-                server.close()
-                await server.wait_closed()
-
-    assert asyncio.run(run_client()) == ("live.app", "Live Window")
 
 
 def test_wlr_wayland_client_start_and_run_against_minimal_socket() -> None:

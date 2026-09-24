@@ -9,7 +9,6 @@ from keymasq.session.listeners.niri import (
     NiriListener,
     normalize_niri_dispatcher,
     parse_niri_event,
-    parse_niri_focused_window_response,
     parse_niri_reply,
 )
 from tests.async_fakes import FakeProcess as _FakeProcess
@@ -43,16 +42,6 @@ def test_parse_niri_event_valid() -> None:
 
 def test_parse_niri_event_rejects_invalid_json() -> None:
     assert parse_niri_event("not-json") is None
-
-
-def test_parse_niri_focused_window_response_valid() -> None:
-    assert parse_niri_focused_window_response(
-        '{"Ok":{"FocusedWindow":{"id":42,"app_id":"app","title":"Title"}}}'
-    ) == {"id": 42, "app_id": "app", "title": "Title"}
-
-
-def test_parse_niri_focused_window_response_rejects_other_variants() -> None:
-    assert parse_niri_focused_window_response('{"Ok":{"Windows":[]}}') is None
 
 
 def test_workspace_dispatcher_accepts_index() -> None:

@@ -383,7 +383,6 @@ class CaptureManager:
         self,
         token: str | None = None,
         exclude_paths: set[str] | None = None,
-        allow_empty: bool = False,
         hardware_ids: set[str] | None = None,
         hardware_paths: Mapping[str, Sequence[str]] | None = None,
         hardware_interfaces: Mapping[str, Sequence[JsonObject]] | None = None,
@@ -402,16 +401,8 @@ class CaptureManager:
             hardware_ids=hardware_ids or set(),
             path_hardware_ids=path_hardware_ids,
         )
-        if not matched and not allow_empty:
-            raise ValueError(
-                input_device_permission_message("No keyboard devices found for combo capture")
-            )
-
         devices = list(matched)
         warnings: list[str] = []
-
-        if not devices and not allow_empty:
-            raise RuntimeError("No readable keyboard interfaces found")
 
         token = token or str(uuid.uuid4())
         if token in self._sessions:
@@ -463,29 +454,6 @@ class CaptureManager:
             return False
         self._combo_capture_authorizations.remove(token)
         return True
-
-    def read_combo(self, token: str) -> JsonObject:
-        session = self._sessions.get(token)
-        if session is None:
-            raise ValueError("Invalid capture token")
-
-        queued = self._read_combo_nowait(session)
-        if queued is not None:
-            return {"event": queued}
-        if session.event_queue is not None:
-            return {"event": None}
-
-        for device in session.devices:
-            event = _read_one_device_event(device)
-
-            if event is None:
-                continue
-
-            parsed = self._parse_combo_event(device, event, path_sources=session.path_sources)
-            if parsed is not None:
-                return {"event": parsed}
-
-        return {"event": None}
 
     def read_combo_nowait(self, token: str) -> JsonObject:
         session = self._sessions.get(token)

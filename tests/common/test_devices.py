@@ -11,10 +11,8 @@ from keymasq.common.devices import (
     capability_names_from_capabilities,
     classify_event_device_type,
     clear_device_path_cache,
-    config_path_for_detected_event,
     detect_input_classes_from_capabilities,
     find_all_interfaces,
-    gamepad_button_names_from_capabilities,
     get_interface_id,
     hardware_model_id_key,
     input_classes_include_gamepad,
@@ -149,7 +147,6 @@ def test_capability_names_handle_list_style_evdev_aliases(
 
     assert capability_name(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SOUTH) == "btn_south"
     assert capability_names_from_capabilities(caps) == ["btn_south"]
-    assert gamepad_button_names_from_capabilities(caps) == ["btn_south"]
 
 
 def test_keymasq_device_path_helpers() -> None:
@@ -174,33 +171,6 @@ def test_hardware_model_id_helpers_normalize_supported_forms() -> None:
     assert hardware_model_id_key("keymasq:45e:2a1@7") == "045e:02a1"
     assert parse_hardware_model_id("not-a-hardware-id") is None
     assert hardware_model_id_key("12345:02a1") is None
-
-
-def test_config_path_for_detected_event_prefers_by_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "keymasq.common.devices.resolve_stable_path",
-        lambda _path: "/dev/input/by-id/usb-Test-event-joystick",
-    )
-
-    assert (
-        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106")
-        == "/dev/input/by-id/usb-Test-event-joystick"
-    )
-
-
-def test_config_path_for_detected_event_uses_keymasq_path_without_by_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "keymasq.common.devices.resolve_stable_path",
-        lambda path: path,
-    )
-
-    assert (
-        config_path_for_detected_event("/dev/input/event5", "2dc8", "3106") == "keymasq:2dc8:3106"
-    )
 
 
 def test_find_all_interfaces_filters_matching_devices(monkeypatch: pytest.MonkeyPatch) -> None:

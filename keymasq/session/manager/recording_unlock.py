@@ -55,13 +55,6 @@ def is_sensitive_session_command(
     return False
 
 
-def has_active_gui_recording_owner(manager: "SessionManager") -> bool:
-    owner = manager.unlock_state.refresh_owner
-    if owner is None:
-        return False
-    return bool(str(owner.get("lease_id", "") or "").strip())
-
-
 def _status_is_active(status: RecordingStatus | None) -> bool:
     if status is None or not bool(status.get("unlocked", False)):
         return False

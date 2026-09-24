@@ -39,10 +39,6 @@ class WindowListener(ABC):
         pass
 
     @property
-    def supports_tags(self) -> bool:
-        return False
-
-    @property
     def supports_compositor_dispatch(self) -> bool:
         return False
 

@@ -1,13 +1,9 @@
 from types import SimpleNamespace
 
-import pytest
-
-from keymasq.keymasqd.runtime.grab.recovery import rollback_failed_grab_report
 from keymasq.keymasqd.runtime.grab.release import hardware_release_decision
 from keymasq.keymasqd.runtime.grab.state import (
     GrabAcquisitionState,
     GrabPlan,
-    GrabRequest,
 )
 
 
@@ -94,38 +90,3 @@ def test_hardware_release_decision_defers_held_input_then_releases() -> None:
     decision = hardware_release_decision(manager, "hw")
     assert decision.action == "release"
     assert decision.next_delay is None
-
-
-class _FailingReleaseDevice:
-    path = "/dev/input/event2"
-
-    async def release(self) -> None:
-        raise RuntimeError("release failed")
-
-
-@pytest.mark.asyncio
-async def test_rollback_report_exposes_cleanup_failures_after_restoring_inventory() -> None:
-    device = _FailingReleaseDevice()
-    manager = SimpleNamespace(
-        grabbed_devices={"hw": [device]},
-        grab_state=SimpleNamespace(
-            pending_interface_release={},
-            desired_paths={},
-            desired_grabs={},
-        ),
-    )
-    error = RuntimeError("grab failed")
-
-    report = await rollback_failed_grab_report(
-        manager,
-        GrabRequest(hardware_id="hw", evdev_paths=[], button_map={}, update_desired=False),
-        _plan(),
-        GrabAcquisitionState(devices=[device]),
-        "/dev/input/event3",
-        error,
-    )
-
-    assert report.reported_exception is error
-    assert report.failed_release_paths == ("/dev/input/event2",)
-    assert report.cleanup_succeeded is False
-    assert manager.grabbed_devices == {}

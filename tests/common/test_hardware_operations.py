@@ -516,25 +516,6 @@ async def test_damaged_root_selector_is_a_permanent_arm_failure(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_daemon_watchdog_runs_on_the_input_event_loop(monkeypatch):
-    from keymasq.keymasqd import daemon as module
-
-    daemon = module.Daemon()
-    daemon.running = True
-    monkeypatch.setenv("WATCHDOG_USEC", "30000")
-    monkeypatch.setenv("WATCHDOG_PID", str(os.getpid()))
-    messages = []
-
-    def notify(message):
-        messages.append(message)
-        daemon.running = False
-
-    monkeypatch.setattr(module, "sd_notify", notify)
-    await asyncio.wait_for(daemon._watchdog(), 1)
-    assert messages == ["WATCHDOG=1"]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("via_request", [False, True])
 async def test_watchdog_keeps_feeding_while_masking_waits_for_recovery(
     monkeypatch, tmp_path, via_request

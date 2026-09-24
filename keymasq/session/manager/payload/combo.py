@@ -69,18 +69,6 @@ def signature(manager: "SessionManager", combos: list[ResolvedCombo]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
-def serialize_all(
-    manager: "SessionManager",
-    combos: list[ResolvedCombo],
-) -> list[JsonObject]:
-    payload: list[JsonObject] = []
-    for combo in combos:
-        combo_payload = serialize(manager, combo)
-        if combo_payload is not None:
-            payload.append(combo_payload)
-    return payload
-
-
 def serialize(
     manager: "SessionManager",
     combo: ResolvedCombo,

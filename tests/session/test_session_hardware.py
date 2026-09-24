@@ -229,6 +229,19 @@ buttons = []
     assert manager.list_hardware_ids() == []
 
 
+def test_hardware_manager_masking_associations_survive_reload(
+    temp_config_dir,
+    sample_hardware_config,
+) -> None:
+    sample_hardware_config.masking_devices = ["a" * 24, "b" * 24]
+    manager = HardwareManager()
+    manager.save_hardware(sample_hardware_config)
+    manager.reload()
+    loaded = manager.get_hardware(sample_hardware_config.hardware_id)
+    assert loaded is not None
+    assert loaded.masking_devices == ["a" * 24, "b" * 24]
+
+
 def test_hardware_manager_save_load_and_delete_round_trip(temp_config_dir) -> None:
     manager = HardwareManager()
     config = HardwareConfig(

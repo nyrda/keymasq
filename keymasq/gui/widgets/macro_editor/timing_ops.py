@@ -2,8 +2,6 @@
 
 from collections.abc import Iterable
 
-import evdev
-
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -45,48 +43,6 @@ def all_timestamps(
     for control in control_events:
         stamps.append(int(control.t_us))
     return sorted(set(max(0, s) for s in stamps))
-
-
-def build_time_mapping_with_gap_limits(
-    events: list[EditableEvent],
-    rel_events: list[MacroEvent],
-    passthrough_events: list[MacroEvent],
-    synthetic_moves: list[EditableMove],
-    control_events: list[EditableControl],
-    *,
-    scale: float = 1.0,
-    min_gap_us: int = 0,
-    max_gap_us: int | None = None,
-    include_passthrough: bool = True,
-) -> dict[int, int]:
-    stamps = all_timestamps(
-        events,
-        rel_events,
-        passthrough_events,
-        synthetic_moves,
-        control_events,
-        include_passthrough=include_passthrough,
-    )
-    if not stamps:
-        return {}
-
-    mapping: dict[int, int] = {stamps[0]: stamps[0]}
-    prev_old = stamps[0]
-    prev_new = stamps[0]
-    min_gap_us = max(0, int(min_gap_us))
-    max_gap = max(0, int(max_gap_us)) if max_gap_us is not None else None
-
-    for t_us in stamps[1:]:
-        gap_old = max(0, t_us - prev_old)
-        gap = int(round(gap_old * scale))
-        gap = max(gap, min_gap_us)
-        if max_gap is not None:
-            gap = min(gap, max_gap)
-        prev_new += gap
-        mapping[t_us] = prev_new
-        prev_old = t_us
-
-    return mapping
 
 
 def build_trim_start_mapping(stamps: Iterable[int]) -> dict[int, int]:
@@ -329,8 +285,6 @@ def ripple_delete_range(
         kept_control_events,
         at_us=t1_us,
         delta_us=-(t1_us - t0_us),
-        scope="all",
-        exclude_control=None,
     )
     return (
         kept_events,
@@ -350,8 +304,6 @@ def shift_timeline_for_gap(
     *,
     at_us: int,
     delta_us: int,
-    scope: str,
-    exclude_control: EditableControl | None,
 ) -> bool:
     if delta_us == 0:
         return False
@@ -360,63 +312,26 @@ def shift_timeline_for_gap(
     at_us = int(at_us)
     delta_us = int(delta_us)
 
-    if scope in ("all", "keyboard", "mouse", "gamepad"):
-        for ev in events:
-            if scope != "all" and ev.device_type != scope:
-                continue
-            if ev.press_t_us >= at_us:
-                ev.press_t_us = max(0, ev.press_t_us + delta_us)
-                changed = True
-            if ev.release_t_us >= at_us:
-                ev.release_t_us = max(0, ev.release_t_us + delta_us)
-                changed = True
-            if ev.release_t_us <= ev.press_t_us:
-                ev.release_t_us = ev.press_t_us + 1
+    for ev in events:
+        if ev.press_t_us >= at_us:
+            ev.press_t_us = max(0, ev.press_t_us + delta_us)
+            changed = True
+        if ev.release_t_us >= at_us:
+            ev.release_t_us = max(0, ev.release_t_us + delta_us)
+            changed = True
+        if ev.release_t_us <= ev.press_t_us:
+            ev.release_t_us = ev.press_t_us + 1
 
-    if scope in ("all", "movement"):
-        for ev in rel_events:
-            t_us = int(ev.get("t_us", 0))
-            if t_us >= at_us:
-                ev["t_us"] = max(0, t_us + delta_us)
-                changed = True
-        for move in synthetic_moves:
-            if move.t_us >= at_us:
-                move.t_us = max(0, move.t_us + delta_us)
-                changed = True
-
-    if scope in ("all", "movement"):
-        for control in control_events:
-            if exclude_control is not None and control is exclude_control:
-                continue
-            if control.t_us >= at_us:
-                control.t_us = max(0, control.t_us + delta_us)
-                changed = True
-
-    for ev in passthrough_events:
+    for ev in [*rel_events, *passthrough_events]:
         t_us = int(ev.get("t_us", 0))
-        if t_us < at_us:
-            continue
-
-        if _passthrough_matches_scope(ev, scope):
+        if t_us >= at_us:
             ev["t_us"] = max(0, t_us + delta_us)
+            changed = True
+    for item in [*synthetic_moves, *control_events]:
+        if item.t_us >= at_us:
+            item.t_us = max(0, item.t_us + delta_us)
             changed = True
 
     if changed:
         sort_timeline_items(events, rel_events, passthrough_events, synthetic_moves, control_events)
     return changed
-
-
-def _passthrough_matches_scope(ev: MacroEvent, scope: str) -> bool:
-    ev_type = int(ev.get("type", -1))
-    device_type = str(ev.get("device_type", ""))
-    if scope == "all":
-        return True
-    if scope == "keyboard":
-        return ev_type == evdev.ecodes.EV_KEY and device_type == "keyboard"
-    if scope == "mouse":
-        return ev_type == evdev.ecodes.EV_KEY and device_type == "mouse"
-    if scope == "gamepad":
-        return ev_type == evdev.ecodes.EV_KEY and device_type == "gamepad"
-    if scope == "movement":
-        return ev_type == evdev.ecodes.EV_REL and device_type == "mouse"
-    return False

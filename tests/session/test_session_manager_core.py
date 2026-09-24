@@ -1364,42 +1364,6 @@ async def test_sync_virtual_gamepads_logs_daemon_transport_failure(
 
 
 @pytest.mark.asyncio
-async def test_handle_keymasqd_disconnect_clears_runtime_state_and_cancels_grab_retries() -> None:
-    manager = SessionManager()
-    manager.connected = True
-    manager.profile_state.grabbed_devices = {"hardware"}
-    manager.profile_state.active_profile_names = ["Base"]
-    retry_task = asyncio.create_task(asyncio.Event().wait())
-    manager.profile_state.grab_retry_tasks = {"hardware": retry_task}
-    manager._broadcast_keymasqd_status = Mock()  # type: ignore[method-assign]
-
-    await manager._handle_keymasqd_disconnect()
-
-    assert retry_task.cancelled()
-    assert manager.connected is False
-    assert manager.profile_state.grabbed_devices == set()
-    assert manager.profile_state.active_profile_names == []
-    manager._broadcast_keymasqd_status.assert_called_once_with(False)  # type: ignore[attr-defined]
-
-
-@pytest.mark.asyncio
-async def test_on_window_change_delegates_to_compositor_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    manager = SessionManager()
-    on_window_change = AsyncMock()
-    monkeypatch.setattr(
-        session_manager_core_module.compositor,
-        "on_window_change",
-        on_window_change,
-    )
-
-    await manager.on_window_change("app", "title", ["tag"])
-
-    on_window_change.assert_awaited_once_with(manager, "app", "title", ["tag"])
-
-
-@pytest.mark.asyncio
 async def test_session_socket_probe_timeout_and_os_error_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

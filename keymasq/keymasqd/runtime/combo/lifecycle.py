@@ -57,21 +57,6 @@ async def clear_combo_runtime_unlocked(
         raise errors[0]
 
 
-async def clear_combo_runtime_except(
-    manager: ComboManager,
-    preserve_combo_ids: set[str],
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    async with manager.combo_state.transition_lock:
-        async with manager.combo_state.runtime_lock:
-            await clear_combo_runtime_except_unlocked(
-                manager,
-                preserve_combo_ids,
-                deps=deps,
-            )
-
-
 async def clear_combo_runtime_except_unlocked(
     manager: ComboManager,
     preserve_combo_ids: set[str],

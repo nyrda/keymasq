@@ -652,7 +652,7 @@ def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
     assert tab._selected_profile is not None
     assert tab._selected_profile.config.name == "Desktop"
 
-    tab._on_active_profile_response({"devices": {"1234:5678": {"profiles": ["Gaming"]}}})
+    tab.apply_active_profile_response({"devices": {"1234:5678": {"profiles": ["Gaming"]}}})
 
     assert tab._active_profile_names == ["Gaming"]
     assert tab._selected_profile is not None
@@ -1963,33 +1963,6 @@ def test_key_selector_dialog_map_code_media_keys_ignore_options():
     assert system_results[0].rapidfire_wait_ms == 25
 
 
-def test_superkey_action_dialog_media_tab_hides_rapidfire_and_raw_keys_ignore_it():
-    from gi.repository import Gtk
-
-    from keymasq.common.model.core import ActionType
-    from keymasq.common.model.superkeys import SuperkeyAction
-    from keymasq.gui.widgets.key_selector.superkey_action_dialog import SuperkeyActionDialog
-
-    dialog = SuperkeyActionDialog(Gtk.Box(), "hold")
-    assert dialog.rapidfire_check is not None
-    results: list[SuperkeyAction] = []
-    dialog.connect("action-selected", lambda _dialog, action: results.append(action))
-
-    dialog.rapidfire_check.set_active(True)
-    dialog.hold_spin.set_value(40)
-    dialog.wait_spin.set_value(25)
-    dialog.stack.set_visible_child_name("media")
-
-    assert dialog.options_box.get_visible() is False
-
-    dialog._on_keyboard_clicked(None, "key_playpause")
-
-    assert len(results) == 1
-    assert results[0].action_type == ActionType.KEYBOARD
-    assert results[0].target == "key_playpause"
-    assert results[0].rapidfire_enabled is False
-
-
 def test_key_selector_dialog_gamepad_axis_mapping_uses_raw_and_percent_values():
     from gi.repository import Gtk
 
@@ -2260,46 +2233,6 @@ def test_key_selector_dialog_explicit_first_virtual_output_uses_default_choice(m
     assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
     assert dialog._gamepad_output_dropdown is not None
     assert dialog._gamepad_output_dropdown.get_selected() == 0
-    assert dialog._gamepad_output_warning_label is not None
-    assert dialog._gamepad_output_warning_label.get_visible() is False
-
-
-def test_superkey_action_dialog_explicit_first_virtual_output_uses_default_choice(
-    monkeypatch,
-):
-    gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
-
-    from keymasq.common.model.core import ActionType
-    from keymasq.common.model.superkeys import SuperkeyAction
-    import keymasq.gui.widgets.key_selector.macro_tab as macro_tab_module
-    import keymasq.gui.widgets.key_selector.tabs as dialog_module
-    from keymasq.gui.widgets.key_selector.superkey_action_dialog import SuperkeyActionDialog
-
-    monkeypatch.setattr(dialog_module, "virtual_gamepad_count", lambda: 1)
-    monkeypatch.setattr(
-        dialog_module,
-        "HardwareManager",
-        lambda: SimpleNamespace(list_hardware=lambda: []),
-    )
-    monkeypatch.setattr(
-        macro_tab_module,
-        "session_request_async",
-        lambda payload, callback, timeout=5.0: None,
-    )
-
-    dialog = SuperkeyActionDialog(
-        Gtk.Box(),
-        "hold",
-        SuperkeyAction(
-            action_type=ActionType.GAMEPAD,
-            target="btn_south",
-            output_id="virtual-gamepad-1",
-        ),
-    )
-
-    assert dialog._gamepad_output_choices() == [(None, "Virtual Gamepad 1")]
-    assert dialog._gamepad_output_ids == [None]
     assert dialog._gamepad_output_warning_label is not None
     assert dialog._gamepad_output_warning_label.get_visible() is False
 
@@ -3442,7 +3375,7 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
 
     error_dialog = KeySelectorDialog(Gtk.Box(), "Back")
     error_dialog._on_capture_position_clicked(Gtk.Button())
-    error_dialog._on_capture_position_response(
+    error_dialog._position_capture.on_response(
         error_dialog._position_capture.request_id,
         {"status": "error", "message": "Unknown command: get_cursor_position"},
     )

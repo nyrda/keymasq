@@ -820,23 +820,13 @@ class TestHardwareSetupDialog:
 
         assert keys[("1234:5678", "by-id:usb-Test_Mouse")] == "1234:5678"
 
-    def test_normal_rows_show_interface_expander_and_raw_rows_use_summary(self, monkeypatch):
-        gi.require_version("Gtk", "4.0")
-        from gi.repository import Gtk
+    def test_interface_expander_is_shown_for_normal_rows_only(self):
+        from keymasq.gui.wizards.hardware_setup import rows
 
-        from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
-
-        monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
-
-        dialog = HardwareSetupDialog(Gtk.Window(), HardwareManager())
-
-        dialog._discovery_state.show_raw = False
-        assert dialog._should_show_interface_expander([{}]) is True
-        assert dialog._should_show_interface_expander([{}, {}]) is True
-
-        dialog._discovery_state.show_raw = True
-        assert dialog._should_show_interface_expander([{}]) is False
-        assert dialog._should_show_interface_expander([{}, {}]) is False
+        assert rows.should_show_interface_expander(False, [{}]) is True
+        assert rows.should_show_interface_expander(False, [{}, {}]) is True
+        assert rows.should_show_interface_expander(True, [{}]) is False
+        assert rows.should_show_interface_expander(True, [{}, {}]) is False
 
     @pytest.mark.parametrize("reserved", [False, True])
     def test_selecting_owned_raw_row_allows_unconfigured_reservation(self, monkeypatch, reserved):
@@ -844,6 +834,7 @@ class TestHardwareSetupDialog:
         from gi.repository import Gtk
 
         from keymasq.gui.wizards.hardware_setup import dialog as hardware_setup_mod
+        from keymasq.gui.wizards.hardware_setup import rows
         from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
 
         monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
@@ -907,14 +898,14 @@ class TestHardwareSetupDialog:
 
         assert dialog.next_btn.get_sensitive() is reserved
         assert dialog._template_state.values == ["gamepad"]
-        assert dialog._device_in_use_summary(dialog._discovery_state.selected_device) == (
+        assert rows.device_in_use_summary(dialog._discovery_state.selected_device) == (
             "Masked · Available to add" if reserved else "In use by 045e:02a1 (gamepad)"
         )
 
     def test_device_in_use_summary_ignores_non_dict_interfaces(self):
-        from keymasq.gui.wizards.hardware_setup.dialog import HardwareSetupDialog
+        from keymasq.gui.wizards.hardware_setup import rows
 
-        summary = HardwareSetupDialog._device_in_use_summary(
+        summary = rows.device_in_use_summary(
             {
                 "interfaces": [
                     "invalid",

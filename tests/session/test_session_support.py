@@ -144,26 +144,6 @@ async def test_keymasqd_client_handle_response_logs_event_handler_errors(
 
 
 @pytest.mark.asyncio
-async def test_action_handler_handle_action_only_executes_exec_commands(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    handler = ActionHandler()
-    commands: list[str] = []
-
-    async def _execute_command(cmd: str) -> int:
-        commands.append(cmd)
-        return 0
-
-    monkeypatch.setattr(handler, "execute_command", _execute_command)
-
-    await handler.handle_action({"action_type": "exec", "cmd": "echo ok"})
-    await handler.handle_action({"action_type": "exec"})
-    await handler.handle_action({"action_type": "keyboard", "cmd": "echo ignored"})
-
-    assert commands == ["echo ok"]
-
-
-@pytest.mark.asyncio
 async def test_action_handler_execute_command_handles_failures(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

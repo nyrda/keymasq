@@ -1,16 +1,13 @@
 import asyncio
-import gc
-import warnings
 
 import pytest
 
 from keymasq.session import compositor as compositor_module
 from keymasq.session.compositor import (
-    detect_compositor_sync,
+    detect_compositor,
     get_compositor_support_details,
     get_listener_class,
     is_compositor_supported,
-    is_compositor_supported_sync,
 )
 
 EXPECTED_PROBE_ORDER = [
@@ -72,12 +69,29 @@ def test_registry_dispatches_listener_lookup_and_support_probe(
     assert calls == [compositor_id]
 
 
-def test_detect_priority_hyprland(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        **dict.fromkeys(compositor_module.SUPPORTED_COMPOSITORS, True),
-    )
-    assert detect_compositor_sync() == "hyprland"
+@pytest.mark.parametrize(
+    ("available", "expected"),
+    [
+        (list(compositor_module.SUPPORTED_COMPOSITORS), "hyprland"),
+        (["niri", "kde", "gnome", "cosmic", "wayland", "x11"], "niri"),
+        (["kde", "gnome", "cosmic", "wayland", "x11"], "kde"),
+        (["gnome", "cosmic", "wayland", "x11"], "gnome"),
+        (["cosmic", "wayland", "x11"], "cosmic"),
+        (["gnome", "wayland", "x11"], "gnome"),
+        (["wayland", "wayland-layer-shell", "x11"], "wayland"),
+        (["wayland-layer-shell", "x11"], "wayland-layer-shell"),
+        (["x11"], "x11"),
+        ([], None),
+    ],
+)
+def test_detect_compositor_picks_highest_priority_available_session(
+    monkeypatch,
+    available: list[str],
+    expected: str | None,
+) -> None:
+    _set_probes(monkeypatch, **dict.fromkeys(available, True))
+
+    assert asyncio.run(detect_compositor()) == expected
 
 
 def test_gnome_support_details_uses_single_detailed_probe(monkeypatch) -> None:
@@ -105,77 +119,6 @@ def test_gnome_support_details_uses_single_detailed_probe(monkeypatch) -> None:
     assert calls == ["details"]
 
 
-@pytest.mark.asyncio
-async def test_sync_probe_called_in_running_loop_closes_coroutine() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", RuntimeWarning)
-
-        assert detect_compositor_sync() is None
-        gc.collect()
-
-    assert not [
-        warning
-        for warning in caught
-        if "coroutine" in str(warning.message) and "was never awaited" in str(warning.message)
-    ]
-
-
-def test_detect_priority_niri_over_kde_and_wayland(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        niri=True,
-        kde=True,
-        gnome=True,
-        cosmic=True,
-        wayland=True,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "niri"
-
-
-def test_detect_priority_kde(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        kde=True,
-        gnome=True,
-        cosmic=True,
-        wayland=True,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "kde"
-
-
-def test_detect_priority_gnome_over_cosmic(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        gnome=True,
-        cosmic=True,
-        wayland=True,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "gnome"
-
-
-def test_detect_priority_cosmic_over_wayland_and_x11(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        cosmic=True,
-        wayland=True,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "cosmic"
-
-
-def test_detect_priority_gnome_over_wayland_and_x11(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        gnome=True,
-        wayland=True,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "gnome"
-
-
 def test_detect_gnome_even_when_bridge_support_is_unavailable(monkeypatch) -> None:
     _set_probes(
         monkeypatch,
@@ -184,55 +127,5 @@ def test_detect_gnome_even_when_bridge_support_is_unavailable(monkeypatch) -> No
         wayland=True,
         x11=True,
     )
-    assert detect_compositor_sync() == "gnome"
-    assert is_compositor_supported_sync("gnome") is False
-
-
-def test_detect_priority_wayland_over_x11(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        **{"wayland": True, "wayland-layer-shell": True, "x11": True},
-    )
-    assert detect_compositor_sync() == "wayland"
-
-
-def test_detect_priority_layer_shell_wayland_over_x11(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        **{"wayland-layer-shell": True, "x11": True},
-    )
-    assert detect_compositor_sync() == "wayland-layer-shell"
-
-
-def test_detect_x11(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        x11=True,
-    )
-    assert detect_compositor_sync() == "x11"
-
-
-def test_detect_none(monkeypatch) -> None:
-    _set_probes(monkeypatch)
-    assert detect_compositor_sync() is None
-
-
-def test_support_gates(monkeypatch) -> None:
-    _set_probes(
-        monkeypatch,
-        **{
-            "gnome": True,
-            "cosmic": True,
-            "wayland": True,
-            "wayland-layer-shell": True,
-            "x11": True,
-        },
-    )
-    assert is_compositor_supported_sync("x11") is True
-    assert is_compositor_supported_sync("wayland") is True
-    assert is_compositor_supported_sync("wayland-layer-shell") is True
-    assert is_compositor_supported_sync("kde") is False
-    assert is_compositor_supported_sync("cosmic") is True
-    assert is_compositor_supported_sync("gnome") is True
-    assert is_compositor_supported_sync("hyprland") is False
-    assert is_compositor_supported_sync("niri") is False
+    assert asyncio.run(detect_compositor()) == "gnome"
+    assert asyncio.run(is_compositor_supported("gnome")) is False

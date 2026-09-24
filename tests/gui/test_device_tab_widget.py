@@ -6,6 +6,18 @@ import pytest
 gi = pytest.importorskip("gi")
 
 from keymasq.gui.window import device_tabs, tab_layout
+from tests.gui.support import collect_widgets
+
+
+def _learn_tile_labels(tab) -> list[str]:
+    from gi.repository import Gtk
+
+    labels: list[str] = []
+    for tile in collect_widgets(tab, Gtk.Button):
+        if not tile.has_css_class("button-card-learn"):
+            continue
+        labels.extend(label.get_text() for label in collect_widgets(tile, Gtk.Label))
+    return labels
 
 
 def _make_add_inputs_flow(device, on_complete=None, parent=None):
@@ -80,7 +92,7 @@ class TestDeviceTabWidget:
 
         tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
 
-        assert tab._supports_analog_learning() is True
+        assert _learn_tile_labels(tab) == ["Learn Buttons", "Learn Analog"]
 
     def test_analog_learning_stays_hidden_for_plain_keyboard_devices(self):
         from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
@@ -103,7 +115,7 @@ class TestDeviceTabWidget:
 
         tab = DeviceTab(device=device, profile_manager=None, demo_mode=False)
 
-        assert tab._supports_analog_learning() is False
+        assert _learn_tile_labels(tab) == ["Learn Buttons"]
 
     def test_device_tab_inspect_button_delegates_to_main_window(self):
         from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
@@ -1385,19 +1397,10 @@ class TestDeviceTabWidget:
     def test_device_tab_button_click_routes_protected_profileless_and_edit_paths(
         self, temp_config_dir
     ):
-        from gi.repository import Gdk
-
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
         from keymasq.gui.widgets.device_tab.tab import DeviceTab
         from keymasq.session.profile.manager import ProfileManager
-
-        class _Click:
-            def __init__(self, button: int) -> None:
-                self._button = button
-
-            def get_current_button(self) -> int:
-                return self._button
 
         device = HardwareConfig(
             vendor_id="1234",
@@ -1416,12 +1419,7 @@ class TestDeviceTabWidget:
             protected_no_profile_calls.append("no-profile")
         )
 
-        no_profile_protected_tab._on_button_clicked(
-            _Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[0], True
-        )
-        no_profile_protected_tab._on_button_clicked(
-            _Click(Gdk.BUTTON_SECONDARY), 1, 0, 0, device.buttons[1], False
-        )
+        no_profile_protected_tab._button_widgets["btn_left"].emit("clicked")
 
         assert protected_no_profile_calls == ["no-profile"]
 
@@ -1433,7 +1431,7 @@ class TestDeviceTabWidget:
         )
         allowed_tab._show_function_editor = lambda button: allowed_calls.append(f"edit:{button.id}")
 
-        allowed_tab._on_button_clicked(_Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[0], True)
+        allowed_tab._button_widgets["btn_left"].emit("clicked")
 
         assert allowed_calls == ["warn:btn_left"]
 
@@ -1442,9 +1440,7 @@ class TestDeviceTabWidget:
         no_profile_tab._show_no_profile_dialog = lambda: no_profile_calls.append("no-profile")
         no_profile_tab._show_function_editor = lambda button: no_profile_calls.append(button.id)
 
-        no_profile_tab._on_button_clicked(
-            _Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[1], False
-        )
+        no_profile_tab._button_widgets["btn_back"].emit("clicked")
 
         assert no_profile_calls == ["no-profile"]
 
@@ -1462,9 +1458,7 @@ class TestDeviceTabWidget:
         selected_calls: list[str] = []
         selected_tab._show_function_editor = lambda button: selected_calls.append(button.id)
 
-        selected_tab._on_button_clicked(
-            _Click(Gdk.BUTTON_PRIMARY), 1, 0, 0, device.buttons[1], False
-        )
+        selected_tab._button_widgets["btn_back"].emit("clicked")
 
         assert selected_calls == ["btn_back"]
 
@@ -1545,7 +1539,11 @@ class TestDeviceTabWidget:
         finally:
             Adw.Dialog.present = original_present  # type: ignore[method-assign]
 
-        learn_tile = tab._create_learn_tile()
+        learn_tile = next(
+            tile
+            for tile in collect_widgets(tab, Gtk.Button)
+            if tile.has_css_class("button-card-learn")
+        )
         add_button_content = learn_tile.get_child()
         assert isinstance(add_button_content, Gtk.Box)
         add_button_icon = add_button_content.get_first_child()
@@ -2385,11 +2383,11 @@ class TestDeviceTabWidget:
         assert hardware_manager.saved == []
         assert reload_requests == []
 
-    def test_append_unique_evdev_devices_allows_logical_path_with_distinct_metadata(self):
+    def test_append_evdev_device_selection_allows_logical_path_with_distinct_metadata(self):
         from keymasq.common.model.core import DeviceType
         from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
-            append_unique_evdev_devices,
+            append_evdev_device_selection,
         )
 
         config = HardwareConfig(
@@ -2408,7 +2406,7 @@ class TestDeviceTabWidget:
             buttons=[],
         )
 
-        added = append_unique_evdev_devices(
+        added, motion_added = append_evdev_device_selection(
             config,
             [
                 EvdevDevice(
@@ -2428,15 +2426,15 @@ class TestDeviceTabWidget:
             ],
         )
 
-        assert added == 1
+        assert (added, motion_added) == (1, 0)
         assert [device.id for device in config.evdev_devices] == ["gamepad", "gamepad_2"]
         assert config.evdev_devices[-1].phys == "usb-test/input1"
 
-    def test_append_unique_evdev_devices_treats_real_path_as_duplicate(self):
+    def test_append_evdev_device_selection_treats_real_path_as_duplicate(self):
         from keymasq.common.model.core import DeviceType
         from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
         from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
-            append_unique_evdev_devices,
+            append_evdev_device_selection,
         )
 
         config = HardwareConfig(
@@ -2453,7 +2451,7 @@ class TestDeviceTabWidget:
             buttons=[],
         )
 
-        added = append_unique_evdev_devices(
+        added, motion_added = append_evdev_device_selection(
             config,
             [
                 EvdevDevice(
@@ -2466,7 +2464,7 @@ class TestDeviceTabWidget:
             ],
         )
 
-        assert added == 0
+        assert (added, motion_added) == (0, 0)
         assert len(config.evdev_devices) == 1
 
     def test_hardware_settings_identity_row_opens_rename(self):

@@ -1,10 +1,11 @@
 import json
 import struct
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, unique
 from typing import Any
 
 
+@unique
 class CommandType(Enum):
     HARDWARE_INVENTORY = "hardware_inventory"
     MASK_HARDWARE = "mask_hardware"

@@ -66,8 +66,6 @@ class KeySelectorDialog(
 
     _include_keyboard_capture_controls = True
     _include_mouse_move_controls = True
-    _include_tap_options = True
-    _gamepad_output_selector_mode = "title"
     _rapidfire_warning_context = "key selector"
     _selection_emit_closes_dialog = True
 
@@ -846,17 +844,6 @@ class KeySelectorDialog(
             delay_seconds=delay_seconds,
             apply_position=apply_position,
         )
-
-    def _on_slurp_capture_result(self, request_id: int, result) -> None:
-        self._position_capture.on_slurp_result(request_id, result)
-
-    def _capture_position_after_delay(self, request_id: int) -> bool:
-        result = self._position_capture.capture_after_delay(request_id)
-        return result
-
-    def _on_capture_position_response(self, request_id: int, response: dict | None) -> bool:
-        result = self._position_capture.on_response(request_id, response)
-        return result
 
     def _cancel_capture_position(self, status_text: str) -> None:
         self._position_capture.cancel(status_text)

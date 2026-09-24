@@ -32,10 +32,6 @@ class GrabRollbackReport:
     reported_exception: BaseException
     failed_release_paths: tuple[str, ...] = ()
 
-    @property
-    def cleanup_succeeded(self) -> bool:
-        return not self.failed_release_paths
-
 
 async def rollback_failed_grab_report(
     manager: GrabManager,

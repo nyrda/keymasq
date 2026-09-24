@@ -284,12 +284,6 @@ def virtual_device_caps(
     }
 
 
-def gamepad_caps(evdev_mod: _EvdevModule) -> dict[int, Sequence[object]]:
-    """Return the built-in Xbox template capabilities for compatibility."""
-    device = resolve_virtual_devices(1, VirtualDeviceConfig())[0]
-    return virtual_device_caps(device, evdev_mod)
-
-
 def _initialize_virtual_device_axes(
     uinput_dev: WritableUInput | None,
     device: ResolvedVirtualDevice,
@@ -371,15 +365,6 @@ def create_virtual_device(
         uinput_dev.close()
         raise
     return uinput_dev
-
-
-def create_virtual_gamepad(
-    index: int,
-    evdev_mod: _EvdevModule,
-    uinput_writer: UInputWriter,
-) -> ClosableUInput:
-    device = resolve_virtual_devices(index, VirtualDeviceConfig())[index - 1]
-    return create_virtual_device(device, evdev_mod, uinput_writer)
 
 
 def configure_virtual_gamepads(

@@ -351,10 +351,6 @@ def unicode_input_capability_error(layout: str = DEFAULT_KEYBOARD_LAYOUT) -> str
     return None
 
 
-def char_to_key(ch: str, layout: str = DEFAULT_KEYBOARD_LAYOUT) -> TypedKey:
-    return _layout_key(ch, keyboard_layout(layout))
-
-
 def _layout_key(ch: str, layout: KeyboardLayout) -> TypedKey:
     key = layout.key_for(ch)
     if key is None:

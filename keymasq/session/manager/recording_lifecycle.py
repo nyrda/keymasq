@@ -100,14 +100,6 @@ def has_pending_macro_save(
     return bool(state.pending_slots)
 
 
-def macro_recording_disabled_response() -> JsonObject:
-    return {
-        "status": "error",
-        "error_code": MACRO_RECORDING_DISABLED_ERROR_CODE,
-        "message": MACRO_RECORDING_DISABLED_MESSAGE,
-    }
-
-
 def is_macro_recording_disabled_error(result: JsonObject) -> bool:
     if result.get("error_code") == MACRO_RECORDING_DISABLED_ERROR_CODE:
         return True

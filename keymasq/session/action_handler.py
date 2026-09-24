@@ -5,7 +5,6 @@ import os
 import signal
 
 from keymasq.common.subprocess_env import host_subprocess_environment
-from keymasq.common.types import JsonObject
 
 log = logging.getLogger("keymasq-session.actions")
 DEFAULT_COMMAND_TIMEOUT_S = 300.0
@@ -31,17 +30,6 @@ class ActionHandler:
     def __init__(self) -> None:
         self._background_tasks: set[asyncio.Task[int]] = set()
         self._tracked_command_tasks: dict[str, asyncio.Task[object]] = {}
-
-    async def handle_action(self, data: JsonObject) -> None:
-        action_type = data.get("action_type")
-        source_device = data.get("source_device")
-        source_button = data.get("source_button")
-        cmd = data.get("cmd")
-
-        log.info(f"Handling action: {action_type} from {source_device}:{source_button}")
-
-        if action_type == "exec" and isinstance(cmd, str) and cmd:
-            await self.execute_command(cmd)
 
     async def execute_command(
         self,

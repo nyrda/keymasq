@@ -203,7 +203,7 @@ def _parse_int_pair(args: str) -> tuple[int, int] | None:
         return None
     try:
         return int(float(parts[0])), int(float(parts[1]))
-    except ValueError:
+    except (OverflowError, ValueError):
         return None
 
 

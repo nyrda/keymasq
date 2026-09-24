@@ -339,10 +339,12 @@ async def test_sway_set_cursor_position_uses_current_seat(sway_server: FakeI3Ser
     try:
         assert await listener.dispatch("set_cursor_position", "160 120") == (True, "ok")
         assert sway_server.commands == ["seat - cursor set 160 120"]
-        assert await listener.dispatch("set_cursor_position", "oops") == (
-            False,
-            "set_cursor_position expects X Y",
-        )
+        for bad_args in ("oops", "inf 10", "1e309 10"):
+            assert await listener.dispatch("set_cursor_position", bad_args) == (
+                False,
+                "set_cursor_position expects X Y",
+            )
+        assert sway_server.commands == ["seat - cursor set 160 120"]
     finally:
         await listener.stop()
 

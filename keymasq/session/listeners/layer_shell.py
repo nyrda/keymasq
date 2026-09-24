@@ -142,18 +142,22 @@ class LayerShellCursorSupport:
             return
 
         tracker = LayerShellCursorTracker(self._client, socket_path=str(socket_path))
+        # Keep a reference during startup so stop() can release the tracker if
+        # the listener start is cancelled.
+        self._tracker = tracker
         try:
             await tracker.start()
         except (OSError, RuntimeError):
             log.debug("%s layer-shell cursor tracker unavailable", self._label, exc_info=True)
+            self._tracker = None
             await tracker.stop()
             return
         except Exception:
             log.exception("%s layer-shell cursor tracker failed", self._label)
+            self._tracker = None
             await tracker.stop()
             return
 
-        self._tracker = tracker
         self._task = asyncio.create_task(
             tracker.run(),
             name=f"keymasq-session:{self._label.lower()}-layer-cursor",

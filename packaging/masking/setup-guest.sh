@@ -25,7 +25,9 @@ EOF
 
 start_session() {
     as_user systemctl --user daemon-reload
-    as_user systemctl --user reset-failed keymasq-session.service
+    if as_user systemctl --user is-failed --quiet keymasq-session.service; then
+        as_user systemctl --user reset-failed keymasq-session.service
+    fi
     as_user systemctl --user restart keymasq-session.service
 }
 

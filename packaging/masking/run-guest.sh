@@ -83,12 +83,8 @@ printf 'PASS upgrade: %s -> %s; daemon PID %s -> %s\n' \
 # Fault injection: hold the hardware operations lock exclusively. The daemon's
 # shutdown restore, ExecStopPost recovery, and the removal check all need it.
 lock=/run/keymasq-masking/operations.lock
-flock -x "$lock" sleep 600 &
-lock_holder=$!
-for _ in $(seq 100); do
-    flock -n -s "$lock" true || break
-    sleep 0.1
-done
+exec {lock_fd}>"$lock"
+flock -x "$lock_fd"
 if flock -n -s "$lock" true; then
     echo 'FAIL: could not hold the hardware operations lock' >&2
     exit 1
@@ -100,8 +96,8 @@ fi
 test "$(version)" = "$candidate_version"
 test -x /usr/bin/keymasq-record
 check restricted
-kill "$lock_holder"
-wait "$lock_holder" || true
+flock -u "$lock_fd"
+exec {lock_fd}>&-
 echo 'PASS refused removal: package and recovery helper kept while recovery was blocked'
 
 # Do not stop the daemon or call recovery here. The real removal hook must do it.

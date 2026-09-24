@@ -5,6 +5,7 @@ import evdev
 
 from keymasq import __version__
 from keymasq.common.devices import resolve_evdev_code
+from keymasq.common.keyboard_layouts import KeyboardLayoutError, parse_keyboard_layout_id
 from keymasq.common.model.actions import (
     REPEAT_CATEGORY_GAMEPAD,
     REPEAT_CATEGORY_KEYBOARD,
@@ -13,7 +14,7 @@ from keymasq.common.model.actions import (
     REPEAT_CATEGORY_SPECIAL,
 )
 from keymasq.gui.widgets.docs_links import actions_docs_url
-from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS
+from keymasq.gui.widgets.input_picker_shared import GAMEPAD_BUTTONS, KeyCap
 
 _PROFILE_LIFETIME_PRESETS_ENABLE: tuple[tuple[str, str], ...] = (
     ("until_changed", "Persistent"),
@@ -84,15 +85,6 @@ def _resolve_gamepad_axis_target(raw: str) -> str | None:
     return None
 
 
-KEYBOARD_LAYOUT = [
-    ["Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"],
-    ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "Bspc"],
-    ["Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"],
-    ["Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'", "Enter"],
-    ["LShift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", "RShift"],
-    ["LCtrl", "LMeta", "LAlt", "Space", "RAlt", "RMeta", "Fn", "Menu", "RCtrl"],
-]
-
 KEY_TO_EVDEV = {
     "Esc": "key_esc",
     "F1": "key_f1",
@@ -135,6 +127,7 @@ KEY_TO_EVDEV = {
     "[": "key_leftbrace",
     "]": "key_rightbrace",
     "\\": "key_backslash",
+    "<>": "key_102nd",
     "Caps": "key_capslock",
     "A": "key_a",
     "S": "key_s",
@@ -166,7 +159,6 @@ KEY_TO_EVDEV = {
     "Space": "key_space",
     "RAlt": "key_rightalt",
     "RMeta": "key_rightmeta",
-    "Fn": None,
     "Menu": "key_menu",
     "RCtrl": "key_rightctrl",
     "F13": "key_f13",
@@ -220,25 +212,63 @@ KEY_TO_EVDEV = {
     "Next Track": "key_nextsong",
 }
 
-KEY_WIDTHS = {
-    "Esc": 1,
-    "Bspc": 2,
-    "Tab": 1.5,
-    "\\": 1.5,
-    "Caps": 1.75,
-    "Enter": 2.25,
-    "LShift": 2.25,
-    "RShift": 2.75,
-    "LCtrl": 1.25,
-    "LMeta": 1.25,
-    "LAlt": 1.25,
-    "Space": 6.25,
-    "RAlt": 1.25,
-    "RMeta": 1.25,
-    "Fn": 1.25,
-    "Menu": 1.25,
-    "RCtrl": 1.25,
-}
+
+def _key(label: str, width: float = 1, *, height: int = 1, gap: float = 0) -> KeyCap:
+    return KeyCap(label, KEY_TO_EVDEV[label], width, height, gap)
+
+
+def _keys(labels: str) -> tuple[KeyCap, ...]:
+    return tuple(_key(label) for label in labels.split())
+
+
+_FUNCTION_ROW = (
+    _key("Esc"),
+    _key("F1", gap=1),
+    *_keys("F2 F3 F4"),
+    _key("F5", gap=0.5),
+    *_keys("F6 F7 F8"),
+    _key("F9", gap=0.5),
+    *_keys("F10 F11 F12"),
+)
+_NUMBER_ROW = (*_keys("` 1 2 3 4 5 6 7 8 9 0 - ="), _key("Bspc", 2))
+_BOTTOM_ROW = (
+    *(_key(label, 1.25) for label in ("LCtrl", "LMeta", "LAlt")),
+    _key("Space", 6.25),
+    *(_key(label, 1.25) for label in ("RAlt", "RMeta", "Menu", "RCtrl")),
+)
+
+ANSI_KEYBOARD_ROWS: tuple[tuple[KeyCap, ...], ...] = (
+    _FUNCTION_ROW,
+    _NUMBER_ROW,
+    (_key("Tab", 1.5), *_keys("Q W E R T Y U I O P [ ]"), _key("\\", 1.5)),
+    (_key("Caps", 1.75), *_keys("A S D F G H J K L ; '"), _key("Enter", 2.25)),
+    (_key("LShift", 2.25), *_keys("Z X C V B N M , . /"), _key("RShift", 2.75)),
+    _BOTTOM_ROW,
+)
+# ISO boards add the key between left Shift and Z (KEY_102ND) and move
+# KEY_BACKSLASH down next to a two-row Enter.
+ISO_KEYBOARD_ROWS: tuple[tuple[KeyCap, ...], ...] = (
+    _FUNCTION_ROW,
+    _NUMBER_ROW,
+    (_key("Tab", 1.5), *_keys("Q W E R T Y U I O P [ ]"), _key("Enter", 1.25, height=2, gap=0.25)),
+    (_key("Caps", 1.75), *_keys("A S D F G H J K L ; ' \\")),
+    (_key("LShift", 1.25), *_keys("<> Z X C V B N M , . /"), _key("RShift", 2.75)),
+    _BOTTOM_ROW,
+)
+# Layouts whose national keyboards are ANSI. The ISO grid is ANSI plus one
+# key, so every other layout gets it.
+_ANSI_LAYOUTS = frozenset({"us", "cn", "kr", "th", "tw"})
+
+
+def keyboard_rows_for_layout(layout_id: str | None) -> tuple[tuple[KeyCap, ...], ...]:
+    if layout_id is None:
+        return ANSI_KEYBOARD_ROWS
+    try:
+        layout, _variant = parse_keyboard_layout_id(layout_id)
+    except KeyboardLayoutError:
+        return ANSI_KEYBOARD_ROWS
+    return ANSI_KEYBOARD_ROWS if layout in _ANSI_LAYOUTS else ISO_KEYBOARD_ROWS
+
 
 F_EXTRA = ["F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"]
 

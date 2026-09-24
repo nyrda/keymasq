@@ -117,6 +117,18 @@ wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
 Pick a keyboard key from the visual layout (up to F12). The mapped button
 will send that key press instead of its original input.
 
+The keys are labeled for the layout in **Settings > Keyboard layout** (see
+[Keyboard layout](macros.md#keyboard-layout)). On a German layout, the key
+right of T reads Z, and non-letter keys show their shifted character above the
+unshifted one. The labels only change what you see: a mapping stores the
+physical key, and your desktop's layout decides which character it types.
+Hover a key to see its evdev name, such as `KEY_Y`.
+
+US layouts, and the Chinese, Korean, Taiwanese, and Thai layouts, show an ANSI
+keyboard. Every other layout shows an ISO keyboard, which adds the key between
+left Shift and Z (`KEY_102ND`) and moves `KEY_BACKSLASH` next to a two-row
+Enter. If the layout can't be loaded, the tab shows the US keyboard.
+
 The Keyboard tab also includes a compact **System Keys** row:
 
 - Volume Up, Volume Down, and Mute

@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
+import evdev
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -12,6 +14,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.gamepad_axes import gamepad_axis_max_value
+from keymasq.common.keyboard_layouts import KeyLegend
 
 log = logging.getLogger("keymasq.gui.widgets.input_picker_shared")
 
@@ -59,14 +62,83 @@ def _get_gamepad_image_path() -> str:
     return os.path.join(asset_dir, "gamepad.svg")
 
 
+@dataclass(frozen=True)
+class KeyCap:
+    """One key of the on-screen keyboard. Sizes and offsets are in key widths."""
+
+    label: str
+    evdev_name: str
+    width: float = 1
+    height: int = 1
+    gap: float = 0
+
+
+# Grid columns per key width, so keys can sit on quarter-key offsets.
+_KEY_GRID_STEPS = 4
+KEY_GAP_PX = 3
+
+
+def build_keyboard_grid(owner, rows: Sequence[Sequence[KeyCap]]) -> Gtk.Grid:
+    grid = Gtk.Grid()
+    grid.add_css_class("keyboard-grid")
+    grid.set_column_homogeneous(True)
+    grid.set_row_spacing(KEY_GAP_PX)
+    grid.set_halign(Gtk.Align.CENTER)
+    for row_index, row in enumerate(rows):
+        position = 0.0
+        for key in row:
+            position += key.gap
+            btn = owner._create_key_button(key.label, key.evdev_name, width=key.width)
+            btn._keycap_label = key.label
+            btn.set_margin_end(KEY_GAP_PX)
+            if not btn.get_tooltip_text():
+                btn.set_tooltip_text(key.evdev_name.upper())
+            btn.connect("clicked", owner._on_keyboard_clicked, key.evdev_name)
+            grid.attach(
+                btn,
+                round(position * _KEY_GRID_STEPS),
+                row_index,
+                round(key.width * _KEY_GRID_STEPS),
+                key.height,
+            )
+            position += key.width
+    return grid
+
+
+def apply_key_legends(grid: Gtk.Grid, legends: Mapping[int, KeyLegend]) -> None:
+    """Label each key with what it types on a layout, or its fixed name when it types nothing."""
+    child = grid.get_first_child()
+    while child is not None:
+        label = getattr(child, "_keycap_label", None)
+        if isinstance(child, Gtk.Button) and label is not None:
+            code = evdev.ecodes.ecodes.get(getattr(child, "_evdev_name", "").upper())
+            _set_key_legend(child, label, legends.get(code) if code is not None else None)
+        child = child.get_next_sibling()
+
+
+def _set_key_legend(button: Gtk.Button, fixed_label: str, legend: KeyLegend | None) -> None:
+    if legend is None:
+        button.set_label(fixed_label)
+        button.remove_css_class("dual-legend")
+        return
+    if legend.shifted:
+        button.set_label(f"{legend.shifted}\n{legend.base}")
+        button.add_css_class("dual-legend")
+    else:
+        button.set_label(legend.base)
+        button.remove_css_class("dual-legend")
+    label = button.get_child()
+    if isinstance(label, Gtk.Label):
+        label.set_justify(Gtk.Justification.CENTER)
+
+
 def build_keyboard_tab(
     owner,
     *,
-    keyboard_layout: list[list[str]],
-    key_to_evdev: Mapping[str, str | None],
-    key_widths: Mapping[str, float],
+    keyboard_rows: Sequence[Sequence[KeyCap]],
     system_key_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]] | None = None,
 ) -> Gtk.ScrolledWindow:
+    """Build the key grid as ``owner._keyboard_grid`` so a layout change can replace it."""
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
@@ -76,21 +148,8 @@ def build_keyboard_tab(
     box.set_margin_start(8)
     box.set_margin_end(8)
 
-    for row in keyboard_layout:
-        row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-        row_box.set_halign(Gtk.Align.CENTER)
-
-        for key in row:
-            evdev_name = key_to_evdev.get(key)
-            if evdev_name is None:
-                continue
-
-            width = key_widths.get(key, 1)
-            btn = owner._create_key_button(key, evdev_name, width=width)
-            btn.connect("clicked", owner._on_keyboard_clicked, evdev_name)
-            row_box.append(btn)
-
-        box.append(row_box)
+    owner._keyboard_grid = build_keyboard_grid(owner, keyboard_rows)
+    box.append(owner._keyboard_grid)
 
     if system_key_groups:
         system_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -105,6 +164,16 @@ def build_keyboard_tab(
 
     scrolled.set_child(box)
     return scrolled
+
+
+def replace_keyboard_grid(owner, rows: Sequence[Sequence[KeyCap]]) -> Gtk.Grid:
+    old = owner._keyboard_grid
+    box = old.get_parent()
+    grid = build_keyboard_grid(owner, rows)
+    box.insert_child_after(grid, old)
+    box.remove(old)
+    owner._keyboard_grid = grid
+    return grid
 
 
 def build_navigation_tab(

@@ -249,6 +249,18 @@ button.key-button {
   min-height: 0;
 }
 
+/* Keyboard tab grid: every column is as wide as the widest key label needs */
+.keyboard-grid button.key-button {
+  padding: 2px;
+}
+
+/* Keyboard tab keys that show a shifted character above the base one */
+.keyboard-grid button.key-button.dual-legend {
+  padding: 0 2px;
+  font-size: 0.8em;
+  line-height: 1;
+}
+
 button.bound-target {
   background-color: alpha(@accent_color, 0.2);
   box-shadow: inset 0 0 0 2px @accent_color;

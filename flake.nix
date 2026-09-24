@@ -432,6 +432,9 @@
             systemd.tmpfiles.rules = [
               "d /run/keymasq 0755 keymasq keymasq -"
               "d /var/lib/keymasq 0750 keymasq keymasq -"
+              # Repair state left by an older keymasq UID. The d line above
+              # fixes only the top directory, so StateDirectory= skips its chown.
+              "Z /var/lib/keymasq - keymasq keymasq -"
               "d /run/udev/rules.d 0755 root root -"
             ];
 

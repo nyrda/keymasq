@@ -2,6 +2,7 @@ import asyncio
 import configparser
 import json
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -44,15 +45,24 @@ def test_hardware_job_does_not_expose_unrelated_runtime_files(unit_path, tmpfile
     assert ["d", "/run/udev/rules.d", "0755", "root", "root", "-"] in entries
 
 
+def _tmpfiles_entries(path: str) -> list[list[str]]:
+    text = (Path(__file__).resolve().parents[2] / path).read_text()
+    if path == "flake.nix":
+        # The NixOS module keeps its own copy in systemd.tmpfiles.rules.
+        block = re.search(r"systemd\.tmpfiles\.rules = \[(.*?)\];", text, re.DOTALL)
+        assert block is not None
+        return [line.split() for line in re.findall(r'"([^"]+)"', block.group(1))]
+    return [line.split() for line in text.splitlines()]
+
+
 @pytest.mark.parametrize(
     "tmpfiles_path",
-    ["tmpfiles.d/keymasq.conf", "packaging/appimage/assets/keymasq-tmpfiles.conf"],
+    ["tmpfiles.d/keymasq.conf", "packaging/appimage/assets/keymasq-tmpfiles.conf", "flake.nix"],
 )
 def test_state_dir_ownership_is_repaired_recursively(tmpfiles_path):
     # tmpfiles refuses Z on a subdirectory whose owner differs from its
     # non-root parent, so the repair has to start at the state directory.
-    root = Path(__file__).resolve().parents[2]
-    entries = [line.split() for line in (root / tmpfiles_path).read_text().splitlines()]
+    entries = _tmpfiles_entries(tmpfiles_path)
     assert ["Z", "/var/lib/keymasq", "-", "keymasq", "keymasq", "-"] in entries
     assert not any(entry[:1] == ["Z"] and entry[1] != "/var/lib/keymasq" for entry in entries)
 

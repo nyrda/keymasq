@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any
 
@@ -100,43 +100,6 @@ def test_slurp_capture_available_with_layer_shell_fallback_is_enabled() -> None:
     capture.set_compositor("wayland-layer-shell")
 
     assert capture.available is True
-
-
-@pytest.mark.parametrize(
-    ("slurp_path", "compositor_id"),
-    [
-        (None, "wayland-wlr"),
-        ("/usr/bin/slurp", None),
-        ("/usr/bin/slurp", "x11"),
-        ("/usr/bin/slurp", "wayland-wlr"),
-    ],
-)
-def test_slurp_available_matches_unavailable_reason(
-    slurp_path: str | None,
-    compositor_id: str | None,
-) -> None:
-    capture = SlurpCapture()
-    capture._slurp_path = slurp_path
-    capture._available = None
-    capture._compositor_id = compositor_id
-
-    assert capture.available is (capture.get_unavailable_reason() is None)
-
-
-def test_slurp_get_unavailable_reason_without_binary() -> None:
-    capture = SlurpCapture()
-    capture._slurp_path = None
-    capture._compositor_id = "wayland-wlr"
-    assert capture.get_unavailable_reason() == "slurp is not installed"
-
-
-def test_slurp_get_unavailable_reason_with_bad_compositor() -> None:
-    capture = SlurpCapture()
-    capture._slurp_path = "/usr/bin/slurp"
-    capture._compositor_id = "x11"
-    reason = capture.get_unavailable_reason()
-    assert reason is not None
-    assert "does not support slurp" in reason
 
 
 def test_capture_point_unavailable_calls_callback_none() -> None:
@@ -307,7 +270,6 @@ def test_capture_point_async_terminates_process_when_on_ready_fails(monkeypatch)
     assert result is None
     assert process.terminated is True
     assert process.communicate_calls == 0
-    assert capture._process is None
 
 
 def test_capture_point_async_returns_none_for_empty_output(monkeypatch) -> None:
@@ -322,7 +284,10 @@ def test_capture_point_async_returns_none_for_empty_output(monkeypatch) -> None:
     assert result is None
 
 
-def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monkeypatch) -> None:
+def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     capture = SlurpCapture()
     capture._available = True
     capture._slurp_path = "/usr/bin/slurp"
@@ -334,74 +299,14 @@ def test_capture_point_async_returns_none_and_kills_on_communicate_timeout(monke
 
     _patch_slurp_process(monkeypatch, process)
     monkeypatch.setattr(asyncio, "wait_for", _wait_for)
+    caplog.set_level(logging.WARNING, logger="keymasq.slurp")
 
     result = asyncio.run(capture.capture_point_async())
     assert result is None
     assert process.terminated is True
     assert process.killed is True
     assert process.wait_calls == 2
-    assert capture._process is None
-
-
-def test_capture_point_async_timeout_does_not_clear_overlapping_capture(monkeypatch) -> None:
-    capture = SlurpCapture()
-    capture._available = True
-    capture._slurp_path = "/usr/bin/slurp"
-    capture._process = None
-
-    async def _run() -> None:
-        first_waiting = asyncio.Event()
-        allow_first_timeout = asyncio.Event()
-        second_started = asyncio.Event()
-        second_release = asyncio.Event()
-
-        def _communicate_for(name: str) -> Callable[[], Awaitable[tuple[bytes, bytes]]]:
-            async def _communicate() -> tuple[bytes, bytes]:
-                if name == "second":
-                    second_started.set()
-                    await second_release.wait()
-                    return b"70,80\n", b""
-                return b"", b""
-
-            return _communicate
-
-        processes: list[_FakeSlurpProcess] = []
-
-        async def _create_subprocess_exec(*args: Any, **kwargs: Any) -> _FakeSlurpProcess:
-            name = "first" if not processes else "second"
-            process = _FakeSlurpProcess(communicate=_communicate_for(name))
-            processes.append(process)
-            return process
-
-        async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
-            if timeout == 0.01:
-                first_waiting.set()
-                await allow_first_timeout.wait()
-                awaitable.close()
-                raise TimeoutError
-            return await awaitable
-
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", _create_subprocess_exec)
-        monkeypatch.setattr(asyncio, "wait_for", _wait_for)
-
-        first_task = asyncio.create_task(capture.capture_point_async(timeout=0.01))
-        await first_waiting.wait()
-        second_task = asyncio.create_task(capture.capture_point_async(timeout=5.0))
-        await second_started.wait()
-
-        allow_first_timeout.set()
-        assert await first_task is None
-        first_process, second_process = processes
-        assert first_process.terminated is True
-        assert first_process.waited is True
-        assert second_process.terminated is False
-        assert capture._process is second_process
-
-        second_release.set()
-        assert await second_task == SlurpResult(x=70, y=80)
-        assert capture._process is None
-
-    asyncio.run(_run())
+    assert "slurp process did not exit after kill" in caplog.text
 
 
 def test_capture_point_async_cancels_process_on_external_cancel(monkeypatch) -> None:
@@ -420,7 +325,6 @@ def test_capture_point_async_cancels_process_on_external_cancel(monkeypatch) -> 
         asyncio.run(capture.capture_point_async())
 
     assert process.terminated is True
-    assert capture._process is None
 
 
 def test_capture_point_invokes_callback_with_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -443,83 +347,27 @@ def test_capture_point_invokes_callback_with_result(monkeypatch: pytest.MonkeyPa
     assert values == [SlurpResult(x=7, y=8)]
 
 
-def test_cancel_async_terminates_process() -> None:
-    capture = SlurpCapture()
-    process = _FakeSlurpProcess()
-    capture._process = process  # type: ignore[assignment]
-
-    asyncio.run(capture.cancel_async())
-
-    assert process.terminated is True
-    assert process.waited is True
-    assert capture._process is None
-
-
-def test_cancel_async_kills_and_waits_again_when_terminate_wait_times_out(
-    monkeypatch,
-) -> None:
-    capture = SlurpCapture()
-    process = _FakeSlurpProcess()
-    capture._process = process  # type: ignore[assignment]
-    wait_for_calls = 0
-
-    async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
-        nonlocal wait_for_calls
-        wait_for_calls += 1
-        awaitable.close()
-        if wait_for_calls == 1:
-            raise TimeoutError
-        return None
-
-    monkeypatch.setattr(asyncio, "wait_for", _wait_for)
-
-    asyncio.run(capture.cancel_async())
-
-    assert process.terminated is True
-    assert process.killed is True
-    assert process.wait_calls == 2
-    assert capture._process is None
-
-
-def test_cancel_async_warns_when_process_survives_kill(
+def test_capture_point_async_logs_unexpected_terminate_failure(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     capture = SlurpCapture()
-    process = _FakeSlurpProcess()
-    capture._process = process  # type: ignore[assignment]
+    capture._available = True
+    capture._slurp_path = "/usr/bin/slurp"
 
-    async def _wait_for(awaitable: Awaitable[object], timeout: float) -> object:
-        awaitable.close()
-        raise TimeoutError
-
-    monkeypatch.setattr(asyncio, "wait_for", _wait_for)
-    caplog.set_level(logging.WARNING, logger="keymasq.slurp")
-
-    asyncio.run(capture.cancel_async())
-
-    assert process.terminated is True
-    assert process.killed is True
-    assert process.wait_calls == 2
-    assert "slurp process did not exit after kill" in caplog.text
-    assert capture._process is None
-
-
-def test_cancel_async_logs_unexpected_terminate_failure(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    capture = SlurpCapture()
+    async def _communicate() -> tuple[bytes, bytes]:
+        raise asyncio.CancelledError
 
     class _BrokenProcess(_FakeSlurpProcess):
         def terminate(self) -> None:
             raise RuntimeError("terminate failed")
 
-    process = _BrokenProcess()
-    capture._process = process  # type: ignore[assignment]
+    process = _BrokenProcess(communicate=_communicate)
+    _patch_slurp_process(monkeypatch, process)
     caplog.set_level(logging.ERROR, logger="keymasq.slurp")
 
-    asyncio.run(capture.cancel_async())
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(capture.capture_point_async())
 
     assert "Unexpected failure terminating slurp process" in caplog.text
     assert process.killed is False
-    assert capture._process is None

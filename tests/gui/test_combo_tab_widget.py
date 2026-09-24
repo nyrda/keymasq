@@ -417,7 +417,7 @@ class TestComboTabWidget:
 
         tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
         tab.refresh_profiles(preferred_profile_name="Desktop", publish_selection=False)
-        tab._on_active_profile_response({"active_profiles": ["Desktop"]})
+        tab.apply_active_profile_response({"active_profiles": ["Desktop"]})
 
         assert tab._active_profile_names == ["Desktop"]
         assert tab.active_profiles_label.get_text() == "Desktop"
@@ -435,7 +435,7 @@ class TestComboTabWidget:
 
         tab = ComboTab(profile_manager=profile_manager, demo_mode=True)
         tab.refresh_profiles(preferred_profile_name="Base", publish_selection=False)
-        tab._on_active_profile_response({"active_profiles": ["Base", "App", "Game", "Overlay"]})
+        tab.apply_active_profile_response({"active_profiles": ["Base", "App", "Game", "Overlay"]})
 
         assert tab.active_profiles_label.get_text() == "Base, App, Game, +1"
         assert (

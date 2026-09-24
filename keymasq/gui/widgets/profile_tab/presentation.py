@@ -74,10 +74,6 @@ class ProfilePresentationMixin:
         self._update_profile_state_display()
         self._after_active_profiles_changed()
 
-    def _on_active_profile_response(self: Any, data: dict | None) -> bool:
-        self.apply_active_profile_response(data)
-        return False
-
     def _refresh_profile_dropdown_states(self: Any) -> None:
         current_selected = self.profile_dropdown.get_selected()
         strings = Gtk.StringList()

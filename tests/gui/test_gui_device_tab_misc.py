@@ -652,7 +652,7 @@ def test_device_tab_does_not_auto_switch_to_active_profile(temp_config_dir):
     assert tab._selected_profile is not None
     assert tab._selected_profile.config.name == "Desktop"
 
-    tab._on_active_profile_response({"devices": {"1234:5678": {"profiles": ["Gaming"]}}})
+    tab.apply_active_profile_response({"devices": {"1234:5678": {"profiles": ["Gaming"]}}})
 
     assert tab._active_profile_names == ["Gaming"]
     assert tab._selected_profile is not None
@@ -3375,7 +3375,7 @@ def test_key_selector_dialog_mouse_capture_and_move_mapping_paths(monkeypatch):
 
     error_dialog = KeySelectorDialog(Gtk.Box(), "Back")
     error_dialog._on_capture_position_clicked(Gtk.Button())
-    error_dialog._on_capture_position_response(
+    error_dialog._position_capture.on_response(
         error_dialog._position_capture.request_id,
         {"status": "error", "message": "Unknown command: get_cursor_position"},
     )

@@ -383,7 +383,6 @@ class CaptureManager:
         self,
         token: str | None = None,
         exclude_paths: set[str] | None = None,
-        allow_empty: bool = False,
         hardware_ids: set[str] | None = None,
         hardware_paths: Mapping[str, Sequence[str]] | None = None,
         hardware_interfaces: Mapping[str, Sequence[JsonObject]] | None = None,
@@ -402,16 +401,8 @@ class CaptureManager:
             hardware_ids=hardware_ids or set(),
             path_hardware_ids=path_hardware_ids,
         )
-        if not matched and not allow_empty:
-            raise ValueError(
-                input_device_permission_message("No keyboard devices found for combo capture")
-            )
-
         devices = list(matched)
         warnings: list[str] = []
-
-        if not devices and not allow_empty:
-            raise RuntimeError("No readable keyboard interfaces found")
 
         token = token or str(uuid.uuid4())
         if token in self._sessions:

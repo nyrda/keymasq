@@ -243,7 +243,6 @@ async def capture_combo(
             daemon.capture_manager.begin_combo,
             token,
             grabbed_paths,
-            True,
             hardware_ids,
             authorization=authorization,
             hardware_paths=hardware_paths or {},

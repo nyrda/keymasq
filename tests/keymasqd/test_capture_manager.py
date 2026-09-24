@@ -540,20 +540,6 @@ def test_capture_manager_begin_reports_eperm_grab_warning_with_hint(
     assert denied.close_count == 1
 
 
-def test_capture_manager_begin_combo_no_devices_mentions_input_permissions(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(evdev, "list_devices", lambda: [])
-    manager = CaptureManager()
-
-    with pytest.raises(ValueError) as excinfo:
-        manager.begin_combo(authorization=manager.authorize_combo_capture())
-
-    message = str(excinfo.value)
-    assert "No keyboard devices found for combo capture" in message
-    assert "/dev/input/event*" in message
-
-
 def test_capture_manager_begin_closes_failed_grab_devices_with_partial_success(
     monkeypatch,
 ) -> None:
@@ -602,12 +588,11 @@ def test_capture_manager_find_devices_closes_nonmatching_devices(monkeypatch) ->
     assert other.close_count == 1
 
 
-def test_capture_manager_begin_combo_allow_empty_and_read_nowait(monkeypatch) -> None:
+def test_capture_manager_begin_combo_without_devices_starts_empty_session(monkeypatch) -> None:
     monkeypatch.setattr(evdev, "list_devices", lambda: [])
 
     manager = CaptureManager()
     begin = manager.begin_combo(
-        allow_empty=True,
         authorization=manager.authorize_combo_capture(),
     )
 
@@ -621,7 +606,7 @@ def test_capture_manager_begin_combo_requires_authorization(monkeypatch) -> None
     manager = CaptureManager()
 
     with pytest.raises(PermissionError, match="missing authorization"):
-        manager.begin_combo(allow_empty=True)
+        manager.begin_combo()
 
 
 def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> None:
@@ -630,14 +615,12 @@ def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> Non
     manager = CaptureManager()
     manager.begin_combo(
         token="same",
-        allow_empty=True,
         authorization=manager.authorize_combo_capture(),
     )
 
     with pytest.raises(ValueError, match="Capture token already active"):
         manager.begin_combo(
             token="same",
-            allow_empty=True,
             authorization=manager.authorize_combo_capture(),
         )
 

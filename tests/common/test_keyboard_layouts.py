@@ -75,6 +75,9 @@ def test_key_legends_label_physical_keys_like_keycaps() -> None:
     assert key_legends("fr")[K.KEY_Q] == KeyLegend("A")
     assert key_legends("fr")[K.KEY_1] == KeyLegend("&", "1")
     assert key_legends("ru")[K.KEY_Q] == KeyLegend("Й")
+    # Turkish capitals follow the layout, not Python's casing of i and ı.
+    assert key_legends("tr")[K.KEY_APOSTROPHE] == KeyLegend("İ")
+    assert key_legends("tr")[K.KEY_I] == KeyLegend("I")
     # Dead keys show their spacing accent.
     assert key_legends("de")[K.KEY_EQUAL] == KeyLegend("´", "`")
     assert key_legends("de")[K.KEY_GRAVE] == KeyLegend("^", "°")

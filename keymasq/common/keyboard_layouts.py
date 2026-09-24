@@ -218,13 +218,22 @@ def key_legends(layout_id: str) -> Mapping[int, KeyLegend]:
                 if not base:
                     continue
                 shifted = _legend_text(keymap.keysym_for_chord(code, (evdev.ecodes.KEY_LEFTSHIFT,)))
-                if shifted == base.upper() or shifted == base:
-                    legends[code] = KeyLegend(base.upper() if len(base.upper()) == 1 else base)
-                else:
-                    legends[code] = KeyLegend(base, shifted)
+                capital = _capital_legend(base, shifted)
+                legends[code] = KeyLegend(capital) if capital else KeyLegend(base, shifted)
             return legends
     except (xkb.XkbUnavailableError, ValueError) as exc:
         raise KeyboardLayoutError(str(exc)) from exc
+
+
+def _capital_legend(base: str, shifted: str) -> str:
+    """The single label of a letter key, or "" for a key with two legends."""
+    if shifted == base:
+        upper = base.upper()
+        return upper if len(upper) == 1 else base
+    # The layout's own capital wins over Python's casing: Turkish i shifts to İ.
+    if shifted == base.upper() or (shifted.isupper() and shifted.lower().startswith(base)):
+        return shifted
+    return ""
 
 
 def _legend_text(keysym: int) -> str:

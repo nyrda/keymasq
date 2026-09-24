@@ -127,7 +127,9 @@ Hover a key to see its evdev name, such as `KEY_Y`.
 US layouts, and the Chinese, Korean, Taiwanese, and Thai layouts, show an ANSI
 keyboard. Every other layout shows an ISO keyboard, which adds the key between
 left Shift and Z (`KEY_102ND`) and moves `KEY_BACKSLASH` next to a two-row
-Enter. If the layout can't be loaded, the tab shows the US keyboard.
+Enter. If the layout can't be loaded, the tab shows the US keyboard. Keys
+that neither grid has, such as the extra keys on Japanese and Brazilian
+keyboards, can be mapped with **Capture Key** or **Key code**.
 
 The Keyboard tab also includes a compact **System Keys** row:
 

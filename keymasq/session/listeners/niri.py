@@ -199,14 +199,6 @@ def parse_niri_reply(payload: str) -> tuple[bool, object]:
     raise ValueError("invalid Niri reply")
 
 
-def parse_niri_focused_window_response(payload: str) -> JsonObject | None:
-    ok, body = parse_niri_reply(payload)
-    if not ok:
-        return None
-
-    return _extract_niri_focused_window(body)
-
-
 def _extract_niri_focused_window(response: object) -> JsonObject | None:
     response_object = json_object(response)
     if response_object is None or len(response_object) != 1:

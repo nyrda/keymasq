@@ -455,12 +455,13 @@ def test_resolved_combo_signature_and_payload_include_trigger_recall_settings() 
     ]
 
     signature = combo_payload.signature(manager, combos)
-    payload = combo_payload.serialize_all(manager, combos)
+    payload = combo_payload.serialize(manager, combos[0])
 
     assert '"recall_trigger_keys":true' in signature
     assert '"restore_trigger_keys":["meta"]' in signature
-    assert payload[0]["recall_trigger_keys"] is True
-    assert payload[0]["restore_trigger_keys"] == ["meta"]
+    assert payload is not None
+    assert payload["recall_trigger_keys"] is True
+    assert payload["restore_trigger_keys"] == ["meta"]
 
 
 @pytest.mark.asyncio

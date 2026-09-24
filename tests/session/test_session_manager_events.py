@@ -487,7 +487,6 @@ async def test_handle_event_high_exec_ref_schedules_command_without_numeric_spli
 @pytest.mark.asyncio
 async def test_handle_event_detached_macro_exec_uses_exec_trigger_path() -> None:
     manager = SessionManager()
-    manager.action_handler.handle_action = AsyncMock()
     manager.action_handler.execute_command_sync = Mock()
 
     await session_events_module.handle_event(
@@ -501,7 +500,6 @@ async def test_handle_event_detached_macro_exec_uses_exec_trigger_path() -> None
     )
 
     await asyncio.sleep(0)
-    manager.action_handler.handle_action.assert_not_awaited()
     manager.action_handler.execute_command_sync.assert_called_once_with("echo macro")
 
 

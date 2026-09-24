@@ -1,9 +1,7 @@
-import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from typing import TypedDict, cast
 
-from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners.cosmic import CosmicListener
 from keymasq.session.listeners.gnome import GnomeListener
@@ -126,30 +124,10 @@ async def _probe_listener_available(
     return bool(await probe_available(dbus))
 
 
-def _run_probe_sync[ProbeResult](
-    coro: Coroutine[object, object, ProbeResult],
-) -> ProbeResult | None:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        ensure_uvloop()
-        return asyncio.run(coro)
-    log.debug("Synchronous compositor probe called in running loop")
-    coro.close()
-    return None
-
-
 async def detect_compositor(dbus: SessionDBus | None = None) -> str | None:
     for compositor_id, listener_class in PROBE_ORDER:
         if await _probe_compositor_session(listener_class, dbus):
             return compositor_id
-    return None
-
-
-def detect_compositor_sync() -> str | None:
-    result = _run_probe_sync(detect_compositor())
-    if isinstance(result, str) or result is None:
-        return result
     return None
 
 
@@ -161,11 +139,6 @@ def get_compositor_name(compositor_id: str | None) -> str:
         return SUPPORTED_COMPOSITORS[compositor_id]["name"]
 
     return compositor_id.title()
-
-
-def is_compositor_supported_sync(compositor_id: str | None) -> bool:
-    result = _run_probe_sync(is_compositor_supported(compositor_id))
-    return bool(result)
 
 
 async def is_compositor_supported(
@@ -198,21 +171,10 @@ async def get_compositor_support_details(
     return details
 
 
-def get_compositor_support_details_sync(compositor_id: str | None) -> dict[str, bool | str]:
-    result = _run_probe_sync(get_compositor_support_details(compositor_id))
-    if isinstance(result, dict):
-        return result
-    return {"supported": False, "warning": ""}
-
-
 def get_compositor_capabilities(compositor_id: str | None) -> list[str]:
     if not compositor_id or compositor_id not in SUPPORTED_COMPOSITORS:
         return []
     return SUPPORTED_COMPOSITORS[compositor_id].get("capabilities", [])
-
-
-def has_capability(compositor_id: str | None, capability: str) -> bool:
-    return capability in get_compositor_capabilities(compositor_id)
 
 
 def get_listener_class(compositor_id: str | None) -> CompositorListener | None:

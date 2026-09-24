@@ -300,18 +300,17 @@ def test_gamepad_payloads_include_output_id_and_signature_changes() -> None:
     mapped_action = cast(dict[str, object], mapping["x"])
     assert mapped_action["output_id"] == "virtual-gamepad-2"
 
-    combo_payload = combo_serializer.serialize_all(
+    combo_payload = combo_serializer.serialize(
         manager,
-        [
-            ResolvedCombo(
-                id="combo",
-                name="combo",
-                steps=[ComboStep(events=[ComboEvent(hardware_id="pad", evdev="btn_x")])],
-                action=action,
-            )
-        ],
+        ResolvedCombo(
+            id="combo",
+            name="combo",
+            steps=[ComboStep(events=[ComboEvent(hardware_id="pad", evdev="btn_x")])],
+            action=action,
+        ),
     )
-    combo_action = cast(dict[str, object], combo_payload[0]["action"])
+    assert combo_payload is not None
+    combo_action = cast(dict[str, object], combo_payload["action"])
     assert combo_action["output_id"] == "virtual-gamepad-2"
 
     default_sig = mapping_payload.signature(
@@ -336,25 +335,24 @@ def test_repeat_combo_payload_includes_categories_and_rapidfire() -> None:
     from keymasq.session.profile.types import ResolvedCombo
 
     manager = _manager_with_superkeys()
-    combo_payload = combo_serializer.serialize_all(
+    combo_payload = combo_serializer.serialize(
         manager,
-        [
-            ResolvedCombo(
-                id="repeat-combo",
-                name="Repeat Combo",
-                steps=[ComboStep(events=[ComboEvent(hardware_id="kbd", evdev="key_f13")])],
-                action=MappingAction(
-                    action_type=ActionType.REPEAT,
-                    repeat_categories=["keyboard", "gamepad"],
-                    rapidfire_enabled=True,
-                    rapidfire_hold_ms=15,
-                    rapidfire_wait_ms=25,
-                ),
-            )
-        ],
+        ResolvedCombo(
+            id="repeat-combo",
+            name="Repeat Combo",
+            steps=[ComboStep(events=[ComboEvent(hardware_id="kbd", evdev="key_f13")])],
+            action=MappingAction(
+                action_type=ActionType.REPEAT,
+                repeat_categories=["keyboard", "gamepad"],
+                rapidfire_enabled=True,
+                rapidfire_hold_ms=15,
+                rapidfire_wait_ms=25,
+            ),
+        ),
     )
 
-    assert combo_payload[0]["action"] == {
+    assert combo_payload is not None
+    assert combo_payload["action"] == {
         "action": "repeat",
         "repeat_categories": ["keyboard", "gamepad"],
         "rapidfire_enabled": True,
@@ -517,10 +515,12 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
         ),
     ]
 
-    combo_payload = combo_serializer.serialize_all(manager, combos)
+    empty_payload, dispatch_payload, super_payload = [
+        combo_serializer.serialize(manager, combo) for combo in combos
+    ]
 
-    assert [combo["id"] for combo in combo_payload] == ["dispatch", "super"]
-    assert combo_payload[0] == {
+    assert empty_payload is None
+    assert dispatch_payload == {
         "id": "dispatch",
         "name": "dispatch",
         "profile_name": "Default",
@@ -542,7 +542,8 @@ def test_combo_payloads_filter_invalid_actions_and_track_exec_refs() -> None:
         "recall_trigger_keys": True,
         "restore_trigger_keys": ["key_a"],
     }
-    combo_action = cast(dict[str, object], combo_payload[1]["action"])
+    assert super_payload is not None
+    combo_action = cast(dict[str, object], super_payload["action"])
     super_action = cast(dict[str, object], combo_action["superkey"])
     assert super_action["tap_actions"] == [{"action": "exec", "exec_ref": 1}]
     assert super_action["double_tap_actions"] == [

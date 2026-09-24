@@ -21,10 +21,12 @@ import evdev
 HARDWARE_ID = "cafe:0001"
 SECOND_HARDWARE_ID = "cafe:0002"
 GAMEPAD_HARDWARE_ID = "cafe:0003"
-SOURCE_NAME = "keymasq-integration-source-keyboard"
-SECOND_SOURCE_NAME = "keymasq-integration-secondary-keyboard"
-# Not "keymasq-*" and not the python-evdev phys: the daemon treats those as its
-# own virtual outputs and never resolves a keymasq:<vendor>:<product> path to them.
+# Source devices stand in for physical hardware, so none is named "keymasq-*"
+# or keeps the python-evdev phys. The daemon treats those as its own virtual
+# outputs: it never resolves a keymasq:<vendor>:<product> path to them, and its
+# topology scan omits them, so an unrelated hotplug would release their grabs.
+SOURCE_NAME = "integration-source-keyboard"
+SECOND_SOURCE_NAME = "integration-secondary-keyboard"
 GAMEPAD_SOURCE_NAME = "integration-source-gamepad"
 GAMEPAD_SOURCE_PHYS = "integration-gamepad/input0"
 SOURCE_HIDING_PROFILE_NAME = "Integration Source Hiding"
@@ -243,6 +245,7 @@ class ScenarioContext:
             name=name,
             vendor=vendor,
             product=product,
+            phys=f"{name}/input0",
         )
         self.settle_udev()
         source_device = self.wait_for_source_device(name, vendor=vendor, product=product)

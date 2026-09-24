@@ -4,6 +4,7 @@ import logging
 import os
 from collections import deque
 from collections.abc import Callable
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -2980,6 +2981,122 @@ class TestListDevices:
 
         assert list(snapshot) == ["/dev/input/by-id/event0"]
         assert resolved_paths == ["/dev/input/event0"]
+
+    def test_scan_live_interfaces_keeps_existing_node_the_daemon_cannot_open(self) -> None:
+        # A udev change on a hidden source briefly resets the node to root:root
+        # 0600, so evdev.list_devices() skips it although it was not unplugged.
+        hidden = topology.LiveInterfaceInfo(
+            hardware_id="cafe:0001",
+            vendor_id="cafe",
+            product_id="0001",
+            stable_path="/dev/input/event9",
+            path="/dev/input/event9",
+            interface_id="",
+        )
+        unplugged = topology.LiveInterfaceInfo(
+            hardware_id="cafe:0002",
+            vendor_id="cafe",
+            product_id="0002",
+            stable_path="/dev/input/event10",
+            path="/dev/input/event10",
+            interface_id="",
+        )
+
+        snapshot = topology.scan_live_interfaces_sync(
+            clear_device_path_cache_fn=lambda: None,
+            device_paths_fn=lambda: [],
+            device_input_fn=Mock(),
+            detect_input_classes_fn=lambda _device: ["keyboard"],
+            primary_input_class_fn=lambda _classes: DeviceType.KEYBOARD,
+            resolve_stable_path_fn=lambda path: path,
+            get_interface_id_fn=lambda _stable_path: "",
+            log=device_manager.log,
+            previous={hidden.stable_path: hidden, unplugged.stable_path: unplugged},
+            input_node_exists_fn=lambda path: path == hidden.path,
+        )
+
+        assert snapshot == {hidden.stable_path: hidden}
+
+    def test_scan_live_interfaces_prefers_readable_device_over_previous_entry(self) -> None:
+        class _FakeDevice:
+            path = ""
+            name = "Replacement Keyboard"
+            phys = "usb-2"
+            info = SimpleNamespace(vendor=0xCAFE, product=0x0002)
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {}
+
+        previous = topology.LiveInterfaceInfo(
+            hardware_id="cafe:0001",
+            vendor_id="cafe",
+            product_id="0001",
+            stable_path="/dev/input/by-id/old-kbd",
+            path="/dev/input/event9",
+            interface_id="",
+        )
+        node_exists = Mock(return_value=True)
+
+        snapshot = topology.scan_live_interfaces_sync(
+            clear_device_path_cache_fn=lambda: None,
+            device_paths_fn=lambda: ["/dev/input/event9"],
+            device_input_fn=lambda _path: _FakeDevice(),
+            detect_input_classes_fn=lambda _device: ["keyboard"],
+            primary_input_class_fn=lambda _classes: DeviceType.KEYBOARD,
+            resolve_stable_path_fn=lambda path: path,
+            get_interface_id_fn=lambda _stable_path: "",
+            log=device_manager.log,
+            previous={previous.stable_path: previous},
+            input_node_exists_fn=node_exists,
+        )
+
+        assert list(snapshot) == ["/dev/input/event9"]
+        assert snapshot["/dev/input/event9"].hardware_id == "cafe:0002"
+        node_exists.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_topology_watch_loop_keeps_grab_while_hidden_node_is_unreadable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager(topology_poll_s=0.01)
+        deps = replace(
+            device_manager._topology_runtime_deps(),
+            clear_device_path_cache_fn=lambda: None,
+            device_paths_fn=lambda: [],
+        )
+        info = topology.LiveInterfaceInfo(
+            hardware_id="cafe:0001",
+            vendor_id="cafe",
+            product_id="0001",
+            stable_path="/dev/input/event9",
+            path="/dev/input/event9",
+            interface_id="",
+        )
+        manager.topology_state.live_snapshot = {info.stable_path: info}
+        manager.topology_state.reconciled_snapshot = {info.stable_path: info}
+        schedule_topology_reconcile = Mock()
+        sleep_calls = 0
+
+        async def fake_sleep(_delay: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls >= 2:
+                raise asyncio.CancelledError()
+
+        async def run_inline(func, /, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(device_manager.asyncio, "to_thread", run_inline)
+        monkeypatch.setattr(topology, "input_node_exists", lambda path: path == info.path)
+        monkeypatch.setattr(topology, "schedule_topology_reconcile", schedule_topology_reconcile)
+
+        with pytest.raises(asyncio.CancelledError):
+            await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
+
+        schedule_topology_reconcile.assert_not_called()
+        assert manager.topology_state.live_snapshot == {info.stable_path: info}
 
     @pytest.mark.asyncio
     async def test_start_topology_watcher_reconciles_initial_snapshot_with_existing_grabs(

@@ -100,6 +100,31 @@ async def test_service_cleanup_stops_jobs_before_restoring_permissions(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_timed_out_recovery_names_the_timeout(tmp_path, monkeypatch):
+    root = LinuxMaskBackend(
+        HardwareInventory(tmp_path / "sys", tmp_path / "dev"),
+        tmp_path / "run",
+        tmp_path / "rules",
+        tmp_path / "state",
+    )
+    root.prepare_directories()
+    reservation = root.for_attachment("1" * 24)
+    reservation.prepare_directories()
+    monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
+
+    async def timed_out(self, **_kwargs):
+        if self.reservation_id:
+            raise TimeoutError
+
+    monkeypatch.setattr(LinuxMaskBackend, "recover", timed_out)
+
+    with pytest.raises(OSError, match="Hardware recovery remains incomplete") as error:
+        await operations.recover_all(root)
+
+    assert f"{reservation.reservation_id}: TimeoutError" in str(error.value)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("damaged", [b"{broken", b"[]", b"{}", b"\xff"])
 async def test_corrupt_prearmed_record_does_not_block_other_reservations(
     tmp_path, monkeypatch, damaged
@@ -598,10 +623,13 @@ async def test_trigger_job_runs_udevadm_for_present_nodes_only(tmp_path, monkeyp
                 "--action=change",
                 "--sysname-match=event7",
                 "--sysname-match=js0",
-                "--settle",
             ),
             operations.NODE_TRIGGER_TIMEOUT_S,
-        )
+        ),
+        (
+            ("udevadm", "settle", f"--timeout={operations.NODE_SETTLE_TIMEOUT_S}"),
+            operations.NODE_TRIGGER_TIMEOUT_S,
+        ),
     ]
 
 
@@ -618,9 +646,13 @@ async def test_trigger_job_without_names_reevaluates_the_input_subsystem(tmp_pat
     assert result == {"triggered": ["input"]}
     assert calls == [
         (
-            ("udevadm", "trigger", "--subsystem-match=input", "--action=change", "--settle"),
+            ("udevadm", "trigger", "--subsystem-match=input", "--action=change"),
             operations.SUBSYSTEM_TRIGGER_TIMEOUT_S,
-        )
+        ),
+        (
+            ("udevadm", "settle", f"--timeout={operations.SUBSYSTEM_SETTLE_TIMEOUT_S}"),
+            operations.SUBSYSTEM_TRIGGER_TIMEOUT_S,
+        ),
     ]
 
 

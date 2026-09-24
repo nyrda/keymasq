@@ -50,6 +50,8 @@ queue, not only Keymasq's events. The hooks send `change` events only to existin
 input event and joystick nodes and to uinput. This applies Keymasq's permissions
 without replaying unrelated `add` rules.
 Arch also applies only Keymasq's sysusers and tmpfiles definitions.
+Privileged masking jobs use the same trigger-then-settle sequence when they
+recheck input nodes or restore a masked controller.
 AppImage's non-systemd instructions include the same step. Removal on every
 format runs `keymasq-record prepare-removal`, which removes the daemon's own ACL
 entries from uinput, input, and hidraw nodes. Installing the Nix package alone does not

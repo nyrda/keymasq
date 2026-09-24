@@ -247,8 +247,9 @@ A missing template unit or a Polkit refusal of
 package files were not installed or a local override removed them. The daemon's
 `CapabilityBoundingSet` should be empty and `DevicePolicy` should be `closed`.
 Do not add capabilities in a drop-in override, because no Keymasq feature needs
-them. Each job also waits for `udevadm settle`, so a host where udev is very
-slow logs a timeout for the trigger instead.
+them. Each job triggers udev and then waits for a bounded `udevadm settle`.
+If udev does not settle, recovery keeps its journal and package removal is
+refused until recovery succeeds.
 
 ### Daemon ownership conflicts
 

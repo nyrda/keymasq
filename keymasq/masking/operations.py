@@ -38,6 +38,8 @@ MAX_TRIGGER_NODES = 64
 # the flag files, which stay the source of truth.
 NODE_TRIGGER_TIMEOUT_S = 8.0
 SUBSYSTEM_TRIGGER_TIMEOUT_S = 20.0
+NODE_SETTLE_TIMEOUT_S = 6
+SUBSYSTEM_SETTLE_TIMEOUT_S = 18
 # keymasqd.service allows 20s to stop, then ExecStopPost runs hardware recovery.
 DAEMON_STOP_TIMEOUT_S = 120.0
 SYSTEMD_RUNTIME = Path("/run/systemd/system")
@@ -100,15 +102,23 @@ async def trigger_input(message: JsonObject, root: LinuxMaskBackend) -> JsonObje
     await finish_io(root.prepare_directories)
     with (root.runtime_dir / "operations.lock").open("a") as global_lock:
         fcntl.flock(global_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        await run_host(
-            "udevadm",
-            "trigger",
-            "--subsystem-match=input",
-            "--action=change",
-            *(f"--sysname-match={name}" for name in nodes or ()),
-            "--settle",
-            timeout=SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S,
-        )
+        budget = SUBSYSTEM_TRIGGER_TIMEOUT_S if nodes is None else NODE_TRIGGER_TIMEOUT_S
+        settle_timeout = SUBSYSTEM_SETTLE_TIMEOUT_S if nodes is None else NODE_SETTLE_TIMEOUT_S
+        async with asyncio.timeout(budget):
+            await run_host(
+                "udevadm",
+                "trigger",
+                "--subsystem-match=input",
+                "--action=change",
+                *(f"--sysname-match={name}" for name in nodes or ()),
+                timeout=budget,
+            )
+            await run_host(
+                "udevadm",
+                "settle",
+                f"--timeout={settle_timeout}",
+                timeout=budget,
+            )
     return {"triggered": nodes if nodes is not None else ["input"]}
 
 
@@ -231,7 +241,8 @@ async def recover_all(root: LinuxMaskBackend | None = None) -> None:
             try:
                 await backend.for_attachment(identity).recover()
             except (OSError, ValueError) as exc:
-                failures.append(f"{identity}: {exc}")
+                # A timed-out host command raises TimeoutError without a message.
+                failures.append(f"{identity}: {str(exc) or type(exc).__name__}")
         # Interrupted early implementations used the top-level journal.
         await backend.recover()
         if failures:

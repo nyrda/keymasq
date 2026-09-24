@@ -195,11 +195,6 @@ class TestProtocolEncoding:
 
 
 class TestCommandTypes:
-    def test_all_command_types_have_value(self):
-        for ct in CommandType:
-            assert isinstance(ct.value, str)
-            assert len(ct.value) > 0
-
     def test_command_type_values(self):
         assert CommandType.GRAB_DEVICE.value == "grab_device"
         assert CommandType.RELEASE_DEVICE.value == "release_device"

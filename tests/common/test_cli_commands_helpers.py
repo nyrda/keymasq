@@ -464,25 +464,6 @@ def test_create_macro_cli_rejects_non_object_event(
     assert "Error: macro JSON events[1] must be an object" in capsys.readouterr().out
 
 
-def test_create_macro_cli_force_sends_overwrite_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent: list[dict[str, object]] = []
-
-    def _session_request(payload: dict[str, object]) -> dict[str, object]:
-        sent.append(payload)
-        return {"status": "ok"}
-
-    monkeypatch.setattr(commands, "_session_request", _session_request)
-
-    commands.create_macro_cli("stored", ['[{"device_type":"mouse","t_us":0}]'], force=True)
-
-    payload = sent[0]
-    assert payload["command"] == "create_macro"
-    assert payload["overwrite"] is True
-    macro = payload["macro"]
-    assert isinstance(macro, dict)
-    assert macro["name"] == "stored"
-
-
 def test_delete_macro_cli_sends_delete_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
 

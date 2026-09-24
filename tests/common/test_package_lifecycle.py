@@ -204,3 +204,27 @@ def test_native_removal_lets_remaining_udev_policy_recompute_permissions(path):
     assert "udevadm trigger --action=change --sysname-match=uinput" in script
     # Only keymasq's grant is removed. Other ACLs belong to udev and logind.
     assert "setfacl -b" not in script
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "debian/keymasq.postinst",
+        "scripts/rpm-postinstall.sh",
+        "packaging/pacman/templates/keymasq.install.in",
+        "keymasq.install",
+        "packaging/aur/keymasq.install",
+    ],
+)
+def test_native_install_explains_how_to_hand_over_from_the_appimage(path):
+    script = (ROOT / path).read_text()
+    check = script.index("if [ -e /opt/keymasq/version ]")
+    handover = script[check:]
+    assert "overrides this package" in handover
+    assert handover.index("/opt/keymasq/bin/keymasq --uninstall") < handover.index(
+        "sudo systemctl enable --now keymasqd"
+    )
+    assert "systemctl --user enable --now keymasq-session" in handover
+    # systemctl revert would delete the AppImage unit and strand its other files.
+    if "systemctl revert" in script:
+        assert script.index("systemctl revert") > check

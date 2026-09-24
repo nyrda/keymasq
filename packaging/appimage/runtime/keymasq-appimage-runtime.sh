@@ -1034,6 +1034,18 @@ refresh_installed_integration() {
 	fi
 }
 
+refuse_native_package() {
+	# Distribution packages install the daemon unit under /usr/lib, or /lib
+	# without merged /usr. The AppImage's /etc units would override it, and both
+	# install the same polkit action file.
+	for keymasq_native_unit in \
+		/usr/lib/systemd/system/keymasqd.service \
+		/lib/systemd/system/keymasqd.service; do
+		[ -e "$(root_path "$keymasq_native_unit")" ] || continue
+		die "a native Keymasq package is installed. Remove it with your package manager, then run --install again. Settings, macros, and saved masks in /etc/keymasq, /var/lib/keymasq, and ~/.config/keymasq are kept."
+	done
+}
+
 install_auto() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1050,6 +1062,7 @@ install_auto() {
 	done
 
 	target_user=$(resolve_target_user "$target_user")
+	refuse_native_package
 	require_root_or_pkexec --install --user "$target_user"
 	validate_user_wrapper_destinations "$target_user"
 	install_common_payload "$target_user"

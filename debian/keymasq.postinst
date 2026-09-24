@@ -31,6 +31,15 @@ case "$1" in
         find /usr/share/icons/hicolor -path '*/apps/tools.keymasq.keymasq.*' -exec touch {} + >/dev/null 2>&1 || true
         touch /usr/share/icons/hicolor >/dev/null 2>&1 || true
         touch /usr/share/applications/tools.keymasq.keymasq.desktop >/dev/null 2>&1 || true
+
+        # The AppImage's /etc units override this package's units.
+        if [ -e /opt/keymasq/version ]; then
+            echo "Keymasq AppImage integration in /opt/keymasq overrides this package." >&2
+            echo "To switch to this package, run as your desktop user:" >&2
+            echo "  /opt/keymasq/bin/keymasq --uninstall" >&2
+            echo "  sudo systemctl enable --now keymasqd" >&2
+            echo "  systemctl --user enable --now keymasq-session" >&2
+        fi
         ;;
 esac
 

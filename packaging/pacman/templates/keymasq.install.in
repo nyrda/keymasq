@@ -31,6 +31,22 @@ EOF
     chown root:root /etc/keymasq/security.toml 2>/dev/null || true
 }
 
+_warn_unit_overrides() {
+    # The AppImage's /etc units override this package's units.
+    if [ -e /opt/keymasq/version ]; then
+        echo ""
+        echo "Keymasq AppImage integration in /opt/keymasq overrides this package."
+        echo "To switch to this package, run as your desktop user:"
+        echo "  /opt/keymasq/bin/keymasq --uninstall"
+        echo "  sudo systemctl enable --now keymasqd"
+        echo "  systemctl --user enable --now keymasq-session"
+    elif [ -f /etc/systemd/system/keymasqd.service ]; then
+        echo ""
+        echo "Warning: /etc/systemd/system/keymasqd.service exists and overrides packaged unit."
+        echo "If keymasqd cannot access devices, run: sudo systemctl revert keymasqd"
+    fi
+}
+
 post_install() {
     systemd-sysusers
     systemd-tmpfiles --create
@@ -39,11 +55,7 @@ post_install() {
     udevadm trigger --subsystem-match=misc --action=add
     udevadm trigger --subsystem-match=hidraw --action=change --settle
 
-    if [ -f /etc/systemd/system/keymasqd.service ]; then
-        echo ""
-        echo "Warning: /etc/systemd/system/keymasqd.service exists and overrides packaged unit."
-        echo "If keymasqd cannot access devices, run: sudo systemctl revert keymasqd"
-    fi
+    _warn_unit_overrides
 
     _ensure_security_policy
 
@@ -77,11 +89,7 @@ post_upgrade() {
     udevadm trigger --subsystem-match=misc --action=add
     udevadm trigger --subsystem-match=hidraw --action=change --settle
 
-    if [ -f /etc/systemd/system/keymasqd.service ]; then
-        echo ""
-        echo "Warning: /etc/systemd/system/keymasqd.service exists and overrides packaged unit."
-        echo "If keymasqd cannot access devices, run: sudo systemctl revert keymasqd"
-    fi
+    _warn_unit_overrides
 
     _ensure_security_policy
 

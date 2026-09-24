@@ -44,3 +44,13 @@ echo "  3. Launch Keymasq:"
 echo "       keymasq"
 echo ""
 echo "Security policy: /etc/keymasq/security.toml"
+
+# The AppImage's /etc units override this package's units.
+if [ -e /opt/keymasq/version ]; then
+    echo "" >&2
+    echo "Keymasq AppImage integration in /opt/keymasq overrides this package." >&2
+    echo "To switch to this package, run as your desktop user:" >&2
+    echo "  /opt/keymasq/bin/keymasq --uninstall" >&2
+    echo "  sudo systemctl enable --now keymasqd" >&2
+    echo "  systemctl --user enable --now keymasq-session" >&2
+fi

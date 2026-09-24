@@ -168,6 +168,12 @@ The update public key embedded in the AppImage is the same key that signs the
 package repository. It is published at
 `https://repo.keymasq.tools/gpg-key.asc`.
 
+## Switching to a native package
+
+On distributions with a native Keymasq package, install either the AppImage or
+the package, not both. See
+[Switching between the AppImage and a native package](install.md#switching-between-the-appimage-and-a-native-package).
+
 ## Uninstall
 
 ```bash

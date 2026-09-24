@@ -1070,6 +1070,43 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
     assert "systemctl try-restart keymasqd.service" not in command_log
 
 
+@pytest.mark.parametrize(
+    "native_unit",
+    ["usr/lib/systemd/system/keymasqd.service", "lib/systemd/system/keymasqd.service"],
+)
+def test_appimage_install_refuses_to_override_a_native_package(
+    tmp_path: Path, native_unit: str
+) -> None:
+    fake_root = tmp_path / "root"
+    (fake_root / native_unit).parent.mkdir(parents=True)
+    (fake_root / native_unit).write_text("[Service]\n", encoding="utf-8")
+    native_policy = fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    native_policy.parent.mkdir(parents=True)
+    native_policy.write_text("native\n", encoding="utf-8")
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "a native Keymasq package is installed" in result.stderr
+    assert "/var/lib/keymasq" in result.stderr
+    # Nothing is written, including the polkit action the native package owns.
+    assert not (fake_root / "opt/keymasq").exists()
+    assert not (fake_root / "etc/systemd/system/keymasqd.service").exists()
+    assert native_policy.read_text(encoding="utf-8") == "native\n"
+    assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
+
+
 def test_appimage_install_creates_systemd_user_dir_without_root_chown(
     tmp_path: Path,
 ) -> None:

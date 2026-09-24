@@ -195,8 +195,9 @@ _DEAD_KEY_GLYPHS = {
 class KeyLegend:
     """What a keycap shows on a layout.
 
-    ``base`` is the unshifted output. ``shifted`` is empty when Shift only
-    capitalizes it; letters show their capital as ``base``, like printed keys.
+    ``base`` is the unshifted output, or empty when only Shift types a
+    character. ``shifted`` is empty when Shift only capitalizes it; letters
+    show their capital as ``base``, like printed keys.
     """
 
     base: str
@@ -210,15 +211,14 @@ def key_legends(layout_id: str) -> Mapping[int, KeyLegend]:
     try:
         with xkb.Keymap(layout, variant) as keymap:
             legends: dict[int, KeyLegend] = {}
-            for level in keymap.levels():
-                if level.level != 0:
-                    continue
-                code = level.evdev_code
+            # levels() skips empty levels, so a key with nothing at level 0 only
+            # shows up at a higher level.
+            for code in sorted({level.evdev_code for level in keymap.levels()}):
                 base = _legend_text(keymap.keysym_for_chord(code, ()))
-                if not base:
-                    continue
                 shifted = _legend_text(keymap.keysym_for_chord(code, (evdev.ecodes.KEY_LEFTSHIFT,)))
-                capital = _capital_legend(base, shifted)
+                if not base and not shifted:
+                    continue
+                capital = _capital_legend(base, shifted) if base else ""
                 legends[code] = KeyLegend(capital) if capital else KeyLegend(base, shifted)
             return legends
     except (xkb.XkbUnavailableError, ValueError) as exc:

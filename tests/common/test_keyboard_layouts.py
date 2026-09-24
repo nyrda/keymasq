@@ -78,6 +78,9 @@ def test_key_legends_label_physical_keys_like_keycaps() -> None:
     # Turkish capitals follow the layout, not Python's casing of i and ı.
     assert key_legends("tr")[K.KEY_APOSTROPHE] == KeyLegend("İ")
     assert key_legends("tr")[K.KEY_I] == KeyLegend("I")
+    # Keys that type a character only with Shift show just that character.
+    assert key_legends("et")[K.KEY_BACKSLASH] == KeyLegend("", "‐")  # VoidSymbol unshifted
+    assert key_legends("ma(tifinagh)")[K.KEY_2] == KeyLegend("", "2")  # nothing at level 0
     # Dead keys show their spacing accent.
     assert key_legends("de")[K.KEY_EQUAL] == KeyLegend("´", "`")
     assert key_legends("de")[K.KEY_GRAVE] == KeyLegend("^", "°")

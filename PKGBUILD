@@ -110,6 +110,9 @@ package() {
         install -Dm644 "udev/$rule" "$pkgdir/usr/lib/udev/rules.d/$rule"
     done
 
+    install -Dm644 "packaging/pacman/keymasq-prepare-removal.hook" \
+        "$pkgdir/usr/share/libalpm/hooks/keymasq-prepare-removal.hook"
+
     install -Dm644 "polkit/49-keymasq-hardware.rules" \
         "$pkgdir/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules"
     install -Dm644 "polkit/com.keymasq.record-macro.policy" \

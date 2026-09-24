@@ -42,8 +42,9 @@ to open. Device IDs and protocol matching stay in the drivers.
 Debian, RPM, Arch/AUR, source, and AppImage install/upgrade hooks retrigger
 hidraw devices and wait for udev to apply the ACLs. Systemd units and the NixOS
 module do this before daemon startup too, covering already-connected devices.
-AppImage's non-systemd instructions include the same step, and its uninstall
-removes the daemon's hidraw ACLs. Installing the Nix package alone does not
+AppImage's non-systemd instructions include the same step. Removal on every
+format runs `keymasq-record prepare-removal`, which removes the daemon's own ACL
+entries from uinput, input, and hidraw nodes. Installing the Nix package alone does not
 activate system services or udev rules. NixOS users must enable the module.
 
 Adding another read-only native driver requires no packaging changes.

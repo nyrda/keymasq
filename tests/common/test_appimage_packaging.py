@@ -530,6 +530,9 @@ fi
 if [ "$name" = chown ] && [ "${KEYMASQ_FAKE_CHOWN_STATUS:-0}" != 0 ]; then
   exit "$KEYMASQ_FAKE_CHOWN_STATUS"
 fi
+if [ "$name" = keymasq-record-helper ] && [ "${KEYMASQ_FAKE_PREPARE_REMOVAL_STATUS:-0}" != 0 ]; then
+  exit "$KEYMASQ_FAKE_PREPARE_REMOVAL_STATUS"
+fi
 if [ "$name" = udevadm ] && [ "${1:-}" = control ]; then
   if [ "${KEYMASQ_FAKE_UDEVADM_CONTROL_STATUS:-0}" != 0 ]; then
     exit "$KEYMASQ_FAKE_UDEVADM_CONTROL_STATUS"
@@ -581,6 +584,7 @@ exit 0
         "setfacl",
         "systemctl",
         "runuser",
+        "keymasq-record-helper",
     ):
         _write_executable(bin_dir / name, fake)
     return bin_dir, log_path
@@ -643,6 +647,7 @@ def _env(tmp_path: Path, fake_root: Path, assets: Path, source_appimage: Path) -
             "KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR": str(fake_appdir),
             "KEYMASQ_APPIMAGE_SOURCE": str(source_appimage),
             "KEYMASQ_COMMAND_LOG": str(command_log),
+            "KEYMASQ_APPIMAGE_RECORD_HELPER": str(fake_bin / "keymasq-record-helper"),
             "APPIMAGE": str(source_appimage),
         }
     )
@@ -1337,6 +1342,47 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert f"setfacl -x u:keymasq {event}" in command_log
     assert f"setfacl -x u:keymasq {joystick}" in command_log
     assert f"setfacl -x u:keymasq {hidraw}" in command_log
+    assert command_log.index("keymasq-record-helper prepare-removal") < command_log.index(
+        "systemctl disable --now keymasqd.service"
+    )
+
+
+def test_appimage_uninstall_keeps_integration_when_hardware_recovery_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    (fake_root / "etc").mkdir(parents=True)
+    (fake_root / "etc/os-release").write_text("ID=steamos\n", encoding="utf-8")
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+    )
+    env["KEYMASQ_FAKE_PREPARE_REMOVAL_STATUS"] = "1"
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "hardware recovery is incomplete" in result.stderr
+    # The helper and everything it needs to finish recovery stay installed.
+    assert (fake_root / "etc/systemd/system/keymasqd.service").exists()
+    assert (fake_root / "etc/systemd/system/keymasq-hardware@.service").exists()
+    assert (fake_root / "etc/polkit-1/rules.d/49-keymasq-hardware.rules").exists()
+    assert (fake_root / "opt/keymasq/bin").exists()
+    assert (fake_root / "opt/keymasq/runtime").exists()
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    assert "systemctl disable --now keymasqd.service" not in command_log
 
 
 def test_appimage_runtime_exports_gtk_introspection_environment(tmp_path: Path) -> None:

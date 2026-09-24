@@ -1096,6 +1096,18 @@ remove_user_wrapper_if_managed() {
 	fi
 }
 
+prepare_hardware_removal() {
+	# Stop keymasqd and finish hardware recovery while the helper is installed.
+	# The running AppImage performs the check, so an older runtime cannot skip it.
+	systemd_available || return 0
+	if [ -n "${KEYMASQ_APPIMAGE_RECORD_HELPER:-}" ]; then
+		"$KEYMASQ_APPIMAGE_RECORD_HELPER" prepare-removal && return 0
+	else
+		(run_python_module keymasq.record prepare-removal) && return 0
+	fi
+	die "hardware recovery is incomplete; Keymasq was left installed so recovery can finish"
+}
+
 uninstall_keymasq() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1115,6 +1127,7 @@ uninstall_keymasq() {
 	require_root_or_pkexec --uninstall --user "$target_user"
 	home=$(resolve_user_home "$target_user")
 
+	prepare_hardware_removal
 	systemctl disable --now keymasqd.service 2>/dev/null || true
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 

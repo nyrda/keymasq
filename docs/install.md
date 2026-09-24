@@ -413,6 +413,11 @@ systemctl --user restart keymasq-session
 Package removal does not remove user profiles or hardware configuration stored
 under `~/.config/keymasq/`.
 
+Removal stops `keymasqd`, restores masked devices, and removes Keymasq's ACL
+entries from device nodes. If hardware recovery cannot finish, the package
+manager refuses the removal and keeps Keymasq installed. See
+[Uninstalling](hardware-masking.md#uninstalling).
+
 Packaged installs may also leave system-level configuration in place, notably
 `/etc/keymasq/security.toml`.
 

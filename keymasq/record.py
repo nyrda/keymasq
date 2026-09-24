@@ -113,6 +113,10 @@ def main() -> None:
     hardware = subparsers.add_parser("hardware-operation", help=argparse.SUPPRESS)
     hardware.add_argument("request_id")
     subparsers.add_parser("recover-hardware", help="Restore hardware access after daemon failure")
+    subparsers.add_parser(
+        "prepare-removal",
+        help="Stop keymasqd and restore hardware access before package removal",
+    )
 
     status_parser = subparsers.add_parser("status", help="Show capture unlock status")
     status_parser.add_argument("--uid", type=int, required=True)
@@ -164,7 +168,7 @@ def main() -> None:
 
     try:
         caller_euid = _require_privileged_caller()
-        if args.command in {"hardware-operation", "recover-hardware"}:
+        if args.command in {"hardware-operation", "recover-hardware", "prepare-removal"}:
             from keymasq.masking.operations import main as hardware_operation
 
             hardware_operation(args.command, getattr(args, "request_id", ""))

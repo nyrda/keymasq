@@ -1,6 +1,7 @@
 # Run from the repository root: ./scripts/integration.sh masking-recovery
 # Uses kernel UHID devices to check cleanup after SIGKILL, watchdog expiry,
-# interrupted activation, service stop, clean reboot, and abrupt power loss.
+# interrupted activation, service stop, package removal, clean reboot, and
+# abrupt power loss.
 { pkgs, keymasqPackage, keymasqModule }:
 
 let
@@ -106,6 +107,30 @@ pkgs.testers.runNixOSTest {
             check("mask")
             machine.succeed("systemctl stop keymasqd.service")
             check("restored")
+            restart()
+
+        with subtest("package removal waits for hardware recovery it cannot finish"):
+            check("mask")
+            # Every hardware job and recovery takes this lock without waiting.
+            lock = "${pkgs.util-linux}/bin/flock -n -s /run/keymasq-masking/operations.lock true"
+            machine.succeed(
+                "systemd-run --unit=keymasq-test-recovery-lock "
+                "${pkgs.util-linux}/bin/flock -x /run/keymasq-masking/operations.lock "
+                "${pkgs.coreutils}/bin/sleep infinity"
+            )
+            machine.wait_until_fails(lock, timeout=15)
+            status, output = machine.execute(
+                "${keymasqPackage}/bin/keymasq-record prepare-removal 2>&1"
+            )
+            assert status != 0, output
+            assert "cannot be removed yet" in output, output
+            assert machine.succeed(
+                "systemctl show keymasqd.service -p MainPID --value"
+            ).strip() == "0"
+            check("restricted")
+            machine.succeed("systemctl stop keymasq-test-recovery-lock.service")
+            machine.succeed("${keymasqPackage}/bin/keymasq-record prepare-removal")
+            check("removed")
             restart()
 
         with subtest("clean shutdown and next boot restore a nonpersistent mask"):

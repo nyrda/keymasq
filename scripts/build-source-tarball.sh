@@ -35,6 +35,7 @@ declare -a source_paths=(
     examples
     gnome-extension
     keymasq
+    packaging/pacman/keymasq-prepare-removal.hook
     polkit
     systemd
     sysusers.d

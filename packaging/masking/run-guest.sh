@@ -7,7 +7,8 @@
 # Requires systemd, Python 3, getfacl, and the uhid, uinput, joydev kernel modules.
 # The account keymasq-masktest and UID 1999 must be unused.
 # Checks install, active-mask upgrade/removal, and reinstall. Removal must restore
-# physical input before reboot or device recreation. Success leaves the candidate
+# physical input before reboot or device recreation. Removal must be refused,
+# with the recovery helper still installed, while hardware recovery cannot finish. Success leaves the candidate
 # installed and test files/account for inspection; failure preserves its state.
 # Save logs before rolling back the VM snapshot.
 set -euo pipefail
@@ -36,6 +37,15 @@ install_package() {
         opensuse) zypper --non-interactive --no-gpg-checks install --allow-unsigned-rpm "$1" ;;
         pacman) pacman -U --noconfirm "$1" ;;
         *) echo "Unsupported format: $format" >&2; exit 2 ;;
+    esac
+}
+
+remove_package() {
+    case "$format" in
+        debian) DEBIAN_FRONTEND=noninteractive apt-get remove -y keymasq ;;
+        fedora) dnf remove -y --setopt=clean_requirements_on_remove=False keymasq ;;
+        opensuse) zypper --non-interactive remove keymasq ;;
+        pacman) pacman -R --noconfirm keymasq ;;
     esac
 }
 
@@ -70,13 +80,32 @@ check masked
 printf 'PASS upgrade: %s -> %s; daemon PID %s -> %s\n' \
     "$baseline_version" "$candidate_version" "$old_pid" "$new_pid"
 
+# Fault injection: hold the hardware operations lock exclusively. The daemon's
+# shutdown restore, ExecStopPost recovery, and the removal check all need it.
+lock=/run/keymasq-masking/operations.lock
+flock -x "$lock" sleep 600 &
+lock_holder=$!
+for _ in $(seq 100); do
+    flock -n -s "$lock" true || break
+    sleep 0.1
+done
+if flock -n -s "$lock" true; then
+    echo 'FAIL: could not hold the hardware operations lock' >&2
+    exit 1
+fi
+if remove_package; then
+    echo 'FAIL: removal succeeded while hardware recovery was blocked' >&2
+    exit 1
+fi
+test "$(version)" = "$candidate_version"
+test -x /usr/bin/keymasq-record
+check restricted
+kill "$lock_holder"
+wait "$lock_holder" || true
+echo 'PASS refused removal: package and recovery helper kept while recovery was blocked'
+
 # Do not stop the daemon or call recovery here. The real removal hook must do it.
-case "$format" in
-    debian) DEBIAN_FRONTEND=noninteractive apt-get remove -y keymasq ;;
-    fedora) dnf remove -y --setopt=clean_requirements_on_remove=False keymasq ;;
-    opensuse) zypper --non-interactive remove keymasq ;;
-    pacman) pacman -R --noconfirm keymasq ;;
-esac
+remove_package
 udevadm settle
 # Must pass in the same boot, while the same UHID devices still exist.
 check uninstalled

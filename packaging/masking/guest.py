@@ -176,24 +176,24 @@ def wait_state(client, identity, expected):
         time.sleep(0.1)
 
 
+def keymasq_acl():
+    return f"user:{pwd.getpwnam('keymasq').pw_uid}:"
+
+
 def unchanged(name, *, uninstalled=False):
     device = devices()[name]
     expected = json.loads(BASELINE.read_text())[name]
     actual = metadata(device)
     assert actual.keys() == expected.keys(), (name, actual, expected)
     for role, original in expected.items():
-        allowed = [original]
         if uninstalled:
-            # A package manager's udev hook may also remove the uninstalled
-            # daemon's own ACL. Every other permission must remain unchanged.
-            prefix = f"user:{pwd.getpwnam('keymasq').pw_uid}:"
-            allowed.append(
-                {
-                    **original,
-                    "acl": [entry for entry in original["acl"] if not entry.startswith(prefix)],
-                }
-            )
-        assert actual[role] in allowed, (name, role, actual[role], allowed)
+            # Removal drops only the uninstalled daemon's own ACL entry. Every
+            # other permission must remain unchanged.
+            original = {
+                **original,
+                "acl": [entry for entry in original["acl"] if not entry.startswith(keymasq_acl())],
+            }
+        assert actual[role] == original, (name, role, actual[role], original)
     assert (device / "driver").exists(), f"driver unbound: {name}"
     probe(device)
 
@@ -230,6 +230,14 @@ def revoked(stream):
             assert exc.errno in {errno.ENODEV, errno.EIO}, exc
             return
     raise AssertionError(f"old descriptor not revoked: {stream.name}")
+
+
+def restricted():
+    """A refused removal leaves the mask and its recovery records in place."""
+    assert list(Path("/run/udev/rules.d").glob("*-keymasq-masking-*.rules"))
+    assert list(Path("/run/keymasq-masking").rglob("journal.json"))
+    probe(devices()[NAMES[0]], denied=True)
+    unchanged(NAMES[1])
 
 
 def mask():
@@ -323,6 +331,10 @@ def restored(*, uninstalled=False, appimage=False):
     for path in Path("/sys/devices/virtual/input").glob("input*/name"):
         assert path.read_text().strip() not in NAMES, f"virtual device leaked: {path}"
     if uninstalled:
+        uinput_acl = subprocess.check_output(
+            ["getfacl", "-cnp", "/dev/uinput"], text=True, timeout=10
+        )
+        assert keymasq_acl() not in uinput_acl, uinput_acl
         if not appimage:
             removed_files()
         assert (
@@ -398,6 +410,8 @@ def main(command):
         restored()
     elif command == "restored":
         restored()
+    elif command == "restricted":
+        restricted()
     elif command == "uninstalled":
         restored(uninstalled=True)
     elif command == "uninstalled-appimage":

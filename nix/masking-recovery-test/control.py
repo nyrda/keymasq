@@ -6,6 +6,7 @@ import fcntl
 import grp
 import json
 import os
+import pwd
 import select
 import socket
 import subprocess
@@ -289,6 +290,45 @@ def restored():
         restored_device(name)
 
 
+def keymasq_acl():
+    return f"user:{pwd.getpwnam('keymasq').pw_uid}:"
+
+
+def restricted():
+    """A refused package removal leaves the mask and its recovery records in place."""
+    attachment = devices()[NAMES[0]]
+    for prefix in ("72", "99-zz"):
+        assert (
+            Path("/run/udev/rules.d") / f"{prefix}-keymasq-masking-{attachment.identity}.rules"
+        ).exists()
+    record = Path("/run/keymasq-masking/reservations") / attachment.identity
+    assert (record / "journal.json").exists()
+    probe(attachment, denied=True)
+
+
+def removed():
+    """Removal restores access and drops only keymasq's own ACL entries."""
+    for pattern in ("72-keymasq-masking*.rules", "99-zz-keymasq-masking*.rules"):
+        assert not list(Path("/run/udev/rules.d").glob(pattern)), pattern
+    for name in ("journal.json", "armed.json", "permissions.json"):
+        assert not list(Path("/run/keymasq-masking").rglob(name)), name
+    baseline = json.loads(BASELINE.read_text())
+    for name in NAMES:
+        attachment = devices()[name]
+        expected = {
+            role: {
+                **original,
+                "acl": [entry for entry in original["acl"] if not entry.startswith(keymasq_acl())],
+            }
+            for role, original in baseline[name].items()
+        }
+        actual = metadata(attachment)
+        assert actual == expected, f"{name}: {actual} != {expected}"
+        probe(attachment)
+    uinput = subprocess.check_output(["getfacl", "-cn", "/dev/uinput"], text=True)
+    assert keymasq_acl() not in uinput, uinput
+
+
 def restore():
     ctx = ScenarioContext()
     identity = devices()[NAMES[0]].identity
@@ -327,6 +367,10 @@ if __name__ == "__main__":
         ctx.assert_daemon_has_no_capabilities()
     elif command == "restored":
         restored()
+    elif command == "restricted":
+        restricted()
+    elif command == "removed":
+        removed()
     elif command == "wait-masked":
         wait_masked()
     elif command == "restore":

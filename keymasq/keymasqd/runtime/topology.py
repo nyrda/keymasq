@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
 import logging
+import os
+import stat
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -19,6 +21,8 @@ type GetInterfaceIdFn = Callable[[str], str | None]
 type ReleaseInterfaceFn = Callable[[Any, str, str], Awaitable[None]]
 type DetectInputClassesFn = Callable[[Any], list[str]]
 type PrimaryInputClassFn = Callable[[Any], Any]
+
+log = logging.getLogger("keymasqd.devices")
 
 
 @dataclass(frozen=True)
@@ -62,9 +66,11 @@ async def _scan_live_interfaces(
     *,
     log: logging.Logger,
     deps: TopologyRuntimeDeps,
+    previous: Snapshot | None = None,
 ) -> Snapshot:
     return await deps.asyncio_mod.to_thread(
         scan_live_interfaces_sync,
+        previous=previous,
         clear_device_path_cache_fn=deps.clear_device_path_cache_fn,
         device_paths_fn=deps.device_paths_fn,
         device_input_fn=deps.device_input_fn,
@@ -133,7 +139,11 @@ async def topology_watch_loop(
         while True:
             await asyncio_mod.sleep(manager.topology_state.poll_s)
             try:
-                snapshot = await _scan_live_interfaces(log=log, deps=deps)
+                snapshot = await _scan_live_interfaces(
+                    log=log,
+                    deps=deps,
+                    previous=manager.topology_state.live_snapshot,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -262,7 +272,7 @@ async def reconcile_topology_unlocked(
     deps: TopologyRuntimeDeps,
     validate_readers: bool = False,
 ) -> None:
-    removed: list[tuple[str, str]] = []
+    removed: list[tuple[str, str, str]] = []
     registry = getattr(manager, "mask_registry", None)
 
     for hardware_id, devices in manager.grabbed_devices.items():
@@ -272,7 +282,7 @@ async def reconcile_topology_unlocked(
             continue
         for device in devices:
             if validate_readers and not await deps.asyncio_mod.to_thread(_reader_is_live, device):
-                removed.append((hardware_id, device.path))
+                removed.append((hardware_id, device.path, "reader is no longer live"))
                 continue
             hidden_source = is_hidden_grabbed_source(device)
             live_info = live_info_for_grabbed_device(
@@ -281,7 +291,7 @@ async def reconcile_topology_unlocked(
                 hidden_source=hidden_source,
             )
             if live_info is None:
-                removed.append((hardware_id, device.path))
+                removed.append((hardware_id, device.path, "interface missing from live scan"))
                 continue
 
             if hidden_source:
@@ -295,15 +305,16 @@ async def reconcile_topology_unlocked(
                     {hardware_id},
                 )
             if not hardware_matches:
-                removed.append((hardware_id, device.path))
+                removed.append((hardware_id, device.path, "live interface changed hardware"))
                 continue
 
             live_path = str(getattr(live_info, "path", "") or "")
             grabbed_path = str(getattr(device, "resolved_event_path", "") or device.path)
             if live_path != grabbed_path:
-                removed.append((hardware_id, device.path))
+                removed.append((hardware_id, device.path, f"live path moved to {live_path}"))
 
-    for hardware_id, path in removed:
+    for hardware_id, path, reason in removed:
+        log.info("Releasing %s for %s after topology change: %s", path, hardware_id, reason)
         await deps.release_interface_fn(manager, hardware_id, path)
 
 
@@ -590,6 +601,8 @@ def scan_live_interfaces_sync(
     resolve_stable_path_fn: ResolveStablePathFn,
     get_interface_id_fn: GetInterfaceIdFn,
     log: logging.Logger,
+    previous: Snapshot | None = None,
+    input_node_exists_fn: Callable[[str], bool] | None = None,
 ) -> Snapshot:
     clear_device_path_cache_fn()
     snapshot: Snapshot = {}
@@ -624,4 +637,24 @@ def scan_live_interfaces_sync(
         except Exception:
             log.exception("Unexpected failure reading live topology device %s", path)
 
+    # A udev change event on a hidden source resets its node to root:root 0600
+    # before re-granting the keymasq ACL, and evdev.list_devices() skips nodes
+    # the daemon cannot open. A node that still exists was not unplugged, so
+    # keep its last entry rather than report a disconnect that would release
+    # the grab and expose the source until the session grabs it again.
+    node_exists = input_node_exists_fn or input_node_exists
+    for stable_path, info in (previous or {}).items():
+        path = str(getattr(info, "path", "") or "")
+        if stable_path in snapshot or not path or path in cached_devices:
+            continue
+        if node_exists(path):
+            snapshot[stable_path] = info
+
     return snapshot
+
+
+def input_node_exists(path: str) -> bool:
+    try:
+        return stat.S_ISCHR(os.stat(path).st_mode)
+    except OSError:
+        return False

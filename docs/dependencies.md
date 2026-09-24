@@ -147,6 +147,7 @@ degraded.
 
 - Hyprland: supported with the base install when running under Hyprland
 - Niri: supported with the base install when running under Niri
+- Sway: supported with the base install when running under Sway
 - Generic wlroots Wayland: supported with the base install on compositors that
   expose the required foreign-toplevel protocol
 - KDE Plasma Wayland: supported with the base install
@@ -155,7 +156,7 @@ degraded.
   `gnome-extension/`
 - X11: requires `python-xlib`, which is part of the base Python dependency set
 
-Hyprland, Niri, KDE, COSMIC, wlroots Wayland, and GNOME currently need no
+Hyprland, Niri, Sway, KDE, COSMIC, wlroots Wayland, and GNOME currently need no
 extra Python package beyond the base runtime set. What differs is the
 compositor/session environment.
 
@@ -166,7 +167,7 @@ compositor/session environment.
   `slurp`
 - Only GUI point-picking Capture uses `slurp`, and only on compatible
   compositors: `hyprland`, `wayland`, `wayland-wlr`, `wayland-layer-shell`,
-  `kde`, `cosmic`, and `niri`
+  `kde`, `cosmic`, `niri`, and `sway`
 - On unsupported compositors, GUI `slurp` capture is not used
 - AppImage builds bundle `slurp` and prefer the extracted AppImage runtime path
 - Other builds check the embedded build path first, then `/usr/bin/slurp`,

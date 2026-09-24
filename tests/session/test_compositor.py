@@ -13,6 +13,7 @@ from keymasq.session.compositor import (
 EXPECTED_PROBE_ORDER = [
     "hyprland",
     "niri",
+    "sway",
     "kde",
     "gnome",
     "cosmic",
@@ -74,6 +75,7 @@ def test_registry_dispatches_listener_lookup_and_support_probe(
     [
         (list(compositor_module.SUPPORTED_COMPOSITORS), "hyprland"),
         (["niri", "kde", "gnome", "cosmic", "wayland", "x11"], "niri"),
+        (["sway", "kde", "gnome", "cosmic", "wayland", "x11"], "sway"),
         (["kde", "gnome", "cosmic", "wayland", "x11"], "kde"),
         (["gnome", "cosmic", "wayland", "x11"], "gnome"),
         (["cosmic", "wayland", "x11"], "cosmic"),

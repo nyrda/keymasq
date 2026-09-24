@@ -26,6 +26,7 @@ SLURP_COMPATIBLE_COMPOSITORS = {
     "kde",
     "cosmic",
     "niri",
+    "sway",
 }
 
 

@@ -360,7 +360,7 @@ separate runtime modes.
 ## Compositor
 
 Send a command to your window compositor. Currently Keymasq supports
-Hyprland, Niri, KDE Plasma, and GNOME.
+Hyprland, Niri, Sway, KDE Plasma, and GNOME.
 
 ### Hyprland
 
@@ -413,6 +413,35 @@ or dispatcher `focus-window` with args `--id 17`.
 Keymasq still keeps a direct socket fast path for the common preset actions,
 and the "Previous Window" / "Next Window" presets follow Niri's scrolling
 model by using the looping horizontal focus actions.
+
+### Sway
+
+Keymasq sends the command over Sway's IPC socket, the same way `swaymsg`
+would.
+
+**Preset examples:**
+
+| Preset | What it does |
+|---|---|
+| Close Window | Close the focused window (`kill`). |
+| Fullscreen / Toggle Floating / Toggle Sticky | Toggle that state on the focused window. |
+| Focus Left / Right / Up / Down / Parent | Move focus in a direction or to the parent container. |
+| Move Left / Right / Up / Down | Move the focused window in a direction. |
+| Split Horizontal / Vertical | Choose the split direction for the next window. |
+| Layout Tabbed / Stacking / Toggle Split | Change the layout of the focused container. |
+| Workspace Next / Previous / Back And Forth | Switch workspaces. |
+| Workspace 1 / 2 | Switch to a numbered workspace (`workspace number 1`). |
+| Move To Workspace 1 / 2 | Move the focused window to a numbered workspace. |
+| Show Scratchpad / Move To Scratchpad | Use the scratchpad. |
+| Set Cursor | Move the pointer to an absolute layout coordinate. |
+
+For a custom command, put the command in the dispatcher field and its
+arguments in the args field, for example dispatcher `move container to
+workspace` with args `web`. Keymasq joins the two with a space. You can chain
+commands with `;` or `,` and use criteria such as `[app_id="foot"] focus`.
+
+Keymasq sends the command unchanged, so any Sway command works, including
+`exec`.
 
 ### KDE Plasma
 

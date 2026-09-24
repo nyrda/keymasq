@@ -19,6 +19,7 @@ EXPECTED_CHECKS = {
     "listener-vm-xfce",
     "listener-vm-cosmic",
     "listener-vm-sway",
+    "listener-vm-mango",
 }
 
 

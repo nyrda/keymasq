@@ -191,6 +191,19 @@ rec {
       programs.sway.enable = true;
     };
 
+    # Mango is a wlroots compositor without dedicated Keymasq support. It
+    # exercises the generic zwlr_foreign_toplevel_manager_v1 fallback listener.
+    mango = {
+      services.displayManager.defaultSession = "mango";
+      services.displayManager.sddm = {
+        enable = true;
+        wayland.enable = true;
+      };
+      programs.mango.enable = true;
+      # The VM has no GPU, so mango's GLES renderer runs on llvmpipe.
+      environment.sessionVariables.WLR_RENDERER_ALLOW_SOFTWARE = "1";
+    };
+
     xfce = {
       services.xserver.enable = true;
       services.displayManager.defaultSession = "xfce";

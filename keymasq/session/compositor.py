@@ -9,6 +9,7 @@ from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.listeners.kde import KDEListener
 from keymasq.session.listeners.layer_shell import LayerShellCursorListener
 from keymasq.session.listeners.niri import NiriListener
+from keymasq.session.listeners.sway import SwayListener
 from keymasq.session.listeners.wayland_wlr import WlrootsWaylandListener
 from keymasq.session.listeners.x11 import X11Listener
 
@@ -23,6 +24,7 @@ type CompositorListener = (
     | type[KDEListener]
     | type[LayerShellCursorListener]
     | type[NiriListener]
+    | type[SwayListener]
     | type[WlrootsWaylandListener]
     | type[X11Listener]
 )
@@ -50,6 +52,13 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
         "capabilities": [],
         "listener": NiriListener,
         "probe_order": 20,
+    },
+    "sway": {
+        "env": "SWAYSOCK",
+        "name": "Sway",
+        "capabilities": [],
+        "listener": SwayListener,
+        "probe_order": 24,
     },
     "kde": {
         "env": "KDE_FULL_SESSION",

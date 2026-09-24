@@ -49,18 +49,6 @@ class MacroEditorAddPopoversMixin:
             return max(0, int(default_t_us))
         return int(self._duration_us / 2) if self._duration_us else 500_000
 
-    def _insert_move_event(self, mode: str, default_t_us: int | None = None) -> None:
-        move = EditableMove(
-            mode=mode,
-            t_us=self._default_insert_time_us(default_t_us),
-            x=0,
-            y=0,
-        )
-        self._synthetic_moves.append(move)
-        self._synthetic_moves.sort(key=lambda m: m.t_us)
-        self._timeline._selected = move
-        self._refresh_after_timing_edit()
-
     def _present_mouse_move_dialog(
         self,
         default_t_us: int | None = None,

@@ -401,23 +401,3 @@ class TimelineControllerMixin:
         self._timeline._insertion_us = cursor - min(max(cursor - t0_us, 0), t1_us - t0_us)
         self._refresh_after_timing_edit(recompute_duration=False)
         self._update_selection_summary()
-
-    def _shift_timeline_for_gap(
-        self,
-        *,
-        at_us: int,
-        delta_us: int,
-        scope: str,
-        exclude_control: EditableControl | None,
-    ) -> bool:
-        return timing_ops.shift_timeline_for_gap(
-            self._events,
-            self._rel_events,
-            self._passthrough_events,
-            self._synthetic_moves,
-            self._control_events,
-            at_us=at_us,
-            delta_us=delta_us,
-            scope=scope,
-            exclude_control=exclude_control,
-        )

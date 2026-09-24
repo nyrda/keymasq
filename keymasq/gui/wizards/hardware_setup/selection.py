@@ -36,18 +36,8 @@ class SelectionMixin:
         self.next_btn.set_sensitive(False)
         self._detect_devices()
 
-    def _should_show_interface_expander(
-        self: Any,
-        interfaces: Sequence[Mapping[str, Any]],
-    ) -> bool:
-        return rows.should_show_interface_expander(self._discovery_state.show_raw, interfaces)
-
     def _device_in_use(self: Any, dev_info: Mapping[str, Any]) -> bool:
         return rows.device_in_use(dev_info)
-
-    @staticmethod
-    def _device_in_use_summary(dev_info: Mapping[str, Any]) -> str:
-        return rows.device_in_use_summary(dev_info)
 
     def _configured_hardware_ids(self: Any) -> set[str]:
         return inventory.configured_hardware_ids(self.hardware_manager)

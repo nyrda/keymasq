@@ -44,17 +44,6 @@ def _hardware_docs_url() -> str:
     return docs_page_url("hardware", version=__version__)
 
 
-def append_unique_evdev_devices(
-    hardware_config: HardwareConfig,
-    evdev_devices: Sequence[EvdevDevice],
-) -> int:
-    added, _motion_added = append_evdev_device_selection(
-        hardware_config,
-        evdev_devices,
-    )
-    return added
-
-
 def append_evdev_device_selection(
     hardware_config: HardwareConfig,
     evdev_devices: Sequence[EvdevDevice],

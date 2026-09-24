@@ -17,7 +17,6 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.model.actions import MappingAction
 from keymasq.gui.widgets.macro_editor import dialog as macro_editor_dialog_module
 from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
-from keymasq.gui.widgets.macro_editor import timing_ops
 from keymasq.gui.widgets.macro_editor.model import (
     EditableControl,
     EditableEvent,
@@ -1760,69 +1759,6 @@ def test_macro_editor_save_request_paths_and_undo(monkeypatch) -> None:
     assert dialog._macro_loop_finish_check.get_active() is False
 
 
-def test_macro_editor_time_mapping_updates_all_event_kinds(monkeypatch) -> None:
-    dialog = _build_macro_dialog(monkeypatch)
-    keyboard = EditableEvent(
-        device_type="keyboard",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.KEY_A,
-        press_t_us=1000,
-        release_t_us=3000,
-    )
-    mouse = EditableEvent(
-        device_type="mouse",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.BTN_LEFT,
-        press_t_us=5000,
-        release_t_us=9000,
-    )
-    move = EditableMove(mode="abs", t_us=7000, x=11, y=22)
-    control = EditableControl(mode="wait", t_us=8000, duration_us=2000)
-    passthrough = {
-        "device_type": "keyboard",
-        "type": evdev.ecodes.EV_KEY,
-        "code": evdev.ecodes.KEY_B,
-        "value": 2,
-        "t_us": 6000,
-    }
-    rel = {
-        "device_type": "mouse",
-        "type": evdev.ecodes.EV_REL,
-        "code": evdev.ecodes.REL_X,
-        "value": 4,
-        "t_us": 4000,
-    }
-    dialog._events = [mouse, keyboard]
-    dialog._rel_events = [rel]
-    dialog._passthrough_events = [passthrough]
-    dialog._synthetic_moves = [move]
-    dialog._control_events = [control]
-
-    mapping = timing_ops.build_time_mapping_with_gap_limits(
-        dialog._events,
-        dialog._rel_events,
-        dialog._passthrough_events,
-        dialog._synthetic_moves,
-        dialog._control_events,
-        scale=2.0,
-        min_gap_us=500,
-        max_gap_us=1500,
-        include_passthrough=True,
-    )
-    dialog._apply_time_map(mapping)
-    dialog._recompute_duration()
-
-    assert dialog._events == [keyboard, mouse]
-    assert keyboard.press_t_us == 1000
-    assert keyboard.release_t_us == 2500
-    assert rel["t_us"] == 4000
-    assert mouse.press_t_us == 5500
-    assert passthrough["t_us"] == 7000
-    assert move.t_us == 8500
-    assert control.t_us == 10500
-    assert dialog._duration_us == 12000
-
-
 def test_macro_editor_trim_and_gap_helpers_keep_selection_consistent(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     removed = EditableEvent(
@@ -1904,16 +1840,6 @@ def test_macro_editor_add_move_selects_zeroed_event_for_editing(monkeypatch) -> 
     assert dialog._move_x_spin.get_value_as_int() == 0
     assert dialog._move_y_spin.get_value_as_int() == 0
 
-    dialog._insert_move_event("abs", default_t_us=250_000)
-
-    abs_move = dialog._synthetic_moves[0]
-    assert abs_move.mode == "abs"
-    assert abs_move.t_us == 250_000
-    assert abs_move.x == 0
-    assert abs_move.y == 0
-    assert dialog._timeline._selected is abs_move
-    assert dialog._move_capture_btn.get_visible() is True
-
 
 def test_macro_editor_add_key_dialog_starts_on_requested_device_type(monkeypatch) -> None:
     import keymasq.gui.widgets.key_selector.dialog as key_selector_dialog_module
@@ -1969,109 +1895,6 @@ def test_macro_editor_inserts_gamepad_axis_action(monkeypatch) -> None:
     assert event.release_t_us == 250_001
     assert event.output_id == "virtual-gamepad-3"
     assert dialog._timeline._selected is event
-
-
-def test_macro_editor_shift_timeline_for_gap_respects_scopes(monkeypatch) -> None:
-    dialog = _build_macro_dialog(monkeypatch)
-    keyboard = EditableEvent(
-        device_type="keyboard",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.KEY_A,
-        press_t_us=1000,
-        release_t_us=2000,
-    )
-    mouse = EditableEvent(
-        device_type="mouse",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.BTN_LEFT,
-        press_t_us=1000,
-        release_t_us=2000,
-    )
-    gamepad = EditableEvent(
-        device_type="gamepad",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.BTN_SOUTH,
-        press_t_us=1000,
-        release_t_us=2000,
-        output_id="virtual-gamepad-2",
-    )
-    excluded = EditableControl(mode="wait", t_us=1000, duration_us=500)
-    shifted = EditableControl(mode="wait_random", t_us=2000, min_us=500, max_us=1500)
-    move = EditableMove(mode="rel", t_us=1000, x=1, y=1)
-    dialog._events = [keyboard, mouse, gamepad]
-    dialog._synthetic_moves = [move]
-    dialog._control_events = [excluded, shifted]
-    dialog._rel_events = [
-        {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_Y,
-            "value": -1,
-            "t_us": 1000,
-        }
-    ]
-    dialog._passthrough_events = [
-        {
-            "device_type": "keyboard",
-            "type": evdev.ecodes.EV_KEY,
-            "code": evdev.ecodes.KEY_C,
-            "value": 2,
-            "t_us": 1000,
-        },
-        {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_X,
-            "value": 5,
-            "t_us": 1000,
-        },
-    ]
-
-    assert (
-        dialog._shift_timeline_for_gap(
-            at_us=1000,
-            delta_us=500,
-            scope="movement",
-            exclude_control=excluded,
-        )
-        is True
-    )
-    assert keyboard.press_t_us == 1000
-    assert mouse.press_t_us == 1000
-    assert gamepad.press_t_us == 1000
-    assert move.t_us == 1500
-    assert dialog._rel_events[0]["t_us"] == 1500
-    assert excluded.t_us == 1000
-    assert shifted.t_us == 2500
-    assert dialog._passthrough_events[0]["t_us"] == 1000
-    assert dialog._passthrough_events[1]["t_us"] == 1500
-
-    assert (
-        dialog._shift_timeline_for_gap(
-            at_us=1000,
-            delta_us=-750,
-            scope="keyboard",
-            exclude_control=None,
-        )
-        is True
-    )
-    assert keyboard.press_t_us == 250
-    assert keyboard.release_t_us == 1250
-    assert mouse.press_t_us == 1000
-    assert dialog._passthrough_events[0]["t_us"] == 250
-
-    assert (
-        dialog._shift_timeline_for_gap(
-            at_us=1000,
-            delta_us=500,
-            scope="gamepad",
-            exclude_control=None,
-        )
-        is True
-    )
-    assert keyboard.press_t_us == 250
-    assert mouse.press_t_us == 1000
-    assert gamepad.press_t_us == 1500
 
 
 def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> None:

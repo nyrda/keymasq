@@ -66,8 +66,6 @@ class KeySelectorDialog(
 
     _include_keyboard_capture_controls = True
     _include_mouse_move_controls = True
-    _include_tap_options = True
-    _gamepad_output_selector_mode = "title"
     _rapidfire_warning_context = "key selector"
     _selection_emit_closes_dialog = True
 

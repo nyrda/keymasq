@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
@@ -20,7 +20,6 @@ from keymasq.gui.widgets.device_tab.grid import (
     DeviceGridBuilder,
     DeviceGridCallbacks,
     mapping_action_summary_chars,
-    supports_analog_learning,
 )
 from keymasq.session.profile.types import ProfileInfo
 
@@ -52,12 +51,6 @@ class MappingMixin:
         self._keyboard_layout_mode = result.keyboard_layout_mode
         self._button_widgets.update(result.button_widgets)
         self.append(result.widget)
-
-    def _create_learn_tile(self: Any) -> Gtk.Button:
-        return self._grid_builder().create_learn_tile()
-
-    def _supports_analog_learning(self: Any) -> bool:
-        return supports_analog_learning(self.device)
 
     def device_layout_kind(self: Any) -> str:
         return resolve_device_layout_kind(self.device)
@@ -128,18 +121,6 @@ class MappingMixin:
         protected: bool,
     ) -> None:
         self._activate_mapping_button(button, protected)
-
-    def _on_button_clicked(
-        self: Any,
-        click,
-        n_press,
-        x,
-        y,
-        button: ButtonDefinition,
-        protected: bool,
-    ) -> None:
-        if click.get_current_button() == Gdk.BUTTON_PRIMARY:
-            self._activate_mapping_button(button, protected)
 
     def _activate_mapping_button(
         self: Any,

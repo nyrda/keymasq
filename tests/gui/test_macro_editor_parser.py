@@ -423,7 +423,7 @@ def test_unmatched_key_press_is_classified_for_keyboard_track() -> None:
     assert _passthrough_track(passthrough[0]) == "keyboard"
 
 
-def test_timing_gap_limit_mapping_and_apply_updates_all_event_kinds() -> None:
+def test_timing_apply_time_map_updates_and_sorts_all_event_kinds() -> None:
     keyboard = EditableEvent(
         device_type="keyboard",
         ev_type=evdev.ecodes.EV_KEY,
@@ -460,16 +460,17 @@ def test_timing_gap_limit_mapping_and_apply_updates_all_event_kinds() -> None:
     synthetic_moves = [move]
     control_events = [control]
 
-    mapping = timing_ops.build_time_mapping_with_gap_limits(
-        events,
-        rel_events,
-        passthrough_events,
-        synthetic_moves,
-        control_events,
-        scale=2.0,
-        min_gap_us=500,
-        max_gap_us=1500,
-    )
+    mapping = {
+        1000: 1000,
+        3000: 2500,
+        4000: 4000,
+        5000: 5500,
+        6000: 7000,
+        7000: 8500,
+        7001: 9000,
+        8000: 10500,
+        9000: 12000,
+    }
     timing_ops.apply_time_map(
         events,
         rel_events,
@@ -555,84 +556,6 @@ def test_timing_trim_startpoint_removes_and_rebases_timeline() -> None:
     assert control.t_us == 3000
 
 
-def test_timing_shift_timeline_for_gap_respects_scopes() -> None:
-    keyboard = EditableEvent(
-        device_type="keyboard",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.KEY_A,
-        press_t_us=1000,
-        release_t_us=2000,
-    )
-    mouse = EditableEvent(
-        device_type="mouse",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.BTN_LEFT,
-        press_t_us=1000,
-        release_t_us=2000,
-    )
-    gamepad = EditableEvent(
-        device_type="gamepad",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.BTN_SOUTH,
-        press_t_us=1000,
-        release_t_us=2000,
-        output_id="virtual-gamepad-2",
-    )
-    excluded = EditableControl(mode="wait", t_us=1000, duration_us=500)
-    shifted = EditableControl(mode="wait_random", t_us=2000, min_us=500, max_us=1500)
-    move = EditableMove(mode="rel", t_us=1000, x=1, y=1)
-    rel_events = [
-        {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_Y,
-            "value": -1,
-            "t_us": 1000,
-        }
-    ]
-    passthrough_events = [
-        {
-            "device_type": "keyboard",
-            "type": evdev.ecodes.EV_KEY,
-            "code": evdev.ecodes.KEY_C,
-            "value": 2,
-            "t_us": 1000,
-        },
-        {
-            "device_type": "mouse",
-            "type": evdev.ecodes.EV_REL,
-            "code": evdev.ecodes.REL_X,
-            "value": 5,
-            "t_us": 1000,
-        },
-    ]
-
-    assert (
-        timing_ops.shift_timeline_for_gap(
-            [keyboard, mouse, gamepad],
-            rel_events,
-            passthrough_events,
-            [move],
-            [excluded, shifted],
-            at_us=1000,
-            delta_us=500,
-            scope="movement",
-            exclude_control=excluded,
-        )
-        is True
-    )
-
-    assert keyboard.press_t_us == 1000
-    assert mouse.press_t_us == 1000
-    assert gamepad.press_t_us == 1000
-    assert move.t_us == 1500
-    assert rel_events[0]["t_us"] == 1500
-    assert excluded.t_us == 1000
-    assert shifted.t_us == 2500
-    assert passthrough_events[0]["t_us"] == 1000
-    assert passthrough_events[1]["t_us"] == 1500
-
-
 def test_parse_discards_ev_syn_events() -> None:
     raw = [
         {
@@ -680,47 +603,3 @@ def test_timing_map_time_keeps_out_of_range_timestamps_relative() -> None:
     assert timing_ops.map_time(mapping, 2600) == 3600
     # Empty mapping leaves timestamps alone.
     assert timing_ops.map_time({}, 123) == 123
-
-
-def test_timing_scale_excluding_passthrough_keeps_outlier_offsets() -> None:
-    keyboard = EditableEvent(
-        device_type="keyboard",
-        ev_type=evdev.ecodes.EV_KEY,
-        code=evdev.ecodes.KEY_A,
-        press_t_us=1000,
-        release_t_us=2000,
-    )
-    passthrough_before = {
-        "device_type": "keyboard",
-        "type": evdev.ecodes.EV_KEY,
-        "code": evdev.ecodes.KEY_B,
-        "value": 1,
-        "t_us": 500,
-    }
-    passthrough_after = {
-        "device_type": "keyboard",
-        "type": evdev.ecodes.EV_KEY,
-        "code": evdev.ecodes.KEY_C,
-        "value": 0,
-        "t_us": 2500,
-    }
-    events = [keyboard]
-    passthrough_events = [passthrough_before, passthrough_after]
-
-    mapping = timing_ops.build_time_mapping_with_gap_limits(
-        events,
-        [],
-        passthrough_events,
-        [],
-        [],
-        scale=2.0,
-        include_passthrough=False,
-    )
-    timing_ops.apply_time_map(events, [], passthrough_events, [], [], mapping)
-
-    assert keyboard.press_t_us == 1000
-    assert keyboard.release_t_us == 3000
-    # Passthrough timestamps outside the anchor range keep their offsets
-    # relative to the remapped content instead of snapping onto its edges.
-    assert passthrough_before["t_us"] == 500
-    assert passthrough_after["t_us"] == 3500

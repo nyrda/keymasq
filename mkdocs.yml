@@ -113,7 +113,6 @@ nav:
       - Overview: examples.md
       - Custom Modifier Combos: examples/custom-modifier-combos.md
       - Mouse UI Automation: examples/mouse-ui-automation.md
-      - Text Snippet Macro: examples/text-snippet-macro.md
       - Universal Copy and Paste: examples/universal-copy-paste.md
       - Volume Rocker Key: examples/volume-rocker-superkey.md
   - Desktop Support:

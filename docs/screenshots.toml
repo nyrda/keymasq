@@ -316,13 +316,6 @@ target = "gnome_setup_dialog"
 gnome_state = "bridge_disabled"
 
 [[shot]]
-name = "examples/timing_tools"
-target = "macro_editor_timing_tools"
-macro = "timing_tools_demo"
-window_width = 1220
-window_height = 1080
-
-[[shot]]
 name = "examples/macro_editor_volume_up"
 target = "macro_editor"
 macro = "volume_up"

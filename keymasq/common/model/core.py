@@ -49,11 +49,3 @@ class ProfileState(Enum):
     WAITING = "waiting"
     ACTIVE = "active"
     STANDBY = "standby"
-
-
-class WindowFieldType(Enum):
-    CLASS = "class"
-    TITLE = "title"
-    INITIAL_CLASS = "initial_class"
-    INITIAL_TITLE = "initial_title"
-    TAG = "tag"

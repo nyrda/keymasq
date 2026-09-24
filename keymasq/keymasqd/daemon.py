@@ -657,23 +657,6 @@ class Daemon:
             self._runtime_unlock_file_uids,
         )
 
-    def _clear_all_runtime_unlocks(self, *, reason: str) -> None:
-        runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
-        runtime_uids.update(self._runtime_unlock_file_uids())
-
-        for uid in sorted(runtime_uids):
-            try:
-                self._clear_runtime_unlock(uid, reason=reason)
-            except OSError as exc:
-                log.warning(
-                    "Failed to clear runtime unlock uid=%s during %s: %s",
-                    uid,
-                    reason,
-                    exc,
-                )
-
-        self._recording_refresh_owners.clear()
-
     async def _clear_all_runtime_unlocks_async(self, *, reason: str) -> None:
         runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
         runtime_uids.update(await self._runtime_unlock_file_uids_async())
@@ -690,27 +673,6 @@ class Daemon:
                 )
 
         self._recording_refresh_owners.clear()
-
-    def _clear_runtime_unlock_for_client(
-        self,
-        client: ClientContext,
-        *,
-        reason: str,
-    ) -> None:
-        uid = int(client.uid)
-        owner = self._recording_refresh_owners.get(uid)
-        if owner != (int(client.pid), int(client.connection_id)):
-            return
-
-        try:
-            self._clear_runtime_unlock(uid, reason=reason)
-        except OSError as exc:
-            log.warning(
-                "Failed to clear runtime unlock uid=%s during %s: %s",
-                uid,
-                reason,
-                exc,
-            )
 
     async def _clear_runtime_unlock_for_client_async(
         self,

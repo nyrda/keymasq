@@ -188,9 +188,6 @@ class SuperkeyConfig:
     def has_overload_actions(self) -> bool:
         return bool(self.overload_actions or self.overload_down_actions or self.overload_up_actions)
 
-    def has_any_action(self) -> bool:
-        return self.has_pattern_actions() or self.has_overload_actions()
-
 
 class _ComboSuperkeyConfig(Protocol):
     mode: SuperkeyMode

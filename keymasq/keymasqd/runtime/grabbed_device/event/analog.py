@@ -9,22 +9,6 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 )
 
 
-def is_bound_analog_axis_event(
-    device_runtime: GrabbedDeviceRuntime,
-    event: InputEventLike,
-    *,
-    ev_abs: int,
-) -> bool:
-    return (
-        int(event.type) == int(ev_abs)
-        and (
-            int(event.type),
-            int(event.code),
-        )
-        in device_runtime.analog_axis_bindings
-    )
-
-
 async def dispatch_analog_event(
     device_runtime: GrabbedDeviceRuntime,
     event: InputEventLike,

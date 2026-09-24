@@ -285,9 +285,6 @@ SYSTEM_KEY_GROUPS = [
 MEDIA_KEY_TARGETS = {
     evdev_id for _title, buttons in MEDIA_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
 }
-SYSTEM_KEY_TARGETS = {
-    evdev_id for _title, buttons in SYSTEM_KEY_GROUPS for _label, evdev_id, _icon_name in buttons
-}
 
 
 def _keyboard_target_allows_rapidfire(evdev_name: str) -> bool:

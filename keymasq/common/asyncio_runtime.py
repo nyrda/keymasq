@@ -49,9 +49,3 @@ def ensure_uvloop(logger: logging.Logger | None = None) -> bool:
         _logged_statuses.add(_runtime_status)
 
     return _runtime_status == _STATUS_UVLOOP
-
-
-def current_asyncio_runtime() -> str:
-    if _runtime_status == _STATUS_UNKNOWN:
-        ensure_uvloop()
-    return _runtime_status

@@ -19,7 +19,6 @@ from keymasq.keymasqd.runtime.action.state import (
     drain_action_tasks,
 )
 from keymasq.keymasqd.runtime.action.triggers import (
-    dispatch_action_trigger,
     is_hold_macro_action,
     source_trigger_id,
 )
@@ -89,20 +88,6 @@ async def apply_combo_action_transition(
             transition.combo_id,
             deps=deps,
         )
-
-
-async def broadcast_combo_action(
-    manager: ComboManager,
-    data: dict[str, object],
-    *,
-    deps: ComboRuntimeDeps,
-) -> None:
-    dispatch_action_trigger(
-        manager.broadcast_callback,
-        data,
-        fire_and_observe_fn=deps.fire_and_observe_fn,
-        label="combo action broadcast",
-    )
 
 
 def _observe_combo_profile_trigger(

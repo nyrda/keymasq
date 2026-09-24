@@ -116,10 +116,6 @@ class HyprlandListener(WindowListener):
         return bool(event_socket)
 
     @property
-    def supports_tags(self) -> bool:
-        return True
-
-    @property
     def supports_compositor_dispatch(self) -> bool:
         return True
 

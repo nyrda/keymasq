@@ -125,42 +125,5 @@ class PositionCaptureMixin:
         self._sync_close_guard()
         return True
 
-    def _on_move_slurp_capture_result(
-        self,
-        request_id: int,
-        move: EditableMove,
-        result,
-    ) -> None:
-        if self._selected_move_capture.apply is None:
-            self._selected_move_capture.apply = lambda x, y: (
-                self._apply_selected_move_capture_position(move, x, y)
-            )
-        self._selected_move_capture.on_slurp_result(request_id, result)
-
-    def _capture_selected_move_after_delay(
-        self,
-        request_id: int,
-        move: EditableMove,
-    ) -> bool:
-        if self._selected_move_capture.apply is None:
-            self._selected_move_capture.apply = lambda x, y: (
-                self._apply_selected_move_capture_position(move, x, y)
-            )
-        result = self._selected_move_capture.capture_after_delay(request_id)
-        return result
-
-    def _on_capture_selected_move_response(
-        self,
-        request_id: int,
-        move: EditableMove,
-        response: dict | None,
-    ) -> bool:
-        if self._selected_move_capture.apply is None:
-            self._selected_move_capture.apply = lambda x, y: (
-                self._apply_selected_move_capture_position(move, x, y)
-            )
-        result = self._selected_move_capture.on_response(request_id, response)
-        return result
-
     def _cancel_capture_selected_move(self, status_text: str) -> None:
         self._selected_move_capture.cancel(status_text)

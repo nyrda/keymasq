@@ -128,19 +128,6 @@ def runtime_profile_names(manager: "SessionManager") -> list[str]:
     ]
 
 
-async def clear_runtime_profile_activations(
-    manager: "SessionManager",
-    *,
-    reason: str,
-    reevaluate: ReevaluateProfiles,
-) -> None:
-    """Clear all temporary activations and request one reconciliation."""
-    if not manager.profile_state.runtime_profile_activations:
-        return
-    manager.profile_state.runtime_profile_activations.clear()
-    await reevaluate(reason)
-
-
 async def play_profile_lifecycle_macros(
     manager: "SessionManager",
     old_active_profile_names: list[str],

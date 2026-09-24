@@ -103,6 +103,3 @@ class LifecycleControllerMixin:
 
     def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
         dialog.close()
-
-    def _on_popover_cancel_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
-        popover.popdown()

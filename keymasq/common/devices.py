@@ -46,10 +46,6 @@ _GAMEPAD_ABS_CODES = frozenset(
         evdev.ecodes.ABS_BRAKE,
     }
 )
-_GAMEPAD_CONTROLLER_ONLY_ABS_CODES = _GAMEPAD_ABS_CODES - {
-    evdev.ecodes.ABS_X,
-    evdev.ecodes.ABS_Y,
-}
 _GAMEPAD_BUTTON_CODES = frozenset(
     {
         evdev.ecodes.BTN_SOUTH,

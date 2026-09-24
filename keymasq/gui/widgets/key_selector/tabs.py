@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
 
 import evdev
 import gi
@@ -15,10 +14,8 @@ from keymasq.common.controller_capabilities import (
     hardware_controller_template,
     routed_controller_template,
 )
-from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import HardwareConfig
-from keymasq.common.model.superkeys import SuperkeyAction
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     XBOX_360_TEMPLATE_ID,
@@ -66,16 +63,6 @@ def _unit_label(text: str) -> Gtk.Label:
     label.add_css_class("dim-label")
     label.set_halign(Gtk.Align.START)
     return label
-
-
-class InputTabsHost(Protocol):
-    def _build_selected_action(
-        self,
-        action_type: ActionType,
-        **kwargs: Any,
-    ) -> MappingAction | SuperkeyAction: ...
-
-    def _emit_selected_action(self, action: MappingAction | SuperkeyAction | None) -> None: ...
 
 
 def _create_actions_docs_button() -> Gtk.Button:

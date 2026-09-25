@@ -342,6 +342,8 @@ class _FakeHyprland:
         self.layers: dict[str, tuple[str, int]] = {}
         self.commands: list[str] = []
         self.failing_layer_queries = 0
+        # While set, window queries wait until the event is set.
+        self.window_reply_gate: asyncio.Event | None = None
         self._next_address = 0x100
 
     def open_layer(self, namespace: str, interactivity: int) -> str:
@@ -354,6 +356,8 @@ class _FakeHyprland:
         _ = read_size
         self.commands.append(command)
         if command == "j/activewindow":
+            if self.window_reply_gate is not None:
+                await self.window_reply_gate.wait()
             return json.dumps(self.active_window).encode()
         if not command.startswith("repl "):
             return None
@@ -501,6 +505,78 @@ async def test_hyprland_close_rechecks_layers_below_the_closed_one() -> None:
         ("kitty", "Beta", [], ""),
         ("", "", [], "panel"),
         ("", "", [], "menu"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_window_query_does_not_outlive_a_layer_taking_focus() -> None:
+    hyprland = _FakeHyprland()
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    hyprland.window_reply_gate = asyncio.Event()
+
+    window_query = asyncio.create_task(listener.get_active_window())
+    await asyncio.sleep(0)
+    # A launcher takes focus while the window query waits for its reply.
+    hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    hyprland.window_reply_gate.set()
+
+    assert await window_query == ("", "", [])
+    assert listener.active_layer == "launcher"
+
+
+@pytest.mark.asyncio
+async def test_hyprland_layer_mapped_again_at_the_same_address_takes_focus() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    hyprland.open_layer("walker", 2)
+    await listener._handle_event("openlayer>>walker")
+    await listener._handle_event("activewindow>>firefox,Docs")
+    await listener._handle_event("activewindowv2>>6b6b")
+    # walker hides and shows again at the same address before the listener
+    # handles either event.
+    await listener._handle_event("closelayer>>walker")
+    await listener._handle_event("openlayer>>walker")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "walker"),
+        ("firefox", "Docs", [], ""),
+        ("", "", [], "walker"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_priority_dialog_takes_focus_from_an_exclusive_layer() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    # A class change of the window behind the launcher is not a focus change.
+    await listener._handle_event("activewindow>>kitty-renamed,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    # Hyprland lets its own priority dialogs take focus over the launcher.
+    await listener._handle_event("activewindow>>hyprland-dialog,Permission")
+    await listener._handle_event("activewindowv2>>7c7c")
+    assert listener.active_layer == ""
+    # The dialog closes and the launcher has the keyboard again.
+    await listener._handle_event("activewindow>>,")
+    await listener._handle_event("activewindowv2>>")
+    del hyprland.layers[launcher]
+    await listener._handle_event("closelayer>>launcher")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "launcher"),
+        ("hyprland-dialog", "Permission", [], ""),
+        ("", "", [], "launcher"),
         ("kitty", "Beta", [], ""),
     ]
 
@@ -662,6 +738,27 @@ async def test_hyprland_start_stops_waiting_for_queued_layer_events(
     await listener._handle_event("openlayer>>walker")
 
     assert listener.active_layer == ""
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_does_not_guess_between_exclusive_layers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    # Hyprland lists layers by monitor and level, not by when they took focus.
+    menu = hyprland.open_layer("menu", 1)
+    hyprland.open_layer("launcher", 1)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+
+    assert listener.active_layer == ""
+    assert await listener.get_active_window() == ("", "", [])
+    del hyprland.layers[menu]
+    await listener._handle_event("closelayer>>menu")
+    assert listener.active_layer == "launcher"
     await listener.stop()
 
 

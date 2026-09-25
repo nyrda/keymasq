@@ -61,7 +61,7 @@ See [docs/macro-editor.md](docs/macro-editor.md) for the editor and
 ## Desktop support
 
 Keymasq supports X11 and Wayland, including GNOME, KDE Plasma, Hyprland,
-Niri, COSMIC, and wlroots compositors such as Sway. Profiles activate and
+Niri, Sway, COSMIC, and other wlroots compositors. Profiles activate and
 deactivate based on the focused app or window title, with active profiles
 layered together.
 

@@ -28,7 +28,8 @@ wlroots-based compositors.
 | **Hyprland** | Yes | Native | [Yes, including Lua dispatchers](#hyprland) | Uses Hyprland sockets. Includes a **Set Cursor** compositor action and Hyprland window tags. |
 | **Niri** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Yes | Uses Niri's event and command socket, with `niri msg action` fallback for custom actions. |
 | **COSMIC** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Uses COSMIC Wayland protocols for active-window tracking. |
-| **Sway and generic wlroots** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Works on wlroots-based compositors such as Sway, Wayfire, river, and labwc. |
+| **Sway** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Yes | Tracks windows like generic wlroots and sends actions over Sway's i3-compatible IPC socket. Includes a **Set Cursor** compositor action. |
+| **Generic wlroots** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Works on wlroots-based compositors such as Mango, Wayfire, river, and labwc. |
 | **Generic layer-shell Wayland** | No | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Fallback for compositors with `zwlr_layer_shell_v1` and `zxdg_output_manager_v1` but no supported active-window protocol. |
 | **X11** | Yes | Native | No | Not Wayland, but useful as a comparison point. |
 
@@ -93,8 +94,8 @@ reliably work with desktop scaling, fractional or per-monitor scaling, or
 multi-monitor output layouts. Pointer acceleration, sensitivity, and other
 pointer settings can also shift the final position.
 
-For desktop UI automation on GNOME or Hyprland, the compositor action **Set
-Cursor** preset is also available when you specifically need the desktop itself
+For desktop UI automation on GNOME, Hyprland, or Sway, the compositor action
+**Set Cursor** preset is also available when you specifically need the desktop itself
 to set the cursor position.
 
 ## Desktop details
@@ -167,15 +168,39 @@ Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when COSMIC exposes the required Wayland protocols.
 Keymasq does not currently expose COSMIC compositor actions.
 
-### Sway and generic wlroots Wayland
+### Sway
+
+Keymasq connects to Sway's IPC socket from `SWAYSOCK` (or `I3SOCK`, which Sway
+also sets), so the session service needs one of them in its environment. If
+`systemctl --user show-environment` does not list `SWAYSOCK`, add
+`exec systemctl --user import-environment SWAYSOCK WAYLAND_DISPLAY` to your
+Sway config. Keymasq does not scan the runtime directory for sockets, so it
+cannot attach to another Sway session.
+
+Active-window tracking uses `zwlr_foreign_toplevel_manager_v1`, the same as
+the [generic wlroots listener](#generic-wlroots-wayland). It follows keyboard
+focus, so switching to an empty workspace or opening a keyboard-interactive
+launcher clears the active window. Sway's IPC socket carries compositor
+actions, which accept any Sway command. See [Sway actions](actions.md#sway).
+
+**Set Cursor** runs `seat - cursor set X Y`. Sway reads those coordinates
+relative to the top-left corner of the output layout, so Keymasq subtracts the
+layout origin first. Coordinates stay correct when a monitor sits left of or
+above the primary one.
+
+Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback).
+The feedback nudges the pointer by one pixel to get a sample, so a read right
+after **Set Cursor** can differ from the target by one pixel.
+
+### Generic wlroots Wayland
 
 The generic Wayland listener works when a compositor exposes
 `zwlr_foreign_toplevel_manager_v1`. This protocol lets Keymasq read the active
 window's application ID and title, which is enough for window-aware profiles.
 
-Known compatible compositors include Sway, Wayfire, river, labwc, and other
-wlroots-based compositors that expose the required protocol. Sway is the primary
-tested compositor for this path.
+Known compatible compositors include Mango, Wayfire, river, labwc, and other
+wlroots-based compositors that expose the required protocol. The VM test matrix
+covers this path with Mango.
 
 Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when the compositor exposes the required Wayland protocols.

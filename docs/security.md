@@ -345,10 +345,13 @@ Keymasq routes compositor dispatch actions through the active window-listener im
 - Hyprland dispatch is sent through the Hyprland IPC command socket as
   Hyprland 0.55 Lua dispatcher expressions
 - Niri dispatch is sent through the Niri IPC command socket with a fixed allowlist
+- Sway dispatch is sent unchanged through Sway's IPC socket, the same as
+  `swaymsg`. Keymasq does not filter these commands, because profiles can
+  already run programs through exec actions
 - GNOME dispatch and cursor-position requests are restricted to allowlisted RPCs
   handled by the Keymasq GNOME Shell bridge
 
-This keeps compositor-specific control inside the listener boundary instead of treating it as unrestricted command execution.
+This keeps compositor-specific control inside the listener boundary. Keymasq never starts a shell to send a compositor action.
 
 ## Policy file
 

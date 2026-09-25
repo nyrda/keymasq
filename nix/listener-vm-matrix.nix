@@ -298,19 +298,25 @@ let
                 f"Hyprland did not focus title {title!r}; clients={clients!r}"
             )
 
-        def sway_activate_title(title: str) -> None:
-            """Use swaymsg to focus a window by title on Sway."""
-            sock = machine.succeed(as_user(
-                "systemctl --user show-environment"
-                " | sed -n 's/^SWAYSOCK=//p'"
-            )).strip()
-            machine.log(f"sway_activate_title({title!r}): sock={sock!r}")
-            machine.succeed(
-                f"runuser -u ${vmUser} -- env"
-                f" SWAYSOCK={sock}"
-                f" XDG_RUNTIME_DIR={runtime_dir}"
-                f' swaymsg "[title={title}] focus"'
+        def mango_activate_title(title: str, timeout: int = 30) -> None:
+            """Use mmsg to focus a window by title on Mango."""
+            mmsg = (
+                'MANGO_INSTANCE_SIGNATURE="$(systemctl --user show-environment'
+                " | sed -n 's/^MANGO_INSTANCE_SIGNATURE=//p')\" mmsg"
             )
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                raw = machine.succeed(as_user(f"{mmsg} get all-clients"))
+                machine.log(f"mango clients: {raw}")
+                clients = json.loads(raw or "[]")
+                if isinstance(clients, dict):
+                    clients = clients.get("clients") or []
+                match = next((c for c in clients if c.get("title") == title), None)
+                if match is not None:
+                    machine.succeed(as_user(f"{mmsg} dispatch focusid client,{match['id']}"))
+                    return
+                time.sleep(1)
+            raise Exception(f"Failed to activate Mango window {title!r}")
 
         def niri_activate_title(title: str, timeout: int = 30) -> None:
             """Use niri msg to focus a window by title on Niri."""
@@ -378,6 +384,54 @@ let
 
         def niri_window_by_title(title: str) -> dict | None:
             return next((window for window in niri_windows() if window.get("title") == title), None)
+
+        def swaymsg(args: str) -> str:
+            socket_lookup = "systemctl --user show-environment | sed -n 's/^SWAYSOCK=//p'"
+            return machine.succeed(as_user(f'swaymsg -s "$({socket_lookup})" {args}'))
+
+        def sway_window_floating(title: str) -> bool | None:
+            tree = json.loads(swaymsg("-t get_tree"))
+
+            def walk(node: dict, floating: bool) -> bool | None:
+                is_window = node.get("window") is not None or node.get("app_id") is not None
+                if is_window and node.get("name") == title:
+                    return floating
+                for key, child_floating in (("nodes", floating), ("floating_nodes", True)):
+                    for child in node.get(key) or []:
+                        found = walk(child, child_floating)
+                        if found is not None:
+                            return found
+                return None
+
+            return walk(tree, False)
+
+        def sway_focused_workspace() -> str:
+            workspaces = json.loads(swaymsg("-t get_workspaces"))
+            return next(
+                (str(ws.get("name")) for ws in workspaces if ws.get("focused")),
+                "",
+            )
+
+        def wait_for_condition(description: str, check, timeout: int = 30) -> None:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if check():
+                    return
+                time.sleep(0.5)
+            dump_session_debug(f"Timed out waiting for {description}")
+            raise AssertionError(f"{description} was not observed")
+
+        def dispatch_compositor(dispatcher: str, args: str = "") -> dict:
+            result = session_query_json(
+                "dispatch_compositor",
+                {
+                    "compositor": "${expectedCompositor}",
+                    "dispatcher": dispatcher,
+                    "args": args,
+                },
+            )
+            machine.log(f"dispatch_compositor({dispatcher!r}, {args!r}): {result}")
+            return result
 
         def wait_for_listener() -> None:
             machine.log("Waiting for keymasq-session listener readiness")
@@ -526,10 +580,10 @@ let
                     gnome_activate_title("Alpha")
                 elif "${activationMethod}" == "hyprland":
                     hyprland_activate_title("Alpha")
-                elif "${activationMethod}" == "niri":
+                elif "${activationMethod}" in ("niri", "sway"):
                     session_activate_title("Alpha")
-                elif "${activationMethod}" == "sway":
-                    sway_activate_title("Alpha")
+                elif "${activationMethod}" == "mango":
+                    mango_activate_title("Alpha")
                 else:
                     machine.succeed(
                         as_user(
@@ -552,6 +606,66 @@ let
                 )
             )
             wait_for_active_title("Beta")
+
+            if "${expectedCompositor}" == "sway":
+                with subtest("Sway compositor dispatch"):
+                    status = session_query("get_status")
+                    assert status.get("listener_name") == "sway", status
+                    assert status.get("compositor_dispatch_available") is True, status
+
+                    probe_path = "/tmp/keymasq-exec-probe"
+                    executed = dispatch_compositor("exec", f"touch {probe_path}")
+                    assert executed.get("status") == "ok", executed
+                    wait_for_condition(
+                        "exec dispatch creates probe file",
+                        lambda: machine.execute(f"test -e {probe_path}")[0] == 0,
+                    )
+
+                    assert sway_window_floating("Beta") is False
+                    toggled = dispatch_compositor("floating toggle")
+                    assert toggled.get("status") == "ok", toggled
+                    wait_for_condition(
+                        "Beta floating after dispatch",
+                        lambda: sway_window_floating("Beta") is True,
+                    )
+                    toggled = dispatch_compositor("floating toggle")
+                    assert toggled.get("status") == "ok", toggled
+                    wait_for_condition(
+                        "Beta tiled after second dispatch",
+                        lambda: sway_window_floating("Beta") is False,
+                    )
+
+                    start_workspace = sway_focused_workspace()
+                    switched = dispatch_compositor("workspace number", "4")
+                    assert switched.get("status") == "ok", switched
+                    wait_for_condition(
+                        "workspace 4 focused",
+                        lambda: sway_focused_workspace() == "4",
+                    )
+                    wait_for_condition(
+                        "no active window on empty workspace",
+                        lambda: not session_query("get_active_window").get("title"),
+                    )
+                    back = dispatch_compositor("workspace back_and_forth")
+                    assert back.get("status") == "ok", back
+                    wait_for_condition(
+                        f"workspace {start_workspace} focused again",
+                        lambda: sway_focused_workspace() == start_workspace,
+                    )
+                    wait_for_active_title("Beta")
+
+                    # A keyboard-exclusive layer-shell launcher takes focus
+                    # without a Sway IPC window event. The active window must
+                    # still clear, then return when the launcher closes.
+                    launched = dispatch_compositor("exec", "fuzzel")
+                    assert launched.get("status") == "ok", launched
+                    wait_for_user_command("fuzzel running", "pgrep -x fuzzel")
+                    wait_for_condition(
+                        "no active window while the launcher has focus",
+                        lambda: not session_query("get_active_window").get("title"),
+                    )
+                    machine.succeed(as_user("pkill -x fuzzel"))
+                    wait_for_active_title("Beta")
 
             if "${expectedCompositor}" == "niri":
                 before = niri_window_by_title("Beta")
@@ -594,8 +708,12 @@ let
             )
 
             with subtest("cursor position"):
-                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri")
-                explicit_cursor_dispatch = "${expectedCompositor}" in ("gnome", "hyprland")
+                uses_slurp = "${expectedCompositor}" in ("wayland", "cosmic", "niri", "sway")
+                explicit_cursor_dispatch = "${expectedCompositor}" in (
+                    "gnome",
+                    "hyprland",
+                    "sway",
+                )
                 native_target_x = 160
                 native_target_y = 120
                 if uses_slurp:
@@ -708,6 +826,17 @@ let
                 assert cy < 4096, f"cursor y={cy} is implausibly large"
 
                 if explicit_cursor_dispatch:
+                    # Layer-shell feedback samples during the +1/-1 X nudge from
+                    # __cursor_position_trigger, so it can read one pixel right.
+                    tolerance = 1 if uses_slurp else 0
+
+                    def cursor_at_target(payload: dict) -> bool:
+                        return (
+                            payload.get("status") == "ok"
+                            and abs(payload.get("x", -99) - native_target_x) <= tolerance
+                            and abs(payload.get("y", -99) - native_target_y) <= tolerance
+                        )
+
                     dispatch = session_query_json(
                         "dispatch_compositor",
                         {
@@ -724,17 +853,42 @@ let
                     while time.time() < deadline:
                         moved = session_query("get_cursor_position")
                         machine.log(f"get_cursor_position after compositor set: {moved}")
-                        if (
-                            moved.get("status") == "ok"
-                            and moved.get("x") == native_target_x
-                            and moved.get("y") == native_target_y
-                        ):
+                        if cursor_at_target(moved):
                             break
                         time.sleep(1)
 
-                    assert moved is not None and moved.get("status") == "ok", moved
-                    assert moved.get("x") == native_target_x, moved
-                    assert moved.get("y") == native_target_y, moved
+                    assert moved is not None and cursor_at_target(moved), moved
+
+                if "${expectedCompositor}" == "sway":
+                    # Sway's "cursor set" is relative to the layout origin, but
+                    # Keymasq uses global coordinates. Move the only output off
+                    # (0, 0) so the two differ.
+                    origin_x, origin_y = 400, 300
+                    swaymsg(f"output '*' pos {origin_x} {origin_y}")
+                    target_x = native_target_x + origin_x
+                    target_y = native_target_y + origin_y
+
+                    def cursor_at_offset_target(payload: dict) -> bool:
+                        return (
+                            payload.get("status") == "ok"
+                            and abs(payload.get("x", -99) - target_x) <= 1
+                            and abs(payload.get("y", -99) - target_y) <= 1
+                        )
+
+                    dispatch = dispatch_compositor(
+                        "set_cursor_position", f"{target_x} {target_y}"
+                    )
+                    assert dispatch.get("status") == "ok", dispatch
+                    moved = None
+                    deadline = time.time() + 10
+                    while time.time() < deadline:
+                        moved = session_query("get_cursor_position")
+                        machine.log(f"get_cursor_position with output at origin offset: {moved}")
+                        if cursor_at_offset_target(moved):
+                            break
+                        time.sleep(1)
+                    swaymsg("output '*' pos 0 0")
+                    assert moved is not None and cursor_at_offset_target(moved), moved
       '';
     };
 
@@ -759,6 +913,7 @@ let
   xfceModule = compositorVmLib.desktopModules.xfce;
   cosmicModule = compositorVmLib.desktopModules.cosmic { };
   swayModule = compositorVmLib.desktopModules.sway;
+  mangoModule = compositorVmLib.desktopModules.mango;
   niriModule = compositorVmLib.desktopModules.niri { };
 
 in
@@ -922,9 +1077,12 @@ in
 
     listener-vm-sway = mkDesktopTest {
       name = "listener-vm-sway";
-      expectedCompositor = "wayland";
-      activationMethod = "sway";
-      extraModule = swayModule;
+      expectedCompositor = "sway";
+      extraModule = lib.mkMerge [
+        swayModule
+        # fuzzel is a keyboard-exclusive layer-shell launcher for the focus check.
+        { environment.systemPackages = [ pkgs.fuzzel ]; }
+      ];
       memorySize = 3072;
       desktopReadyScript = ''
         wait_for_command("sway process", "pgrep -u ${toString vmUid} sway")
@@ -939,6 +1097,29 @@ in
         wait_for_user_command(
             "SWAYSOCK in systemd user env",
             "systemctl --user show-environment | grep -q SWAYSOCK",
+        )
+      '';
+    };
+
+    listener-vm-mango = mkDesktopTest {
+      name = "listener-vm-mango";
+      expectedCompositor = "wayland";
+      activationMethod = "mango";
+      extraModule = mangoModule;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("mango process", "pgrep -u ${toString vmUid} -x mango")
+        wait_for_user_command(
+            "Wayland socket",
+            "ls $XDG_RUNTIME_DIR/wayland-*",
+        )
+        wait_for_user_command(
+            "WAYLAND_DISPLAY in systemd user env",
+            "systemctl --user show-environment | grep -q WAYLAND_DISPLAY",
+        )
+        wait_for_user_command(
+            "MANGO_INSTANCE_SIGNATURE in systemd user env",
+            "systemctl --user show-environment | grep -q MANGO_INSTANCE_SIGNATURE",
         )
       '';
     };

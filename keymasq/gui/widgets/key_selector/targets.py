@@ -307,6 +307,7 @@ ACTION_DOC_LINKS = {
     "gamepad": ("gamepad", "Gamepad"),
     "hyprland": ("hyprland", "Hyprland"),
     "niri": ("niri", "Niri"),
+    "sway": ("sway", "Sway"),
     "kde": ("kde-plasma", "KDE Plasma"),
     "gnome": ("gnome", "GNOME"),
     "superkey": ("super-keys", "Super Keys"),

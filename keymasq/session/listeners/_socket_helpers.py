@@ -19,6 +19,16 @@ def _candidate_wayland_sockets_sync() -> list[Path]:
         return []
     sockets = [path for path in base_dir.glob("wayland-*") if path.is_socket()]
     sockets.sort(key=lambda path: path.name)
+    # Try this session's display first, so a user with several Wayland
+    # sessions does not attach to another compositor.
+    display = os.environ.get("WAYLAND_DISPLAY", "").strip()
+    if display:
+        current = Path(display) if display.startswith("/") else base_dir / display
+        if current in sockets:
+            sockets.remove(current)
+            sockets.insert(0, current)
+        elif current.is_socket():
+            sockets.insert(0, current)
     return sockets
 
 

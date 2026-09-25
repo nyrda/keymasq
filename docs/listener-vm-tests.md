@@ -19,8 +19,9 @@ best-effort compatibility until it gets dedicated VM coverage.
 - KDE Plasma
 - Hyprland
 - Niri
+- Sway
 - COSMIC
-- Generic Wayland via `zwlr_foreign_toplevel_manager_v1` (tested with Sway)
+- Generic Wayland via `zwlr_foreign_toplevel_manager_v1` (tested with Mango)
 - X11
 
 ### Expected to work, but not covered by dedicated VM tests
@@ -52,7 +53,8 @@ not currently part of the dedicated VM integration matrix:
 | `listener-vm-niri` | niri | Niri | ✓ passing |
 | `listener-vm-xfce` | x11 | XFCE | ✓ passing |
 | `listener-vm-cosmic` | cosmic | COSMIC | ✓ passing |
-| `listener-vm-sway` | wayland | Sway (wlroots fallback) | ✓ passing |
+| `listener-vm-sway` | sway | Sway | ✓ passing |
+| `listener-vm-mango` | wayland | Mango (wlroots fallback) | ✓ passing |
 
 ## What the tests exercise
 
@@ -67,7 +69,7 @@ Each desktop test validates:
 7. **Cursor position.** Where supported, the test moves the pointer to a known location and verifies that `get_cursor_position` returns integer coordinates in the expected on-screen range.
 8. **Listener-scoped dispatch.** Compositor-specific tests can trigger a compositor dispatch through Keymasq and verify the observable result.
 
-The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
+The shared desktop harness includes the cursor-position check for GNOME, KDE, Hyprland, XFCE/X11, COSMIC, Sway, Mango, and Niri. The bridge-only `listener-vm-gnome-bridge` job separately validates raw bridge pointer request/response behavior.
 
 ## Running a desktop VM test
 
@@ -101,6 +103,7 @@ nix build 'path:.#checks.x86_64-linux.listener-vm-niri'
 nix build 'path:.#checks.x86_64-linux.listener-vm-xfce'
 nix build 'path:.#checks.x86_64-linux.listener-vm-cosmic'
 nix build 'path:.#checks.x86_64-linux.listener-vm-sway'
+nix build 'path:.#checks.x86_64-linux.listener-vm-mango'
 ```
 
 Use the `path:` flake reference while the VM files are uncommitted. A plain `.#...` build can miss new files because it evaluates the Git snapshot.
@@ -206,11 +209,29 @@ The COSMIC test uses the COSMIC listener backed by `ext_foreign_toplevel_list_v1
 
 The COSMIC VM briefly shows `com.system76.CosmicInitialSetup` as the active window before test windows appear. The test tolerates this by polling until it observes the expected title.
 
-### Sway (wlroots fallback)
+### Sway
 
-The Sway test validates the wlroots fallback listener (`WlrootsWaylandListener`), which uses `zwlr_foreign_toplevel_manager_v1`. This is the generic Wayland listener that works on any compositor implementing the wlroots foreign-toplevel protocol. Keymasq detects the compositor as `"wayland"`.
+The Sway test uses the dedicated listener in [keymasq/session/listeners/sway.py](https://github.com/nyrda/keymasq/blob/master/keymasq/session/listeners/sway.py). It tracks windows through `zwlr_foreign_toplevel_manager_v1` and sends actions over Sway's i3-compatible IPC socket. Keymasq detects the compositor as `"sway"`. The VM exports `SWAYSOCK` to the systemd user environment.
 
-**Focus switching.** The test uses `swaymsg "[title=<name>] focus"` to switch focus via Sway's native IPC, with `SWAYSOCK` extracted from the systemd user environment.
+**Focus switching.** New windows get focus from the window manager. The test switches back to the first window through Keymasq's `activate_title`, which sends `[con_id=<id>] focus` over IPC.
+
+**Dispatch path.** After the window checks, the test sends `dispatch_compositor` through the session socket and verifies each result with `swaymsg`:
+
+- `exec touch /tmp/keymasq-exec-probe` runs and creates the probe file
+- `floating toggle` moves the Beta window into the floating layer and back
+- `workspace number 4` focuses an empty workspace, and the listener then reports no active window
+- `workspace back_and_forth` returns to Beta
+- `exec fuzzel` opens a keyboard-exclusive layer-shell launcher, and the listener reports no active window until the launcher closes and Beta returns
+
+**Set Cursor dispatch.** The test runs the `set_cursor_position` compositor action. Sway reads the pointer through layer-shell feedback, which nudges it one pixel to get a sample, so the check allows one pixel of difference. The test then moves the output to position `(400, 300)` and checks the action again, because Sway's `cursor set` is relative to the layout origin while Keymasq uses global coordinates.
+
+### Mango (wlroots fallback)
+
+The Mango test validates the wlroots fallback listener (`WlrootsWaylandListener`), which uses `zwlr_foreign_toplevel_manager_v1`. This is the generic Wayland listener that works on any compositor implementing the wlroots foreign-toplevel protocol. Mango has no dedicated Keymasq listener, so Keymasq detects the compositor as `"wayland"`.
+
+**Software rendering.** The VM has no GPU. The test sets `WLR_RENDERER_ALLOW_SOFTWARE=1` so Mango's GLES renderer runs on llvmpipe.
+
+**Focus switching.** Mango ignores GTK's `present()`. The test looks up the window id with `mmsg get all-clients` and focuses it with `mmsg dispatch focusid client,<id>`, using `MANGO_INSTANCE_SIGNATURE` from the systemd user environment.
 
 ### XFCE (X11)
 
@@ -229,7 +250,8 @@ movement path.
 | Hyprland | no | `hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` |
 | Niri | no | Keymasq `activate_title` → Niri `FocusWindow { id }` |
 | COSMIC | yes | GTK `window.present()` |
-| Sway | no | `swaymsg "[title=<name>] focus"` |
+| Sway | no | Keymasq `activate_title` → `[con_id=<id>] focus` |
+| Mango | no | `mmsg dispatch focusid client,<id>` |
 | X11/XFCE | yes | GTK `window.present()` |
 
 ## Next iteration

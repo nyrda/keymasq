@@ -17,7 +17,8 @@ LISTENER_TEST_ENTRIES=(
   "niri|listener-vm-niri|Niri listener|"
   "xfce|listener-vm-xfce|X11/XFCE listener|x11"
   "cosmic|listener-vm-cosmic|COSMIC listener|"
-  "sway|listener-vm-sway|wlroots/Sway listener|wayland wlroots"
+  "sway|listener-vm-sway|Sway listener|"
+  "mango|listener-vm-mango|generic wlroots listener (Mango)|wayland wlroots"
 )
 INTEGRATION_TEST_ENTRIES=(
   "$DAEMON_SESSION_TEST_ENTRY"

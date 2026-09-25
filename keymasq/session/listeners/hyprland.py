@@ -330,10 +330,12 @@ class HyprlandListener(WindowListener):
             # No new address means this is the queued event of an on-demand
             # layer that the startup snapshot already listed.
             mapped = {layer[0] for layer in layers}
+            # Hyprland lists layers in the order they mapped, so the newest
+            # matching layer is the one whose event was queued.
             pending = next(
                 (
                     address
-                    for address, layer in self._startup_on_demand_layers.items()
+                    for address, layer in reversed(self._startup_on_demand_layers.items())
                     if layer[1] == namespace and address in mapped
                 ),
                 None,

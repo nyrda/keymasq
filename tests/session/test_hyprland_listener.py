@@ -579,7 +579,9 @@ async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     hyprland = _FakeHyprland()
-    # The layer opens after the event socket connects, so its openlayer
+    # An older walker surface gave focus to a window before startup.
+    older = hyprland.open_layer("walker", 2)
+    # The newer one opens after the event socket connects, so its openlayer
     # event waits in the socket while the listener reads the current state.
     hyprland.open_layer("walker", 2)
     listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
@@ -588,7 +590,11 @@ async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
     await listener.start()
     assert listener.active_layer == ""
     await listener._handle_event("openlayer>>walker")
+    assert listener.active_layer == "walker"
 
+    # The older surface closing leaves the newer one focused.
+    del hyprland.layers[older]
+    await listener._handle_event("closelayer>>walker")
     assert listener.active_layer == "walker"
     await listener.stop()
 

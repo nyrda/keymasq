@@ -303,6 +303,10 @@ class HyprlandListener(WindowListener):
         # openlayer names only the namespace, so look for its layers that are
         # not tracked yet.
         layers = await self._get_focus_layers(namespace)
+        if layers is None and self._layer_queries_supported:
+            # Hyprland does not replay openlayer, so a failed query would miss
+            # the layer until it closes. Try once more.
+            layers = await self._get_focus_layers(namespace)
         if layers is None:
             return
         tracked = {address for address, _namespace, _interactivity in self._focused_layers}

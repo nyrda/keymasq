@@ -316,6 +316,7 @@ class _FakeHyprland:
         # Mapped layers by address, as (namespace, keyboard interactivity).
         self.layers: dict[str, tuple[str, int]] = {}
         self.commands: list[str] = []
+        self.failing_layer_queries = 0
         self._next_address = 0x100
 
     def open_layer(self, namespace: str, interactivity: int) -> str:
@@ -333,6 +334,10 @@ class _FakeHyprland:
             return None
         if not self.lua_config:
             return b"eval is only supported with the lua config manager"
+        if self.failing_layer_queries:
+            # A timed-out or failed command socket request.
+            self.failing_layer_queries -= 1
+            return None
         lines = ["keymasq-layers"]
         for address, (namespace, interactivity) in self.layers.items():
             in_query = "namespace =" not in command or f'"{namespace}"' in command
@@ -401,6 +406,19 @@ async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() 
         ("kitty", "Beta", [], ""),
     ]
     assert await listener.get_active_window() == ("kitty", "Beta", [])
+
+
+@pytest.mark.asyncio
+async def test_hyprland_retries_a_failed_query_for_an_opened_layer() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("launcher", 1)
+    hyprland.failing_layer_queries = 1
+    await listener._handle_event("openlayer>>launcher")
+
+    assert focus_updates == [("kitty", "Beta", [], ""), ("", "", [], "launcher")]
 
 
 @pytest.mark.asyncio

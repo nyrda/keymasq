@@ -107,6 +107,9 @@ class HyprlandListener(WindowListener):
         # Layers that took keyboard focus when they opened, as
         # (address, namespace, keyboard interactivity) in opening order.
         self._focused_layers: list[tuple[str, str, int]] = []
+        # Namespaces of every mapped focus-taking layer already accounted for,
+        # by address, including on-demand layers that gave focus to a window.
+        self._known_layers: dict[str, str] = {}
         self._active_address = ""
         self._active_window_retitled = False
         # False once Hyprland has shown that its config has no Lua API.
@@ -216,8 +219,10 @@ class HyprlandListener(WindowListener):
 
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
+                    # Keep trailing spaces: they can belong to a layer namespace.
+                    line = line.rstrip("\r")
                     if line.strip():
-                        await self._handle_event(line.strip())
+                        await self._handle_event(line)
 
         except asyncio.CancelledError:
             pass
@@ -301,17 +306,13 @@ class HyprlandListener(WindowListener):
     async def _handle_layer_opened(self, namespace: str) -> None:
         # Hyprland moves keyboard focus to a new layer that asks for it, but
         # sends no activewindow event and keeps reporting the previous window.
-        # openlayer names only the namespace, so look for its layers that are
-        # not tracked yet.
-        layers = await self._get_focus_layers(namespace)
-        if layers is None and self._layer_queries_supported:
-            # Hyprland does not replay openlayer, so a failed query would miss
-            # the layer until it closes. Try once more.
-            layers = await self._get_focus_layers(namespace)
+        # openlayer names only the namespace, so look for its layers that the
+        # listener has not seen yet.
+        layers = await self._get_focus_layers_with_retry(namespace)
         if layers is None:
             return
-        tracked = {address for address, _namespace, _interactivity in self._focused_layers}
-        new_layers = [layer for layer in layers if layer[0] not in tracked]
+        new_layers = [layer for layer in layers if layer[0] not in self._known_layers]
+        self._known_layers.update((address, name) for address, name, _ in layers)
         if not new_layers:
             return
         self._focused_layers.extend(new_layers)
@@ -319,10 +320,15 @@ class HyprlandListener(WindowListener):
         await self._emit_window("", "", [])
 
     async def _handle_layer_closed(self, namespace: str) -> None:
-        layers = await self._get_focus_layers(namespace)
+        layers = await self._get_focus_layers_with_retry(namespace)
         # Without an answer, forget the namespace's layers. A closed exclusive
         # layer kept by mistake would hide every later window focus change.
         remaining = {address for address, _namespace, _interactivity in layers or []}
+        self._known_layers = {
+            address: name
+            for address, name in self._known_layers.items()
+            if name != namespace or address in remaining
+        }
         focused_layers = [
             layer
             for layer in self._focused_layers
@@ -338,6 +344,17 @@ class HyprlandListener(WindowListener):
         # answers this query.
         await self._emit_window(*await self._query_active_window())
 
+    async def _get_focus_layers_with_retry(
+        self,
+        namespace: str,
+    ) -> list[tuple[str, str, int]] | None:
+        layers = await self._get_focus_layers(namespace)
+        if layers is None and self._layer_queries_supported:
+            # Hyprland does not replay openlayer or closelayer, so try a
+            # failed command socket request once more.
+            layers = await self._get_focus_layers(namespace)
+        return layers
+
     async def _query_layers(self, command: str) -> list[str] | None:
         if not self._layer_queries_supported:
             return None
@@ -345,7 +362,8 @@ class HyprlandListener(WindowListener):
         if response is None or len(response) >= HYPRLAND_LAYER_REPLY_MAX_BYTES:
             # A reply that fills the limit may be cut off.
             return None
-        lines = response.decode("utf-8", errors="replace").strip().split("\n")
+        # Strip only the line end. A namespace can be empty or end in spaces.
+        lines = response.decode("utf-8", errors="replace").rstrip("\r\n").split("\n")
         if lines[0] != LAYER_QUERY_MARKER:
             # Hyprland answers with an error when it runs a hyprlang config.
             log.info("Hyprland layer focus tracking needs a Lua config: %s", lines[0])
@@ -382,6 +400,7 @@ class HyprlandListener(WindowListener):
             return
         # Only exclusive layers are known to hold focus. An on-demand layer
         # may have lost it to a window already.
+        self._known_layers = {address: name for address, name, _ in layers}
         self._focused_layers = [
             layer for layer in layers if layer[2] == LAYER_INTERACTIVITY_EXCLUSIVE
         ]

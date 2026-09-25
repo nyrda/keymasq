@@ -434,7 +434,7 @@ async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() 
 
 
 @pytest.mark.asyncio
-async def test_hyprland_retries_a_failed_query_for_an_opened_layer() -> None:
+async def test_hyprland_retries_failed_layer_queries() -> None:
     hyprland = _FakeHyprland()
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)
 
@@ -442,8 +442,16 @@ async def test_hyprland_retries_a_failed_query_for_an_opened_layer() -> None:
     hyprland.open_layer("launcher", 1)
     hyprland.failing_layer_queries = 1
     await listener._handle_event("openlayer>>launcher")
+    second_launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+
+    # The first launcher stays open while the second closes.
+    del hyprland.layers[second_launcher]
+    hyprland.failing_layer_queries = 1
+    await listener._handle_event("closelayer>>launcher")
 
     assert focus_updates == [("kitty", "Beta", [], ""), ("", "", [], "launcher")]
+    assert listener.active_layer == "launcher"
 
 
 @pytest.mark.asyncio
@@ -463,6 +471,10 @@ async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles(
     # Clicking a window moves focus off the on-demand layer.
     await listener._handle_event("activewindow>>firefox,Docs")
     await listener._handle_event("activewindowv2>>6b6b")
+    # A non-interactive sibling opening does not hand focus back to the layer.
+    hyprland.open_layer("walker", 0)
+    await listener._handle_event("openlayer>>walker")
+    assert listener.active_layer == ""
     del hyprland.layers[walker]
     await listener._handle_event("closelayer>>walker")
 
@@ -557,6 +569,19 @@ async def test_hyprland_without_lua_config_keeps_windows_and_drops_layer_focus(
     assert focus_updates == [("kitty", "Beta", [], "")]
     assert await listener.get_active_window() == ("kitty", "Beta", [])
     await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_tracks_a_focus_layer_without_a_namespace() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("", 1)
+    await listener._handle_event("openlayer>>")
+
+    assert focus_updates == [("kitty", "Beta", [], ""), ("", "", [], "")]
+    assert await listener.get_active_window() == ("", "", [])
 
 
 @pytest.mark.parametrize(

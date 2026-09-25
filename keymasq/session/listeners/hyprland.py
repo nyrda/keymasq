@@ -29,19 +29,36 @@ def _lua_string_literal(value: str) -> str:
     return '"' + "".join(parts) + '"'
 
 
-def _layer_interactivity_command(namespace: str) -> str:
-    # Hyprland's IPC does not report layer keyboard interactivity or keyboard
-    # focus, so ask its Lua config API for the mapped layers in the namespace.
+# Hyprland's IPC does not report layer keyboard interactivity or keyboard
+# focus, so the listener asks its Lua config API. Replies start with this
+# marker, which tells them apart from the error text Hyprland returns when the
+# config is hyprlang and has no Lua API.
+LAYER_QUERY_MARKER = "keymasq-layers"
+
+
+def _layer_focus_counts_command(namespace: str) -> str:
+    """Count mapped layers in the namespace that take keyboard focus."""
     query = f"{{ namespace = {_lua_string_literal(namespace)} }}"
-    exclusive = LAYER_INTERACTIVITY_EXCLUSIVE
-    on_demand = LAYER_INTERACTIVITY_ON_DEMAND
     return (
-        "repl return (function() local result = 0 "
+        "repl return (function() local exclusive, on_demand = 0, 0 "
         f"for _, layer in ipairs(hl.get_layers({query})) do "
         "if layer.mapped then "
-        f"if layer.interactivity == {exclusive} then return {exclusive} end "
-        f"if layer.interactivity == {on_demand} then result = {on_demand} end "
-        "end end return result end)()"
+        f"if layer.interactivity == {LAYER_INTERACTIVITY_EXCLUSIVE} then "
+        "exclusive = exclusive + 1 "
+        f"elseif layer.interactivity == {LAYER_INTERACTIVITY_ON_DEMAND} then "
+        "on_demand = on_demand + 1 end end end "
+        f'return "{LAYER_QUERY_MARKER} " .. exclusive .. " " .. on_demand end)()'
+    )
+
+
+def _exclusive_layers_command() -> str:
+    """List the namespaces of mapped keyboard-exclusive layers, one per line."""
+    return (
+        f'repl return (function() local lines = {{ "{LAYER_QUERY_MARKER}" }} '
+        "for _, layer in ipairs(hl.get_layers()) do "
+        f"if layer.mapped and layer.interactivity == {LAYER_INTERACTIVITY_EXCLUSIVE} then "
+        "lines[#lines + 1] = layer.namespace end end "
+        'return table.concat(lines, "\\n") end)()'
     )
 
 
@@ -102,6 +119,8 @@ class HyprlandListener(WindowListener):
         self._focused_layers: list[tuple[str, int]] = []
         self._active_address = ""
         self._active_window_retitled = False
+        # False once Hyprland has shown that its config has no Lua API.
+        self._layer_queries_supported = True
 
     @property
     def name(self) -> str:
@@ -163,6 +182,7 @@ class HyprlandListener(WindowListener):
 
         self.socket_path = event_socket
         self.cmd_socket_path = cmd_socket
+        await self._seed_focus_state()
 
         self.running = True
         self._task = asyncio.create_task(self._listen())
@@ -279,24 +299,50 @@ class HyprlandListener(WindowListener):
             for _namespace, interactivity in self._focused_layers
         )
 
+    @property
+    def unavailable_capabilities(self) -> frozenset[str]:
+        if self._layer_queries_supported:
+            return frozenset()
+        return frozenset({"layer_focus"})
+
+    def _tracked_layer_count(self, namespace: str, interactivity: int) -> int:
+        return self._focused_layers.count((namespace, interactivity))
+
     async def _handle_layer_opened(self, namespace: str) -> None:
         # Hyprland moves keyboard focus to a new layer that asks for it, but
         # sends no activewindow event and keeps reporting the previous window.
-        interactivity = await self._get_layer_interactivity(namespace)
-        if interactivity not in (LAYER_INTERACTIVITY_EXCLUSIVE, LAYER_INTERACTIVITY_ON_DEMAND):
+        # openlayer names only the namespace, so compare the namespace's
+        # focus-taking layers with the ones already tracked.
+        counts = await self._get_layer_focus_counts(namespace)
+        if counts is None:
             return
-        self._focused_layers.append((namespace, interactivity))
-        log.debug("Layer %r took keyboard focus", namespace)
-        await self._emit_window("", "", [])
+        for interactivity, count in counts.items():
+            if count > self._tracked_layer_count(namespace, interactivity):
+                self._focused_layers.append((namespace, interactivity))
+                log.debug("Layer %r took keyboard focus", namespace)
+                await self._emit_window("", "", [])
+                return
 
     async def _handle_layer_closed(self, namespace: str) -> None:
-        index = next(
-            (i for i, (name, _) in enumerate(self._focused_layers) if name == namespace),
-            None,
-        )
-        if index is None:
+        counts = await self._get_layer_focus_counts(namespace)
+        if counts is None:
+            counts = {
+                LAYER_INTERACTIVITY_EXCLUSIVE: 0,
+                LAYER_INTERACTIVITY_ON_DEMAND: 0,
+            }
+        before = len(self._focused_layers)
+        for interactivity, count in counts.items():
+            # closelayer does not say which surface closed. Drop the newest
+            # tracked entries until they match the layers still mapped.
+            while self._tracked_layer_count(namespace, interactivity) > count:
+                index = max(
+                    i
+                    for i, entry in enumerate(self._focused_layers)
+                    if entry == (namespace, interactivity)
+                )
+                del self._focused_layers[index]
+        if len(self._focused_layers) == before:
             return
-        del self._focused_layers[index]
         if self._focused_layers:
             await self._emit_window("", "", [])
             return
@@ -304,17 +350,63 @@ class HyprlandListener(WindowListener):
         # answers this query.
         await self._emit_window(*await self._query_active_window())
 
-    async def _get_layer_interactivity(self, namespace: str) -> int | None:
-        response = await self._send_cmd(_layer_interactivity_command(namespace), read_size=256)
+    async def _query_layers(self, command: str) -> list[str] | None:
+        if not self._layer_queries_supported:
+            return None
+        response = await self._send_cmd(command, read_size=4096)
         if response is None:
             return None
-        text = response.decode("utf-8", errors="replace").strip()
-        try:
-            return int(text)
-        except ValueError:
+        lines = response.decode("utf-8", errors="replace").strip().split("\n")
+        if lines[0].split(" ", 1)[0] != LAYER_QUERY_MARKER:
             # Hyprland answers with an error when it runs a hyprlang config.
-            log.debug("Hyprland layer query for %r failed: %s", namespace, text)
+            log.info("Hyprland layer focus tracking needs a Lua config: %s", lines[0])
+            self._layer_queries_supported = False
             return None
+        return lines
+
+    async def _get_layer_focus_counts(self, namespace: str) -> dict[int, int] | None:
+        lines = await self._query_layers(_layer_focus_counts_command(namespace))
+        if lines is None:
+            return None
+        parts = lines[0].split()
+        try:
+            exclusive, on_demand = int(parts[1]), int(parts[2])
+        except (IndexError, ValueError):
+            log.debug("Hyprland layer query for %r returned %r", namespace, lines[0])
+            return None
+        return {
+            LAYER_INTERACTIVITY_EXCLUSIVE: exclusive,
+            LAYER_INTERACTIVITY_ON_DEMAND: on_demand,
+        }
+
+    async def _seed_focus_state(self) -> None:
+        # The event socket does not replay earlier events, so read the focused
+        # window's address and any layer that already holds the keyboard.
+        response = await self._send_cmd("j/activewindow", read_size=8192)
+        if response is not None:
+            self._active_address = self._parse_active_window_address(response)
+        lines = await self._query_layers(_exclusive_layers_command())
+        if lines is None:
+            return
+        # Only exclusive layers are known to hold focus. An on-demand layer
+        # may have lost it to a window already.
+        self._focused_layers = [
+            (namespace, LAYER_INTERACTIVITY_EXCLUSIVE) for namespace in lines[1:] if namespace
+        ]
+        if self._focused_layers:
+            log.debug("Layers already hold keyboard focus: %s", self._focused_layers)
+
+    @staticmethod
+    def _parse_active_window_address(response: bytes) -> str:
+        try:
+            payload = cast(object, json.loads(response.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        address = cast(dict[str, object], payload).get("address")
+        # JSON addresses carry a 0x prefix that event data leaves out.
+        return str(address).removeprefix("0x") if isinstance(address, str) else ""
 
     @staticmethod
     def _parse_active_window_response(

@@ -29,7 +29,7 @@ class WindowRulesMixin:
         ]
 
     def _selected_window_rule_field(self: Any, row: Gtk.Box) -> str:
-        fields = self._window_rule_fields()
+        fields = row._fields
         index = row._field_dropdown.get_selected()
         return fields[index] if 0 <= index < len(fields) else fields[0]
 
@@ -308,6 +308,10 @@ class WindowRulesMixin:
         content_grid.attach(field_label, 0, 0, 1, 1)
 
         fields = self._window_rule_fields()
+        if rule.field in WINDOW_RULE_FIELDS and rule.field not in fields:
+            # Keep a rule this compositor cannot match, so applying the dialog
+            # does not rewrite it as a different field.
+            fields.append(rule.field)
         field_dropdown = Gtk.DropDown()
         field_model = Gtk.StringList()
         for field in fields:
@@ -329,6 +333,7 @@ class WindowRulesMixin:
         row_box.append(content_grid)
 
         row_box._field_dropdown = field_dropdown
+        row_box._fields = fields
         row_box._pattern_entry = pattern_entry
         row_box._delete_btn = delete_btn
         row_box._title_label = title_label

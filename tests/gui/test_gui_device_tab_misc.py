@@ -776,6 +776,44 @@ def test_window_rules_dialog_captures_and_saves_focused_layer(temp_config_dir):
     assert launcher.config.is_permanent is False
 
 
+def test_window_rules_dialog_keeps_rule_fields_this_compositor_cannot_match(temp_config_dir):
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig, WindowRule
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
+
+    saved_rules = [
+        WindowRule(field="layer", pattern="launcher"),
+        WindowRule(field="tag", pattern="work"),
+    ]
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Launcher",
+            enabled=True,
+            is_permanent=False,
+            window_rules=list(saved_rules),
+            device_layers={"1234:5678": DeviceProfileLayer(hardware_id="1234:5678")},
+        )
+    )
+    device = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Test Mouse",
+        evdev_devices=[],
+        buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+    )
+    tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=True)
+    tab.refresh_profiles(preferred_profile_name="Launcher", publish_selection=False)
+
+    tab._show_window_rules_dialog()
+    tab._on_apply_window_rules(None)
+
+    launcher = profile_manager.get_profile("Launcher")
+    assert launcher is not None
+    assert launcher.config.window_rules == saved_rules
+
+
 def test_window_rules_remove_button_tracks_captured_rules(temp_config_dir):
     from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
     from keymasq.common.model.profiles import ProfileConfig

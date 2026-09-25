@@ -77,6 +77,14 @@ class WindowListener(ABC):
         """
         return ""
 
+    @property
+    def unavailable_capabilities(self) -> frozenset[str]:
+        """Compositor capabilities this session cannot provide after all.
+
+        For example, Hyprland only reports layer focus with a Lua config.
+        """
+        return frozenset()
+
     async def get_cursor_position(self) -> tuple[int, int] | None:
         return None
 

@@ -414,6 +414,38 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
 
 
 @pytest.mark.asyncio
+async def test_switch_compositor_drops_capabilities_the_listener_cannot_provide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+
+    async def supported(_compositor_id: str | None, _dbus=None) -> bool:
+        return True
+
+    async def start_listener(_manager: SessionManager) -> None:
+        manager.compositor_state.window_listener = SimpleNamespace(
+            name="hyprland",
+            active_layer="",
+            unavailable_capabilities=frozenset({"layer_focus"}),
+            get_active_window=AsyncMock(return_value=("kitty", "Beta", [])),
+        )
+
+    monkeypatch.setattr(session_compositor_module, "is_compositor_supported", supported)
+    monkeypatch.setattr(session_compositor_module, "start_window_listener", start_listener)
+    monkeypatch.setattr(
+        session_compositor_module,
+        "cached_support_details",
+        AsyncMock(return_value={"supported": True}),
+    )
+
+    await session_compositor_module.switch_compositor(manager, "hyprland")
+
+    assert manager.compositor_state.compositor_capabilities == ["window_tags"]
+    payload = await session_compositor_module.build_compositor_payload(manager)
+    assert payload["capabilities"] == ["window_tags"]
+
+
+@pytest.mark.asyncio
 async def test_switch_compositor_times_out_gnome_support_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

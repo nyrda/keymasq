@@ -39,7 +39,7 @@ async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
         "compositor_id": manager.compositor_state.compositor_id,
         "compositor_name": get_compositor_name(manager.compositor_state.compositor_id),
         "supported": bool(details.get("supported", False)),
-        "capabilities": get_compositor_capabilities(manager.compositor_state.compositor_id),
+        "capabilities": list(manager.compositor_state.compositor_capabilities),
         "details": details,
         "listener_active": manager.compositor_state.window_listener is not None,
         "listener_name": (
@@ -479,6 +479,16 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
     manager.compositor_state.listener_last_error.pop(compositor_id, None)
     manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
+    unavailable = manager.compositor_state.window_listener.unavailable_capabilities
+    if unavailable:
+        manager.compositor_state.compositor_capabilities = [
+            capability
+            for capability in manager.compositor_state.compositor_capabilities
+            if capability not in unavailable
+        ]
+        binding_changed = binding_changed or (
+            previous_capabilities != manager.compositor_state.compositor_capabilities
+        )
     previous_window = dict(manager.compositor_state.current_window)
     await refresh_current_window_from_listener(manager)
     window_changed = previous_window != manager.compositor_state.current_window

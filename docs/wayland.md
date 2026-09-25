@@ -144,8 +144,9 @@ takes focus again. Keymasq reports the layer's namespace instead, so profiles
 can target launchers with [`layer` window rules](profiles.md#layers).
 Hyprland's event socket does not report this focus change, so Keymasq asks
 Hyprland's Lua API for the keyboard interactivity of each layer that opens.
-With a hyprlang config the Lua API is unavailable, and the previous window
-stays active while a launcher is open.
+With a hyprlang config the Lua API is unavailable. The previous window then
+stays active while a launcher is open, and profiles with `layer` rules show as
+unsupported.
 
 Tag-based profiles update when focus moves between windows with the same class
 and title but different tags. Duplicate updates are suppressed only when class,

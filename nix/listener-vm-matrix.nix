@@ -713,6 +713,26 @@ let
                     focused = session_query("get_active_window")
                     assert not focused.get("title"), focused
                     wait_for_condition("layer profile active", layer_profile_active)
+
+                    # A session that starts while the launcher is open must
+                    # still see it, although Hyprland replays no openlayer.
+                    machine.succeed(
+                        as_user("systemctl --user restart keymasq-session.service")
+                    )
+                    wait_for_user_socket(
+                        "keymasq-session socket after restart",
+                        f"{runtime_dir}/keymasq/session.sock",
+                        "keymasq-session.service",
+                    )
+                    wait_for_listener()
+                    wait_for_condition(
+                        "launcher layer reported after session restart",
+                        lambda: session_query("get_active_window").get("layer") == "launcher",
+                    )
+                    wait_for_condition(
+                        "layer profile active after session restart",
+                        layer_profile_active,
+                    )
                     machine.succeed(as_user("pkill -x fuzzel"))
                     beta = wait_for_active_title("Beta")
                     assert not beta.get("layer"), beta

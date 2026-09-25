@@ -346,12 +346,12 @@ class HyprlandListener(WindowListener):
 
     async def _get_focus_layers_with_retry(
         self,
-        namespace: str,
+        namespace: str | None = None,
     ) -> list[tuple[str, str, int]] | None:
         layers = await self._get_focus_layers(namespace)
         if layers is None and self._layer_queries_supported:
-            # Hyprland does not replay openlayer or closelayer, so try a
-            # failed command socket request once more.
+            # Hyprland does not replay openlayer or closelayer, and the startup
+            # state is read only once, so try a failed request once more.
             layers = await self._get_focus_layers(namespace)
         return layers
 
@@ -395,15 +395,16 @@ class HyprlandListener(WindowListener):
         response = await self._send_cmd("j/activewindow", read_size=8192)
         if response is not None:
             self._active_address = self._parse_active_window_address(response)
-        layers = await self._get_focus_layers()
+        layers = await self._get_focus_layers_with_retry()
         if layers is None:
             return
         # Only exclusive layers are known to hold focus. An on-demand layer
-        # may have lost it to a window already.
-        self._known_layers = {address: name for address, name, _ in layers}
+        # may have lost it to a window already, or may have opened after the
+        # event socket connected, so leave it to its queued openlayer event.
         self._focused_layers = [
             layer for layer in layers if layer[2] == LAYER_INTERACTIVITY_EXCLUSIVE
         ]
+        self._known_layers = {address: name for address, name, _ in self._focused_layers}
         if self._focused_layers:
             log.debug("Layers already hold keyboard focus: %s", self._focused_layers)
 

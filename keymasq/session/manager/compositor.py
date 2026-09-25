@@ -386,6 +386,9 @@ async def ensure_compositor_listener(manager: "SessionManager") -> None:
     if manager.compositor_state.window_listener is not None and not current_healthy:
         log.warning("Window listener became unhealthy, restarting compositor binding")
         await switch_compositor(manager, None)
+    elif current_healthy and apply_listener_capabilities(manager):
+        # A listener can find out after startup that a capability is missing.
+        await coordinator.reevaluate_profiles(manager, reason="compositor capabilities changed")
 
     if manager.compositor_state.candidate_hits < 2:
         return
@@ -479,13 +482,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
     manager.compositor_state.listener_last_error.pop(compositor_id, None)
     manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
-    unavailable = manager.compositor_state.window_listener.unavailable_capabilities
-    if unavailable:
-        manager.compositor_state.compositor_capabilities = [
-            capability
-            for capability in manager.compositor_state.compositor_capabilities
-            if capability not in unavailable
-        ]
+    if apply_listener_capabilities(manager):
         binding_changed = binding_changed or (
             previous_capabilities != manager.compositor_state.compositor_capabilities
         )
@@ -500,6 +497,26 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
         log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)
     else:
         log.info("Compositor listener restarted for %s", compositor_id)
+
+
+def apply_listener_capabilities(manager: "SessionManager") -> bool:
+    """Drop capabilities the running listener cannot provide.
+
+    Returns whether the effective capability list changed.
+    """
+    listener = manager.compositor_state.window_listener
+    if listener is None:
+        return False
+    unavailable = listener.unavailable_capabilities
+    capabilities = [
+        capability
+        for capability in get_compositor_capabilities(manager.compositor_state.compositor_id)
+        if capability not in unavailable
+    ]
+    if capabilities == manager.compositor_state.compositor_capabilities:
+        return False
+    manager.compositor_state.compositor_capabilities = capabilities
+    return True
 
 
 async def stop_window_listener(manager: "SessionManager") -> None:

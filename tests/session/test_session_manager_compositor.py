@@ -446,6 +446,46 @@ async def test_switch_compositor_drops_capabilities_the_listener_cannot_provide(
 
 
 @pytest.mark.asyncio
+async def test_supervisor_drops_capabilities_the_listener_loses_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(
+        health_check=AsyncMock(return_value=True),
+        unavailable_capabilities=frozenset(),
+    )
+    manager.compositor_state.compositor_id = "hyprland"
+    manager.compositor_state.compositor_capabilities = ["window_tags", "layer_focus"]
+    manager.compositor_state.window_listener = listener
+    manager.compositor_state.candidate = "hyprland"
+    manager.compositor_state.candidate_hits = 2
+    monkeypatch.setattr(
+        session_compositor_module,
+        "detect_compositor",
+        AsyncMock(return_value="hyprland"),
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    await session_compositor_module.ensure_compositor_listener(manager)
+    reevaluate_profiles.assert_not_awaited()
+
+    # A later layer query shows that Hyprland runs a hyprlang config.
+    listener.unavailable_capabilities = frozenset({"layer_focus"})
+    await session_compositor_module.ensure_compositor_listener(manager)
+
+    assert manager.compositor_state.compositor_capabilities == ["window_tags"]
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason="compositor capabilities changed",
+    )
+
+
+@pytest.mark.asyncio
 async def test_switch_compositor_times_out_gnome_support_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

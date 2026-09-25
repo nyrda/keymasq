@@ -529,6 +529,8 @@ async def test_hyprland_start_picks_up_focus_state_from_before_it_connected(
     launcher = hyprland.open_layer("launcher", 1)
     # An on-demand layer may already have lost focus to a window.
     hyprland.open_layer("walker", 2)
+    # The first read of the open layers fails, and the listener asks again.
+    hyprland.failing_layer_queries = 1
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)
     _start_without_sockets(monkeypatch, hyprland)
 
@@ -548,6 +550,25 @@ async def test_hyprland_start_picks_up_focus_state_from_before_it_connected(
     del hyprland.layers[launcher]
     await listener._handle_event("closelayer>>launcher")
     assert focus_updates == [("kitty", "Beta", [], "")]
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    # The layer opens after the event socket connects, so its openlayer
+    # event waits in the socket while the listener reads the current state.
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+    assert listener.active_layer == ""
+    await listener._handle_event("openlayer>>walker")
+
+    assert listener.active_layer == "walker"
     await listener.stop()
 
 

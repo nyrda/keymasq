@@ -730,6 +730,52 @@ def test_window_rules_dialog_applies_to_profile_it_was_opened_for(temp_config_di
     assert desktop.config.is_permanent is True
 
 
+def test_window_rules_dialog_captures_and_saves_focused_layer(temp_config_dir):
+    from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
+
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Launcher",
+            enabled=True,
+            is_permanent=True,
+            device_layers={"1234:5678": DeviceProfileLayer(hardware_id="1234:5678")},
+        )
+    )
+    device = HardwareConfig(
+        vendor_id="1234",
+        product_id="5678",
+        name="Test Mouse",
+        evdev_devices=[],
+        buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+    )
+    tab = DeviceTab(
+        device=device,
+        profile_manager=profile_manager,
+        demo_mode=True,
+        compositor_capabilities=["window_tags", "layer_focus"],
+    )
+    tab.refresh_profiles(preferred_profile_name="Launcher", publish_selection=False)
+    tab._show_window_rules_dialog()
+
+    tab._set_window_rule_rows(
+        tab._build_captured_window_rules(
+            {"class": "", "title": "", "tags": [], "layer": "launcher"}
+        )
+    )
+    tab._on_apply_window_rules(None)
+
+    launcher = profile_manager.get_profile("Launcher")
+    assert launcher is not None
+    assert [(rule.field, rule.pattern) for rule in launcher.config.window_rules] == [
+        ("layer", "launcher")
+    ]
+    assert launcher.config.is_permanent is False
+
+
 def test_window_rules_remove_button_tracks_captured_rules(temp_config_dir):
     from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
     from keymasq.common.model.profiles import ProfileConfig

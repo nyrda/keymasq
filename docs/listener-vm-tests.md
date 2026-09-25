@@ -178,6 +178,13 @@ The Hyprland test uses the Hyprland listener, which connects to `.socket2.sock` 
 `hyprctl dispatch 'hl.dsp.focus({ window = "title:<name>" })'` to switch focus,
 which is Hyprland's native IPC mechanism.
 
+**Layer focus.** After the window checks, the test adds a conditional profile
+with a `layer` rule for `^launcher$` and opens fuzzel through the
+`hl.dsp.exec_cmd` dispatcher. fuzzel is a keyboard-exclusive layer-shell
+launcher. While it is open, the listener must report no window title and the
+`launcher` layer, and the profile must be active. When fuzzel closes, Beta
+returns and the profile turns off.
+
 **Window tags.** Hyprland is the only compositor in the matrix that supports window tags. The test verifies that `get_active_window` returns a `tags` field (currently `[]` for the test windows).
 
 **Set Cursor dispatch.** The Hyprland VM test exercises the

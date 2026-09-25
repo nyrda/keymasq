@@ -12,6 +12,38 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 log = logging.getLogger("keymasq-session.listeners.hyprland")
 HYPRLAND_COMMAND_TIMEOUT_S = 1.0
 
+# zwlr_layer_surface_v1 keyboard_interactivity values.
+LAYER_INTERACTIVITY_EXCLUSIVE = 1
+LAYER_INTERACTIVITY_ON_DEMAND = 2
+
+
+def _lua_string_literal(value: str) -> str:
+    # Escape every byte that is not ASCII alphanumeric so a layer namespace
+    # cannot break out of the string or add a "/" that hyprctl reads as flags.
+    parts: list[str] = []
+    for char in value:
+        if char.isascii() and char.isalnum():
+            parts.append(char)
+        else:
+            parts.extend(f"\\{byte:03d}" for byte in char.encode("utf-8"))
+    return '"' + "".join(parts) + '"'
+
+
+def _layer_interactivity_command(namespace: str) -> str:
+    # Hyprland's IPC does not report layer keyboard interactivity or keyboard
+    # focus, so ask its Lua config API for the mapped layers in the namespace.
+    query = f"{{ namespace = {_lua_string_literal(namespace)} }}"
+    exclusive = LAYER_INTERACTIVITY_EXCLUSIVE
+    on_demand = LAYER_INTERACTIVITY_ON_DEMAND
+    return (
+        "repl return (function() local result = 0 "
+        f"for _, layer in ipairs(hl.get_layers({query})) do "
+        "if layer.mapped then "
+        f"if layer.interactivity == {exclusive} then return {exclusive} end "
+        f"if layer.interactivity == {on_demand} then result = {on_demand} end "
+        "end end return result end)()"
+    )
+
 
 def _parse_int_pair(args: str) -> tuple[int, int] | None:
     parts = args.split()
@@ -59,12 +91,17 @@ class HyprlandListener(WindowListener):
         dbus: SessionDBus | None = None,
     ) -> None:
         super().__init__(callback, client, dbus=dbus)
-        self._last_window: tuple[str, str, tuple[str, ...]] | None = None
+        self._last_window: tuple[str, str, tuple[str, ...], str] | None = None
         self.socket_path: str | None = None
         self.cmd_socket_path: str | None = None
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self._cmd_lock = asyncio.Lock()
+        # Layers that took keyboard focus when they opened, as
+        # (namespace, keyboard interactivity) in opening order.
+        self._focused_layers: list[tuple[str, int]] = []
+        self._active_address = ""
+        self._active_window_retitled = False
 
     @property
     def name(self) -> str:
@@ -188,20 +225,96 @@ class HyprlandListener(WindowListener):
             parts = data.split(",", 1)
             window_class = parts[0] if parts else ""
             window_title = parts[1] if len(parts) > 1 else ""
+            retitled = self._active_window_retitled
+            self._active_window_retitled = False
 
-            tags = await self._get_window_tags()
-            window = (window_class, window_title, tuple(tags))
-            if window == self._last_window:
-                return
+            if self._focused_layers:
+                # Hyprland keeps windows from taking focus while an exclusive
+                # layer is open, and repeats activewindow when the focused
+                # window's title changes. Any other activewindow means a
+                # window took focus from the on-demand layers.
+                if retitled or self._exclusive_layer_focused():
+                    return
+                log.debug("Window took focus from layers: %s", self._focused_layers)
+                self._focused_layers.clear()
 
-            self._last_window = window
-            log.debug(
-                f"Active window changed: class={window_class}, title={window_title}, tags={tags}"
-            )
-            await self.callback(window_class, window_title, tags)
+            await self._emit_window(window_class, window_title, await self._get_window_tags())
 
         elif event_type == "activewindowv2":
+            self._active_address = data
             log.debug(f"Active window address: {data}")
+
+        elif event_type == "windowtitlev2":
+            address = data.split(",", 1)[0]
+            # Hyprland follows this with an activewindow event for the
+            # focused window, which is a title update rather than a focus change.
+            self._active_window_retitled = bool(address) and address == self._active_address
+
+        elif event_type == "openlayer":
+            await self._handle_layer_opened(data)
+
+        elif event_type == "closelayer":
+            await self._handle_layer_closed(data)
+
+    async def _emit_window(self, window_class: str, window_title: str, tags: list[str]) -> None:
+        window = (window_class, window_title, tuple(tags), self.active_layer)
+        if window == self._last_window:
+            return
+
+        self._last_window = window
+        log.debug(
+            f"Active window changed: class={window_class}, title={window_title}, tags={tags}, "
+            f"layer={self.active_layer}"
+        )
+        await self.callback(window_class, window_title, tags)
+
+    @property
+    def active_layer(self) -> str:
+        # The most recently opened layer holds keyboard focus.
+        return self._focused_layers[-1][0] if self._focused_layers else ""
+
+    def _exclusive_layer_focused(self) -> bool:
+        return any(
+            interactivity == LAYER_INTERACTIVITY_EXCLUSIVE
+            for _namespace, interactivity in self._focused_layers
+        )
+
+    async def _handle_layer_opened(self, namespace: str) -> None:
+        # Hyprland moves keyboard focus to a new layer that asks for it, but
+        # sends no activewindow event and keeps reporting the previous window.
+        interactivity = await self._get_layer_interactivity(namespace)
+        if interactivity not in (LAYER_INTERACTIVITY_EXCLUSIVE, LAYER_INTERACTIVITY_ON_DEMAND):
+            return
+        self._focused_layers.append((namespace, interactivity))
+        log.debug("Layer %r took keyboard focus", namespace)
+        await self._emit_window("", "", [])
+
+    async def _handle_layer_closed(self, namespace: str) -> None:
+        index = next(
+            (i for i, (name, _) in enumerate(self._focused_layers) if name == namespace),
+            None,
+        )
+        if index is None:
+            return
+        del self._focused_layers[index]
+        if self._focused_layers:
+            await self._emit_window("", "", [])
+            return
+        # Hyprland refocuses a window while unmapping the layer, before it
+        # answers this query.
+        await self._emit_window(*await self._query_active_window())
+
+    async def _get_layer_interactivity(self, namespace: str) -> int | None:
+        response = await self._send_cmd(_layer_interactivity_command(namespace), read_size=256)
+        if response is None:
+            return None
+        text = response.decode("utf-8", errors="replace").strip()
+        try:
+            return int(text)
+        except ValueError:
+            # Hyprland answers with an error when it runs a hyprlang config.
+            log.debug("Hyprland layer query for %r failed: %s", namespace, text)
+            return None
 
     @staticmethod
     def _parse_active_window_response(
@@ -244,6 +357,11 @@ class HyprlandListener(WindowListener):
         return parsed[2] if parsed is not None else []
 
     async def get_active_window(self) -> tuple[str, str, list[str]]:
+        if self._focused_layers:
+            return "", "", []
+        return await self._query_active_window()
+
+    async def _query_active_window(self) -> tuple[str, str, list[str]]:
         response = await self._send_cmd("j/activewindow", read_size=8192)
         if response is None:
             return "", "", []

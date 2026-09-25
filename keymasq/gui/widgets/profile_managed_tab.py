@@ -17,6 +17,7 @@ from keymasq.gui.widgets.profile_tab.selection import ProfileSelectionMixin
 from keymasq.gui.widgets.profile_tab.settings import ProfileSettingsMixin
 from keymasq.gui.widgets.profile_tab.state import ActiveProfiles
 from keymasq.session.profile.manager import ProfileManager
+from keymasq.session.profile.rules import window_rule_field_supported
 from keymasq.session.profile.types import ProfileInfo
 
 
@@ -164,8 +165,10 @@ class ProfileManagedTab(
         return None
 
     def _has_unsupported_rules(self, config: ProfileConfig) -> bool:
-        has_tag_support = "window_tags" in self._compositor_capabilities
-        return any(rule.field == "tag" and not has_tag_support for rule in config.window_rules)
+        return any(
+            not window_rule_field_supported(rule.field, self._compositor_capabilities)
+            for rule in config.window_rules
+        )
 
     def _active_profile_names_from_response(self, data: dict) -> list[str]:
         return list(ActiveProfiles.from_payload(data).names)

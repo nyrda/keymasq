@@ -962,6 +962,44 @@ pattern = "game"
         assert 'field = "tag"' in content
         assert 'field = "tags"' not in content
 
+    def test_layer_window_rule_matches_focused_layer_with_layer_focus(
+        self,
+        temp_config_dir,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        profile_path = Path(temp_config_dir) / "profiles" / "launcher.toml"
+        profile_path.write_text(
+            """
+[profile]
+name = "Launcher"
+enabled = true
+is_permanent = false
+priority = 1
+notify_on_activation = true
+created_at = "2026-03-09T12:34:56"
+
+[[profile.window_rules]]
+field = "layer"
+pattern = "^launcher$"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        manager = ProfileManager()
+        focused_layer = {"class": "", "title": "", "tags": [], "layer": "launcher"}
+
+        def active_names(window_info: dict, capabilities: list[str]) -> list[str]:
+            resolved = manager.resolve_active_profiles(
+                window_info=window_info,
+                capabilities=capabilities,
+            )
+            return [profile.name for profile in resolved.active_profiles]
+
+        assert active_names(focused_layer, ["layer_focus"]) == ["Launcher"]
+        assert active_names(focused_layer, ["window_tags"]) == []
+        assert active_names({"class": "launcher", "title": "launcher"}, ["layer_focus"]) == []
+        assert "Unknown window rule field" not in caplog.text
+
     def test_unknown_or_nonscalar_window_rule_fields_do_not_crash_matching(
         self,
         temp_config_dir,

@@ -215,6 +215,30 @@ Typical fields are:
   pick a window.
 - `title` — the window title text.
 - `tag` — the workspace or tag name (compositor-dependent).
+- `layer` — the namespace of a layer-shell surface with keyboard focus, such as
+  a launcher. See [Layers](#layers).
+
+### Layers
+
+Launchers and other layer-shell surfaces are not windows. When one takes
+keyboard focus, Keymasq reports an empty window with no class, title, or tags,
+so `class`, `title`, and `tag` rules stop matching until a window has focus
+again. Where the compositor reports the focused layer, a `layer` rule matches
+its namespace:
+
+```toml
+[[profile.window_rules]]
+field = "layer"
+pattern = "^(launcher|walker)$"
+```
+
+fuzzel uses the namespace `launcher` by default. On Hyprland,
+`hyprctl layers` lists the namespace of each open layer. **Capture Window** in
+the Window Rules dialog also records the layer when you open the launcher
+during the capture delay.
+
+`layer` rules work on Hyprland with a Lua config. On other compositors,
+profiles with `layer` rules show as unsupported and never activate.
 
 ## TOML format
 
@@ -263,7 +287,7 @@ action = "mpris"
 command = "play_pause"
 ```
 
-Window-rule fields are `class`, `title`, and `tag`. Keymasq accepts the
+Window-rule fields are `class`, `title`, `tag`, and `layer`. Keymasq accepts the
 hand-edited alias `tags` and normalizes it to `tag` on the next save. Unknown
 fields and unexpected non-string class/title values fail to match and do not
 interrupt profile resolution.

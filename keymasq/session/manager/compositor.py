@@ -190,12 +190,17 @@ def normalize_window_info(
     window_class: str,
     window_title: str,
     window_tags: list[str],
+    layer: str = "",
 ) -> dict[str, str | list[str]]:
-    return {
+    window_info: dict[str, str | list[str]] = {
         "class": str(window_class or ""),
         "title": str(window_title or ""),
         "tags": [str(tag) for tag in window_tags if str(tag or "").strip()],
     }
+    # Only listeners that track layer-shell focus report a layer.
+    if layer:
+        window_info["layer"] = str(layer)
+    return window_info
 
 
 def normalize_window_info_from_dict(
@@ -205,6 +210,7 @@ def normalize_window_info_from_dict(
         coerce_str(window_info.get("class"), ""),
         coerce_str(window_info.get("title"), ""),
         [str(tag) for tag in json_list(window_info.get("tags")) if str(tag or "").strip()],
+        coerce_str(window_info.get("layer"), ""),
     )
 
 
@@ -231,8 +237,13 @@ async def refresh_current_window_from_listener(
         )
         return None
 
-    window_info = normalize_window_info(window_class, window_title, window_tags)
-    if not (window_info["class"] or window_info["title"] or window_info["tags"]):
+    window_info = normalize_window_info(
+        window_class,
+        window_title,
+        window_tags,
+        listener.active_layer,
+    )
+    if not any(window_info.values()):
         manager.compositor_state.current_window = {}
         return None
     manager.compositor_state.current_window = cast(JsonObject, window_info)
@@ -626,14 +637,17 @@ async def on_window_change(
     window_title: str,
     window_tags: list[str],
 ) -> None:
-    window_info = normalize_window_info(window_class, window_title, window_tags)
+    listener = manager.compositor_state.window_listener
+    layer = listener.active_layer if listener is not None else ""
+    window_info = normalize_window_info(window_class, window_title, window_tags, layer)
 
     if manager.verbosity >= 1:
         log.debug(
-            "Window changed: class=%s, title=%s, tags=%s",
+            "Window changed: class=%s, title=%s, tags=%s, layer=%s",
             window_class,
             window_title,
             window_tags,
+            layer,
         )
 
     previous_window = manager.compositor_state.current_window

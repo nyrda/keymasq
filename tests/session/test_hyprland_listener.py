@@ -299,3 +299,123 @@ async def test_hyprland_activewindow_event_emits_on_title_change() -> None:
     await listener._handle_event("activewindow>>firefox,tab two")
 
     assert calls == [("firefox", "tab one", []), ("firefox", "tab two", [])]
+
+
+def _fake_hyprland_commands(
+    layer_interactivity: dict[str, bytes],
+    active_window: bytes = b'{"class":"kitty","title":"Beta","tags":[]}',
+) -> tuple[AsyncMock, list[str]]:
+    """Answer Hyprland socket commands for the active window and layer queries."""
+    commands: list[str] = []
+
+    async def send_cmd(command: str, read_size: int = 8192) -> bytes | None:
+        _ = read_size
+        commands.append(command)
+        if command == "j/activewindow":
+            return active_window
+        if command.startswith("repl "):
+            for namespace, reply in layer_interactivity.items():
+                if f'"{namespace}"' in command:
+                    return reply
+            return b"0"
+        return None
+
+    return AsyncMock(side_effect=send_cmd), commands
+
+
+@pytest.mark.asyncio
+async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() -> None:
+    focus_updates: list[tuple[str, str, list[str], str]] = []
+    listener: HyprlandListener
+
+    async def callback(window_class: str, window_title: str, tags: list[str]) -> None:
+        focus_updates.append((window_class, window_title, tags, listener.active_layer))
+
+    listener = HyprlandListener(callback)
+    listener._send_cmd, _commands = _fake_hyprland_commands(  # type: ignore[method-assign]
+        {"launcher": b"1", "polkit": b"1"}
+    )
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    await listener._handle_event("openlayer>>launcher")
+    assert await listener.get_active_window() == ("", "", [])
+
+    # Retitles of the window behind the launcher must not restore it.
+    await listener._handle_event("windowtitlev2>>5a5a,Beta")
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    # A second focus layer on top takes over, and closing it hands focus back.
+    await listener._handle_event("openlayer>>polkit")
+    await listener._handle_event("closelayer>>polkit")
+    await listener._handle_event("closelayer>>launcher")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "launcher"),
+        ("", "", [], "polkit"),
+        ("", "", [], "launcher"),
+        ("kitty", "Beta", [], ""),
+    ]
+    assert await listener.get_active_window() == ("kitty", "Beta", [])
+    assert listener.active_layer == ""
+
+
+@pytest.mark.asyncio
+async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles() -> None:
+    callback = AsyncMock()
+    listener = HyprlandListener(callback)
+    listener._send_cmd, _commands = _fake_hyprland_commands(  # type: ignore[method-assign]
+        {"walker": b"2"}
+    )
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    await listener._handle_event("openlayer>>walker")
+    await listener._handle_event("windowtitlev2>>5a5a,Beta 2")
+    await listener._handle_event("activewindow>>kitty,Beta 2")
+    await listener._handle_event("activewindowv2>>5a5a")
+    assert await listener.get_active_window() == ("", "", [])
+
+    # Clicking a window moves focus off the on-demand layer.
+    await listener._handle_event("activewindow>>firefox,Docs")
+    await listener._handle_event("activewindowv2>>6b6b")
+    await listener._handle_event("closelayer>>walker")
+
+    assert callback.await_args_list == [
+        call("kitty", "Beta", []),
+        call("", "", []),
+        call("firefox", "Docs", []),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("namespace", "reply"),
+    [
+        ("waybar", b"0"),
+        ("launcher", b"eval is only supported with the lua config manager"),
+        ('x") os.exit() --/', b"0"),
+    ],
+    ids=["no-keyboard-interactivity", "hyprlang-config", "hostile-namespace"],
+)
+@pytest.mark.asyncio
+async def test_hyprland_layer_without_keyboard_focus_keeps_active_window(
+    namespace: str,
+    reply: bytes,
+) -> None:
+    callback = AsyncMock()
+    listener = HyprlandListener(callback)
+    listener._send_cmd, commands = _fake_hyprland_commands(  # type: ignore[method-assign]
+        {namespace: reply}
+    )
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event(f"openlayer>>{namespace}")
+    await listener._handle_event(f"closelayer>>{namespace}")
+
+    assert callback.await_args_list == [call("kitty", "Beta", [])]
+    assert await listener.get_active_window() == ("kitty", "Beta", [])
+    layer_query = next(command for command in commands if command.startswith("repl "))
+    # hyprctl reads text before a "/" as flags, and the namespace must stay a Lua string.
+    assert "/" not in layer_query
+    assert "os.exit" not in layer_query

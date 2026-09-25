@@ -154,6 +154,7 @@ async def test_switch_compositor_clears_stale_window_and_reevaluates(
 async def test_refresh_current_window_clears_stale_window_on_empty_listener_data() -> None:
     manager = SessionManager()
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("", "", []))
     )
     manager.compositor_state.current_window = {
@@ -175,6 +176,7 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
     manager = SessionManager()
     _save_conditional_profile(manager, "Steam", "class", "steam")
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("steam", "Game", ["fullscreen"]))
     )
     reevaluate_profiles = AsyncMock()
@@ -196,12 +198,47 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
 
 
 @pytest.mark.asyncio
+async def test_focused_layer_reaches_window_state_and_reevaluates_layer_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    _save_conditional_profile(manager, "Launcher", "layer", "^launcher$")
+    manager.compositor_state.compositor_capabilities = ["layer_focus"]
+    manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="launcher",
+        get_active_window=AsyncMock(return_value=("", "", [])),
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+    focused_layer = {"class": "", "title": "", "tags": [], "layer": "launcher"}
+
+    await manager.on_window_change("", "", [])
+
+    assert manager.compositor_state.current_window == focused_layer
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="window changed")
+
+    manager.compositor_state.current_window = {}
+    reevaluate_profiles.reset_mock()
+
+    assert await session_compositor_module.get_active_window_payload(manager) == {
+        "status": "ok",
+        **focused_layer,
+    }
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="active window changed")
+
+
+@pytest.mark.asyncio
 async def test_get_active_window_reevaluates_when_listener_clears_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
     _save_conditional_profile(manager, "Games", "class", "Game")
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("", "", []))
     )
     manager.compositor_state.current_window = {
@@ -321,6 +358,7 @@ async def test_get_active_window_skips_reevaluate_for_irrelevant_title_churn(
         "tags": [],
     }
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("firefox", "new tab", []))
     )
     reevaluate_profiles = AsyncMock()

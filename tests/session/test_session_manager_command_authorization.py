@@ -169,6 +169,7 @@ async def test_handle_session_request_get_active_window_uses_listener() -> None:
 
     class _Listener:
         name = "fake"
+        active_layer = ""
 
         async def get_active_window(self) -> tuple[str, str, list[str]]:
             return "steam", "Counter-Strike 2", ["game", "fullscreen"]

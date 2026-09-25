@@ -483,6 +483,29 @@ async def test_hyprland_layer_that_drops_interactivity_returns_focus_to_window()
 
 
 @pytest.mark.asyncio
+async def test_hyprland_close_rechecks_layers_below_the_closed_one() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    panel = hyprland.open_layer("panel", 1)
+    await listener._handle_event("openlayer>>panel")
+    menu = hyprland.open_layer("menu", 1)
+    await listener._handle_event("openlayer>>menu")
+    # The panel below turns keyboard interactivity off while the menu has focus.
+    hyprland.layers[panel] = ("panel", 0)
+    del hyprland.layers[menu]
+    await listener._handle_event("closelayer>>menu")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "panel"),
+        ("", "", [], "menu"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles() -> None:
     hyprland = _FakeHyprland()
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)

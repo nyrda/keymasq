@@ -392,6 +392,10 @@ class HyprlandListener(WindowListener):
             return
         self._focused_layers = focused_layers
         if self._focused_layers:
+            # A layer below may have turned keyboard interactivity off while
+            # the closed one had focus, without any event for it.
+            await self._refresh_focused_layer_interactivity()
+        if self._focused_layers:
             await self._emit_window("", "", [])
             return
         # Hyprland refocuses a window while unmapping the layer, before it

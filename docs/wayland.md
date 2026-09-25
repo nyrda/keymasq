@@ -151,8 +151,10 @@ unsupported.
 Hyprland sends no event for these layer cases, so Keymasq cannot follow
 them:
 
-- A layer that opens while a window has locked the pointer, as some games do,
-  does not get the keyboard. Keymasq still reports the layer.
+- An on-demand layer that opens while a window has locked the pointer, as some
+  games do, does not get the keyboard. Keymasq still reports the layer. Layers
+  with exclusive keyboard interactivity get the keyboard and release the lock;
+  for walker, set `force_keyboard_focus = true`.
 - Clicking back into a layer that is still open after a window took focus
   gives it the keyboard again. Keymasq keeps reporting the window until the
   layer closes or reopens.

@@ -103,6 +103,26 @@ def _ensure_compact_tabs_css() -> None:
     _compact_tabs_css_installed = True
 
 
+# X11 and Wayland report the kernel's evdev key code plus 8 as the hardware
+# keycode. Other backends, such as Broadway, have their own numbering.
+_EVDEV_KEYCODE_DISPLAYS = frozenset({"GdkX11Display", "GdkWaylandDisplay"})
+_EVDEV_KEYCODE_OFFSET = 8
+
+
+def _keycode_to_evdev(controller: Gtk.EventController, keycode: int) -> str | None:
+    """The physical key of a key press, independent of the active layout."""
+    widget = controller.get_widget()
+    if widget is None or widget.get_display().__gtype__.name not in _EVDEV_KEYCODE_DISPLAYS:
+        return None
+    return _evdev_key_name(keycode - _EVDEV_KEYCODE_OFFSET)
+
+
+def _evdev_key_name(code: int) -> str | None:
+    key_name = evdev.ecodes.KEY.get(code)
+    names = [key_name] if isinstance(key_name, str) else list(key_name or ())
+    return next((name.lower() for name in names if name.startswith("KEY_")), None)
+
+
 class SharedInputTabsMixin:
     _selection_emit_closes_dialog = False
     _include_keyboard_capture_controls = False
@@ -255,7 +275,7 @@ class SharedInputTabsMixin:
     def _on_keyboard_capture_key_pressed(self, controller, keyval, keycode, state) -> bool:
         if not getattr(self, "_kb_capture_pending", False):
             return False
-        evdev_name = self._keyval_to_evdev(keyval)
+        evdev_name = _keycode_to_evdev(controller, keycode) or self._keyval_to_evdev(keyval)
         if not evdev_name:
             self.kb_capture_status.set_text("Unrecognized key")
             self._kb_capture_pending = False
@@ -274,15 +294,7 @@ class SharedInputTabsMixin:
             evdev_name = raw
         else:
             try:
-                code = int(raw)
-                key_name = evdev.ecodes.KEY.get(code)
-                if isinstance(key_name, str) and key_name.startswith("KEY_"):
-                    evdev_name = key_name.lower()
-                elif isinstance(key_name, (list, tuple)):
-                    for candidate in key_name:
-                        if candidate.startswith("KEY_"):
-                            evdev_name = candidate.lower()
-                            break
+                evdev_name = _evdev_key_name(int(raw))
             except (TypeError, ValueError):
                 evdev_name = None
         if not evdev_name:

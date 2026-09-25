@@ -118,3 +118,19 @@ def test_key_selector_keyboard_ignores_stale_layout_loads(monkeypatch) -> None:
     dialog.emit("closed")
     pending[-1]()
     assert _keyboard_buttons(dialog._keyboard_grid)["key_y"].get_label() == "Y"
+
+
+def test_capture_key_maps_the_physical_key_on_any_layout(monkeypatch) -> None:
+    import evdev
+    from gi.repository import Gdk
+
+    dialog = _open_key_selector(monkeypatch, lambda _worker, _callback: None)
+    selected = []
+    dialog.connect("key-selected", lambda _dialog, action: selected.append(action.target))
+
+    # On a German layout the key right of T types z; the mapping stores KEY_Y.
+    dialog._on_keyboard_capture_clicked(None)
+    dialog._on_keyboard_capture_key_pressed(
+        dialog._kb_capture_controller, Gdk.KEY_z, evdev.ecodes.KEY_Y + 8, 0
+    )
+    assert selected == ["key_y"]

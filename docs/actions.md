@@ -141,9 +141,13 @@ These are regular keyboard actions, so the shared Keyboard-tab options apply
 when you enable them.
 
 You can also use **Capture Key** to press any key on your keyboard and have
-Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
-`125` or `key_leftmeta`). The virtual keyboard advertises every usable
-`KEY_*` code known to the installed evdev table. For a full list, see the
+Keymasq detect it automatically. It records the physical key, so on a German
+layout pressing the key labeled Z maps `KEY_Y`, the same key the grid shows.
+In the browser-based Broadway GUI, which doesn't report physical keys, it
+falls back to the typed character and only recognizes US key names. You can
+also enter a raw evdev code directly (e.g. `125` or `key_leftmeta`). The
+virtual keyboard advertises every usable `KEY_*` code known to the installed
+evdev table. For a full list, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
 ![Keyboard tab with the visual layout, Capture Key, and raw code entry](assets/screenshots/key_selector_keyboard.png)

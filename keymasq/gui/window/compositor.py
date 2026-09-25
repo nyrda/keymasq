@@ -81,6 +81,20 @@ def _on_startup_probe_finished(
     return False
 
 
+def _apply_compositor_capabilities(window, capabilities: list[str]) -> None:
+    """Share new compositor capabilities with every tab that edits profiles."""
+    window._compositor_capabilities = list(capabilities)
+    tabs = [page.get_child() for page in window._device_pages.values()]
+    if window.combo_tab is not None:
+        tabs.append(window.combo_tab)
+    for tab in tabs:
+        tab._compositor_capabilities = window._compositor_capabilities
+        tab.refresh_profiles(
+            preferred_profile_name=window._selected_profile_name,
+            publish_selection=False,
+        )
+
+
 def _apply_compositor_state(window, state: dict[str, object]) -> None:
     compositor_id = state.get("compositor_id")
     window._compositor_id = compositor_id if isinstance(compositor_id, str) else None
@@ -96,13 +110,7 @@ def _apply_compositor_state(window, state: dict[str, object]) -> None:
     )
     window._compositor_supported = bool(state.get("supported", False))
     caps = state.get("capabilities")
-    window._compositor_capabilities = list(caps) if isinstance(caps, list) else []
-    if window.combo_tab is not None:
-        window.combo_tab._compositor_capabilities = window._compositor_capabilities
-        window.combo_tab.refresh_profiles(
-            preferred_profile_name=window._selected_profile_name,
-            publish_selection=False,
-        )
+    _apply_compositor_capabilities(window, list(caps) if isinstance(caps, list) else [])
     _update_compositor_warning_banner(window)
     _update_compositor_status(window)
     gnome_setup._close_gnome_setup_dialog_if_ready(window)

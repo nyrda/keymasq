@@ -886,6 +886,62 @@ class TestMainWindow:
         assert device_tab._selected_profile is not None
         assert device_tab._selected_profile.config.name == "Desktop"
 
+    def test_main_window_status_capability_change_reaches_device_tabs(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig, WindowRule
+        from keymasq.gui.session_client import GuiTaskResult
+        from keymasq.gui.window.core import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(
+            ProfileConfig(
+                name="Launcher",
+                enabled=True,
+                is_permanent=False,
+                window_rules=[WindowRule(field="layer", pattern="launcher")],
+                device_layers={"2234:6678": DeviceProfileLayer(hardware_id="2234:6678")},
+            )
+        )
+        window._selected_profile_name = "Launcher"
+        device = HardwareConfig(
+            vendor_id="2234",
+            product_id="6678",
+            name="Mouse One",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        compositor._on_startup_probe_finished(
+            window,
+            GuiTaskResult(
+                value=(
+                    {
+                        "compositor_id": "hyprland",
+                        "support_details": {"supported": True, "warning": ""},
+                        "supported": True,
+                        "capabilities": ["window_tags", "layer_focus"],
+                    },
+                    [device],
+                )
+            ),
+        )
+        device_tab = tab_layout._child_for_hardware_id(window, device.hardware_id)
+        assert device_tab.status_label.get_text() == "waiting"
+        monkeypatch.setattr(profiles, "_queue_profile_reload", lambda _target: None)
+
+        # The session drops layer_focus, for example after Hyprland restarts
+        # with a hyprlang config.
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        connection._on_status_response(
+            window,
+            {"status": "ok", "compositor_capabilities": ["window_tags"]},
+            1,
+        )
+
+        assert device_tab.status_label.get_text() == "unsupported rules"
+
     def test_main_window_startup_probe_ignores_result_after_destroy(self, temp_config_dir):
         from keymasq.gui.session_client import GuiTaskResult
         from keymasq.gui.window.core import MainWindow

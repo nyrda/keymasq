@@ -359,9 +359,9 @@ class HyprlandListener(WindowListener):
 
     async def _refresh_focused_layer_interactivity(self) -> None:
         layers = await self._get_layers_with_retry()
-        if layers is None:
-            return
-        interactivity = {address: value for address, _name, value in layers}
+        # Without an answer, forget the tracked layers, as on closelayer. A
+        # stale exclusive layer would hide this and every later focus change.
+        interactivity = {address: value for address, _name, value in layers or []}
         self._focused_layers = [
             (address, name, interactivity[address])
             for address, name, _value in self._focused_layers

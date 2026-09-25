@@ -467,10 +467,17 @@ async def test_hyprland_layer_that_drops_interactivity_returns_focus_to_window()
     # and Hyprland refocuses the window.
     hyprland.layers[panel] = ("panel", 0)
     await listener._handle_event("activewindow>>kitty,Beta")
+    # If the layers cannot be read, the window gets focus back as well.
+    hyprland.open_layer("menu", 1)
+    await listener._handle_event("openlayer>>menu")
+    hyprland.failing_layer_queries = 2
+    await listener._handle_event("activewindow>>kitty,Beta")
 
     assert focus_updates == [
         ("kitty", "Beta", [], ""),
         ("", "", [], "panel"),
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "menu"),
         ("kitty", "Beta", [], ""),
     ]
 

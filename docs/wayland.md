@@ -148,6 +148,10 @@ With a hyprlang config the Lua API is unavailable. The previous window then
 stays active while a launcher is open, and profiles with `layer` rules show as
 unsupported.
 
+Hyprland does not give an on-demand layer the keyboard when it opens while a
+window has locked the pointer, as some games do. Keymasq cannot see that case
+and still reports the layer.
+
 Tag-based profiles update when focus moves between windows with the same class
 and title but different tags. Duplicate updates are suppressed only when class,
 title, and tags all match the previous update.

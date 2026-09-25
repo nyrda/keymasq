@@ -366,7 +366,7 @@ class _FakeHyprland:
         lines = ["keymasq-layers"]
         for address, (namespace, interactivity) in self.layers.items():
             in_query = "namespace =" not in command or f'"{namespace}"' in command
-            if interactivity and in_query:
+            if in_query:
                 lines.append(f"{address} {interactivity} {namespace}")
         return "\n".join(lines).encode()
 
@@ -569,6 +569,24 @@ async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
     await listener._handle_event("openlayer>>walker")
 
     assert listener.active_layer == "walker"
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_remembers_on_demand_layers_a_sibling_does_not_refocus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    # The layer gave focus to a window before the listener started.
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+    hyprland.open_layer("walker", 0)
+    await listener._handle_event("openlayer>>walker")
+
+    assert listener.active_layer == ""
     await listener.stop()
 
 

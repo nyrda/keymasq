@@ -37,16 +37,18 @@ def _lua_string_literal(value: str) -> str:
 LAYER_QUERY_MARKER = "keymasq-layers"
 
 
-def _focus_layers_command(namespace: str | None = None) -> str:
-    """List mapped layers that take keyboard focus, one per line.
+def _layers_command(namespace: str | None = None) -> str:
+    """List mapped layers, one per line.
 
     Each line holds the layer's address, keyboard interactivity, and namespace.
+    Layers that take no keyboard focus are listed too, so every openlayer shows
+    up as a new address.
     """
     query = f"{{ namespace = {_lua_string_literal(namespace)} }}" if namespace is not None else ""
     return (
         f'repl return (function() local lines = {{ "{LAYER_QUERY_MARKER}" }} '
         f"for _, layer in ipairs(hl.get_layers({query})) do "
-        "if layer.mapped and layer.interactivity ~= 0 then "
+        "if layer.mapped then "
         'lines[#lines + 1] = layer.address .. " " .. layer.interactivity .. " " .. layer.namespace '
         'end end return table.concat(lines, "\\n") end)()'
     )
@@ -107,9 +109,12 @@ class HyprlandListener(WindowListener):
         # Layers that took keyboard focus when they opened, as
         # (address, namespace, keyboard interactivity) in opening order.
         self._focused_layers: list[tuple[str, str, int]] = []
-        # Namespaces of every mapped focus-taking layer already accounted for,
-        # by address, including on-demand layers that gave focus to a window.
+        # Namespaces of every mapped layer already accounted for, by address,
+        # including on-demand layers that gave focus to a window.
         self._known_layers: dict[str, str] = {}
+        # On-demand layers from the startup snapshot. Each one either opened
+        # before the event socket connected or has an openlayer event queued.
+        self._startup_on_demand_layers: dict[str, tuple[str, str, int]] = {}
         self._active_address = ""
         self._active_window_retitled = False
         # False once Hyprland has shown that its config has no Lua API.
@@ -308,19 +313,34 @@ class HyprlandListener(WindowListener):
         # sends no activewindow event and keeps reporting the previous window.
         # openlayer names only the namespace, so look for its layers that the
         # listener has not seen yet.
-        layers = await self._get_focus_layers_with_retry(namespace)
+        layers = await self._get_layers_with_retry(namespace)
         if layers is None:
             return
         new_layers = [layer for layer in layers if layer[0] not in self._known_layers]
         self._known_layers.update((address, name) for address, name, _ in layers)
         if not new_layers:
+            # No new address means this is the queued event of an on-demand
+            # layer that the startup snapshot already listed.
+            mapped = {layer[0] for layer in layers}
+            pending = next(
+                (
+                    address
+                    for address, layer in self._startup_on_demand_layers.items()
+                    if layer[1] == namespace and address in mapped
+                ),
+                None,
+            )
+            if pending is not None:
+                new_layers = [self._startup_on_demand_layers.pop(pending)]
+        focus_layers = [layer for layer in new_layers if layer[2] != 0]
+        if not focus_layers:
             return
-        self._focused_layers.extend(new_layers)
+        self._focused_layers.extend(focus_layers)
         log.debug("Layer %r took keyboard focus", namespace)
         await self._emit_window("", "", [])
 
     async def _handle_layer_closed(self, namespace: str) -> None:
-        layers = await self._get_focus_layers_with_retry(namespace)
+        layers = await self._get_layers_with_retry(namespace)
         # Without an answer, forget the namespace's layers. A closed exclusive
         # layer kept by mistake would hide every later window focus change.
         remaining = {address for address, _namespace, _interactivity in layers or []}
@@ -328,6 +348,11 @@ class HyprlandListener(WindowListener):
             address: name
             for address, name in self._known_layers.items()
             if name != namespace or address in remaining
+        }
+        self._startup_on_demand_layers = {
+            address: layer
+            for address, layer in self._startup_on_demand_layers.items()
+            if layer[1] != namespace or address in remaining
         }
         focused_layers = [
             layer
@@ -344,15 +369,15 @@ class HyprlandListener(WindowListener):
         # answers this query.
         await self._emit_window(*await self._query_active_window())
 
-    async def _get_focus_layers_with_retry(
+    async def _get_layers_with_retry(
         self,
         namespace: str | None = None,
     ) -> list[tuple[str, str, int]] | None:
-        layers = await self._get_focus_layers(namespace)
+        layers = await self._get_layers(namespace)
         if layers is None and self._layer_queries_supported:
             # Hyprland does not replay openlayer or closelayer, and the startup
             # state is read only once, so try a failed request once more.
-            layers = await self._get_focus_layers(namespace)
+            layers = await self._get_layers(namespace)
         return layers
 
     async def _query_layers(self, command: str) -> list[str] | None:
@@ -371,11 +396,11 @@ class HyprlandListener(WindowListener):
             return None
         return lines
 
-    async def _get_focus_layers(
+    async def _get_layers(
         self,
         namespace: str | None = None,
     ) -> list[tuple[str, str, int]] | None:
-        lines = await self._query_layers(_focus_layers_command(namespace))
+        lines = await self._query_layers(_layers_command(namespace))
         if lines is None:
             return None
         layers: list[tuple[str, str, int]] = []
@@ -395,16 +420,19 @@ class HyprlandListener(WindowListener):
         response = await self._send_cmd("j/activewindow", read_size=8192)
         if response is not None:
             self._active_address = self._parse_active_window_address(response)
-        layers = await self._get_focus_layers_with_retry()
+        layers = await self._get_layers_with_retry()
         if layers is None:
             return
         # Only exclusive layers are known to hold focus. An on-demand layer
         # may have lost it to a window already, or may have opened after the
-        # event socket connected, so leave it to its queued openlayer event.
+        # event socket connected, so wait for a queued openlayer event.
         self._focused_layers = [
             layer for layer in layers if layer[2] == LAYER_INTERACTIVITY_EXCLUSIVE
         ]
-        self._known_layers = {address: name for address, name, _ in self._focused_layers}
+        self._startup_on_demand_layers = {
+            layer[0]: layer for layer in layers if layer[2] == LAYER_INTERACTIVITY_ON_DEMAND
+        }
+        self._known_layers = {address: name for address, name, _ in layers}
         if self._focused_layers:
             log.debug("Layers already hold keyboard focus: %s", self._focused_layers)
 

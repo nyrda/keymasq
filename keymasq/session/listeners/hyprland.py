@@ -12,6 +12,9 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 log = logging.getLogger("keymasq-session.listeners.hyprland")
 HYPRLAND_COMMAND_TIMEOUT_S = 1.0
 HYPRLAND_LAYER_REPLY_MAX_BYTES = 64 * 1024
+# How long startup on-demand layers wait for their queued openlayer events.
+# Events queued while the listener reads its startup state arrive at once.
+HYPRLAND_STARTUP_LAYER_WINDOW_S = 2.0
 
 # zwlr_layer_surface_v1 keyboard_interactivity values.
 LAYER_INTERACTIVITY_EXCLUSIVE = 1
@@ -115,6 +118,7 @@ class HyprlandListener(WindowListener):
         # On-demand layers from the startup snapshot. Each one either opened
         # before the event socket connected or has an openlayer event queued.
         self._startup_on_demand_layers: dict[str, tuple[str, str, int]] = {}
+        self._startup_layers_expire_at = 0.0
         self._active_address = ""
         self._active_window_retitled = False
         # False once Hyprland has shown that its config has no Lua API.
@@ -256,6 +260,10 @@ class HyprlandListener(WindowListener):
                 # layer is open, and repeats activewindow when the focused
                 # window's title changes. Any other activewindow means a
                 # window took focus from the on-demand layers.
+                if not retitled and self._exclusive_layer_focused():
+                    # A mapped layer can drop keyboard interactivity without
+                    # closing, which hands focus back to a window.
+                    await self._refresh_focused_layer_interactivity()
                 if retitled or self._exclusive_layer_focused():
                     return
                 log.debug("Window took focus from layers: %s", self._focused_layers)
@@ -318,7 +326,7 @@ class HyprlandListener(WindowListener):
             return
         new_layers = [layer for layer in layers if layer[0] not in self._known_layers]
         self._known_layers.update((address, name) for address, name, _ in layers)
-        if not new_layers:
+        if not new_layers and self._startup_layers_pending():
             # No new address means this is the queued event of an on-demand
             # layer that the startup snapshot already listed.
             mapped = {layer[0] for layer in layers}
@@ -338,6 +346,25 @@ class HyprlandListener(WindowListener):
         self._focused_layers.extend(focus_layers)
         log.debug("Layer %r took keyboard focus", namespace)
         await self._emit_window("", "", [])
+
+    def _startup_layers_pending(self) -> bool:
+        if not self._startup_on_demand_layers:
+            return False
+        if asyncio.get_running_loop().time() < self._startup_layers_expire_at:
+            return True
+        self._startup_on_demand_layers.clear()
+        return False
+
+    async def _refresh_focused_layer_interactivity(self) -> None:
+        layers = await self._get_layers_with_retry()
+        if layers is None:
+            return
+        interactivity = {address: value for address, _name, value in layers}
+        self._focused_layers = [
+            (address, name, interactivity[address])
+            for address, name, _value in self._focused_layers
+            if interactivity.get(address, 0) != 0
+        ]
 
     async def _handle_layer_closed(self, namespace: str) -> None:
         layers = await self._get_layers_with_retry(namespace)
@@ -432,6 +459,9 @@ class HyprlandListener(WindowListener):
         self._startup_on_demand_layers = {
             layer[0]: layer for layer in layers if layer[2] == LAYER_INTERACTIVITY_ON_DEMAND
         }
+        self._startup_layers_expire_at = (
+            asyncio.get_running_loop().time() + HYPRLAND_STARTUP_LAYER_WINDOW_S
+        )
         self._known_layers = {address: name for address, name, _ in layers}
         if self._focused_layers:
             log.debug("Layers already hold keyboard focus: %s", self._focused_layers)

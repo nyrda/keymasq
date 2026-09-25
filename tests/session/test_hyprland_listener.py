@@ -455,6 +455,27 @@ async def test_hyprland_retries_failed_layer_queries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hyprland_layer_that_drops_interactivity_returns_focus_to_window() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    panel = hyprland.open_layer("panel", 1)
+    await listener._handle_event("openlayer>>panel")
+    # The panel hides by dropping keyboard interactivity instead of closing,
+    # and Hyprland refocuses the window.
+    hyprland.layers[panel] = ("panel", 0)
+    await listener._handle_event("activewindow>>kitty,Beta")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "panel"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles() -> None:
     hyprland = _FakeHyprland()
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)
@@ -584,6 +605,24 @@ async def test_hyprland_start_remembers_on_demand_layers_a_sibling_does_not_refo
 
     await listener.start()
     hyprland.open_layer("walker", 0)
+    await listener._handle_event("openlayer>>walker")
+
+    assert listener.active_layer == ""
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_stops_waiting_for_queued_layer_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+    monkeypatch.setattr(hyprland_module, "HYPRLAND_STARTUP_LAYER_WINDOW_S", 0.0)
+
+    await listener.start()
+    # A later layer in the namespace opened and closed before the query saw it.
     await listener._handle_event("openlayer>>walker")
 
     assert listener.active_layer == ""

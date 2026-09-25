@@ -148,14 +148,16 @@ With a hyprlang config the Lua API is unavailable. The previous window then
 stays active while a launcher is open, and profiles with `layer` rules show as
 unsupported.
 
-Hyprland sends no event for two on-demand layer cases, so Keymasq cannot
-follow them:
+Hyprland sends no event for these layer cases, so Keymasq cannot follow
+them:
 
 - A layer that opens while a window has locked the pointer, as some games do,
   does not get the keyboard. Keymasq still reports the layer.
 - Clicking back into a layer that is still open after a window took focus
   gives it the keyboard again. Keymasq keeps reporting the window until the
   layer closes or reopens.
+- A layer that stays open and turns on keyboard interactivity takes the
+  keyboard. Keymasq notices only when the layer closes or reopens.
 
 Tag-based profiles update when focus moves between windows with the same class
 and title but different tags. Duplicate updates are suppressed only when class,

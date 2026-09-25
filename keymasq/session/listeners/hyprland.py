@@ -11,6 +11,7 @@ from keymasq.session.listeners.base import WindowChangeCallback, WindowListener
 
 log = logging.getLogger("keymasq-session.listeners.hyprland")
 HYPRLAND_COMMAND_TIMEOUT_S = 1.0
+HYPRLAND_LAYER_REPLY_MAX_BYTES = 64 * 1024
 
 # zwlr_layer_surface_v1 keyboard_interactivity values.
 LAYER_INTERACTIVITY_EXCLUSIVE = 1
@@ -340,8 +341,9 @@ class HyprlandListener(WindowListener):
     async def _query_layers(self, command: str) -> list[str] | None:
         if not self._layer_queries_supported:
             return None
-        response = await self._send_cmd(command, read_size=4096)
-        if response is None:
+        response = await self._send_cmd(command, read_size=HYPRLAND_LAYER_REPLY_MAX_BYTES)
+        if response is None or len(response) >= HYPRLAND_LAYER_REPLY_MAX_BYTES:
+            # A reply that fills the limit may be cut off.
             return None
         lines = response.decode("utf-8", errors="replace").strip().split("\n")
         if lines[0] != LAYER_QUERY_MARKER:
@@ -508,6 +510,18 @@ class HyprlandListener(WindowListener):
             return True, text
         return False, text
 
+    @staticmethod
+    async def _read_reply(reader: asyncio.StreamReader, limit: int) -> bytes:
+        # Hyprland closes the command socket after the reply, which can
+        # arrive in several reads.
+        response = b""
+        while len(response) < limit:
+            chunk = await reader.read(limit - len(response))
+            if not chunk:
+                break
+            response += chunk
+        return response
+
     async def _send_cmd(self, command: str, read_size: int = 8192) -> bytes | None:
         async with self._cmd_lock:
             if not self.cmd_socket_path:
@@ -525,7 +539,7 @@ class HyprlandListener(WindowListener):
                     timeout=HYPRLAND_COMMAND_TIMEOUT_S,
                 )
                 response = await asyncio.wait_for(
-                    cmd_reader.read(read_size),
+                    self._read_reply(cmd_reader, read_size),
                     timeout=HYPRLAND_COMMAND_TIMEOUT_S,
                 )
                 if not response:

@@ -171,6 +171,31 @@ async def test_hyprland_send_cmd_opens_one_shot_connection(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_hyprland_send_cmd_reads_a_reply_split_across_reads(monkeypatch) -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener.cmd_socket_path = "/tmp/hypr.sock"
+
+    class _ChunkedReader:
+        def __init__(self) -> None:
+            self.chunks = [b"keymasq-layers\n0x1 1 ", b"launcher", b""]
+
+        async def read(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    async def fake_open_unix_connection(path: str) -> tuple[_ChunkedReader, _FakeWriter]:
+        assert path == "/tmp/hypr.sock"
+        return _ChunkedReader(), _FakeWriter()
+
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+
+    assert await listener._send_cmd("repl return 1") == b"keymasq-layers\n0x1 1 launcher"
+
+
+@pytest.mark.asyncio
 async def test_hyprland_send_cmd_times_out_stalled_read(monkeypatch) -> None:
     listener = HyprlandListener(_noop_callback)
     writer = _FakeWriter()

@@ -141,11 +141,6 @@ class SelectionMixin:
         self.mode_row.set_visible(len(values) > 1)
         self._update_describe_mode_ui()
 
-    def _preferred_configure_mode(self: Any) -> str:
-        self._template_state.current = self._template_state.current
-        self._template_state.values = self._template_state.values
-        return self._template_state.preferred()
-
     def _on_mode_changed(self: Any, combo: Gtk.DropDown, _param: object) -> None:
         if not self._template_state.select(combo.get_selected()):
             return

@@ -98,12 +98,11 @@ def _observe_combo_profile_trigger(
     active: bool,
 ) -> None:
     observer = (
-        getattr(manager, "observe_profile_trigger_start", None)
+        manager.observe_profile_trigger_start
         if active
-        else getattr(manager, "observe_profile_trigger_end", None)
+        else manager.observe_profile_trigger_end
     )
-    if callable(observer):
-        observer(source_trigger_id(trigger_binding.hardware_id, trigger_name))
+    observer(source_trigger_id(trigger_binding.hardware_id, trigger_name))
 
 
 async def wait_combo_action_started(manager: ComboManager, combo_id: str) -> None:
@@ -183,9 +182,7 @@ async def start_combo_action(
         trigger_name,
         active=True,
     )
-    recorder = getattr(manager, "record_profile_action", None)
-    if callable(recorder):
-        recorder(action.source_profile_name)
+    manager.record_profile_action(action.source_profile_name)
     recalled_bindings, restore_bindings = combo_trigger_recall_state(
         manager,
         combo_id,

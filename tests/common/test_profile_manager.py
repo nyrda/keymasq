@@ -1,6 +1,11 @@
+import os
+import subprocess
+import sys
 import threading
+import tomllib
 from datetime import datetime, timedelta
 from pathlib import Path
+from textwrap import dedent
 from typing import BinaryIO
 
 import pytest
@@ -1061,6 +1066,77 @@ notify_on_activation = true
         assert loaded is not None
         assert loaded.config.created_at is not None
         assert 'created_at = "' in profile_path.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("running_loop", [False, True], ids=["sync", "async"])
+    @pytest.mark.parametrize("malformed_profile", [False, True], ids=["valid", "malformed"])
+    def test_reload_with_timestamp_repair(
+        self, tmp_path: Path, running_loop: bool, malformed_profile: bool
+    ) -> None:
+        # A separate process bounds lock regressions without leaving blocked
+        # executor threads behind in the pytest process.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                dedent(
+                    r"""
+                    import asyncio
+                    import sys
+
+                    from keymasq.common import paths
+                    from keymasq.common.model.profiles import ProfileConfig
+                    from keymasq.session.config_loading import ConfigLoadError
+                    from keymasq.session.profile.manager import ProfileManager
+
+                    manager = ProfileManager()
+                    manager.save_profile(ProfileConfig(name="Existing"))
+                    profile_path = paths.PROFILES_DIR / "reload.toml"
+                    profile_path.write_text('[profile]\nname = "Reloaded"\npriority = 17\n')
+                    malformed_profile = sys.argv[2] == "True"
+                    if malformed_profile:
+                        (paths.PROFILES_DIR / "broken.toml").write_text("[invalid")
+
+                    def reload():
+                        try:
+                            manager.reload()
+                        except ConfigLoadError:
+                            if not malformed_profile:
+                                raise
+                        else:
+                            assert not malformed_profile, "Malformed profile was accepted"
+
+                    async def reload_async():
+                        reload()
+                        await asyncio.gather(*manager._pending_repairs)
+
+                    if sys.argv[1] == "True":
+                        asyncio.run(reload_async())
+                    else:
+                        reload()
+                    names = [profile.config.name for profile in manager.list_profiles()]
+                    print(",".join(sorted(names)))
+                    """
+                ),
+                str(running_loop),
+                str(malformed_profile),
+            ],
+            env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)},
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+
+        profile_path = tmp_path / "keymasq" / "profiles" / "reload.toml"
+        data = tomllib.loads(profile_path.read_text(encoding="utf-8"))["profile"]
+        assert data["name"] == "Reloaded"
+        assert data["priority"] == 17
+        if malformed_profile:
+            assert result.stdout.strip() == "Existing"
+            assert "created_at" not in data
+        else:
+            assert result.stdout.strip() == "Existing,Reloaded"
+            assert datetime.fromisoformat(data["created_at"]).utcoffset() is None
 
     def test_malformed_created_at_is_repaired_on_load(self, temp_config_dir):
         profile_path = Path(temp_config_dir) / "profiles" / "bad-created-at.toml"

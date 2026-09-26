@@ -120,17 +120,25 @@ def test_implicit_flight_axis_uses_destination_rest(
     writer.write.assert_called_once_with(evdev.ecodes.EV_ABS, code, rest)
 
 
-def test_missing_destination_axes_are_not_written(flight_output):
+@pytest.mark.parametrize(
+    "target, target_analog_id",
+    [("right", None), ("analog", None), ("analog", "missing"), ("analog", "throttle")],
+)
+def test_missing_destination_axes_are_not_written(flight_output, target, target_analog_id):
     runtime, deps, writer = flight_output
     config = AnalogControlConfig(
         name="Stick",
         gamepad_output=AnalogGamepadOutputConfig(
-            enabled=True, output_id="flight-test", target="right"
+            enabled=True,
+            output_id="flight-test",
+            target=target,
+            target_analog_id=target_analog_id,
         ),
     )
     emit_gamepad_output(runtime, "stick", "left_stick", config, deps=deps)
     reset_gamepad_output(runtime, "stick", "left_stick", config, deps=deps)
     writer.write.assert_not_called()
+    assert runtime.state.analog_gamepad_outputs == {}
 
 
 @pytest.mark.parametrize(

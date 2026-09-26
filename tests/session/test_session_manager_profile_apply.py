@@ -337,17 +337,15 @@ async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() ->
     manager.exec_state.exec_refs[7] = old_binding
     manager.exec_state.device_exec_refs[hardware_id] = {7}
     manager.exec_state.next_exec_ref = 10
+    observed_refs: list[tuple[dict[str, set[int]], dict[int, ExecBinding]]] = []
 
     async def inspect_references(_command: object) -> Response:
-        assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
-        assert manager.exec_state.exec_refs == {
-            7: old_binding,
-            10: ExecBinding(
-                cmd="notify-send new",
-                owner="device",
-                hardware_id=hardware_id,
-            ),
-        }
+        observed_refs.append(
+            (
+                {key: set(refs) for key, refs in manager.exec_state.device_exec_refs.items()},
+                dict(manager.exec_state.exec_refs),
+            )
+        )
         return Response(status="error", error="mapping rejected")
 
     manager.client.send_command = AsyncMock(side_effect=inspect_references)
@@ -360,6 +358,19 @@ async def test_mapping_update_exposes_staged_exec_reference_while_in_flight() ->
 
     updated = await profile_application.update_mapping(manager, hardware_id, resolved)
 
+    assert observed_refs == [
+        (
+            {hardware_id: {7}},
+            {
+                7: old_binding,
+                10: ExecBinding(
+                    cmd="notify-send new",
+                    owner="device",
+                    hardware_id=hardware_id,
+                ),
+            },
+        )
+    ]
     assert updated is False
     assert manager.exec_state.device_exec_refs == {hardware_id: {7}}
     assert manager.exec_state.exec_refs == {7: old_binding}
@@ -523,13 +534,12 @@ async def test_combo_update_exposes_staged_exec_reference_while_in_flight() -> N
     manager.exec_state.exec_refs[8] = old_binding
     manager.exec_state.combo_exec_refs.add(8)
     manager.exec_state.next_exec_ref = 10
+    observed_refs: list[tuple[set[int], dict[int, ExecBinding]]] = []
 
     async def inspect_references(_command: object) -> Response:
-        assert manager.exec_state.combo_exec_refs == {8}
-        assert manager.exec_state.exec_refs == {
-            8: old_binding,
-            10: ExecBinding(cmd="notify-send new combo", owner="combo"),
-        }
+        observed_refs.append(
+            (set(manager.exec_state.combo_exec_refs), dict(manager.exec_state.exec_refs))
+        )
         return Response(status="error", error="combos rejected")
 
     manager.client.send_command = AsyncMock(side_effect=inspect_references)
@@ -545,6 +555,15 @@ async def test_combo_update_exposes_staged_exec_reference_while_in_flight() -> N
 
     await profile_application.update_combos(manager, [resolved_combo])
 
+    assert observed_refs == [
+        (
+            {8},
+            {
+                8: old_binding,
+                10: ExecBinding(cmd="notify-send new combo", owner="combo"),
+            },
+        )
+    ]
     assert manager.exec_state.combo_exec_refs == {8}
     assert manager.exec_state.exec_refs == {8: old_binding}
 

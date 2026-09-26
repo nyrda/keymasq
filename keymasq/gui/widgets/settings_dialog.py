@@ -80,7 +80,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._applied_keyboard_layout = self._keyboard_layout
         self._layout_names: dict[str, str] = dict(keyboard_layout_choices())
         self._layout_page: KeyboardLayoutPage | None = None
-        self._status_text = ""
         self._save_seq = 0
         self._applied_save_seq = 0
         self._save_inflight = False
@@ -179,7 +178,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         return row
 
     def _set_status(self, text: str) -> None:
-        self._status_text = text
         if not text:
             return
         toast = Adw.Toast(title=text)
@@ -329,7 +327,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         save_seq = self._save_seq
         self._save_inflight = True
         self._latest_save_failed = False
-        self._status_text = ""
 
         def apply_response(response: dict[str, object]) -> tuple[int, str]:
             applied_count = clamp_virtual_gamepad_count(

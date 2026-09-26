@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from typing import cast
 
 from keymasq.common.devices import resolve_evdev_code, resolve_evdev_event_type
@@ -32,10 +31,6 @@ def action_runtime(
     *,
     trigger_name: str,
 ) -> ActionRuntimeContext:
-    cursor_position_setter = getattr(manager, "set_cursor_position", None)
-    natural_mouse_mover = getattr(manager, "move_cursor_natural", None)
-    macro_player = getattr(manager, "play_macro", None)
-    emergency_resetter = getattr(manager, "emergency_reset", None)
     return ActionRuntimeContext(
         path=f"combo:{combo_id}:{trigger_name}",
         hardware_id=(
@@ -46,29 +41,10 @@ def action_runtime(
         mouse_uinput=manager.output_state.mouse_uinput,
         gamepad_uinput=manager.output_state.gamepad_uinput,
         broadcast_callback=manager.broadcast_callback,
-        cursor_position_setter=(
-            cast(Callable[[int, int], Awaitable[dict[str, object]]], cursor_position_setter)
-            if callable(cursor_position_setter)
-            else None
-        ),
-        natural_mouse_mover=(
-            cast(
-                Callable[[int, int, float, float, str, int, int], Awaitable[dict[str, object]]],
-                natural_mouse_mover,
-            )
-            if callable(natural_mouse_mover)
-            else None
-        ),
-        macro_player=(
-            cast(Callable[..., Awaitable[dict[str, object]]], macro_player)
-            if callable(macro_player)
-            else None
-        ),
-        emergency_resetter=(
-            cast(Callable[[], Awaitable[dict[str, object]]], emergency_resetter)
-            if callable(emergency_resetter)
-            else None
-        ),
+        cursor_position_setter=manager.set_cursor_position,
+        natural_mouse_mover=manager.move_cursor_natural,
+        macro_player=manager.play_macro,
+        emergency_resetter=manager.emergency_reset,
         repeat_state=manager.repeat_state,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,

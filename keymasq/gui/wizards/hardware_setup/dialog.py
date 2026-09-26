@@ -303,7 +303,7 @@ class HardwareSetupDialog(
             selected_device = self._discovery_state.selected_device
             if selected_device is None:
                 return
-            self._template_state.current = self._preferred_configure_mode()
+            self._template_state.current = self._template_state.preferred()
             self.mode_combo.set_selected(
                 self._template_state.values.index(self._template_state.current)
             )

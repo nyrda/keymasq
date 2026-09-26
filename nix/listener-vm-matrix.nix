@@ -671,7 +671,6 @@ let
                 with subtest("Hyprland layer-shell focus"):
                     import base64
 
-                    # A conditional profile for fuzzel's layer namespace.
                     layer_profile_toml = (
                         '[profile]\n'
                         'name = "launcher-layer"\n'
@@ -699,10 +698,6 @@ let
 
                     assert not layer_profile_active()
 
-                    # A keyboard-exclusive layer-shell launcher takes focus
-                    # without a Hyprland activewindow event. The active window
-                    # must clear and report the launcher's layer, then return
-                    # when the launcher closes.
                     launched = dispatch_compositor('hl.dsp.exec_cmd("fuzzel")')
                     assert launched.get("status") == "ok", launched
                     wait_for_user_command("fuzzel running", "pgrep -x fuzzel")
@@ -714,8 +709,6 @@ let
                     assert not focused.get("title"), focused
                     wait_for_condition("layer profile active", layer_profile_active)
 
-                    # A session that starts while the launcher is open must
-                    # still see it, although Hyprland replays no openlayer.
                     machine.succeed(
                         as_user("systemctl --user restart keymasq-session.service")
                     )

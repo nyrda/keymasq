@@ -68,21 +68,10 @@ class WindowListener(ABC):
 
     @property
     def active_layer(self) -> str:
-        """Namespace of the layer-shell surface that has keyboard focus.
-
-        Empty when a window or nothing has focus, or when the listener cannot
-        tell. Listeners that track layers update it before they call the
-        window change callback, which reports an empty window while a layer
-        has focus.
-        """
         return ""
 
     @property
     def unavailable_capabilities(self) -> frozenset[str]:
-        """Compositor capabilities this session cannot provide after all.
-
-        For example, Hyprland only reports layer focus with a Lua config.
-        """
         return frozenset()
 
     async def get_cursor_position(self) -> tuple[int, int] | None:

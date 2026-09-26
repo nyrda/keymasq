@@ -930,8 +930,6 @@ class TestMainWindow:
         assert device_tab.status_label.get_text() == "waiting"
         monkeypatch.setattr(profiles, "_queue_profile_reload", lambda _target: None)
 
-        # The session drops layer_focus, for example after Hyprland restarts
-        # with a hyprlang config.
         window._status_query_id = 1
         window._status_query_inflight = True
         connection._on_status_response(

@@ -82,7 +82,6 @@ def _on_startup_probe_finished(
 
 
 def _apply_compositor_capabilities(window, capabilities: list[str]) -> None:
-    """Share new compositor capabilities with every tab that edits profiles."""
     window._compositor_capabilities = list(capabilities)
     tabs = [page.get_child() for page in window._device_pages.values()]
     if window.combo_tab is not None:

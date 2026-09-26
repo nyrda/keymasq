@@ -197,7 +197,6 @@ def normalize_window_info(
         "title": str(window_title or ""),
         "tags": [str(tag) for tag in window_tags if str(tag or "").strip()],
     }
-    # Only listeners that track layer-shell focus report a layer.
     if layer:
         window_info["layer"] = str(layer)
     return window_info
@@ -387,7 +386,6 @@ async def ensure_compositor_listener(manager: "SessionManager") -> None:
         log.warning("Window listener became unhealthy, restarting compositor binding")
         await switch_compositor(manager, None)
     elif current_healthy and apply_listener_capabilities(manager):
-        # A listener can find out after startup that a capability is missing.
         await coordinator.reevaluate_profiles(manager, reason="compositor capabilities changed")
 
     if manager.compositor_state.candidate_hits < 2:
@@ -500,10 +498,7 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
 
 
 def apply_listener_capabilities(manager: "SessionManager") -> bool:
-    """Drop capabilities the running listener cannot provide.
-
-    Returns whether the effective capability list changed.
-    """
+    """Drop capabilities the running listener cannot provide; return whether they changed."""
     listener = manager.compositor_state.window_listener
     if listener is None:
         return False

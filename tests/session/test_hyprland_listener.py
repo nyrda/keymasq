@@ -328,7 +328,6 @@ async def test_hyprland_activewindow_event_emits_on_title_change() -> None:
 
 
 class _FakeHyprland:
-    """Answer Hyprland socket commands from a model of mapped windows and layers."""
 
     def __init__(self, *, lua_config: bool = True) -> None:
         self.lua_config = lua_config
@@ -338,11 +337,9 @@ class _FakeHyprland:
             "title": "Beta",
             "tags": [],
         }
-        # Mapped layers by address, as (namespace, keyboard interactivity).
         self.layers: dict[str, tuple[str, int]] = {}
         self.commands: list[str] = []
         self.failing_layer_queries = 0
-        # While set, window queries wait until the event is set.
         self.window_reply_gate: asyncio.Event | None = None
         self._next_address = 0x100
 
@@ -364,7 +361,6 @@ class _FakeHyprland:
         if not self.lua_config:
             return b"eval is only supported with the lua config manager"
         if self.failing_layer_queries:
-            # A timed-out or failed command socket request.
             self.failing_layer_queries -= 1
             return None
         lines = ["keymasq-layers"]
@@ -378,7 +374,6 @@ class _FakeHyprland:
 def _listener_with_fake_hyprland(
     hyprland: _FakeHyprland,
 ) -> tuple[HyprlandListener, list[tuple[str, str, list[str], str]]]:
-    """Return a listener on the fake socket and the focus updates it reports."""
     focus_updates: list[tuple[str, str, list[str], str]] = []
 
     async def callback(window_class: str, window_title: str, tags: list[str]) -> None:
@@ -415,11 +410,9 @@ async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() 
     await listener._handle_event("openlayer>>launcher")
     assert await listener.get_active_window() == ("", "", [])
 
-    # Retitles of the window behind the launcher must not restore it.
     await listener._handle_event("windowtitlev2>>5a5a,Beta")
     await listener._handle_event("activewindow>>kitty,Beta")
     await listener._handle_event("activewindowv2>>5a5a")
-    # A second focus layer on top takes over, and closing it hands focus back.
     polkit = hyprland.open_layer("polkit", 1)
     await listener._handle_event("openlayer>>polkit")
     del hyprland.layers[polkit]
@@ -449,7 +442,6 @@ async def test_hyprland_retries_failed_layer_queries() -> None:
     second_launcher = hyprland.open_layer("launcher", 1)
     await listener._handle_event("openlayer>>launcher")
 
-    # The first launcher stays open while the second closes.
     del hyprland.layers[second_launcher]
     hyprland.failing_layer_queries = 1
     await listener._handle_event("closelayer>>launcher")
@@ -467,11 +459,8 @@ async def test_hyprland_layer_that_drops_interactivity_returns_focus_to_window()
     await listener._handle_event("activewindowv2>>5a5a")
     panel = hyprland.open_layer("panel", 1)
     await listener._handle_event("openlayer>>panel")
-    # The panel hides by dropping keyboard interactivity instead of closing,
-    # and Hyprland refocuses the window.
     hyprland.layers[panel] = ("panel", 0)
     await listener._handle_event("activewindow>>kitty,Beta")
-    # If the layers cannot be read, the window gets focus back as well.
     hyprland.open_layer("menu", 1)
     await listener._handle_event("openlayer>>menu")
     hyprland.failing_layer_queries = 2
@@ -496,7 +485,6 @@ async def test_hyprland_close_rechecks_layers_below_the_closed_one() -> None:
     await listener._handle_event("openlayer>>panel")
     menu = hyprland.open_layer("menu", 1)
     await listener._handle_event("openlayer>>menu")
-    # The panel below turns keyboard interactivity off while the menu has focus.
     hyprland.layers[panel] = ("panel", 0)
     del hyprland.layers[menu]
     await listener._handle_event("closelayer>>menu")
@@ -517,7 +505,6 @@ async def test_hyprland_window_query_does_not_outlive_a_layer_taking_focus() -> 
 
     window_query = asyncio.create_task(listener.get_active_window())
     await asyncio.sleep(0)
-    # A launcher takes focus while the window query waits for its reply.
     hyprland.open_layer("launcher", 1)
     await listener._handle_event("openlayer>>launcher")
     hyprland.window_reply_gate.set()
@@ -537,8 +524,6 @@ async def test_hyprland_layer_mapped_again_at_the_same_address_takes_focus() -> 
     await listener._handle_event("openlayer>>walker")
     await listener._handle_event("activewindow>>firefox,Docs")
     await listener._handle_event("activewindowv2>>6b6b")
-    # walker hides and shows again at the same address before the listener
-    # handles either event.
     await listener._handle_event("closelayer>>walker")
     await listener._handle_event("openlayer>>walker")
 
@@ -559,14 +544,11 @@ async def test_hyprland_priority_dialog_takes_focus_from_an_exclusive_layer() ->
     await listener._handle_event("activewindowv2>>5a5a")
     launcher = hyprland.open_layer("launcher", 1)
     await listener._handle_event("openlayer>>launcher")
-    # A class change of the window behind the launcher is not a focus change.
     await listener._handle_event("activewindow>>kitty-renamed,Beta")
     await listener._handle_event("activewindowv2>>5a5a")
-    # Hyprland lets its own priority dialogs take focus over the launcher.
     await listener._handle_event("activewindow>>hyprland-dialog,Permission")
     await listener._handle_event("activewindowv2>>7c7c")
     assert listener.active_layer == ""
-    # The dialog closes and the launcher has the keyboard again.
     await listener._handle_event("activewindow>>,")
     await listener._handle_event("activewindowv2>>")
     del hyprland.layers[launcher]
@@ -595,10 +577,8 @@ async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles(
     await listener._handle_event("activewindowv2>>5a5a")
     assert await listener.get_active_window() == ("", "", [])
 
-    # Clicking a window moves focus off the on-demand layer.
     await listener._handle_event("activewindow>>firefox,Docs")
     await listener._handle_event("activewindowv2>>6b6b")
-    # A non-interactive sibling opening does not hand focus back to the layer.
     hyprland.open_layer("walker", 0)
     await listener._handle_event("openlayer>>walker")
     assert listener.active_layer == ""
@@ -620,7 +600,6 @@ async def test_hyprland_tracks_each_layer_that_shares_a_namespace() -> None:
     await listener._handle_event("activewindow>>kitty,Beta")
     first_launcher = hyprland.open_layer("launcher", 1)
     await listener._handle_event("openlayer>>launcher")
-    # A non-interactive surface in the launcher's namespace takes no focus.
     hyprland.open_layer("launcher", 0)
     await listener._handle_event("openlayer>>launcher")
     polkit = hyprland.open_layer("polkit", 1)
@@ -628,7 +607,6 @@ async def test_hyprland_tracks_each_layer_that_shares_a_namespace() -> None:
     second_launcher = hyprland.open_layer("launcher", 1)
     await listener._handle_event("openlayer>>launcher")
 
-    # The older launcher closes; the newest one keeps focus.
     del hyprland.layers[first_launcher]
     await listener._handle_event("closelayer>>launcher")
     assert listener.active_layer == "launcher"
@@ -654,22 +632,18 @@ async def test_hyprland_start_picks_up_focus_state_from_before_it_connected(
 ) -> None:
     hyprland = _FakeHyprland()
     launcher = hyprland.open_layer("launcher", 1)
-    # An on-demand layer may already have lost focus to a window.
     hyprland.open_layer("walker", 2)
-    # The first read of the open layers fails, and the listener asks again.
     hyprland.failing_layer_queries = 1
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)
     _start_without_sockets(monkeypatch, hyprland)
 
     await listener.start()
 
-    # Events from while the state is read must queue up, not get lost.
     assert hyprland.commands[0] == "<subscribe to events>"
     assert listener.active_layer == "launcher"
     assert await listener.get_active_window() == ("", "", [])
     assert listener.unavailable_capabilities == frozenset()
 
-    # The seeded window address marks this as a retitle, not a focus change.
     await listener._handle_event("windowtitlev2>>5a5a,Beta 2")
     await listener._handle_event("activewindow>>kitty,Beta 2")
     assert listener.active_layer == "launcher"
@@ -685,10 +659,7 @@ async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     hyprland = _FakeHyprland()
-    # An older walker surface gave focus to a window before startup.
     older = hyprland.open_layer("walker", 2)
-    # The newer one opens after the event socket connects, so its openlayer
-    # event waits in the socket while the listener reads the current state.
     hyprland.open_layer("walker", 2)
     listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
     _start_without_sockets(monkeypatch, hyprland)
@@ -698,7 +669,6 @@ async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
     await listener._handle_event("openlayer>>walker")
     assert listener.active_layer == "walker"
 
-    # The older surface closing leaves the newer one focused.
     del hyprland.layers[older]
     await listener._handle_event("closelayer>>walker")
     assert listener.active_layer == "walker"
@@ -710,7 +680,6 @@ async def test_hyprland_start_remembers_on_demand_layers_a_sibling_does_not_refo
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     hyprland = _FakeHyprland()
-    # The layer gave focus to a window before the listener started.
     hyprland.open_layer("walker", 2)
     listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
     _start_without_sockets(monkeypatch, hyprland)
@@ -734,7 +703,6 @@ async def test_hyprland_start_stops_waiting_for_queued_layer_events(
     monkeypatch.setattr(hyprland_module, "HYPRLAND_STARTUP_LAYER_WINDOW_S", 0.0)
 
     await listener.start()
-    # A later layer in the namespace opened and closed before the query saw it.
     await listener._handle_event("openlayer>>walker")
 
     assert listener.active_layer == ""
@@ -746,7 +714,6 @@ async def test_hyprland_start_does_not_guess_between_exclusive_layers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     hyprland = _FakeHyprland()
-    # Hyprland lists layers by monitor and level, not by when they took focus.
     menu = hyprland.open_layer("menu", 1)
     hyprland.open_layer("launcher", 1)
     listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
@@ -814,6 +781,5 @@ async def test_hyprland_layer_without_keyboard_focus_keeps_active_window(namespa
     assert focus_updates == [("kitty", "Beta", [], "")]
     assert await listener.get_active_window() == ("kitty", "Beta", [])
     layer_query = next(command for command in hyprland.commands if command.startswith("repl "))
-    # hyprctl reads text before a "/" as flags, and the namespace must stay a Lua string.
     assert "/" not in layer_query
     assert "os.exit" not in layer_query

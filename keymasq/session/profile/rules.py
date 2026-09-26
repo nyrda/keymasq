@@ -13,7 +13,6 @@ from .types import ProfileInfo, TomlDict
 log = logging.getLogger("keymasq-session.profiles")
 SUPPORTED_WINDOW_RULE_FIELDS = frozenset({"class", "title", "tag", "layer"})
 WINDOW_MATCH_FIELDS = frozenset({"class", "title", "tag", "layer"})
-# Rule fields that only match on compositors with the given capability.
 WINDOW_RULE_FIELD_CAPABILITIES = {"tag": "window_tags", "layer": "layer_focus"}
 
 

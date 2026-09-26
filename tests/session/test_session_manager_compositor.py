@@ -474,7 +474,6 @@ async def test_supervisor_drops_capabilities_the_listener_loses_later(
     await session_compositor_module.ensure_compositor_listener(manager)
     reevaluate_profiles.assert_not_awaited()
 
-    # A later layer query shows that Hyprland runs a hyprlang config.
     listener.unavailable_capabilities = frozenset({"layer_focus"})
     await session_compositor_module.ensure_compositor_listener(manager)
 

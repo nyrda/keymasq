@@ -309,8 +309,6 @@ class WindowRulesMixin:
 
         fields = self._window_rule_fields()
         if rule.field in WINDOW_RULE_FIELDS and rule.field not in fields:
-            # Keep a rule this compositor cannot match, so applying the dialog
-            # does not rewrite it as a different field.
             fields.append(rule.field)
         field_dropdown = Gtk.DropDown()
         field_model = Gtk.StringList()

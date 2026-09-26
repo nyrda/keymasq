@@ -100,12 +100,10 @@ def _gui_task_error_payload(error: Exception) -> JsonDict:
 class _PersistentSessionConnection:
     def __init__(self) -> None:
         self._sock: socket.socket | None = None
-        self._reader_thread: threading.Thread | None = None
         self._reader_threads: dict[int, threading.Thread] = {}
         self._reader_sockets: dict[int, socket.socket] = {}
         self._generation = 0
         self._closed = False
-        self._buffer = b""
         self._state_lock = threading.Lock()
         self._connect_lock = threading.Lock()
         self._request_lock = threading.Lock()
@@ -213,14 +211,12 @@ class _PersistentSessionConnection:
                 self._generation += 1
                 generation = self._generation
                 self._sock = sock
-                self._buffer = b""
                 reader = threading.Thread(
                     target=self._reader_loop,
                     args=(generation, sock),
                     daemon=True,
                     name=f"keymasq-session-reader-{generation}",
                 )
-                self._reader_thread = reader
                 self._reader_threads[generation] = reader
                 self._reader_sockets[generation] = sock
                 reader.start()
@@ -228,14 +224,9 @@ class _PersistentSessionConnection:
 
     def _reader_loop(
         self,
-        generation: int | None = None,
-        sock: socket.socket | None = None,
+        generation: int,
+        sock: socket.socket,
     ) -> None:
-        with self._state_lock:
-            generation = self._generation if generation is None else generation
-            sock = self._sock if sock is None else sock
-        if sock is None:
-            return
         local_buffer = b""
         try:
             while True:
@@ -254,7 +245,6 @@ class _PersistentSessionConnection:
                     with self._state_lock:
                         if generation != self._generation or sock is not self._sock:
                             continue
-                        self._buffer = local_buffer
 
                     for line in lines:
                         if not line.strip():
@@ -381,7 +371,6 @@ class _PersistentSessionConnection:
             sock = self._sock
             generation = self._generation
             self._sock = None
-            self._buffer = b""
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -413,7 +402,6 @@ class _PersistentSessionConnection:
         with self._state_lock:
             if sock is self._sock and generation in (None, self._generation):
                 self._sock = None
-                self._buffer = b""
                 response_queue = self._response_queue
                 current = True
             else:
@@ -447,7 +435,6 @@ class _PersistentSessionConnection:
             if self._sock is not None:
                 sockets.add(self._sock)
             self._sock = None
-            self._buffer = b""
             response_queue = self._response_queue
             self._response_queue = None
             self._response_generation = None

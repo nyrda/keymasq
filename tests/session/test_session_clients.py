@@ -264,6 +264,9 @@ class _ConnectBlockingSocket:
         self._closed_event.wait(1.0)
         return b""
 
+    def shutdown(self, _how: int) -> None:
+        self._closed_event.set()
+
     def close(self) -> None:
         self.closed = True
         self._closed_event.set()
@@ -408,7 +411,7 @@ def test_persistent_session_reader_loop_routes_events_and_response(
         ]
     )
 
-    connection._reader_loop()
+    connection._reader_loop(0, connection._sock)
 
     assert events == ["macro_saved"]
     queued = response_queue.get_nowait()
@@ -526,10 +529,7 @@ def test_persistent_session_concurrent_first_connect_uses_one_socket(
     finally:
         for thread in threads:
             thread.join(1.0)
-        connection._close_connection()  # pyright: ignore[reportPrivateUsage]
-        reader_thread = connection._reader_thread  # pyright: ignore[reportPrivateUsage]
-        if reader_thread is not None:
-            reader_thread.join(1.0)
+        connection.shutdown()
 
 
 def test_persistent_session_reader_thread_survives_socket_swap(
@@ -548,14 +548,12 @@ def test_persistent_session_reader_thread_survives_socket_swap(
     connection._generation = 1
     connection._sock = old_sock
     thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
-    connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
         connection._generation = 2
         connection._sock = new_sock
-        connection._buffer = b""
     new_thread = threading.Thread(
         target=connection._reader_loop,
         args=(2, new_sock),
@@ -588,14 +586,12 @@ def test_persistent_session_reader_ignores_stale_eof_after_socket_swap(
     connection._generation = 1
     connection._sock = old_sock
     thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
-    connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
         connection._generation = 2
         connection._sock = new_sock
-        connection._buffer = b""
     new_thread = threading.Thread(
         target=connection._reader_loop,
         args=(2, new_sock),
@@ -629,14 +625,12 @@ def test_persistent_session_reader_ignores_stale_error_after_socket_swap(
     connection._generation = 1
     connection._sock = old_sock
     thread = threading.Thread(target=connection._reader_loop, args=(1, old_sock), daemon=True)
-    connection._reader_thread = thread
     thread.start()
 
     assert ready.wait(1.0) is True
     with connection._state_lock:
         connection._generation = 2
         connection._sock = new_sock
-        connection._buffer = b""
     new_thread = threading.Thread(
         target=connection._reader_loop,
         args=(2, new_sock),

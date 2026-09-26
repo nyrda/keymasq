@@ -418,15 +418,14 @@ def test_persistent_session_connection_clears_partial_buffer_on_disconnect_and_r
     first_queue: queue.Queue[dict | None] = queue.Queue(maxsize=1)
     connection._sock = _FakeSocket([b'{"status":"ok"'])
     connection._response_queue = first_queue
-    connection._reader_loop()
+    connection._reader_loop(0, connection._sock)
 
-    assert connection._buffer == b""
     assert first_queue.get_nowait() is None
 
     second_queue: queue.Queue[dict | None] = queue.Queue(maxsize=1)
     connection._sock = _FakeSocket([b'{"status":"ok","value":1}\n'])
     connection._response_queue = second_queue
-    connection._reader_loop()
+    connection._reader_loop(0, connection._sock)
 
     assert second_queue.get_nowait() == {"status": "ok", "value": 1}
 

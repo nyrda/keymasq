@@ -127,7 +127,6 @@ def test_reconnect_starts_new_reader_while_old_generation_is_still_blocked(
     assert first_socket.read_started.wait(1.0) is True
     with connection._state_lock:
         connection._sock = None
-        connection._buffer = b""
 
     assert connection._ensure_connected(timeout=0.1) is True
     second_socket = connection._sock

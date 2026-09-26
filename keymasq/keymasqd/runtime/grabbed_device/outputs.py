@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     EvdevModule,
     InputEventLike,
 )
+from keymasq.keymasqd.runtime.rollover import forget_runtime_rollover
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -161,15 +162,20 @@ def track_refcounted_held_output(
     *,
     pressed: bool,
     released: bool,
+    emit_every_press: bool = False,
 ) -> bool:
-    """Update shared held-output state and return whether to emit the event."""
+    """Update shared held-output state and return whether to emit the event.
+
+    Keys only need their first press. An axis takes the value of its newest
+    press, so axis callers pass ``emit_every_press``.
+    """
     output_code = int(code)
     current = refcounts.get(output_code, 0)
 
     if pressed:
         refcounts[output_code] = current + 1
         held.add(output_code)
-        return current == 0
+        return emit_every_press or current == 0
 
     if released:
         if current <= 1:
@@ -192,6 +198,7 @@ def track_refcounted_output_bucket(
     *,
     pressed_value: int | None = 1,
     release_value: int = 0,
+    emit_every_press: bool = False,
 ) -> bool:
     """Update a bucketed shared-output refcount and held set."""
     event_value = int(value)
@@ -207,6 +214,7 @@ def track_refcounted_output_bucket(
         code,
         pressed=pressed,
         released=event_value == normalized_release_value,
+        emit_every_press=emit_every_press,
     )
 
 
@@ -304,6 +312,7 @@ def track_superkey_abs_output(
         value,
         pressed_value=None,
         release_value=resolved_release_value,
+        emit_every_press=True,
     )
 
 
@@ -589,6 +598,8 @@ def release_all_keys(
     device_runtime.state.rapidfire_active.clear()
     device_runtime.state.tap_active.clear()
     device_runtime.state.held_source_keys.clear()
+    device_runtime.state.held_source_press_order.clear()
     device_runtime.state.combo_passthrough_held.clear()
     device_runtime.state.combo_recalled_bindings.clear()
     device_runtime.state.held_source_actions.clear()
+    forget_runtime_rollover(device_runtime)

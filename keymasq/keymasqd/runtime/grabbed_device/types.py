@@ -33,6 +33,7 @@ from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
 if TYPE_CHECKING:
+    from keymasq.keymasqd.runtime.rollover import RolloverRuntime
     from keymasq.keymasqd.superkey_state import SuperkeyMachine
 
 type BroadcastCallback = Callable[[CommandType, dict[str, object]], Awaitable[None]]
@@ -42,6 +43,7 @@ type NaturalMouseMover = Callable[
     Awaitable[dict[str, object]],
 ]
 type MappingGetter = Callable[[], dict[str, MappingAction]]
+type RolloverGetter = Callable[[], "RolloverRuntime | None"]
 type DeviceEventCallback = Callable[..., Awaitable[ComboDecision | bool | None]]
 type MacroPlayer = Callable[..., Awaitable[dict[str, object]]]
 type EmergencyResetter = Callable[[], Awaitable[dict[str, object]]]
@@ -228,6 +230,15 @@ class GrabbedDeviceState:
         }
     )
     held_source_actions: dict[str, MappingAction | None] = field(default_factory=dict)
+    # Rollover members that were held without driving an output when their group
+    # went away. Their repeats and release have nothing to drive or undo.
+    rollover_quarantined: set[str] = field(default_factory=set)
+    # Bumped whenever the runtime's held outputs are released, for example on
+    # disconnect. Rollover work queued before that is dropped.
+    rollover_epoch: int = 0
+    # Global press sequence of each held source key, so groups can merge held
+    # keys from different devices and groups in the order they went down.
+    held_source_press_order: dict[str, int] = field(default_factory=dict)
     held_profile_trigger_events: set[str] = field(default_factory=set)
     analog_axis_values: dict[str, dict[str, float]] = field(default_factory=dict)
     # Physical coordinates survive per-control resets; evdev reports only changes.
@@ -322,6 +333,7 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
     def restore_default_output_axes(self) -> None: ...
 
     capture_stream: InputCaptureStream
+
     @property
     def access_mode(self) -> InputAccessMode: ...
 
@@ -389,6 +401,9 @@ class GrabbedDeviceRuntime(ActionRuntime, Protocol):
 
     @property
     def mapping_getter(self) -> MappingGetter: ...
+
+    @property
+    def rollover_getter(self) -> RolloverGetter | None: ...
 
     @property
     def event_callback(self) -> DeviceEventCallback: ...

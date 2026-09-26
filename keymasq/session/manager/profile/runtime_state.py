@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from ..payload import rollover as rollover_payload
 from ..payload.references import clear_all, retire_device
 
 if TYPE_CHECKING:
@@ -72,6 +73,7 @@ def invalidate_grabbed_state(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_grab_signatures.clear()
     manager.profile_state.last_sent_mapping_signatures.clear()
     manager.profile_state.last_sent_combo_signature = ""
+    manager.profile_state.last_sent_rollover_signature = rollover_payload.EMPTY_SIGNATURE
     manager.profile_state.resolved_combos.clear()
 
 

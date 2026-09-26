@@ -43,6 +43,7 @@ class DeviceGridCallbacks:
     on_name_label_right_clicked: Callable[..., None]
     on_action_label_right_clicked: Callable[..., None]
     on_analog_name_right_clicked: Callable[..., None]
+    on_rollover_group_clicked: Callable[..., None]
 
 
 @dataclass(frozen=True)
@@ -430,6 +431,19 @@ class DeviceGridBuilder:
         btn.set_child(inner)
         return btn
 
+    def create_rollover_tile(self) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("button-card-learn")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_tooltip_text(
+            "Pick keys where only one should drive its mapping at a time, "
+            "such as two keys on one stick axis"
+        )
+        btn.connect("clicked", self.callbacks.on_rollover_group_clicked)
+        inner = self._make_icon_label_box("list-add-symbolic", "Rollover Group")
+        btn.set_child(inner)
+        return btn
+
     def _append_learn_tile(self, parent: Gtk.Box) -> None:
         if self.demo_mode:
             return
@@ -438,6 +452,8 @@ class DeviceGridBuilder:
         row.append(self.create_learn_tile())
         if supports_analog_learning(self.device):
             row.append(self.create_learn_analog_tile())
+        if self.device.buttons:
+            row.append(self.create_rollover_tile())
         parent.append(row)
 
     def _append_keyboard_section(

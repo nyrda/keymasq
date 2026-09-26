@@ -35,6 +35,13 @@ that the core runtime classes still work together:
   superkeys, combos, and combo-bound overload superkeys
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output
 - gamepad button and analog axis output
+- rollover groups: axis members that follow the newest held key without
+  centering, keyboard handover and restore, neutral groups, unmapped members
+  passed through, an overload superkey member, members on two devices, a
+  device unplugged after or during its member's turn, a higher-priority
+  profile replacing a group, held keys kept while their own or another group
+  changes, a member recalled by a combo before or while another member takes
+  over, and members held while their profile is disabled
 - controller touchpad strokes, sparse reports, profile changes, held-touch restart,
   near-center release with kernel fuzz, fuzz restoration, landing/lift filtering,
   and drag button ordering during rest and continuous movement

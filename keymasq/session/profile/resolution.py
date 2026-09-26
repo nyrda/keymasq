@@ -9,6 +9,7 @@ from keymasq.common.model.profiles import (
     ComboStep,
     ProfileConfig,
 )
+from keymasq.common.rollover import layer_rollover_groups
 
 from .rules import has_unsupported_rules, matches_window_rules
 from .types import (
@@ -75,15 +76,25 @@ class ProfileResolver:
             ]
             active_profiles.extend(runtime_profiles)
 
+        rollover_groups = layer_rollover_groups(
+            group for profile in active_profiles for group in profile.rollover_groups
+        )
         for profile in active_profiles:
             known_hardware_ids.update(profile.device_layers.keys())
+        known_hardware_ids.update(
+            member.hardware_id for group in rollover_groups for member in group.members
+        )
 
         devices = self._resolve_devices(active_profiles, known_hardware_ids)
+        for group in rollover_groups:
+            for member in group.members:
+                devices[member.hardware_id].rollover_buttons.add(member.button)
         combos = resolve_combos(active_profiles, devices)
         return ResolvedProfiles(
             active_profiles=active_profiles,
             devices=devices,
             combos=combos,
+            rollover_groups=rollover_groups,
         )
 
     @staticmethod

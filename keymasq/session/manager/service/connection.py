@@ -8,6 +8,7 @@ from keymasq.common.virtual_device_templates import config_to_json
 
 from .. import events, recording_device_selection, recording_lifecycle
 from ..common import JsonObject
+from ..payload import rollover as rollover_payload
 from ..profile import coordinator, runtime_state
 
 log = logging.getLogger("keymasq-session")
@@ -103,6 +104,7 @@ class DaemonConnectionMixin:
         self.profile_state.last_sent_grab_signatures.clear()
         self.profile_state.last_sent_mapping_signatures.clear()
         self.profile_state.last_sent_combo_signature = ""
+        self.profile_state.last_sent_rollover_signature = rollover_payload.EMPTY_SIGNATURE
         self.profile_state.active_profile_names.clear()
         self.profile_state.resolved_devices.clear()
         self.profile_state.resolved_combos.clear()

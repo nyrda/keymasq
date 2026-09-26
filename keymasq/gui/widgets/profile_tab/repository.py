@@ -120,6 +120,7 @@ class ProfileRepositoryMixin:
             window_rules=copy.deepcopy(self._selected_profile.config.window_rules),
             device_layers=copy.deepcopy(self._selected_profile.config.device_layers),
             combos=copy.deepcopy(self._selected_profile.config.combos),
+            rollover_groups=copy.deepcopy(self._selected_profile.config.rollover_groups),
             created_at=datetime.now(),
         )
 

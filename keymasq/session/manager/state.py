@@ -10,6 +10,7 @@ from keymasq.session.profile.types import (
 )
 
 from .common import JsonObject
+from .payload import rollover as rollover_payload
 
 
 def default_recording_settings() -> JsonObject:
@@ -90,6 +91,7 @@ class ProfileRuntimeState:
     device_request_sequence: int = 0
     acknowledged_device_requests: dict[str, int] = field(default_factory=dict)
     last_sent_combo_signature: str = ""
+    last_sent_rollover_signature: str = rollover_payload.EMPTY_SIGNATURE
     active_profile_names: list[str] = field(default_factory=list)
     resolved_devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)
     resolved_combos: list[ResolvedCombo] = field(default_factory=list)

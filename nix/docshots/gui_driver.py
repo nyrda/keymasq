@@ -1286,6 +1286,7 @@ class DocshotRunner:
             "combo_editor": self._prepare_combo_editor,
             "combo_action_selector": self._prepare_combo_action_selector,
             "gnome_setup_dialog": self._prepare_gnome_setup_dialog,
+            "rollover_group_editor": self._prepare_rollover_group_editor,
         }
         handler = dispatch.get(target)
         if handler is None:
@@ -1794,6 +1795,21 @@ class DocshotRunner:
         dialog.present(self.window)
         self.current_dialog = dialog
         self._set_dialog_crop(dialog, shot)
+
+    def _prepare_rollover_group_editor(self, shot: Json) -> None:
+        tab = self._select_device_profile(shot)
+        source = str(shot.get("source", "") or "")
+        group = tab._rollover_group_for_button(source)
+        if group is None:
+            raise KeyError(f"rollover group with {source!r} was not found")
+        tab._open_rollover_group_editor(group)
+        dialog = tab._rollover_ui_state().dialog
+        self.current_dialog = dialog
+        self._set_dialog_crop(dialog, shot)
+        # Presenting focuses the name entry and selects its text.
+        _drain_events()
+        dialog.set_focus(None)
+        dialog.name_row.select_region(0, 0)
 
     def _prepare_gnome_setup_dialog(self, shot: Json) -> None:
         assert self.window is not None

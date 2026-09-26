@@ -40,6 +40,7 @@ ICON_NAMES = (
     "channel-insecure-symbolic",
     "channel-secure-symbolic",
     "dialog-information-symbolic",
+    "dialog-warning-symbolic",
     "display-brightness-symbolic",
     "document-edit-symbolic",
     "document-new-symbolic",

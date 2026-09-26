@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import errno
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -21,6 +22,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
+from keymasq.common.rollover import layer_rollover_groups, rollover_groups_from_data
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
     config_from_json,
@@ -68,6 +70,7 @@ from keymasq.keymasqd.runtime.grab.state import (
 )
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.event.rollover import resettle_rollover_group
 from keymasq.keymasqd.runtime.macro.state import (
     DiagnosticRecorder,
     MacroRuntimeDeps,
@@ -77,6 +80,11 @@ from keymasq.keymasqd.runtime.manager_combos import ComboManagerMixin
 from keymasq.keymasqd.runtime.manager_cursor import CursorManagerMixin
 from keymasq.keymasqd.runtime.manager_macros import MacroManagerMixin
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
+from keymasq.keymasqd.runtime.rollover import (
+    RolloverGroupState,
+    RolloverRuntime,
+    replace_rollover_groups,
+)
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
 log = logging.getLogger("keymasqd.devices")
@@ -183,6 +191,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     ) -> None:
         self.grabbed_devices: dict[str, list[GrabbedDevice]] = {}
         self.active_mappings: dict[str, dict[str, MappingAction]] = {}
+        self.rollover: RolloverRuntime | None = None
         self.mask_registry = MaskRegistry()
         from keymasq.masking.paths import POLICY_DIR
 
@@ -410,6 +419,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             self,
             fire_and_observe_fn=fire_and_observe,
         )
+        # Groups come from the session. Its next connection sends them again.
+        await self.set_rollover_groups([])
         async with self._op_lock:
             self.device_inspector_state.reset()
             await self._refresh_combo_runtime()
@@ -676,6 +687,37 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             exclude_source_button_prefix="combo:",
         )
         return result
+
+    async def set_rollover_groups(self, groups: object) -> JsonObject:
+        parsed = layer_rollover_groups(rollover_groups_from_data(groups))
+        previous = self.rollover
+        async with contextlib.AsyncExitStack() as stack:
+            # Wait for in-flight handovers before their groups change.
+            for state in previous.states if previous is not None else []:
+                await stack.enter_async_context(state.lock)
+            replace_rollover_groups(
+                self,
+                parsed,
+                resettle=self._resettle_rollover_group,
+                runtimes=[
+                    device for devices in self.grabbed_devices.values() for device in devices
+                ],
+            )
+        return {"updated": True, "group_count": len(parsed)}
+
+    def _resettle_rollover_group(
+        self,
+        rollover: RolloverRuntime,
+        group_state: RolloverGroupState,
+    ) -> None:
+        fire_and_observe(
+            resettle_rollover_group(
+                rollover,
+                group_state,
+                deps=pipeline.build_event_processing_deps(log=log),
+            ),
+            "rollover resettle",
+        )
 
     async def set_diagnostics(
         self,

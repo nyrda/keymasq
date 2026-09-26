@@ -11,7 +11,12 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
+from keymasq.common.model.profiles import RolloverGroup
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.device_tab.rollover_state import (
+    rollover_member_caption,
+    rollover_member_tooltip,
+)
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.profile.types import ProfileInfo
 
@@ -156,6 +161,7 @@ def update_button_display(
     describe_default_output: Callable[
         [ButtonDefinition | AnalogInputDefinition], tuple[str, str] | None
     ] | None = None,
+    rollover_group: RolloverGroup | None = None,
 ) -> None:
     widget = button_widgets.get(button_id)
     if not widget:
@@ -204,6 +210,7 @@ def update_button_display(
             and describe_analog_passthrough is not None
         ):
             description = describe_analog_passthrough(analog) or description
+        full_text = description
         set_action_label_text(
             action_label,
             description,
@@ -237,6 +244,7 @@ def update_button_display(
         )
         if analog is not None and describe_analog_passthrough is not None:
             passthrough_label = describe_analog_passthrough(analog) or passthrough_label
+        full_text = passthrough_label
         set_action_label_text(
             action_label,
             passthrough_label,
@@ -260,8 +268,14 @@ def update_button_display(
         presentation = describe_default_output(control) if control is not None else None
         if presentation is not None:
             summary, detail = presentation
+            full_text = summary
             set_action_label_text(action_label, summary, max_chars=action_summary_chars)
             action_label.set_tooltip_text(detail)
+
+    if rollover_group is not None:
+        caption = rollover_member_caption(full_text)
+        set_action_label_text(action_label, caption, max_chars=action_summary_chars)
+        action_label.set_tooltip_text(rollover_member_tooltip(rollover_group, full_text))
 
 
 def _passthrough_label(

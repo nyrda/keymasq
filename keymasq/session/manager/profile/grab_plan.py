@@ -53,6 +53,11 @@ def get_interfaces_to_grab(
             source = button_to_source.get(button_id)
             if source:
                 sources_to_grab.add(source)
+    # Unmapped rollover members pass through, but the group still has to see them.
+    for button_id in resolved.rollover_buttons:
+        source = button_to_source.get(button_id)
+        if source:
+            sources_to_grab.add(source)
 
     if _motion_requires_gamepad_output(manager, hardware_config, resolved):
         sources_to_grab.update(

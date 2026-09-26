@@ -15,7 +15,6 @@ from keymasq.keymasqd.runtime.combo.execution import action_execution_deps
 from keymasq.keymasqd.runtime.combo.recall import combo_step_count, ordered_unique_bindings
 from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
 from keymasq.keymasqd.runtime.grabbed_device.outputs import track_refcounted_output_bucket
-from keymasq.keymasqd.runtime.grabbed_device.types import NaturalMouseMover
 from keymasq.keymasqd.runtime.repeat import remember_superkey_path
 from keymasq.keymasqd.superkey_state import SuperkeyConfig, SuperkeyMachine
 
@@ -123,7 +122,6 @@ async def build_machine(
             source_button=trigger_name,
         )
 
-    natural_mouse_mover = getattr(manager, "move_cursor_natural", None)
     machine = machine_type(
         config=config,
         event_name=trigger_name,
@@ -133,9 +131,7 @@ async def build_machine(
         source_device=trigger_binding.hardware_id,
         broadcast_callback=broadcast,
         cursor_position_setter=manager.set_cursor_position,
-        natural_mouse_mover=(
-            cast(NaturalMouseMover, natural_mouse_mover) if callable(natural_mouse_mover) else None
-        ),
+        natural_mouse_mover=manager.move_cursor_natural,
         key_event_tracker=output_tracker,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,

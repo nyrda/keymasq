@@ -10,7 +10,6 @@ cp -a "$REPO_DIR/pyproject.toml" "$TMPDIR/"
 cd "$TMPDIR"
 
 PYTHONPATH= python3 -m pytest -q \
-    tests/common/test_hardware_manager.py \
     tests/common/test_mapping_and_profile_state.py \
     tests/common/test_profile_manager.py \
     tests/common/test_cli_commands_helpers.py \

@@ -67,7 +67,6 @@ def test_unmodified_key_outputs_use_the_physical_code_and_layout() -> None:
 
 @requires_xkb
 def test_key_legends_label_physical_keys_like_keycaps() -> None:
-    # Letters show their capital; other keys show the shifted character too.
     assert key_legends("de")[K.KEY_Y] == KeyLegend("Z")
     assert key_legends("de")[K.KEY_SEMICOLON] == KeyLegend("Ö")
     assert key_legends("de")[K.KEY_MINUS] == KeyLegend("ß", "?")
@@ -75,16 +74,12 @@ def test_key_legends_label_physical_keys_like_keycaps() -> None:
     assert key_legends("fr")[K.KEY_Q] == KeyLegend("A")
     assert key_legends("fr")[K.KEY_1] == KeyLegend("&", "1")
     assert key_legends("ru")[K.KEY_Q] == KeyLegend("Й")
-    # Turkish capitals follow the layout, not Python's casing of i and ı.
     assert key_legends("tr")[K.KEY_APOSTROPHE] == KeyLegend("İ")
     assert key_legends("tr")[K.KEY_I] == KeyLegend("I")
-    # Keys that type a character only with Shift show just that character.
-    assert key_legends("et")[K.KEY_BACKSLASH] == KeyLegend("", "‐")  # VoidSymbol unshifted
-    assert key_legends("ma(tifinagh)")[K.KEY_2] == KeyLegend("", "2")  # nothing at level 0
-    # Dead keys show their spacing accent.
+    assert key_legends("et")[K.KEY_BACKSLASH] == KeyLegend("", "‐")
+    assert key_legends("ma(tifinagh)")[K.KEY_2] == KeyLegend("", "2")
     assert key_legends("de")[K.KEY_EQUAL] == KeyLegend("´", "`")
     assert key_legends("de")[K.KEY_GRAVE] == KeyLegend("^", "°")
-    # Keys that type no character keep their fixed names.
     assert K.KEY_SPACE not in key_legends("de")
     assert K.KEY_LEFTCTRL not in key_legends("de")
 

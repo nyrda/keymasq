@@ -64,8 +64,6 @@ def _get_gamepad_image_path() -> str:
 
 @dataclass(frozen=True)
 class KeyCap:
-    """One key of the on-screen keyboard. Sizes and offsets are in key widths."""
-
     label: str
     evdev_name: str
     width: float = 1
@@ -73,7 +71,6 @@ class KeyCap:
     gap: float = 0
 
 
-# Grid columns per key width, so keys can sit on quarter-key offsets.
 _KEY_GRID_STEPS = 4
 KEY_GAP_PX = 3
 
@@ -106,7 +103,6 @@ def build_keyboard_grid(owner, rows: Sequence[Sequence[KeyCap]]) -> Gtk.Grid:
 
 
 def apply_key_legends(grid: Gtk.Grid, legends: Mapping[int, KeyLegend]) -> None:
-    """Label each key with what it types on a layout, or its fixed name when it types nothing."""
     child = grid.get_first_child()
     while child is not None:
         label = getattr(child, "_keycap_label", None)
@@ -138,7 +134,6 @@ def build_keyboard_tab(
     keyboard_rows: Sequence[Sequence[KeyCap]],
     system_key_groups: Sequence[tuple[str, Sequence[tuple[str, str, str]]]] | None = None,
 ) -> Gtk.ScrolledWindow:
-    """Build the key grid as ``owner._keyboard_grid`` so a layout change can replace it."""
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 

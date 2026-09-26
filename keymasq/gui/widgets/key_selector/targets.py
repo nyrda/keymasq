@@ -245,8 +245,6 @@ ANSI_KEYBOARD_ROWS: tuple[tuple[KeyCap, ...], ...] = (
     (_key("LShift", 2.25), *_keys("Z X C V B N M , . /"), _key("RShift", 2.75)),
     _BOTTOM_ROW,
 )
-# ISO boards add the key between left Shift and Z (KEY_102ND) and move
-# KEY_BACKSLASH down next to a two-row Enter.
 ISO_KEYBOARD_ROWS: tuple[tuple[KeyCap, ...], ...] = (
     _FUNCTION_ROW,
     _NUMBER_ROW,
@@ -255,8 +253,6 @@ ISO_KEYBOARD_ROWS: tuple[tuple[KeyCap, ...], ...] = (
     (_key("LShift", 1.25), *_keys("<> Z X C V B N M , . /"), _key("RShift", 2.75)),
     _BOTTOM_ROW,
 )
-# Layouts whose national keyboards are ANSI. The ISO grid is ANSI plus one
-# key, so every other layout gets it.
 _ANSI_LAYOUTS = frozenset({"us", "cn", "kr", "th", "tw"})
 
 

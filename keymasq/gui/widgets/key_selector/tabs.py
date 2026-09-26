@@ -103,14 +103,12 @@ def _ensure_compact_tabs_css() -> None:
     _compact_tabs_css_installed = True
 
 
-# X11 and Wayland report the kernel's evdev key code plus 8 as the hardware
-# keycode. Other backends, such as Broadway, have their own numbering.
+# X11 and Wayland keycodes are evdev codes plus 8; Broadway numbers keys differently.
 _EVDEV_KEYCODE_DISPLAYS = frozenset({"GdkX11Display", "GdkWaylandDisplay"})
 _EVDEV_KEYCODE_OFFSET = 8
 
 
 def _keycode_to_evdev(controller: Gtk.EventController, keycode: int) -> str | None:
-    """The physical key of a key press, independent of the active layout."""
     widget = controller.get_widget()
     if widget is None or widget.get_display().__gtype__.name not in _EVDEV_KEYCODE_DISPLAYS:
         return None
@@ -255,10 +253,6 @@ class SharedInputTabsMixin:
     def _show_keyboard_layout(
         self, layout_id: str | None, legends: Mapping[int, KeyLegend]
     ) -> None:
-        """Arrange the grid for the layout's keyboard and label keys with its characters.
-
-        An unusable layout shows the US grid, which is also what the keys do then.
-        """
         rows = keyboard_rows_for_layout(layout_id)
         if rows is not self._keyboard_rows:
             self._keyboard_rows = rows

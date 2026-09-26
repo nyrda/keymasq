@@ -167,8 +167,6 @@ def unmodified_key_outputs(layout_id: str) -> Mapping[int, str]:
         raise KeyboardLayoutError(str(exc)) from exc
 
 
-# Spacing forms of the dead keys xkeyboard-config puts on main-block keys, as
-# printed on keycaps. Other dead keys show a dotted circle.
 _DEAD_KEY_GLYPHS = {
     "grave": "`",
     "acute": "´",
@@ -193,26 +191,17 @@ _DEAD_KEY_GLYPHS = {
 
 @dataclass(frozen=True)
 class KeyLegend:
-    """What a keycap shows on a layout.
-
-    ``base`` is the unshifted output, or empty when only Shift types a
-    character. ``shifted`` is empty when Shift only capitalizes it; letters
-    show their capital as ``base``, like printed keys.
-    """
-
     base: str
     shifted: str = ""
 
 
 @lru_cache(maxsize=8)
 def key_legends(layout_id: str) -> Mapping[int, KeyLegend]:
-    """Keycap legends for every key that types a character or dead key."""
     layout, variant = parse_keyboard_layout_id(layout_id)
     try:
         with xkb.Keymap(layout, variant) as keymap:
             legends: dict[int, KeyLegend] = {}
-            # levels() skips empty levels, so a key with nothing at level 0 only
-            # shows up at a higher level.
+            # levels() skips empty levels, so some keys only appear above level 0.
             for code in sorted({level.evdev_code for level in keymap.levels()}):
                 base = _legend_text(keymap.keysym_for_chord(code, ()))
                 shifted = _legend_text(keymap.keysym_for_chord(code, (evdev.ecodes.KEY_LEFTSHIFT,)))
@@ -226,11 +215,9 @@ def key_legends(layout_id: str) -> Mapping[int, KeyLegend]:
 
 
 def _capital_legend(base: str, shifted: str) -> str:
-    """The single label of a letter key, or "" for a key with two legends."""
     if shifted == base:
         upper = base.upper()
         return upper if len(upper) == 1 else base
-    # The layout's own capital wins over Python's casing: Turkish i shifts to İ.
     if shifted == base.upper() or (shifted.isupper() and shifted.lower().startswith(base)):
         return shifted
     return ""

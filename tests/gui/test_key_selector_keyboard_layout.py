@@ -39,7 +39,6 @@ def test_keyboard_rows_follow_the_layout_country() -> None:
     assert evdev_names(ISO_KEYBOARD_ROWS) - evdev_names(ANSI_KEYBOARD_ROWS) == {"key_102nd"}
     assert evdev_names(ANSI_KEYBOARD_ROWS) <= evdev_names(ISO_KEYBOARD_ROWS)
     for rows in (ANSI_KEYBOARD_ROWS, ISO_KEYBOARD_ROWS):
-        # Rows 1 to 5 are as wide as the function row; the ISO Enter covers two rows.
         for row in rows:
             assert sum(key.gap + key.width for key in row) in {13.75, 15}
 
@@ -84,7 +83,6 @@ def test_key_selector_keyboard_follows_configured_layout(monkeypatch) -> None:
     assert buttons["key_y"].has_css_class("bound-target")
     assert buttons["key_102nd"].get_label() == ">\n<"
 
-    # An unusable layout falls back to the US keyboard the keys then type.
     _set_layout(dialog, "nope")
     buttons = _keyboard_buttons(dialog._keyboard_grid)
     assert "key_102nd" not in buttons
@@ -128,7 +126,6 @@ def test_capture_key_maps_the_physical_key_on_any_layout(monkeypatch) -> None:
     selected = []
     dialog.connect("key-selected", lambda _dialog, action: selected.append(action.target))
 
-    # On a German layout the key right of T types z; the mapping stores KEY_Y.
     dialog._on_keyboard_capture_clicked(None)
     dialog._on_keyboard_capture_key_pressed(
         dialog._kb_capture_controller, Gdk.KEY_z, evdev.ecodes.KEY_Y + 8, 0

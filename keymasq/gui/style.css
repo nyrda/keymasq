@@ -478,3 +478,20 @@ button.actions-docs-button {
 .macro-selection-tabs button {
   min-width: 48px;
 }
+
+/* Rollover group selection mode in device tabs */
+button.rollover-selected {
+  box-shadow: inset 0 0 0 2px @accent_color;
+  background: alpha(@accent_color, 0.18);
+  opacity: 1;
+}
+
+button.rollover-unavailable {
+  opacity: 0.35;
+}
+
+.rollover-bar {
+  border-radius: 8px;
+  background: alpha(@accent_color, 0.1);
+  padding: 6px 12px;
+}

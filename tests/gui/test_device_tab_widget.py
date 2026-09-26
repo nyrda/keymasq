@@ -17,7 +17,8 @@ def _learn_tile_labels(tab) -> list[str]:
         if not tile.has_css_class("button-card-learn"):
             continue
         labels.extend(label.get_text() for label in collect_widgets(tile, Gtk.Label))
-    return labels
+    # The Rollover Group tile shares the card style but isn't a learn action.
+    return [label for label in labels if label.startswith("Learn ")]
 
 
 def _make_add_inputs_flow(device, on_complete=None, parent=None):
@@ -1424,7 +1425,8 @@ class TestDeviceTabWidget:
         assert protected_no_profile_calls == ["no-profile"]
 
         allowed_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
-        allowed_tab._selected_profile = SimpleNamespace()
+        # Cell activation reads the selected layer for rollover group members.
+        allowed_tab._selected_profile = SimpleNamespace(config=ProfileConfig(name="Stub"))
         allowed_calls: list[str] = []
         allowed_tab._show_protected_remap_warning_dialog = lambda button: allowed_calls.append(
             f"warn:{button.id}"

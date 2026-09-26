@@ -192,6 +192,42 @@ tap_hold_ms = 10
 
 Rapidfire and tap are mutually exclusive.
 
+## Rollover groups
+
+A rollover group lists source buttons, on one or more devices. At most one held
+member is active, and only its mapping reaches the outputs. Use it for two keys
+on one stick axis (releasing one no longer centers the stick while the other is
+held) or for Snap Tap style keyboard output. Groups are top-level profile
+tables, not part of a device layer.
+
+```toml
+[[rollover_groups]]
+name = "A / Side"
+members = [                  # in priority order
+  { hardware_id = "1234:5678", button = "key_a" },
+  { hardware_id = "046d:c52b", button = "btn_side" },
+]
+winner = "newest"            # newest, oldest, neutral, or priority
+restore = true               # a still-held member takes over again
+```
+
+- `newest`: the most recently pressed member is active.
+- `oldest`: the first pressed member is active. Later members wait.
+- `neutral`: two or more held members release the output.
+- `priority`: the held member listed first is active.
+- `restore = false`: a member that lost while held stays inactive until it is
+  pressed again.
+
+Members may use any action, or be unmapped (they pass through). Gaining the
+active role presses the member's action and losing it releases the action, like
+a real key press, so tap, rapidfire, macros, and superkeys restart on every
+handover. Two members that send the same plain key, button, or axis target
+without tap or rapidfire hand over by overwriting it, without a release. A
+member belongs to one group. A group in a higher-priority profile replaces
+lower groups that share a member. Groups need at least two distinct members.
+Members on a device that no profile maps still get their interface grabbed.
+When a device disconnects, its held members count as released.
+
 ## Repeat action
 
 `action = "repeat"` replays the newest remembered action whose category is

@@ -22,6 +22,7 @@ from keymasq.gui.widgets.device_tab.inputs import InputInventoryMixin
 from keymasq.gui.widgets.device_tab.inventory import InventoryMixin
 from keymasq.gui.widgets.device_tab.mapping import MappingMixin
 from keymasq.gui.widgets.device_tab.presentation import ProfilePresentationMixin
+from keymasq.gui.widgets.device_tab.rollover import RolloverMixin
 from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
 from keymasq.session.hardware import HardwareManager
@@ -35,6 +36,7 @@ class DeviceTab(
     DefaultOutputMixin,
     InventoryMixin,
     InputInventoryMixin,
+    RolloverMixin,
     MappingMixin,
     CaptureMixin,
     SelectorCommitMixin,
@@ -71,6 +73,7 @@ class DeviceTab(
         self.connect("destroy", self._on_device_tab_destroy)
         self._setup_header()
         self._setup_profile_selector()
+        self._setup_rollover_widgets()
         self._setup_button_grid()
         self.refresh_profiles()
 
@@ -135,6 +138,7 @@ class DeviceTab(
         self._button_widgets = {}
         self._setup_header()
         self._setup_profile_selector()
+        self._setup_rollover_widgets()
         self._setup_button_grid()
         if selected_name:
             for index, name in enumerate(self._profile_names):

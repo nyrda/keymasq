@@ -988,7 +988,9 @@ class TestSuperkeys:
             deps=grabbed_event_processing_deps(),
         )
 
+        # Every press writes its value; the kernel drops the unchanged repeat.
         assert gamepad_uinput.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
         ]
         assert device.state.held_output_abs["gamepad"] == {evdev.ecodes.ABS_X}
@@ -1001,6 +1003,62 @@ class TestSuperkeys:
 
         assert gamepad_uinput.writes == [
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
+        ]
+        assert device.state.held_output_abs["gamepad"] == set()
+
+    @pytest.mark.asyncio
+    async def test_overload_superkeys_on_one_axis_write_each_press(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def axis_superkey(name: str, value: int) -> MappingAction:
+            return MappingAction(
+                action_type=ActionType.SUPERKEY,
+                superkey_config=SuperkeyConfig(
+                    name=name,
+                    mode=SuperkeyMode.OVERLOAD,
+                    overload_actions=[
+                        MappingAction(
+                            action_type=ActionType.GAMEPAD_AXIS,
+                            target="abs_x",
+                            axis_value=value,
+                        ),
+                    ],
+                ),
+            )
+
+        gamepad_uinput = FakeUInput()
+        device = make_grabbed_device(
+            monkeypatch,
+            interface_id="mouse",
+            button_map={"btn_side": "btn_side", "btn_extra": "btn_extra"},
+            mapping={
+                "btn_side": axis_superkey("left", -32768),
+                "btn_extra": axis_superkey("right", 32767),
+            },
+            device_type=DeviceType.MOUSE,
+            gamepad_uinput=gamepad_uinput,
+            running=True,
+        )
+
+        for code, value in (
+            (evdev.ecodes.BTN_SIDE, 1),
+            (evdev.ecodes.BTN_EXTRA, 1),
+            (evdev.ecodes.BTN_SIDE, 0),
+            (evdev.ecodes.BTN_EXTRA, 0),
+        ):
+            await pipeline.process_event(
+                device,
+                SimpleNamespace(type=evdev.ecodes.EV_KEY, code=code, value=value),
+                deps=grabbed_event_processing_deps(),
+            )
+
+        # The second press moves the axis, and the rest value waits for the last release.
+        assert gamepad_uinput.writes == [
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, -32768),
+            (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 32767),
             (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0),
         ]
         assert device.state.held_output_abs["gamepad"] == set()

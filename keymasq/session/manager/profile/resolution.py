@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from keymasq.common.model.profiles import ProfileConfig
+from keymasq.common.model.profiles import ProfileConfig, RolloverGroup
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -53,6 +53,16 @@ class ComboApplier(Protocol):
     ) -> None: ...
 
 
+class RolloverGroupApplier(Protocol):
+    async def __call__(
+        self,
+        manager: "SessionManager",
+        groups: list[RolloverGroup],
+        *,
+        generation: int | None = None,
+    ) -> None: ...
+
+
 class LifecycleMacroDispatcher(Protocol):
     async def __call__(
         self,
@@ -69,6 +79,7 @@ class ProfileResolutionOperations:
     apply_device: DeviceProfileApplier
     deactivate_device: DeviceProfileDeactivator
     update_combos: ComboApplier
+    update_rollover_groups: RolloverGroupApplier
     clear_hardware_state: Callable[["SessionManager", str], None]
     refresh_device_status: Callable[["SessionManager"], Awaitable[None]]
     build_active_payload: Callable[["SessionManager"], JsonObject]
@@ -142,6 +153,12 @@ async def reconcile_resolved_profiles(
     await operations.update_combos(
         manager,
         resolved.combos,
+        generation=generation,
+    )
+    raise_if_stale_profile_apply(manager, generation)
+    await operations.update_rollover_groups(
+        manager,
+        resolved.rollover_groups,
         generation=generation,
     )
     raise_if_stale_profile_apply(manager, generation)

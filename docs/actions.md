@@ -330,6 +330,9 @@ or `abs_rz`, and a raw evdev `value`. Built-in Xbox stick axes accept
 their template's ranges. Releasing the source input returns a virtual axis to
 the selected output's declared rest value. The built-in Xbox axes declare `0`.
 Direct axis actions targeting physical hardware currently release to `0`.
+When several keys drive one axis, releasing any of them returns the axis to
+rest. Put them in a [rollover group](rollover.md) so the axis follows the key
+that is still held.
 [Analog-control mappings](gamepad.md#analog-output) support learned or
 advertised target metadata.
 LT and RT are axis actions (`abs_z` and `abs_rz`). `gamepad` actions are button-only.

@@ -1,0 +1,24 @@
+[profile]
+name = "$ROLLOVER_COMBO_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 705
+notify_on_activation = false
+created_at = "2026-09-26T00:00:00"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+# key_f19 is an unmapped Passthrough member in the rollover profile. The combo
+# recalls it and swallows its release.
+[[combos]]
+id = "integration-rollover-recall"
+name = "Integration rollover recall"
+steps = [
+  { events = [
+    { evdev = "key_f19", hardware_id = "$HARDWARE_ID" },
+    { evdev = "key_space", hardware_id = "$HARDWARE_ID" },
+  ] },
+]
+action = { action = "keyboard", target = "key_z" }
+recall_trigger_keys = true

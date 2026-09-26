@@ -335,3 +335,11 @@ superkey = "wpctl_volume_rocker"
 crop_widget = "timing_group"
 crop_padding = 16
 scroll_crop_widget = true
+
+[[shot]]
+name = "keymasq_rollover_group"
+target = "rollover_group_editor"
+device = "35ef:0021"
+profile = "Gaming"
+source = "key_a"
+dialog_height = 600

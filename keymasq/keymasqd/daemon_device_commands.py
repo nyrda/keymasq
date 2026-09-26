@@ -33,6 +33,8 @@ class _DeviceCommandManager(Protocol):
 
     async def set_combos(self, combos: Sequence[object]) -> JsonObject: ...
 
+    async def set_rollover_groups(self, groups: object) -> JsonObject: ...
+
     async def set_cursor_position(self, x: int, y: int) -> JsonObject: ...
 
     def handle_cursor_position_response(self, data: JsonObject) -> JsonObject: ...
@@ -145,6 +147,9 @@ async def handle_device_command(
             cast(JsonObjectList, data.get("combos", [])),
         )
         return await daemon.device_manager.set_combos(combos)
+
+    if command_type == CommandType.SET_ROLLOVER_GROUPS:
+        return await daemon.device_manager.set_rollover_groups(data.get("groups"))
 
     if command_type == CommandType.LIST_DEVICES:
         return await daemon.device_manager.list_devices()

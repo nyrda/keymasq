@@ -216,6 +216,12 @@ That applies to:
 - Pattern-mode held outputs
 - Overload-mode held key and button outputs
 
+Axis outputs work the same way, with one difference: every press writes its
+value. When two super keys hold one axis at different values, the axis takes
+the value of the newest press, and returns to rest after the last key is
+released. Super keys in a [rollover group](rollover.md) are pressed and
+released whenever they gain or lose the active role.
+
 On Press and On Release actions are one-shot press/release cycles, so they do not create
 held child output state. The Main Actions list still uses normal held child
 output state and wraps both press/release lists: it starts before On Press and

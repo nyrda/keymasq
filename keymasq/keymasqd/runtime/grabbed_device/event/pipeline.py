@@ -6,10 +6,8 @@ the event-loop recovery boundary.
 """
 
 import asyncio
-import contextlib
 import logging
 import time
-from collections.abc import Awaitable
 from typing import cast
 
 import evdev
@@ -67,19 +65,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
 from keymasq.keymasqd.superkey_state import SuperkeyState
-
-
-def fire_and_observe(coro: Awaitable[object], label: str) -> asyncio.Task[object]:
-    task = asyncio.ensure_future(coro)
-
-    def _log_task_result(done: asyncio.Task[object]) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
-            exc = done.exception()
-            if exc is not None:
-                logging.getLogger("keymasqd.devices").warning("%s failed: %s", label, exc)
-
-    task.add_done_callback(_log_task_result)
-    return task
+from keymasq.keymasqd.task_helpers import fire_and_observe
 
 
 def build_action_execution_deps(

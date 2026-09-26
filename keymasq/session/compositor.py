@@ -42,7 +42,7 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
     "hyprland": {
         "env": "HYPRLAND_INSTANCE_SIGNATURE",
         "name": "Hyprland",
-        "capabilities": ["window_tags"],
+        "capabilities": ["window_tags", "layer_focus"],
         "listener": HyprlandListener,
         "probe_order": 10,
     },

@@ -138,6 +138,29 @@ compositor dispatch. This gives Keymasq active-window profiles,
 pointer-position reads, Lua dispatcher actions, the **Set Cursor** compositor
 action, and Hyprland window tags.
 
+Opening a layer-shell surface that takes keyboard focus, such as a fuzzel or
+walker launcher, clears the active window until the surface closes or a window
+takes focus again. Keymasq reports the layer's namespace instead, so profiles
+can target launchers with [`layer` window rules](profiles.md#layers).
+Hyprland's event socket does not report this focus change, so Keymasq asks
+Hyprland's Lua API for the keyboard interactivity of each layer that opens.
+With a hyprlang config the Lua API is unavailable. The previous window then
+stays active while a launcher is open, and profiles with `layer` rules show as
+unsupported.
+
+Hyprland sends no event for these layer cases, so Keymasq cannot follow
+them:
+
+- An on-demand layer that opens while a window has locked the pointer, as some
+  games do, does not get the keyboard. Keymasq still reports the layer. Layers
+  with exclusive keyboard interactivity get the keyboard and release the lock;
+  for walker, set `force_keyboard_focus = true`.
+- Clicking back into a layer that is still open after a window took focus
+  gives it the keyboard again. Keymasq keeps reporting the window until the
+  layer closes or reopens.
+- A layer that stays open and turns on keyboard interactivity takes the
+  keyboard. Keymasq notices only when the layer closes or reopens.
+
 Tag-based profiles update when focus moves between windows with the same class
 and title but different tags. Duplicate updates are suppressed only when class,
 title, and tags all match the previous update.

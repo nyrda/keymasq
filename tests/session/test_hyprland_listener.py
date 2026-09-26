@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from unittest.mock import AsyncMock, call
 
@@ -170,6 +171,31 @@ async def test_hyprland_send_cmd_opens_one_shot_connection(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_hyprland_send_cmd_reads_a_reply_split_across_reads(monkeypatch) -> None:
+    listener = HyprlandListener(_noop_callback)
+    listener.cmd_socket_path = "/tmp/hypr.sock"
+
+    class _ChunkedReader:
+        def __init__(self) -> None:
+            self.chunks = [b"keymasq-layers\n0x1 1 ", b"launcher", b""]
+
+        async def read(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    async def fake_open_unix_connection(path: str) -> tuple[_ChunkedReader, _FakeWriter]:
+        assert path == "/tmp/hypr.sock"
+        return _ChunkedReader(), _FakeWriter()
+
+    monkeypatch.setattr(
+        hyprland_module.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+
+    assert await listener._send_cmd("repl return 1") == b"keymasq-layers\n0x1 1 launcher"
+
+
+@pytest.mark.asyncio
 async def test_hyprland_send_cmd_times_out_stalled_read(monkeypatch) -> None:
     listener = HyprlandListener(_noop_callback)
     writer = _FakeWriter()
@@ -299,3 +325,461 @@ async def test_hyprland_activewindow_event_emits_on_title_change() -> None:
     await listener._handle_event("activewindow>>firefox,tab two")
 
     assert calls == [("firefox", "tab one", []), ("firefox", "tab two", [])]
+
+
+class _FakeHyprland:
+
+    def __init__(self, *, lua_config: bool = True) -> None:
+        self.lua_config = lua_config
+        self.active_window: dict[str, object] = {
+            "address": "0x5a5a",
+            "class": "kitty",
+            "title": "Beta",
+            "tags": [],
+        }
+        self.layers: dict[str, tuple[str, int]] = {}
+        self.commands: list[str] = []
+        self.failing_layer_queries = 0
+        self.window_reply_gate: asyncio.Event | None = None
+        self._next_address = 0x100
+
+    def open_layer(self, namespace: str, interactivity: int) -> str:
+        address = f"0x{self._next_address:x}"
+        self._next_address += 1
+        self.layers[address] = (namespace, interactivity)
+        return address
+
+    async def send_cmd(self, command: str, read_size: int = 8192) -> bytes | None:
+        _ = read_size
+        self.commands.append(command)
+        if command == "j/activewindow":
+            if self.window_reply_gate is not None:
+                await self.window_reply_gate.wait()
+            return json.dumps(self.active_window).encode()
+        if not command.startswith("repl "):
+            return None
+        if not self.lua_config:
+            return b"eval is only supported with the lua config manager"
+        if self.failing_layer_queries:
+            self.failing_layer_queries -= 1
+            return None
+        lines = ["keymasq-layers"]
+        for address, (namespace, interactivity) in self.layers.items():
+            in_query = "namespace =" not in command or f'"{namespace}"' in command
+            if in_query:
+                lines.append(f"{address} {interactivity} {namespace}")
+        return "\n".join(lines).encode()
+
+
+def _listener_with_fake_hyprland(
+    hyprland: _FakeHyprland,
+) -> tuple[HyprlandListener, list[tuple[str, str, list[str], str]]]:
+    focus_updates: list[tuple[str, str, list[str], str]] = []
+
+    async def callback(window_class: str, window_title: str, tags: list[str]) -> None:
+        focus_updates.append((window_class, window_title, tags, listener.active_layer))
+
+    listener = HyprlandListener(callback)
+    listener._send_cmd = AsyncMock(side_effect=hyprland.send_cmd)  # type: ignore[method-assign]
+    return listener, focus_updates
+
+
+def _start_without_sockets(monkeypatch: pytest.MonkeyPatch, hyprland: _FakeHyprland) -> None:
+    async def open_event_socket(path: str) -> tuple[asyncio.StreamReader, _FakeWriter]:
+        assert path == "/tmp/hypr-events.sock"
+        hyprland.commands.append("<subscribe to events>")
+        return make_stream_reader([]), _FakeWriter()
+
+    monkeypatch.setattr(
+        HyprlandListener,
+        "_resolve_socket_paths",
+        AsyncMock(return_value=("/tmp/hypr-events.sock", "/tmp/hypr.sock")),
+    )
+    monkeypatch.setattr(hyprland_module.asyncio, "open_unix_connection", open_event_socket)
+    monkeypatch.setattr(HyprlandListener, "_listen", AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    assert await listener.get_active_window() == ("", "", [])
+
+    await listener._handle_event("windowtitlev2>>5a5a,Beta")
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    polkit = hyprland.open_layer("polkit", 1)
+    await listener._handle_event("openlayer>>polkit")
+    del hyprland.layers[polkit]
+    await listener._handle_event("closelayer>>polkit")
+    del hyprland.layers[launcher]
+    await listener._handle_event("closelayer>>launcher")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "launcher"),
+        ("", "", [], "polkit"),
+        ("", "", [], "launcher"),
+        ("kitty", "Beta", [], ""),
+    ]
+    assert await listener.get_active_window() == ("kitty", "Beta", [])
+
+
+@pytest.mark.asyncio
+async def test_hyprland_retries_failed_layer_queries() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("launcher", 1)
+    hyprland.failing_layer_queries = 1
+    await listener._handle_event("openlayer>>launcher")
+    second_launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+
+    del hyprland.layers[second_launcher]
+    hyprland.failing_layer_queries = 1
+    await listener._handle_event("closelayer>>launcher")
+
+    assert focus_updates == [("kitty", "Beta", [], ""), ("", "", [], "launcher")]
+    assert listener.active_layer == "launcher"
+
+
+@pytest.mark.asyncio
+async def test_hyprland_layer_that_drops_interactivity_returns_focus_to_window() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    panel = hyprland.open_layer("panel", 1)
+    await listener._handle_event("openlayer>>panel")
+    hyprland.layers[panel] = ("panel", 0)
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("menu", 1)
+    await listener._handle_event("openlayer>>menu")
+    hyprland.failing_layer_queries = 2
+    await listener._handle_event("activewindow>>kitty,Beta")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "panel"),
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "menu"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_close_rechecks_layers_below_the_closed_one() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    panel = hyprland.open_layer("panel", 1)
+    await listener._handle_event("openlayer>>panel")
+    menu = hyprland.open_layer("menu", 1)
+    await listener._handle_event("openlayer>>menu")
+    hyprland.layers[panel] = ("panel", 0)
+    del hyprland.layers[menu]
+    await listener._handle_event("closelayer>>menu")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "panel"),
+        ("", "", [], "menu"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_window_query_does_not_outlive_a_layer_taking_focus() -> None:
+    hyprland = _FakeHyprland()
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    hyprland.window_reply_gate = asyncio.Event()
+
+    window_query = asyncio.create_task(listener.get_active_window())
+    await asyncio.sleep(0)
+    hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    hyprland.window_reply_gate.set()
+
+    assert await window_query == ("", "", [])
+    assert listener.active_layer == "launcher"
+
+
+@pytest.mark.asyncio
+async def test_hyprland_layer_mapped_again_at_the_same_address_takes_focus() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    hyprland.open_layer("walker", 2)
+    await listener._handle_event("openlayer>>walker")
+    await listener._handle_event("activewindow>>firefox,Docs")
+    await listener._handle_event("activewindowv2>>6b6b")
+    await listener._handle_event("closelayer>>walker")
+    await listener._handle_event("openlayer>>walker")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "walker"),
+        ("firefox", "Docs", [], ""),
+        ("", "", [], "walker"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_priority_dialog_takes_focus_from_an_exclusive_layer() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    await listener._handle_event("activewindow>>kitty-renamed,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    await listener._handle_event("activewindow>>hyprland-dialog,Permission")
+    await listener._handle_event("activewindowv2>>7c7c")
+    assert listener.active_layer == ""
+    await listener._handle_event("activewindow>>,")
+    await listener._handle_event("activewindowv2>>")
+    del hyprland.layers[launcher]
+    await listener._handle_event("closelayer>>launcher")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "launcher"),
+        ("hyprland-dialog", "Permission", [], ""),
+        ("", "", [], "launcher"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_on_demand_layer_yields_to_window_focus_but_not_retitles() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    await listener._handle_event("activewindowv2>>5a5a")
+    walker = hyprland.open_layer("walker", 2)
+    await listener._handle_event("openlayer>>walker")
+    await listener._handle_event("windowtitlev2>>5a5a,Beta 2")
+    await listener._handle_event("activewindow>>kitty,Beta 2")
+    await listener._handle_event("activewindowv2>>5a5a")
+    assert await listener.get_active_window() == ("", "", [])
+
+    await listener._handle_event("activewindow>>firefox,Docs")
+    await listener._handle_event("activewindowv2>>6b6b")
+    hyprland.open_layer("walker", 0)
+    await listener._handle_event("openlayer>>walker")
+    assert listener.active_layer == ""
+    del hyprland.layers[walker]
+    await listener._handle_event("closelayer>>walker")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "walker"),
+        ("firefox", "Docs", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_tracks_each_layer_that_shares_a_namespace() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    first_launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+    hyprland.open_layer("launcher", 0)
+    await listener._handle_event("openlayer>>launcher")
+    polkit = hyprland.open_layer("polkit", 1)
+    await listener._handle_event("openlayer>>polkit")
+    second_launcher = hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+
+    del hyprland.layers[first_launcher]
+    await listener._handle_event("closelayer>>launcher")
+    assert listener.active_layer == "launcher"
+    del hyprland.layers[second_launcher]
+    await listener._handle_event("closelayer>>launcher")
+    assert listener.active_layer == "polkit"
+    del hyprland.layers[polkit]
+    await listener._handle_event("closelayer>>polkit")
+
+    assert focus_updates == [
+        ("kitty", "Beta", [], ""),
+        ("", "", [], "launcher"),
+        ("", "", [], "polkit"),
+        ("", "", [], "launcher"),
+        ("", "", [], "polkit"),
+        ("kitty", "Beta", [], ""),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_picks_up_focus_state_from_before_it_connected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    launcher = hyprland.open_layer("launcher", 1)
+    hyprland.open_layer("walker", 2)
+    hyprland.failing_layer_queries = 1
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+
+    assert hyprland.commands[0] == "<subscribe to events>"
+    assert listener.active_layer == "launcher"
+    assert await listener.get_active_window() == ("", "", [])
+    assert listener.unavailable_capabilities == frozenset()
+
+    await listener._handle_event("windowtitlev2>>5a5a,Beta 2")
+    await listener._handle_event("activewindow>>kitty,Beta 2")
+    assert listener.active_layer == "launcher"
+
+    del hyprland.layers[launcher]
+    await listener._handle_event("closelayer>>launcher")
+    assert focus_updates == [("kitty", "Beta", [], "")]
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_leaves_on_demand_layers_to_queued_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    older = hyprland.open_layer("walker", 2)
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+    assert listener.active_layer == ""
+    await listener._handle_event("openlayer>>walker")
+    assert listener.active_layer == "walker"
+
+    del hyprland.layers[older]
+    await listener._handle_event("closelayer>>walker")
+    assert listener.active_layer == "walker"
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_remembers_on_demand_layers_a_sibling_does_not_refocus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+    hyprland.open_layer("walker", 0)
+    await listener._handle_event("openlayer>>walker")
+
+    assert listener.active_layer == ""
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_stops_waiting_for_queued_layer_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    hyprland.open_layer("walker", 2)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+    monkeypatch.setattr(hyprland_module, "HYPRLAND_STARTUP_LAYER_WINDOW_S", 0.0)
+
+    await listener.start()
+    await listener._handle_event("openlayer>>walker")
+
+    assert listener.active_layer == ""
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_start_does_not_guess_between_exclusive_layers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland()
+    menu = hyprland.open_layer("menu", 1)
+    hyprland.open_layer("launcher", 1)
+    listener, _focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+
+    assert listener.active_layer == ""
+    assert await listener.get_active_window() == ("", "", [])
+    del hyprland.layers[menu]
+    await listener._handle_event("closelayer>>menu")
+    assert listener.active_layer == "launcher"
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_without_lua_config_keeps_windows_and_drops_layer_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyprland = _FakeHyprland(lua_config=False)
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+    _start_without_sockets(monkeypatch, hyprland)
+
+    await listener.start()
+    assert listener.unavailable_capabilities == frozenset({"layer_focus"})
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("launcher", 1)
+    await listener._handle_event("openlayer>>launcher")
+
+    assert focus_updates == [("kitty", "Beta", [], "")]
+    assert await listener.get_active_window() == ("kitty", "Beta", [])
+    await listener.stop()
+
+
+@pytest.mark.asyncio
+async def test_hyprland_tracks_a_focus_layer_without_a_namespace() -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer("", 1)
+    await listener._handle_event("openlayer>>")
+
+    assert focus_updates == [("kitty", "Beta", [], ""), ("", "", [], "")]
+    assert await listener.get_active_window() == ("", "", [])
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    ["waybar", 'x") os.exit() --/'],
+    ids=["no-keyboard-interactivity", "hostile-namespace"],
+)
+@pytest.mark.asyncio
+async def test_hyprland_layer_without_keyboard_focus_keeps_active_window(namespace: str) -> None:
+    hyprland = _FakeHyprland()
+    listener, focus_updates = _listener_with_fake_hyprland(hyprland)
+
+    await listener._handle_event("activewindow>>kitty,Beta")
+    hyprland.open_layer(namespace, 0)
+    await listener._handle_event(f"openlayer>>{namespace}")
+    hyprland.layers.clear()
+    await listener._handle_event(f"closelayer>>{namespace}")
+
+    assert focus_updates == [("kitty", "Beta", [], "")]
+    assert await listener.get_active_window() == ("kitty", "Beta", [])
+    layer_query = next(command for command in hyprland.commands if command.startswith("repl "))
+    assert "/" not in layer_query
+    assert "os.exit" not in layer_query

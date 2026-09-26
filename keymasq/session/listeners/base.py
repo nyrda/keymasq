@@ -66,6 +66,14 @@ class WindowListener(ABC):
     async def get_active_window(self) -> tuple[str, str, list[str]]:
         return "", "", []
 
+    @property
+    def active_layer(self) -> str:
+        return ""
+
+    @property
+    def unavailable_capabilities(self) -> frozenset[str]:
+        return frozenset()
+
     async def get_cursor_position(self) -> tuple[int, int] | None:
         return None
 

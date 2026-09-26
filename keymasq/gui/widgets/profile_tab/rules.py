@@ -9,10 +9,30 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.profiles import WindowRule
+from keymasq.session.profile.rules import window_rule_field_supported
 from keymasq.session.profile.types import ProfileInfo
+
+WINDOW_RULE_FIELDS = ("class", "title", "tag", "layer")
+WINDOW_RULE_PLACEHOLDERS = {
+    "tag": "e.g., game|browser|work",
+    "layer": "e.g., launcher|walker",
+}
+DEFAULT_WINDOW_RULE_PLACEHOLDER = "e.g., .*cs2.*"
 
 
 class WindowRulesMixin:
+    def _window_rule_fields(self: Any) -> list[str]:
+        return [
+            field
+            for field in WINDOW_RULE_FIELDS
+            if window_rule_field_supported(field, self._compositor_capabilities)
+        ]
+
+    def _selected_window_rule_field(self: Any, row: Gtk.Box) -> str:
+        fields = row._fields
+        index = row._field_dropdown.get_selected()
+        return fields[index] if 0 <= index < len(fields) else fields[0]
+
     def _on_edit_window_rules(self: Any, _button: Gtk.Button) -> None:
         if not self._selected_profile:
             return
@@ -34,7 +54,10 @@ class WindowRulesMixin:
         content.set_margin_end(20)
 
         help_label = Gtk.Label(
-            label="Rules are matched with AND logic.\nUse Regex patterns for class/title/tag."
+            label=(
+                "Rules are matched with AND logic.\n"
+                f"Use Regex patterns for {'/'.join(self._window_rule_fields())}."
+            )
         )
         help_label.add_css_class("dim-label")
         help_label.add_css_class("caption")
@@ -197,7 +220,11 @@ class WindowRulesMixin:
         if window_title:
             rules.append(WindowRule(field="title", pattern=re.escape(window_title)))
 
-        if "window_tags" in self._compositor_capabilities:
+        layer = str(window_info.get("layer", "") or "").strip()
+        if layer and window_rule_field_supported("layer", self._compositor_capabilities):
+            rules.append(WindowRule(field="layer", pattern=re.escape(layer)))
+
+        if window_rule_field_supported("tag", self._compositor_capabilities):
             tags = [
                 str(tag).strip().replace("*", "")
                 for tag in list(window_info.get("tags", []) or [])
@@ -241,8 +268,7 @@ class WindowRulesMixin:
             self._rules_list_box.remove(row)
 
     def _create_rule_row(self: Any, rule: WindowRule) -> Gtk.Box:
-        is_tag = rule.field == "tag"
-        type_indicator = "🏷️" if is_tag else "🌐"
+        type_indicator = "🏷️" if rule.field == "tag" else "🌐"
 
         row_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         row_box.add_css_class("card")
@@ -281,25 +307,17 @@ class WindowRulesMixin:
         field_label.set_halign(Gtk.Align.START)
         content_grid.attach(field_label, 0, 0, 1, 1)
 
+        fields = self._window_rule_fields()
+        if rule.field in WINDOW_RULE_FIELDS and rule.field not in fields:
+            fields.append(rule.field)
         field_dropdown = Gtk.DropDown()
         field_model = Gtk.StringList()
-        field_model.append("class")
-        field_model.append("title")
-
-        has_tag_support = "window_tags" in self._compositor_capabilities
-        if has_tag_support:
-            field_model.append("tag")
+        for field in fields:
+            field_model.append(field)
 
         field_dropdown.set_model(field_model)
         field_dropdown.set_hexpand(True)
-        if rule.field == "class":
-            field_dropdown.set_selected(0)
-        elif rule.field == "title":
-            field_dropdown.set_selected(1)
-        elif rule.field == "tag" and has_tag_support:
-            field_dropdown.set_selected(2)
-        else:
-            field_dropdown.set_selected(0)
+        field_dropdown.set_selected(fields.index(rule.field) if rule.field in fields else 0)
         content_grid.attach(field_dropdown, 1, 0, 1, 1)
 
         pattern_label = Gtk.Label(label="Pattern:")
@@ -308,31 +326,27 @@ class WindowRulesMixin:
 
         pattern_entry = Gtk.Entry()
         pattern_entry.set_text(rule.pattern)
-        if is_tag:
-            pattern_entry.set_placeholder_text("e.g., game|browser|work")
-        else:
-            pattern_entry.set_placeholder_text("e.g., .*cs2.*")
         pattern_entry.set_hexpand(True)
         content_grid.attach(pattern_entry, 1, 1, 1, 1)
         row_box.append(content_grid)
 
         row_box._field_dropdown = field_dropdown
+        row_box._fields = fields
         row_box._pattern_entry = pattern_entry
         row_box._delete_btn = delete_btn
         row_box._title_label = title_label
         row_box._is_rule_row = True
 
-        def on_field_changed(dropdown, _param) -> None:
-            is_tag_field = has_tag_support and dropdown.get_selected() == 2
-            if is_tag_field:
-                pattern_entry.set_placeholder_text("e.g., game|browser|work")
-            else:
-                pattern_entry.set_placeholder_text("e.g., .*cs2.*")
+        def on_field_changed(_dropdown, _param) -> None:
+            field = self._selected_window_rule_field(row_box)
+            pattern_entry.set_placeholder_text(
+                WINDOW_RULE_PLACEHOLDERS.get(field, DEFAULT_WINDOW_RULE_PLACEHOLDER)
+            )
             self._update_rule_row_title(row_box)
 
         field_dropdown.connect("notify::selected", on_field_changed)
         pattern_entry.connect("changed", self._on_rule_pattern_changed, row_box)
-        self._update_rule_row_title(row_box)
+        on_field_changed(field_dropdown, None)
         return row_box
 
     def _on_close_dialog_clicked(self: Any, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
@@ -348,16 +362,7 @@ class WindowRulesMixin:
         if not hasattr(row, "_title_label") or not hasattr(row, "_field_dropdown"):
             return
 
-        field_idx = row._field_dropdown.get_selected()
-        if field_idx == 0:
-            field = "class"
-        elif field_idx == 1:
-            field = "title"
-        elif "window_tags" in self._compositor_capabilities and field_idx == 2:
-            field = "tag"
-        else:
-            field = "class"
-
+        field = self._selected_window_rule_field(row)
         pattern = row._pattern_entry.get_text().strip() if hasattr(row, "_pattern_entry") else ""
         type_indicator = "🏷️" if field == "tag" else "🌐"
         row._title_label.set_label(f"🪟 {field}: {type_indicator} {pattern or '...'}")
@@ -435,20 +440,10 @@ class WindowRulesMixin:
             return
 
         new_rules = []
-        has_tag_support = "window_tags" in self._compositor_capabilities
         for row in self._rule_rows:
             if not hasattr(row, "_is_rule_row") or not hasattr(row, "_field_dropdown"):
                 continue
-            field_idx = row._field_dropdown.get_selected()
-            if field_idx == 0:
-                field = "class"
-            elif field_idx == 1:
-                field = "title"
-            elif has_tag_support and field_idx == 2:
-                field = "tag"
-            else:
-                field = "class"
-
+            field = self._selected_window_rule_field(row)
             pattern = row._pattern_entry.get_text().strip()
             if pattern:
                 new_rules.append(WindowRule(field=field, pattern=pattern))

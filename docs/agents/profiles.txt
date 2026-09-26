@@ -52,6 +52,13 @@ pattern = "firefox"
 Portable window rule fields are `class` and `title`. Patterns are regular
 expressions. All rules in one profile must match.
 
+Compositor-specific fields:
+
+- `tag`: Hyprland window tags.
+- `layer`: namespace of the layer-shell surface with keyboard focus, such as a
+  launcher (fuzzel uses `launcher`). Hyprland only. While a layer has focus,
+  class, title, and tags are empty.
+
 ## Device layers and mappings
 
 ```toml

@@ -1,6 +1,6 @@
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import cast
 
 from keymasq.common.model.profiles import (
@@ -11,13 +11,19 @@ from keymasq.common.model.profiles import (
 from .types import ProfileInfo, TomlDict
 
 log = logging.getLogger("keymasq-session.profiles")
-SUPPORTED_WINDOW_RULE_FIELDS = frozenset({"class", "title", "tag"})
-WINDOW_MATCH_FIELDS = frozenset({"class", "title", "tag"})
+SUPPORTED_WINDOW_RULE_FIELDS = frozenset({"class", "title", "tag", "layer"})
+WINDOW_MATCH_FIELDS = frozenset({"class", "title", "tag", "layer"})
+WINDOW_RULE_FIELD_CAPABILITIES = {"tag": "window_tags", "layer": "layer_focus"}
 
 
 def normalize_window_rule_field(value: object) -> str:
     field = str(value).strip().lower()
     return "tag" if field == "tags" else field
+
+
+def window_rule_field_supported(field: str, capabilities: Collection[str]) -> bool:
+    capability = WINDOW_RULE_FIELD_CAPABILITIES.get(normalize_window_rule_field(field))
+    return capability is None or capability in capabilities
 
 
 def normalize_window_info_for_match(
@@ -29,9 +35,10 @@ def normalize_window_info_for_match(
     the same way, so they compare equal here.
     """
     if not isinstance(window_info, dict):
-        return {"class": "", "title": "", "tag": ()}
+        return {"class": "", "title": "", "tag": (), "layer": ""}
     window_class = window_info.get("class", "")
     window_title = window_info.get("title", "")
+    layer = window_info.get("layer", "")
     raw_tags = window_info.get("tags", [])
     if not isinstance(raw_tags, list):
         raw_tags = []
@@ -43,12 +50,13 @@ def normalize_window_info_for_match(
         "class": window_class if isinstance(window_class, str) else "",
         "title": window_title if isinstance(window_title, str) else "",
         "tag": tuple(tags),
+        "layer": layer if isinstance(layer, str) else "",
     }
 
 
 def has_unsupported_rules(config: ProfileConfig, capabilities: list[str]) -> bool:
-    return "window_tags" not in capabilities and any(
-        normalize_window_rule_field(rule.field) == "tag" for rule in config.window_rules
+    return any(
+        not window_rule_field_supported(rule.field, capabilities) for rule in config.window_rules
     )
 
 
@@ -101,7 +109,7 @@ def matches_window_rules(profile: ProfileConfig, window_info: TomlDict | None) -
                 tags = cast(list[object], window_tags)
                 if not any(re.search(rule.pattern, str(tag)) for tag in tags):
                     return False
-            elif field in {"class", "title"}:
+            elif field in {"class", "title", "layer"}:
                 field_value = window_info.get(field, "")
                 if not isinstance(field_value, str):
                     return False

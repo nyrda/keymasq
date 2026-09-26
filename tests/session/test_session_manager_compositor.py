@@ -154,6 +154,7 @@ async def test_switch_compositor_clears_stale_window_and_reevaluates(
 async def test_refresh_current_window_clears_stale_window_on_empty_listener_data() -> None:
     manager = SessionManager()
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("", "", []))
     )
     manager.compositor_state.current_window = {
@@ -175,6 +176,7 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
     manager = SessionManager()
     _save_conditional_profile(manager, "Steam", "class", "steam")
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("steam", "Game", ["fullscreen"]))
     )
     reevaluate_profiles = AsyncMock()
@@ -196,12 +198,47 @@ async def test_get_active_window_reevaluates_when_listener_updates_window(
 
 
 @pytest.mark.asyncio
+async def test_focused_layer_reaches_window_state_and_reevaluates_layer_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    _save_conditional_profile(manager, "Launcher", "layer", "^launcher$")
+    manager.compositor_state.compositor_capabilities = ["layer_focus"]
+    manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="launcher",
+        get_active_window=AsyncMock(return_value=("", "", [])),
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+    focused_layer = {"class": "", "title": "", "tags": [], "layer": "launcher"}
+
+    await manager.on_window_change("", "", [])
+
+    assert manager.compositor_state.current_window == focused_layer
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="window changed")
+
+    manager.compositor_state.current_window = {}
+    reevaluate_profiles.reset_mock()
+
+    assert await session_compositor_module.get_active_window_payload(manager) == {
+        "status": "ok",
+        **focused_layer,
+    }
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="active window changed")
+
+
+@pytest.mark.asyncio
 async def test_get_active_window_reevaluates_when_listener_clears_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
     _save_conditional_profile(manager, "Games", "class", "Game")
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("", "", []))
     )
     manager.compositor_state.current_window = {
@@ -321,6 +358,7 @@ async def test_get_active_window_skips_reevaluate_for_irrelevant_title_churn(
         "tags": [],
     }
     manager.compositor_state.window_listener = SimpleNamespace(
+        active_layer="",
         get_active_window=AsyncMock(return_value=("firefox", "new tab", []))
     )
     reevaluate_profiles = AsyncMock()
@@ -373,6 +411,77 @@ async def test_compositor_degraded_mode_retries_when_unsupported_or_listener_mis
     assert manager.compositor_state.compositor_id == "x11"
     assert manager.compositor_state.window_listener is None
     assert "x11" in manager.compositor_state.listener_retry_after
+
+
+@pytest.mark.asyncio
+async def test_switch_compositor_drops_capabilities_the_listener_cannot_provide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+
+    async def supported(_compositor_id: str | None, _dbus=None) -> bool:
+        return True
+
+    async def start_listener(_manager: SessionManager) -> None:
+        manager.compositor_state.window_listener = SimpleNamespace(
+            name="hyprland",
+            active_layer="",
+            unavailable_capabilities=frozenset({"layer_focus"}),
+            get_active_window=AsyncMock(return_value=("kitty", "Beta", [])),
+        )
+
+    monkeypatch.setattr(session_compositor_module, "is_compositor_supported", supported)
+    monkeypatch.setattr(session_compositor_module, "start_window_listener", start_listener)
+    monkeypatch.setattr(
+        session_compositor_module,
+        "cached_support_details",
+        AsyncMock(return_value={"supported": True}),
+    )
+
+    await session_compositor_module.switch_compositor(manager, "hyprland")
+
+    assert manager.compositor_state.compositor_capabilities == ["window_tags"]
+    payload = await session_compositor_module.build_compositor_payload(manager)
+    assert payload["capabilities"] == ["window_tags"]
+
+
+@pytest.mark.asyncio
+async def test_supervisor_drops_capabilities_the_listener_loses_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = SessionManager()
+    listener = SimpleNamespace(
+        health_check=AsyncMock(return_value=True),
+        unavailable_capabilities=frozenset(),
+    )
+    manager.compositor_state.compositor_id = "hyprland"
+    manager.compositor_state.compositor_capabilities = ["window_tags", "layer_focus"]
+    manager.compositor_state.window_listener = listener
+    manager.compositor_state.candidate = "hyprland"
+    manager.compositor_state.candidate_hits = 2
+    monkeypatch.setattr(
+        session_compositor_module,
+        "detect_compositor",
+        AsyncMock(return_value="hyprland"),
+    )
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(
+        session_compositor_module.coordinator,
+        "reevaluate_profiles",
+        reevaluate_profiles,
+    )
+
+    await session_compositor_module.ensure_compositor_listener(manager)
+    reevaluate_profiles.assert_not_awaited()
+
+    listener.unavailable_capabilities = frozenset({"layer_focus"})
+    await session_compositor_module.ensure_compositor_listener(manager)
+
+    assert manager.compositor_state.compositor_capabilities == ["window_tags"]
+    reevaluate_profiles.assert_awaited_once_with(
+        manager,
+        reason="compositor capabilities changed",
+    )
 
 
 @pytest.mark.asyncio

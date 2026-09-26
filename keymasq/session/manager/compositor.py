@@ -39,7 +39,7 @@ async def build_compositor_payload(manager: "SessionManager") -> JsonObject:
         "compositor_id": manager.compositor_state.compositor_id,
         "compositor_name": get_compositor_name(manager.compositor_state.compositor_id),
         "supported": bool(details.get("supported", False)),
-        "capabilities": get_compositor_capabilities(manager.compositor_state.compositor_id),
+        "capabilities": list(manager.compositor_state.compositor_capabilities),
         "details": details,
         "listener_active": manager.compositor_state.window_listener is not None,
         "listener_name": (
@@ -190,12 +190,16 @@ def normalize_window_info(
     window_class: str,
     window_title: str,
     window_tags: list[str],
+    layer: str = "",
 ) -> dict[str, str | list[str]]:
-    return {
+    window_info: dict[str, str | list[str]] = {
         "class": str(window_class or ""),
         "title": str(window_title or ""),
         "tags": [str(tag) for tag in window_tags if str(tag or "").strip()],
     }
+    if layer:
+        window_info["layer"] = str(layer)
+    return window_info
 
 
 def normalize_window_info_from_dict(
@@ -205,6 +209,7 @@ def normalize_window_info_from_dict(
         coerce_str(window_info.get("class"), ""),
         coerce_str(window_info.get("title"), ""),
         [str(tag) for tag in json_list(window_info.get("tags")) if str(tag or "").strip()],
+        coerce_str(window_info.get("layer"), ""),
     )
 
 
@@ -231,8 +236,13 @@ async def refresh_current_window_from_listener(
         )
         return None
 
-    window_info = normalize_window_info(window_class, window_title, window_tags)
-    if not (window_info["class"] or window_info["title"] or window_info["tags"]):
+    window_info = normalize_window_info(
+        window_class,
+        window_title,
+        window_tags,
+        listener.active_layer,
+    )
+    if not any(window_info.values()):
         manager.compositor_state.current_window = {}
         return None
     manager.compositor_state.current_window = cast(JsonObject, window_info)
@@ -375,6 +385,8 @@ async def ensure_compositor_listener(manager: "SessionManager") -> None:
     if manager.compositor_state.window_listener is not None and not current_healthy:
         log.warning("Window listener became unhealthy, restarting compositor binding")
         await switch_compositor(manager, None)
+    elif current_healthy and apply_listener_capabilities(manager):
+        await coordinator.reevaluate_profiles(manager, reason="compositor capabilities changed")
 
     if manager.compositor_state.candidate_hits < 2:
         return
@@ -468,6 +480,10 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
     manager.compositor_state.listener_retry_after.pop(compositor_id, None)
     manager.compositor_state.listener_last_error.pop(compositor_id, None)
     manager.compositor_state.listener_last_log_at.pop(compositor_id, None)
+    if apply_listener_capabilities(manager):
+        binding_changed = binding_changed or (
+            previous_capabilities != manager.compositor_state.compositor_capabilities
+        )
     previous_window = dict(manager.compositor_state.current_window)
     await refresh_current_window_from_listener(manager)
     window_changed = previous_window != manager.compositor_state.current_window
@@ -479,6 +495,23 @@ async def switch_compositor(manager: "SessionManager", compositor_id: str | None
         log.info("Compositor transitioned %s -> %s", previous or "none", compositor_id)
     else:
         log.info("Compositor listener restarted for %s", compositor_id)
+
+
+def apply_listener_capabilities(manager: "SessionManager") -> bool:
+    """Drop capabilities the running listener cannot provide; return whether they changed."""
+    listener = manager.compositor_state.window_listener
+    if listener is None:
+        return False
+    unavailable = listener.unavailable_capabilities
+    capabilities = [
+        capability
+        for capability in get_compositor_capabilities(manager.compositor_state.compositor_id)
+        if capability not in unavailable
+    ]
+    if capabilities == manager.compositor_state.compositor_capabilities:
+        return False
+    manager.compositor_state.compositor_capabilities = capabilities
+    return True
 
 
 async def stop_window_listener(manager: "SessionManager") -> None:
@@ -626,14 +659,17 @@ async def on_window_change(
     window_title: str,
     window_tags: list[str],
 ) -> None:
-    window_info = normalize_window_info(window_class, window_title, window_tags)
+    listener = manager.compositor_state.window_listener
+    layer = listener.active_layer if listener is not None else ""
+    window_info = normalize_window_info(window_class, window_title, window_tags, layer)
 
     if manager.verbosity >= 1:
         log.debug(
-            "Window changed: class=%s, title=%s, tags=%s",
+            "Window changed: class=%s, title=%s, tags=%s, layer=%s",
             window_class,
             window_title,
             window_tags,
+            layer,
         )
 
     previous_window = manager.compositor_state.current_window

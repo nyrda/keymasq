@@ -667,6 +667,73 @@ let
                     machine.succeed(as_user("pkill -x fuzzel"))
                     wait_for_active_title("Beta")
 
+            if "${expectedCompositor}" == "hyprland":
+                with subtest("Hyprland layer-shell focus"):
+                    import base64
+
+                    layer_profile_toml = (
+                        '[profile]\n'
+                        'name = "launcher-layer"\n'
+                        'enabled = true\n'
+                        'is_permanent = false\n'
+                        'created_at = "2026-01-01T00:00:00"\n'
+                        '\n'
+                        '[[profile.window_rules]]\n'
+                        'field = "layer"\n'
+                        'pattern = "^launcher$"\n'
+                    )
+                    prof_dir = "/home/${vmUser}/.config/keymasq/profiles"
+                    machine.succeed(as_user("mkdir -p " + prof_dir))
+                    prof_b64 = base64.b64encode(layer_profile_toml.encode()).decode()
+                    machine.succeed(
+                        f"echo {prof_b64} | base64 -d > " + prof_dir + "/launcher-layer.toml"
+                    )
+                    machine.succeed("chown ${vmUser}: " + prof_dir + "/launcher-layer.toml")
+                    reloaded = session_query("reload")
+                    assert reloaded.get("status") == "ok", reloaded
+
+                    def layer_profile_active() -> bool:
+                        payload = session_query("get_active_profiles")
+                        return "launcher-layer" in payload.get("active_profiles", [])
+
+                    assert not layer_profile_active()
+
+                    launched = dispatch_compositor('hl.dsp.exec_cmd("fuzzel")')
+                    assert launched.get("status") == "ok", launched
+                    wait_for_user_command("fuzzel running", "pgrep -x fuzzel")
+                    wait_for_condition(
+                        "launcher layer reported while it has focus",
+                        lambda: session_query("get_active_window").get("layer") == "launcher",
+                    )
+                    focused = session_query("get_active_window")
+                    assert not focused.get("title"), focused
+                    wait_for_condition("layer profile active", layer_profile_active)
+
+                    machine.succeed(
+                        as_user("systemctl --user restart keymasq-session.service")
+                    )
+                    wait_for_user_socket(
+                        "keymasq-session socket after restart",
+                        f"{runtime_dir}/keymasq/session.sock",
+                        "keymasq-session.service",
+                    )
+                    wait_for_listener()
+                    wait_for_condition(
+                        "launcher layer reported after session restart",
+                        lambda: session_query("get_active_window").get("layer") == "launcher",
+                    )
+                    wait_for_condition(
+                        "layer profile active after session restart",
+                        layer_profile_active,
+                    )
+                    machine.succeed(as_user("pkill -x fuzzel"))
+                    beta = wait_for_active_title("Beta")
+                    assert not beta.get("layer"), beta
+                    wait_for_condition(
+                        "layer profile inactive",
+                        lambda: not layer_profile_active(),
+                    )
+
             if "${expectedCompositor}" == "niri":
                 before = niri_window_by_title("Beta")
                 assert before is not None, before
@@ -1029,7 +1096,11 @@ in
     listener-vm-hyprland = mkDesktopTest {
       name = "listener-vm-hyprland";
       expectedCompositor = "hyprland";
-      extraModule = hyprlandModule;
+      extraModule = lib.mkMerge [
+        hyprlandModule
+        # fuzzel is a keyboard-exclusive layer-shell launcher for the focus check.
+        { environment.systemPackages = [ pkgs.fuzzel ]; }
+      ];
       memorySize = 3072;
       desktopReadyScript = ''
         wait_for_command("Hyprland process", "pgrep -u ${toString vmUid} Hyprland")

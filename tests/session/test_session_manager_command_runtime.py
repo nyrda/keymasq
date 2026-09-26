@@ -2322,15 +2322,14 @@ async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
     hardware_id = "2dc8:3106"
     request_started = asyncio.Event()
     release_response = asyncio.Event()
-    commands: list[CommandType] = []
+    commands: list[tuple[CommandType, dict[str, object]]] = []
 
     async def send_command(command: Command) -> Response:
-        commands.append(command.command)
+        commands.append((command.command, dict(command.data)))
         if command.command == CommandType.CAPTURE_BEGIN:
             request_started.set()
             await release_response.wait()
             return Response(status="ok", data={"token": "token-1", "warnings": []})
-        assert command.data == {"token": "token-1"}
         return Response(status="ok")
 
     manager.client.send_command = AsyncMock(side_effect=send_command)
@@ -2345,7 +2344,10 @@ async def test_begin_capture_cancellation_ends_daemon_capture_after_ack(
     with pytest.raises(asyncio.CancelledError):
         await capture_task
 
-    assert commands == [CommandType.CAPTURE_BEGIN, CommandType.CAPTURE_END]
+    assert commands == [
+        (CommandType.CAPTURE_BEGIN, {"hardware_id": hardware_id}),
+        (CommandType.CAPTURE_END, {"token": "token-1"}),
+    ]
     assert manager.capture_state.tokens == {}
     assert manager.capture_state.locks == set()
     assert manager.capture_state.resume_profiles == {}

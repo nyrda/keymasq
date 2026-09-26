@@ -2365,9 +2365,10 @@ class TestDeviceManager:
         device = _Device()
         manager.grabbed_devices["hw"] = [device]
         manager.grab_state.desired_paths["hw"] = {device.path}
+        stopped_when_cleared: list[bool] = []
 
         async def clear_combo_runtime_for_binding_scope(*_args, **_kwargs) -> None:
-            assert device.task.done()
+            stopped_when_cleared.append(device.task.done())
 
         monkeypatch.setattr(
             lifecycle,
@@ -2382,6 +2383,8 @@ class TestDeviceManager:
             if not read_task.done():
                 read_task.cancel()
                 await asyncio.gather(read_task, return_exceptions=True)
+
+        assert stopped_when_cleared == [True]
 
 
 class TestDeviceDetection:

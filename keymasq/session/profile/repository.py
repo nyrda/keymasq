@@ -29,27 +29,25 @@ class ProfileRepository:
         strict: bool = False,
         on_created_at_repair: Callable[[ProfileConfig, Path, str], None] | None = None,
     ) -> dict[str, ProfileInfo]:
-        def load_profile(path: Path) -> ProfileConfig:
-            decoded = self.codec.load(path)
-            if decoded.created_at_repair_reason is not None and on_created_at_repair is not None:
-                on_created_at_repair(
-                    decoded.config,
-                    path,
-                    decoded.created_at_repair_reason,
-                )
-            return decoded.config
-
         loaded_profiles: dict[str, ProfileInfo] = {}
-        for profile_file, config in load_config_files_sync(
+        for profile_file, decoded in load_config_files_sync(
             paths.PROFILES_DIR,
             config_kind="profile",
             strict=strict,
-            load_config=load_profile,
+            load_config=self.codec.load,
             logger=log,
             sort_paths=True,
         ):
+            # Repairs must run on the caller's thread, which may hold the
+            # profile file lock or schedule async repair tasks.
+            if decoded.created_at_repair_reason is not None and on_created_at_repair is not None:
+                on_created_at_repair(
+                    decoded.config,
+                    profile_file,
+                    decoded.created_at_repair_reason,
+                )
             self._add_loaded(
-                ProfileInfo(path=profile_file, config=config),
+                ProfileInfo(path=profile_file, config=decoded.config),
                 loaded_profiles,
             )
         return loaded_profiles

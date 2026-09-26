@@ -285,11 +285,7 @@ class _PersistentSessionConnection:
     def _send_with_deadline(self, sock: socket.socket, payload: bytes, timeout: float) -> None:
         deadline = time.monotonic() + max(0.01, float(timeout))
         view = memoryview(payload)
-        try:
-            fileno = sock.fileno()
-        except (AttributeError, OSError):
-            sock.sendall(payload)
-            return
+        fileno = sock.fileno()
 
         while view:
             remaining = deadline - time.monotonic()
@@ -299,7 +295,7 @@ class _PersistentSessionConnection:
             if not writable:
                 raise TimeoutError("session request write timed out")
             try:
-                sent = sock.send(view, getattr(socket, "MSG_DONTWAIT", 0))
+                sent = sock.send(view, socket.MSG_DONTWAIT)
             except BlockingIOError:
                 continue
             if sent <= 0:

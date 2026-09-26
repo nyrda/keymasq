@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import queue
+import socket
 import struct
 import sys
 import threading
@@ -180,21 +181,6 @@ class _FakeSocket:
         if not self._chunks:
             return b""
         return self._chunks.pop(0)
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class _RequestOnlySocket:
-    def __init__(self) -> None:
-        self.sent = b""
-        self.closed = False
-
-    def send(self, data: bytes) -> int:
-        raise AssertionError("partial-write-prone send() must not be used")
-
-    def sendall(self, data: bytes) -> None:
-        self.sent += data
 
     def close(self) -> None:
         self.closed = True
@@ -421,49 +407,61 @@ def test_persistent_session_reader_loop_routes_events_and_response(
 
 def test_persistent_session_request_timeout_closes_connection() -> None:
     connection = gui_session_client._PersistentSessionConnection()
-    sock = _RequestOnlySocket()
-    connection._sock = sock  # pyright: ignore[reportPrivateUsage]
+    sock, peer = socket.socketpair()
+    with sock, peer:
+        peer.settimeout(1.0)
+        connection._sock = sock  # pyright: ignore[reportPrivateUsage]
 
-    response = connection.request({"command": "get_status"}, timeout=0.01)
+        response = connection.request({"command": "get_status"}, timeout=1.0)
 
-    assert response is None
-    assert sock.sent == b'{"command": "get_status"}\n'
-    assert sock.closed is True
-    assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
+        assert response is None
+        with peer.makefile("rb") as reader:
+            assert reader.readline() == b'{"command": "get_status"}\n'
+            assert reader.read(1) == b""
+        assert sock.fileno() == -1
+        assert connection._sock is None  # pyright: ignore[reportPrivateUsage]
 
 
 def test_stale_request_timeout_does_not_close_replacement_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     connection = gui_session_client._PersistentSessionConnection()
-    old_sock = _RequestOnlySocket()
-    new_sock = _RequestOnlySocket()
-    connection._sock = old_sock  # pyright: ignore[reportPrivateUsage]
+    old_sock, old_peer = socket.socketpair()
+    with old_sock, old_peer:
+        new_sock, new_peer = socket.socketpair()
+        with new_sock, new_peer:
+            old_peer.settimeout(1.0)
+            new_peer.settimeout(1.0)
+            connection._sock = old_sock  # pyright: ignore[reportPrivateUsage]
 
-    def replace_during_wait(*, timeout: float) -> None:
-        _ = timeout
-        with connection._state_lock:
-            connection._generation += 1
-            connection._sock = new_sock
-        raise queue.Empty
+            def replace_during_wait(*, timeout: float) -> None:
+                _ = timeout
+                with connection._state_lock:
+                    connection._generation += 1
+                    connection._sock = new_sock
+                raise queue.Empty
 
-    response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1)
-    response_queue.get = replace_during_wait  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        gui_session_client,
-        "queue",
-        types.SimpleNamespace(
-            Queue=lambda maxsize=0: response_queue,
-            Empty=queue.Empty,
-            Full=queue.Full,
-        ),
-    )
-    response = connection.request({"command": "get_status"}, timeout=0.01)
+            response_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=1)
+            response_queue.get = replace_during_wait  # type: ignore[method-assign]
+            monkeypatch.setattr(
+                gui_session_client,
+                "queue",
+                types.SimpleNamespace(
+                    Queue=lambda maxsize=0: response_queue,
+                    Empty=queue.Empty,
+                    Full=queue.Full,
+                ),
+            )
+            response = connection.request({"command": "get_status"}, timeout=1.0)
 
-    assert response is None
-    assert old_sock.closed is True
-    assert new_sock.closed is False
-    assert connection._sock is new_sock  # pyright: ignore[reportPrivateUsage]
+            assert response is None
+            with old_peer.makefile("rb") as reader:
+                assert reader.readline() == b'{"command": "get_status"}\n'
+                assert reader.read(1) == b""
+            assert old_sock.fileno() == -1
+            assert connection._sock is new_sock  # pyright: ignore[reportPrivateUsage]
+            new_sock.sendall(b"replacement is open")
+            assert new_peer.recv(64) == b"replacement is open"
 
 
 def test_persistent_session_failed_connect_closes_socket(

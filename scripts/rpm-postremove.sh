@@ -13,6 +13,14 @@ if [ "${1:-0}" -ne 0 ]; then
     exit 0
 fi
 
+# Bytecode written at runtime is not owned by the package and keeps its
+# directories from being removed.
+for keymasq_dir in /usr/lib/python3*/site-packages/keymasq; do
+    [ -d "$keymasq_dir" ] || continue
+    find "$keymasq_dir" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    find "$keymasq_dir" -depth -type d -empty -delete 2>/dev/null || true
+done
+
 # Let the remaining udev policy recompute owner, group, and mode.
 udevadm trigger --action=change --subsystem-match=input 2>/dev/null || true
 udevadm trigger --action=change --sysname-match=uinput 2>/dev/null || true

@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 
+# The package ships no bytecode and rpmbuild can pin source mtimes, so bytecode
+# that root processes wrote for the previous version would still look current.
+for keymasq_dir in /usr/lib/python3*/site-packages/keymasq; do
+    [ -d "$keymasq_dir" ] || continue
+    find "$keymasq_dir" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+done
+
 # Apply packaged sysusers/tmpfiles data when the host allows it.
 systemd-sysusers /usr/lib/sysusers.d/keymasq.conf >/dev/null 2>&1 || true
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/keymasq.conf >/dev/null 2>&1 || true

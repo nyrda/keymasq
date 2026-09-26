@@ -117,6 +117,20 @@ wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
 Pick a keyboard key from the visual layout (up to F12). The mapped button
 will send that key press instead of its original input.
 
+The keys are labeled for the layout in **Settings > Keyboard layout** (see
+[Keyboard layout](macros.md#keyboard-layout)). On a German layout, the key
+right of T reads Z, and non-letter keys show their shifted character above the
+unshifted one. The labels only change what you see: a mapping stores the
+physical key, and your desktop's layout decides which character it types.
+Hover a key to see its evdev name, such as `KEY_Y`.
+
+US layouts, and the Chinese, Korean, Taiwanese, and Thai layouts, show an ANSI
+keyboard. Every other layout shows an ISO keyboard, which adds the key between
+left Shift and Z (`KEY_102ND`) and moves `KEY_BACKSLASH` next to a two-row
+Enter. If the layout can't be loaded, the tab shows the US keyboard. Keys
+that neither grid has, such as the extra keys on Japanese and Brazilian
+keyboards, can be mapped with **Capture Key** or **Key code**.
+
 The Keyboard tab also includes a compact **System Keys** row:
 
 - Volume Up, Volume Down, and Mute
@@ -127,9 +141,13 @@ These are regular keyboard actions, so the shared Keyboard-tab options apply
 when you enable them.
 
 You can also use **Capture Key** to press any key on your keyboard and have
-Keymasq detect it automatically, or enter a raw evdev code directly (e.g.
-`125` or `key_leftmeta`). The virtual keyboard advertises every usable
-`KEY_*` code known to the installed evdev table. For a full list, see the
+Keymasq detect it automatically. It records the physical key, so on a German
+layout pressing the key labeled Z maps `KEY_Y`, the same key the grid shows.
+In the browser-based Broadway GUI, which doesn't report physical keys, it
+falls back to the typed character and only recognizes US key names. You can
+also enter a raw evdev code directly (e.g. `125` or `key_leftmeta`). The
+virtual keyboard advertises every usable `KEY_*` code known to the installed
+evdev table. For a full list, see the
 [Linux input event codes header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h).
 
 ![Keyboard tab with the visual layout, Capture Key, and raw code entry](assets/screenshots/key_selector_keyboard.png)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 import evdev
 import gi
@@ -14,6 +15,7 @@ from keymasq.common.controller_capabilities import (
     hardware_controller_template,
     routed_controller_template,
 )
+from keymasq.common.keyboard_layouts import KeyboardLayoutError, KeyLegend, key_legends
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.types import JsonObject
@@ -22,7 +24,7 @@ from keymasq.common.virtual_device_templates import (
     ResolvedVirtualDevice,
     resolve_virtual_devices,
 )
-from keymasq.gui.session_client import session_request_async
+from keymasq.gui.session_client import GuiTaskResult, run_gui_task, session_request_async
 from keymasq.gui.widgets import input_picker_shared
 from keymasq.gui.widgets.gamepad_output_choices import (
     gamepad_output_choice_matches,
@@ -36,14 +38,13 @@ from keymasq.gui.widgets.mouse_move_units import (
     NATURAL_MOVE_SPEED_MAX_KPX_S,
     speed_px_s_to_kpx_s,
 )
+from keymasq.gui.widgets.type_macro_layout import TypeMacroLayout
 from keymasq.session.hardware import HardwareManager
 
 from .targets import (
     ACTION_DOC_LINKS,
     F_EXTRA,
     KEY_TO_EVDEV,
-    KEY_WIDTHS,
-    KEYBOARD_LAYOUT,
     MEDIA_KEY_GROUPS,
     MPRIS_MEDIA_GROUPS,
     SYSTEM_KEY_GROUPS,
@@ -51,6 +52,7 @@ from .targets import (
     _keyboard_target_allows_rapidfire,
     _keyboard_target_allows_tap,
     _resolve_gamepad_button_target,
+    keyboard_rows_for_layout,
 )
 
 log = logging.getLogger(__name__)
@@ -101,6 +103,24 @@ def _ensure_compact_tabs_css() -> None:
     _compact_tabs_css_installed = True
 
 
+# X11 and Wayland keycodes are evdev codes plus 8; Broadway numbers keys differently.
+_EVDEV_KEYCODE_DISPLAYS = frozenset({"GdkX11Display", "GdkWaylandDisplay"})
+_EVDEV_KEYCODE_OFFSET = 8
+
+
+def _keycode_to_evdev(controller: Gtk.EventController, keycode: int) -> str | None:
+    widget = controller.get_widget()
+    if widget is None or widget.get_display().__gtype__.name not in _EVDEV_KEYCODE_DISPLAYS:
+        return None
+    return _evdev_key_name(keycode - _EVDEV_KEYCODE_OFFSET)
+
+
+def _evdev_key_name(code: int) -> str | None:
+    key_name = evdev.ecodes.KEY.get(code)
+    names = [key_name] if isinstance(key_name, str) else list(key_name or ())
+    return next((name.lower() for name in names if name.startswith("KEY_")), None)
+
+
 class SharedInputTabsMixin:
     _selection_emit_closes_dialog = False
     _include_keyboard_capture_controls = False
@@ -136,13 +156,16 @@ class SharedInputTabsMixin:
         return btn
 
     def _build_keyboard_tab(self) -> Gtk.Widget:
+        self._keyboard_rows = keyboard_rows_for_layout(None)
         scrolled = input_picker_shared.build_keyboard_tab(
             self,
-            keyboard_layout=KEYBOARD_LAYOUT,
-            key_to_evdev=KEY_TO_EVDEV,
-            key_widths=KEY_WIDTHS,
+            keyboard_rows=self._keyboard_rows,
             system_key_groups=SYSTEM_KEY_GROUPS,
         )
+        self._keyboard_legends_generation = 0
+        self._keyboard_layout_state = TypeMacroLayout(self._on_keyboard_layout_changed)
+        self.connect("closed", self._on_keyboard_tab_closed)
+        self._keyboard_layout_state.refresh()
         if not self._include_keyboard_capture_controls:
             return scrolled
 
@@ -195,6 +218,50 @@ class SharedInputTabsMixin:
 
         return outer
 
+    def _on_keyboard_tab_closed(self, _dialog: Gtk.Widget) -> None:
+        self._keyboard_layout_state.close()
+        self._keyboard_legends_generation += 1
+
+    def _on_keyboard_layout_changed(self) -> None:
+        state = self._keyboard_layout_state
+        if state.loading:
+            return
+        self._keyboard_legends_generation += 1
+        generation = self._keyboard_legends_generation
+        layout_id = state.layout_id
+        if layout_id is None:
+            self._show_keyboard_layout(None, {})
+            return
+
+        def load_legends() -> Mapping[int, KeyLegend] | None:
+            try:
+                return key_legends(layout_id)
+            except KeyboardLayoutError:
+                return None
+
+        def on_loaded(result: GuiTaskResult[Mapping[int, KeyLegend] | None]) -> bool:
+            if generation != self._keyboard_legends_generation:
+                return False
+            if result.ok and result.value is not None:
+                self._show_keyboard_layout(layout_id, result.value)
+            else:
+                self._show_keyboard_layout(None, {})
+            return False
+
+        run_gui_task(load_legends, on_loaded)
+
+    def _show_keyboard_layout(
+        self, layout_id: str | None, legends: Mapping[int, KeyLegend]
+    ) -> None:
+        rows = keyboard_rows_for_layout(layout_id)
+        if rows is not self._keyboard_rows:
+            self._keyboard_rows = rows
+            grid = input_picker_shared.replace_keyboard_grid(self, rows)
+            mark_current_target = getattr(self, "_mark_current_target", None)
+            if callable(mark_current_target):
+                mark_current_target(grid)
+        input_picker_shared.apply_key_legends(self._keyboard_grid, legends)
+
     def _on_keyboard_capture_clicked(self, btn) -> None:
         self._kb_capture_pending = True
         self.kb_capture_status.set_text("Press a key...")
@@ -202,7 +269,7 @@ class SharedInputTabsMixin:
     def _on_keyboard_capture_key_pressed(self, controller, keyval, keycode, state) -> bool:
         if not getattr(self, "_kb_capture_pending", False):
             return False
-        evdev_name = self._keyval_to_evdev(keyval)
+        evdev_name = _keycode_to_evdev(controller, keycode) or self._keyval_to_evdev(keyval)
         if not evdev_name:
             self.kb_capture_status.set_text("Unrecognized key")
             self._kb_capture_pending = False
@@ -221,15 +288,7 @@ class SharedInputTabsMixin:
             evdev_name = raw
         else:
             try:
-                code = int(raw)
-                key_name = evdev.ecodes.KEY.get(code)
-                if isinstance(key_name, str) and key_name.startswith("KEY_"):
-                    evdev_name = key_name.lower()
-                elif isinstance(key_name, (list, tuple)):
-                    for candidate in key_name:
-                        if candidate.startswith("KEY_"):
-                            evdev_name = candidate.lower()
-                            break
+                evdev_name = _evdev_key_name(int(raw))
             except (TypeError, ValueError):
                 evdev_name = None
         if not evdev_name:

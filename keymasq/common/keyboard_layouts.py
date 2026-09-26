@@ -167,6 +167,72 @@ def unmodified_key_outputs(layout_id: str) -> Mapping[int, str]:
         raise KeyboardLayoutError(str(exc)) from exc
 
 
+_DEAD_KEY_GLYPHS = {
+    "grave": "`",
+    "acute": "´",
+    "circumflex": "^",
+    "tilde": "~",
+    "perispomeni": "~",
+    "macron": "¯",
+    "breve": "˘",
+    "abovedot": "˙",
+    "diaeresis": "¨",
+    "abovering": "˚",
+    "doubleacute": "˝",
+    "caron": "ˇ",
+    "cedilla": "¸",
+    "ogonek": "˛",
+    "iota": "ͺ",
+    "stroke": "/",
+    "belowdot": ".",
+    "belowcomma": ",",
+}
+
+
+@dataclass(frozen=True)
+class KeyLegend:
+    base: str
+    shifted: str = ""
+
+
+@lru_cache(maxsize=8)
+def key_legends(layout_id: str) -> Mapping[int, KeyLegend]:
+    layout, variant = parse_keyboard_layout_id(layout_id)
+    try:
+        with xkb.Keymap(layout, variant) as keymap:
+            legends: dict[int, KeyLegend] = {}
+            # levels() skips empty levels, so some keys only appear above level 0.
+            for code in sorted({level.evdev_code for level in keymap.levels()}):
+                base = _legend_text(keymap.keysym_for_chord(code, ()))
+                shifted = _legend_text(keymap.keysym_for_chord(code, (evdev.ecodes.KEY_LEFTSHIFT,)))
+                if not base and not shifted:
+                    continue
+                capital = _capital_legend(base, shifted) if base else ""
+                legends[code] = KeyLegend(capital) if capital else KeyLegend(base, shifted)
+            return legends
+    except (xkb.XkbUnavailableError, ValueError) as exc:
+        raise KeyboardLayoutError(str(exc)) from exc
+
+
+def _capital_legend(base: str, shifted: str) -> str:
+    if shifted == base:
+        upper = base.upper()
+        return upper if len(upper) == 1 else base
+    if shifted == base.upper() or (shifted.isupper() and shifted.lower().startswith(base)):
+        return shifted
+    return ""
+
+
+def _legend_text(keysym: int) -> str:
+    char = xkb.keysym_to_char(keysym)
+    if char and char.isprintable() and not char.isspace():
+        return char
+    name = xkb.keysym_name(keysym)
+    if name.startswith("dead_"):
+        return _DEAD_KEY_GLYPHS.get(name.removeprefix("dead_"), "◌")
+    return ""
+
+
 # A compiled layout holds about 260 KiB of character map. The setting and a few
 # ``--layout`` overrides are all a process needs; the bound keeps a client that
 # tries many layouts from growing the session indefinitely.

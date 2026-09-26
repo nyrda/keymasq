@@ -5,8 +5,10 @@ from keymasq.common import xkb
 from keymasq.common.keyboard_layouts import (
     DEFAULT_KEYBOARD_LAYOUT,
     KeyboardLayoutError,
+    KeyLegend,
     TypedKey,
     is_known_keyboard_layout,
+    key_legends,
     keyboard_layout,
     keyboard_layout_choices,
     keyboard_layout_name,
@@ -61,6 +63,30 @@ def test_unmodified_key_outputs_use_the_physical_code_and_layout() -> None:
     assert unmodified_key_outputs("us")[K.KEY_LEFTBRACE] == "["
     assert unmodified_key_outputs("fr")[K.KEY_LEFTBRACE] == "dead circumflex"
     assert K.KEY_LEFTCTRL not in unmodified_key_outputs("de")
+
+
+@requires_xkb
+def test_key_legends_label_physical_keys_like_keycaps() -> None:
+    assert key_legends("de")[K.KEY_Y] == KeyLegend("Z")
+    assert key_legends("de")[K.KEY_SEMICOLON] == KeyLegend("Ö")
+    assert key_legends("de")[K.KEY_MINUS] == KeyLegend("ß", "?")
+    assert key_legends("us")[K.KEY_1] == KeyLegend("1", "!")
+    assert key_legends("fr")[K.KEY_Q] == KeyLegend("A")
+    assert key_legends("fr")[K.KEY_1] == KeyLegend("&", "1")
+    assert key_legends("ru")[K.KEY_Q] == KeyLegend("Й")
+    assert key_legends("tr")[K.KEY_APOSTROPHE] == KeyLegend("İ")
+    assert key_legends("tr")[K.KEY_I] == KeyLegend("I")
+    assert key_legends("et")[K.KEY_BACKSLASH] == KeyLegend("", "‐")
+    assert key_legends("ma(tifinagh)")[K.KEY_2] == KeyLegend("", "2")
+    assert key_legends("de")[K.KEY_EQUAL] == KeyLegend("´", "`")
+    assert key_legends("de")[K.KEY_GRAVE] == KeyLegend("^", "°")
+    assert K.KEY_SPACE not in key_legends("de")
+    assert K.KEY_LEFTCTRL not in key_legends("de")
+
+
+def test_key_legends_reject_unknown_layouts() -> None:
+    with pytest.raises(KeyboardLayoutError):
+        key_legends("de,us")
 
 
 @requires_xkb

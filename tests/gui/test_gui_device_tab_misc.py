@@ -3560,7 +3560,7 @@ def test_shared_navigation_picker_builds_dropdown():
 def test_shared_keyboard_picker_builds_system_key_row():
     from gi.repository import Gtk
 
-    from keymasq.gui.widgets.input_picker_shared import build_keyboard_tab
+    from keymasq.gui.widgets.input_picker_shared import KeyCap, build_keyboard_tab
     from keymasq.gui.widgets.key_selector.targets import SYSTEM_KEY_GROUPS
 
     class _Owner:
@@ -3595,9 +3595,7 @@ def test_shared_keyboard_picker_builds_system_key_row():
     owner = _Owner()
     widget = build_keyboard_tab(
         owner,
-        keyboard_layout=[["Esc"]],
-        key_to_evdev={"Esc": "key_esc"},
-        key_widths={},
+        keyboard_rows=[[KeyCap("Esc", "key_esc")]],
         system_key_groups=SYSTEM_KEY_GROUPS,
     )
 

@@ -3,6 +3,15 @@ import pytest
 gi = pytest.importorskip("gi")
 
 
+@pytest.fixture
+def toasts(monkeypatch):
+    from keymasq.gui.widgets.settings_dialog import SettingsDialog
+
+    submitted = []
+    monkeypatch.setattr(SettingsDialog, "add_toast", lambda _dialog, toast: submitted.append(toast))
+    return submitted
+
+
 def test_settings_dialog_constructs(monkeypatch, temp_config_dir) -> None:
     gi.require_version("Adw", "1")
     from gi.repository import Adw
@@ -51,7 +60,10 @@ def test_settings_dialog_opens_macro_recording_settings(monkeypatch, temp_config
 def test_settings_dialog_shows_session_apply_error(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
+    from gi.repository import Adw
+
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
 
@@ -74,7 +86,10 @@ def test_settings_dialog_shows_session_apply_error(
 
     callbacks[-1][1]({"status": "error", "message": "daemon rejected request"})
 
-    assert dialog._status_text == "daemon rejected request"
+    assert [toast.get_title() for toast in toasts] == ["daemon rejected request"]
+    assert isinstance(toasts[0], Adw.Toast)
+    assert toasts[0].get_priority() == Adw.ToastPriority.HIGH
+    assert toasts[0].get_timeout() == 3
     assert dialog._gamepad_count == 1
     assert dialog._count_label.get_text() == "1"
     assert saves == []
@@ -88,6 +103,7 @@ def test_settings_dialog_shows_session_apply_error(
 def test_settings_dialog_local_saves_only_without_session_response(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
@@ -110,7 +126,7 @@ def test_settings_dialog_local_saves_only_without_session_response(
 
     callbacks[-1][1](None)
 
-    assert dialog._status_text == ""
+    assert toasts == []
     assert saves[0].virtual_gamepad_count == 3
 
 
@@ -256,6 +272,7 @@ def test_settings_dialog_plus_minus_auto_applies(monkeypatch, temp_config_dir) -
 def test_settings_dialog_shows_persistence_warning_without_reverting(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
@@ -282,12 +299,15 @@ def test_settings_dialog_shows_persistence_warning_without_reverting(
 
     assert dialog._gamepad_count == 2
     assert dialog._count_label.get_text() == "2"
-    assert dialog._status_text == "Applied for this session but could not be saved."
+    assert [toast.get_title() for toast in toasts] == [
+        "Applied for this session but could not be saved."
+    ]
 
 
 def test_settings_dialog_reverts_to_stale_success_when_newest_save_fails(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
@@ -328,7 +348,7 @@ def test_settings_dialog_reverts_to_stale_success_when_newest_save_fails(
 
     newest_save_callback({"status": "error", "message": "failed"})
 
-    assert dialog._status_text == "failed"
+    assert [toast.get_title() for toast in toasts] == ["failed"]
     assert dialog._gamepad_count == 2
     assert dialog._applied_gamepad_count == 2
     assert dialog._count_label.get_text() == "2"
@@ -337,6 +357,7 @@ def test_settings_dialog_reverts_to_stale_success_when_newest_save_fails(
 def test_settings_dialog_ignores_stale_success_after_newest_save_applies(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
@@ -387,7 +408,7 @@ def test_settings_dialog_ignores_stale_success_after_newest_save_applies(
     }
     callbacks[-1][1]({"status": "error", "message": "failed"})
 
-    assert dialog._status_text == "failed"
+    assert [toast.get_title() for toast in toasts] == ["failed"]
     assert dialog._gamepad_count == 3
     assert dialog._applied_gamepad_count == 3
     assert dialog._count_label.get_text() == "3"
@@ -396,6 +417,7 @@ def test_settings_dialog_ignores_stale_success_after_newest_save_applies(
 def test_settings_dialog_syncs_late_stale_success_after_newest_save_fails(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
@@ -436,7 +458,7 @@ def test_settings_dialog_syncs_late_stale_success_after_newest_save_fails(
 
     first_save_callback({"status": "ok", "virtual_gamepad_count": 2})
 
-    assert dialog._status_text == "failed"
+    assert [toast.get_title() for toast in toasts] == ["failed"]
     assert dialog._gamepad_count == 2
     assert dialog._applied_gamepad_count == 2
     assert dialog._count_label.get_text() == "2"
@@ -445,6 +467,7 @@ def test_settings_dialog_syncs_late_stale_success_after_newest_save_fails(
 def test_settings_dialog_keyboard_layout_row_saves_selection(
     monkeypatch,
     temp_config_dir,
+    toasts,
 ) -> None:
     from keymasq.common import xkb
     from keymasq.gui.widgets import settings_dialog as dialog_module
@@ -479,13 +502,13 @@ def test_settings_dialog_keyboard_layout_row_saves_selection(
 
     callback({"status": "ok", "virtual_gamepad_count": 1, "keyboard_layout": "fr"})
     assert dialog._applied_keyboard_layout == "fr"
-    assert dialog._status_text == ""
+    assert toasts == []
 
     dialog._set_keyboard_layout("de")
     callbacks[-1][1]({"status": "error", "message": "daemon rejected request"})
     assert dialog._keyboard_layout == "fr"
     assert dialog._layout_row.get_subtitle() == "French (fr)"
-    assert dialog._status_text == "daemon rejected request"
+    assert [toast.get_title() for toast in toasts] == ["daemon rejected request"]
 
 
 def test_settings_dialog_keyboard_layout_page_filters_and_selects(
@@ -526,7 +549,7 @@ def test_settings_dialog_keyboard_layout_page_filters_and_selects(
     assert callbacks[-1][0]["keyboard_layout"] == "de(T3)"
 
 
-def test_settings_dialog_uses_session_layout_list(monkeypatch, temp_config_dir) -> None:
+def test_settings_dialog_uses_session_layout_list(monkeypatch, temp_config_dir, toasts) -> None:
     from keymasq.gui.widgets import settings_dialog as dialog_module
     from keymasq.gui.widgets.settings_dialog import SettingsDialog
 
@@ -554,6 +577,7 @@ def test_settings_dialog_uses_session_layout_list(monkeypatch, temp_config_dir) 
     assert dialog._layout_row.get_sensitive()
     page = dialog._open_keyboard_layout_page()
     assert page.visible_layout_ids() == ["us", "xx"]
+    assert toasts == []
 
     empty = SettingsDialog()
     callbacks[-1][1](
@@ -565,7 +589,9 @@ def test_settings_dialog_uses_session_layout_list(monkeypatch, temp_config_dir) 
         }
     )
     assert not empty._layout_row.get_sensitive()
-    assert "cannot load libxkbcommon" in empty._status_text
+    assert [toast.get_title() for toast in toasts] == [
+        "Keyboard layouts are unavailable: keymasq-session cannot load libxkbcommon"
+    ]
 
 
 def test_present_keyboard_layout_settings_opens_on_layout_page(monkeypatch) -> None:

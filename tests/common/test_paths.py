@@ -71,6 +71,33 @@ def test_resolve_keymasq_helper_path_uses_build_override(
         importlib.reload(paths)
 
 
+def test_resolve_keymasq_helper_path_uses_build_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import keymasq.common.paths as paths
+
+    legacy_helper = tmp_path / "keymasq-record"
+    legacy_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    legacy_helper.chmod(0o755)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(
+                    KEYMASQ_HELPER_PATH=str(tmp_path / "keymasq-helper"),
+                    KEYMASQ_HELPER_FALLBACK_PATHS=(str(legacy_helper),),
+                ),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.resolve_keymasq_helper_path() == str(legacy_helper)
+    finally:
+        importlib.reload(paths)
+
+
 def test_resolve_slurp_path_uses_build_override(
     tmp_path: Path,
     monkeypatch,

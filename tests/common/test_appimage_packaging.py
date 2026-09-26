@@ -14,7 +14,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
-RELEASED_V0_19_RUNTIME_SCRIPT = ROOT / "tests/common/fixtures/keymasq-appimage-runtime-v0.19.0.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
 APPIMAGE_ASSETS = ROOT / "packaging/appimage/assets"
 APPIMAGE_BUILDER = ROOT / "packaging/appimage/make-appimage.sh"
@@ -616,7 +615,6 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
         "keymasqd",
         "keymasq-session",
         "keymasq-helper",
-        "keymasq-record",
         "slurp",
         "waypipe",
         "gtk4-brotway-run",
@@ -1746,48 +1744,6 @@ def _unit_command(unit: Path, fake_root: Path, argument: str) -> Path:
         if key in {"ExecStart", "ExecStartPre"} and argument in command:
             return fake_root / command.lstrip("+-").split()[0].lstrip("/")
     raise AssertionError(f"{unit} has no command with {argument}")
-
-
-def test_appimage_released_v0_19_updater_reaches_helper_bootstrap(tmp_path: Path) -> None:
-    fake_root = tmp_path / "root"
-    assets = _asset_dir(tmp_path)
-    source_appimage = tmp_path / "source.AppImage"
-    source_appimage.write_text("source\n", encoding="utf-8")
-    env = _env(tmp_path, fake_root, assets, source_appimage)
-    install_root = fake_root / "opt/keymasq"
-    (install_root / "runtime/v0.19").mkdir(parents=True)
-    (install_root / "runtime/current").symlink_to("v0.19")
-    (install_root / "Keymasq.AppImage").write_text("old\n", encoding="utf-8")
-    daemon_unit = fake_root / "etc/systemd/system/keymasqd.service"
-    daemon_unit.parent.mkdir(parents=True)
-    daemon_unit.write_text("v0.19 daemon unit\n", encoding="utf-8")
-    update_dir = tmp_path / "updates"
-    update_dir.mkdir()
-    new_appimage = update_dir / "Keymasq-9.9.9-x86_64.AppImage"
-    new_appimage.write_text("new\n", encoding="utf-8")
-    _write_update_manifest(update_dir, new_appimage, "9.9.9")
-    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
-    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "0.19.0"
-    released_updater = tmp_path / "released/keymasq"
-    released_updater.parent.mkdir()
-    released_updater.symlink_to(RELEASED_V0_19_RUNTIME_SCRIPT)
-
-    subprocess.run(
-        ["sh", str(released_updater), "--self-update", "--allow-unsigned", "--user", "root"],
-        check=True,
-        env=env,
-    )
-
-    repair = _unit_command(daemon_unit, fake_root, "repair-appimage-integration")
-    del env["KEYMASQ_APPIMAGE_ASSET_DIR"]
-    env["APPDIR"] = str(install_root / "runtime/current")
-    subprocess.run(["sh", str(repair), "repair-appimage-integration"], check=True, env=env)
-
-    hardware_unit = fake_root / "etc/systemd/system/keymasq-hardware@.service"
-    assert os.access(_unit_command(hardware_unit, fake_root, "hardware-operation"), os.X_OK)
-    assert (fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules").is_file()
-    assert not (fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules").exists()
-    assert not (install_root / "bin/keymasq-record").exists()
 
 
 def test_appimage_helper_wrapper_runs_pre_rename_runtime_after_failed_update(

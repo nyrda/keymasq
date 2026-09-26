@@ -295,6 +295,8 @@ copy_source_tree() {
 
   cat >"$WORKDIR/source/keymasq/common/build_paths.py" <<'PY'
 KEYMASQ_HELPER_PATH = "/opt/keymasq/bin/keymasq-helper"
+# Non-systemd installs updated by the v0.19 updater keep only the old wrapper.
+KEYMASQ_HELPER_FALLBACK_PATHS = ("/opt/keymasq/bin/keymasq-record",)
 SLURP_PATH = "/opt/keymasq/runtime/current/bin/slurp"
 PY
 }

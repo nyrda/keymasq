@@ -1,0 +1,118 @@
+[profile]
+name = "$ROLLOVER_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 700
+notify_on_activation = false
+created_at = "2026-09-23T00:00:00"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_f13]
+action = "gamepad_axis"
+target = "abs_x"
+value = -32768
+
+[devices."$HARDWARE_ID".mapping.key_f14]
+action = "gamepad_axis"
+target = "abs_x"
+value = 32767
+
+[devices."$HARDWARE_ID".mapping.key_f15]
+action = "keyboard"
+target = "key_left"
+
+[devices."$HARDWARE_ID".mapping.key_f16]
+action = "keyboard"
+target = "key_right"
+
+[devices."$HARDWARE_ID".mapping.key_f17]
+action = "gamepad_axis"
+target = "abs_y"
+value = -32768
+
+[devices."$HARDWARE_ID".mapping.key_f18]
+action = "gamepad_axis"
+target = "abs_y"
+value = 32767
+
+# key_f19 and key_f20 stay unmapped: their group passes the source keys through.
+
+# An overload superkey and a plain key share a group. Any action can be a member.
+[devices."$HARDWARE_ID".mapping.key_f21]
+action = "superkey"
+superkey_name = "$OVERLOAD_SUPERKEY_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_f22]
+action = "keyboard"
+target = "key_x"
+
+# key_f23 on the primary keyboard and key_f13 on the secondary keyboard share a
+# group across devices.
+[devices."$HARDWARE_ID".mapping.key_f23]
+action = "gamepad_axis"
+target = "abs_rx"
+value = -32768
+
+[devices."$SECOND_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$SECOND_HARDWARE_ID".mapping.key_f13]
+action = "gamepad_axis"
+target = "abs_rx"
+value = 32767
+
+[[rollover_groups]]
+name = "Strafe"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f13" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f14" },
+]
+winner = "newest"
+restore = true
+
+[[rollover_groups]]
+name = "Snap Tap"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f15" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f16" },
+]
+winner = "newest"
+restore = true
+
+[[rollover_groups]]
+name = "Neutral"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f17" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f18" },
+]
+winner = "neutral"
+restore = true
+
+[[rollover_groups]]
+name = "Passthrough"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f19" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f20" },
+]
+winner = "newest"
+restore = true
+
+[[rollover_groups]]
+name = "Overload"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f21" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f22" },
+]
+winner = "newest"
+restore = true
+
+[[rollover_groups]]
+name = "Across devices"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f23" },
+  { hardware_id = "$SECOND_HARDWARE_ID", button = "key_f13" },
+]
+winner = "newest"
+restore = true

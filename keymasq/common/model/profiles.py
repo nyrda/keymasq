@@ -1,7 +1,8 @@
-"""Profile layering, window rules, and combo configuration models."""
+"""Profile layering, window rules, rollover groups, and combo configuration models."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ProfileState
@@ -11,6 +12,33 @@ from keymasq.common.model.core import ProfileState
 class WindowRule:
     field: str
     pattern: str
+
+
+class RolloverWinner(Enum):
+    """Which held member of a rollover group is active."""
+
+    NEWEST = "newest"
+    OLDEST = "oldest"
+    NEUTRAL = "neutral"
+    PRIORITY = "priority"
+
+
+@dataclass(frozen=True, order=True)
+class RolloverMember:
+    """One source button of one hardware device."""
+
+    hardware_id: str
+    button: str
+
+
+@dataclass
+class RolloverGroup:
+    """Inputs, on any devices, where at most one member drives its action at a time."""
+
+    name: str
+    members: list[RolloverMember] = field(default_factory=list)
+    winner: RolloverWinner = RolloverWinner.NEWEST
+    restore: bool = True
 
 
 @dataclass
@@ -56,6 +84,7 @@ class ProfileConfig:
     window_rules: list[WindowRule] = field(default_factory=list)
     device_layers: dict[str, DeviceProfileLayer] = field(default_factory=dict)
     combos: list[ComboConfig] = field(default_factory=list)
+    rollover_groups: list[RolloverGroup] = field(default_factory=list)
     image: str | None = None
     created_at: datetime | None = None
 

@@ -18,6 +18,11 @@ from keymasq.common.model.profiles import (
     ProfileConfig,
     WindowRule,
 )
+from keymasq.common.rollover import (
+    layer_rollover_groups,
+    rollover_group_to_data,
+    rollover_groups_from_data,
+)
 from keymasq.session.action_toml import (
     mapping_action_from_toml,
     mapping_action_to_toml,
@@ -144,6 +149,9 @@ class ProfileCodec:
             window_rules=window_rules,
             device_layers=device_layers,
             combos=self._parse_combos(data.get("combos", [])),
+            rollover_groups=layer_rollover_groups(
+                rollover_groups_from_data(data.get("rollover_groups"))
+            ),
             image=str(profile.get("image")) if profile.get("image") is not None else None,
             created_at=created_at,
         )
@@ -183,6 +191,10 @@ class ProfileCodec:
         data: TomlDict = {"profile": profile_data, "devices": devices_data}
         if config.combos:
             data["combos"] = [self._serialize_combo(combo) for combo in config.combos]
+        if config.rollover_groups:
+            data["rollover_groups"] = [
+                rollover_group_to_data(group) for group in config.rollover_groups
+            ]
         return data
 
     def parse_action(self, action_data: TomlDict | str) -> MappingAction:

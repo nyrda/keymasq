@@ -50,6 +50,7 @@ from keymasq.keymasqd.runtime.grab.state import (
 )
 from keymasq.keymasqd.runtime.grab.support import combo_runtime_deps
 from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
+from keymasq.keymasqd.runtime.rollover import RolloverRuntime
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -196,6 +197,9 @@ def construct_grabbed_device(
     def mapping_getter(hid: str = request.hardware_id) -> dict[str, MappingAction]:
         return manager.active_mappings.get(hid, {})
 
+    def rollover_getter() -> RolloverRuntime | None:
+        return cast(RolloverRuntime | None, getattr(manager, "rollover", None))
+
     def diagnostics_recorder(label: str, duration_us: float) -> None:
         manager._record_diagnostic(label, duration_us)
 
@@ -215,6 +219,7 @@ def construct_grabbed_device(
         analog_inputs=dict(plan.analog_inputs),
         motion_sensors=dict(plan.motion_sensors),
         mapping_getter=mapping_getter,
+        rollover_getter=rollover_getter,
         event_callback=callbacks.event_callback,
         device_type=detected_type,
         device_types=detected_types,

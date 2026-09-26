@@ -17,6 +17,7 @@ class CommandType(Enum):
     RELEASE_DEVICE = "release_device"
     SET_MAPPING = "set_mapping"
     SET_COMBOS = "set_combos"
+    SET_ROLLOVER_GROUPS = "set_rollover_groups"
     UNUSED_EXEC_REFS = "unused_exec_refs"
     LIST_DEVICES = "list_devices"
     DEVICE_RUNTIME_STATUS = "device_runtime_status"

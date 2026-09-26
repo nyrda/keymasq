@@ -53,6 +53,10 @@ from keymasq.keymasqd.runtime.grabbed_device.event.passthrough import (
     emit_passthrough_event,
     process_syn_event,
 )
+from keymasq.keymasqd.runtime.grabbed_device.event.rollover import (
+    intercept_rollover_event,
+    release_consumed_rollover_member,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     AsyncioModule,
@@ -64,6 +68,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
+from keymasq.keymasqd.runtime.rollover import next_press_sequence
 from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
@@ -204,11 +209,13 @@ def _observe_source_key_transition(
     trigger_id = source_trigger_id(device_runtime.hardware_id, event_name)
     if int(event.value) == 1:
         device_runtime.state.held_source_keys.add(event_name)
+        device_runtime.state.held_source_press_order[event_name] = next_press_sequence()
         observer = device_runtime.profile_activation_trigger_start_observer
         if observer is not None:
             observer(trigger_id)
     elif int(event.value) == 0:
         device_runtime.state.held_source_keys.discard(event_name)
+        device_runtime.state.held_source_press_order.pop(event_name, None)
         observer = device_runtime.profile_activation_trigger_end_observer
         if observer is not None:
             observer(trigger_id)
@@ -516,6 +523,8 @@ async def _process_event(
             evdev_mod=evdev_mod,
         )
     if combo_route.stop_processing:
+        if event_is_key:
+            await release_consumed_rollover_member(device_runtime, event, event_name, deps=deps)
         return
 
     if recalled.suppress_release_after_callback:
@@ -525,6 +534,7 @@ async def _process_event(
             event_name,
             evdev_mod=evdev_mod,
         )
+        await release_consumed_rollover_member(device_runtime, event, event_name, deps=deps)
         _finish_diagnostics(
             device_runtime,
             "combo_recalled_release_suppressed",
@@ -583,6 +593,7 @@ async def _process_event(
                 event_name,
                 evdev_mod=evdev_mod,
             )
+            await release_consumed_rollover_member(device_runtime, event, event_name, deps=deps)
         _finish_diagnostics(
             device_runtime,
             "combo_passthrough_held",
@@ -590,6 +601,17 @@ async def _process_event(
             deps=deps,
         )
         return
+
+    if event_is_key:
+        rollover_label = await intercept_rollover_event(
+            device_runtime,
+            event,
+            event_name,
+            deps=deps,
+        )
+        if rollover_label is not None:
+            _finish_diagnostics(device_runtime, rollover_label, started_ns, deps=deps)
+            return
 
     recording_manager = device_runtime.recording_manager
     recording_active = bool(recording_manager and recording_manager.is_recording)

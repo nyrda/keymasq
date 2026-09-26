@@ -186,6 +186,9 @@ Only one runtime activation can own a profile at a time. A new runtime
 activation for the same profile replaces the previous activation, and the
 session ignores stale expiry events from the daemon.
 
+[Rollover groups](rollover.md) layer in the same order. A group from a later
+profile replaces every earlier group that shares a member with it.
+
 ## Unmapped buttons and overrides
 
 Buttons not listed in a device layer pass through unchanged.
@@ -251,6 +254,8 @@ Each profile file contains:
   a model. Additional identical devices use numbered internal IDs such as
   `046d:c548@2`.
 - one `[devices."<hardware_id>".mapping.<button_id>]` section per mapped button
+- optional top-level `[[rollover_groups]]` entries, which can span devices,
+  described in [Rollover groups](rollover.md)
 
 Example:
 

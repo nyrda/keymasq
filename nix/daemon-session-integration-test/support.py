@@ -39,6 +39,9 @@ TEMP_PROFILE_NAME = "Integration Temporary Layer"
 REPEAT_PROFILE_NAME = "Integration Repeat"
 EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME = "Integration Extended Keyboard Outputs"
 MACRO_SLOT_PROFILE_NAME = "Integration Macro Slot Actions"
+ROLLOVER_PROFILE_NAME = "Integration Rollover"
+ROLLOVER_OVERRIDE_PROFILE_NAME = "Integration Rollover Override"
+ROLLOVER_COMBO_PROFILE_NAME = "Integration Rollover Combo"
 MACRO_NAME = "integration-macro"
 LONG_MACRO_NAME = "integration-hold-macro"
 SUPERKEY_NAME = "integration-tap-superkey"
@@ -136,6 +139,9 @@ class ScenarioContext:
                 MACRO_SLOT_PROFILE_NAME,
                 REPEAT_PROFILE_NAME,
                 EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME,
+                ROLLOVER_COMBO_PROFILE_NAME,
+                ROLLOVER_OVERRIDE_PROFILE_NAME,
+                ROLLOVER_PROFILE_NAME,
             ):
                 self.request({"command": "disable_profile", "profile_name": profile_name}, ok=False)
             self.request(
@@ -544,6 +550,21 @@ class ScenarioContext:
             "profiles/extended-keyboard-outputs.toml",
             values,
         )
+        self.write_fixture(
+            profiles_dir / "integration-rollover.toml",
+            "profiles/rollover.toml",
+            values,
+        )
+        self.write_fixture(
+            profiles_dir / "integration-rollover-override.toml",
+            "profiles/rollover-override.toml",
+            values,
+        )
+        self.write_fixture(
+            profiles_dir / "integration-rollover-combo.toml",
+            "profiles/rollover-combo.toml",
+            values,
+        )
         (profiles_dir / "integration-macro-slot-actions.toml").write_text(
             Template(MACRO_SLOT_PROFILE_TEMPLATE).safe_substitute(values),
             encoding="utf-8",
@@ -606,9 +627,11 @@ class ScenarioContext:
         primary_source_path: str,
         secondary_source_path: str,
     ) -> dict[str, str]:
-        primary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["0", "space"] + [
-            f"f{index}" for index in range(1, 25)
-        ]
+        primary_buttons = (
+            list("abcdefghijklmnopqrstuvwxyz")
+            + ["0", "space"]
+            + [f"f{index}" for index in range(1, 25)]
+        )
         secondary_buttons = list("abcdefghijklmnopqrstuvwxyz") + ["f13", "f14"]
         return {
             "HARDWARE_ID": HARDWARE_ID,
@@ -624,18 +647,17 @@ class ScenarioContext:
             "REPEAT_PROFILE_NAME": REPEAT_PROFILE_NAME,
             "EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME": EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME,
             "MACRO_SLOT_PROFILE_NAME": MACRO_SLOT_PROFILE_NAME,
+            "ROLLOVER_PROFILE_NAME": ROLLOVER_PROFILE_NAME,
+            "ROLLOVER_OVERRIDE_PROFILE_NAME": ROLLOVER_OVERRIDE_PROFILE_NAME,
+            "ROLLOVER_COMBO_PROFILE_NAME": ROLLOVER_COMBO_PROFILE_NAME,
             "MACRO_NAME": MACRO_NAME,
             "LONG_MACRO_NAME": LONG_MACRO_NAME,
             "SUPERKEY_NAME": SUPERKEY_NAME,
             "COMBO_SUPERKEY_NAME": COMBO_SUPERKEY_NAME,
             "COMBO_SERIALIZATION_SUPERKEY_NAME": COMBO_SERIALIZATION_SUPERKEY_NAME,
             "OVERLOAD_SUPERKEY_NAME": OVERLOAD_SUPERKEY_NAME,
-            "PROFILE_LIFETIME_HOLD_SUPERKEY_NAME": (
-                PROFILE_LIFETIME_HOLD_SUPERKEY_NAME
-            ),
-            "PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME": (
-                PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME
-            ),
+            "PROFILE_LIFETIME_HOLD_SUPERKEY_NAME": (PROFILE_LIFETIME_HOLD_SUPERKEY_NAME),
+            "PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME": (PROFILE_LIFETIME_OVERLOAD_SUPERKEY_NAME),
             "SECONDARY_BUTTONS": self.button_blocks(secondary_buttons),
         }
 
@@ -910,7 +932,7 @@ type = "key"
                 for event in self.read_output_events(self.mouse_output)
                 if event.type != evdev.ecodes.EV_SYN
             )
-            assert observed == expected[:len(observed)], (expected, observed)
+            assert observed == expected[: len(observed)], (expected, observed)
             if observed != expected:
                 time.sleep(0.01)
         assert observed == expected, (expected, observed)
@@ -983,6 +1005,52 @@ type = "key"
             f"missing {label} output sequence {expected_names}; observed {observed_names}"
         )
 
+    def expect_exact_events(
+        self,
+        device: evdev.InputDevice | None,
+        expected: list[tuple[int, int, int]],
+        *,
+        label: str,
+        event_types: set[int],
+        timeout_s: float = EVENT_TIMEOUT_S,
+    ) -> None:
+        if device is None:
+            raise AssertionError(f"output {label} is not available")
+        observed: list[tuple[int, int, int]] = []
+        deadline = time.monotonic() + timeout_s
+        while observed != expected and time.monotonic() < deadline:
+            observed.extend(
+                (int(event.type), int(event.code), int(event.value))
+                for event in self.read_output_events(device)
+                if event.type in event_types
+            )
+            if observed != expected[: len(observed)]:
+                break
+            time.sleep(0.01)
+        if observed != expected:
+            raise AssertionError(
+                f"{label} output mismatch: expected "
+                f"{[self.event_label(event) for event in expected]}, observed "
+                f"{[self.event_label(event) for event in observed]}"
+            )
+        self.expect_no_events(device, label=label, event_types=event_types)
+
+    def expect_exact_gamepad_events(self, expected: list[tuple[int, int, int]]) -> None:
+        self.expect_exact_events(
+            self.gamepad_output,
+            expected,
+            label="gamepad",
+            event_types={evdev.ecodes.EV_KEY, evdev.ecodes.EV_ABS},
+        )
+
+    def expect_exact_keys(self, expected: list[tuple[int, int]]) -> None:
+        self.expect_exact_events(
+            self.keyboard_output,
+            [(evdev.ecodes.EV_KEY, code, value) for code, value in expected],
+            label="keyboard",
+            event_types={evdev.ecodes.EV_KEY},
+        )
+
     def expect_no_keyboard_events(self, *, timeout_s: float = 0.25) -> None:
         self.expect_no_events(
             self.keyboard_output,
@@ -1049,9 +1117,7 @@ type = "key"
 
         activations_raw = payload.get("runtime_profile_activations", {})
         activation = (
-            activations_raw.get(profile_name)
-            if isinstance(activations_raw, dict)
-            else None
+            activations_raw.get(profile_name) if isinstance(activations_raw, dict) else None
         )
         if enabled and isinstance(activation, dict) and activation.get("tracked") is False:
             return False
@@ -1065,9 +1131,7 @@ type = "key"
         for device in devices:
             profiles_raw = device.get("profiles", [])
             profiles = (
-                {str(name) for name in profiles_raw}
-                if isinstance(profiles_raw, list)
-                else set()
+                {str(name) for name in profiles_raw} if isinstance(profiles_raw, list) else set()
             )
             if profile_name in profiles:
                 matching_devices.append(device)
@@ -1165,6 +1229,14 @@ type = "key"
                 for event in self.read_output_events(device)
             ]
             if events:
+                quiet_deadline = time.monotonic() + quiet_s
+            else:
+                time.sleep(0.005)
+
+    def drain_device(self, device: evdev.InputDevice, *, quiet_s: float = 0.05) -> None:
+        quiet_deadline = time.monotonic() + quiet_s
+        while time.monotonic() < quiet_deadline:
+            if self.read_output_events(device):
                 quiet_deadline = time.monotonic() + quiet_s
             else:
                 time.sleep(0.005)

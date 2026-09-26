@@ -1,0 +1,20 @@
+[profile]
+name = "$ROLLOVER_OVERRIDE_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 710
+notify_on_activation = false
+created_at = "2026-09-23T00:00:01"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+# Replaces the lower profile's Strafe group, which shares key_f13 and key_f14.
+[[rollover_groups]]
+name = "Strafe first wins"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f13" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f14" },
+]
+winner = "oldest"
+restore = true

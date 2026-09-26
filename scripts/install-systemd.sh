@@ -88,16 +88,16 @@ exec ${PYTHON_BIN} -m keymasq.session.manager "\$@"
 EOF
 chmod 0755 /usr/local/bin/keymasq-session-wrapper
 
-cat >/usr/local/bin/keymasq-record-wrapper <<EOF
+cat >/usr/local/bin/keymasq-helper-wrapper <<EOF
 #!/usr/bin/env bash
-exec ${PYTHON_BIN} -m keymasq.record "\$@"
+exec ${PYTHON_BIN} -m keymasq.helper "\$@"
 EOF
-chmod 0755 /usr/local/bin/keymasq-record-wrapper
+chmod 0755 /usr/local/bin/keymasq-helper-wrapper
 
 # Source hiding and hardware masking run their privileged steps as bounded
 # root jobs; the daemon itself holds no capabilities.
 install -d -m 0755 /run/udev/rules.d
-sed 's#^ExecStart=/usr/bin/keymasq-record #ExecStart=/usr/local/bin/keymasq-record-wrapper #' \
+sed 's#^ExecStart=/usr/bin/keymasq-helper #ExecStart=/usr/local/bin/keymasq-helper-wrapper #' \
   "${REPO_ROOT}/systemd/keymasq-hardware@.service" >/etc/systemd/system/keymasq-hardware@.service
 install -Dm644 "${REPO_ROOT}/polkit/49-keymasq-hardware.rules" /etc/polkit-1/rules.d/49-keymasq-hardware.rules
 
@@ -119,9 +119,9 @@ Nice=-5
 # Apply native-driver ACLs to controllers already connected at startup.
 ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change
 ExecStartPre=-+/usr/bin/udevadm settle --timeout=30
-ExecStartPre=+/usr/local/bin/keymasq-record-wrapper recover-hardware
+ExecStartPre=+/usr/local/bin/keymasq-helper-wrapper recover-hardware
 ExecStart=/usr/local/bin/keymasqd-wrapper
-ExecStopPost=+/usr/local/bin/keymasq-record-wrapper recover-hardware
+ExecStopPost=+/usr/local/bin/keymasq-helper-wrapper recover-hardware
 # Let the daemon await its hardware-job clients during graceful shutdown.
 KillMode=mixed
 Restart=on-failure

@@ -127,7 +127,7 @@ Notes:
 
 - `PyGObject` is a Python dependency, but it still requires the underlying GTK
   and introspection libraries from the operating system.
-- `keymasq-record` is not a third-party dependency. It is a Keymasq-provided
+- `keymasq-helper` is not a third-party dependency. It is a Keymasq-provided
   helper script installed as part of the package.
 - The `keymasqd` daemon relies on system integration from the package or local
   setup: service units, a `keymasq` system user, tmpfiles, and udev ACL rules.
@@ -208,7 +208,7 @@ under the masking coordinator, which restores and reacquires its readers.
 
 ### Capture unlock helper
 
-- `keymasq-record` must be installed alongside the rest of Keymasq
+- `keymasq-helper` must be installed alongside the rest of Keymasq
 - the matching Polkit policy must be installed
 - the helper path and Polkit policy must agree on the same absolute executable
   path
@@ -284,7 +284,7 @@ unavailable.
 
 Beyond the Python environment, the Nix build wraps the GUI with
 `gobject-introspection` / `wrapGAppsHook4` and icon themes, and embeds the
-`slurp` and `keymasq-record` helper paths into the build.
+`slurp` and `keymasq-helper` helper paths into the build.
 
 The NixOS module also provisions:
 

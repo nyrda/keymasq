@@ -25,14 +25,14 @@ assert_cmd() {
 assert_file /usr/bin/keymasq
 assert_file /usr/bin/keymasqd
 assert_file /usr/bin/keymasq-session
-assert_file /usr/bin/keymasq-record
+assert_file /usr/bin/keymasq-helper
 assert_file /usr/lib/systemd/system/keymasqd.service
 assert_file /usr/lib/systemd/user/keymasq-session.service
 assert_file /usr/lib/udev/rules.d/91-keymasq-acl.rules
 assert_file /usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 assert_file /usr/lib/sysusers.d/keymasq.conf
 assert_file /usr/lib/tmpfiles.d/keymasq.conf
-assert_file /usr/share/polkit-1/actions/com.keymasq.record-macro.policy
+assert_file /usr/share/polkit-1/actions/com.keymasq.helper.policy
 assert_file /usr/share/applications/tools.keymasq.keymasq.desktop
 assert_file /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
 assert_file /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
@@ -45,7 +45,7 @@ assert_file /etc/keymasq/security.toml
 assert_cmd "keymasq --help" keymasq --help
 assert_cmd "keymasqd --help" keymasqd --help
 assert_cmd "keymasq-session --help" keymasq-session --help
-assert_cmd "keymasq-record --help" keymasq-record --help
+assert_cmd "keymasq-helper --help" keymasq-helper --help
 assert_cmd "python import" python3 -c "import keymasq, keymasq.common.model.core"
 assert_cmd "desktop identity assets aligned" python3 -c "import os; from configparser import ConfigParser; from xml.etree import ElementTree as ET; desktop_path = '/usr/share/applications/tools.keymasq.keymasq.desktop'; metainfo_path = '/usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml'; desktop_id = os.path.basename(desktop_path); metainfo_id = os.path.basename(metainfo_path).removesuffix('.metainfo.xml'); app_id = desktop_id.removesuffix('.desktop'); parser = ConfigParser(interpolation=None); parser.read(desktop_path, encoding='utf-8'); entry = parser['Desktop Entry']; root = ET.parse(metainfo_path).getroot(); launchable = root.find(\"launchable[@type='desktop-id']\"); assert entry['Icon'] == app_id; assert root.findtext('id') == metainfo_id; assert launchable is not None and (launchable.text or '').strip() == desktop_id"
 assert_cmd "python package css" python3 -c "from importlib import resources; assert resources.files('keymasq').joinpath('gui/style.css').is_file()"

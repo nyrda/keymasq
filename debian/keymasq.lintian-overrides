@@ -2,6 +2,6 @@
 # hardware modaliases, so AppStream hardware discovery metadata is not useful.
 keymasq: appstream-metadata-missing-modalias-provide usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 keymasq: no-manual-page [usr/bin/keymasq]
-keymasq: no-manual-page [usr/bin/keymasq-record]
+keymasq: no-manual-page [usr/bin/keymasq-helper]
 keymasq: no-manual-page [usr/bin/keymasq-session]
 keymasq: no-manual-page [usr/bin/keymasqd]

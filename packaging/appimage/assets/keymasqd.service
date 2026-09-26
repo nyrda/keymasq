@@ -17,16 +17,18 @@ User=keymasq
 Group=keymasq
 SupplementaryGroups=input
 Nice=-5
-# Bootstrap integration omitted by the released v0.19 AppImage updater.
-ExecStartPre=+/opt/keymasq/bin/keymasq-record repair-appimage-integration
-ExecStartPre=+/opt/keymasq/bin/keymasq-record recover-hardware
+# Call the helper through the active runtime: the released v0.19 updater does
+# not write the keymasq-helper wrapper, and repair bootstraps what it omits.
+Environment=APPDIR=/opt/keymasq/runtime/current
+ExecStartPre=+/opt/keymasq/runtime/current/bin/keymasq-helper repair-appimage-integration
+ExecStartPre=+/opt/keymasq/runtime/current/bin/keymasq-helper recover-hardware
 ExecStartPre=+/usr/bin/setfacl -m u:keymasq:rw /dev/uinput
 ExecStartPre=+/usr/bin/sh -c 'for p in /dev/input/event*; do [ -e "$p" ] && /usr/bin/setfacl -m u:keymasq:rw "$p"; done'
 # Apply native-driver ACLs to controllers already connected at startup.
 ExecStartPre=+/usr/bin/udevadm trigger --subsystem-match=hidraw --action=change
 ExecStartPre=-+/usr/bin/udevadm settle --timeout=30
 ExecStart=/opt/keymasq/bin/keymasqd
-ExecStopPost=+/opt/keymasq/bin/keymasq-record recover-hardware
+ExecStopPost=+/opt/keymasq/runtime/current/bin/keymasq-helper recover-hardware
 Restart=on-failure
 RestartSec=5
 KillMode=mixed

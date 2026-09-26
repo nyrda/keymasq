@@ -145,8 +145,8 @@ stage_rpm_support_files() {
         "$staging_dir/usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules"
     install -Dm644 "$REPO_DIR/polkit/49-keymasq-hardware.rules" \
         "$staging_dir/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules"
-    cp -f "$REPO_DIR/polkit/com.keymasq.record-macro.policy" \
-        "$staging_dir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    cp -f "$REPO_DIR/polkit/com.keymasq.helper.policy" \
+        "$staging_dir/usr/share/polkit-1/actions/com.keymasq.helper.policy"
     cp -f "$REPO_DIR/assets/tools.keymasq.keymasq.desktop" \
         "$staging_dir/usr/share/applications/tools.keymasq.keymasq.desktop"
     cp -f "$REPO_DIR/assets/tools.keymasq.keymasq.metainfo.xml" \

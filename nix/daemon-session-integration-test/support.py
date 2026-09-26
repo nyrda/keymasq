@@ -755,7 +755,7 @@ type = "key"
         subprocess.run(
             [
                 os.environ.get("KEYMASQ_INTEGRATION_SUDO", "sudo"),
-                os.environ.get("KEYMASQ_INTEGRATION_RECORD_HELPER", "keymasq-record"),
+                os.environ.get("KEYMASQ_INTEGRATION_HELPER", "keymasq-helper"),
                 "enable-macro-recording-persistent",
                 "--uid",
                 str(os.getuid()),

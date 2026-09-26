@@ -60,7 +60,7 @@ Both layers enforce authorization. Session-side checks are not advisory, and dae
 
 ## Privileged helper path pinning
 
-The GUI capture unlock flow uses `pkexec` to run the `keymasq-record` helper.
+The GUI capture unlock flow uses `pkexec` to run `keymasq-helper`.
 
 - Keymasq does not resolve that helper from `$PATH` during privileged execution
 - Keymasq treats the helper path as a trusted absolute executable path
@@ -71,7 +71,7 @@ This is intentional. Allowing `$PATH` lookup for the `pkexec` target would weake
 
 In practice:
 
-- traditional distro packages use `/usr/bin/keymasq-record`
+- traditional distro packages use `/usr/bin/keymasq-helper`
 - Nix/NixOS builds stamp the helper to the package store path
 - both remain safe because the elevated path is fixed by the package, not chosen from the caller's environment
 
@@ -236,7 +236,7 @@ Optional UID allowlists can restrict which local users may connect to the sessio
 Keymasq treats recording and capture features as sensitive because they can observe original input.
 
 - Macro recording requires a user opt-in recorded by the Polkit-backed
-  `keymasq-record` helper. The GUI exposes this under
+  `keymasq-helper`. The GUI exposes this under
   **Settings > Macro recording** and allows opting out again
 - Recording always writes into one of four explicit temporary slots
 - Capture commands require an active unlock lease by default
@@ -438,7 +438,7 @@ is not recommended unless you intentionally need that exact trigger.
 
 ## Hardware masking jobs
 
-Masking coordination runs inside `keymasqd`. The existing `keymasq-record`
+Masking coordination runs inside `keymasqd`. The existing `keymasq-helper`
 entry point performs privileged hardware changes in short-lived systemd jobs.
 There is no resident root masking process. A Polkit rule lets only the dedicated
 `keymasq` account start the fixed `keymasq-hardware@<request-id>.service` template.

@@ -631,7 +631,7 @@ Keymasq treats macros with care because recording captures raw input, which
 could be misused as a keylogger.
 
 - **Recording is opt-in.** A default install will not start macro recording
-  until you enable it through the Polkit-backed `keymasq-record` helper.
+  until you enable it through the Polkit-backed `keymasq-helper`.
   You can disable the opt-in again from **Settings > Macro recording**.
   Playback and normal macro management remain available. This makes macro
   recording a deliberate user choice instead of a background capture

@@ -294,7 +294,9 @@ copy_source_tree() {
     "$REPO_ROOT/" "$WORKDIR/source/"
 
   cat >"$WORKDIR/source/keymasq/common/build_paths.py" <<'PY'
-KEYMASQ_RECORD_HELPER_PATH = "/opt/keymasq/bin/keymasq-record"
+KEYMASQ_HELPER_PATH = "/opt/keymasq/bin/keymasq-helper"
+# Non-systemd installs updated by the v0.19 updater keep only the old wrapper.
+KEYMASQ_HELPER_FALLBACK_PATHS = ("/opt/keymasq/bin/keymasq-record",)
 SLURP_PATH = "/opt/keymasq/runtime/current/bin/slurp"
 PY
 }
@@ -303,7 +305,8 @@ install_runtime_files() {
   local launcher="$WORKDIR/keymasq-appimage-runtime"
 
   install -Dm755 "$REPO_ROOT/packaging/appimage/runtime/keymasq-appimage-runtime.sh" "$launcher"
-  for name in keymasq keymasqd keymasq-session keymasq-record; do
+  # Runtimes installed before the rename validate keymasq-record during self-update.
+  for name in keymasq keymasqd keymasq-session keymasq-helper keymasq-record; do
     install -Dm755 "$launcher" "$APPDIR/bin/$name"
   done
 
@@ -719,6 +722,7 @@ export PATH_MAPPING=
   "$APPDIR/bin/keymasq" \
   "$APPDIR/bin/keymasqd" \
   "$APPDIR/bin/keymasq-session" \
+  "$APPDIR/bin/keymasq-helper" \
   "$APPDIR/bin/keymasq-record" \
   "$PYTHON_EXE" \
   "$(command -v openssl)" \

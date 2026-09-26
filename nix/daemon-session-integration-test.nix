@@ -24,7 +24,7 @@ let
       export PYTHONPATH="${testSource}"
       export KEYMASQ_INTEGRATION_SYSTEMCTL="${pkgs.systemd}/bin/systemctl"
       export KEYMASQ_INTEGRATION_SUDO="/run/wrappers/bin/sudo"
-      export KEYMASQ_INTEGRATION_RECORD_HELPER="${keymasqPackage}/bin/keymasq-record"
+      export KEYMASQ_INTEGRATION_HELPER="${keymasqPackage}/bin/keymasq-helper"
       exec ${testPython}/bin/python ${testSource}/runner.py "$@"
     '';
   };
@@ -140,7 +140,7 @@ let
                       options = [ "NOPASSWD" ];
                     }
                     {
-                      command = "${keymasqPackage}/bin/keymasq-record";
+                      command = "${keymasqPackage}/bin/keymasq-helper";
                       options = [ "NOPASSWD" ];
                     }
                   ];
@@ -253,7 +253,7 @@ let
         machine.succeed("${pkgs.acl}/bin/setfacl -m u:${vmUser}:rw /dev/uinput")
         wait_for_user_command("uinput writable", "test -w /dev/uinput")
 
-        machine.succeed("${keymasqPackage}/bin/keymasq-record enable-macro-recording-persistent --uid ${toString vmUid}")
+        machine.succeed("${keymasqPackage}/bin/keymasq-helper enable-macro-recording-persistent --uid ${toString vmUid}")
 
         machine.succeed("loginctl enable-linger ${vmUser}")
         machine.wait_for_unit("user@${toString vmUid}.service")

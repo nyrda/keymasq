@@ -436,7 +436,7 @@ What to verify:
 
 - the polkit policy file is installed
 - the desktop session has a working authentication agent
-- the packaged or installed `keymasq-record` helper is present and executable
+- the packaged or installed `keymasq-helper` is present and executable
 
 ### GNOME bridge problems
 

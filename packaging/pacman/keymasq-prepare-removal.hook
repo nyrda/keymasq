@@ -9,5 +9,5 @@ Target = keymasq
 [Action]
 Description = Restoring Keymasq hardware access before removal...
 When = PreTransaction
-Exec = /usr/bin/keymasq-record prepare-removal
+Exec = /usr/bin/keymasq-helper prepare-removal
 AbortOnFail

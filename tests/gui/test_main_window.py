@@ -375,8 +375,8 @@ class TestMainWindow:
 
         monkeypatch.setattr(
             window_runtime,
-            "resolve_keymasq_record_helper_path",
-            lambda: "/usr/bin/keymasq-record",
+            "resolve_keymasq_helper_path",
+            lambda: "/usr/bin/keymasq-helper",
         )
         monkeypatch.setattr(
             window_runtime,
@@ -413,7 +413,7 @@ class TestMainWindow:
         assert commands == [
             [
                 "pkexec",
-                "/usr/bin/keymasq-record",
+                "/usr/bin/keymasq-helper",
                 "unlock-runtime",
                 "--uid",
                 str(window_runtime.os.getuid()),

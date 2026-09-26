@@ -6,26 +6,26 @@ from types import SimpleNamespace
 
 import pytest
 
-from keymasq import record
+from keymasq import helper
 
 
 def test_require_privileged_caller_allows_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(record.os, "geteuid", lambda: 0)
-    assert record._require_privileged_caller() == 0
+    monkeypatch.setattr(helper.os, "geteuid", lambda: 0)
+    assert helper._require_privileged_caller() == 0
 
 
 def test_require_privileged_caller_rejects_other_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(record.os, "geteuid", lambda: 1234)
-    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=999))
+    monkeypatch.setattr(helper.os, "geteuid", lambda: 1234)
+    monkeypatch.setattr(helper.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=999))
 
     with pytest.raises(PermissionError):
-        record._require_privileged_caller()
+        helper._require_privileged_caller()
 
 
 def test_require_privileged_caller_allows_keymasq_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(record.os, "geteuid", lambda: 777)
-    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
-    assert record._require_privileged_caller() == 777
+    monkeypatch.setattr(helper.os, "geteuid", lambda: 777)
+    monkeypatch.setattr(helper.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+    assert helper._require_privileged_caller() == 777
 
 
 def test_authorize_target_uid_rejects_pkexec_uid_mismatch(
@@ -34,26 +34,26 @@ def test_authorize_target_uid_rejects_pkexec_uid_mismatch(
     monkeypatch.setenv("PKEXEC_UID", "1000")
 
     with pytest.raises(PermissionError, match="Target uid"):
-        record._authorize_target_uid(1001, 0)
+        helper._authorize_target_uid(1001, 0)
 
 
 def test_authorize_target_uid_rejects_keymasq_pkexec_uid_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PKEXEC_UID", "1000")
-    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+    monkeypatch.setattr(helper.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
 
     with pytest.raises(PermissionError, match="Target uid"):
-        record._authorize_target_uid(1001, 777)
+        helper._authorize_target_uid(1001, 777)
 
 
 def test_authorize_target_uid_allows_keymasq_pkexec_uid_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PKEXEC_UID", "1000")
-    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+    monkeypatch.setattr(helper.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
 
-    record._authorize_target_uid(1000, 777)
+    helper._authorize_target_uid(1000, 777)
 
 
 def test_authorize_target_uid_rejects_non_root_caller_mismatch(
@@ -62,25 +62,25 @@ def test_authorize_target_uid_rejects_non_root_caller_mismatch(
     monkeypatch.delenv("PKEXEC_UID", raising=False)
 
     with pytest.raises(PermissionError, match="Target uid"):
-        record._authorize_target_uid(1001, 777)
+        helper._authorize_target_uid(1001, 777)
 
 
 def test_authorize_target_uid_allows_keymasq_user_for_other_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("PKEXEC_UID", raising=False)
-    monkeypatch.setattr(record.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
+    monkeypatch.setattr(helper.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=777))
 
-    record._authorize_target_uid(1001, 777)
+    helper._authorize_target_uid(1001, 777)
 
 
 def test_runtime_expires_at_rounds_up_fractional_now(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = 100.999
-    monkeypatch.setattr(record.time, "time", lambda: now)
+    monkeypatch.setattr(helper.time, "time", lambda: now)
 
-    expires_at = record._runtime_expires_at(1)
+    expires_at = helper._runtime_expires_at(1)
 
     assert expires_at == 102
     assert expires_at >= now + 1
@@ -89,25 +89,25 @@ def test_runtime_expires_at_rounds_up_fractional_now(
 def test_write_lease_and_remove_lease(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     lease = tmp_path / "lease"
     monkeypatch.setattr(
-        record.pwd,
+        helper.pwd,
         "getpwnam",
         lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
     )
-    monkeypatch.setattr(record.pwd, "getpwuid", lambda _: SimpleNamespace(pw_gid=1235))
+    monkeypatch.setattr(helper.pwd, "getpwuid", lambda _: SimpleNamespace(pw_gid=1235))
 
     calls: list[tuple[int, int]] = []
 
     def _chown(fd: int, uid: int, gid: int) -> None:
         calls.append((uid, gid))
 
-    monkeypatch.setattr(record.os, "fchown", _chown)
+    monkeypatch.setattr(helper.os, "fchown", _chown)
 
-    record._write_lease(lease, 42, 1234)
+    helper._write_lease(lease, 42, 1234)
     assert lease.read_text(encoding="utf-8") == "42\n"
     assert stat.S_IMODE(lease.stat().st_mode) == 0o440
     assert calls == [(1000, 1235)]
 
-    record._remove_lease(lease)
+    helper._remove_lease(lease)
     assert lease.exists() is False
 
 
@@ -119,10 +119,10 @@ def test_write_lease_propagates_unexpected_user_lookup_error(
     def _raise(_name: str) -> None:
         raise RuntimeError("lookup failed")
 
-    monkeypatch.setattr(record.pwd, "getpwnam", _raise)
+    monkeypatch.setattr(helper.pwd, "getpwnam", _raise)
 
     with pytest.raises(RuntimeError, match="lookup failed"):
-        record._write_lease(lease, 42, 1234)
+        helper._write_lease(lease, 42, 1234)
 
     assert lease.exists() is False
 
@@ -135,13 +135,13 @@ def test_write_lease_rejects_preexisting_symlink(
     lease = tmp_path / "lease"
     lease.symlink_to(target)
     monkeypatch.setattr(
-        record.pwd,
+        helper.pwd,
         "getpwnam",
         lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
     )
 
     with pytest.raises(PermissionError, match="symlink"):
-        record._write_lease(lease, 42, 1234)
+        helper._write_lease(lease, 42, 1234)
 
     assert target.read_text(encoding="utf-8") == "keep\n"
     assert lease.is_symlink()
@@ -153,7 +153,7 @@ def test_write_lease_keeps_existing_lease_when_replace_fails(
     lease = tmp_path / "lease"
     lease.write_text("41\n", encoding="utf-8")
     monkeypatch.setattr(
-        record.pwd,
+        helper.pwd,
         "getpwnam",
         lambda _: SimpleNamespace(pw_uid=1000, pw_gid=1000),
     )
@@ -161,10 +161,10 @@ def test_write_lease_keeps_existing_lease_when_replace_fails(
     def _replace(_src: Path, _dst: Path) -> None:
         raise OSError("replace failed")
 
-    monkeypatch.setattr(record.os, "replace", _replace)
+    monkeypatch.setattr(helper.os, "replace", _replace)
 
     with pytest.raises(OSError, match="replace failed"):
-        record._write_lease(lease, 42, 1234)
+        helper._write_lease(lease, 42, 1234)
 
     assert lease.read_text(encoding="utf-8") == "41\n"
     assert list(tmp_path.glob(".lease.tmp-*")) == []
@@ -173,15 +173,15 @@ def test_write_lease_keeps_existing_lease_when_replace_fails(
 def test_main_status_prints_json(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(sys, "argv", ["keymasq-helper", "status", "--uid", "1000"])
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
     monkeypatch.setattr(
-        record,
+        helper,
         "resolve_unlock_status",
         lambda uid: {"unlocked": True, "source": "runtime", "expires_at": 1, "path": "/tmp/x"},
     )
 
-    record.main()
+    helper.main()
 
     out = capsys.readouterr().out.strip()
     payload = json.loads(out)
@@ -192,9 +192,9 @@ def test_main_status_prints_json(
 @pytest.mark.parametrize(
     ("argv", "resolver_name"),
     [
-        (["keymasq-record", "status", "--uid", "1001"], "resolve_unlock_status"),
+        (["keymasq-helper", "status", "--uid", "1001"], "resolve_unlock_status"),
         (
-            ["keymasq-record", "macro-recording-status", "--uid", "1001"],
+            ["keymasq-helper", "macro-recording-status", "--uid", "1001"],
             "resolve_macro_recording_status",
         ),
     ],
@@ -208,16 +208,16 @@ def test_main_status_commands_reject_pkexec_uid_mismatch(
     resolved: list[int] = []
 
     monkeypatch.setattr(sys, "argv", argv)
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 0)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 0)
     monkeypatch.setenv("PKEXEC_UID", "1000")
     monkeypatch.setattr(
-        record,
+        helper,
         resolver_name,
         lambda uid: resolved.append(uid) or {"unlocked": True},
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     assert resolved == []
@@ -236,18 +236,18 @@ def test_main_unlock_runtime_replaces_previous_expiry(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "5"],
+        ["keymasq-helper", "unlock-runtime", "--uid", "1000", "--ttl", "5"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
-    monkeypatch.setattr(record.time, "time", lambda: 10)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper.time, "time", lambda: 10)
 
     def _write(path: Path, expires_at: int, target_uid: int) -> None:
         writes.append((path, expires_at, target_uid))
 
-    monkeypatch.setattr(record, "_write_lease", _write)
+    monkeypatch.setattr(helper, "_write_lease", _write)
 
-    record.main()
+    helper.main()
 
     assert writes == [(runtime_path, 15, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
@@ -264,18 +264,18 @@ def test_main_unlock_runtime_extends_with_requested_ttl(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "20"],
+        ["keymasq-helper", "unlock-runtime", "--uid", "1000", "--ttl", "20"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
-    monkeypatch.setattr(record.time, "time", lambda: 10)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper.time, "time", lambda: 10)
 
     def _write(path: Path, expires_at: int, target_uid: int) -> None:
         writes.append((path, expires_at, target_uid))
 
-    monkeypatch.setattr(record, "_write_lease", _write)
+    monkeypatch.setattr(helper, "_write_lease", _write)
 
-    record.main()
+    helper.main()
 
     assert writes == [(runtime_path, 30, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
@@ -291,18 +291,18 @@ def test_main_unlock_runtime_ttl_zero_rejected(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-runtime", "--uid", "1000", "--ttl", "0"],
+        ["keymasq-helper", "unlock-runtime", "--uid", "1000", "--ttl", "0"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
 
     def _write(path: Path, expires_at: int, target_uid: int) -> None:
         writes.append((path, expires_at, target_uid))
 
-    monkeypatch.setattr(record, "_write_lease", _write)
+    monkeypatch.setattr(helper, "_write_lease", _write)
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     assert writes == []
@@ -320,18 +320,18 @@ def test_main_macro_recording_runtime_ttl_zero_rejected(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "enable-macro-recording-runtime", "--uid", "1000", "--ttl", "0"],
+        ["keymasq-helper", "enable-macro-recording-runtime", "--uid", "1000", "--ttl", "0"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "runtime_macro_recording_path", lambda uid: runtime_path)
     monkeypatch.setattr(
-        record,
+        helper,
         "_write_lease",
         lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     assert writes == []
@@ -349,19 +349,19 @@ def test_main_mutation_rejects_pkexec_uid_mismatch(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
+        ["keymasq-helper", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 0)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 0)
     monkeypatch.setenv("PKEXEC_UID", "1000")
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(
-        record,
+        helper,
         "_write_lease",
         lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     assert writes == []
@@ -379,19 +379,19 @@ def test_main_mutation_rejects_non_root_forged_pkexec_uid(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
+        ["keymasq-helper", "unlock-runtime", "--uid", "1001", "--ttl", "5"],
     )
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 777)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 777)
     monkeypatch.setenv("PKEXEC_UID", "1001")
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
     monkeypatch.setattr(
-        record,
+        helper,
         "_write_lease",
         lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     assert writes == []
@@ -405,11 +405,11 @@ def test_main_lock_runtime_removes_runtime_lease(
 ) -> None:
     runtime_path = tmp_path / "runtime-lease"
     runtime_path.write_text("20\n", encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["keymasq-record", "lock-runtime", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "runtime_unlock_path", lambda uid: runtime_path)
+    monkeypatch.setattr(sys, "argv", ["keymasq-helper", "lock-runtime", "--uid", "1000"])
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "runtime_unlock_path", lambda uid: runtime_path)
 
-    record.main()
+    helper.main()
 
     assert runtime_path.exists() is False
     payload = json.loads(capsys.readouterr().out.strip())
@@ -425,11 +425,11 @@ def test_main_enable_and_disable_macro_recording_persistent(
     runtime_path = tmp_path / "macro-runtime"
     writes: list[tuple[Path, int, int]] = []
 
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
-    monkeypatch.setattr(record, "persistent_macro_recording_path", lambda uid: persistent_path)
-    monkeypatch.setattr(record, "runtime_macro_recording_path", lambda uid: runtime_path)
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(helper, "persistent_macro_recording_path", lambda uid: persistent_path)
+    monkeypatch.setattr(helper, "runtime_macro_recording_path", lambda uid: runtime_path)
     monkeypatch.setattr(
-        record,
+        helper,
         "_write_lease",
         lambda path, expires_at, target_uid: writes.append((path, expires_at, target_uid)),
     )
@@ -437,9 +437,9 @@ def test_main_enable_and_disable_macro_recording_persistent(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "enable-macro-recording-persistent", "--uid", "1000"],
+        ["keymasq-helper", "enable-macro-recording-persistent", "--uid", "1000"],
     )
-    record.main()
+    helper.main()
 
     assert writes == [(persistent_path, 0, 1000)]
     payload = json.loads(capsys.readouterr().out.strip())
@@ -450,10 +450,10 @@ def test_main_enable_and_disable_macro_recording_persistent(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "disable-macro-recording-persistent", "--uid", "1000"],
+        ["keymasq-helper", "disable-macro-recording-persistent", "--uid", "1000"],
     )
 
-    record.main()
+    helper.main()
 
     assert runtime_path.exists() is True
     assert persistent_path.exists() is False
@@ -468,10 +468,10 @@ def test_main_enable_and_disable_macro_recording_persistent(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "disable-macro-recording", "--uid", "1000"],
+        ["keymasq-helper", "disable-macro-recording", "--uid", "1000"],
     )
 
-    record.main()
+    helper.main()
 
     assert runtime_path.exists() is False
     assert persistent_path.exists() is False
@@ -485,11 +485,11 @@ def test_main_rejects_persistent_unlock_command(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["keymasq-record", "unlock-persistent", "--uid", "1000", "--ttl", "86400"],
+        ["keymasq-helper", "unlock-persistent", "--uid", "1000", "--ttl", "86400"],
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
@@ -498,15 +498,15 @@ def test_main_rejects_persistent_unlock_command(
 def test_main_error_emits_json_and_exits(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
+    monkeypatch.setattr(sys, "argv", ["keymasq-helper", "status", "--uid", "1000"])
 
     def _raise() -> None:
         raise PermissionError("denied")
 
-    monkeypatch.setattr(record, "_require_privileged_caller", _raise)
+    monkeypatch.setattr(helper, "_require_privileged_caller", _raise)
 
     with pytest.raises(SystemExit) as excinfo:
-        record.main()
+        helper.main()
 
     assert excinfo.value.code == 1
     payload = json.loads(capsys.readouterr().out.strip())
@@ -519,21 +519,21 @@ def test_main_unexpected_error_logs_exception(
     capsys: pytest.CaptureFixture[str],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["keymasq-record", "status", "--uid", "1000"])
-    monkeypatch.setattr(record, "_require_privileged_caller", lambda: 1000)
+    monkeypatch.setattr(sys, "argv", ["keymasq-helper", "status", "--uid", "1000"])
+    monkeypatch.setattr(helper, "_require_privileged_caller", lambda: 1000)
 
     def _raise(_uid: int) -> dict[str, object]:
         raise RuntimeError("resolver broke")
 
-    monkeypatch.setattr(record, "resolve_unlock_status", _raise)
+    monkeypatch.setattr(helper, "resolve_unlock_status", _raise)
 
-    with caplog.at_level("ERROR", logger="keymasq.record"):
+    with caplog.at_level("ERROR", logger="keymasq.helper"):
         with pytest.raises(SystemExit) as excinfo:
-            record.main()
+            helper.main()
 
     assert excinfo.value.code == 1
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["status"] == "error"
     assert "resolver broke" in payload["message"]
-    assert "Unexpected keymasq-record failure" in caplog.text
+    assert "Unexpected keymasq-helper failure" in caplog.text
     assert "RuntimeError: resolver broke" in caplog.text

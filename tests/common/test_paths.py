@@ -46,13 +46,13 @@ def test_config_dir_honors_xdg_config_home(tmp_path: Path, monkeypatch: pytest.M
         importlib.reload(paths)
 
 
-def test_resolve_keymasq_record_helper_path_uses_build_override(
+def test_resolve_keymasq_helper_path_uses_build_override(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     import keymasq.common.paths as paths
 
-    helper = tmp_path / "keymasq-record"
+    helper = tmp_path / "keymasq-helper"
     helper.write_text("#!/bin/sh\n", encoding="utf-8")
     helper.chmod(0o755)
 
@@ -61,12 +61,62 @@ def test_resolve_keymasq_record_helper_path_uses_build_override(
             patch.setitem(
                 sys.modules,
                 "keymasq.common.build_paths",
-                SimpleNamespace(KEYMASQ_RECORD_HELPER_PATH=str(helper)),
+                SimpleNamespace(KEYMASQ_HELPER_PATH=str(helper)),
             )
 
             reloaded = importlib.reload(paths)
-            assert reloaded.KEYMASQ_RECORD_HELPER_PATH == helper
-            assert reloaded.resolve_keymasq_record_helper_path() == str(helper)
+            assert reloaded.KEYMASQ_HELPER_PATH == helper
+            assert reloaded.resolve_keymasq_helper_path() == str(helper)
+    finally:
+        importlib.reload(paths)
+
+
+def test_resolve_keymasq_helper_path_uses_build_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import keymasq.common.paths as paths
+
+    legacy_helper = tmp_path / "keymasq-record"
+    legacy_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    legacy_helper.chmod(0o755)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(
+                    KEYMASQ_HELPER_PATH=str(tmp_path / "keymasq-helper"),
+                    KEYMASQ_HELPER_FALLBACK_PATHS=(str(legacy_helper),),
+                ),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.resolve_keymasq_helper_path() == str(legacy_helper)
+    finally:
+        importlib.reload(paths)
+
+
+def test_build_paths_without_helper_path_keep_other_overrides(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import keymasq.common.paths as paths
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(
+                    KEYMASQ_RECORD_HELPER_PATH="/opt/keymasq/bin/keymasq-record",
+                    SLURP_PATH=str(tmp_path / "slurp"),
+                ),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.SLURP_PATH == tmp_path / "slurp"
     finally:
         importlib.reload(paths)
 
@@ -87,7 +137,7 @@ def test_resolve_slurp_path_uses_build_override(
                 sys.modules,
                 "keymasq.common.build_paths",
                 SimpleNamespace(
-                    KEYMASQ_RECORD_HELPER_PATH=str(tmp_path / "keymasq-record"),
+                    KEYMASQ_HELPER_PATH=str(tmp_path / "keymasq-helper"),
                     SLURP_PATH=str(slurp),
                 ),
             )
@@ -230,38 +280,38 @@ def test_ensure_session_socket_dir_logs_permission_failures(
     assert "Failed to set session socket directory permissions" in caplog.text
 
 
-def test_resolve_keymasq_record_helper_path_returns_none_for_non_executable(
+def test_resolve_keymasq_helper_path_returns_none_for_non_executable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import keymasq.common.paths as paths
 
-    helper = tmp_path / "keymasq-record"
+    helper = tmp_path / "keymasq-helper"
     helper.write_text("#!/bin/sh\n", encoding="utf-8")
     helper.chmod(0o644)
 
-    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", helper)
-    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_FALLBACK_PATHS", ())
+    monkeypatch.setattr(paths, "KEYMASQ_HELPER_PATH", helper)
+    monkeypatch.setattr(paths, "KEYMASQ_HELPER_FALLBACK_PATHS", ())
 
-    assert paths.resolve_keymasq_record_helper_path() is None
+    assert paths.resolve_keymasq_helper_path() is None
 
 
-def test_resolve_keymasq_record_helper_path_uses_nixos_system_profile_fallback(
+def test_resolve_keymasq_helper_path_uses_nixos_system_profile_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import keymasq.common.paths as paths
 
-    nixos_helper = tmp_path / "run-current-system-sw-bin-keymasq-record"
+    nixos_helper = tmp_path / "run-current-system-sw-bin-keymasq-helper"
     nixos_helper.write_text("#!/bin/sh\n", encoding="utf-8")
     nixos_helper.chmod(0o755)
 
-    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", tmp_path / "missing-build-helper")
+    monkeypatch.setattr(paths, "KEYMASQ_HELPER_PATH", tmp_path / "missing-build-helper")
     monkeypatch.setattr(
         paths,
-        "KEYMASQ_RECORD_HELPER_FALLBACK_PATHS",
+        "KEYMASQ_HELPER_FALLBACK_PATHS",
         (tmp_path / "missing-usr-bin-helper", nixos_helper),
     )
 
-    assert paths.resolve_keymasq_record_helper_path() == str(nixos_helper)
+    assert paths.resolve_keymasq_helper_path() == str(nixos_helper)
 
 
 def test_resolve_slurp_path_returns_none_for_non_executable(

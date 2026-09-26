@@ -6,7 +6,7 @@ set -e
 # recovery is incomplete, the helper fails and dpkg keeps the package.
 if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]; then
 	deb-systemd-invoke stop keymasqd.service >/dev/null || true
-	/usr/bin/keymasq-record prepare-removal
+	/usr/bin/keymasq-helper prepare-removal
 fi
 
 #DEBHELPER#

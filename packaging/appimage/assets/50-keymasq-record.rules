@@ -1,3 +1,6 @@
+// Legacy rule for the keymasq-record wrapper. The released v0.19 updater installs
+// this file name from the incoming release; on systemd hosts integration repair
+// replaces it with 50-keymasq-helper.rules.
 function isKeymasqRecordHelper(action) {
   return action.lookup("program") == "/opt/keymasq/bin/keymasq-record" &&
     (action.id == "org.freedesktop.policykit.exec" ||

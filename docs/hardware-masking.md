@@ -126,10 +126,10 @@ If recovery reports an error, run the recovery helper while the daemon is
 stopped:
 
 ```sh
-sudo keymasq-record recover-hardware
+sudo keymasq-helper recover-hardware
 ```
 
-For the installed AppImage, use `/opt/keymasq/bin/keymasq-record`.
+For the installed AppImage, use `/opt/keymasq/bin/keymasq-helper`.
 
 Recovery only changes devices it can positively identify. If an undo journal is
 damaged, recovery still removes that device's rules and restores what it can

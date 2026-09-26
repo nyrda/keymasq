@@ -120,9 +120,9 @@ def _start_recording_unlock(window, on_success=None) -> None:
         error_msg = ""
         claim_response: dict | None = None
         uid = _runtime.os.getuid()
-        helper_path = _runtime.resolve_keymasq_record_helper_path()
+        helper_path = _runtime.resolve_keymasq_helper_path()
         if helper_path is None:
-            return f"Recording helper not found at {_runtime.KEYMASQ_RECORD_HELPER_PATH}", None
+            return f"Keymasq helper not found at {_runtime.KEYMASQ_HELPER_PATH}", None
 
         runtime_cmd = [
             "pkexec",

@@ -55,7 +55,7 @@ jobs:
               - "keymasq/_version.py"
               - "keymasq/cli/**"
               - "keymasq/common/**"
-              - "keymasq/record.py"
+              - "keymasq/helper.py"
               - "nix/**"
               - "packaging/appimage/**"
               - "pyproject.toml"

@@ -313,7 +313,7 @@ a warning when this happens so the missing optimization is visible.
 ### Macro recording opt-in and capture unlock
 
 Packaged installs handle this automatically. Macro recording is enabled by a
-Polkit-backed `keymasq-record` opt-in from the GUI. Capture flows such as
+Polkit-backed `keymasq-helper` opt-in from the GUI. Capture flows such as
 button/key capture, combo capture, and Device Inspector suppression use the
 separate capture unlock lease.
 
@@ -328,7 +328,7 @@ macro_recording_time_limit = 10
 ```
 
 This does not enable macro recording. Macro recording still requires the
-`keymasq-record` opt-in helper, exposed in the GUI under
+`keymasq-helper` opt-in, exposed in the GUI under
 **Settings > Macro recording**.
 
 Keymasq reserves `Ctrl+Alt+Esc` by default as an emergency combo while it has a

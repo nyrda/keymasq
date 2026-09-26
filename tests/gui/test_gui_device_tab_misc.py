@@ -361,15 +361,15 @@ def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     assert second_row._analog_role_dropdown.get_selected() == 0
 
 
-def test_resolve_keymasq_record_helper_path(tmp_path, monkeypatch):
+def test_resolve_keymasq_helper_path(tmp_path, monkeypatch):
     from keymasq.common import paths
 
-    helper = tmp_path / "keymasq-record"
+    helper = tmp_path / "keymasq-helper"
     helper.write_text("#!/bin/sh\n")
     helper.chmod(0o755)
-    monkeypatch.setattr(paths, "KEYMASQ_RECORD_HELPER_PATH", helper)
+    monkeypatch.setattr(paths, "KEYMASQ_HELPER_PATH", helper)
 
-    assert paths.resolve_keymasq_record_helper_path() == str(helper)
+    assert paths.resolve_keymasq_helper_path() == str(helper)
 
 
 def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch):

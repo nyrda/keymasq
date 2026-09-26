@@ -17,7 +17,7 @@ from keymasq.common.recording_guard import (
     write_unlock_expires_at,
 )
 
-log = logging.getLogger("keymasq.record")
+log = logging.getLogger("keymasq.helper")
 
 
 def _keymasq_uid() -> int | None:
@@ -40,7 +40,7 @@ def _require_privileged_caller() -> int:
     keymasq_uid = _keymasq_uid()
 
     if uid != keymasq_uid:
-        raise PermissionError("keymasq-record must run as root or keymasq user")
+        raise PermissionError("keymasq-helper must run as root or keymasq user")
     return uid
 
 
@@ -107,7 +107,7 @@ def _remove_lease(path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="keymasq-record")
+    parser = argparse.ArgumentParser(prog="keymasq-helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     hardware = subparsers.add_parser("hardware-operation", help=argparse.SUPPRESS)
@@ -257,7 +257,7 @@ def main() -> None:
     except (PermissionError, OSError, ValueError) as exc:
         _exit_error(exc)
     except Exception as exc:
-        log.exception("Unexpected keymasq-record failure")
+        log.exception("Unexpected keymasq-helper failure")
         _exit_error(exc)
 
 

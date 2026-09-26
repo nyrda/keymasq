@@ -10,7 +10,7 @@ root job.
 `keymasqd` owns masking reservations, confirmation deadlines, saved preferences,
 and reconnect handling. There is no separate masking daemon. For privileged
 operations it starts a short-lived `keymasq-hardware@.service` job through
-systemd. The job invokes the existing `keymasq-record hardware-operation` entry
+systemd. The job invokes the existing `keymasq-helper hardware-operation` entry
 point, resolves the selected attachment again, records permissions and driver
 bindings, and installs runtime udev rules. The root process exits when the
 operation ends. Listing hardware and monitoring unchanged masks do not start
@@ -223,7 +223,7 @@ Systemd watches `keymasqd` with a 20-second watchdog. Heartbeats run on the
 input event loop and stop if that loop blocks. Waiting for a bounded hardware
 job or its coordinator lock does not suppress them. On watchdog expiry systemd
 kills the daemon, releasing every evdev grab and virtual output, then runs
-`keymasq-record recover-hardware`. The same cleanup runs after normal service
+`keymasq-helper recover-hardware`. The same cleanup runs after normal service
 shutdown, and stopping the daemon stops its outstanding hardware jobs first.
 Startup also runs recovery before opening input devices, and fails if recovery
 is incomplete. Unexpected masking monitor errors stop remapping and attempt
@@ -231,7 +231,7 @@ physical recovery. The daemon logs cleanup errors and the monitor keeps running.
 
 `systemctl stop` reports success even when `ExecStopPost` recovery fails, so
 package removal does not rely on it. Every package format runs
-`keymasq-record prepare-removal` before deleting files: the Debian `prerm`, the
+`keymasq-helper prepare-removal` before deleting files: the Debian `prerm`, the
 RPM `%preun`, an Arch `PreTransaction` alpm hook with `AbortOnFail` (pacman
 ignores install script failures), and the AppImage uninstaller. The command
 stops `keymasqd`, requires the unit to be inactive or failed, and runs the same

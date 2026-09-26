@@ -7,7 +7,7 @@ import pytest
 from keymasq.masking import operations
 
 ROOT = Path(__file__).resolve().parents[2]
-PREPARE = "/usr/bin/keymasq-record prepare-removal"
+PREPARE = "/usr/bin/keymasq-helper prepare-removal"
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ async def test_incomplete_recovery_blocks_removal_and_keeps_grants(host):
 
     assert "cannot be removed yet" in str(error.value)
     assert "Hardware recovery remains incomplete: 1234: port busy" in str(error.value)
-    assert "sudo keymasq-record recover-hardware" in str(error.value)
+    assert "sudo keymasq-helper recover-hardware" in str(error.value)
     assert not [call for call in host.calls if call[0] == "setfacl"]
 
 

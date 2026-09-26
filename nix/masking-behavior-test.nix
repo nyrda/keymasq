@@ -33,7 +33,7 @@ pkgs.testers.runNixOSTest {
 
     def check(command, unlock=False):
         if unlock:
-            machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
         return machine.succeed(user("${testPython}/bin/python ${behavior} " + command), timeout=120)
 
     def ready():

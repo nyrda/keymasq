@@ -122,7 +122,7 @@ install -Dpm0644 tmpfiles.d/keymasq.conf %{buildroot}%{_tmpfilesdir}/keymasq.con
 install -Dpm0644 udev/91-keymasq-acl.rules %{buildroot}%{_udevrulesdir}/91-keymasq-acl.rules
 install -Dpm0644 udev/99-keymasq-hide-grabbed.rules %{buildroot}%{_udevrulesdir}/99-keymasq-hide-grabbed.rules
 install -Dpm0644 polkit/49-keymasq-hardware.rules %{buildroot}%{_datadir}/polkit-1/rules.d/49-keymasq-hardware.rules
-install -Dpm0644 polkit/com.keymasq.record-macro.policy %{buildroot}%{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
+install -Dpm0644 polkit/com.keymasq.helper.policy %{buildroot}%{_datadir}/polkit-1/actions/com.keymasq.helper.policy
 install -Dpm0644 assets/tools.keymasq.keymasq.desktop %{buildroot}%{_datadir}/applications/tools.keymasq.keymasq.desktop
 install -Dpm0644 assets/tools.keymasq.keymasq.metainfo.xml %{buildroot}%{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml
 install -Dpm0644 assets/tools.keymasq.keymasq.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
@@ -160,7 +160,7 @@ cat <<'SPEC_TAIL'
 %files -f %{pyproject_files}
 %{_bindir}/keymasq
 %{_bindir}/keymasqd
-%{_bindir}/keymasq-record
+%{_bindir}/keymasq-helper
 %{_bindir}/keymasq-session
 %{_unitdir}/keymasqd.service
 %{_unitdir}/keymasq-hardware@.service
@@ -169,7 +169,7 @@ cat <<'SPEC_TAIL'
 %{_tmpfilesdir}/keymasq.conf
 %{_udevrulesdir}/91-keymasq-acl.rules
 %{_udevrulesdir}/99-keymasq-hide-grabbed.rules
-%{_datadir}/polkit-1/actions/com.keymasq.record-macro.policy
+%{_datadir}/polkit-1/actions/com.keymasq.helper.policy
 %{_datadir}/polkit-1/rules.d/49-keymasq-hardware.rules
 %{_datadir}/applications/tools.keymasq.keymasq.desktop
 %{_datadir}/metainfo/tools.keymasq.keymasq.metainfo.xml

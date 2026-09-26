@@ -44,7 +44,7 @@
 
     def usb_check(command, unlock=False):
         if unlock:
-            machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
         return machine.succeed(usb_command(command), timeout=120)
 
     def usb_import(index):
@@ -126,7 +126,7 @@
                     "${testPython}/bin/python ${./shared_outputs.py} " + command
                 )
             usb_import(3)
-            machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("setup"), timeout=120)
             machine.succeed(shared("hold") + " > /tmp/usb-shared-output.log 2>&1 &")
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-held", timeout=45)
@@ -134,7 +134,7 @@
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-absent-ok", timeout=40)
             usb_import(3)
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-returned-ok", timeout=40)
-            machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("cleanup"), timeout=120)
             usb_detach()
             usb_detach(1)

@@ -1,17 +1,17 @@
-function isKeymasqRecordHelper(action) {
-  return action.lookup("program") == "/opt/keymasq/bin/keymasq-record" &&
+function isKeymasqHelper(action) {
+  return action.lookup("program") == "/opt/keymasq/bin/keymasq-helper" &&
     (action.id == "org.freedesktop.policykit.exec" ||
-     action.id == "com.keymasq.record-macro");
+     action.id == "com.keymasq.helper");
 }
 
 polkit.addRule(function(action, subject) {
-  if (!isKeymasqRecordHelper(action)) {
+  if (!isKeymasqHelper(action)) {
     return null;
   }
   if (action.lookup("user") != "root") {
     return polkit.Result.NO;
   }
-  if (action.id == "com.keymasq.record-macro") {
+  if (action.id == "com.keymasq.helper") {
     return null;
   }
   if (subject.local && subject.active) {

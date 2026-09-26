@@ -118,7 +118,7 @@
 
           postPatch = ''
             cat > keymasq/common/build_paths.py <<EOF
-            KEYMASQ_RECORD_HELPER_PATH = "${placeholder "out"}/bin/keymasq-record"
+            KEYMASQ_HELPER_PATH = "${placeholder "out"}/bin/keymasq-helper"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
             LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"
             MASKING_COMMAND_PATHS = {
@@ -130,8 +130,8 @@
             }
             EOF
 
-            substituteInPlace polkit/com.keymasq.record-macro.policy \
-              --replace-fail "/usr/bin/keymasq-record" "${placeholder "out"}/bin/keymasq-record"
+            substituteInPlace polkit/com.keymasq.helper.policy \
+              --replace-fail "/usr/bin/keymasq-helper" "${placeholder "out"}/bin/keymasq-helper"
           '';
 
           preFixup = ''
@@ -182,7 +182,7 @@
               size=''${size%.png}
               install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/tools.keymasq.keymasq.png
             done
-            install -Dm644 $src/polkit/com.keymasq.record-macro.policy $out/share/polkit-1/actions/com.keymasq.record-macro.policy
+            install -Dm644 $src/polkit/com.keymasq.helper.policy $out/share/polkit-1/actions/com.keymasq.helper.policy
           '';
 
           meta = {
@@ -470,14 +470,14 @@
                 SupplementaryGroups = [ "input" ];
                 Nice = -5;
                 ExecStartPre = [
-                  "+${cfg.package}/bin/keymasq-record recover-hardware"
+                  "+${cfg.package}/bin/keymasq-helper recover-hardware"
                   "+${pkgs.systemd}/bin/udevadm trigger --subsystem-match=hidraw --action=change"
                   "-+${pkgs.systemd}/bin/udevadm settle --timeout=30"
                   "+${pkgs.acl}/bin/setfacl -m u:keymasq:rw /dev/uinput"
                   "+${pkgs.bash}/bin/sh -c 'for p in /dev/input/event*; do [ -e \"$p\" ] && ${pkgs.acl}/bin/setfacl -m u:keymasq:rw \"$p\"; done'"
                 ];
                 ExecStart = "${cfg.package}/bin/keymasqd";
-                ExecStopPost = "+${cfg.package}/bin/keymasq-record recover-hardware";
+                ExecStopPost = "+${cfg.package}/bin/keymasq-helper recover-hardware";
                 Restart = "on-failure";
                 RestartSec = 5;
                 NoNewPrivileges = true;
@@ -510,7 +510,7 @@
               restartTriggers = [ cfg.package ];
               serviceConfig = {
                 Type = "oneshot";
-                ExecStart = "${cfg.package}/bin/keymasq-record hardware-operation %i";
+                ExecStart = "${cfg.package}/bin/keymasq-helper hardware-operation %i";
                 TimeoutStartSec = 60;
                 TimeoutStopSec = 2;
                 User = "root";

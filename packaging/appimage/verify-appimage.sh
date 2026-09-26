@@ -21,6 +21,7 @@ unset DESKTOP_SESSION
 
 "$appimage" --help >/dev/null
 "$appimage" keymasq --help >/dev/null
+"$appimage" keymasq-helper --help >/dev/null
 "$appimage" keymasq-record --help >/dev/null
 
 tmp_dir="$(mktemp -d)"

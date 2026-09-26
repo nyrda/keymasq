@@ -115,8 +115,8 @@ package() {
 
     install -Dm644 "polkit/49-keymasq-hardware.rules" \
         "$pkgdir/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules"
-    install -Dm644 "polkit/com.keymasq.record-macro.policy" \
-        "$pkgdir/usr/share/polkit-1/actions/com.keymasq.record-macro.policy"
+    install -Dm644 "polkit/com.keymasq.helper.policy" \
+        "$pkgdir/usr/share/polkit-1/actions/com.keymasq.helper.policy"
 
     install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
     install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"

@@ -65,7 +65,7 @@ baseline_version=$(version)
 setup prepare
 check ready
 check baseline
-keymasq-record unlock-runtime --uid 1999 --ttl 120
+keymasq-helper unlock-runtime --uid 1999 --ttl 120
 check mask
 old_pid=$(systemctl show keymasqd.service -p MainPID --value)
 
@@ -94,7 +94,7 @@ if remove_package; then
     exit 1
 fi
 test "$(version)" = "$candidate_version"
-test -x /usr/bin/keymasq-record
+test -x /usr/bin/keymasq-helper
 check restricted
 flock -u "$lock_fd"
 exec {lock_fd}>&-

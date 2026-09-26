@@ -3,7 +3,7 @@ Description=Keymasq privileged hardware operation
 
 [Service]
 Type=oneshot
-ExecStart=/opt/keymasq/bin/keymasq-record hardware-operation %i
+ExecStart=/opt/keymasq/bin/keymasq-helper hardware-operation %i
 TimeoutStartSec=60
 TimeoutStopSec=2
 User=root

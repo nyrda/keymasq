@@ -1,4 +1,4 @@
-"""Short-lived privileged hardware operations, invoked by keymasq-record."""
+"""Short-lived privileged hardware operations, invoked by keymasq-helper."""
 
 from __future__ import annotations
 
@@ -263,7 +263,7 @@ class RemovalBlockedError(OSError):
 def _removal_blocked(reason: str) -> RemovalBlockedError:
     return RemovalBlockedError(
         f"Keymasq cannot be removed yet: {reason}. Masked devices may still be "
-        "unavailable. Reboot, or run 'sudo keymasq-record recover-hardware', "
+        "unavailable. Reboot, or run 'sudo keymasq-helper recover-hardware', "
         "then remove Keymasq again."
     )
 

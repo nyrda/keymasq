@@ -16,7 +16,7 @@ on every supported distribution:
 - `keymasq-session`: the per-user session service that tracks desktop/session
   state and talks to the daemon
 - `keymasq`: the main CLI and GTK application
-- `keymasq-record`: the helper used for privileged recording operations
+- `keymasq-helper`: the root helper for capture unlock, the macro-recording opt-in, and hardware masking operations
 
 The repository currently maintains these package outputs:
 
@@ -53,7 +53,7 @@ Arch also applies only Keymasq's sysusers and tmpfiles definitions.
 Privileged masking jobs use the same trigger-then-settle sequence when they
 recheck input nodes or restore a masked controller.
 AppImage's non-systemd instructions include the same step. Removal on every
-format runs `keymasq-record prepare-removal`, which removes the daemon's own ACL
+format runs `keymasq-helper prepare-removal`, which removes the daemon's own ACL
 entries from uinput, input, and hidraw nodes. Installing the Nix package alone does not
 activate system services or udev rules. NixOS users must enable the module.
 
@@ -235,14 +235,14 @@ The main filesystem layout is:
 /usr/bin/keymasq
 /usr/bin/keymasqd
 /usr/bin/keymasq-session
-/usr/bin/keymasq-record
+/usr/bin/keymasq-helper
 /usr/lib/systemd/system/keymasqd.service
 /usr/lib/systemd/user/keymasq-session.service
 /usr/lib/sysusers.d/keymasq.conf
 /usr/lib/tmpfiles.d/keymasq.conf
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
 /usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
-/usr/share/polkit-1/actions/com.keymasq.record-macro.policy
+/usr/share/polkit-1/actions/com.keymasq.helper.policy
 /usr/share/applications/tools.keymasq.keymasq.desktop
 /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
@@ -320,7 +320,7 @@ wrappers in `/opt/keymasq/bin` and the target user's `~/.local/bin`, writes
 system integration under `/etc`, and creates
 `/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc`
 integration files across atomic OS updates. On mutable non-SteamOS hosts, it
-also installs the `/opt/keymasq/bin/keymasq-record` polkit action under
+also installs the `/opt/keymasq/bin/keymasq-helper` polkit action under
 `/usr/share/polkit-1/actions` when that directory is writable. `/opt/keymasq`
 lives under SteamOS' persistent `/opt` offload mount, and the atomic update
 keep-list does not manage it. The installer runs `systemd-sysusers` and

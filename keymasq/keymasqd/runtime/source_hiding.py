@@ -11,7 +11,7 @@ from keymasq.masking.operations import INPUT_NODE_NAME
 
 # Hiding flags live in the daemon's own runtime directory. Making udev act on
 # them means writing root-owned sysfs uevent files, so every trigger runs as a
-# bounded keymasq-hardware@ job through keymasq-record; keymasqd itself holds
+# bounded keymasq-hardware@ job through keymasq-helper; keymasqd itself holds
 # no capabilities (see keymasqd.service and docs/security.md).
 
 log = logging.getLogger("keymasqd.source_hiding")

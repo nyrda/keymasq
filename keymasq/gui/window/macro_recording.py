@@ -188,9 +188,9 @@ def _start_macro_recording_enable(window, on_success=None) -> None:
 
     def worker() -> tuple[str, dict | None]:
         uid = _runtime.os.getuid()
-        helper_path = _runtime.resolve_keymasq_record_helper_path()
+        helper_path = _runtime.resolve_keymasq_helper_path()
         if helper_path is None:
-            return f"Recording helper not found at {_runtime.KEYMASQ_RECORD_HELPER_PATH}", None
+            return f"Keymasq helper not found at {_runtime.KEYMASQ_HELPER_PATH}", None
 
         cmd = [
             "pkexec",
@@ -247,9 +247,9 @@ def _start_macro_recording_disable(window, on_success=None) -> None:
 
     def worker() -> tuple[str, dict | None]:
         uid = _runtime.os.getuid()
-        helper_path = _runtime.resolve_keymasq_record_helper_path()
+        helper_path = _runtime.resolve_keymasq_helper_path()
         if helper_path is None:
-            return f"Recording helper not found at {_runtime.KEYMASQ_RECORD_HELPER_PATH}", None
+            return f"Keymasq helper not found at {_runtime.KEYMASQ_HELPER_PATH}", None
 
         cmd = [
             "pkexec",

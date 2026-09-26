@@ -10,7 +10,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.paths import KEYMASQ_RECORD_HELPER_PATH, resolve_keymasq_record_helper_path
+from keymasq.common.paths import KEYMASQ_HELPER_PATH, resolve_keymasq_helper_path
 from keymasq.common.recording_guard import resolve_unlock_status
 from keymasq.gui.session_client import (
     GuiTaskResult,

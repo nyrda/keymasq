@@ -175,14 +175,14 @@ KEYMASQ_APPIMAGE_RENDERING=software keymasq
 /opt/keymasq/Keymasq.AppImage
 /opt/keymasq/runtime/<sha256>/
 /opt/keymasq/runtime/current -> <sha256>
-/opt/keymasq/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe,gtk4-brotway-run}
-~/.local/bin/{keymasq,keymasqd,keymasq-session,keymasq-record,waypipe,gtk4-brotway-run}
+/opt/keymasq/bin/{keymasq,keymasqd,keymasq-session,keymasq-helper,waypipe,gtk4-brotway-run}
+~/.local/bin/{keymasq,keymasqd,keymasq-session,keymasq-helper,waypipe,gtk4-brotway-run}
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
 /etc/systemd/system/keymasqd.service
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
-/etc/polkit-1/rules.d/50-keymasq-record.rules
+/etc/polkit-1/rules.d/50-keymasq-helper.rules
 /etc/keymasq/security.toml
 /etc/profile.d/keymasq.sh
 /etc/atomic-update.conf.d/keymasq.conf
@@ -193,7 +193,7 @@ user's home directory. The target user is the invoking desktop user;
 `--install --user USER` overrides it. `/etc/profile.d/keymasq.sh` puts
 `/opt/keymasq/bin` on the login `PATH`. On non-SteamOS systems with a writable
 polkit action directory, the installer also writes the matching
-`/usr/share/polkit-1/actions/com.keymasq.record-macro.policy`.
+`/usr/share/polkit-1/actions/com.keymasq.helper.policy`.
 
 `Keymasq.AppImage` remains the signed update payload. The installer extracts
 it once into `/opt/keymasq/runtime/<sha256>` and the wrappers run commands

@@ -42,7 +42,7 @@ pkgs.testers.runNixOSTest {
 
     def check(command):
         if command in ("mask", "mask-persistent", "start-mask"):
-            machine.succeed("${keymasqPackage}/bin/keymasq-record unlock-runtime --uid 1000 --ttl 120")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
         return machine.succeed(user("${testPython}/bin/python ${control} " + command), timeout=90)
 
     def ready():
@@ -139,7 +139,7 @@ pkgs.testers.runNixOSTest {
             )
             machine.wait_until_fails(lock, timeout=15)
             status, output = machine.execute(
-                "${keymasqPackage}/bin/keymasq-record prepare-removal 2>&1"
+                "${keymasqPackage}/bin/keymasq-helper prepare-removal 2>&1"
             )
             assert status != 0, output
             assert "cannot be removed yet" in output, output
@@ -148,7 +148,7 @@ pkgs.testers.runNixOSTest {
             ).strip() == "0"
             check("restricted")
             machine.succeed("systemctl stop keymasq-test-recovery-lock.service")
-            machine.succeed("${keymasqPackage}/bin/keymasq-record prepare-removal")
+            machine.succeed("${keymasqPackage}/bin/keymasq-helper prepare-removal")
             check("removed")
             restart()
 

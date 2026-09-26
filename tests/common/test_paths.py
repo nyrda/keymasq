@@ -98,6 +98,29 @@ def test_resolve_keymasq_helper_path_uses_build_fallback(
         importlib.reload(paths)
 
 
+def test_build_paths_without_helper_path_keep_other_overrides(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import keymasq.common.paths as paths
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setitem(
+                sys.modules,
+                "keymasq.common.build_paths",
+                SimpleNamespace(
+                    KEYMASQ_RECORD_HELPER_PATH="/opt/keymasq/bin/keymasq-record",
+                    SLURP_PATH=str(tmp_path / "slurp"),
+                ),
+            )
+
+            reloaded = importlib.reload(paths)
+            assert reloaded.SLURP_PATH == tmp_path / "slurp"
+    finally:
+        importlib.reload(paths)
+
+
 def test_resolve_slurp_path_uses_build_override(
     tmp_path: Path,
     monkeypatch,

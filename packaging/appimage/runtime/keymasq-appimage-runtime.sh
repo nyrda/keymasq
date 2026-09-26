@@ -282,7 +282,9 @@ validate_runtime_dir() {
 	[ -x "$keymasq_validate_dir/bin/keymasq" ] || die "extracted runtime missing keymasq launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasqd" ] || die "extracted runtime missing keymasqd launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
-	[ -x "$keymasq_validate_dir/bin/keymasq-helper" ] || die "extracted runtime missing keymasq-helper launcher"
+	# Stable releases from before the rename, a --allow-downgrade target, ship keymasq-record.
+	[ -x "$keymasq_validate_dir/bin/keymasq-helper" ] || [ -x "$keymasq_validate_dir/bin/keymasq-record" ] ||
+		die "extracted runtime missing keymasq-helper launcher"
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
 	[ -x "$keymasq_validate_dir/bin/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher"
 	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || die "extracted runtime missing Brotway daemon"

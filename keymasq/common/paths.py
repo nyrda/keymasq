@@ -61,7 +61,7 @@ _build_slurp_path = "/usr/bin/slurp"
 _build_libxkbcommon_path = ""
 with contextlib.suppress(ImportError, AttributeError):
     build_paths = importlib.import_module("keymasq.common.build_paths")
-    _build_helper_path = str(build_paths.KEYMASQ_HELPER_PATH)
+    _build_helper_path = str(getattr(build_paths, "KEYMASQ_HELPER_PATH", _build_helper_path))
     _build_helper_fallback_paths = tuple(getattr(build_paths, "KEYMASQ_HELPER_FALLBACK_PATHS", ()))
     _build_slurp_path = str(getattr(build_paths, "SLURP_PATH", _build_slurp_path))
     _build_libxkbcommon_path = str(getattr(build_paths, "LIBXKBCOMMON_PATH", ""))

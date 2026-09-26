@@ -2096,12 +2096,16 @@ def test_appimage_self_update_reports_service_restart_failure(tmp_path: Path) ->
     assert "Keymasq updated to 2.0.0" not in result.stdout
 
 
-def test_appimage_self_update_allows_explicit_downgrade(tmp_path: Path) -> None:
+def test_appimage_self_update_allows_explicit_downgrade_to_pre_rename_runtime(
+    tmp_path: Path,
+) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     source_appimage = tmp_path / "source.AppImage"
     source_appimage.write_text("source\n", encoding="utf-8")
     env = _env(tmp_path, fake_root, assets, source_appimage)
+    incoming_bin = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin"
+    (incoming_bin / "keymasq-helper").rename(incoming_bin / "keymasq-record")
     target = fake_root / "opt/keymasq/Keymasq.AppImage"
     target.parent.mkdir(parents=True)
     target.write_text("old\n", encoding="utf-8")

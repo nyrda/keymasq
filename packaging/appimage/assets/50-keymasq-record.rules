@@ -1,0 +1,2 @@
+// The released v0.19 AppImage updater installs this file name from the incoming
+// release. Integration repair replaces it with 50-keymasq-helper.rules.

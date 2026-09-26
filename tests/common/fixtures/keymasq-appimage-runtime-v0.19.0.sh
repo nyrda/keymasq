@@ -141,20 +141,10 @@ write_file_atomic() {
 write_wrapper() {
 	name=$1
 	dst=$2
-	legacy_fallback=
-	if [ "$name" = keymasq-helper ]; then
-		# A failed update keeps the previous runtime active, and runtimes from
-		# before the rename only ship the keymasq-record launcher.
-		legacy_fallback='if [ ! -x "$APPDIR/bin/keymasq-helper" ] && [ -x "$APPDIR/bin/keymasq-record" ]; then
-	export APPDIR
-	exec "$APPDIR/bin/keymasq-record" "$@"
-fi
-'
-	fi
 	write_file_atomic 0755 "$dst" <<EOF
 #!/bin/sh
 APPDIR=\${KEYMASQ_APPDIR:-$INSTALL_DIR/$RUNTIME_DIR_NAME/$CURRENT_RUNTIME_NAME}
-${legacy_fallback}if [ ! -x "\$APPDIR/bin/$name" ]; then
+if [ ! -x "\$APPDIR/bin/$name" ]; then
 	echo "error: Keymasq runtime is not installed at \$APPDIR" >&2
 	exit 1
 fi
@@ -245,7 +235,7 @@ validate_user_wrapper_destinations() {
 	keymasq_wrapper_user=$1
 	keymasq_wrapper_home=$(resolve_user_home "$keymasq_wrapper_user")
 	keymasq_wrapper_dir=$(root_path "$keymasq_wrapper_home/.local/bin")
-	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-helper waypipe gtk4-brotway-run; do
+	for keymasq_wrapper_name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		keymasq_wrapper_path="$keymasq_wrapper_dir/$keymasq_wrapper_name"
 		if { [ -e "$keymasq_wrapper_path" ] || [ -L "$keymasq_wrapper_path" ]; } && \
 			! user_wrapper_is_managed "$keymasq_wrapper_user" "$keymasq_wrapper_name" "$keymasq_wrapper_path"; then
@@ -282,13 +272,8 @@ validate_runtime_dir() {
 	[ -x "$keymasq_validate_dir/bin/keymasq" ] || die "extracted runtime missing keymasq launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasqd" ] || die "extracted runtime missing keymasqd launcher"
 	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
-	[ -x "$keymasq_validate_dir/bin/keymasq-helper" ] || die "extracted runtime missing keymasq-helper launcher"
+	[ -x "$keymasq_validate_dir/bin/keymasq-record" ] || die "extracted runtime missing keymasq-record launcher"
 	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
-	[ -x "$keymasq_validate_dir/bin/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || die "extracted runtime missing Brotway daemon"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher binary"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-debugmenu" ] || die "extracted runtime missing Brotway debug menu binary"
-	[ -e "$keymasq_validate_dir/lib/gtk4-brotway/libgtk-4.so.1" ] || die "extracted runtime missing Brotway GTK library"
 }
 
 copy_extracted_runtime() {
@@ -401,7 +386,7 @@ appdir_version() {
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    print(version("keymasq"))
+    print(version("python-keymasq"))
 except PackageNotFoundError:
     raise SystemExit(1)
 PY
@@ -542,13 +527,11 @@ install_atomic_keep_list() {
 	write_file_atomic 0644 "$dst" <<'EOF'
 /etc/atomic-update.conf.d/keymasq.conf
 /etc/keymasq/**
-/etc/polkit-1/rules.d/50-keymasq-helper.rules
+/etc/polkit-1/rules.d/50-keymasq-record.rules
 /etc/profile.d/keymasq.sh
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
 /etc/systemd/system/keymasqd.service
-/etc/systemd/system/keymasq-hardware@.service
-/etc/polkit-1/rules.d/49-keymasq-hardware.rules
 /etc/udev/rules.d/91-keymasq-acl.rules
 /etc/udev/rules.d/99-keymasq-hide-grabbed.rules
 EOF
@@ -654,10 +637,9 @@ install_user_wrappers() {
 	validate_user_wrapper_destinations "$user"
 	install_user_dir_chain "$user" "$home" .local bin
 	bin_dir=$(root_path "$home/.local/bin")
-	for name in keymasq keymasqd keymasq-session keymasq-helper waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		write_user_wrapper "$user" "$name" "$bin_dir/$name"
 	done
-	remove_user_wrapper_if_managed "$user" keymasq-record "$bin_dir/keymasq-record"
 }
 
 install_session_autostart() {
@@ -686,11 +668,8 @@ reload_udev_rules() {
 	if ! udevadm control --reload-rules; then
 		warn "could not reload udev rules; device permissions may not update until udev is reloaded"
 	fi
-	udevadm trigger --subsystem-match=input --sysname-match='event*' --action=change || true
-	udevadm trigger --subsystem-match=input --sysname-match='js*' --action=change || true
-	udevadm trigger --subsystem-match=misc --sysname-match=uinput --action=change || true
-	udevadm trigger --subsystem-match=hidraw --action=change || true
-	udevadm settle --timeout=30 || true
+	udevadm trigger --subsystem-match=input --action=add || true
+	udevadm trigger --subsystem-match=misc --action=add || true
 }
 
 clear_keymasq_udev_state() {
@@ -727,8 +706,7 @@ clear_keymasq_udev_state() {
 		for keymasq_device in \
 			"$(root_path /dev/uinput)" \
 			"$(root_path /dev/input)"/event* \
-			"$(root_path /dev/input)"/js* \
-			"$(root_path /dev)"/hidraw*; do
+			"$(root_path /dev/input)"/js*; do
 			[ -e "$keymasq_device" ] || continue
 			if ! setfacl -x u:keymasq "$keymasq_device" 2>/dev/null; then
 				warn "could not remove the Keymasq ACL from $keymasq_device"
@@ -824,8 +802,6 @@ Before starting the daemon, grant device ACLs:
   install -d -o keymasq -g keymasq -m 0755 /run/keymasq
   install -d -o keymasq -g keymasq -m 0750 /var/lib/keymasq
   setfacl -m u:keymasq:rw /dev/uinput
-  udevadm trigger --subsystem-match=hidraw --action=change
-  udevadm settle --timeout=30
   for p in /dev/input/event*; do [ -e "\$p" ] && setfacl -m u:keymasq:rw "\$p"; done
 
 The per-user session manager was installed as an XDG autostart entry for:
@@ -847,25 +823,15 @@ print_generic_service_instructions() {
 	fi
 }
 
-remove_legacy_helper_integration() {
-	# Releases before the keymasq-helper rename installed these. Remove them only
-	# once the new runtime is active, because a failed update keeps the old one.
-	remove_path "$(root_path "$INSTALL_DIR/bin/keymasq-record")"
-	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
-	if ! native_package_installed; then
-		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
-	fi
-}
-
 install_polkit_integration() {
 	assets=$1
-	install_file 0644 "$assets/50-keymasq-helper.rules" \
-		"$(root_path /etc/polkit-1/rules.d/50-keymasq-helper.rules)"
+	install_file 0644 "$assets/50-keymasq-record.rules" \
+		"$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
 	if steamos_detected; then
 		return 0
 	fi
-	try_install_file 0644 "$assets/com.keymasq.helper.policy" \
-		"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)" || true
+	try_install_file 0644 "$assets/com.keymasq.record-macro.policy" \
+		"$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)" || true
 }
 
 refresh_common_integration() {
@@ -874,7 +840,7 @@ refresh_common_integration() {
 	install_root=$(root_path "$INSTALL_DIR")
 	install -d -m 0755 "$install_root/bin" "$install_root/share/keymasq"
 
-	for name in keymasq keymasqd keymasq-session keymasq-helper waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		write_wrapper "$name" "$install_root/bin/$name"
 	done
 
@@ -929,8 +895,6 @@ write_systemd_integration_files() {
 	install_file 0644 "$assets/keymasq-sysusers.conf" "$(root_path /etc/sysusers.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasq-tmpfiles.conf" "$(root_path /etc/tmpfiles.d/keymasq.conf)"
 	install_file 0644 "$assets/keymasqd.service" "$(root_path /etc/systemd/system/keymasqd.service)"
-	install_file 0644 "$assets/49-keymasq-hardware.rules" "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
-	install_file 0644 "$assets/keymasq-hardware@.service" "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
 	install_user_service "$target_user"
 	if [ "$install_keep_list" = 1 ]; then
 		install_atomic_keep_list
@@ -1012,39 +976,6 @@ install_generic_integration() {
 	print_generic_service_instructions
 }
 
-repair_hardware_integration() {
-	# v0.19 installs the incoming daemon unit but does not know these assets or
-	# the keymasq-helper wrapper.
-	# Its first restart reaches this through the new runtime's root pre-start.
-	# The macro recording action lets users run keymasq-helper through pkexec
-	# with their own password. That must not authorize integration changes.
-	[ -z "${PKEXEC_UID:-}" ] || die "recording authorization does not authorize integration repair"
-	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "hardware integration repair requires root"
-	assets=$(asset_dir)
-	for pair in 'keymasq-hardware@.service /etc/systemd/system/keymasq-hardware@.service' \
-		'49-keymasq-hardware.rules /etc/polkit-1/rules.d/49-keymasq-hardware.rules' \
-		'50-keymasq-helper.rules /etc/polkit-1/rules.d/50-keymasq-helper.rules'; do
-		set -- $pair
-		if ! cmp -s "$assets/$1" "$(root_path "$2")"; then
-			install_file 0644 "$assets/$1" "$(root_path "$2")"
-		fi
-	done
-	if ! steamos_detected && ! cmp -s "$assets/com.keymasq.helper.policy" \
-		"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)"; then
-		try_install_file 0644 "$assets/com.keymasq.helper.policy" \
-			"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)" || true
-	fi
-	if [ ! -x "$(root_path "$INSTALL_DIR/bin/keymasq-helper")" ]; then
-		write_wrapper keymasq-helper "$(root_path "$INSTALL_DIR/bin/keymasq-helper")"
-	fi
-	if [ -f "$(root_path /etc/atomic-update.conf.d/keymasq.conf)" ] || steamos_detected; then
-		install_atomic_keep_list
-	fi
-	remove_legacy_helper_integration
-	# Retry a previously failed reload even when the files are already present.
-	systemctl daemon-reload
-}
-
 refresh_installed_integration() {
 	target_user=$1
 	runtime_id=$2
@@ -1072,24 +1003,6 @@ refresh_installed_integration() {
 	fi
 }
 
-native_package_installed() {
-	# Distribution packages install the daemon unit under /usr/lib, or /lib
-	# without merged /usr. The AppImage's /etc units would override it, and both
-	# install the same polkit action file.
-	for keymasq_native_unit in \
-		/usr/lib/systemd/system/keymasqd.service \
-		/lib/systemd/system/keymasqd.service; do
-		[ -e "$(root_path "$keymasq_native_unit")" ] && return 0
-	done
-	return 1
-}
-
-refuse_native_package() {
-	if native_package_installed; then
-		die "a native Keymasq package is installed. Remove it with your package manager, then run --install again. Settings, macros, and saved masks in /etc/keymasq, /var/lib/keymasq, and ~/.config/keymasq are kept."
-	fi
-}
-
 install_auto() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1106,11 +1019,9 @@ install_auto() {
 	done
 
 	target_user=$(resolve_target_user "$target_user")
-	refuse_native_package
 	require_root_or_pkexec --install --user "$target_user"
 	validate_user_wrapper_destinations "$target_user"
 	install_common_payload "$target_user"
-	remove_legacy_helper_integration
 
 	if systemd_available; then
 		if steamos_detected; then
@@ -1154,21 +1065,6 @@ remove_user_wrapper_if_managed() {
 	fi
 }
 
-prepare_hardware_removal() {
-	# Stop keymasqd and finish hardware recovery while the helper is installed.
-	# The running AppImage performs the check, so an older runtime cannot skip it.
-	systemd_available || return 0
-	# pkexec already authorized this uninstaller as an administrator and set
-	# PKEXEC_UID. keymasq-helper rejects that marker so the macro recording
-	# action cannot authorize hardware operations, so do not pass it on.
-	if [ -n "${KEYMASQ_APPIMAGE_HELPER:-}" ]; then
-		(unset PKEXEC_UID; "$KEYMASQ_APPIMAGE_HELPER" prepare-removal) && return 0
-	else
-		(unset PKEXEC_UID; run_python_module keymasq.helper prepare-removal) && return 0
-	fi
-	die "hardware recovery is incomplete; Keymasq was left installed so recovery can finish"
-}
-
 uninstall_keymasq() {
 	target_user=
 	while [ "$#" -gt 0 ]; do
@@ -1188,13 +1084,10 @@ uninstall_keymasq() {
 	require_root_or_pkexec --uninstall --user "$target_user"
 	home=$(resolve_user_home "$target_user")
 
-	prepare_hardware_removal
 	systemctl disable --now keymasqd.service 2>/dev/null || true
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
 	remove_path "$(root_path /etc/systemd/system/keymasqd.service)"
-	remove_path "$(root_path /etc/systemd/system/keymasq-hardware@.service)"
-	remove_path "$(root_path /etc/polkit-1/rules.d/49-keymasq-hardware.rules)"
 	remove_user_path "$target_user" "$(root_path "$home/.config/systemd/user/keymasq-session.service")"
 	remove_path "$(root_path /etc/sysusers.d/keymasq.conf)"
 	remove_path "$(root_path /etc/tmpfiles.d/keymasq.conf)"
@@ -1202,19 +1095,15 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
 	clear_keymasq_udev_state || die "failed to clear Keymasq state from existing input devices"
-	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-helper.rules)"
-	# A native package installed after the AppImage owns this shared action.
-	if ! native_package_installed; then
-		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)"
-	fi
-	remove_legacy_helper_integration
+	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
+	remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"
 	remove_user_path "$target_user" "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
-	for name in keymasq keymasqd keymasq-session keymasq-helper keymasq-record waypipe gtk4-brotway-run; do
+	for name in keymasq keymasqd keymasq-session keymasq-record waypipe; do
 		remove_user_wrapper_if_managed "$target_user" "$name" "$(root_path "$home/.local/bin/$name")"
 	done
 	remove_path "$(root_path "$INSTALL_DIR/bin")"
@@ -1374,60 +1263,23 @@ self_update() {
 		refuse_downgrade_unless_allowed "$current_version" "$version" "$allow_downgrade"
 		previous_runtime=$(current_runtime_id || true)
 		staged_target="$target.new.$$"
-		keymasq_update_unit=$(root_path /etc/systemd/system/keymasqd.service)
-		keymasq_update_unit_backup="$tmp_dir/keymasqd.service.before-update"
-		keymasq_restore_update_unit=0
-		trap '
-			keymasq_update_status=$?
-			rm -f "$staged_target"
-			if [ "$keymasq_restore_update_unit" = 1 ] && {
-				[ -e "$keymasq_update_unit" ] || [ -L "$keymasq_update_unit" ] ||
-				[ -e "$keymasq_update_unit_backup" ] || [ -L "$keymasq_update_unit_backup" ];
-			}; then
-				if [ -e "$keymasq_update_unit_backup" ] || [ -L "$keymasq_update_unit_backup" ]; then
-					mv -Tf "$keymasq_update_unit_backup" "$keymasq_update_unit" || warn "could not restore previous daemon unit"
-				else
-					rm -f "$keymasq_update_unit" || warn "could not remove unactivated daemon unit"
-				fi
-				systemctl daemon-reload || warn "could not reload restored daemon unit"
-			fi
-			exit "$keymasq_update_status"
-		' EXIT
-		trap 'exit 1' HUP INT TERM
+		trap 'rm -f "$staged_target"' EXIT HUP INT TERM
 		install_file 0755 "$new_appimage" "$staged_target"
 		prepare_runtime_from_appimage "$staged_target" "$actual_sha256"
-		# A new unit may invoke commands absent from the active runtime. Restore
-		# its predecessor if refresh or activation fails, including after reload.
-		if [ -e "$keymasq_update_unit" ] || [ -L "$keymasq_update_unit" ]; then
-			cp -a "$keymasq_update_unit" "$keymasq_update_unit_backup"
-		fi
-		keymasq_restore_update_unit=1
-		# The verified incoming release owns its integration schema.
-		incoming_runtime=$(runtime_path_for_sha256 "$actual_sha256")
-		if [ -f "$incoming_runtime/share/keymasq/appimage/integration-version" ]; then
-			[ "$(cat "$incoming_runtime/share/keymasq/appimage/integration-version")" = 1 ] || die "unsupported AppImage integration protocol"
-			APPDIR="$incoming_runtime" ARGV0=keymasq-appimage-runtime \
-				sh "$incoming_runtime/bin/keymasq" --refresh-integration "$target_user" "$actual_sha256"
-		else
-			# Older releases do not implement the refresh entry point.
-			refresh_installed_integration "$target_user" "$actual_sha256"
-		fi
+		refresh_installed_integration "$target_user" "$actual_sha256"
 		mv -Tf "$staged_target" "$target"
-		activate_runtime "$actual_sha256"
-		keymasq_restore_update_unit=0
 		trap - EXIT HUP INT TERM
+		activate_runtime "$actual_sha256"
 		write_installed_version "$version"
 		prune_old_runtimes "$actual_sha256" "$previous_runtime"
 	) 9>"$lock_path"
 
 	restart_failed=0
-	for unit in keymasqd.service; do
-		if [ -f "$(root_path "/etc/systemd/system/$unit")" ] && \
-			! systemctl try-restart "$unit"; then
-			warn "could not restart $unit after update"
-			restart_failed=1
-		fi
-	done
+	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] && \
+		! systemctl try-restart keymasqd.service; then
+		warn "could not restart keymasqd.service after update"
+		restart_failed=1
+	fi
 	home=$(resolve_user_home "$target_user")
 	if [ -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")" ] && \
 		! run_user_systemctl "$target_user" try-restart keymasq-session.service; then
@@ -1467,24 +1319,15 @@ run_python() {
 	if resolve_appdir_python; then
 		(
 			setup_appimage_python_environment
-			"$loader" --library-path "$keymasq_library_path" "$python_bin" -P "$@"
+			"$loader" --library-path "$APPDIR/lib" "$python_bin" -P "$@"
 		)
 		return $?
 	fi
 	python -P "$@"
 }
 
-appimage_library_path() {
-	if [ "${KEYMASQ_APPIMAGE_BROTWAY:-0}" = 1 ] && [ -d "$APPDIR/lib/gtk4-brotway" ]; then
-		printf '%s:%s\n' "$APPDIR/lib/gtk4-brotway" "$APPDIR/lib"
-	else
-		printf '%s\n' "$APPDIR/lib"
-	fi
-}
-
 setup_appimage_python_environment() {
-	keymasq_library_path=$(appimage_library_path)
-	export LD_LIBRARY_PATH="$keymasq_library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	export LD_LIBRARY_PATH="$APPDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	export PYTHONHOME="$APPDIR"
 	export PYTHONNOUSERSITE=true
 	unset PYTHONPATH
@@ -1524,7 +1367,7 @@ run_python_module() {
 	shift
 	if resolve_appdir_python; then
 		setup_appimage_python_environment
-		exec "$loader" --library-path "$keymasq_library_path" "$python_bin" -P -m "$module" "$@"
+		exec "$loader" --library-path "$APPDIR/lib" "$python_bin" -P -m "$module" "$@"
 	fi
 	exec python -P -m "$module" "$@"
 }
@@ -1542,12 +1385,8 @@ dispatch_command() {
 		keymasq-session)
 			run_python_module keymasq.session "$@"
 			;;
-		keymasq-helper|keymasq-record)
-			if [ "${1:-}" = repair-appimage-integration ]; then
-				repair_hardware_integration
-				exit 0
-			fi
-			run_python_module keymasq.helper "$@"
+		keymasq-record)
+			run_python_module keymasq.record "$@"
 			;;
 		*)
 			die "unknown command: $command_name"
@@ -1569,17 +1408,12 @@ main() {
 					;;
 			esac
 			;;
-		keymasqd|keymasq-session|keymasq-helper|keymasq-record)
+		keymasqd|keymasq-session|keymasq-record)
 			dispatch_command "$basename" "$@"
 			;;
 	esac
 
 	case "${1:-keymasq}" in
-		--refresh-integration)
-			is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "integration refresh requires root"
-			[ "$#" = 3 ] || die "integration refresh requires user and runtime ID"
-			refresh_installed_integration "$2" "$3"
-			;;
 		--install|install)
 			shift
 			install_auto "$@"
@@ -1592,7 +1426,7 @@ main() {
 			shift
 			self_update "$@"
 			;;
-		keymasq|keymasqd|keymasq-session|keymasq-helper|keymasq-record)
+		keymasq|keymasqd|keymasq-session|keymasq-record)
 			command_name=$1
 			shift
 			dispatch_command "$command_name" "$@"

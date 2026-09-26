@@ -22,7 +22,6 @@ from keymasq.keymasqd.runtime.analog.metadata import (
     stick_output_reset_axes,
     target_analog_input,
     target_axes,
-    target_axis,
 )
 from keymasq.keymasqd.runtime.analog.output_state import write_gamepad_axes
 from keymasq.keymasqd.runtime.grabbed_device.types import (
@@ -76,14 +75,6 @@ def _gamepad_output_direction(config: AnalogControlConfig) -> str:
     return "min" if config.gamepad_output.output_invert else "max"
 
 
-def _gamepad_output_stick_axis_inverted(config: AnalogControlConfig, role: str) -> bool:
-    if role == "x":
-        return bool(config.gamepad_output.output_invert_x)
-    if role == "y":
-        return bool(config.gamepad_output.output_invert_y)
-    return False
-
-
 def _emit_stick_gamepad_output(
     device_runtime: GrabbedDeviceRuntime,
     state_key: str,
@@ -95,18 +86,6 @@ def _emit_stick_gamepad_output(
     deps: ActionExecutionDeps,
     target: object,
 ) -> None:
-    if config.gamepad_output.target == "analog":
-        _emit_analog_stick_output(
-            device_runtime,
-            state_key,
-            source_id,
-            config,
-            gyro=gyro,
-            minimum_output=minimum_output,
-            deps=deps,
-            target=target,
-        )
-        return
     axis_specs = stick_output_axis_specs(
         device_runtime,
         source_id,
@@ -272,76 +251,6 @@ def reset_gamepad_output(
         axes,
         reset_axes=axes,
         releasing=True,
-        deps=deps,
-        target=target,
-    )
-
-
-def _emit_analog_stick_output(
-    device_runtime: GrabbedDeviceRuntime,
-    state_key: str,
-    source_id: str,
-    config: AnalogControlConfig,
-    *,
-    gyro: bool = False,
-    minimum_output: float = 0.0,
-    deps: ActionExecutionDeps,
-    target: object,
-) -> None:
-    analog = target_analog_input(target, config, expected_type="stick")
-    if analog is None:
-        return
-    axes: list[tuple[int, int]] = []
-    reset_axes: list[tuple[int, int]] = []
-    gyro_axes: dict[int, tuple[int, int, int, float]] = {}
-    axis_values = device_runtime.state.analog_axis_values.get(state_key, {})
-    x = float(axis_values.get("x", 0.0))
-    y = float(axis_values.get("y", 0.0))
-    x, y = apply_stick_output_curve(
-        x,
-        y,
-        deadzone=float(config.gamepad_output.deadzone),
-        sensitivity=float(config.gamepad_output.sensitivity),
-        response_curve=float(config.gamepad_output.response_curve),
-    )
-    for role, normalized in (("x", x), ("y", y)):
-        axis = target_axis(analog, role)
-        if axis is None:
-            return
-        axis_code = axis_evdev_code(axis)
-        if axis_code is None:
-            return
-        minimum, maximum = axis_min_max(axis, DEFAULT_STICK_MIN, DEFAULT_STICK_MAX)
-        reset_value = stick_axis_center(axis, minimum, maximum)
-        invert = bool(axis.get("invert", False)) ^ _gamepad_output_stick_axis_inverted(config, role)
-        gyro_axes[axis_code] = (
-            minimum,
-            maximum,
-            reset_value,
-            -normalized if invert else normalized,
-        )
-        axes.append(
-            (
-                axis_code,
-                denormalize_axis_value(
-                    normalized,
-                    minimum,
-                    maximum,
-                    center=reset_value,
-                    invert=invert,
-                ),
-            )
-        )
-        reset_axes.append((axis_code, reset_value))
-    write_gamepad_axes(
-        device_runtime,
-        state_key,
-        source_id,
-        config,
-        tuple(axes),
-        reset_axes=tuple(reset_axes),
-        gyro_axes=gyro_axes if gyro else None,
-        minimum_output=minimum_output,
         deps=deps,
         target=target,
     )

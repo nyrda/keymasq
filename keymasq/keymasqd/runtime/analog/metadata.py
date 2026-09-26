@@ -315,7 +315,12 @@ def stick_output_axis_specs(
     deps: ActionExecutionDeps,
     target: object,
 ) -> tuple[tuple[str, int, int, int, int, bool], ...] | None:
-    analog = _standard_stick_output_analog(device_runtime, source_id, config, target)
+    if config.gamepad_output.target == "analog":
+        analog = target_analog_input(target, config, expected_type="stick")
+        if analog is None:
+            return None
+    else:
+        analog = _standard_stick_output_analog(device_runtime, source_id, config, target)
     if analog is not None:
         specs: list[tuple[str, int, int, int, int, bool]] = []
         for role in ("x", "y"):

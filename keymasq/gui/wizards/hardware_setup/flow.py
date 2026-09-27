@@ -13,6 +13,7 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import capability_names_from_capabilities
 from keymasq.common.model.core import DeviceType
+from keymasq.common.native_sources import is_native_backend
 from keymasq.gui.session_client import GuiTaskResult
 
 from . import discovery, rows
@@ -171,7 +172,7 @@ class DiscoveryMixin:
                 stable_path,
             )
             config_path = str(iface.get("config_path") or default_config_path)
-            if iface.get("backend") == "hidraw":
+            if is_native_backend(iface.get("backend")):
                 capability_names, raw_capabilities = [], {}
             else:
                 capability_names, raw_capabilities = self._read_interface_capabilities(raw_path)

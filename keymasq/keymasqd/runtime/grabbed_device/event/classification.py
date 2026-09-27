@@ -17,6 +17,7 @@ from keymasq.common.devices import (
     normalize_evdev_binding_value,
 )
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.native_sources import native_button_name
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     EvdevModule,
     GrabbedDeviceRuntime,
@@ -109,6 +110,8 @@ def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
     code = _event_code_int(raw_code)
     if code is None:
         return str(raw_code)
+    if int(event.type) == evdev.ecodes.EV_KEY and (native := native_button_name(code)):
+        return native
     names = _evdev_code_names(event.type, evdev_mod=evdev_mod)
     if names is None:
         return str(event.code)
@@ -117,6 +120,8 @@ def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
 
 
 def get_key_name(code: int, *, evdev_mod: EvdevModule) -> str | None:
+    if native := native_button_name(code):
+        return native
     ecodes = cast(object, getattr(evdev_mod, "ecodes", None))
     ev_key = cast(object, getattr(ecodes, "EV_KEY", None))
     names = _evdev_code_names(ev_key, evdev_mod=evdev_mod)

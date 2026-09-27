@@ -178,6 +178,19 @@ Games and other apps can still read the controller's motion sensor while a Motio
 active. Keymasq adds the configured mouse, gamepad, or digital-action output. It does not hide
 sensor input from other apps.
 
+## Gyro while touching a stick
+
+To aim with the gyro only while a thumb rests on the Steam Deck's right stick:
+
+1. Create a profile for gyro aiming, map the motion sensor to your Motion
+   Control, and leave the profile disabled.
+2. In your normal profile, map **RS Touch** to **Profile Controls** with the
+   **Enable** action, the gyro profile, and the **While trigger is held** mode.
+
+The gyro profile turns on when the thumb touches the stick and off when it
+lifts. Map **RP Touch** the same way to aim while the thumb rests on the right
+trackpad. See [Steam Deck touch inputs](gamepad.md#steam-deck-touch-inputs).
+
 ## Ultimate 2 Wireless motion through hidraw
 
 The Ultimate 2 Wireless can provide motion in DInput dongle mode through the

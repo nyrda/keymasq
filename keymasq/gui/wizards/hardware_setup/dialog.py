@@ -349,6 +349,7 @@ class HardwareSetupDialog(
                 evdev_devices,
                 self._build_motion_sensors(interfaces),
                 input_sources,
+                templates.build_native_buttons(interfaces),
             ),
         )
         self.close()

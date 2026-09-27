@@ -516,7 +516,15 @@
                 User = "root";
                 NoNewPrivileges = true;
                 # CAP_SYS_PTRACE permits /proc/*/fd inspection to detect and verify USB handle revocation.
-                CapabilityBoundingSet = [ "CAP_DAC_OVERRIDE" "CAP_CHOWN" "CAP_FOWNER" "CAP_SYS_PTRACE" ];
+                # CAP_BPF and CAP_PERFMON load the bundled HID-BPF programs of native input drivers.
+                CapabilityBoundingSet = [
+                  "CAP_DAC_OVERRIDE"
+                  "CAP_CHOWN"
+                  "CAP_FOWNER"
+                  "CAP_SYS_PTRACE"
+                  "CAP_BPF"
+                  "CAP_PERFMON"
+                ];
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 PrivateTmp = true;

@@ -9,6 +9,7 @@ from typing import Protocol, cast
 import evdev
 
 from keymasq.common.model.core import DeviceType
+from keymasq.common.native_sources import native_button_name
 
 INPUT_CLASS_ORDER = (
     "mouse",
@@ -235,6 +236,8 @@ def capability_name(event_type: int, code: object) -> str | None:
     code_int = _capability_code_int(code)
     if code_int is None:
         return None
+    if int(event_type) == evdev.ecodes.EV_KEY and (native := native_button_name(code_int)):
+        return native
     code_name = evdev.ecodes.bytype.get(int(event_type), {}).get(code_int)
     return evdev_alias_name(code_name)
 

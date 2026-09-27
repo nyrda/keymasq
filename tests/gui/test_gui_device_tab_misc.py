@@ -2418,6 +2418,8 @@ def test_resolve_gamepad_button_target_accepts_names_and_codes():
     assert _resolve_gamepad_button_target("abs_x") is None
     assert _resolve_gamepad_button_target("not-a-button") is None
     assert _resolve_gamepad_button_target("") is None
+    assert _resolve_gamepad_button_target("btn_touch_rs") is None
+    assert _resolve_gamepad_button_target("769") is None
 
 
 def test_resolve_gamepad_axis_target_accepts_names_and_codes():

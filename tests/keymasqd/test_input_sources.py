@@ -310,6 +310,7 @@ async def test_raw_only_non_motion_driver_uses_shared_manager():
         id = "test-extra-buttons"
         label = "Extra buttons"
         association = "same_usb"
+        transport = "hidraw"
         channels = (Channel("rear", "button", "rear"),)
 
         def matches(self, endpoint):

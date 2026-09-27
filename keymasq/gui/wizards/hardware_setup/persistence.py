@@ -160,7 +160,10 @@ class PersistenceMixin:
                 product_id=product_id,
                 name=name,
                 evdev_devices=self._build_evdev_devices(interfaces),
-                buttons=self._build_gamepad_buttons(gamepad_interfaces),
+                buttons=[
+                    *self._build_gamepad_buttons(gamepad_interfaces),
+                    *templates.build_native_buttons(interfaces),
+                ],
                 analog_inputs=self._build_gamepad_analog_inputs(gamepad_interfaces),
                 motion_sensors=self._build_motion_sensors(motion_interfaces),
                 input_sources=templates.build_input_sources(interfaces),

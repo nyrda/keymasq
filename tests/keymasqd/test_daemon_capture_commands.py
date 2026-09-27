@@ -585,12 +585,19 @@ async def test_native_capture_filters_evdev_siblings(daemon_testbed, mode):
     daemon, _device_manager, _recording_manager, _macro_store, capture_manager = daemon_testbed
     capture_manager.begin_native = AsyncMock(return_value={"token": "native-token"})
     gamepad = {"id": "gamepad", "path": "keymasq:2dc8:6012", "type": "gamepad"}
-    native = {"id": "imu", "path": "keymasq-source:imu", "backend": "hidraw", "anchor": gamepad}
+    native = {
+        "id": "imu",
+        "path": "keymasq-source:imu",
+        "type": "motion",
+        "backend": "hidraw",
+        "anchor": gamepad,
+    }
+    touch = {"id": "touch", "path": "keymasq-source:touch", "type": "other", "backend": "hid-bpf"}
     result = await daemon._handle_command(
         CommandType.CAPTURE_BEGIN,
         {
             "hardware_id": "2dc8:6012",
-            "evdev_interfaces": [gamepad, native],
+            "evdev_interfaces": [gamepad, native, touch],
             "mode": mode,
             "motion_axis_codes": [3, 4, 5],
         },
@@ -1104,6 +1111,7 @@ async def test_start_offloads_macro_store_prep_to_thread(
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
+    monkeypatch.setattr(daemon_module, "HANDOFF_SOCKET_PATH", tmp_path / "handoff.sock")
     monkeypatch.setattr(daemon_module, "load_security_policy", fake_load_security_policy)
     monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", fake_reconcile_all)
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
@@ -1145,6 +1153,7 @@ async def test_start_cleans_up_resources_when_socket_start_fails(
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
+    monkeypatch.setattr(daemon_module, "HANDOFF_SOCKET_PATH", tmp_path / "handoff.sock")
     monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
     monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", AsyncMock())
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)
@@ -1202,6 +1211,7 @@ async def test_start_cleans_up_resources_when_topology_start_fails(
     monkeypatch.setattr(daemon_module, "SocketServer", lambda *args, **kwargs: fake_socket_server)
     monkeypatch.setattr(daemon_module, "RUN_DIR", tmp_path / "run")
     monkeypatch.setattr(daemon_module, "SOCKET_PATH", tmp_path / "daemon.sock")
+    monkeypatch.setattr(daemon_module, "HANDOFF_SOCKET_PATH", tmp_path / "handoff.sock")
     monkeypatch.setattr(daemon_module, "load_security_policy", lambda _path: SecurityPolicy())
     monkeypatch.setattr(daemon_module.source_hiding, "reconcile_all", AsyncMock())
     monkeypatch.setattr(daemon_module, "sd_notify", lambda _state: None)

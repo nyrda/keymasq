@@ -220,15 +220,30 @@ def scan_devices(
                     **(grabbed_source or {}),
                 }
             )
-            from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice, motion_axes
+            from keymasq.keymasqd.input_sources.evdev_adapter import (
+                NativeInputDevice,
+                channel_codes,
+                motion_axes,
+                native_buttons,
+            )
 
             if isinstance(device, NativeInputDevice):
+                binding = device.binding
                 devices[-1].update(
                     {
-                        "backend": "hidraw",
-                        "driver": device.binding.driver.id,
-                        "native_motion_axes": motion_axes(device.binding),
-                        "companion_paths": list(device.binding.companions),
+                        "backend": binding.driver.transport,
+                        "driver": binding.driver.id,
+                        **(
+                            {"native_motion_axes": motion_axes(binding)}
+                            if channel_codes(binding)
+                            else {}
+                        ),
+                        **(
+                            {"native_buttons": buttons}
+                            if (buttons := native_buttons(binding))
+                            else {}
+                        ),
+                        "companion_paths": list(binding.companions),
                     }
                 )
         except OSError as exc:

@@ -24,6 +24,7 @@ class NativeInputSource:
     companion_of: str | None = None
     phys: str | None = None
     enabled: bool = True
+    backend: str = "hidraw"
 
     @property
     def path(self) -> str:

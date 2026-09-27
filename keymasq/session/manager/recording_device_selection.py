@@ -7,6 +7,7 @@ from keymasq.common.coercion import coerce_str
 from keymasq.common.config_files import write_toml_atomically
 from keymasq.common.devices import is_motion_input_device, normalize_input_classes
 from keymasq.common.ipc import Command, CommandType
+from keymasq.common.native_sources import is_native_backend
 
 from .common import JsonObject, json_list, json_object
 
@@ -270,7 +271,11 @@ async def get_devices_for_recording(
         stable_path = coerce_str(d.get("stable_path"), path)
         dtype = coerce_str(d.get("device_type"), "other")
         resolved_types = recording_device_types(d)
-        if not path or not set(device_types).intersection(resolved_types):
+        native = is_native_backend(d.get("backend"))
+        # Native sources supplement a controller like its motion sensor does.
+        if not path or not (
+            set(device_types).intersection(resolved_types) or (native and "motion" in device_types)
+        ):
             continue
 
         is_grabbed = bool(d.get("grabbed_by_keymasq", False))
@@ -297,11 +302,20 @@ async def get_devices_for_recording(
                 "driver": coerce_str(d.get("driver"), ""),
                 **(
                     {
-                        "backend": "hidraw",
-                        "native_motion_axes": json_object(d.get("native_motion_axes")) or {},
+                        "backend": str(d.get("backend")),
+                        **(
+                            {"native_motion_axes": json_object(d.get("native_motion_axes")) or {}}
+                            if "native_motion_axes" in d
+                            else {}
+                        ),
+                        **(
+                            {"native_buttons": json_list(d.get("native_buttons"))}
+                            if "native_buttons" in d
+                            else {}
+                        ),
                         "companion_paths": json_list(d.get("companion_paths")),
                     }
-                    if d.get("backend") == "hidraw"
+                    if native
                     else {}
                 ),
                 "recording_id": coerce_str(d.get("recording_id"), f"physical:{stable_path}"),

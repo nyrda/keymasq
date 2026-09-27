@@ -8,6 +8,7 @@ from typing import Protocol, TypedDict, cast
 from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
+from keymasq.common.native_sources import is_native_backend
 from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
@@ -124,7 +125,11 @@ async def handle_capture_command(
             for code in cast(list[object], data.get("motion_axis_codes", []))
             if isinstance(code, int) and not isinstance(code, bool) and code >= 0
         ]
-        native_interfaces = [item for item in evdev_interfaces if item.get("backend") == "hidraw"]
+        native_interfaces = [
+            item
+            for item in evdev_interfaces
+            if is_native_backend(item.get("backend")) and item.get("type") == "motion"
+        ]
         if mode == "motion" and native_interfaces:
             return await daemon.capture_manager.begin_native(
                 hardware_id, native_interfaces, motion_axis_codes

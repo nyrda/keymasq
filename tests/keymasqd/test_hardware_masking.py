@@ -169,6 +169,31 @@ async def test_evdev_rescan_does_not_end_physical_hardware_ownership() -> None:
 
 
 @pytest.mark.asyncio
+async def test_adoption_keeps_reserved_nodes_but_not_unrequested_native_sources(monkeypatch):
+    from keymasq.keymasqd import hardware_masking as masking
+
+    manager = DeviceManager()
+    joystick = SimpleNamespace(path="/dev/input/event27", interface_id="if02_joystick")
+    keyboard = SimpleNamespace(path="/dev/input/event4", interface_id="kbd")
+    touch = SimpleNamespace(
+        path="/dev/keymasq-sources/steam-deck-touch/hid/hid-bpf", interface_id="input"
+    )
+    manager.grabbed_devices["28de:1205@2"] = [joystick, keyboard, touch]
+    manager.mask_registry.hardware_paths["28de:1205@2"] = [joystick.path, keyboard.path]
+    monkeypatch.setattr(masking, "resolve_stable_path", lambda path: path)
+    monkeypatch.setattr(
+        masking.device_path_resolver,
+        "resolve_evdev_interfaces",
+        lambda *_args, **_kwargs: [SimpleNamespace(path=joystick.path)],
+    )
+    descriptors = [{"id": "if02_joystick", "path": joystick.path}]
+    result = await adopt_masked_interfaces(
+        manager, "28de:1205@2", [joystick.path], descriptors, Mock()
+    )
+    assert result == [*descriptors, {"id": "kbd", "path": keyboard.path}]
+
+
+@pytest.mark.asyncio
 async def test_setup_adopts_selected_reserved_interfaces_and_preserves_output(monkeypatch):
     from keymasq.keymasqd import hardware_masking as masking
 
@@ -550,6 +575,41 @@ async def test_hidraw_only_reservation_does_not_need_a_controller_decoder(monkey
     cast(AsyncMock, masking.request).assert_awaited_once_with("ready", {"token": "raw-trial"})
     assert await masking.runtime_ready()
     await masking.release_runtime()
+    assert not await masking.runtime_ready()
+
+
+@pytest.mark.asyncio
+async def test_readiness_accepts_running_native_button_source_without_output(tmp_path):
+    from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
+
+    manager = DeviceManager()
+    masking = runtime(manager)
+    masking.attachment_path = str(tmp_path)
+    native = object.__new__(NativeInputDevice)
+    native.binding = SimpleNamespace(endpoint=SimpleNamespace(hid_parent=str(tmp_path / "hid")))
+    gamepad = SimpleNamespace(
+        path="/dev/input/event27",
+        device=object(),
+        running=True,
+        task=SimpleNamespace(done=lambda: False),
+        access_mode=InputAccessMode.EXCLUSIVE,
+        default_output=None,
+        uinput=object(),
+    )
+    touch_reader = SimpleNamespace(done=lambda: False)
+    touch = SimpleNamespace(
+        path="/dev/keymasq-sources/steam-deck-touch/hid/hid-bpf",
+        device=native,
+        running=True,
+        task=touch_reader,
+        access_mode=InputAccessMode.EXCLUSIVE,
+        default_output=None,
+        uinput=None,
+    )
+    manager.mask_registry.reservation_paths[RESERVATION_ID] = [gamepad.path]
+    manager.grabbed_devices = {"28de:1205@2": [gamepad, touch]}
+    assert await masking.runtime_ready()
+    touch_reader.done = lambda: True
     assert not await masking.runtime_ready()
 
 

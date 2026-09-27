@@ -330,7 +330,8 @@ class DeviceGridBuilder:
                 ("Shoulders", ["btn_tl", "btn_tr"], 2),
                 ("Menu Buttons", ["btn_select", "btn_mode", "btn_start"], 3),
                 ("Face Buttons", ["btn_north", "btn_west", "btn_east", "btn_south"], 4),
-                ("Stick Clicks", ["btn_thumbl", "btn_thumbr"], 2),
+                ("Sticks", ["btn_thumbl", "btn_touch_ls", "btn_thumbr", "btn_touch_rs"], 2),
+                ("Trackpads", ["btn_touch_lp", "btn_touch_rp"], 2),
                 (
                     "D-Pad",
                     ["btn_dpad_up", "btn_dpad_left", "btn_dpad_right", "btn_dpad_down"],

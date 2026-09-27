@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from keymasq.common.devices import normalize_input_classes, primary_input_class
+from keymasq.common.native_sources import is_native_backend
 from keymasq.gui.session_client import session_request
 from keymasq.gui.wizards.hardware_setup import inventory
 from keymasq.gui.wizards.hardware_setup.identity import (
@@ -79,7 +80,9 @@ def _session_device_sort_key(
     dtype_raw = str(dev.get("device_type", "other") or "other")
     device_types = normalize_input_classes(dev.get("device_types"), dtype_raw)
     motion_only = (
-        motion_siblings_last and "motion" in device_types and "gamepad" not in device_types
+        motion_siblings_last
+        and ("motion" in device_types or is_native_backend(dev.get("backend")))
+        and "gamepad" not in device_types
     )
     return (
         str(dev.get("vendor_id", "") or "").lower(),
@@ -111,6 +114,7 @@ def detect_devices_via_session(
 
     used_hardware_ids = inventory.configured_hardware_ids(hardware_manager)
     configured_identity_hardware_ids = inventory.configured_identity_hardware_ids(hardware_manager)
+    configured_paths: set[str] = set()
     pending_identity_hardware_ids: dict[str, str] = {}
 
     raw_devices = result.get("devices", [])
@@ -162,6 +166,7 @@ def detect_devices_via_session(
         )
         configured_hardware_id = configured_identity_hardware_ids.get((vid_pid, identity_key), "")
         if not show_raw_evdev_devices and configured_hardware_id:
+            configured_paths.add(path)
             continue
         source_fields = interface_source_fields(dev)
         is_grabbed = bool(source_fields.get("grabbed_by_keymasq", False)) and not bool(
@@ -276,12 +281,15 @@ def detect_devices_via_session(
                 )
 
     if not show_raw_evdev_devices:
-        _attach_motion_siblings(detected_devices)
+        _attach_motion_siblings(detected_devices, configured_paths)
     return bool(detected_devices)
 
 
-def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None:
-    """Attach a controller's separate motion evdev node to its gamepad row."""
+def _attach_motion_siblings(
+    detected_devices: dict[str, DetectedDevice],
+    configured_paths: set[str],
+) -> None:
+    """Attach a controller's separate motion and native source rows to its gamepad row."""
     for motion_key, motion_device in list(detected_devices.items()):
         motion_interfaces = list(motion_device.get("interfaces", []) or [])
         if not motion_interfaces or any(
@@ -291,6 +299,7 @@ def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None
             continue
         if not any(
             "motion" in normalize_input_classes(iface.get("device_types"))
+            or is_native_backend(iface.get("backend"))
             for iface in motion_interfaces
         ):
             continue
@@ -302,9 +311,13 @@ def _attach_motion_siblings(detected_devices: dict[str, DetectedDevice]) -> None
         native_companions = {
             str(path)
             for iface in motion_interfaces
-            if iface.get("backend") == "hidraw"
+            if is_native_backend(iface.get("backend"))
             for path in iface.get("companion_paths", [])
         }
+        if native_companions & configured_paths:
+            # Its controller is already configured; Hardware settings adds it there.
+            detected_devices.pop(motion_key, None)
+            continue
         candidates: list[DetectedDevice] = []
         for key, candidate in detected_devices.items():
             if key == motion_key or candidate.get("model_id") != motion_device.get("model_id"):

@@ -299,7 +299,8 @@ class MaskRuntime:
                 for device in devices:
                     if not self.owns(device, expected, resolved[device.path]):
                         continue
-                    if device.path.startswith(SOURCE_PREFIX):
+                    native = device.path.startswith(SOURCE_PREFIX)
+                    if native:
                         expected.add(resolved[device.path])
                     if (
                         not device.running
@@ -308,7 +309,8 @@ class MaskRuntime:
                         or device.task.done()
                     ):
                         continue
-                    if device.access_mode is not InputAccessMode.OBSERVE:
+                    # Native sources never have an output; their reader is the whole runtime.
+                    if device.access_mode is not InputAccessMode.OBSERVE and not native:
                         if device.default_output is not None:
                             route = device.default_route
                             if route is None:
@@ -676,6 +678,9 @@ async def adopt_masked_interfaces(
     # Preserve explicit source IDs, including gamepad and motion IDs from setup.
     result = list(descriptors)
     for device in manager.grabbed_devices.get(hardware_id, []):
+        # Native sources are not reserved nodes; they follow the requested mappings.
+        if device.path.startswith(SOURCE_PREFIX):
+            continue
         if resolve_stable_path(device.path) not in requested:
             result.append({"id": device.interface_id, "path": device.path})
     return result

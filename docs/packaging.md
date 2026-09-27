@@ -59,6 +59,8 @@ activate system services or udev rules. NixOS users must enable the module.
 
 Adding another read-only native driver requires no packaging changes.
 Drivers that send device commands need an explicit write-access policy.
+HID-BPF drivers need no udev rule. The `keymasq-hardware@.service` job loads
+them and holds `CAP_BPF` and `CAP_PERFMON` for that; every package ships this unit.
 
 ## Release channels
 

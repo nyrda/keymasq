@@ -447,8 +447,8 @@ or capture authorization through pkexec does not authorize these hardware comman
 
 The helper opens a daemon-owned request inode with `O_NOFOLLOW`, rejects unsafe
 permissions and hard links, and reads a bounded JSON request. It accepts only
-activation, offline arming, interface refresh, recovery, and source-hiding udev
-triggers. A trigger request carries at most a list of `event*`/`js*` kernel
+activation, offline arming, interface refresh, recovery, source-hiding udev
+triggers, and HID-BPF attachments for native input drivers. A trigger request carries at most a list of `event*`/`js*` kernel
 names. The helper validates them, drops names absent from `/sys/class/input`,
 and runs `udevadm trigger` for the rest, so the daemon cannot supply paths or
 other arguments. Attachment identities
@@ -524,9 +524,29 @@ udev after static permissions are restored. Old session ACLs are not replayed.
 [Hardware masking](hardware-masking.md) for user-facing behavior and
 [Hardware masking design](hardware-masking-design.md) for the transaction details.
 
+## Native input programs
+
+Some native input drivers, such as Steam Deck touch, read reports inside
+the kernel through HID-BPF. Loading one needs `CAP_BPF` and `CAP_PERFMON`, which
+only the short-lived hardware job holds. An attach request names a bundled
+driver, a HID device name, and a one-time token. The job resolves the device in
+sysfs, requires the driver to match it, and assembles the program from that
+driver's code. Requests cannot supply programs, maps, BTF, or paths. The program
+only observes reports and never modifies them.
+
+The job hands the program's link and map descriptors to `keymasqd` over
+`/run/keymasq/handoff`. The daemon accepts connections there only from root and
+closes descriptors that arrive without a pending token. The job refuses to send
+unless the socket's peer is the `keymasq` account. The daemon needs no BPF
+privilege to read the maps: it maps them and polls the ring buffer. Closing the
+link descriptor detaches the program, so a stopped or crashed daemon leaves
+nothing attached. The daemon does not see other devices' reports, and the kernel
+drops the program when the HID device disappears.
+
 ## Socket paths
 
 - daemon socket: `/run/keymasq/socket` (mode `0o666`)
+- privileged handoff socket: `/run/keymasq/handoff` (mode `0o600`, root peers only)
 - session socket: `/run/user/<uid>/keymasq/session.sock` (mode `0o600`)
 
 The daemon socket is world-accessible because `keymasqd` starts as a system service before any user session exists. Any user's `keymasq-session` must be able to connect and claim ownership. Access control is not enforced at the filesystem level but through the single-owner model. Once a session claims the daemon, all other connections are rejected. On multi-user systems, use `daemon_allowed_uids` to restrict which UIDs may connect.

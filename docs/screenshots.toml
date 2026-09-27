@@ -266,6 +266,30 @@ source = "key_capslock"
 selector_tab = "profile"
 
 [[shot]]
+name = "keymasq_pointer_movement_mouse"
+target = "pointer_movement_dialog"
+device = "1532:00b4"
+profile = "Desktop"
+
+[[shot]]
+name = "keymasq_pointer_movement_stick"
+target = "pointer_movement_dialog"
+device = "1532:00b4"
+profile = "Desktop"
+window_height = 1040
+dialog_height = 960
+scroll_to_widget = "output_group"
+
+[shot.pointer_movement]
+mode = "axes"
+behavior = "velocity"
+full_speed = 3000.0
+window_ms = 30
+x_axis = "abs_rx"
+y_axis = "abs_ry"
+minimum_output = 0.25
+
+[[shot]]
 name = "keymasq_superkey_selected"
 target = "superkey_dialog"
 superkey = "wpctl_volume_rocker"

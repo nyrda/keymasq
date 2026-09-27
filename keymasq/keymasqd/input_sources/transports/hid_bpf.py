@@ -1,7 +1,8 @@
 """Daemon side of a HID-BPF source: request the attachment, then read its maps.
 
-The ring buffer only wakes the reader; the state map is the source of truth, and
-a report count that stops advancing means the program was detached.
+Ring records deliver every state change in order. The state map recovers changes
+whose records were lost, and a report count that stops advancing means the
+program was detached.
 """
 
 import asyncio
@@ -17,7 +18,14 @@ from pathlib import Path
 
 from keymasq.keymasqd import fd_handoff
 
-from ..bpf import REPORTS_OFFSET, RING_SIZE, STATE_SIZE
+from ..bpf import (
+    DRIVER_STATE_OFFSET,
+    DRIVER_STATE_SIZE,
+    RECORD_SIZE,
+    REPORTS_OFFSET,
+    RING_SIZE,
+    SEQUENCE_OFFSET,
+)
 from ..types import Binding
 
 HEARTBEAT_S = 0.1
@@ -50,15 +58,22 @@ async def request_attachment(binding: Binding) -> Attachment:
     return fds[0], fds[1], fds[2]
 
 
-def _drain(consumer: mmap.mmap, producer: mmap.mmap) -> None:
+def _drain(consumer: mmap.mmap, producer: mmap.mmap) -> list[tuple[int, bytes]]:
+    records: list[tuple[int, bytes]] = []
     head = struct.unpack_from("<Q", consumer, 0)[0]
     tail = struct.unpack_from("<Q", producer, 0)[0]
     while head < tail:
-        length = struct.unpack_from("<I", producer, mmap.PAGESIZE + (head & (RING_SIZE - 1)))[0]
+        offset = mmap.PAGESIZE + (head & (RING_SIZE - 1))
+        length = struct.unpack_from("<I", producer, offset)[0]
         if length & RING_BUSY:
             break
-        head += ((length & ~(RING_BUSY | RING_DISCARD)) + 8 + 7) & ~7
+        size = length & ~(RING_BUSY | RING_DISCARD)
+        if not length & RING_DISCARD and size >= RECORD_SIZE:
+            sequence = struct.unpack_from("<Q", producer, offset + 8)[0]
+            records.append((sequence, bytes(producer[offset + 16 : offset + 8 + RECORD_SIZE])))
+        head += (size + 8 + 7) & ~7
     struct.pack_into("<Q", consumer, 0, head)
+    return records
 
 
 async def reports(
@@ -81,19 +96,31 @@ async def reports(
         try:
             seen = struct.unpack_from("<Q", state, REPORTS_OFFSET)[0]
             progress_at = time.monotonic()
+            delivered = 0
             while True:
                 with contextlib.suppress(TimeoutError):
                     async with asyncio.timeout(HEARTBEAT_S):
                         await ready.wait()
                 ready.clear()
-                _drain(consumer, producer)
                 count = struct.unpack_from("<Q", state, REPORTS_OFFSET)[0]
                 now = time.monotonic()
                 if count != seen:
                     seen, progress_at = count, now
                 elif now - progress_at > STALL_S:
                     raise OSError(errno.ENODEV, "HID-BPF source stopped receiving reports")
-                yield bytes(state[:STATE_SIZE])
+                changes = [item for item in _drain(consumer, producer) if item[0] > delivered]
+                # The state map may be ahead of records not yet submitted or lost to a full ring.
+                sequence = struct.unpack_from("<Q", state, SEQUENCE_OFFSET)[0]
+                current = bytes(
+                    state[DRIVER_STATE_OFFSET : DRIVER_STATE_OFFSET + DRIVER_STATE_SIZE]
+                )
+                if sequence > max((item[0] for item in changes), default=delivered):
+                    changes.append((sequence, current))
+                if not changes:
+                    yield current
+                for sequence, change in changes:
+                    delivered = sequence
+                    yield change
         finally:
             loop.remove_reader(ring_fd)
     finally:

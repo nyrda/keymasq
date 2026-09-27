@@ -13,6 +13,7 @@ from ..bpf import (
     BPF_PSEUDO_KFUNC_CALL,
     CALL,
     DRIVER_STATE_OFFSET,
+    DRIVER_STATE_SIZE,
     EXIT,
     FUNC_MAP_LOOKUP_ELEM,
     FUNC_RINGBUF_RESERVE,
@@ -22,17 +23,15 @@ from ..bpf import (
     JNE_K,
     LDX_B,
     LDX_DW,
-    LDX_W,
     MOV_K,
     MOV_X,
     OR_K,
     OR_X,
+    RECORD_SIZE,
     REPORTS_OFFSET,
+    SEQUENCE_OFFSET,
     ST_W,
-    STATE_SIZE,
-    STX_B,
     STX_DW,
-    STX_W,
     Jump,
     Label,
     ProgramContext,
@@ -93,9 +92,9 @@ class SteamDeckTouchDriver:
         )
 
     def decode(self, report: bytes) -> dict[str, int] | None:
-        if len(report) != STATE_SIZE:
+        if len(report) != DRIVER_STATE_SIZE:
             return None
-        touch = struct.unpack_from("<I", report, DRIVER_STATE_OFFSET)[0]
+        touch = struct.unpack_from("<Q", report)[0]
         if not touch & VALID:
             return None
         return {
@@ -106,7 +105,7 @@ class SteamDeckTouchDriver:
         }
 
     def program(self, context: ProgramContext) -> bytes:
-        """Count state reports, keep the latest touch bits, and signal changes."""
+        """Count state reports, keep the latest touch bits, and record each change in order."""
         header = [
             part
             for offset, expected in ((0, 0x01), (1, 0x00), (2, DECK_STATE_REPORT))
@@ -138,15 +137,19 @@ class SteamDeckTouchDriver:
                 insn(LDX_DW, 1, 9, REPORTS_OFFSET),
                 insn(ADD_K, 1, imm=1),
                 insn(STX_DW, 9, 1, REPORTS_OFFSET),
-                insn(LDX_W, 1, 9, DRIVER_STATE_OFFSET),
+                insn(LDX_DW, 1, 9, DRIVER_STATE_OFFSET),
                 Jump(JEQ_X, 1, src=8),
-                insn(STX_W, 9, 8, DRIVER_STATE_OFFSET),
+                insn(STX_DW, 9, 8, DRIVER_STATE_OFFSET),
+                insn(LDX_DW, 6, 9, SEQUENCE_OFFSET),
+                insn(ADD_K, 6, imm=1),
+                insn(STX_DW, 9, 6, SEQUENCE_OFFSET),
                 ld_map_fd(1, context.ring_fd),
-                insn(MOV_K, 2, imm=8),
+                insn(MOV_K, 2, imm=RECORD_SIZE),
                 insn(MOV_K, 3, imm=0),
                 insn(CALL, imm=FUNC_RINGBUF_RESERVE),
                 Jump(JEQ_K, 0),
-                insn(STX_B, 0, 8, 0),
+                insn(STX_DW, 0, 6, 0),
+                insn(STX_DW, 0, 8, 8),
                 insn(MOV_X, 1, 0),
                 insn(MOV_K, 2, imm=0),
                 insn(CALL, imm=FUNC_RINGBUF_SUBMIT),

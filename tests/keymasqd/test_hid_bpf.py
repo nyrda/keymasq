@@ -69,10 +69,8 @@ def deck_binding() -> Binding:
     return Binding(SteamDeckTouchDriver(), endpoint, ("/dev/input/event27",))
 
 
-def snapshot(reports: int, touch: int) -> bytes:
-    state = bytearray(bpf.STATE_SIZE)
-    struct.pack_into("<QI", state, 0, reports, touch)
-    return bytes(state)
+def touch_state(touch: int) -> bytes:
+    return struct.pack("<Q", touch)
 
 
 def open_memfds(*names: str) -> list[int]:
@@ -188,7 +186,9 @@ def test_attach_request_loads_only_bundled_programs_on_matching_devices(
         hid_bpf_attach.attach_request(message, sysfs=tmp_path)
 
 
-async def test_attach_request_hands_the_attachment_to_the_daemon(tmp_path, monkeypatch):
+async def test_attach_request_hands_the_attachment_to_the_daemon(
+    tmp_path, temp_socket_dir, monkeypatch
+):
     deck_hid(tmp_path, DECK)
     loads: list[tuple[str, int]] = []
 
@@ -200,7 +200,7 @@ async def test_attach_request_hands_the_attachment_to_the_daemon(tmp_path, monke
     monkeypatch.setattr(
         hid_bpf_attach.pwd, "getpwnam", lambda _name: SimpleNamespace(pw_uid=os.getuid())
     )
-    server = fd_handoff.FdHandoffServer(tmp_path / "handoff", trusted_uid=os.getuid())
+    server = fd_handoff.FdHandoffServer(temp_socket_dir / "handoff", trusted_uid=os.getuid())
     await server.start()
     try:
         async with server.expect(TOKEN) as pending:
@@ -223,8 +223,8 @@ async def test_attach_request_hands_the_attachment_to_the_daemon(tmp_path, monke
         os.close(fd)
 
 
-async def test_handoff_delivers_descriptors_only_for_the_awaited_token(tmp_path):
-    server = fd_handoff.FdHandoffServer(tmp_path / "handoff", trusted_uid=os.getuid())
+async def test_handoff_delivers_descriptors_only_for_the_awaited_token(temp_socket_dir):
+    server = fd_handoff.FdHandoffServer(temp_socket_dir / "handoff", trusted_uid=os.getuid())
     await server.start()
     delivered_read, delivered_write = os.pipe()
     stray_read, stray_write = os.pipe()
@@ -245,8 +245,8 @@ async def test_handoff_delivers_descriptors_only_for_the_awaited_token(tmp_path)
     assert await asyncio.wait_for(asyncio.to_thread(os.read, stray_read, 1), 1.0) == b""
 
 
-async def test_handoff_rejects_untrusted_peers_on_both_sides(tmp_path):
-    server = fd_handoff.FdHandoffServer(tmp_path / "handoff", trusted_uid=os.getuid() + 1)
+async def test_handoff_rejects_untrusted_peers_on_both_sides(temp_socket_dir):
+    server = fd_handoff.FdHandoffServer(temp_socket_dir / "handoff", trusted_uid=os.getuid() + 1)
     await server.start()
     read_end, write_end = os.pipe()
     try:
@@ -265,47 +265,79 @@ async def test_handoff_rejects_untrusted_peers_on_both_sides(tmp_path):
     assert await asyncio.wait_for(asyncio.to_thread(os.read, read_end, 1), 1.0) == b""
 
 
-async def test_hid_bpf_reports_follow_the_state_map_until_the_program_stops(monkeypatch):
-    page = mmap.PAGESIZE
-    link_fd, ring_fd, state_fd = open_memfds("link", "ring", "state")
-    os.ftruncate(ring_fd, 2 * page + 2 * bpf.RING_SIZE)
-    os.ftruncate(state_fd, page)
-    ring = mmap.mmap(ring_fd, 2 * page + 2 * bpf.RING_SIZE)
-    state = mmap.mmap(state_fd, page)
-    struct.pack_into("<Q", ring, page, 16)
-    struct.pack_into("<I", ring, 2 * page, 8)
-    state[: bpf.STATE_SIZE] = snapshot(1, 0x01)
-    monkeypatch.setattr(hid_bpf, "HEARTBEAT_S", 0.01)
-    monkeypatch.setattr(hid_bpf, "STALL_S", 0.05)
-    loop = asyncio.get_running_loop()
-    monkeypatch.setattr(loop, "add_reader", lambda *_args: None)
-    monkeypatch.setattr(loop, "remove_reader", lambda *_args: True)
+class HidBpfMaps:
+    def __init__(self, monkeypatch) -> None:
+        self.page = mmap.PAGESIZE
+        self.fds = open_memfds("link", "ring", "state")
+        os.ftruncate(self.fds[1], 2 * self.page + 2 * bpf.RING_SIZE)
+        os.ftruncate(self.fds[2], self.page)
+        self.ring = mmap.mmap(self.fds[1], 2 * self.page + 2 * bpf.RING_SIZE)
+        self.state = mmap.mmap(self.fds[2], self.page)
+        self.reports = 0
+        monkeypatch.setattr(hid_bpf, "HEARTBEAT_S", 0.01)
+        monkeypatch.setattr(hid_bpf, "STALL_S", 0.05)
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(loop, "add_reader", lambda *_args: None)
+        monkeypatch.setattr(loop, "remove_reader", lambda *_args: True)
 
-    async def attach(_binding):
-        return os.dup(link_fd), os.dup(ring_fd), os.dup(state_fd)
+    async def attach(self, _binding):
+        return tuple(os.dup(fd) for fd in self.fds)
 
-    decode = SteamDeckTouchDriver().decode
+    def report(self, sequence: int, touch: int, *records: tuple[int, int]) -> None:
+        self.reports += 1
+        struct.pack_into("<QQQ", self.state, 0, self.reports, sequence, touch)
+        position = struct.unpack_from("<Q", self.ring, self.page)[0]
+        for record_sequence, record_touch in records:
+            offset = 2 * self.page + position
+            struct.pack_into(
+                "<IIQQ", self.ring, offset, bpf.RECORD_SIZE, 0, record_sequence, record_touch
+            )
+            position += 8 + bpf.RECORD_SIZE
+        struct.pack_into("<Q", self.ring, self.page, position)
+
+    def close(self) -> None:
+        self.ring.close()
+        self.state.close()
+        for fd in self.fds:
+            os.close(fd)
+
+
+def right_stick(report: bytes) -> int | None:
+    values = SteamDeckTouchDriver().decode(report)
+    return None if values is None else values["right_stick_touch"]
+
+
+async def test_hid_bpf_reports_deliver_buffered_transitions_in_order(monkeypatch):
+    maps = HidBpfMaps(monkeypatch)
     baseline = open_fd_targets()
-    stream = hid_bpf.reports(deck_binding(), attach=attach)
-    assert set((decode(await anext(stream)) or {}).values()) == {0}
-    assert struct.unpack_from("<Q", ring, 0)[0] == 16
-    state[: bpf.STATE_SIZE] = snapshot(2, 0x89)
-    assert decode(await anext(stream)) == {
+    maps.report(2, 0x01, (1, 0x81), (2, 0x01))
+    stream = hid_bpf.reports(deck_binding(), attach=maps.attach)
+    assert [right_stick(await anext(stream)) for _ in range(2)] == [1, 0]
+    maps.report(3, 0x81, (2, 0x01), (3, 0x81))
+    assert right_stick(await anext(stream)) == 1
+    with pytest.raises(OSError) as stopped:
+        async with asyncio.timeout(1):
+            while True:
+                assert right_stick(await anext(stream)) == 1
+    assert stopped.value.errno == errno.ENODEV
+    assert sorted(open_fd_targets()) == sorted(baseline)
+    maps.close()
+
+
+async def test_hid_bpf_reports_recover_the_state_of_lost_records(monkeypatch):
+    maps = HidBpfMaps(monkeypatch)
+    maps.report(4, 0x89)
+    stream = hid_bpf.reports(deck_binding(), attach=maps.attach)
+    assert SteamDeckTouchDriver().decode(await anext(stream)) == {
         "left_stick_touch": 0,
         "right_stick_touch": 1,
         "left_pad_touch": 1,
         "right_pad_touch": 0,
     }
-    with pytest.raises(OSError) as stopped:
-        async with asyncio.timeout(1):
-            while True:
-                await anext(stream)
-    assert stopped.value.errno == errno.ENODEV
-    assert sorted(open_fd_targets()) == sorted(baseline)
-    ring.close()
-    state.close()
-    for fd in (link_fd, ring_fd, state_fd):
-        os.close(fd)
+    maps.report(4, 0x89, (4, 0x89))
+    assert right_stick(await anext(stream)) == 1
+    await stream.aclose()
+    maps.close()
 
 
 async def test_stick_touch_acts_as_a_mapped_button_until_the_source_detaches(monkeypatch):
@@ -347,8 +379,8 @@ async def test_stick_touch_acts_as_a_mapped_button_until_the_source_detaches(mon
 
     await device.grab()
     try:
-        for index, touch in enumerate((0x00, 0x81, 0x01, 0x81), start=1):
-            await reports.put(snapshot(index, touch))
+        for touch in (0x00, 0x81, 0x01, 0x81):
+            await reports.put(touch_state(touch))
         async with asyncio.timeout(2):
             while key_a() != [1, 0, 1]:
                 await asyncio.sleep(0.01)
@@ -382,14 +414,76 @@ async def test_hid_bpf_attachment_survives_a_brief_release_without_false_gaps(mo
     sources = SourceManager()
     binding = deck_binding()
     async with sources.subscribe(binding) as first:
-        await snapshots.put(snapshot(1, 0x01))
+        await snapshots.put(touch_state(0x01))
         await first.read()
         await asyncio.sleep(0.15)
-        await snapshots.put(snapshot(2, 0x41))
+        await snapshots.put(touch_state(0x41))
         frame = await first.read()
         assert frame.values["left_stick_touch"] == 1
         assert not frame.discontinuity
     async with sources.subscribe(binding) as second:
         assert (await second.read()).values["left_stick_touch"] == 1
     assert attaches == 1
+    await asyncio.wait_for(closed.wait(), 1.0)
+
+
+async def test_combo_capture_records_touch_inputs_without_an_active_mapping(monkeypatch):
+    from keymasq.keymasqd import capture_manager as capture_module
+    from keymasq.keymasqd import daemon_capture_commands
+    from keymasq.keymasqd.runtime import device_path_resolver as resolver
+
+    reports: asyncio.Queue[bytes] = asyncio.Queue()
+    closed = asyncio.Event()
+
+    async def reader(_path):
+        try:
+            while True:
+                yield await reports.get()
+        finally:
+            closed.set()
+
+    shared = SourceManager(reader)
+    source = deck_binding()
+    monkeypatch.setattr("keymasq.keymasqd.input_sources.manager.source_manager", lambda: shared)
+    monkeypatch.setattr(capture_module, "binding_for_path", lambda _path: source)
+    monkeypatch.setattr(capture_module.evdev, "list_devices", lambda: [])
+    monkeypatch.setattr(
+        resolver,
+        "resolve_evdev_interfaces",
+        lambda *_args, **_kwargs: [
+            resolver.ResolvedInterface(
+                source.path, "keymasq-source:input", "input", DeviceType.OTHER, []
+            )
+        ],
+    )
+    daemon = SimpleNamespace(
+        device_manager=SimpleNamespace(
+            grabbed_devices={},
+            begin_combo_capture=Mock(),
+            end_combo_capture=Mock(),
+            read_combo_capture=Mock(return_value={"event": None}),
+        ),
+        capture_manager=capture_module.CaptureManager(),
+    )
+    touch_source = {
+        "id": "input",
+        "path": "keymasq-source:input",
+        "type": "other",
+        "backend": "hid-bpf",
+        "driver": "steam-deck-touch",
+    }
+    capture = asyncio.create_task(
+        daemon_capture_commands.capture_combo(
+            daemon,
+            {"28de:1205@2"},
+            2.0,
+            hardware_interfaces={"28de:1205@2": [touch_source]},
+        )
+    )
+    for touch in (0x81, 0x01):
+        await reports.put(touch_state(touch))
+    result = await asyncio.wait_for(capture, 2.0)
+    assert result["events"] == [
+        {"evdev": "btn_touch_rs", "hardware_id": "28de:1205@2", "source": "input"}
+    ]
     await asyncio.wait_for(closed.wait(), 1.0)

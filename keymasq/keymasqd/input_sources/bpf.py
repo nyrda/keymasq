@@ -50,7 +50,11 @@ RING_SIZE = 4096
 STATE_SIZE = 64
 # Programs count recognized reports here; a stalled count means the program detached.
 REPORTS_OFFSET = 0
-DRIVER_STATE_OFFSET = 8
+SEQUENCE_OFFSET = 8
+DRIVER_STATE_OFFSET = 16
+DRIVER_STATE_SIZE = 8
+# Each state change is also a ring record: the new sequence number, then the driver state.
+RECORD_SIZE = 16
 VMLINUX_BTF = Path("/sys/kernel/btf/vmlinux")
 LOG_SIZE = 1 << 20
 

@@ -164,11 +164,15 @@ the program, so releasing the source or stopping the daemon leaves nothing
 attached. See [Security](security.md#native-input-programs) for the privilege
 boundary.
 
-The program counts every report it recognizes and keeps the latest state in the
-state map. It writes a ring buffer record only when the state changes. The
-daemon maps both without BPF privileges. Ring buffer records only wake the
-reader, which then reads the state map, so a full ring cannot lose a release.
-The reader also wakes every 100 ms. When the report count stops advancing for
+The program counts every report it recognizes and keeps the latest state and a
+change sequence number in the state map. Each state change also becomes a ring
+buffer record carrying its sequence number and the new state. The daemon maps
+both without BPF privileges and delivers records in sequence order, so a touch
+and release that arrive before the reader runs still produce both transitions.
+Sequence numbers drop duplicates. When the state map is ahead of the delivered
+records, because a record is not yet submitted or a full ring lost it, the
+reader delivers the current state, so the latest state always arrives. The
+reader also wakes every 100 ms. When the report count stops advancing for
 half a second, the source fails like a disconnected device: held buttons are
 released, including profile triggers held by a touch. The Deck reports at 250 Hz,
 so its count always advances while the program runs.
@@ -189,9 +193,10 @@ reports an error and the controller's evdev inputs keep working.
 Implement the `InputDriver` contract, provide its supported endpoint match,
 association rule, transport, named channels, and pure report decoder, then
 register it in `registry.py`. A HID-BPF driver also provides `program()`. Its
-program increments the report count at the start of the state map, keeps its
-own state after it, and submits a ring buffer record when that state changes.
-Its decoder receives the state map snapshot. All packages grant the daemon generic read access to hidraw, so
+program follows the layout in `bpf.py`: it increments the report count, and on
+each state change stores the new state, increments the change sequence, and
+submits a record with both. Its decoder receives one driver state.
+All packages grant the daemon generic read access to hidraw, so
 read-only drivers need no packaging changes. Add report fixtures and association
 tests. A driver using the existing supplemental motion arrangement needs no
 model-specific changes in

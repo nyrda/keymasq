@@ -97,6 +97,7 @@ def make_daemon_testbed(monkeypatch):
         begin_combo=Mock(return_value={"token": "combo-token", "warnings": []}),
         read_combo_nowait=Mock(return_value={"event": None}),
         register_combo_notifier=Mock(return_value=None),
+        start_native_combo=AsyncMock(return_value=None),
         close_all=Mock(return_value=0),
     )
 

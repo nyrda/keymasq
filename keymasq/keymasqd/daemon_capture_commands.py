@@ -83,6 +83,8 @@ class _CaptureCommandCaptureManager(Protocol):
         self, token: str, loop: asyncio.AbstractEventLoop, notify_event: asyncio.Event
     ) -> None: ...
 
+    async def start_native_combo(self, token: str) -> None: ...
+
     def read_combo_nowait(self, token: str) -> JsonObject: ...
 
     def end(self, token: str) -> JsonObject: ...
@@ -255,6 +257,7 @@ async def capture_combo(
         )
         capture_started = True
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
+        await daemon.capture_manager.start_native_combo(token)
         warnings = cast(list[str], capture_result.get("warnings", []))
         capture_timeout_s = min(
             max(MIN_CAPTURE_TIMEOUT_S, float(timeout_s)),

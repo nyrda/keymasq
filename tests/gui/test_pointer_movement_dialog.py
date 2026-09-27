@@ -10,6 +10,7 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.model.pointer import PointerMovementConfig
 from keymasq.gui.widgets.gamepad_output_choices import GamepadOutputChoiceSet
 from keymasq.gui.widgets.pointer_movement_dialog import PointerMovementDialog
+from keymasq.gui.widgets.spin_inputs import apply_spin_secondary_step
 
 
 def _choices(_selected: str | None) -> GamepadOutputChoiceSet:
@@ -82,3 +83,46 @@ def test_mouse_mode_keeps_axis_settings_without_loading_outputs_and_offers_overr
         ActionType.PASSTHROUGH,
         ActionType.SUPPRESS,
     ]
+
+
+def test_apply_reports_the_current_settings_and_enables_remove() -> None:
+    saved: list[MappingAction | None] = []
+    applied: list[MappingAction] = []
+    dialog = PointerMovementDialog("Mouse", None, on_save=saved.append, on_apply=applied.append)
+    assert not dialog.remove_button.get_sensitive()
+
+    dialog.factor_y_row.set_value(2.0)
+    dialog.apply_button.emit("clicked")
+    dialog.factor_y_row.set_value(3.0)
+    dialog.apply_button.emit("clicked")
+
+    assert saved == []
+    assert [action.pointer_movement.factor_y for action in applied if action.pointer_movement] == [
+        2.0,
+        3.0,
+    ]
+    assert dialog.remove_button.get_sensitive()
+
+
+@pytest.mark.parametrize(
+    ("value", "direction", "expected"),
+    [
+        (0.35, 1, 1.0),
+        (1.0, 1, 2.0),
+        (1.35, 1, 2.0),
+        (1.35, -1, 1.0),
+        (2.0, -1, 1.0),
+        (3.5, -1, 3.0),
+        (0.35, -1, 0.0),
+        (49.5, 1, 50.0),
+    ],
+)
+def test_factor_secondary_steps_land_on_whole_numbers(
+    value: float, direction: int, expected: float
+) -> None:
+    dialog = PointerMovementDialog("Mouse", None, on_save=lambda _action: None)
+    dialog.factor_x_row.set_value(value)
+
+    apply_spin_secondary_step(dialog.factor_x_row, direction, 1.0, snap_to_step=True)
+
+    assert dialog.factor_x_row.get_value() == pytest.approx(expected)

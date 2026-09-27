@@ -19,6 +19,13 @@ Y movement. Buttons and the wheel keep their own mappings.
 As with other mappings, the highest-priority active profile that maps the pointer decides its
 behavior. Settings from lower-priority profiles are not combined with it.
 
+**Apply** saves the settings without closing the editor. You can then fine tune them while a
+game is running. **Save** applies and closes, and **Remove** deletes the mapping.
+
+Right-clicking a number field's **+** or **−** button moves the value to the next step on
+the same side. The factors move to the next whole number, so right-clicking **+** at 0.35 or
+**−** at 1.35 returns to 1.
+
 All distances and speeds use the mouse's own counts, the raw units it reports before desktop
 pointer acceleration. A 1600 DPI mouse reports about 630 counts per centimeter.
 

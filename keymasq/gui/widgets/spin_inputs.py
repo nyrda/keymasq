@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 
 import gi
@@ -207,6 +208,7 @@ def add_spin_secondary_step_controller(
     *,
     page_step: float | None = None,
     reset_value: float | None = None,
+    snap_to_step: bool = False,
     split_desync_axis: str | None = None,
     request_split_desync: Callable[[str], None] | None = None,
 ) -> None:
@@ -219,6 +221,7 @@ def add_spin_secondary_step_controller(
         row,
         page_step,
         reset_value,
+        snap_to_step,
         split_desync_axis,
         request_split_desync,
     )
@@ -233,6 +236,7 @@ def _on_spin_secondary_step_pressed(
     row: Adw.SpinRow,
     page_step: float | None,
     reset_value: float | None,
+    snap_to_step: bool,
     split_desync_axis: str | None,
     request_split_desync: Callable[[str], None] | None,
 ) -> None:
@@ -246,7 +250,7 @@ def _on_spin_secondary_step_pressed(
         state = Gdk.ModifierType(0)
     if split_desync_axis and request_split_desync is not None and state & SPLIT_DESYNC_MODIFIERS:
         request_split_desync(split_desync_axis)
-    apply_spin_secondary_step(row, direction, page_step, reset_value)
+    apply_spin_secondary_step(row, direction, page_step, reset_value, snap_to_step=snap_to_step)
 
 
 def spin_secondary_step_direction(row: Adw.SpinRow, x: float) -> int | None:
@@ -265,6 +269,8 @@ def apply_spin_secondary_step(
     direction: int,
     page_step: float | None,
     reset_value: float | None = None,
+    *,
+    snap_to_step: bool = False,
 ) -> None:
     if reset_value is not None:
         row.set_value(reset_value)
@@ -272,7 +278,14 @@ def apply_spin_secondary_step(
     if page_step is None:
         return
     adjustment = row.get_adjustment()
-    next_value = row.get_value() + (page_step if direction > 0 else -page_step)
+    if snap_to_step:
+        steps = row.get_value() / page_step
+        next_steps = (
+            math.floor(steps + 1e-6) + 1 if direction > 0 else math.ceil(steps - 1e-6) - 1
+        )
+        next_value = next_steps * page_step
+    else:
+        next_value = row.get_value() + (page_step if direction > 0 else -page_step)
     row.set_value(
         min(
             adjustment.get_upper(),

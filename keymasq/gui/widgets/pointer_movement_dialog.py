@@ -1,5 +1,6 @@
 """Edit one profile's pointer movement factors or controller-axis output."""
 
+import logging
 from collections.abc import Callable
 
 import gi
@@ -9,6 +10,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq import __version__
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.pointer import (
@@ -21,12 +23,15 @@ from keymasq.common.model.pointer import (
 )
 from keymasq.common.output_axes import STANDARD_OUTPUT_AXES, OutputAxis, learned_output_axes
 from keymasq.common.virtual_device_templates import resolve_virtual_devices, template_output_axes
+from keymasq.gui.widgets.docs_links import docs_page_url
 from keymasq.gui.widgets.gamepad_output_choices import (
     GamepadOutputChoiceSet,
     gamepad_output_choice_matches,
     load_gamepad_output_choices,
 )
-from keymasq.gui.widgets.spin_inputs import spin_row
+from keymasq.gui.widgets.spin_inputs import add_spin_secondary_step_controller, spin_row
+
+log = logging.getLogger(__name__)
 
 _MODES = (
     ("mouse", "Mouse Movement"),
@@ -66,10 +71,12 @@ class PointerMovementDialog(Adw.Dialog):
         current_action: MappingAction | None,
         *,
         on_save: Callable[[MappingAction | None], None],
+        on_apply: Callable[[MappingAction], None] | None = None,
         output_choices_loader: OutputChoicesLoader = load_gamepad_output_choices,
     ) -> None:
         super().__init__(title=f"Pointer Movement · {source_label}", content_width=560)
         self._on_save = on_save
+        self._on_apply = on_apply or on_save
         self._output_choices_loader = output_choices_loader
         self._output_ids: list[str | None] = []
         self._axes_by_output: dict[str, tuple[OutputAxis, ...]] = {}
@@ -222,7 +229,13 @@ class PointerMovementDialog(Adw.Dialog):
         footer = Gtk.Box(spacing=8)
         for side in ("top", "bottom", "start", "end"):
             getattr(footer, f"set_margin_{side}")(12)
-        self.remove_button = Gtk.Button(label="Remove Mapping")
+        docs_button = Gtk.Button(label="?")
+        docs_button.add_css_class("flat")
+        docs_button.add_css_class("actions-docs-button")
+        docs_button.set_tooltip_text("Open Pointer Movement documentation")
+        docs_button.connect("clicked", self._on_docs_clicked)
+        footer.append(docs_button)
+        self.remove_button = Gtk.Button(label="Remove")
         self.remove_button.add_css_class("destructive-action")
         self.remove_button.set_sensitive(current_action is not None)
         self.remove_button.connect("clicked", self._on_remove_clicked)
@@ -231,6 +244,10 @@ class PointerMovementDialog(Adw.Dialog):
         cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", self._on_cancel_clicked)
         footer.append(cancel)
+        self.apply_button = Gtk.Button(label="Apply")
+        self.apply_button.set_tooltip_text("Apply without closing, to fine tune while playing")
+        self.apply_button.connect("clicked", self._on_apply_clicked)
+        footer.append(self.apply_button)
         self.save_button = Gtk.Button(label="Save")
         self.save_button.add_css_class("suggested-action")
         self.save_button.connect("clicked", self._on_save_clicked)
@@ -247,6 +264,18 @@ class PointerMovementDialog(Adw.Dialog):
             self.minimum_output_row,
             self.response_curve_row,
         )
+        for row, step in (
+            (self.factor_x_row, 1.0),
+            (self.factor_y_row, 1.0),
+            (self.full_speed_row, 500.0),
+            (self.window_row, 10.0),
+            (self.radius_row, 100.0),
+            (self.recenter_row, 100.0),
+            (self.deadzone_row, 5.0),
+            (self.minimum_output_row, 5.0),
+            (self.response_curve_row, 0.25),
+        ):
+            add_spin_secondary_step_controller(row, page_step=step, snap_to_step=True)
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.set_vexpand(True)
         content.append(page)
@@ -380,6 +409,17 @@ class PointerMovementDialog(Adw.Dialog):
     def _on_save_clicked(self, _button: Gtk.Button) -> None:
         self._on_save(self.action())
         self.close()
+
+    def _on_apply_clicked(self, _button: Gtk.Button) -> None:
+        self._on_apply(self.action())
+        self.remove_button.set_sensitive(True)
+
+    def _on_docs_clicked(self, _button: Gtk.Button) -> None:
+        url = docs_page_url("pointer-movement", version=__version__)
+        try:
+            Gtk.UriLauncher.new(url).launch(None, None, None)
+        except Exception:
+            log.exception("Could not open Pointer Movement documentation %s", url)
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()

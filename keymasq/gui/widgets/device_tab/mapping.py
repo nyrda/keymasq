@@ -346,25 +346,30 @@ class MappingMixin:
         layer = self._device_layer_for_profile(target_profile)
         current_action = layer.mappings.get(POINTER_SOURCE_ID) if layer else None
 
+        def commit_selection(action: MappingAction | None) -> None:
+            current_profile = self._resolve_mapping_target_profile(target_profile)
+            current_layer = self._device_layer_for_profile(current_profile, create=True)
+            if current_layer is None:
+                return
+            if action is None:
+                current_layer.mappings.pop(POINTER_SOURCE_ID, None)
+            else:
+                current_layer.mappings[POINTER_SOURCE_ID] = action
+            if self._profile_is_selected(current_profile):
+                self._selected_profile = current_profile
+                self._update_button_display(POINTER_SOURCE_ID)
+                self._update_header_caption()
+            self._save_specific_profile(current_profile)
+
         def on_save(action: MappingAction | None) -> None:
-            def commit_selection() -> None:
-                current_profile = self._resolve_mapping_target_profile(target_profile)
-                current_layer = self._device_layer_for_profile(current_profile, create=True)
-                if current_layer is None:
-                    return
-                if action is None:
-                    current_layer.mappings.pop(POINTER_SOURCE_ID, None)
-                else:
-                    current_layer.mappings[POINTER_SOURCE_ID] = action
-                if self._profile_is_selected(current_profile):
-                    self._selected_profile = current_profile
-                    self._update_button_display(POINTER_SOURCE_ID)
-                    self._update_header_caption()
-                self._save_specific_profile(current_profile)
+            defer_commit(lambda: commit_selection(action))
 
-            defer_commit(commit_selection)
+        def on_apply(action: MappingAction) -> None:
+            self._queue_selector_commit_after_close(lambda: commit_selection(action))
 
-        dialog = PointerMovementDialog(self.device.name, current_action, on_save=on_save)
+        dialog = PointerMovementDialog(
+            self.device.name, current_action, on_save=on_save, on_apply=on_apply
+        )
         defer_commit = self._defer_selector_commit_until_dialog_closed(dialog)
         dialog.present(self.get_root())
 

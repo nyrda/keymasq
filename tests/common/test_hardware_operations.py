@@ -368,6 +368,33 @@ async def test_cancellation_waits_for_the_systemd_job_before_recovery(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_cancellation_can_leave_a_job_without_rollback_running(tmp_path, monkeypatch):
+    monkeypatch.setattr(client, "REQUESTS", tmp_path / "requests")
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def systemctl(*args, **kwargs):
+        started.set()
+        await finish.wait()
+        return ""
+
+    monkeypatch.setattr(client, "run_host", systemctl)
+    task = asyncio.create_task(
+        client.request_without_rollback("hid-bpf-attach", "", token="t")
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, 1.0)
+    assert list((tmp_path / "requests").iterdir())
+    finish.set()
+    for _ in range(20):
+        if not list((tmp_path / "requests").iterdir()):
+            break
+        await asyncio.sleep(0.01)
+    assert list((tmp_path / "requests").iterdir()) == []
+
+
+@pytest.mark.asyncio
 async def test_global_recovery_cannot_race_an_active_operation(tmp_path, monkeypatch):
     inventory, attachment, _, _ = generic_usb(tmp_path)
     root = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")

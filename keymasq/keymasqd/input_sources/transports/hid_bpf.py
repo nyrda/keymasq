@@ -39,11 +39,12 @@ type Attach = Callable[[Binding], Awaitable[Attachment]]
 
 
 async def request_attachment(binding: Binding) -> Attachment:
-    from keymasq.masking.client import request
+    from keymasq.masking.client import request_without_rollback
 
     token = uuid.uuid4().hex
     async with fd_handoff.handoff_server().expect(token) as pending:
-        await request(
+        # An abandoned attachment has nothing to roll back: late descriptors are closed.
+        await request_without_rollback(
             "hid-bpf-attach",
             "",
             driver=binding.driver.id,

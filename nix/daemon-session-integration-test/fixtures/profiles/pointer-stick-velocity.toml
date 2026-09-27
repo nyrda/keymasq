@@ -1,0 +1,19 @@
+[profile]
+name = "Integration Pointer Stick Velocity"
+enabled = false
+is_permanent = true
+priority = 150
+notify_on_activation = false
+created_at = "2026-09-27T00:00:03"
+
+[devices."$MOUSE_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$MOUSE_HARDWARE_ID".mapping.pointer]
+action = "pointer_movement"
+mode = "axes"
+behavior = "velocity"
+full_speed = 1000.0
+window_ms = 100
+x_axis = "abs_rx"
+y_axis = "abs_ry"

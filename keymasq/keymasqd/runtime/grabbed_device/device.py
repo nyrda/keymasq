@@ -63,6 +63,11 @@ from keymasq.keymasqd.runtime.outputs import (
     uinput_identity,
     uinput_supports_max_effects,
 )
+from keymasq.keymasqd.runtime.pointer_movement import (
+    POINTER_STATE_KEYS,
+    release_pointer_movement,
+    same_pointer_movement,
+)
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 
 log = logging.getLogger("keymasqd.devices")
@@ -593,6 +598,11 @@ class GrabbedDevice:
             self.state.held_source_actions.setdefault(event_name, None)
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
+        if previous_mapping is None or not same_pointer_movement(
+            previous_mapping,
+            self.mapping_getter(),
+        ):
+            release_pointer_movement(self, deps=pipeline.build_action_execution_deps())
         preserve_analog_state_keys = (
             preserved_analog_state_keys(
                 previous_mapping,
@@ -600,7 +610,7 @@ class GrabbedDevice:
             )
             if previous_mapping is not None
             else set[str]()
-        )
+        ) | set(POINTER_STATE_KEYS)
         if self.default_route is not None:
             mapping = self.mapping_getter()
             consumed_axes = {
@@ -901,6 +911,7 @@ class GrabbedDevice:
         self.state.analog_deferred_keys.clear()
         self.state.analog_source_axis_values.clear()
         self.state.analog_mouse_area_resyncing = False
+        release_pointer_movement(self, deps=pipeline.build_action_execution_deps())
         await self._release_step("resetting analog controls", self.reset_analog_controls)
         await self._release_step("resetting superkeys", self.reset_superkeys)
         try:

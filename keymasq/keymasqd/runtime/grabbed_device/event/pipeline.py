@@ -64,6 +64,12 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     InputEventLike,
 )
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
+from keymasq.keymasqd.runtime.pointer_movement import (
+    consume_pointer_event,
+    discard_pointer_frame,
+    flush_pointer_frame,
+    release_pointer_movement,
+)
 from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
@@ -159,6 +165,7 @@ async def cleanup_runtime_failure(
                 "Failed to clear combo runtime after device error on %s",
                 device_runtime.path,
             )
+    release_pointer_movement(device_runtime, deps=build_action_execution_deps())
     try:
         await device_runtime.reset_analog_controls()
     except Exception:
@@ -425,6 +432,16 @@ async def _process_event(
 
     if event_class is EventClass.SYNCHRONIZATION and not analog_drop:
         await process_analog_syn_event(device_runtime, event, deps=deps.action_deps)
+    if event_class is EventClass.SYNCHRONIZATION:
+        if analog_drop:
+            discard_pointer_frame(device_runtime)
+        elif int(event.code) == 0:  # SYN_REPORT
+            flush_pointer_frame(
+                device_runtime,
+                event,
+                device_runtime.mapping_getter(),
+                deps=deps.action_deps,
+            )
 
     if device_runtime.motion_axis_bindings:
         motion_axis_event = (int(event.type), int(event.code)) in (
@@ -460,6 +477,15 @@ async def _process_event(
             emit_passthrough_event(device_runtime, event, evdev_mod=evdev_mod)
             _finish_diagnostics(device_runtime, "passthrough_motion", started_ns, deps=deps)
             return
+
+    if event_class is EventClass.RELATIVE and consume_pointer_event(
+        device_runtime,
+        event,
+        device_runtime.mapping_getter(),
+        deps=deps.action_deps,
+    ):
+        _finish_diagnostics(device_runtime, "action_pointer_movement", started_ns, deps=deps)
+        return
 
     event_is_key = event_class is EventClass.KEY
     if event_is_key:

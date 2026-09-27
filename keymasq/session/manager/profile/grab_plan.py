@@ -8,6 +8,7 @@ from keymasq.common.controller_routing import is_controller_interface
 from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, analog_control_primary_mode
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import HardwareConfig
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from ..common import JsonObject, json_list
@@ -53,6 +54,8 @@ def get_interfaces_to_grab(
             source = button_to_source.get(button_id)
             if source:
                 sources_to_grab.add(source)
+    if _pointer_mapped(resolved):
+        sources_to_grab.update(pointer_interface_ids(hardware_config))
 
     if _motion_requires_gamepad_output(manager, hardware_config, resolved):
         sources_to_grab.update(
@@ -83,6 +86,14 @@ def get_interfaces_to_grab(
         source: interface_to_path[source]
         for source in sources_to_grab
         if source in interface_to_path
+    }
+
+
+def _pointer_mapped(resolved: ResolvedDeviceProfile) -> bool:
+    action = resolved.mappings.get(POINTER_SOURCE_ID)
+    return action is not None and action.action_type in {
+        ActionType.POINTER_MOVEMENT,
+        ActionType.SUPPRESS,
     }
 
 
@@ -280,6 +291,8 @@ def build_grab_device_payload(
             not in {None, "passthrough"}
             or bool(resolved.combo_event_count)
             or _motion_requires_gamepad_output(manager, hardware_config, resolved)
+            # Pointer movement has no button binding for the interface match to find.
+            or _pointer_mapped(resolved)
         ),
     }
 

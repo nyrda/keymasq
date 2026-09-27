@@ -15,6 +15,7 @@ from keymasq.common.model.actions import (
     parse_profile_deactivation_policy,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.model.pointer import pointer_movement_from_dict
 
 _PROFILE_ACTION_TYPES = {
     ActionType.PROFILE_ENABLE,
@@ -117,6 +118,11 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         source_profile_name=_optional_text(action_data.get("source_profile_name")),
         profile_deactivation=parse_profile_deactivation_policy(action_data.get("deactivation")),
         repeat_categories=_optional_string_list(action_data.get("repeat_categories")),
+        pointer_movement=(
+            pointer_movement_from_dict(cast(dict[str, object], raw_pointer))
+            if isinstance(raw_pointer := action_data.get("pointer_movement"), dict)
+            else None
+        ),
     )
 
 

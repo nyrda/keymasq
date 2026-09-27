@@ -212,6 +212,9 @@ evdev_code = 0
 - `phys`: optional kernel physical/topology hint
 - `capabilities`: optional capability list used for Product ID matching
 
+A `mouse` event device, or one whose capabilities include `rel_x` and `rel_y`, adds the
+`pointer` source for [Pointer Movement](pointer-movement.md). It needs no layout entry.
+
 `[[hardware.layout.buttons]]`
 
 - `id`: source ID used in profile mappings

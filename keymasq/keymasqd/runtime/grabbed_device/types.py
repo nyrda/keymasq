@@ -29,6 +29,7 @@ from keymasq.keymasqd.runtime.adapters import (
 from keymasq.keymasqd.runtime.analog.touchpad_contact import TouchpadContact
 from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
 from keymasq.keymasqd.runtime.motion_filter import OneEuroFilter
+from keymasq.keymasqd.runtime.pointer_state import PointerMovementState
 from keymasq.keymasqd.runtime.repeat import RepeatRuntimeState
 from keymasq.keymasqd.runtime.stick_output import StickOutputState
 
@@ -267,6 +268,7 @@ class GrabbedDeviceState:
     motion_last_frame_ns: dict[str, int] = field(default_factory=dict)
     motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     motion_tilt_centers: dict[str, tuple[float, float]] = field(default_factory=dict)
+    pointer_movement: PointerMovementState = field(default_factory=PointerMovementState)
 
 
 class ActionRuntime(Protocol):

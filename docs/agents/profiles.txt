@@ -329,6 +329,43 @@ normalized input, so its units do not change between gyro and tilt sources. Filt
 separate for each control and axis and resets with the mapping, dropped input, a gap over
 0.5 seconds, or backwards input timestamps.
 
+Map a mouse's pointer movement with the `pointer` source ID. It exists for hardware with a
+mouse event device, or one reporting `rel_x` and `rel_y`, and needs no hardware entry.
+Mouse mode scales counts and writes them to the mouse's passthrough device:
+
+```toml
+[devices."046d:c08b".mapping.pointer]
+action = "pointer_movement"
+mode = "mouse"
+factor_x = 1.0
+factor_y = 2.0
+```
+
+Axes mode drives controller axes instead of the pointer. `x_axis` and `y_axis` take any ABS
+axis name or `none` (defaults `abs_rx` and `abs_ry`). `x_direction` and `y_direction` are
+`both`, `max`, or `min`; one-way output uses positive movement after inversion.
+`behavior = "velocity"` uses `full_speed` in counts/s averaged over `window_ms`.
+`behavior = "position"` uses `radius` in counts, `overshoot` (`drag` or `keep`), and
+`recenter_ms` (0 = off). `output_id` defaults to Virtual Gamepad 1. In both modes,
+`swap_axes` applies first, then `invert_x`/`invert_y` and `factor_x`/`factor_y` on the
+swapped channels. `deadzone`, `minimum_output`, and `response_curve` shape each axis:
+
+```toml
+[devices."046d:c08b".mapping.pointer]
+action = "pointer_movement"
+mode = "axes"
+behavior = "position"
+radius = 1500.0
+overshoot = "drag"
+x_axis = "abs_x"
+y_axis = "abs_rz"
+y_direction = "max"
+invert_y = true
+```
+
+`action = "suppress"` on `pointer` blocks pointer movement, and `action = "passthrough"`
+restores normal movement over a lower-priority profile's pointer mapping.
+
 Bind a saved macro:
 
 ```toml

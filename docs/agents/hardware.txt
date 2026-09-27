@@ -108,6 +108,10 @@ evdev_code = 2
 - `row`, `col`: optional keyboard/grid placement
 - `type`: optional logical type, such as `wheel` or `key`
 
+Hardware with a `type = "mouse"` evdev device, or one whose capabilities include `rel_x`
+and `rel_y`, also has the implicit source ID `pointer` for pointer movement. It needs no
+layout entry.
+
 `[[hardware.layout.analogs]]` entries:
 
 - `id`: source ID used in profile mappings, such as `left_stick`

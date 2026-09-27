@@ -218,6 +218,8 @@ class SuperkeyManager:
             raise ValueError("passthrough is not allowed inside overload superkeys")
         if action.action_type == ActionType.REPEAT:
             raise ValueError("repeat is not allowed inside overload superkeys")
+        if action.action_type == ActionType.POINTER_MOVEMENT:
+            raise ValueError("pointer movement is only available on a mouse pointer source")
 
     def get_superkey(self, name: str) -> SuperkeyConfig | None:
         return self._superkeys.get(name)

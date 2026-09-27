@@ -84,6 +84,8 @@ def describe_mapping_action_compact(
         parts.append(f"🕹️ {label}")
     elif action.action_type == ActionType.MOTION_CONTROL:
         parts.append(_motion_control_action_label(action))
+    elif action.action_type == ActionType.POINTER_MOVEMENT:
+        parts.append(_pointer_movement_label(action))
     elif action.action_type == ActionType.MACRO:
         parts.append(f"🎬 {action.macro_name or '?'}")
     elif action.action_type == ActionType.REPEAT:
@@ -150,6 +152,8 @@ def describe_mapping_action_verbose(
         return f"Analog Control -> {_analog_control_action_label(action)}"
     if action.action_type == ActionType.MOTION_CONTROL:
         return f"Motion Control → {_motion_control_action_label(action)}"
+    if action.action_type == ActionType.POINTER_MOVEMENT:
+        return f"Pointer Movement → {_pointer_movement_label(action)}"
     if action.action_type == ActionType.KEYBOARD:
         return f"Keyboard → {_resolved_label(action.target, keyboard_label)}"
     if action.action_type == ActionType.MOUSE:
@@ -260,3 +264,18 @@ def _profile_lifetime_suffix(action: MappingAction) -> str:
     if not policy.on_trigger_end and policy.after_actions is None and policy.timeout_ms:
         return f" ({int(policy.timeout_ms)} ms)"
     return " (custom)"
+
+
+def _pointer_movement_label(action: MappingAction) -> str:
+    config = action.pointer_movement
+    if config is None:
+        return "🖱 pointer"
+    if config.mode == "mouse":
+        swapped = " swapped" if config.swap_axes else ""
+        return f"🖱 ×{config.factor_x:g} / ×{config.factor_y:g}{swapped}"
+    axes = [
+        axis_range.label if (axis_range := gamepad_axis_range(axis)) is not None else axis.upper()
+        for axis in (config.x_axis, config.y_axis)
+        if axis is not None
+    ]
+    return f"🎮 {' + '.join(axes) or 'no axes'} · {config.behavior}"

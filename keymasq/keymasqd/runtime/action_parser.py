@@ -40,6 +40,7 @@ from keymasq.common.model.motion import (
     MotionMouseConfig,
     MotionTiltConfig,
 )
+from keymasq.common.model.pointer import pointer_movement_from_dict
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd import superkey_state
 from keymasq.keymasqd.runtime.exec_references import acquire_exec_reference
@@ -220,6 +221,13 @@ def parse_action(
             motion_control_configs.append(parse_motion_control_config(manager, raw_config))
         motion_control_config = motion_control_configs[0] if motion_control_configs else None
 
+    raw_pointer_movement = action_data.get("pointer_movement")
+    pointer_movement = (
+        pointer_movement_from_dict(cast(dict[str, object], raw_pointer_movement))
+        if action_type == ActionType.POINTER_MOVEMENT and isinstance(raw_pointer_movement, dict)
+        else None
+    )
+
     shared = _parse_shared_action_fields(
         action_data,
         action_type,
@@ -244,6 +252,7 @@ def parse_action(
         motion_control_names=cast(list[str], action_data.get("motion_control_names") or []),
         motion_control_config=motion_control_config,
         motion_control_configs=motion_control_configs,
+        pointer_movement=pointer_movement,
         macro_name=shared.macro_name,
         macro_events=cast(list[JsonObject] | None, action_data.get("macro_events")),
         macro_replay_mouse_movement=shared.macro_replay_mouse_movement,

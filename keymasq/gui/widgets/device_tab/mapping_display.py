@@ -11,6 +11,7 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.profile.types import ProfileInfo
@@ -155,7 +156,8 @@ def update_button_display(
     describe_analog_passthrough: Callable[[AnalogInputDefinition], str | None] | None = None,
     describe_default_output: Callable[
         [ButtonDefinition | AnalogInputDefinition], tuple[str, str] | None
-    ] | None = None,
+    ]
+    | None = None,
 ) -> None:
     widget = button_widgets.get(button_id)
     if not widget:
@@ -180,7 +182,8 @@ def update_button_display(
         (candidate for candidate in device.motion_sensors if candidate.id == button_id),
         None,
     )
-    if button is None and analog is None and motion is None:
+    pointer = button_id == POINTER_SOURCE_ID and bool(pointer_interface_ids(device))
+    if button is None and analog is None and motion is None and not pointer:
         return
 
     winner_profile_name, winner_mapping = effective_mapping
@@ -204,6 +207,8 @@ def update_button_display(
             and describe_analog_passthrough is not None
         ):
             description = describe_analog_passthrough(analog) or description
+        if mapping.action_type == ActionType.PASSTHROUGH and pointer:
+            description = "Pointer passthrough"
         set_action_label_text(
             action_label,
             description,
@@ -234,6 +239,7 @@ def update_button_display(
             analog,
             describe_passthrough,
             motion=motion is not None,
+            pointer=pointer,
         )
         if analog is not None and describe_analog_passthrough is not None:
             passthrough_label = describe_analog_passthrough(analog) or passthrough_label
@@ -270,9 +276,12 @@ def _passthrough_label(
     describe_passthrough: Callable[[ButtonDefinition], str],
     *,
     motion: bool = False,
+    pointer: bool = False,
 ) -> str:
     if button is not None:
         return describe_passthrough(button)
     if motion:
         return "Motion passthrough"
+    if pointer:
+        return "Pointer passthrough"
     return "Passthrough"

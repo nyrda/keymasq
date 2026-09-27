@@ -10,6 +10,7 @@ from keymasq.common.model.hardware import (
     ButtonDefinition,
 )
 from keymasq.common.model.motion import MotionAxisDefinition, MotionSensorDefinition
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.common.security import PeerCredentials
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
@@ -366,6 +367,17 @@ def build_device_inspector_snapshot(
             _serialize_motion_sensor(sensor, resolved, mapping_profile_names)
             for sensor in hardware.motion_sensors
         ],
+        "pointer": [
+            {
+                "id": POINTER_SOURCE_ID,
+                "label": "Pointer Movement",
+                "kind": "pointer",
+                "profile_name": mapping_profile_names.get(POINTER_SOURCE_ID, ""),
+                "action": serialize_mapping_action(resolved.mappings.get(POINTER_SOURCE_ID)),
+            }
+        ]
+        if pointer_interface_ids(hardware)
+        else [],
     }
 
 

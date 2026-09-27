@@ -76,6 +76,7 @@ from keymasq.keymasqd.runtime.macro.state import (
 from keymasq.keymasqd.runtime.manager_combos import ComboManagerMixin
 from keymasq.keymasqd.runtime.manager_cursor import CursorManagerMixin
 from keymasq.keymasqd.runtime.manager_macros import MacroManagerMixin
+from keymasq.keymasqd.runtime.pointer_movement import release_pointer_movement
 from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivationTracker
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
@@ -469,6 +470,12 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     attempt_sync(
                         f"resetting motion controls for {device.path}",
                         device.reset_motion_controls,
+                    )
+                    attempt_sync(
+                        f"releasing pointer movement for {device.path}",
+                        lambda device=device: release_pointer_movement(
+                            device, deps=pipeline.build_action_execution_deps()
+                        ),
                     )
                     await attempt(
                         f"resetting analog controls for {device.path}",

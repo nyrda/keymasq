@@ -13,6 +13,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition
 from keymasq.common.model.motion import MotionSensorDefinition
+from keymasq.common.model.pointer import POINTER_SOURCE_ID
 from keymasq.gui.session_client import JsonDict
 from keymasq.gui.widgets.device_control_layout import resolve_device_layout_kind
 from keymasq.gui.widgets.device_tab import mapping_display
@@ -33,6 +34,7 @@ class MappingMixin:
             on_analog_mapping_clicked=self._on_analog_mapping_clicked,
             on_motion_mapping_clicked=self._on_motion_mapping_clicked,
             on_motion_action_right_clicked=self._on_motion_action_right_clicked,
+            on_pointer_mapping_clicked=self._on_pointer_mapping_clicked,
             on_name_label_right_clicked=self._on_name_label_right_clicked,
             on_action_label_right_clicked=self._on_action_label_right_clicked,
             on_analog_name_right_clicked=self._on_analog_name_right_clicked,
@@ -74,6 +76,12 @@ class MappingMixin:
             self._show_no_profile_dialog()
             return
         self._show_motion_editor(sensor)
+
+    def _on_pointer_mapping_clicked(self: Any, _button_widget: Gtk.Button) -> None:
+        if self._selected_profile is None:
+            self._show_no_profile_dialog()
+            return
+        self._show_pointer_editor()
 
     def _on_motion_action_right_clicked(
         self: Any,
@@ -329,6 +337,35 @@ class MappingMixin:
             defer_commit(commit_selection)
 
         dialog.connect("key-selected", on_selected)
+        dialog.present(self.get_root())
+
+    def _show_pointer_editor(self: Any) -> None:
+        from keymasq.gui.widgets.pointer_movement_dialog import PointerMovementDialog
+
+        target_profile = self._selected_profile
+        layer = self._device_layer_for_profile(target_profile)
+        current_action = layer.mappings.get(POINTER_SOURCE_ID) if layer else None
+
+        def on_save(action: MappingAction | None) -> None:
+            def commit_selection() -> None:
+                current_profile = self._resolve_mapping_target_profile(target_profile)
+                current_layer = self._device_layer_for_profile(current_profile, create=True)
+                if current_layer is None:
+                    return
+                if action is None:
+                    current_layer.mappings.pop(POINTER_SOURCE_ID, None)
+                else:
+                    current_layer.mappings[POINTER_SOURCE_ID] = action
+                if self._profile_is_selected(current_profile):
+                    self._selected_profile = current_profile
+                    self._update_button_display(POINTER_SOURCE_ID)
+                    self._update_header_caption()
+                self._save_specific_profile(current_profile)
+
+            defer_commit(commit_selection)
+
+        dialog = PointerMovementDialog(self.device.name, current_action, on_save=on_save)
+        defer_commit = self._defer_selector_commit_until_dialog_closed(dialog)
         dialog.present(self.get_root())
 
     def _profile_info_by_name(self: Any, profile_name: str) -> ProfileInfo | None:

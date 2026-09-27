@@ -14,6 +14,11 @@ from keymasq.common.devices import (
     make_keymasq_device_path,
 )
 from keymasq.common.model.hardware import EvdevDevice
+from keymasq.common.model.pointer import (
+    POINTER_SOURCE_ID,
+    is_pointer_interface,
+    pointer_interface_ids,
+)
 from keymasq.gui.session_client import JsonDict
 from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
@@ -404,7 +409,12 @@ class HardwareSettingsMixin:
                 for sensor in self.device.motion_sensors
                 if sensor.source not in {source, *companions}
             ]
-        return [*removed_button_ids, *removed_analog_ids, *removed_motion_ids]
+        removed_pointer_ids = (
+            [POINTER_SOURCE_ID]
+            if is_pointer_interface(evdev_device) and not pointer_interface_ids(self.device)
+            else []
+        )
+        return [*removed_button_ids, *removed_analog_ids, *removed_motion_ids, *removed_pointer_ids]
 
     @staticmethod
     def _same_evdev_device(left: EvdevDevice, right: EvdevDevice) -> bool:

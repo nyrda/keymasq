@@ -35,6 +35,7 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 - [Macro timeline editor](macro-editor.md) — add actions, select and reuse sections, and adjust timing.
 - [Gamepad](gamepad.md) — controller remapping, analog controls, and virtual gamepads.
 - [Motion Controls](motion-controls.md) — controller gyro setup, normalization, and outputs.
+- [Pointer Movement](pointer-movement.md) — per-profile mouse speed factors and mouse-to-controller axes.
 - [Device Inspector](device-inspector.md) — inspect final mappings, raw events,
   and configured analog inputs for one device.
 

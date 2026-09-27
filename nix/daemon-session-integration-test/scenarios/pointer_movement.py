@@ -1,6 +1,7 @@
 """Translate real mouse REL reports through session profiles into pointer and axis output."""
 
 import contextlib
+import itertools
 import time
 from collections.abc import Iterator
 
@@ -87,7 +88,7 @@ def _expect_rel(
 def _expect_axes(
     ctx: ScenarioContext,
     *expected: tuple[int, int],
-    same_report: bool = False,
+    reports: tuple[int, ...] = (),
 ) -> None:
     """Match axis output exactly so a late stale value cannot satisfy a later step."""
     if ctx.gamepad_output is None:
@@ -106,9 +107,9 @@ def _expect_axes(
         if observed != wanted:
             time.sleep(0.01)
     assert observed == wanted, (wanted, observed)
-    if same_report:
-        split = [count for count in reports_ended_after if 0 < count < len(wanted)]
-        assert not split, (wanted, reports_ended_after)
+    if reports:
+        inner = {count for count in reports_ended_after if 0 < count < len(wanted)}
+        assert inner == set(itertools.accumulate(reports[:-1])), (wanted, reports_ended_after)
 
 
 def run_mouse_factors(ctx: ScenarioContext) -> None:
@@ -156,21 +157,22 @@ def run_mouse_factors(ctx: ScenarioContext) -> None:
 def run_stick_velocity(ctx: ScenarioContext) -> None:
     with _source_mouse(ctx, VELOCITY) as (source, passthrough):
         _move(source, 50)
-        _expect_axes(ctx, (ABS_RX, 16384), (ABS_RX, 0))  # 500 counts/s of 1000.
+        _expect_axes(ctx, (ABS_RX, 16384), (ABS_RX, 0))  # 250 counts/s of 500.
         _expect_rel(ctx, passthrough, [])
 
         _move(source, y=-25)
         _expect_axes(ctx, (ABS_RY, -8192), (ABS_RY, 0))
 
         _move(source, 25)
-        time.sleep(0.03)
+        time.sleep(0.1)
         _move(source, 25)
-        # Each report leaves the 100 ms window on its own, so the older one expires first.
+        # Each report leaves the 200 ms window on its own, so the older one expires first.
         _expect_axes(ctx, (ABS_RX, 8192), (ABS_RX, 16384), (ABS_RX, 8192), (ABS_RX, 0))
 
         _move(source, 500, 500)
-        _expect_axes(ctx, (ABS_RX, 32767), (ABS_RY, 32767), same_report=True)
-        _expect_axes(ctx, (ABS_RX, 0), (ABS_RY, 0), same_report=True)
+        _expect_axes(
+            ctx, (ABS_RX, 32767), (ABS_RY, 32767), (ABS_RX, 0), (ABS_RY, 0), reports=(2, 2)
+        )
         _expect_rel(ctx, passthrough, [])
 
 

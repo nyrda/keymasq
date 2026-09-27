@@ -64,6 +64,10 @@ def _selected(row: Adw.ComboRow, options: tuple[tuple[str, str], ...]) -> str:
     return options[index][0] if 0 <= index < len(options) else options[0][0]
 
 
+def _fraction(percent_row: Adw.SpinRow) -> float:
+    return round(percent_row.get_value() / 100.0, 9)
+
+
 class PointerMovementDialog(Adw.Dialog):
     def __init__(
         self,
@@ -276,6 +280,7 @@ class PointerMovementDialog(Adw.Dialog):
             (self.response_curve_row, 0.25),
         ):
             add_spin_secondary_step_controller(row, page_step=step, snap_to_step=True)
+        self._loaded_spin_state = [(row.get_value(), row.get_text()) for row in self._spin_rows]
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.set_vexpand(True)
         content.append(page)
@@ -293,8 +298,10 @@ class PointerMovementDialog(Adw.Dialog):
         )
 
     def config(self, mode: str) -> PointerMovementConfig:
-        for row in self._spin_rows:
-            row.update()
+        # update() reparses the rounded display text, so only rows the user touched.
+        for row, loaded in zip(self._spin_rows, self._loaded_spin_state, strict=True):
+            if (row.get_value(), row.get_text()) != loaded:
+                row.update()
         return PointerMovementConfig(
             mode=mode,
             factor_x=self.factor_x_row.get_value(),
@@ -313,8 +320,8 @@ class PointerMovementDialog(Adw.Dialog):
             y_axis=self._selected_axis(self.y_axis_row),
             x_direction=_selected(self.x_direction_row, _DIRECTIONS),
             y_direction=_selected(self.y_direction_row, _DIRECTIONS),
-            deadzone=self.deadzone_row.get_value() / 100.0,
-            minimum_output=self.minimum_output_row.get_value() / 100.0,
+            deadzone=_fraction(self.deadzone_row),
+            minimum_output=_fraction(self.minimum_output_row),
             response_curve=self.response_curve_row.get_value(),
         )
 

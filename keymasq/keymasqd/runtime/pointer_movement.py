@@ -350,28 +350,35 @@ async def _settle_loop(
     deps: ActionExecutionDeps,
 ) -> None:
     """Expire idle velocity samples one by one, or recenter position output after idling."""
-    while device_runtime.state.pointer_movement is state and state.config is config:
-        now_ns = time.monotonic_ns()
-        if config.behavior == "velocity":
-            expired = False
-            while state.samples and state.samples[0][1] <= now_ns:
-                state.samples.popleft()
-                expired = True
-            if expired:
-                _emit_axes(device_runtime, state, config, deps=deps)
-            if not state.samples:
-                return
-            due_ns = state.samples[0][1]
-        else:
-            due_ns = (
-                max(state.last_motion_ns, state.last_arrival_ns) + config.recenter_ms * 1_000_000
-            )
-            if due_ns <= now_ns:
-                state.position_x = 0.0
-                state.position_y = 0.0
-                _emit_axes(device_runtime, state, config, deps=deps)
-                return
-        await deps.asyncio_mod.sleep((due_ns - now_ns) / 1_000_000_000)
+    try:
+        while device_runtime.state.pointer_movement is state and state.config is config:
+            now_ns = time.monotonic_ns()
+            if config.behavior == "velocity":
+                expired = False
+                while state.samples and state.samples[0][1] <= now_ns:
+                    state.samples.popleft()
+                    expired = True
+                if expired:
+                    _emit_axes(device_runtime, state, config, deps=deps)
+                if not state.samples:
+                    return
+                due_ns = state.samples[0][1]
+            else:
+                due_ns = (
+                    max(state.last_motion_ns, state.last_arrival_ns)
+                    + config.recenter_ms * 1_000_000
+                )
+                if due_ns <= now_ns:
+                    state.position_x = 0.0
+                    state.position_y = 0.0
+                    _emit_axes(device_runtime, state, config, deps=deps)
+                    return
+            await deps.asyncio_mod.sleep((due_ns - now_ns) / 1_000_000_000)
+    except OSError:
+        log.exception("Failed to settle pointer axes for %s", device_runtime.path)
+        if device_runtime.state.pointer_movement is state:
+            state.task = None
+            release_pointer_movement(device_runtime, deps=deps)
 
 
 def _event_ns(event: InputEventLike) -> int:

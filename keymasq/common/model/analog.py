@@ -17,6 +17,7 @@ ANALOG_THRESHOLD_ACTION_TYPES = frozenset(
         ActionType.SUPPRESS,
         ActionType.ANALOG_CONTROL,
         ActionType.SUPERKEY,
+        ActionType.POINTER_MOVEMENT,
     }
 )
 

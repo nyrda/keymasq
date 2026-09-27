@@ -126,3 +126,25 @@ def test_factor_secondary_steps_land_on_whole_numbers(
     apply_spin_secondary_step(dialog.factor_x_row, direction, 1.0, snap_to_step=True)
 
     assert dialog.factor_x_row.get_value() == pytest.approx(expected)
+
+
+def test_untouched_fields_keep_precision_the_display_rounds_and_typed_text_still_saves() -> None:
+    config = PointerMovementConfig(
+        factor_x=0.004, factor_y=1.0, minimum_output=0.123, response_curve=1.234
+    )
+    saved: list[MappingAction | None] = []
+    dialog = PointerMovementDialog(
+        "Mouse",
+        MappingAction(action_type=ActionType.POINTER_MOVEMENT, pointer_movement=config),
+        on_save=saved.append,
+        output_choices_loader=_choices,
+    )
+
+    dialog.apply_button.emit("clicked")
+    dialog.factor_y_row.set_text("3")
+    dialog.save_button.emit("clicked")
+
+    assert saved[0] is not None and saved[0].pointer_movement == config
+    assert saved[1] is not None and saved[1].pointer_movement is not None
+    assert saved[1].pointer_movement.factor_y == 3.0
+    assert saved[1].pointer_movement.factor_x == 0.004

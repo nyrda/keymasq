@@ -309,3 +309,33 @@ async def test_diagonal_movement_updates_both_axes_in_one_report(monkeypatch):
         (ec.EV_ABS, ec.ABS_Y, -16384),
         (ec.EV_SYN, ec.SYN_REPORT, 0),
     ]
+
+
+class _FailOnceUInput(FakeUInput):
+    fail_next = False
+
+    def write(self, event_type: int, code: int, value: int) -> None:
+        if self.fail_next:
+            self.fail_next = False
+            raise OSError("write failed")
+        super().write(event_type, code, value)
+
+
+@pytest.mark.asyncio
+async def test_failed_settle_write_releases_axes_instead_of_holding_them(monkeypatch):
+    gamepad = _FailOnceUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": _axes_action(full_speed=1000, window_ms=20)},
+        gamepad_uinput=gamepad,
+        passthrough_uinput=FakeUInput(),
+    )
+
+    await _send_at(device, time.monotonic_ns(), 10)
+    task = device.state.pointer_movement.task
+    gamepad.fail_next = True
+    await asyncio.sleep(0.1)
+
+    assert task is not None and task.done() and task.exception() is None
+    assert _abs_x(gamepad) == [16384, 0]
+    assert "pointer:x" not in device.state.analog_gamepad_outputs

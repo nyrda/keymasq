@@ -1,10 +1,13 @@
 from unittest.mock import Mock
 
+import pytest
+
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
 from keymasq.common.model.pointer import PointerMovementConfig
 from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+from keymasq.common.virtual_devices import SAME_DEVICE_OUTPUT_ID
 from keymasq.keymasqd.runtime.action_parser import parse_action
 from keymasq.session.manager.payload.action import mapping_action_payload
 from keymasq.session.manager.profile.grab_plan import (
@@ -82,3 +85,48 @@ def test_pointer_only_mouse_grabs_its_pointer_interface():
 
     assert interfaces == {"mouse": "/dev/input/event4"}
     assert payload["force_grab_unmapped"] is True
+
+
+@pytest.mark.parametrize("output_id", ["cafe:0004", SAME_DEVICE_OUTPUT_ID])
+def test_pointer_axes_on_own_controller_grab_the_controller_interface(output_id):
+    hardware = HardwareConfig(
+        "cafe",
+        "0004",
+        "Hybrid",
+        [
+            EvdevDevice("/dev/input/event4", DeviceType.MOUSE, "mouse"),
+            EvdevDevice("/dev/input/event6", DeviceType.GAMEPAD, "pad"),
+        ],
+        [],
+    )
+    resolved = ResolvedDeviceProfile(hardware.hardware_id)
+    resolved.mappings["pointer"] = MappingAction(
+        action_type=ActionType.POINTER_MOVEMENT,
+        pointer_movement=PointerMovementConfig(mode="axes", output_id=output_id),
+    )
+
+    interfaces = get_interfaces_to_grab(hardware, resolved, manager=Mock())
+
+    assert interfaces == {"mouse": "/dev/input/event4", "pad": "/dev/input/event6"}
+
+
+def test_pointer_axes_on_another_output_leave_the_controller_interface_alone():
+    hardware = HardwareConfig(
+        "cafe",
+        "0004",
+        "Hybrid",
+        [
+            EvdevDevice("/dev/input/event4", DeviceType.MOUSE, "mouse"),
+            EvdevDevice("/dev/input/event6", DeviceType.GAMEPAD, "pad"),
+        ],
+        [],
+    )
+    resolved = ResolvedDeviceProfile(hardware.hardware_id)
+    resolved.mappings["pointer"] = MappingAction(
+        action_type=ActionType.POINTER_MOVEMENT,
+        pointer_movement=PointerMovementConfig(mode="axes"),
+    )
+
+    interfaces = get_interfaces_to_grab(hardware, resolved, manager=Mock())
+
+    assert interfaces == {"mouse": "/dev/input/event4"}

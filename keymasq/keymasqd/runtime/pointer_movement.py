@@ -54,7 +54,7 @@ def consume_pointer_event(
     if not horizontal and int(event.code) != int(ecodes.REL_Y):
         return False
     action = pointer_action(mapping)
-    if action is None:
+    if action is None or _pointer_id_taken(device_runtime):
         return False
     config = action.pointer_movement
     if config is None or device_runtime.state.pointer_resyncing:
@@ -69,6 +69,14 @@ def consume_pointer_event(
         state.frame_y += y
         state.frame_pending = True
     return True
+
+
+def _pointer_id_taken(device_runtime: GrabbedDeviceRuntime) -> bool:
+    return (
+        POINTER_SOURCE_ID in device_runtime.evdev_to_button.values()
+        or POINTER_SOURCE_ID in device_runtime.analog_inputs
+        or POINTER_SOURCE_ID in device_runtime.motion_sensors
+    )
 
 
 def flush_pointer_frame(

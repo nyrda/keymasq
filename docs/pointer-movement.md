@@ -6,7 +6,8 @@ stores its own setting, so a window rule can give one game a different mouse spe
 
 Open a mouse's tab, select a profile, and click the **Pointer Movement** card. The card
 appears for hardware with a mouse event device, or an event device that reports relative X and
-Y movement. Buttons and the wheel keep their own mappings.
+Y movement. Buttons and the wheel keep their own mappings. The card does not appear when
+another control on the hardware already uses the ID `pointer`.
 
 **Output** selects what happens to the movement:
 

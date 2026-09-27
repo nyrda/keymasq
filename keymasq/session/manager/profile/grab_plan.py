@@ -57,7 +57,10 @@ def get_interfaces_to_grab(
     if _pointer_mapped(resolved):
         sources_to_grab.update(pointer_interface_ids(hardware_config))
 
-    if _motion_requires_gamepad_output(manager, hardware_config, resolved):
+    drives_own_controller = _motion_requires_gamepad_output(
+        manager, hardware_config, resolved
+    ) or _pointer_drives_own_controller(hardware_config, resolved)
+    if drives_own_controller:
         sources_to_grab.update(
             device.id
             for device in hardware_config.evdev_devices
@@ -95,6 +98,18 @@ def _pointer_mapped(resolved: ResolvedDeviceProfile) -> bool:
         ActionType.POINTER_MOVEMENT,
         ActionType.SUPPRESS,
     }
+
+
+def _pointer_drives_own_controller(
+    hardware: HardwareConfig, resolved: ResolvedDeviceProfile
+) -> bool:
+    action = resolved.mappings.get(POINTER_SOURCE_ID)
+    config = action.pointer_movement if action is not None else None
+    return (
+        config is not None
+        and config.mode == "axes"
+        and config.output_id in {SAME_DEVICE_OUTPUT_ID, hardware.hardware_id}
+    )
 
 
 def _motion_requires_gamepad_output(

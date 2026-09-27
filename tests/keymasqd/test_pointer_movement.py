@@ -339,3 +339,18 @@ async def test_failed_settle_write_releases_axes_instead_of_holding_them(monkeyp
     assert task is not None and task.done() and task.exception() is None
     assert _abs_x(gamepad) == [16384, 0]
     assert "pointer:x" not in device.state.analog_gamepad_outputs
+
+
+@pytest.mark.asyncio
+async def test_button_named_pointer_does_not_take_over_mouse_movement(monkeypatch):
+    passthrough = FakeUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": MappingAction(action_type=ActionType.SUPPRESS)},
+        button_map={"pointer": "btn_side"},
+        passthrough_uinput=passthrough,
+    )
+
+    await _send(device, (ec.EV_REL, ec.REL_X, 5), (ec.EV_SYN, ec.SYN_REPORT, 0))
+
+    assert (ec.EV_REL, ec.REL_X, 5) in passthrough.writes

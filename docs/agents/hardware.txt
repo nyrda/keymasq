@@ -110,7 +110,8 @@ evdev_code = 2
 
 Hardware with a `type = "mouse"` evdev device, or one whose capabilities include `rel_x`
 and `rel_y`, also has the implicit source ID `pointer` for pointer movement. It needs no
-layout entry.
+layout entry. `pointer` is reserved: a button, analog, or motion sensor with that ID keeps it,
+and the hardware then has no pointer source.
 
 `[[hardware.layout.analogs]]` entries:
 

@@ -1,5 +1,3 @@
-"""Translate real mouse REL reports through session profiles into pointer and axis output."""
-
 import contextlib
 import itertools
 import time
@@ -65,7 +63,6 @@ def _expect_rel(
     device: evdev.InputDevice,
     expected: list[tuple[int, int]],
 ) -> None:
-    """Match relative output exactly, then reject trailing movement."""
     observed: list[tuple[int, int]] = []
     deadline = time.monotonic() + EVENT_TIMEOUT_S
     while observed != expected and time.monotonic() < deadline:
@@ -90,7 +87,6 @@ def _expect_axes(
     *expected: tuple[int, int],
     reports: tuple[int, ...] = (),
 ) -> None:
-    """Match axis output exactly so a late stale value cannot satisfy a later step."""
     if ctx.gamepad_output is None:
         raise AssertionError("gamepad output is not available")
     wanted = list(expected)
@@ -119,7 +115,7 @@ def run_mouse_factors(ctx: ScenarioContext) -> None:
         _move(source, 1)
         _expect_rel(ctx, passthrough, [])
         _move(source, 1)
-        _expect_rel(ctx, passthrough, [(REL_X, 1)])  # Fractions carry between reports.
+        _expect_rel(ctx, passthrough, [(REL_X, 1)])
         _move(source, -7, -2)
         _expect_rel(ctx, passthrough, [(REL_X, -3), (REL_Y, -4)])
         _move(source, -1)
@@ -148,7 +144,6 @@ def run_mouse_factors(ctx: ScenarioContext) -> None:
         _move(source, 10, 3)
         _expect_rel(ctx, passthrough, [(REL_X, 5), (REL_Y, 6)])
 
-        # The release grace keeps the mouse grabbed; unmapped movement is unchanged.
         ctx.set_profile_enabled(FACTORS, enabled=False)
         _move(source, 10, 3)
         _expect_rel(ctx, passthrough, [(REL_X, 10), (REL_Y, 3)])
@@ -157,7 +152,7 @@ def run_mouse_factors(ctx: ScenarioContext) -> None:
 def run_stick_velocity(ctx: ScenarioContext) -> None:
     with _source_mouse(ctx, VELOCITY) as (source, passthrough):
         _move(source, 50)
-        _expect_axes(ctx, (ABS_RX, 16384), (ABS_RX, 0))  # 250 counts/s of 500.
+        _expect_axes(ctx, (ABS_RX, 16384), (ABS_RX, 0))
         _expect_rel(ctx, passthrough, [])
 
         _move(source, y=-25)
@@ -166,7 +161,6 @@ def run_stick_velocity(ctx: ScenarioContext) -> None:
         _move(source, 25)
         time.sleep(0.1)
         _move(source, 25)
-        # Each report leaves the 200 ms window on its own, so the older one expires first.
         _expect_axes(ctx, (ABS_RX, 8192), (ABS_RX, 16384), (ABS_RX, 8192), (ABS_RX, 0))
 
         _move(source, 500, 500)
@@ -180,11 +174,11 @@ def run_axis_position(ctx: ScenarioContext) -> None:
     with _source_mouse(ctx, POSITION) as (source, passthrough):
         _move(source, 500)
         _expect_axes(ctx, (ABS_X, 16384))
-        ctx.expect_no_gamepad_events(timeout_s=0.3)  # Position holds without movement.
+        ctx.expect_no_gamepad_events(timeout_s=0.3)
         _move(source, 1000)
         _expect_axes(ctx, (ABS_X, 32767))
         _move(source, -500)
-        _expect_axes(ctx, (ABS_X, 16384))  # Overshoot dragged the center along.
+        _expect_axes(ctx, (ABS_X, 16384))
         _move(source, -500)
         _expect_axes(ctx, (ABS_X, 0))
         _move(source, -1500)
@@ -193,26 +187,26 @@ def run_axis_position(ctx: ScenarioContext) -> None:
         _expect_axes(ctx, (ABS_X, 0))
 
         _move(source, y=-600)
-        _expect_axes(ctx, (ABS_RZ, 153))  # Inverted Y drives a one-sided trigger.
+        _expect_axes(ctx, (ABS_RZ, 153))
         _move(source, y=1000)
         _expect_axes(ctx, (ABS_RZ, 0))
         _move(source, y=-200)
-        _expect_axes(ctx, (ABS_RZ, 51))  # Pulling past rest does not wind up.
+        _expect_axes(ctx, (ABS_RZ, 51))
         _expect_rel(ctx, passthrough, [])
 
         ctx.set_profile_enabled(KEEP, enabled=True)
-        _expect_axes(ctx, (ABS_RZ, 0))  # A changed mapping releases its held axes.
+        _expect_axes(ctx, (ABS_RZ, 0))
         _move(source, 1500)
         _expect_axes(ctx, (ABS_X, 32767))
         _move(source, -500)
-        ctx.expect_no_gamepad_events()  # Kept overshoot must be undone first.
+        ctx.expect_no_gamepad_events()
         _move(source, -500)
         _expect_axes(ctx, (ABS_X, 16384))
 
         ctx.set_profile_enabled(RECENTER, enabled=True)
         _expect_axes(ctx, (ABS_X, 0))
         _move(source, 100)
-        _expect_axes(ctx, (ABS_X, 18022), (ABS_X, 0))  # 50% minimum output, then recenter.
+        _expect_axes(ctx, (ABS_X, 18022), (ABS_X, 0))
         ctx.set_profile_enabled(RECENTER, enabled=False)
         ctx.set_profile_enabled(KEEP, enabled=False)
 

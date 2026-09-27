@@ -84,23 +84,31 @@ def _expect_rel(
     )
 
 
-def _expect_axes(ctx: ScenarioContext, *expected: tuple[int, int]) -> None:
+def _expect_axes(
+    ctx: ScenarioContext,
+    *expected: tuple[int, int],
+    same_report: bool = False,
+) -> None:
     """Match axis output exactly so a late stale value cannot satisfy a later step."""
     if ctx.gamepad_output is None:
         raise AssertionError("gamepad output is not available")
     wanted = list(expected)
     observed: list[tuple[int, int]] = []
+    reports_ended_after: list[int] = []
     deadline = time.monotonic() + EVENT_TIMEOUT_S
     while observed != wanted and time.monotonic() < deadline:
-        observed.extend(
-            (int(event.code), int(event.value))
-            for event in ctx.read_output_events(ctx.gamepad_output)
-            if event.type == EV_ABS
-        )
+        for event in ctx.read_output_events(ctx.gamepad_output):
+            if event.type == EV_ABS:
+                observed.append((int(event.code), int(event.value)))
+            elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+                reports_ended_after.append(len(observed))
         assert observed == wanted[: len(observed)], (wanted, observed)
         if observed != wanted:
             time.sleep(0.01)
     assert observed == wanted, (wanted, observed)
+    if same_report:
+        split = [count for count in reports_ended_after if 0 < count < len(wanted)]
+        assert not split, (wanted, reports_ended_after)
 
 
 def run_mouse_factors(ctx: ScenarioContext) -> None:
@@ -155,11 +163,14 @@ def run_stick_velocity(ctx: ScenarioContext) -> None:
         _expect_axes(ctx, (ABS_RY, -8192), (ABS_RY, 0))
 
         _move(source, 25)
+        time.sleep(0.03)
         _move(source, 25)
-        _expect_axes(ctx, (ABS_RX, 8192), (ABS_RX, 16384), (ABS_RX, 0))
+        # Each report leaves the 100 ms window on its own, so the older one expires first.
+        _expect_axes(ctx, (ABS_RX, 8192), (ABS_RX, 16384), (ABS_RX, 8192), (ABS_RX, 0))
 
         _move(source, 500, 500)
-        _expect_axes(ctx, (ABS_RX, 32767), (ABS_RY, 32767), (ABS_RX, 0), (ABS_RY, 0))
+        _expect_axes(ctx, (ABS_RX, 32767), (ABS_RY, 32767), same_report=True)
+        _expect_axes(ctx, (ABS_RX, 0), (ABS_RY, 0), same_report=True)
         _expect_rel(ctx, passthrough, [])
 
 

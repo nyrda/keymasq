@@ -44,20 +44,32 @@ def _abs_x(gamepad: FakeUInput) -> list[int]:
 
 
 @pytest.mark.asyncio
-async def test_dropped_report_discards_partial_pointer_movement(monkeypatch):
+async def test_pointer_ignores_movement_through_the_report_after_a_drop(monkeypatch):
     gamepad = FakeUInput()
+    passthrough = FakeUInput()
+    mapping = {"pointer": _position_action()}
     device = make_grabbed_device(
         monkeypatch,
-        mapping={"pointer": _position_action()},
+        mapping_getter=lambda: mapping,
         gamepad_uinput=gamepad,
-        passthrough_uinput=FakeUInput(),
+        passthrough_uinput=passthrough,
     )
 
     await _send(device, (ec.EV_REL, ec.REL_X, 300), (ec.EV_SYN, ec.SYN_REPORT, 0))
     await _send(device, (ec.EV_REL, ec.REL_X, 500), (ec.EV_SYN, ec.SYN_DROPPED, 0))
     await _send(device, (ec.EV_REL, ec.REL_X, 100), (ec.EV_SYN, ec.SYN_REPORT, 0))
+    await _send(device, (ec.EV_REL, ec.REL_X, 200), (ec.EV_SYN, ec.SYN_REPORT, 0))
+    mapping = {
+        "pointer": MappingAction(
+            action_type=ActionType.POINTER_MOVEMENT,
+            pointer_movement=PointerMovementConfig(factor_x=2.0),
+        )
+    }
+    await _send(device, (ec.EV_SYN, ec.SYN_DROPPED, 0), (ec.EV_REL, ec.REL_X, 7))
+    await _send(device, (ec.EV_SYN, ec.SYN_REPORT, 0), (ec.EV_REL, ec.REL_X, 3))
 
-    assert _abs_x(gamepad) == [round(0.3 * 32767), round(0.4 * 32767)]
+    assert _abs_x(gamepad) == [round(0.3 * 32767), 16384, 0]
+    assert passthrough.writes == [(ec.EV_REL, ec.REL_X, 6)]
 
 
 @pytest.mark.asyncio
@@ -250,3 +262,50 @@ async def test_released_device_stops_settling_and_returns_axes_to_rest(monkeypat
     assert _abs_x(gamepad) == [16384, 0]
     assert gamepad.writes == writes_after_release
     assert "pointer:x" not in device.state.analog_gamepad_outputs
+
+
+@pytest.mark.asyncio
+async def test_idle_velocity_expires_each_sample_on_its_own(monkeypatch):
+    gamepad = FakeUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": _axes_action(full_speed=1000, window_ms=200)},
+        gamepad_uinput=gamepad,
+        passthrough_uinput=FakeUInput(),
+    )
+
+    await _send_at(device, time.monotonic_ns(), 100)
+    await asyncio.sleep(0.1)
+    await _send_at(device, time.monotonic_ns(), -100)
+    await asyncio.sleep(0.35)
+
+    assert _abs_x(gamepad) == [16384, 0, -16384, 0]
+
+
+class _SynRecordingUInput(FakeUInput):
+    def syn(self) -> None:
+        self.writes.append((ec.EV_SYN, ec.SYN_REPORT, 0))
+
+
+@pytest.mark.asyncio
+async def test_diagonal_movement_updates_both_axes_in_one_report(monkeypatch):
+    gamepad = _SynRecordingUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": _axes_action(behavior="position", radius=1000, y_axis="abs_y")},
+        gamepad_uinput=gamepad,
+        passthrough_uinput=FakeUInput(),
+    )
+
+    await _send(
+        device,
+        (ec.EV_REL, ec.REL_X, 500),
+        (ec.EV_REL, ec.REL_Y, -500),
+        (ec.EV_SYN, ec.SYN_REPORT, 0),
+    )
+
+    assert gamepad.writes == [
+        (ec.EV_ABS, ec.ABS_X, 16384),
+        (ec.EV_ABS, ec.ABS_Y, -16384),
+        (ec.EV_SYN, ec.SYN_REPORT, 0),
+    ]

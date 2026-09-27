@@ -11,10 +11,12 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.model.pointer import POINTER_SOURCE_ID, PointerMovementConfig
 from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.runtime.analog.gamepad import emit_gamepad_output
+from keymasq.keymasqd.runtime.analog.metadata import resolve_gamepad_output_target
 from keymasq.keymasqd.runtime.analog.output_state import reset_recorded_gamepad_outputs
 from keymasq.keymasqd.runtime.grabbed_device.event.passthrough import emit_passthrough_event
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
+    EvdevModule,
     GrabbedDeviceRuntime,
     InputEventLike,
 )
@@ -55,7 +57,7 @@ def consume_pointer_event(
     if action is None:
         return False
     config = action.pointer_movement
-    if config is None:
+    if config is None or device_runtime.state.pointer_resyncing:
         return True
     state = _synced_state(device_runtime, config, deps=deps)
     value = float(event.value)
@@ -95,8 +97,11 @@ def flush_pointer_frame(
     now_ns = _event_ns(event)
     state.last_arrival_ns = time.monotonic_ns()
     if config.behavior == "velocity":
-        state.samples.append((now_ns, dx, dy))
-        window_start_ns = now_ns - config.window_ms * 1_000_000
+        window_ns = config.window_ms * 1_000_000
+        # Idle expiry counts from arrival too, so a late report is not settled on arrival.
+        expiry_ns = max(now_ns, state.last_arrival_ns) + window_ns
+        state.samples.append((now_ns, expiry_ns, dx, dy))
+        window_start_ns = now_ns - window_ns
         while state.samples and state.samples[0][0] <= window_start_ns:
             state.samples.popleft()
     else:
@@ -105,6 +110,21 @@ def flush_pointer_frame(
         state.last_motion_ns = now_ns
     _emit_axes(device_runtime, state, config, deps=deps)
     _ensure_settle_task(device_runtime, state, config, deps=deps)
+
+
+def observe_pointer_sync(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    evdev_mod: EvdevModule,
+) -> None:
+    """Ignore pointer movement through the report after SYN_DROPPED, even while paused."""
+    if int(event.code) == int(evdev_mod.ecodes.SYN_DROPPED):
+        discard_pointer_frame(device_runtime)
+        device_runtime.state.pointer_resyncing = True
+    elif int(event.code) == 0 and device_runtime.state.pointer_resyncing:  # SYN_REPORT
+        discard_pointer_frame(device_runtime)
+        device_runtime.state.pointer_resyncing = False
 
 
 def discard_pointer_frame(device_runtime: GrabbedDeviceRuntime) -> None:
@@ -245,8 +265,8 @@ def _axis_values(
         return state.position_x / config.radius, state.position_y / config.radius
     scale = 1000.0 / config.window_ms / config.full_speed
     return (
-        sum(sample[1] for sample in state.samples) * scale,
         sum(sample[2] for sample in state.samples) * scale,
+        sum(sample[3] for sample in state.samples) * scale,
     )
 
 
@@ -272,17 +292,38 @@ def _emit_axes(
 ) -> None:
     values = _axis_values(state, config)
     directions = (config.x_direction, config.y_direction)
-    for state_key, axis_config, value, direction in zip(
-        POINTER_STATE_KEYS, state.axis_configs, values, directions, strict=True
-    ):
-        if axis_config is None:
-            continue
-        shaped = _shaped(value, config, one_sided=direction != "both")
-        device_runtime.state.analog_axis_values[state_key] = {
-            "x": abs(shaped),
-            "x_signed": shaped,
-        }
-        emit_gamepad_output(device_runtime, state_key, POINTER_SOURCE_ID, axis_config, deps=deps)
+    outputs = [
+        (state_key, axis_config, value, direction)
+        for state_key, axis_config, value, direction in zip(
+            POINTER_STATE_KEYS, state.axis_configs, values, directions, strict=True
+        )
+        if axis_config is not None
+    ]
+    if not outputs:
+        return
+    target = resolve_gamepad_output_target(device_runtime, POINTER_SOURCE_ID, outputs[0][1])
+    uinput = getattr(target, "uinput", None)
+    previous_frame = device_runtime.state.passthrough_frame_output
+    # One SYN for both axes, so a diagonal move is never observed half applied.
+    batched = uinput is not None and previous_frame is not uinput
+    if batched:
+        device_runtime.state.passthrough_frame_output = uinput
+    try:
+        for state_key, axis_config, value, direction in outputs:
+            shaped = _shaped(value, config, one_sided=direction != "both")
+            device_runtime.state.analog_axis_values[state_key] = {
+                "x": abs(shaped),
+                "x_signed": shaped,
+            }
+            emit_gamepad_output(
+                device_runtime, state_key, POINTER_SOURCE_ID, axis_config, deps=deps
+            )
+    finally:
+        if batched:
+            device_runtime.state.passthrough_frame_output = previous_frame
+            writer = deps.uinput_writer(uinput)
+            if writer is not None:
+                writer.syn()
 
 
 def _ensure_settle_task(
@@ -308,26 +349,29 @@ async def _settle_loop(
     *,
     deps: ActionExecutionDeps,
 ) -> None:
-    """Return velocity output to neutral or recenter position output once movement stops."""
+    """Expire idle velocity samples one by one, or recenter position output after idling."""
     while device_runtime.state.pointer_movement is state and state.config is config:
+        now_ns = time.monotonic_ns()
         if config.behavior == "velocity":
+            expired = False
+            while state.samples and state.samples[0][1] <= now_ns:
+                state.samples.popleft()
+                expired = True
+            if expired:
+                _emit_axes(device_runtime, state, config, deps=deps)
             if not state.samples:
                 return
-            # Lagging event processing must not settle a report as soon as it is handled.
-            due_ns = max(state.samples[-1][0], state.last_arrival_ns) + config.window_ms * 1_000_000
+            due_ns = state.samples[0][1]
         else:
             due_ns = (
                 max(state.last_motion_ns, state.last_arrival_ns) + config.recenter_ms * 1_000_000
             )
-        remaining_ns = due_ns - time.monotonic_ns()
-        if remaining_ns > 0:
-            await deps.asyncio_mod.sleep(remaining_ns / 1_000_000_000)
-            continue
-        state.samples.clear()
-        state.position_x = 0.0
-        state.position_y = 0.0
-        _emit_axes(device_runtime, state, config, deps=deps)
-        return
+            if due_ns <= now_ns:
+                state.position_x = 0.0
+                state.position_y = 0.0
+                _emit_axes(device_runtime, state, config, deps=deps)
+                return
+        await deps.asyncio_mod.sleep((due_ns - now_ns) / 1_000_000_000)
 
 
 def _event_ns(event: InputEventLike) -> int:

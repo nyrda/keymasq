@@ -17,7 +17,7 @@ class PointerMovementState:
     frame_pending: bool = False
     remainder_x: float = 0.0
     remainder_y: float = 0.0
-    samples: deque[tuple[int, float, float]] = field(default_factory=deque)
+    samples: deque[tuple[int, int, float, float]] = field(default_factory=deque)
     position_x: float = 0.0
     position_y: float = 0.0
     last_motion_ns: int = 0

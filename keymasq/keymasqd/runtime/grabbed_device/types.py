@@ -269,6 +269,7 @@ class GrabbedDeviceState:
     motion_mouse_accumulators: dict[str, tuple[float, float]] = field(default_factory=dict)
     motion_tilt_centers: dict[str, tuple[float, float]] = field(default_factory=dict)
     pointer_movement: PointerMovementState = field(default_factory=PointerMovementState)
+    pointer_resyncing: bool = False
 
 
 class ActionRuntime(Protocol):

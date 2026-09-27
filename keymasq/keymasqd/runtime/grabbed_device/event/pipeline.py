@@ -66,8 +66,8 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
 from keymasq.keymasqd.runtime.motion_controls import dispatch_motion_event
 from keymasq.keymasqd.runtime.pointer_movement import (
     consume_pointer_event,
-    discard_pointer_frame,
     flush_pointer_frame,
+    observe_pointer_sync,
     release_pointer_movement,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyState
@@ -368,6 +368,9 @@ async def _process_event(
             deps=deps.action_deps,
         )
 
+    if event_class is EventClass.SYNCHRONIZATION:
+        observe_pointer_sync(device_runtime, event, evdev_mod=evdev_mod)
+
     paused_label = _intercept_paused_or_quarantined_input(
         device_runtime,
         event_class=event_class,
@@ -432,16 +435,13 @@ async def _process_event(
 
     if event_class is EventClass.SYNCHRONIZATION and not analog_drop:
         await process_analog_syn_event(device_runtime, event, deps=deps.action_deps)
-    if event_class is EventClass.SYNCHRONIZATION:
-        if analog_drop:
-            discard_pointer_frame(device_runtime)
-        elif int(event.code) == 0:  # SYN_REPORT
-            flush_pointer_frame(
-                device_runtime,
-                event,
-                device_runtime.mapping_getter(),
-                deps=deps.action_deps,
-            )
+    if event_class is EventClass.SYNCHRONIZATION and int(event.code) == 0:  # SYN_REPORT
+        flush_pointer_frame(
+            device_runtime,
+            event,
+            device_runtime.mapping_getter(),
+            deps=deps.action_deps,
+        )
 
     if device_runtime.motion_axis_bindings:
         motion_axis_event = (int(event.type), int(event.code)) in (

@@ -24,6 +24,8 @@ pointer acceleration. A 1600 DPI mouse reports about 630 counts per centimeter.
 
 ## Mouse movement
 
+![Pointer Movement editor doubling vertical mouse movement](assets/screenshots/keymasq_pointer_movement_mouse.png)
+
 **Horizontal Factor** and **Vertical Factor** multiply the counts. For example, a vertical
 factor of 2 doubles vertical movement. A factor of 0 blocks that direction. Fractions carry
 over between reports, so slow movement is not lost at factors below 1.
@@ -41,6 +43,8 @@ A flat profile keeps the result proportional.
 apply to the resulting horizontal and vertical movement.
 
 ## Controller axes
+
+![Pointer Movement editor driving the right stick from mouse speed](assets/screenshots/keymasq_pointer_movement_stick.png)
 
 **Controller Axes** stops pointer movement and drives controller axes instead. Choose the
 output device, then an axis for horizontal and vertical movement. Any axis the device offers
@@ -93,6 +97,9 @@ left stick with Position and the mouse buttons to gamepad buttons.
 **Deadzone** ignores small output near rest. **Minimum Output** makes the smallest movement
 jump past a game's own deadzone. **Response Curve** below 1 responds faster near rest, and
 above 1 gives finer control near rest. These settings apply to each axis separately.
+
+When the kernel reports dropped input, Keymasq ignores pointer movement through the end of
+the incomplete report that follows, so lost counts never shift a held position.
 
 When the mapping changes, Keymasq returns the axes it drove to rest and starts from a new
 center. A profile change that leaves the Pointer Movement mapping unchanged keeps its

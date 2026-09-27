@@ -296,7 +296,7 @@ class PointerMovementDialog(Adw.Dialog):
         if axes and not self._outputs_loaded:
             self._outputs_loaded = True
             self._refresh_output_choices()
-        self.set_content_height(820 if axes else 520 if mode == "mouse" else 300)
+        self.set_content_height(900 if axes else 640 if mode == "mouse" else 320)
         self.movement_group.set_visible(mode not in _ACTION_MODES)
         self.output_group.set_visible(axes)
         self.axes_group.set_visible(axes)

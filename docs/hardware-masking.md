@@ -52,6 +52,11 @@ Turn the switch **off** to restore the device's access and disable its saved
 choice. There is no separate pause. **Unmask all devices** does this for every
 device at once, without pausing ordinary remapping.
 
+Turn masking off for a device you want to pass to a virtual machine or export
+over USB/IP. A saved mask treats the other driver like an application holding
+the device and reconnects the USB port to take it back, which ends the
+passthrough or the USB/IP session.
+
 ## What a mask covers
 
 A USB reservation covers every HID and input interface of that USB device. On a

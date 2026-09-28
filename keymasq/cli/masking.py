@@ -323,6 +323,12 @@ def _ask_to_keep(mask: JsonObject) -> bool:
     return bool(readable) and sys.stdin.readline().strip().lower() in {"y", "yes"}
 
 
+def _require_masked(device: JsonObject, mask: JsonObject, *, paused: bool) -> None:
+    _status, failure = mask_status(device, mask, paused=paused)
+    if failure or not mask_enabled(mask):
+        raise MaskingError(failure or f"{_name(device)} was not masked")
+
+
 def _undo_unconfirmed(identity: str) -> None:
     try:
         _device, mask, _paused = _find(identity)
@@ -372,9 +378,7 @@ def enable_cli(
                     _undo(identity, mask)
                     _wait(identity, progress=True)
                     raise MaskingError("Masking was undone")
-        _status, failure = mask_status(device, mask, paused=paused)
-        if failure or not mask_enabled(mask):
-            raise MaskingError(failure or f"{_name(device)} was not masked")
+        _require_masked(device, mask, paused=paused)
         if json_output:
             _print_json({"status": "ok", "device": device_json(device, mask, paused=paused)})
     except KeyboardInterrupt:
@@ -393,6 +397,7 @@ def confirm_cli(selector: str, *, json_output: bool = False) -> None:
             raise MaskingError(f"{_name(device)} is not waiting for confirmation")
         _keep(identity, mask)
         device, mask, paused = _wait(identity, progress=False)
+        _require_masked(device, mask, paused=paused)
     except MaskingError as error:
         _fail(error, json_output=json_output)
     _print_device_result(device, mask, paused=paused, json_output=json_output)

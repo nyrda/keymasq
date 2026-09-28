@@ -202,6 +202,29 @@ def test_enable_saved_device_while_unplugged_waits_without_prompt(session, monke
     assert fake.commands() == [{"command": "mask_hardware", "id": "pad", "persist": True}]
 
 
+@pytest.mark.parametrize("json_output", [False, True])
+def test_confirm_fails_when_mask_does_not_survive_keep(
+    session, monkeypatch, capsys, json_output
+) -> None:
+    trial = {"id": "pad", "state": "trial", "token": "trial-token", "remaining_seconds": 30}
+    fake = session([device("pad")], [trial])
+
+    def keep_then_fail(payload: dict, timeout: float = 5.0) -> dict:
+        result = fake(payload, timeout)
+        if payload["command"] == "keep_hardware_mask":
+            fake.masks["pad"] = {**trial, "state": "recovery_failed"}
+        return result
+
+    monkeypatch.setattr(masking, "_session_request", keep_then_fail)
+    with pytest.raises(SystemExit) as raised:
+        masking.confirm_cli("pad", json_output=json_output)
+    assert raised.value.code == 1
+    out = capsys.readouterr().out
+    assert "could not be restored" in out
+    if json_output:
+        assert json.loads(out)["status"] == "error"
+
+
 @pytest.mark.parametrize(
     ("mask", "token"),
     [

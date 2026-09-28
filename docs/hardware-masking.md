@@ -62,9 +62,9 @@ controller's scope. USB hubs cannot be masked.
 Masking the Steam Deck controller turns off the built-in mouse and keyboard
 emulation of Steam controllers. Linux applies that setting to every Steam
 controller at once, so other connected Steam controllers lose it too while the
-Deck is masked, unless Steam is driving them. The Deck row warns when another
-Steam controller is connected. Only one Steam Deck controller can be masked at
-a time.
+Deck is masked, unless Steam is driving them. While masking is off, the Deck
+row warns when another Steam controller is connected. Only one Steam Deck
+controller can be masked at a time.
 
 Blocking Bluetooth hidraw access does not restrict direct Bluetooth socket
 access or a privileged system broker.

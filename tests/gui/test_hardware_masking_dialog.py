@@ -303,17 +303,24 @@ def test_retrying_saved_mask_shows_countdown_and_allows_offline_retry(dialog, mo
     assert row.status.get_text() == "Couldn’t mask · retrying in 7s"
 
 
-def test_shared_steam_mode_warning_shows_only_while_connected(dialog):
-    result = response()
+@pytest.mark.parametrize(
+    ("mask", "supported", "visible"),
+    [
+        ({}, True, True),
+        ({"state": "restored", "enabled": False, "error": "failed"}, True, True),
+        ({}, False, False),
+        ({"state": "trial", "enabled": True}, True, False),
+        ({"state": "masked", "enabled": True}, True, False),
+    ],
+)
+def test_shared_steam_mode_warning_shows_only_before_masking(dialog, mask, supported, visible):
+    result = response({"id": "first", **mask})
     result["devices"][0]["warning"] = "Other Steam controllers are affected"
+    result["devices"][0]["supported"] = supported
     dialog._render(result)
     row = dialog._rows["first"]
-    assert row.warning.get_visible()
-    assert row.warning.get_text() == "Other Steam controllers are affected"
+    assert row.warning.get_visible() is visible
     assert not dialog._rows["second"].warning.get_visible()
-    result["devices"][0]["supported"] = False
-    dialog._render(result)
-    assert not row.warning.get_visible()
 
 
 def test_generic_failure_shows_the_reason_in_details(dialog):

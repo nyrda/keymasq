@@ -327,7 +327,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
         )
         self.switch.set_tooltip_text(status)
         self.switch.update_property([Gtk.AccessibleProperty.DESCRIPTION], [status])
-        warning = str(device.get("warning") or "") if connected else ""
+        warning = str(device.get("warning") or "") if connected and not enabled else ""
         self.warning.set_text(warning)
         self.warning.set_visible(bool(warning))
         self.error.set_text(error)

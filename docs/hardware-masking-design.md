@@ -124,8 +124,9 @@ then restores its previous value during recovery. That setting is module-wide,
 so other hid-steam controllers without a client such as Steam also lose their
 firmware mouse and keyboard emulation while the Deck is masked. The inventory
 reports this so the GUI can warn. Only one Deck reservation may own the saved
-mode at a time, so masking a Deck is refused while another Deck reservation
-journal exists. For that Deck transition, existing auxiliary HID handles require
+mode at a time. A lock serializes Deck admission across concurrent jobs, and
+masking a Deck is refused while another Deck reservation journal exists or a
+sibling journal cannot be read. For that Deck transition, existing auxiliary HID handles require
 the USB port takeover because only the main interface is rebound in the ordinary
 path. Other devices do not read or change lizard mode.
 

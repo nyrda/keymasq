@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -158,7 +159,20 @@ class LinuxMaskBackend:
 
     async def snapshot(self, attachment: Attachment) -> JsonObject:
         await finish_io(self.inventory.validate, attachment)
-        await self.check_deck_scope(attachment)
+        if not (attachment.is_deck and self.reservation_id):
+            return await self._snapshot(attachment)
+        # Deck masks save and restore the module-wide lizard mode, so only one
+        # may own it. Jobs for different attachments run concurrently.
+        with (self.runtime_dir.parent / "deck-mode.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise ValueError("Another Steam Deck controller is already being masked") from exc
+            if await finish_io(self.other_deck_reservation_active):
+                raise ValueError("Another Steam Deck controller is already masked")
+            return await self._snapshot(attachment)
+
+    async def _snapshot(self, attachment: Attachment) -> JsonObject:
         try:
             bindings = await finish_io(self.inventory.bindings, attachment)
         except NoBoundInterfacesError:
@@ -206,22 +220,21 @@ class LinuxMaskBackend:
         await finish_io(save_json, self.journal, data)
         return data
 
-    async def check_deck_scope(self, attachment: Attachment) -> None:
-        # Deck masks save and restore the module-wide lizard mode, so only one may own it.
-        if attachment.is_deck and await finish_io(self.other_deck_reservation_active):
-            raise ValueError("Another Steam Deck controller is already masked")
-
     def other_deck_reservation_active(self) -> bool:
-        if not self.reservation_id:
-            return False
         for journal in self.runtime_dir.parent.glob("*/journal.json"):
             if journal.parent.name == self.reservation_id:
                 continue
             try:
-                selector = json.loads(journal.read_text()).get("selector", {})
-            except (OSError, ValueError, AttributeError):
-                continue
-            if (
+                data = json.loads(journal.read_text())
+                if not isinstance(data, dict):
+                    raise ValueError("journal is not an object")
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    "Cannot tell whether another Steam Deck controller is masked: "
+                    f"{journal.parent.name} has a damaged recovery journal"
+                ) from exc
+            selector = data.get("selector")
+            if data.get("mode") in {"Y", "N"} or (
                 isinstance(selector, dict)
                 and selector.get("transport") == "usb"
                 and selector.get("vendor") == "28de"

@@ -1,6 +1,7 @@
 """Failure injection at the helper's identity and hardware recovery boundaries."""
 
 import asyncio
+import fcntl
 import json
 import os
 import shutil
@@ -187,6 +188,32 @@ async def test_deck_masking_is_refused_only_while_another_deck_is_masked(tmp_pat
     first.journal.unlink()
     await second.snapshot(deck)
     assert second.journal.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocker", ["damaged_journal", "concurrent_admission"])
+async def test_deck_masking_fails_closed_when_the_mode_owner_is_unknown(
+    tmp_path, monkeypatch, blocker
+):
+    inventory, _ = deck_sysfs(tmp_path)
+    deck = inventory.scan()[0]
+    root = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    monkeypatch.setattr(inventory, "nodes", lambda _: [])
+    driver = inventory.sys_root / "bus/hid/drivers/hid-steam"
+    write(driver / "bind", "")
+    write(driver / "unbind", "")
+    backend = root.for_attachment(deck.identity)
+    backend.prepare_directories()
+    with (root.runtime_dir / "reservations" / "deck-mode.lock").open("a") as held:
+        if blocker == "damaged_journal":
+            write(root.runtime_dir / "reservations" / ("a" * 24) / "journal.json", "{")
+            match = "damaged recovery journal"
+        else:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            match = "already being masked"
+        with pytest.raises(ValueError, match=match):
+            await backend.snapshot(deck)
+    assert not backend.journal.exists()
 
 
 @pytest.fixture

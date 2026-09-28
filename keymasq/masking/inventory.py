@@ -64,7 +64,7 @@ class Attachment:
             if self.transport == "usb"
             else "This device's HID and input interfaces",
             "warning": "Other connected Steam controllers also lose their built-in mouse and "
-            "keyboard emulation while this is masked"
+            "keyboard emulation while this is masked, unless Steam is using them"
             if self.shares_steam_mode
             else "",
         }

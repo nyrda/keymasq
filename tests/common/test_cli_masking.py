@@ -154,16 +154,32 @@ def test_first_enable_keeps_only_after_explicit_yes(
     assert "Does your input still work?" in capsys.readouterr().out
 
 
-def test_enable_without_terminal_leaves_trial_for_confirm(session, monkeypatch, capsys) -> None:
+@pytest.mark.parametrize(("tty", "confirmation"), [(False, "ask"), (True, "later")])
+def test_enable_without_prompt_leaves_trial_for_confirm(
+    session, monkeypatch, capsys, tty, confirmation
+) -> None:
     fake = session([device("aaaa1111bbbb2222cccc3333")])
-    interactive(monkeypatch, answer="y", tty=False)
-    masking.enable_cli("aaaa11")
+    interactive(monkeypatch, answer=None, tty=tty)
+    masking.enable_cli("aaaa11", confirmation=confirmation)
     assert [request["command"] for request in fake.commands()] == ["mask_hardware"]
     assert "Run 'keymasq masking confirm aaaa1111bbbb' within 30s" in capsys.readouterr().out
     masking.confirm_cli("aaaa11")
     assert fake.commands()[-1] == {
         "command": "keep_hardware_mask",
         "id": "aaaa1111bbbb2222cccc3333",
+        "token": "trial-token",
+        "persist": True,
+    }
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_enable_yes_keeps_trial_without_asking(session, monkeypatch, json_output) -> None:
+    fake = session([device("pad")])
+    interactive(monkeypatch, answer=None)
+    masking.enable_cli("pad", confirmation="yes", json_output=json_output)
+    assert fake.commands()[-1] == {
+        "command": "keep_hardware_mask",
+        "id": "pad",
         "token": "trial-token",
         "persist": True,
     }
@@ -243,10 +259,22 @@ def test_json_list_merges_masks_without_internal_fields(session, capsys) -> None
         (["masking", "list"], "list_cli", (), {"json_output": False}),
         (["--json", "masking", "show", "pad"], "show_cli", ("pad",), {"json_output": True}),
         (
-            ["masking", "enable", "pad", "--no-wait"],
+            ["masking", "enable", "pad"],
             "enable_cli",
             ("pad",),
-            {"wait": False, "json_output": False},
+            {"confirmation": "ask", "json_output": False},
+        ),
+        (
+            ["masking", "enable", "pad", "-y"],
+            "enable_cli",
+            ("pad",),
+            {"confirmation": "yes", "json_output": False},
+        ),
+        (
+            ["masking", "enable", "pad", "--no-prompt"],
+            "enable_cli",
+            ("pad",),
+            {"confirmation": "later", "json_output": False},
         ),
         (["masking", "confirm", "pad", "--json"], "confirm_cli", ("pad",), {"json_output": True}),
         (

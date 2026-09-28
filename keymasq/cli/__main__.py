@@ -250,10 +250,17 @@ def main() -> None:
 
     masking_enable_parser = masking_sub.add_parser("enable", help="Mask a device")
     masking_enable_parser.add_argument("device", metavar="DEVICE", help="Device to mask")
-    masking_enable_parser.add_argument(
-        "--no-wait",
+    masking_enable_confirmation = masking_enable_parser.add_mutually_exclusive_group()
+    masking_enable_confirmation.add_argument(
+        "-y",
+        "--yes",
         action="store_true",
-        help="Return after the request instead of waiting for masking and confirmation",
+        help="Keep the mask without asking whether input still works",
+    )
+    masking_enable_confirmation.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="Do not ask; keep the mask with 'keymasq masking confirm' before the deadline",
     )
     _add_json_output(masking_enable_parser, "Print masking state as JSON")
 
@@ -349,7 +356,11 @@ def main() -> None:
         elif args.masking_command == "show":
             masking.show_cli(args.device, json_output=json_output)
         elif args.masking_command == "enable":
-            masking.enable_cli(args.device, wait=not args.no_wait, json_output=json_output)
+            masking.enable_cli(
+                args.device,
+                confirmation="yes" if args.yes else "later" if args.no_prompt else "ask",
+                json_output=json_output,
+            )
         elif args.masking_command == "confirm":
             masking.confirm_cli(args.device, json_output=json_output)
         elif args.masking_command == "disable":

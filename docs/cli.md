@@ -180,7 +180,7 @@ Manage [hardware masking](hardware-masking.md) from a terminal or over SSH.
 ```bash
 keymasq masking list
 keymasq masking show <device>
-keymasq masking enable <device> [--no-wait]
+keymasq masking enable <device> [--yes | --no-prompt]
 keymasq masking confirm <device>
 keymasq masking disable <device> [--no-wait]
 keymasq masking disable --all
@@ -213,14 +213,18 @@ Device IDs stay the same across reconnects and reboots. Use them in scripts.
 When you mask a device for the first time, `enable` waits for the replacement
 input and then asks whether your input still works. Type `y` to keep masking.
 Any other answer, pressing Ctrl+C, or no answer before the confirmation
-deadline restores access. Without a terminal, or with `--json`, `enable` stops
-at the confirmation step. Run `keymasq masking confirm <device>` before the
-deadline, or access is restored. A device you confirmed before is masked again
-without asking.
+deadline restores access. With `--no-prompt`, without a terminal, or with
+`--json`, `enable` stops at the confirmation step. Run
+`keymasq masking confirm <device>` before the deadline, or access is restored.
+With `--yes`, `enable` keeps the mask without asking. That also skips the
+automatic restore, so use it only when you know masking works for the device.
+A device you confirmed before is masked again without asking.
 
 | Option | Description |
 |---|---|
-| `--no-wait` | Return after sending the request, without waiting for the device |
+| `-y`, `--yes` | `enable`: keep the mask without asking |
+| `--no-prompt` | `enable`: stop at the confirmation step instead of asking |
+| `--no-wait` | `disable`: return without waiting until access is restored |
 | `--json` | Print the masking state as JSON |
 
 `list --json` prints `available`, `remapping_suspended`, `message`, and a

@@ -3,7 +3,7 @@
 import select
 import sys
 import time
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 
 from keymasq.cli.commands import _message, _print_json, _session_request
 from keymasq.common.masking import (
@@ -338,7 +338,12 @@ def _undo_unconfirmed(identity: str) -> None:
         print(f"Error: {error}")
 
 
-def enable_cli(selector: str, *, wait: bool = True, json_output: bool = False) -> None:
+type Confirmation = Literal["ask", "later", "yes"]
+
+
+def enable_cli(
+    selector: str, *, confirmation: Confirmation = "ask", json_output: bool = False
+) -> None:
     identity = ""
     try:
         inventory = _inventory()
@@ -349,24 +354,24 @@ def enable_cli(selector: str, *, wait: bool = True, json_output: bool = False) -
             if device.get("supported"):
                 request["generation"] = device.get("generation")
             _request(request)
-        if not wait:
-            device, mask, paused = _find(identity)
-            _print_device_result(device, mask, paused=paused, json_output=json_output)
-            return
         device, mask, paused = _wait(identity, progress=not json_output)
-        if _awaiting_confirmation(mask) and not json_output:
-            if not sys.stdin.isatty():
-                print(
-                    f"Run 'keymasq masking confirm {_short_id(device)}' within "
-                    f"{int(mask.get('remaining_seconds') or 0)}s to keep masking."
-                )
-            elif _ask_to_keep(mask):
+        if _awaiting_confirmation(mask):
+            if confirmation == "yes":
                 _keep(identity, mask)
-                device, mask, paused = _wait(identity, progress=True)
-            else:
-                _undo(identity, mask)
-                _wait(identity, progress=True)
-                raise MaskingError("Masking was undone")
+                device, mask, paused = _wait(identity, progress=not json_output)
+            elif not json_output:
+                if confirmation == "later" or not sys.stdin.isatty():
+                    print(
+                        f"Run 'keymasq masking confirm {_short_id(device)}' within "
+                        f"{int(mask.get('remaining_seconds') or 0)}s to keep masking."
+                    )
+                elif _ask_to_keep(mask):
+                    _keep(identity, mask)
+                    device, mask, paused = _wait(identity, progress=True)
+                else:
+                    _undo(identity, mask)
+                    _wait(identity, progress=True)
+                    raise MaskingError("Masking was undone")
         _status, failure = mask_status(device, mask, paused=paused)
         if failure or not mask_enabled(mask):
             raise MaskingError(failure or f"{_name(device)} was not masked")

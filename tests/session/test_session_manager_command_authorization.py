@@ -5,28 +5,30 @@ import pytest
 
 import keymasq.session.manager.compositor as session_compositor_module
 import keymasq.session.manager.recording_unlock as recording_unlock_module
+from keymasq.common.ipc import Response
 from keymasq.common.security import PeerCredentials
 from keymasq.session.listeners.hyprland import HyprlandListener
+from keymasq.session.manager.command import hardware_masking
 from keymasq.session.manager.core import SessionManager
+from keymasq.session.manager.profile import coordinator as profile_coordinator
 from tests.session.support import grant_recording_refresh_owner
 
 
-@pytest.mark.parametrize(
-    "command",
-    ["mask_hardware", "keep_hardware_mask", "resume_hardware", "set_hardware_mask_persistence"],
-)
+@pytest.mark.parametrize("command", hardware_masking.COMMANDS)
 @pytest.mark.asyncio
-async def test_hardware_masking_cannot_bypass_session_unlock(command: str) -> None:
+async def test_hardware_masking_does_not_require_capture_unlock(
+    command: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = SessionManager()
     manager.security_policy.recording_unlock_required = True
-    manager.client.send_command = AsyncMock()
+    manager.connected = True
+    manager.client.send_command = AsyncMock(return_value=Response(status="ok", data={"masks": []}))
+    monkeypatch.setattr(profile_coordinator, "reevaluate_profiles", AsyncMock())
     result = await manager._handle_session_request(
         {"command": command}, PeerCredentials(pid=111, uid=1000, gid=1000), object()
     )
-    assert result["status"] == "error"
-    assert result["error_code"] == "sensitive_command_denied"
-    manager.client.send_command.assert_not_awaited()
-    assert not recording_unlock_module.is_sensitive_session_command(manager, "restore_hardware")
+    assert result == {"status": "ok", "masks": []}
+    manager.client.send_command.assert_awaited_once()
 
 
 @pytest.mark.asyncio

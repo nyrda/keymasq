@@ -9,7 +9,7 @@ from pathlib import Path
 
 import control
 import evdev
-from behavior import keep, off, unlocked, wait_for, wait_state, write_mapping
+from behavior import gui_client, keep, off, wait_for, wait_state, write_mapping
 from support import ScenarioContext
 
 STATE = Path("/tmp/keymasq-shared-output-state.json")
@@ -25,7 +25,7 @@ def setup():
     control.baseline()
     identities = [found[name].identity for name in control.NAMES]
     files = []
-    with unlocked() as client:
+    with gui_client() as client:
         for name in control.NAMES:
             attachment = control.devices()[name]
             client.request(
@@ -117,7 +117,7 @@ def hold():
 
 def cleanup():
     ctx = ScenarioContext()
-    with unlocked() as client:
+    with gui_client() as client:
         for name in PROFILES:
             ctx.set_profile_enabled(name, enabled=False)
         for name in control.NAMES:

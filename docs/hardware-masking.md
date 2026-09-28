@@ -10,8 +10,8 @@ Masking works for USB and Bluetooth devices without needing a known vendor,
 controller model, native decoder, or evdev node. Each physical attachment has
 its own switch, confirmation, and saved choice, so devices with identical vendor
 and product IDs are handled separately. There is no fixed limit on how many
-devices can be masked at once. Masking uses the normal Keymasq unlock policy,
-including on SteamOS. Saved remapping configurations alone never enable it.
+devices can be masked at once. Masking does not require the capture unlock.
+Saved remapping configurations alone never enable it.
 
 ## Where to find it
 

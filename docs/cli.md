@@ -1,7 +1,7 @@
 # CLI reference
 
 The `keymasq` command-line interface provides quick access to status, macros,
-profiles, and diagnostics without opening the GUI.
+profiles, hardware masking, and diagnostics without opening the GUI.
 
 ## Global options
 
@@ -172,6 +172,63 @@ way is a plain event macro for the layout in effect (or `--layout`). It keeps
 those key events when the keyboard layout setting changes and does not open
 as a type macro in the editor. Create type macros with editable text in the
 GUI.
+
+### masking
+
+Manage [hardware masking](hardware-masking.md) from a terminal or over SSH.
+
+```bash
+keymasq masking list
+keymasq masking show <device>
+keymasq masking enable <device> [--no-wait]
+keymasq masking confirm <device>
+keymasq masking disable <device> [--no-wait]
+keymasq masking disable --all
+keymasq masking resume
+```
+
+| Subcommand | Description |
+|---|---|
+| `list` | List maskable devices, including saved masks for unplugged devices, with their state |
+| `show <device>` | Show the state, scope, and last error of one device |
+| `enable <device>` | Mask a device and wait until it is masked, confirmed, or waiting to reconnect |
+| `confirm <device>` | Keep a mask that is waiting for confirmation |
+| `disable <device>` | Turn masking off, restore access, and forget the saved choice |
+| `disable --all` | Turn masking off for every device |
+| `resume` | Enable remapping after an administrative recovery |
+
+`<device>` accepts any of these. Each form must match exactly one device.
+If it matches several, the command lists them and exits with status 2.
+
+| Form | Example |
+|---|---|
+| Device ID, or a unique prefix of at least 4 characters | `3f9a0c1e2b4d` |
+| Connection, such as the USB port | `3-2.1` |
+| Vendor and product ID | `28de:1205` |
+| Device name, ignoring case | `"Steam Deck Controller"` |
+
+Device IDs stay the same across reconnects and reboots. Use them in scripts.
+`list` shows the first 12 characters.
+
+When you mask a device for the first time, `enable` waits for the replacement
+input and then asks whether your input still works. Type `y` to keep masking.
+Any other answer, pressing Ctrl+C, or no answer before the confirmation
+deadline restores access. Without a terminal, or with `--json`, `enable` stops
+at the confirmation step. Run `keymasq masking confirm <device>` before the
+deadline, or access is restored. A device you confirmed before is masked again
+without asking.
+
+| Option | Description |
+|---|---|
+| `--no-wait` | Return after sending the request, without waiting for the device |
+| `--json` | Print the masking state as JSON |
+
+`list --json` prints `available`, `remapping_suspended`, `message`, and a
+`devices` array. The other subcommands print a single `device` object. Each
+device has its `id`, `name`, `vendor`, `product`, `transport`, `connection`,
+`supported`, `scope`, `warning`, the displayed `summary`, and a `mask` object
+with `state`, `lifecycle`, `enabled`, `persist`, `failure`, and retry and
+confirmation countdowns.
 
 ### diagnostics
 

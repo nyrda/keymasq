@@ -21,12 +21,12 @@ def _parse_positive_float(value: str, error_type: type[Exception] = ValueError) 
     return parsed
 
 
-def _add_json_output(parser) -> None:
+def _add_json_output(parser, help_text: str = "Print raw session response as JSON") -> None:
     parser.add_argument(
         "--json",
         dest="json_output",
         action="store_true",
-        help="Print raw session response as JSON",
+        help=help_text,
     )
 
 
@@ -229,6 +229,58 @@ def main() -> None:
     toggle_parser.add_argument("profile_name", help="Profile name")
     _add_json_output(toggle_parser)
 
+    masking_parser = subparsers.add_parser(
+        "masking",
+        help="Hardware masking",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "DEVICE is a device ID or unique ID prefix, a connection such as 3-2.1, "
+            "VENDOR:PRODUCT, or a device name.\n"
+            f"Full reference: {_docs_url()}"
+        ),
+    )
+    masking_sub = masking_parser.add_subparsers(dest="masking_command", required=True)
+
+    masking_list_parser = masking_sub.add_parser("list", help="List devices and their masks")
+    _add_json_output(masking_list_parser, "Print masking state as JSON")
+
+    masking_show_parser = masking_sub.add_parser("show", help="Show masking details for a device")
+    masking_show_parser.add_argument("device", metavar="DEVICE", help="Device to show")
+    _add_json_output(masking_show_parser, "Print masking state as JSON")
+
+    masking_enable_parser = masking_sub.add_parser("enable", help="Mask a device")
+    masking_enable_parser.add_argument("device", metavar="DEVICE", help="Device to mask")
+    masking_enable_parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Return after the request instead of waiting for masking and confirmation",
+    )
+    _add_json_output(masking_enable_parser, "Print masking state as JSON")
+
+    masking_confirm_parser = masking_sub.add_parser(
+        "confirm", help="Keep a mask that is waiting for confirmation"
+    )
+    masking_confirm_parser.add_argument("device", metavar="DEVICE", help="Device to confirm")
+    _add_json_output(masking_confirm_parser, "Print masking state as JSON")
+
+    masking_disable_parser = masking_sub.add_parser(
+        "disable", help="Turn masking off and forget the saved choice"
+    )
+    masking_disable_target = masking_disable_parser.add_mutually_exclusive_group(required=True)
+    masking_disable_target.add_argument(
+        "device", nargs="?", metavar="DEVICE", help="Device to unmask"
+    )
+    masking_disable_target.add_argument("--all", action="store_true", help="Unmask all devices")
+    masking_disable_parser.add_argument(
+        "--no-wait", action="store_true", help="Return before device access is restored"
+    )
+    _add_json_output(masking_disable_parser, "Print masking state as JSON")
+
+    masking_resume_parser = masking_sub.add_parser(
+        "resume", help="Enable remapping after an administrative recovery"
+    )
+    _add_json_output(masking_resume_parser, "Print masking state as JSON")
+
     args = parser.parse_args(argv)
     json_output = bool(getattr(args, "global_json", False)) or bool(
         getattr(args, "json_output", False)
@@ -289,6 +341,25 @@ def main() -> None:
             exclude=args.exclude,
             json_output=json_output,
         )
+    elif args.command == "masking":
+        from keymasq.cli import masking
+
+        if args.masking_command == "list":
+            masking.list_cli(json_output=json_output)
+        elif args.masking_command == "show":
+            masking.show_cli(args.device, json_output=json_output)
+        elif args.masking_command == "enable":
+            masking.enable_cli(args.device, wait=not args.no_wait, json_output=json_output)
+        elif args.masking_command == "confirm":
+            masking.confirm_cli(args.device, json_output=json_output)
+        elif args.masking_command == "disable":
+            masking.disable_cli(
+                None if args.all else args.device,
+                wait=not args.no_wait,
+                json_output=json_output,
+            )
+        elif args.masking_command == "resume":
+            masking.resume_cli(json_output=json_output)
     elif args.command == "profiles":
         if args.profiles_command == "list":
             commands.list_profiles_cli(json_output=json_output)

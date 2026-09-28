@@ -128,7 +128,7 @@ def test_cli_main_help_does_not_include_removed_play_command(
 
     assert excinfo.value.code == 0
     out = capsys.readouterr().out
-    assert "{status,type,macros,mpris,diagnostics,profiles}" in out
+    assert "{status,type,macros,mpris,diagnostics,profiles,masking}" in out
     assert "\n  play " not in out
 
 

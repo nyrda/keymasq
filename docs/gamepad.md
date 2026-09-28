@@ -156,8 +156,9 @@ Touch inputs accept the same actions as other buttons. A common use is gyro
 aiming only while a thumb rests on the right stick or right pad; see
 [Gyro while touching a stick](motion-controls.md#gyro-while-touching-a-stick).
 
-Touch inputs need Linux 6.11 or later with HID-BPF, which SteamOS 3.7 and later
-provide. When Steam takes over the controller, the kernel driver removes the
+Touch inputs need Linux 6.11 or later with `CONFIG_HID_BPF`, which SteamOS 3.7
+and later provide. Debian 13 needs a trixie-backports kernel and Ubuntu 24.04
+the HWE kernel. When Steam takes over the controller, the kernel driver removes the
 controller's input devices; use [hardware masking](hardware-masking.md) to keep
 the Steam Deck with Keymasq. See [Native input drivers](input-driver-design.md)
 for details.

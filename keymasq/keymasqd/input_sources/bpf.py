@@ -205,7 +205,7 @@ class HidBpfLayout:
             get_data = btf.find(BTF_KIND_FUNC, "hid_bpf_get_data")
         except LookupError as exc:
             raise OSError(
-                "This kernel has no built-in HID-BPF support (CONFIG_HID_BPF, kernel 6.11+)"
+                "This kernel has no HID-BPF support (Linux 6.11+ with CONFIG_HID_BPF)"
             ) from exc
         _, ops_members = btf.members(ops)
         value_size, value_members = btf.members(value)

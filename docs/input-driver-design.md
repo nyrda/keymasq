@@ -184,9 +184,12 @@ source's reader before its takeover and grabs it again afterwards, so the
 program is attached to the reserved device. A running HID-BPF source counts as
 ready for masking without an output.
 
-HID-BPF needs Linux 6.11 or later with `CONFIG_HID_BPF` and the HID core built
-into the kernel. SteamOS 3.7 and later meet this. On other kernels the source
-reports an error and the controller's evdev inputs keep working.
+HID-BPF needs Linux 6.11 or later with `CONFIG_HID_BPF`. The HID core can be
+built in or a module. SteamOS 3.7 and later meet this. Two common kernels do
+not: Debian 13's stable 6.12 kernel is built without `CONFIG_HID_BPF` (the
+trixie-backports kernels have it), and Ubuntu 24.04's GA kernel is 6.8 (the HWE
+kernel works). On kernels without it the source reports an error and the
+controller's evdev inputs keep working.
 
 ## Adding another driver
 

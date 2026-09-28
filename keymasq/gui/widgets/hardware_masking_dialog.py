@@ -54,6 +54,12 @@ def retry_suffix(mask: dict) -> str:
     return ""
 
 
+def device_in_use(mask: dict) -> bool:
+    return mask.get("error_code") == "device_in_use" or "direct USB or auxiliary HID" in str(
+        mask.get("error", "")
+    )
+
+
 def failure_message(mask: dict) -> str:
     if mask.get("state") == MaskPhase.RECOVERY_FAILED:
         return "Device access could not be restored yet. Keymasq is retrying."
@@ -64,7 +70,7 @@ def failure_message(mask: dict) -> str:
     if mask.get("state") == MaskPhase.RESTORED and mask.get("reason") == "user_restore":
         return ""
     error = str(mask.get("error", ""))
-    if mask.get("error_code") == "device_in_use" or "direct USB or auxiliary HID" in error:
+    if device_in_use(mask):
         app = application_display_name(mask.get("blocking_application"))
         return f"{app} is using this device directly. Close it, then retry."
     return (
@@ -119,6 +125,10 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.switch.connect("notify::active", self._toggled)
         header.append(self.switch)
         content.append(header)
+
+        self.warning = Gtk.Label(xalign=0, wrap=True)
+        self.warning.add_css_class("warning")
+        content.append(self.warning)
 
         self.failure = Gtk.Box(spacing=16)
         self.error = Gtk.Label(xalign=0, wrap=True, hexpand=True)
@@ -317,6 +327,9 @@ class MaskDeviceRow(Adw.PreferencesRow):
         )
         self.switch.set_tooltip_text(status)
         self.switch.update_property([Gtk.AccessibleProperty.DESCRIPTION], [status])
+        warning = str(device.get("warning") or "") if connected and not enabled else ""
+        self.warning.set_text(warning)
+        self.warning.set_visible(bool(warning))
         self.error.set_text(error)
         self.failure.set_visible(bool(error))
         self.retry.set_visible(state != MaskPhase.RECOVERY_FAILED)
@@ -357,6 +370,8 @@ class MaskDeviceRow(Adw.PreferencesRow):
         connection = str(device.get("connection") or "")
         summary = f"{transport} · Port {connection}" if transport == "USB" else transport.title()
         details = [summary, str(device.get("scope") or device.get("unsupported_reason") or "")]
+        if error and not request_error and not device_in_use(mask):
+            details.append(str(mask.get("error") or ""))
         if seen:
             details.append(seen)
         if self._details_group is not None:

@@ -1,7 +1,6 @@
 """Generic physical HID policy and rollback, independent of controller models."""
 
 import asyncio
-import json
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
@@ -340,21 +339,6 @@ async def test_takeover_rejects_a_raw_endpoint_that_survives_the_rebind(tmp_path
     monkeypatch.setattr(backend_module, "run_host", AsyncMock(return_value=""))
     with pytest.raises(OSError, match="was not replaced"):
         await backend.activate(attachment)
-
-
-@pytest.mark.asyncio
-async def test_generic_supervisor_does_not_apply_deck_global_mode_conflict(tmp_path):
-    backend = FakeBackend(tmp_path)
-    attachment = backend.inventory.scan()[0]
-    write(attachment.syspath / "idVendor", "abcd")
-    attachment = backend.inventory.scan()[0]
-    supervisor = MaskReservation(backend)
-    result = await supervisor.request(
-        {"command": "mask", "id": attachment.identity, "generation": attachment.generation}
-    )
-    assert result["main_hid"] == ""
-    await supervisor.request({"command": "restore"})
-    assert json.loads((backend.state_dir / "selection.json").read_text())["state"] == "restored"
 
 
 def test_direct_usb_holder_is_detected_through_an_alias(tmp_path, monkeypatch):

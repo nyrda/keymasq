@@ -207,12 +207,28 @@ class LinuxMaskBackend:
         return data
 
     async def check_deck_scope(self, attachment: Attachment) -> None:
-        if attachment.is_deck and await finish_io(
-            self.inventory.other_steam_controllers,
-            attachment.main_hid,
-            attachment_path=attachment.syspath,
-        ):
-            raise ValueError("Disconnect other hid-steam controllers before trying Deck masking")
+        # Deck masks save and restore the module-wide lizard mode, so only one may own it.
+        if attachment.is_deck and await finish_io(self.other_deck_reservation_active):
+            raise ValueError("Another Steam Deck controller is already masked")
+
+    def other_deck_reservation_active(self) -> bool:
+        if not self.reservation_id:
+            return False
+        for journal in self.runtime_dir.parent.glob("*/journal.json"):
+            if journal.parent.name == self.reservation_id:
+                continue
+            try:
+                selector = json.loads(journal.read_text()).get("selector", {})
+            except (OSError, ValueError, AttributeError):
+                continue
+            if (
+                isinstance(selector, dict)
+                and selector.get("transport") == "usb"
+                and selector.get("vendor") == "28de"
+                and selector.get("product") == "1205"
+            ):
+                return True
+        return False
 
     def reject_unrevoked_handles(self, attachment: Attachment) -> None:
         protected = {
@@ -414,7 +430,6 @@ class LinuxMaskBackend:
                     await self.rebind_binding(attachment, hid, driver)
         await finish_io(self.reject_unrevoked_handles, attachment)
         if attachment.is_deck:
-            await self.check_deck_scope(attachment)
             if snapshot.get("mode") not in {"Y", "N"}:
                 mode = (await finish_io(self.mode_path.read_text)).strip()
                 if mode not in {"Y", "N"}:

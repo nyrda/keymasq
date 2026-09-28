@@ -104,21 +104,17 @@ def test_rules_reserve_only_the_selected_connection(tmp_path: Path) -> None:
     assert "ATTR{serial}" in matches[1]
 
 
-def test_scope_check_ignores_the_same_controllers_proxy_and_auxiliary_interfaces(
-    tmp_path: Path,
-) -> None:
+def test_deck_warns_only_about_other_steam_controllers(tmp_path: Path) -> None:
     inventory, usb = deck_sysfs(tmp_path)
-    backend = LinuxMaskBackend(inventory)
-    main = inventory.scan()[0].main_hid
     driver = inventory.sys_root / "bus/hid/drivers/hid-steam"
     auxiliary = usb / "3-3:1.0/0003:28DE:1205.0010"
     auxiliary.mkdir()
     (driver / auxiliary.name).symlink_to(auxiliary)
-    assert backend.inventory.other_steam_controllers(main) == []
-    other = usb.parent / "3-4/3-4:1.2/0003:28DE:1205.0014"
+    assert inventory.scan()[0].as_json()["warning"] == ""
+    other = usb.parent / "3-4/3-4:1.2/0003:28DE:1142.0014"
     other.mkdir(parents=True)
     (driver / other.name).symlink_to(other)
-    assert backend.inventory.other_steam_controllers(main) == [other.name]
+    assert "Steam controllers" in str(inventory.scan()[0].as_json()["warning"])
 
 
 class FakeBackend(LinuxMaskBackend):
@@ -395,8 +391,8 @@ async def test_cancellation_waits_for_pending_mutation_before_recovery(tmp_path:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cause", ["disconnect", "endpoint", "scope", "trial_expired"])
-async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch, cause):
+@pytest.mark.parametrize("cause", ["disconnect", "endpoint", "trial_expired"])
+async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, cause):
     clock = [100.0]
     backend = FakeBackend(tmp_path)
     supervisor = MaskReservation(backend, lambda: clock[0])
@@ -405,8 +401,6 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
         (backend.inventory.scan()[0].syspath / "devnum").write_text("8")
     elif cause == "endpoint":
         (backend.inventory.dev_root / "hidraw3").unlink()
-    elif cause == "scope":
-        monkeypatch.setattr(backend.inventory, "other_steam_controllers", lambda _: ["other"])
     elif cause == "trial_expired":
         await supervisor.request({"command": "ready", "token": started["token"]})
         clock[0] += TRIAL_SECONDS
@@ -414,6 +408,20 @@ async def test_normal_hardware_changes_do_not_kill_daemon(tmp_path, monkeypatch,
     await supervisor.monitor_once()
     assert backend.recoveries == 1
     assert supervisor.state["state"] == "restored"
+
+
+@pytest.mark.asyncio
+async def test_other_steam_controller_appearing_keeps_the_deck_masked(tmp_path):
+    backend = FakeBackend(tmp_path)
+    supervisor = MaskReservation(backend)
+    started = await begin(supervisor)
+    await supervisor.request({"command": "ready", "token": started["token"]})
+    other = backend.inventory.sys_root / "devices/other/0003:28DE:1142.0002"
+    other.mkdir(parents=True)
+    (backend.inventory.sys_root / "bus/hid/drivers/hid-steam" / other.name).symlink_to(other)
+    await supervisor.monitor_once()
+    assert backend.recoveries == 0
+    assert supervisor.state["state"] == "trial"
 
 
 @pytest.mark.asyncio

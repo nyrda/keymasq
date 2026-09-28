@@ -165,17 +165,28 @@ async def test_detached_deck_records_mode_before_mutation_and_rolls_back(
 
 
 @pytest.mark.asyncio
-async def test_detached_deck_still_rejects_other_steam_controllers(tmp_path):
+async def test_deck_masking_is_refused_only_while_another_deck_is_masked(tmp_path, monkeypatch):
     inventory, _ = deck_sysfs(tmp_path)
-    detached = replace(inventory.scan()[0], main_hid="")
-    backend = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
-    backend.prepare_directories()
+    deck = inventory.scan()[0]
+    root = LinuxMaskBackend(inventory, tmp_path / "run", tmp_path / "rules", tmp_path / "state")
+    monkeypatch.setattr(inventory, "nodes", lambda _: [])
+    driver = inventory.sys_root / "bus/hid/drivers/hid-steam"
+    write(driver / "bind", "")
+    write(driver / "unbind", "")
     other = inventory.sys_root / "devices/other/0003:28DE:1142.0002"
     other.mkdir(parents=True)
-    (inventory.sys_root / "bus/hid/drivers/hid-steam" / other.name).symlink_to(other)
-    with pytest.raises(ValueError, match="Disconnect other"):
-        await backend.snapshot(detached)
-    assert not backend.journal.exists()
+    (driver / other.name).symlink_to(other)
+    first = root.for_attachment("a" * 24)
+    first.prepare_directories()
+    await first.snapshot(deck)
+    second = root.for_attachment(deck.identity)
+    second.prepare_directories()
+    with pytest.raises(ValueError, match="Another Steam Deck"):
+        await second.snapshot(deck)
+    assert not second.journal.exists()
+    first.journal.unlink()
+    await second.snapshot(deck)
+    assert second.journal.exists()
 
 
 @pytest.fixture

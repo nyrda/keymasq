@@ -301,3 +301,24 @@ def test_retrying_saved_mask_shows_countdown_and_allows_offline_retry(dialog, mo
     state["devices"][0]["supported"] = True
     dialog._render(state)
     assert row.status.get_text() == "Couldn’t mask · retrying in 7s"
+
+
+def test_shared_steam_mode_warning_shows_only_while_connected(dialog):
+    result = response()
+    result["devices"][0]["warning"] = "Other Steam controllers are affected"
+    dialog._render(result)
+    row = dialog._rows["first"]
+    assert row.warning.get_visible()
+    assert row.warning.get_text() == "Other Steam controllers are affected"
+    assert not dialog._rows["second"].warning.get_visible()
+    result["devices"][0]["supported"] = False
+    dialog._render(result)
+    assert not row.warning.get_visible()
+
+
+def test_generic_failure_shows_the_reason_in_details(dialog):
+    reason = "Another Steam Deck controller is already masked"
+    dialog._render(response({"id": "first", "state": "restored", "error": reason}))
+    row = dialog._rows["first"]
+    assert row.error.get_text().startswith("Masking could not be started")
+    assert reason in row.technical.get_text()

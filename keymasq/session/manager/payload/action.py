@@ -11,6 +11,7 @@ from keymasq.common.model.actions import (
     profile_deactivation_policy_to_dict,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.model.pointer import pointer_movement_to_dict
 from keymasq.common.model.superkeys import (
     SuperkeyAction,
     superkey_action_to_mapping_action,
@@ -428,6 +429,14 @@ def _serialize(
             ]
         return data
 
+    if action.action_type == ActionType.POINTER_MOVEMENT:
+        if purpose in (_Purpose.COMBO, _Purpose.COMBO_SIGNATURE):
+            log.warning("Ignoring unsupported combo action: pointer_movement")
+            return None
+        if action.pointer_movement is not None:
+            data["pointer_movement"] = pointer_movement_to_dict(action.pointer_movement)
+        return _finish(data, action, purpose)
+
     if action.action_type == ActionType.SUPPRESS:
         return _finish(data, action, purpose)
 
@@ -564,6 +573,8 @@ def serialize_overload_action(
         raise ValueError("nested analog controls are not allowed inside analog controls")
     if action.action_type == ActionType.MOTION_CONTROL:
         raise ValueError("nested motion controls are not allowed")
+    if action.action_type == ActionType.POINTER_MOVEMENT:
+        raise ValueError("pointer movement is only available on a mouse pointer source")
     data = _serialize(
         manager,
         action,

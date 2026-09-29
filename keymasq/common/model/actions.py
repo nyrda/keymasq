@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from keymasq.common.coercion import bool_value, coerce_bool, coerce_int
 from keymasq.common.gamepad_axes import clamp_gamepad_axis_value, normalize_gamepad_axis_target
 from keymasq.common.model.core import ActionType
+from keymasq.common.model.pointer import PointerMovementConfig
 
 if TYPE_CHECKING:
     from keymasq.common.model.analog import AnalogControlConfig
@@ -348,6 +349,7 @@ class MappingAction:
     motion_control_names: list[str] = field(default_factory=list)
     motion_control_config: "MotionControlConfig | None" = None
     motion_control_configs: list["MotionControlConfig"] = field(default_factory=list)
+    pointer_movement: PointerMovementConfig | None = None
     macro_name: str | None = None
     macro_events: list[dict[str, object]] | None = None
     macro_replay_mouse_movement: bool = True
@@ -416,6 +418,10 @@ class MappingAction:
             self.motion_control_configs = [self.motion_control_config]
         elif self.motion_control_configs:
             self.motion_control_config = self.motion_control_configs[0]
+        if self.action_type != ActionType.POINTER_MOVEMENT:
+            self.pointer_movement = None
+        elif self.pointer_movement is None:
+            self.pointer_movement = PointerMovementConfig()
         normalize_common_action_fields(self)
         if self.action_type == ActionType.REPEAT:
             self.repeat_categories = normalize_repeat_categories(self.repeat_categories)

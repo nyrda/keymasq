@@ -36,6 +36,7 @@ from keymasq.common.devices import (
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_movement_from_dict
 from keymasq.gui.application import Application
 from keymasq.gui.session_client import session_request
 from keymasq.gui.widgets.analog_control.dialog import AnalogControlDialog
@@ -49,6 +50,7 @@ from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
 from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog, TypeMacroDialog
 from keymasq.gui.widgets.managed_editor.state import EditorSelection
+from keymasq.gui.widgets.pointer_movement_dialog import PointerMovementDialog
 from keymasq.gui.widgets.record_macro_dialog import RecordMacroDialog
 from keymasq.gui.widgets.save_macro_dialog import SaveMacroDialog
 from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
@@ -578,6 +580,23 @@ def _scroll_widget_to_bottom(widget: Gtk.Widget) -> bool:
     return False
 
 
+def _scroll_widget_to_top(widget: Gtk.Widget) -> bool:
+    parent = widget.get_parent()
+    while parent is not None:
+        if isinstance(parent, Gtk.ScrolledWindow):
+            content = parent.get_child()
+            if isinstance(content, Gtk.Viewport):
+                content = content.get_child()
+            found, point = widget.compute_point(content, Graphene.Point().init(0.0, 0.0))
+            if found:
+                adjustment = parent.get_vadjustment()
+                limit = max(0.0, adjustment.get_upper() - adjustment.get_page_size())
+                adjustment.set_value(min(limit, max(0.0, point.y - 12.0)))
+            return False
+        parent = parent.get_parent()
+    return False
+
+
 def _stabilize_ancestor_scrollbar(widget: Gtk.Widget) -> None:
     parent = widget.get_parent()
     while parent is not None:
@@ -636,6 +655,10 @@ def _expand_expander_row_by_title(widget: Gtk.Widget, title: str) -> bool:
             set_expanded(True)
             return False
     return False
+
+
+def _ignore_pointer_movement(_action: MappingAction | None) -> None:
+    return
 
 
 def _optional_int(value: object) -> int | None:
@@ -1273,6 +1296,7 @@ class DocshotRunner:
             "profile_device": self._prepare_profile_device,
             "device_button": self._prepare_device_button,
             "key_selector": self._prepare_key_selector,
+            "pointer_movement_dialog": self._prepare_pointer_movement_dialog,
             "macro_manager": self._prepare_macro_manager,
             "record_macro_dialog": self._prepare_record_macro_dialog,
             "save_macro_dialog": self._prepare_save_macro_dialog,
@@ -1492,6 +1516,33 @@ class DocshotRunner:
         dialog.present(self.window)
         self.current_dialog = dialog
         self._set_dialog_crop(dialog, shot)
+
+    def _prepare_pointer_movement_dialog(self, shot: Json) -> None:
+        assert self.window is not None
+        tab = self._select_device_profile(shot)
+        device = getattr(tab, "device", None)
+        if device is None:
+            raise RuntimeError("selected tab has no device")
+        inline = shot.get("pointer_movement")
+        action = (
+            MappingAction(
+                action_type=ActionType.POINTER_MOVEMENT,
+                pointer_movement=pointer_movement_from_dict(dict(inline)),
+            )
+            if isinstance(inline, dict)
+            else self._current_action({**shot, "source": POINTER_SOURCE_ID})
+        )
+        dialog = PointerMovementDialog(device.name, action, on_save=_ignore_pointer_movement)
+        dialog.present(self.window)
+        self.current_dialog = dialog
+        self._set_dialog_crop(dialog, shot)
+        scroll_name = str(shot.get("scroll_to_widget", "") or "").strip()
+        if scroll_name:
+            widget = getattr(dialog, scroll_name, None)
+            if not isinstance(widget, Gtk.Widget):
+                raise ValueError(f"scroll widget {scroll_name!r} was not found")
+            GLib.timeout_add(100, _scroll_widget_to_top, widget)
+            GLib.timeout_add(300, _scroll_widget_to_top, widget)
 
     def _prepare_macro_manager(self, shot: Json) -> None:
         assert self.window is not None

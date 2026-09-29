@@ -34,6 +34,9 @@ that the core runtime classes still work together:
 - temporary profile activations across direct mappings, temporary toggles, superkeys, overload
   superkeys, combos, and combo-bound overload superkeys
 - standard and `BTN_TASK` mouse buttons, relative movement, wheel, and mouse combo output
+- pointer movement factors, swap, and inversion from a source mouse with fractional
+  carry-over, plus velocity and position (drag, keep, recenter, minimum output) translation
+  of mouse reports into virtual gamepad axes
 - gamepad button and analog axis output
 - rollover groups: axis members that follow the newest held key without
   centering, keyboard handover and restore, neutral groups, unmapped members
@@ -132,6 +135,21 @@ and device policy. The test client alone receives access to `/dev/uhid` to emula
 the controller. These checks cover the emulated devices and existing daemon-owned
 state. They do not replace physical controller tests or an upgrade test of every
 distribution package.
+
+## Pointer movement scenarios
+
+```bash
+./scripts/integration.sh daemon-session --scenario pointer-movement-factors,pointer-movement-stick-velocity,pointer-movement-axis-position
+```
+
+Each scenario creates a uinput source mouse with its own hardware file and profiles, and
+removes them afterwards. Mouse-mode assertions read the mouse's passthrough device and check
+exact relative counts, including fractions carried across reports, and that the wheel still
+passes through. Axis assertions read the exact sequence of virtual gamepad values: velocity
+output returns to rest without further reports, position output holds while the mouse is
+still, drag and keep differ after overshoot, a one-way trigger does not wind up past rest,
+recentering and minimum output apply, and a mapping change or profile deactivation releases
+held axes. Timing windows are checked for their effect, not their exact duration.
 
 ## Area mouse scenarios
 

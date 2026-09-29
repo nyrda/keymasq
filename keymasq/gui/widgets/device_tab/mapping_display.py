@@ -11,6 +11,7 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.common.model.profiles import RolloverGroup
 from keymasq.common.native_sources import is_native_button
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
@@ -190,7 +191,8 @@ def update_button_display(
         (candidate for candidate in device.motion_sensors if candidate.id == button_id),
         None,
     )
-    if button is None and analog is None and motion is None:
+    pointer = button_id == POINTER_SOURCE_ID and bool(pointer_interface_ids(device))
+    if button is None and analog is None and motion is None and not pointer:
         return
 
     winner_profile_name, winner_mapping = effective_mapping
@@ -214,6 +216,8 @@ def update_button_display(
             and describe_analog_passthrough is not None
         ):
             description = describe_analog_passthrough(analog) or description
+        if mapping.action_type == ActionType.PASSTHROUGH and pointer:
+            description = "Pointer passthrough"
         full_text = description
         set_action_label_text(
             action_label,
@@ -245,6 +249,7 @@ def update_button_display(
             analog,
             describe_passthrough,
             motion=motion is not None,
+            pointer=pointer,
         )
         if analog is not None and describe_analog_passthrough is not None:
             passthrough_label = describe_analog_passthrough(analog) or passthrough_label
@@ -327,9 +332,12 @@ def _passthrough_label(
     describe_passthrough: Callable[[ButtonDefinition], str],
     *,
     motion: bool = False,
+    pointer: bool = False,
 ) -> str:
     if button is not None:
         return describe_passthrough(button)
     if motion:
         return "Motion passthrough"
+    if pointer:
+        return "Pointer passthrough"
     return "Passthrough"

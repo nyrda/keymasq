@@ -18,6 +18,7 @@ from keymasq.common.model.actions import (
     resolve_rapidfire_fields,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.model.pointer import pointer_movement_from_dict, pointer_movement_to_dict
 
 type TomlDict = dict[str, object]
 type UnknownActionPolicy = Literal["raise", "passthrough"]
@@ -182,6 +183,12 @@ def mapping_action_from_toml(
             mpris_command=normalize_mpris_command(action_data.get("command")),
         )
 
+    if action_type == ActionType.POINTER_MOVEMENT:
+        return MappingAction(
+            action_type=action_type,
+            pointer_movement=pointer_movement_from_dict(action_data),
+        )
+
     if rapidfire_fields is None:
         rapidfire_fields = _rapidfire_from_toml(
             action_data,
@@ -328,6 +335,8 @@ def mapping_action_to_toml(
         action_data["command"] = normalize_mpris_command(action.mpris_command)
     if action.action_type == ActionType.REPEAT:
         action_data["repeat_categories"] = list(action.repeat_categories or [])
+    if action.action_type == ActionType.POINTER_MOVEMENT and action.pointer_movement is not None:
+        action_data.update(pointer_movement_to_dict(action.pointer_movement))
     (
         rapidfire_enabled,
         rapidfire_hold_ms,

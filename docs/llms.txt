@@ -41,6 +41,7 @@ Primary docs:
 - Macros: https://keymasq.tools/docs/latest/macros/
 - Macro timeline editor: https://keymasq.tools/docs/latest/macro-editor/
 - Combos: https://keymasq.tools/docs/latest/combos/
+- Rollover Groups: https://keymasq.tools/docs/latest/rollover/
 - Superkeys: https://keymasq.tools/docs/latest/superkeys/
 - Gamepad: https://keymasq.tools/docs/latest/gamepad/
 - Analog Controls: https://keymasq.tools/docs/latest/analog-controls/

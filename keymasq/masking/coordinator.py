@@ -408,7 +408,6 @@ class MaskReservation:
             "id": attachment.identity,
             "generation": attachment.generation,
             "name": attachment.name,
-            "main_hid": attachment.main_hid if attachment.is_deck else "",
             "attachment_path": str(attachment.syspath),
             "quiesce_required": True,
             "token": uuid.uuid4().hex,
@@ -435,7 +434,6 @@ class MaskReservation:
             self.state.update(
                 {
                     **current.as_json(),
-                    "main_hid": current.main_hid if current.is_deck else "",
                     "attachment_path": str(current.syspath),
                     "state": MaskPhase.ACQUIRING,
                     "event_nodes": nodes,
@@ -675,13 +673,7 @@ class MaskReservation:
                     else:
                         await self._restore("hardware_interfaces_changed")
                     return
-            others = await asyncio.to_thread(
-                self.backend.inventory.other_steam_controllers, str(self.state.get("main_hid", ""))
-            )
-            if others:
-                await self._restore("controller_scope_changed")
-            else:
-                await self.restore_if_expired()
+            await self.restore_if_expired()
 
 
 class MaskCoordinator:

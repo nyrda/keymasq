@@ -7,7 +7,7 @@ let
   common = import ./masking-test-common.nix { inherit pkgs keymasqPackage keymasqModule; };
   inherit (common) testPython control pythonPath;
   behavior = ./masking-behavior-test/behavior.py;
-  usb = import ./masking-behavior-test/usb.nix { inherit keymasqPackage testPython; };
+  usb = import ./masking-behavior-test/usb.nix { inherit testPython; };
 in
 pkgs.testers.runNixOSTest {
   name = "masking-behavior-test";
@@ -31,9 +31,7 @@ pkgs.testers.runNixOSTest {
     def control(command):
         return machine.succeed(user("${testPython}/bin/python ${control} " + command), timeout=90)
 
-    def check(command, unlock=False):
-        if unlock:
-            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
+    def check(command):
         return machine.succeed(user("${testPython}/bin/python ${behavior} " + command), timeout=120)
 
     def ready():
@@ -59,28 +57,28 @@ pkgs.testers.runNixOSTest {
         ready()
         control("baseline")
         run_usb_tests()
-        with subtest("locked masking request leaves device access unchanged"):
+        with subtest("masking works while capture is locked"):
             check("locked")
         with subtest("unconfirmed trial expires and stays off after restart"):
-            check("trial-expiry", unlock=True)
+            check("trial-expiry")
             restart_and_check_off()
         with subtest("explicit undo restores a trial and stays off after restart"):
-            check("undo", unlock=True)
+            check("undo")
             restart_and_check_off()
         with subtest("closing the GUI does not cancel trial expiry"):
-            check("trial-close", unlock=True)
+            check("trial-close")
             restart_and_check_off()
         with subtest("two masks restore independently and unmask all preserves ordinary remapping"):
-            check("multiple", unlock=True)
+            check("multiple")
             restart_and_check_off()
         with subtest("confirmed reconnect preserves identity and the other active mask"):
-            check("reconnect", unlock=True)
+            check("reconnect")
         with subtest("masked profile changes preserve press-release pairing and return to passthrough"):
-            check("remapping", unlock=True)
+            check("remapping")
         with subtest("wrong-device and stale tokens cannot mutate masks"):
-            check("tokens", unlock=True)
+            check("tokens")
         with subtest("saved mask survives GUI close and starts after reboot without a GUI"):
-            check("saved-on", unlock=True)
+            check("saved-on")
             machine.shutdown()
             machine.start()
             ready()

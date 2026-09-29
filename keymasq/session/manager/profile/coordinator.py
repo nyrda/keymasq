@@ -130,6 +130,7 @@ async def _reevaluate_profiles(
         apply_device=apply_resolved_device_profile,
         deactivate_device=application.deactivate_profile,
         update_combos=application.update_combos,
+        update_rollover_groups=application.update_rollover_groups,
         clear_hardware_state=runtime_state.clear_hardware_runtime_state,
         refresh_device_status=runtime_status.refresh_device_runtime_status,
         build_active_payload=runtime_status.build_active_profiles_payload,

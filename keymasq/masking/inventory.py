@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from keymasq.common.types import JsonObject
@@ -39,6 +39,7 @@ class Attachment:
     kernel_name: str
     main_hid: str = ""
     serial: str = ""
+    shares_steam_mode: bool = field(default=False, compare=False)
 
     @property
     def is_deck(self) -> bool:
@@ -62,6 +63,10 @@ class Attachment:
             "scope": "All HID and input interfaces on this USB device, including direct USB access"
             if self.transport == "usb"
             else "This device's HID and input interfaces",
+            "warning": "Other connected Steam controllers also lose their built-in mouse and "
+            "keyboard emulation while this is masked, unless Steam is using them"
+            if self.shares_steam_mode
+            else "",
         }
 
 
@@ -153,6 +158,9 @@ class HardwareInventory:
                     kernel_name=path.name,
                     main_hid=main_hid,
                     serial=serial,
+                    shares_steam_mode=vendor == "28de"
+                    and product == "1205"
+                    and bool(self.other_steam_controllers(main_hid, attachment_path=real_path)),
                 )
             )
         for path in hid_paths:

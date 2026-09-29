@@ -1,6 +1,5 @@
 """Device masking switches with inline confirmation and recovery feedback."""
 
-import time
 from collections.abc import Callable
 
 import gi
@@ -13,9 +12,12 @@ from gi.repository import Adw, GLib, Gtk, Pango  # pyright: ignore[reportAttribu
 from keymasq.common.masking import (
     HARDWARE_GUI_TIMEOUT,
     MaskPhase,
-    SavedMaskLifecycle,
+    device_in_use,
     is_active,
     is_recovering,
+    last_seen_text,
+    mask_enabled,
+    mask_status,
 )
 from keymasq.gui.session_client import session_request_async
 
@@ -27,51 +29,6 @@ def connect_button(button: Gtk.Button, action: Callable[[], object]) -> None:
         action()
 
     button.connect("clicked", clicked)
-
-
-def application_display_name(name: object) -> str:
-    app = str(name or "Another app")
-    return {
-        "steam": "Steam",
-        "steamwebhelper": "Steam",
-        "winedevice.exe": "Wine",
-        "wine64-preloader": "Wine",
-        "wine-preloader": "Wine",
-    }.get(app, app)
-
-
-def last_seen_text(mask: dict) -> str:
-    seen = mask.get("last_seen")
-    if not isinstance(seen, (int, float)) or isinstance(seen, bool) or seen <= 0:
-        return ""
-    return "Last seen " + time.strftime("%Y-%m-%d %H:%M", time.localtime(seen))
-
-
-def retry_suffix(mask: dict) -> str:
-    seconds = mask.get("next_retry_seconds", 0)
-    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds > 0:
-        return f" · retrying in {int(seconds)}s"
-    return ""
-
-
-def failure_message(mask: dict) -> str:
-    if mask.get("state") == MaskPhase.RECOVERY_FAILED:
-        return "Device access could not be restored yet. Keymasq is retrying."
-    if mask.get("lifecycle") == SavedMaskLifecycle.SAVED_INCOMPLETE:
-        # Not a failure: the record predates root-recorded selectors and is
-        # completed by the next connected confirmation.
-        return ""
-    if mask.get("state") == MaskPhase.RESTORED and mask.get("reason") == "user_restore":
-        return ""
-    error = str(mask.get("error", ""))
-    if mask.get("error_code") == "device_in_use" or "direct USB or auxiliary HID" in error:
-        app = application_display_name(mask.get("blocking_application"))
-        return f"{app} is using this device directly. Close it, then retry."
-    return (
-        "Masking could not be started. Retry, or open device details for more information."
-        if error
-        else ""
-    )
 
 
 class MaskDeviceRow(Adw.PreferencesRow):
@@ -119,6 +76,10 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.switch.connect("notify::active", self._toggled)
         header.append(self.switch)
         content.append(header)
+
+        self.warning = Gtk.Label(xalign=0, wrap=True)
+        self.warning.add_css_class("warning")
+        content.append(self.warning)
 
         self.failure = Gtk.Box(spacing=16)
         self.error = Gtk.Label(xalign=0, wrap=True, hexpand=True)
@@ -198,8 +159,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
         desired = self.switch.get_active()
         if desired == self.enabled:
             return
-        # Until authentication and the helper accept the request, retain the
-        # observed state. Cancelling the unlock dialog must not leave a false ON.
+        # Retain the observed state until the daemon reports the change.
         self._set_switch_active(self.enabled)
         if desired:
             self.turn_on()
@@ -239,17 +199,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
         connected = bool(device.get("supported"))
         active = is_active(state)
         recovering = is_recovering(state)
-        enabled = bool(
-            mask.get(
-                "enabled",
-                active
-                or (
-                    mask.get("has_saved_mask")
-                    and mask.get("persist")
-                    and not mask.get("remapping_suspended")
-                ),
-            )
-        )
+        enabled = mask_enabled(mask)
         self.enabled = enabled and not paused
         self._set_switch_active(self.enabled)
         can_enable = connected or bool(mask.get("has_saved_mask"))
@@ -268,47 +218,9 @@ class MaskDeviceRow(Adw.PreferencesRow):
         self.switch.update_property(
             [Gtk.AccessibleProperty.LABEL], [f"Mask {device.get('name', 'device')}"]
         )
-        error = request_error or failure_message(mask)
-        lifecycle = str(mask.get("lifecycle", ""))
-        # Losing the radio/USB connection is an expected state, not a failure
-        # dialog. The saved switch remains on until the user turns it off.
-        if not connected and enabled and not recovering and not request_error:
-            if lifecycle == SavedMaskLifecycle.SAVED_INCOMPLETE:
-                error = ""
-                status = "Waiting for device · confirm again when connected"
-            elif lifecycle == SavedMaskLifecycle.ATTENTION and error:
-                # Arming saved rules failed while unplugged; unlike a missing
-                # device this is actionable, so keep the failure visible.
-                status = "Waiting for device" + retry_suffix(mask)
-            else:
-                error = ""
-                status = "Waiting for device"
-        elif busy:
-            status = "Updating…"
-        elif state == MaskPhase.RESTORING:
-            status = "Turning off…"
-        elif error:
-            status = (
-                "Couldn’t restore access"
-                if state == MaskPhase.RECOVERY_FAILED
-                else "Couldn’t mask" + retry_suffix(mask)
-            )
-        elif state in {MaskPhase.APPLYING, MaskPhase.ACQUIRING}:
-            status = "Reconnecting device…"
-        elif state == MaskPhase.TRIAL:
-            status = "Masked · awaiting confirmation"
-        elif state == MaskPhase.MASKED:
-            status = "Masked"
-        elif paused:
-            status = "Off · remapping stopped by recovery"
-        elif not connected:
-            status = "Not connected"
-        elif enabled:
-            status = "Not masked"
-        elif mask.get("reason") == "trial_expired" and not mask.get("automatic"):
-            status = "Off · confirmation timed out"
-        else:
-            status = "Off"
+        status, error = mask_status(
+            device, mask, paused=paused, busy=busy, request_error=request_error
+        )
         self.status.set_text(status)
         self.status.set_visible(
             not error
@@ -317,6 +229,9 @@ class MaskDeviceRow(Adw.PreferencesRow):
         )
         self.switch.set_tooltip_text(status)
         self.switch.update_property([Gtk.AccessibleProperty.DESCRIPTION], [status])
+        warning = str(device.get("warning") or "") if connected and not enabled else ""
+        self.warning.set_text(warning)
+        self.warning.set_visible(bool(warning))
         self.error.set_text(error)
         self.failure.set_visible(bool(error))
         self.retry.set_visible(state != MaskPhase.RECOVERY_FAILED)
@@ -357,6 +272,8 @@ class MaskDeviceRow(Adw.PreferencesRow):
         connection = str(device.get("connection") or "")
         summary = f"{transport} · Port {connection}" if transport == "USB" else transport.title()
         details = [summary, str(device.get("scope") or device.get("unsupported_reason") or "")]
+        if error and not request_error and not device_in_use(mask):
+            details.append(str(mask.get("error") or ""))
         if seen:
             details.append(seen)
         if self._details_group is not None:
@@ -367,7 +284,6 @@ class MaskDeviceRow(Adw.PreferencesRow):
 class HardwareMaskingPanel(Gtk.Box):
     def __init__(
         self,
-        parent: Gtk.Window | None = None,
         *,
         identities: set[str] | None = None,
         deferred: bool = False,
@@ -380,7 +296,6 @@ class HardwareMaskingPanel(Gtk.Box):
         self.choices: dict[str, bool] = {}
         self._remember = remember
         self._details_group = details_group
-        self._parent = parent
         self._closed = False
         self._loading = False
         self._pending: set[str] = set()
@@ -397,7 +312,7 @@ class HardwareMaskingPanel(Gtk.Box):
         recovery_row = Adw.ActionRow(title="Enable remapping")
         recovery_row.set_subtitle("An administrative recovery stopped the input daemon")
         enable = Gtk.Button(label="Enable", valign=Gtk.Align.CENTER)
-        connect_button(enable, lambda: self._authorized_change("resume_hardware", {}))
+        connect_button(enable, lambda: self._change("resume_hardware", {}))
         recovery_row.add_suffix(enable)
         self._recovery.add(recovery_row)
         self._recovery.set_visible(False)
@@ -416,8 +331,7 @@ class HardwareMaskingPanel(Gtk.Box):
         footer.append(self._status)
         self._unmask_all = Gtk.Button(label="Unmask all devices", halign=Gtk.Align.END)
         connect_button(
-            self._unmask_all,
-            lambda: self._authorized_change("restore_hardware", {"persist": False}),
+            self._unmask_all, lambda: self._change("restore_hardware", {"persist": False})
         )
         footer.append(self._unmask_all)
         self._unmask_all.set_visible(identities is None)
@@ -488,7 +402,7 @@ class HardwareMaskingPanel(Gtk.Box):
             identity = str(device["id"])
             if identity not in self._rows:
                 self._rows[identity] = row = MaskDeviceRow(
-                    self._authorized_change, self._details_group
+                    self._request_change, self._details_group
                 )
                 self._devices.add(row)
             self._rows[identity].update(
@@ -517,27 +431,13 @@ class HardwareMaskingPanel(Gtk.Box):
         choices, self.choices = self.choices, {}
         self.deferred = False
         self._render(self._state)
-
-        def apply() -> None:
-            if self._closed:
-                return
-            for identity, enabled in choices.items():
-                row = self._rows.get(identity)
-                if row is not None and row.enabled != enabled:
-                    if enabled:
-                        row.turn_on()
-                    else:
-                        row.turn_off()
-
-        unlock = getattr(self._parent, "present_unlock_dialog", None)
-        if any(choices.values()) and not getattr(self._parent, "_recording_unlocked", False):
-            if callable(unlock):
-                unlock(on_success=apply)
-            else:
-                self._errors["all"] = "Unlock Keymasq from the main window to mask this device."
-                self._render(self._state)
-        else:
-            apply()
+        for identity, enabled in choices.items():
+            row = self._rows.get(identity)
+            if row is not None and row.enabled != enabled:
+                if enabled:
+                    row.turn_on()
+                else:
+                    row.turn_off()
         return bool(choices)
 
     def _change_blocked(self, identity: str) -> bool:
@@ -548,31 +448,15 @@ class HardwareMaskingPanel(Gtk.Box):
             or (identity == "all" and self._pending)
         )
 
-    def _authorized_change(self, command: str, data: dict) -> None:
+    def _request_change(self, command: str, data: dict) -> None:
         if self.deferred and command in {"mask_hardware", "restore_hardware"}:
             self.choices[str(data["id"])] = command == "mask_hardware"
             self._render(self._state)
             return
-        identity = str(data.get("id", "all"))
-        if self._change_blocked(identity):
-            return
-        if command == "restore_hardware" or bool(
-            getattr(self._parent, "_recording_unlocked", False)
-        ):
-            self._change(command, data)
-            return
-        unlock = getattr(self._parent, "present_unlock_dialog", None)
-        if callable(unlock):
-            unlock(on_success=lambda: self._change(command, data))
-        else:
-            self._errors[str(data.get("id", "all"))] = (
-                "Unlock Keymasq from the main window to mask this device."
-            )
-            self._render(self._state)
+        self._change(command, data)
 
     def _change(self, command: str, data: dict) -> None:
         identity = str(data.get("id", "all"))
-        # Unlock callbacks can arrive after another operation starts or we close.
         if self._change_blocked(identity):
             return
         self._pending.add(identity)
@@ -608,9 +492,9 @@ class HardwareMaskingPanel(Gtk.Box):
 
 
 class HardwareMaskingDialog(Adw.Dialog):
-    def __init__(self, parent: Gtk.Window | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__(title="Device masking", content_width=660, content_height=620)
-        self.panel = HardwareMaskingPanel(parent)
+        self.panel = HardwareMaskingPanel()
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
         scrolled = Gtk.ScrolledWindow(vexpand=True)

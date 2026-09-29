@@ -43,6 +43,7 @@ class DeviceGridCallbacks:
     on_name_label_right_clicked: Callable[..., None]
     on_action_label_right_clicked: Callable[..., None]
     on_analog_name_right_clicked: Callable[..., None]
+    on_rollover_group_clicked: Callable[..., None]
 
 
 @dataclass(frozen=True)
@@ -431,6 +432,19 @@ class DeviceGridBuilder:
         btn.set_child(inner)
         return btn
 
+    def create_rollover_tile(self) -> Gtk.Button:
+        btn = Gtk.Button()
+        btn.add_css_class("button-card-learn")
+        btn.set_halign(Gtk.Align.START)
+        btn.set_tooltip_text(
+            "Pick keys where only one should drive its mapping at a time, "
+            "such as two keys on one stick axis"
+        )
+        btn.connect("clicked", self.callbacks.on_rollover_group_clicked)
+        inner = self._make_icon_label_box("list-add-symbolic", "Rollover Group")
+        btn.set_child(inner)
+        return btn
+
     def _append_learn_tile(self, parent: Gtk.Box) -> None:
         if self.demo_mode:
             return
@@ -439,6 +453,8 @@ class DeviceGridBuilder:
         row.append(self.create_learn_tile())
         if supports_analog_learning(self.device):
             row.append(self.create_learn_analog_tile())
+        if self.device.buttons:
+            row.append(self.create_rollover_tile())
         parent.append(row)
 
     def _append_keyboard_section(
@@ -581,6 +597,18 @@ class DeviceGridBuilder:
             info_icon.set_tooltip_text("Remapping this button requires confirmation")
             header.append(info_icon)
 
+        # Shows the key's rollover group, if any, in the group's color.
+        rollover_pill = Gtk.Label()
+        rollover_pill.add_css_class("caption")
+        rollover_pill.add_css_class("rollover-pill")
+        rollover_pill.set_halign(Gtk.Align.END)
+        rollover_pill.set_valign(Gtk.Align.CENTER)
+        rollover_pill.set_hexpand(True)
+        rollover_pill.set_ellipsize(Pango.EllipsizeMode.END)
+        rollover_pill.set_max_width_chars(8)
+        rollover_pill.set_visible(False)
+        header.append(rollover_pill)
+
         box.append(header)
 
         action_label = Gtk.Label(label=self.describe_passthrough_output(button))
@@ -606,6 +634,7 @@ class DeviceGridBuilder:
 
         btn._action_label = action_label
         btn._name_label = name_label
+        btn._rollover_pill = rollover_pill
         btn._button_id = button.id
         btn._protected = protected
 

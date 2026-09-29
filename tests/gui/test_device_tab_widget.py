@@ -17,7 +17,7 @@ def _learn_tile_labels(tab) -> list[str]:
         if not tile.has_css_class("button-card-learn"):
             continue
         labels.extend(label.get_text() for label in collect_widgets(tile, Gtk.Label))
-    return labels
+    return [label for label in labels if label.startswith("Learn ")]
 
 
 def _make_add_inputs_flow(device, on_complete=None, parent=None):
@@ -1424,7 +1424,7 @@ class TestDeviceTabWidget:
         assert protected_no_profile_calls == ["no-profile"]
 
         allowed_tab = DeviceTab(device=device, profile_manager=None, demo_mode=True)
-        allowed_tab._selected_profile = SimpleNamespace()
+        allowed_tab._selected_profile = SimpleNamespace(config=ProfileConfig(name="Stub"))
         allowed_calls: list[str] = []
         allowed_tab._show_protected_remap_warning_dialog = lambda button: allowed_calls.append(
             f"warn:{button.id}"
@@ -1482,7 +1482,10 @@ class TestDeviceTabWidget:
         assert isinstance(content, Gtk.Box)
         header = content.get_first_child()
         assert isinstance(header, Gtk.Box)
-        info_icon = header.get_last_child()
+        info_icon = next(
+            (child for child in collect_widgets(header, Gtk.Image)),
+            None,
+        )
 
         assert isinstance(info_icon, Gtk.Image)
         assert info_icon.get_icon_name() == "help-about-symbolic"
@@ -1901,9 +1904,7 @@ class TestDeviceTabWidget:
                     label="PlayStation Motion Sensor",
                     source="motion",
                     driver="hid-playstation",
-                    gyro_axes=[
-                        MotionAxisDefinition(role="pitch", evdev="abs_rx", evdev_code=3)
-                    ],
+                    gyro_axes=[MotionAxisDefinition(role="pitch", evdev="abs_rx", evdev_code=3)],
                 )
             ],
         )

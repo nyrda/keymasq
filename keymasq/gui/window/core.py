@@ -10,6 +10,7 @@ from keymasq.gui.preferences import (
     load_tab_order,
 )
 from keymasq.gui.widgets.combo_tab import ComboTab
+from keymasq.gui.widgets.device_tab.rollover import RolloverWindowState
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
 from keymasq.session.hardware import HardwareManager
 from keymasq.session.profile.manager import ProfileManager
@@ -34,6 +35,8 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self.demo_mode = demo_mode
         self.hardware_manager = HardwareManager()
         self.profile_manager = ProfileManager()
+        # Rollover selection mode and editor, shared by every device tab.
+        self.rollover_state = RolloverWindowState()
         self._session_connected: bool | None = None
         self._keymasqd_via_session: bool | None = None
         self._compositor_id: str | None = None

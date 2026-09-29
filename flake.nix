@@ -613,6 +613,8 @@
                 (mkTestPython evdevPackage [ ])
                 pkgs.acl
                 pkgs.systemd
+                # The job sandbox test replaces /run, which holds the NixOS mount wrapper.
+                pkgs.util-linux
               ];
             };
           mkCiGuiShell =
@@ -631,6 +633,8 @@
                 (mkTestPython evdevPackage [ pkgs.python312Packages.pygobject3 ])
                 pkgs.acl
                 pkgs.systemd
+                # The job sandbox test replaces /run, which holds the NixOS mount wrapper.
+                pkgs.util-linux
                 pkgs.gobject-introspection
                 pkgs.gtk4
                 pkgs.libadwaita

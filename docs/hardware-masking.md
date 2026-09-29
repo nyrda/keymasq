@@ -10,8 +10,8 @@ Masking works for USB and Bluetooth devices without needing a known vendor,
 controller model, native decoder, or evdev node. Each physical attachment has
 its own switch, confirmation, and saved choice, so devices with identical vendor
 and product IDs are handled separately. There is no fixed limit on how many
-devices can be masked at once. Masking uses the normal Keymasq unlock policy,
-including on SteamOS. Saved remapping configurations alone never enable it.
+devices can be masked at once. Masking does not require the capture unlock.
+Saved remapping configurations alone never enable it.
 
 ## Where to find it
 
@@ -23,6 +23,9 @@ The same switch is also on the final hardware setup page and below the hardware
 name in Hardware Settings. All three places show the same saved state. Setup
 applies pending choices after saving the hardware and keeps the page open for
 confirmation.
+
+`keymasq masking` offers the same controls from a terminal. See the
+[CLI reference](cli.md#masking).
 
 ## Turning masking on
 
@@ -52,12 +55,24 @@ Turn the switch **off** to restore the device's access and disable its saved
 choice. There is no separate pause. **Unmask all devices** does this for every
 device at once, without pausing ordinary remapping.
 
+Turn masking off for a device you want to pass to a virtual machine or export
+over USB/IP. A saved mask treats the other driver like an application holding
+the device and reconnects the USB port to take it back, which ends the
+passthrough or the USB/IP session.
+
 ## What a mask covers
 
 A USB reservation covers every HID and input interface of that USB device. On a
 shared wireless receiver that includes every controller paired to it. A shared
 hub, a Bluetooth adapter, and the Deck touchscreen are outside the selected
 controller's scope. USB hubs cannot be masked.
+
+Masking the Steam Deck controller turns off the built-in mouse and keyboard
+emulation of Steam controllers. Linux applies that setting to every Steam
+controller at once, so other connected Steam controllers lose it too while the
+Deck is masked, unless Steam is driving them. While masking is off, the Deck
+row warns when another Steam controller is connected. Only one Steam Deck
+controller can be masked at a time.
 
 Blocking Bluetooth hidraw access does not restrict direct Bluetooth socket
 access or a privileged system broker.

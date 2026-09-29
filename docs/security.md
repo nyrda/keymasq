@@ -400,7 +400,9 @@ When `unlock_required = true`:
 
 Template-based hardware creation in the GUI does not require unlock. The unlock
 gate applies to original-input observation flows, not to writing normal
-same-user hardware/profile config files.
+same-user hardware/profile config files. Hardware masking does not require
+unlock either. It changes who can open a device but exposes no input to the
+caller.
 
 This is the recommended packaged default because those features observe raw
 input before normal remapping or application delivery.
@@ -487,6 +489,11 @@ The current daemon owner can see saved device names and identities from other
 users and request physical access restoration. Status tokens guard against stale
 requests. They are not authorization secrets. Automatic masking and changes to
 saved startup preferences still check the authenticated owner's UID.
+
+Masking requests are not part of the capture unlock owner chain. Masking only
+narrows who can open a device and never returns input to the caller. Ordinary
+remapping already grabs configured devices exclusively and hides grabbed gamepad
+nodes through the same job path without an unlock.
 
 Root-owned journals and static permission baselines survive a daemon failure.
 The daemon unit uses `KillMode=mixed` so SIGTERM reaches only the daemon,

@@ -227,7 +227,7 @@ class HardwareSetupDialog(
         self.describe_subtitle.add_css_class("dim-label")
         box.append(self.describe_subtitle)
 
-        self.masking = DeviceMaskingPanel(self._parent, deferred=True)
+        self.masking = DeviceMaskingPanel(deferred=True)
         box.append(self.masking)
         self.connect("closed", self.masking.close)
 

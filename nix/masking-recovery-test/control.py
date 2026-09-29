@@ -210,7 +210,6 @@ def start_mask(*, confirm, persist=False, hold_usb=True):
     # Hold real desktop descriptors across takeover. A rebind must revoke them.
     with contextlib.ExitStack() as stack:
         ctx = stack.enter_context(contextlib.closing(GuiClient()))
-        ctx.request({"command": "claim_recording_unlock_refresh"})
         opened = [
             stack.enter_context(
                 open(node, "r+b" if "/bus/usb/" in str(node) else "rb", buffering=0)

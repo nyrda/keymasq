@@ -41,8 +41,6 @@ pkgs.testers.runNixOSTest {
         )
 
     def check(command):
-        if command in ("mask", "mask-persistent", "start-mask"):
-            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
         return machine.succeed(user("${testPython}/bin/python ${control} " + command), timeout=90)
 
     def ready():

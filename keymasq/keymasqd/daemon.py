@@ -370,10 +370,6 @@ class Daemon:
 
         policy = self.security_policy
         tier1_commands = {
-            CommandType.MASK_HARDWARE,
-            CommandType.KEEP_HARDWARE_MASK,
-            CommandType.RESUME_HARDWARE,
-            CommandType.SET_HARDWARE_MASK_PERSISTENCE,
             CommandType.CAPTURE_BEGIN,
             CommandType.CAPTURE_READ,
             CommandType.CAPTURE_END,

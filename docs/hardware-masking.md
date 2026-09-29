@@ -24,6 +24,9 @@ name in Hardware Settings. All three places show the same saved state. Setup
 applies pending choices after saving the hardware and keeps the page open for
 confirmation.
 
+`keymasq masking` offers the same controls from a terminal. See the
+[CLI reference](cli.md#masking).
+
 ## Turning masking on
 
 Keep an unaffected keyboard, mouse, or touch input available before masking a

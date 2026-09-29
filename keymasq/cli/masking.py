@@ -329,19 +329,17 @@ def _require_masked(device: JsonObject, mask: JsonObject, *, paused: bool) -> No
         raise MaskingError(failure or f"{_name(device)} was not masked")
 
 
-def _undo_unconfirmed(identity: str) -> None:
-    try:
-        _device, mask, _paused = _find(identity)
-        if mask.get("automatic") or mask.get("state") not in {
-            MaskPhase.APPLYING,
-            MaskPhase.ACQUIRING,
-            MaskPhase.TRIAL,
-        }:
-            return
-        print("\nUndoing masking")
-        _undo(identity, mask)
-    except MaskingError as error:
-        print(f"Error: {error}")
+def _undo_unconfirmed(identity: str) -> bool:
+    # An interface refresh during the trial replaces the token, so read it again.
+    _device, mask, _paused = _find(identity)
+    if mask.get("automatic") or mask.get("state") not in {
+        MaskPhase.APPLYING,
+        MaskPhase.ACQUIRING,
+        MaskPhase.TRIAL,
+    }:
+        return False
+    _undo(identity, mask)
+    return True
 
 
 type Confirmation = Literal["ask", "later", "yes"]
@@ -372,10 +370,12 @@ def enable_cli(
                         f"{int(mask.get('remaining_seconds') or 0)}s to keep masking."
                     )
                 elif _ask_to_keep(mask):
-                    _keep(identity, mask)
-                    device, mask, paused = _wait(identity, progress=True)
+                    device, mask, paused = _wait(identity, progress=False)
+                    if _awaiting_confirmation(mask):
+                        _keep(identity, mask)
+                        device, mask, paused = _wait(identity, progress=True)
                 else:
-                    _undo(identity, mask)
+                    _undo_unconfirmed(identity)
                     _wait(identity, progress=True)
                     raise MaskingError("Masking was undone")
         _require_masked(device, mask, paused=paused)
@@ -383,7 +383,11 @@ def enable_cli(
             _print_json({"status": "ok", "device": device_json(device, mask, paused=paused)})
     except KeyboardInterrupt:
         if identity:
-            _undo_unconfirmed(identity)
+            try:
+                if _undo_unconfirmed(identity):
+                    print("\nMasking was undone")
+            except MaskingError as error:
+                print(f"\nError: {error}")
         sys.exit(INTERRUPTED_EXIT_CODE)
     except MaskingError as error:
         _fail(error, json_output=json_output)

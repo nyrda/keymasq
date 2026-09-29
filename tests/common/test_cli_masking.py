@@ -33,6 +33,8 @@ class FakeSession:
         self.requests.append(payload)
         identity = payload.get("id")
         mask = self.masks.get(identity, {"id": identity})
+        if "token" in payload and payload["token"] != mask.get("token"):
+            return {"status": "error", "message": "This hardware mask has changed"}
         if payload["command"] == "mask_hardware":
             self.masks[identity] = {
                 "id": identity,
@@ -52,8 +54,8 @@ class FakeSession:
         return {
             "status": "ok",
             "available": True,
-            "devices": self.devices,
-            "masks": list(self.masks.values()),
+            "devices": [dict(item) for item in self.devices],
+            "masks": [dict(item) for item in self.masks.values()],
         }
 
     def commands(self) -> list[dict]:
@@ -109,11 +111,19 @@ def test_selector_never_guesses(selector: str, message: str) -> None:
     assert raised.value.exit_code == masking.SELECTOR_EXIT_CODE
 
 
-def interactive(monkeypatch: pytest.MonkeyPatch, *, answer: str | None, tty: bool = True) -> None:
+def interactive(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    answer: str | None,
+    tty: bool = True,
+    fake: FakeSession | None = None,
+) -> None:
     stdin = SimpleNamespace(isatty=lambda: tty, readline=lambda: f"{answer}\n")
 
     def wait_for_answer(readers, _writers, _errors, timeout):
         assert 0 < timeout < 30
+        if fake is not None:
+            fake.masks["pad"]["token"] = "refreshed-token"
         if answer is None:
             raise KeyboardInterrupt
         return (readers if answer else [], [], [])
@@ -135,7 +145,7 @@ def test_first_enable_keeps_only_after_explicit_yes(
     session, monkeypatch, capsys, answer, command, exit_code
 ) -> None:
     fake = session([device("pad")])
-    interactive(monkeypatch, answer=answer)
+    interactive(monkeypatch, answer=answer, fake=fake)
     if exit_code is None:
         masking.enable_cli("pad")
     else:
@@ -147,7 +157,7 @@ def test_first_enable_keeps_only_after_explicit_yes(
         {
             "command": command,
             "id": "pad",
-            "token": "trial-token",
+            "token": "refreshed-token",
             "persist": command != "restore_hardware",
         },
     ]

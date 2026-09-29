@@ -241,6 +241,18 @@ def test_confirm_fails_when_mask_does_not_survive_keep(
         ({"id": "pad", "state": "masked", "token": "live", "enabled": True}, "live"),
         ({"id": "pad", "state": "restored", "token": "saved", "enabled": True}, "saved"),
         ({"id": "pad", "state": "restored", "token": "old", "enabled": False}, None),
+        (
+            {
+                "id": "pad",
+                "state": "restored",
+                "token": "paused",
+                "enabled": False,
+                "has_saved_mask": True,
+                "persist": True,
+                "reason": "admin_restore",
+            },
+            "paused",
+        ),
         (None, None),
     ],
 )
@@ -325,3 +337,14 @@ def test_masking_subcommands_dispatch(monkeypatch, argv, function, args, kwargs)
     monkeypatch.setattr(sys, "argv", ["keymasq", *argv])
     cli_main.main()
     assert calls == [(args, kwargs)]
+
+
+def test_disable_all_rejects_no_wait(monkeypatch, capsys) -> None:
+    calls = []
+    monkeypatch.setattr(masking, "disable_cli", lambda *a, **kw: calls.append((a, kw)))
+    monkeypatch.setattr(sys, "argv", ["keymasq", "masking", "disable", "--all", "--no-wait"])
+    with pytest.raises(SystemExit) as raised:
+        cli_main.main()
+    assert raised.value.code == 2
+    assert not calls
+    assert "--no-wait cannot be used with --all" in capsys.readouterr().err

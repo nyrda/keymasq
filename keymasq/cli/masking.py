@@ -420,7 +420,9 @@ def disable_cli(selector: str | None, *, wait: bool = True, json_output: bool = 
         device, mask = resolve_device(_entries(inventory), selector)
         paused = _paused(inventory)
         identity = str(device["id"])
-        if mask_enabled(mask) or is_active(mask.get("state")):
+        saved = bool(mask.get("has_saved_mask") and mask.get("persist"))
+        # A recovery pause reports saved masks as disabled, but resume would re-arm them.
+        if saved or mask_enabled(mask) or is_active(mask.get("state")):
             _undo(identity, mask)
             device, mask, paused = _wait(identity, progress=False) if wait else _find(identity)
         _status, failure = mask_status(device, mask, paused=paused)

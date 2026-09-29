@@ -279,7 +279,9 @@ def main() -> None:
     )
     masking_disable_target.add_argument("--all", action="store_true", help="Unmask all devices")
     masking_disable_parser.add_argument(
-        "--no-wait", action="store_true", help="Return before device access is restored"
+        "--no-wait",
+        action="store_true",
+        help="Return before device access is restored; not available with --all",
     )
     _add_json_output(masking_disable_parser, "Print masking state as JSON")
 
@@ -364,6 +366,8 @@ def main() -> None:
         elif args.masking_command == "confirm":
             masking.confirm_cli(args.device, json_output=json_output)
         elif args.masking_command == "disable":
+            if args.all and args.no_wait:
+                masking_disable_parser.error("--no-wait cannot be used with --all")
             masking.disable_cli(
                 None if args.all else args.device,
                 wait=not args.no_wait,

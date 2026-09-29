@@ -224,7 +224,7 @@ A device you confirmed before is masked again without asking.
 |---|---|
 | `-y`, `--yes` | `enable`: keep the mask without asking |
 | `--no-prompt` | `enable`: stop at the confirmation step instead of asking |
-| `--no-wait` | `disable`: return without waiting until access is restored |
+| `--no-wait` | `disable <device>`: return without waiting until access is restored |
 | `--json` | Print the masking state as JSON |
 
 `list --json` prints `available`, `remapping_suspended`, `message`, and a

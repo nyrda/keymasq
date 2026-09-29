@@ -1,4 +1,4 @@
-"""Daemon-side grab, mapping, and combo application transactions."""
+"""Daemon-side grab, mapping, combo, and rollover group application transactions."""
 
 import asyncio
 import logging
@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import Command, CommandType, Response
+from keymasq.common.model.profiles import RolloverGroup
 from keymasq.session.profile.types import (
     ResolvedCombo,
     ResolvedDeviceProfile,
@@ -16,7 +17,7 @@ from keymasq.session.profile.types import (
 
 from ..common import JsonObject, device_name_for_hardware, json_object
 from ..constants import GRAB_DEVICE_TIMEOUT_S, GRAB_RETRY_DELAY_S
-from ..payload import combo, mapping, references
+from ..payload import combo, mapping, references, rollover
 from .grab_plan import (
     all_configured_interfaces,
     build_grab_device_payload,
@@ -823,6 +824,37 @@ async def update_combos(
     finally:
         if staged_refs is not None and not keep_staged_refs:
             references.discard(manager, staged_refs)
+
+
+async def update_rollover_groups(
+    manager: "SessionManager",
+    groups: list[RolloverGroup],
+    *,
+    generation: int | None = None,
+) -> None:
+    """Send the active rollover groups only when they changed."""
+    raise_if_stale_profile_apply(manager, generation)
+    signature = rollover.signature(groups)
+    if signature == manager.profile_state.last_sent_rollover_signature:
+        return
+    # Until the daemon confirms, its groups are unknown. A cancelled apply may
+    # already have written the command, so the next apply must send again.
+    manager.profile_state.last_sent_rollover_signature = rollover.UNKNOWN_SIGNATURE
+    try:
+        result = await manager.client.send_command(
+            Command(
+                command=CommandType.SET_ROLLOVER_GROUPS,
+                data={"groups": list(rollover.serialize(groups))},
+            )
+        )
+    except OSError as exc:
+        log.error("Exception updating rollover groups: %s: %s", type(exc).__name__, exc)
+        return
+    if result.status != "ok":
+        log.error("Failed to update rollover groups: %s", result.error)
+        return
+    manager.profile_state.last_sent_rollover_signature = signature
+    raise_if_stale_profile_apply(manager, generation)
 
 
 async def update_mapping(

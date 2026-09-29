@@ -107,6 +107,7 @@ nav:
       - Pointer Movement: pointer-movement.md
       - Superkeys: superkeys.md
       - Combos: combos.md
+      - Rollover Groups: rollover.md
       - Macros: macros.md
       - Macro Timeline Editor: macro-editor.md
       - Gamepad: gamepad.md

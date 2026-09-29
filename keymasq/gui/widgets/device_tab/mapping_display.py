@@ -12,7 +12,12 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
 from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
+from keymasq.common.model.profiles import RolloverGroup
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
+from keymasq.gui.widgets.device_tab.rollover_state import (
+    ROLLOVER_GROUP_COLORS,
+    rollover_member_tooltip,
+)
 from keymasq.session.profile.manager import ProfileManager
 from keymasq.session.profile.types import ProfileInfo
 
@@ -156,8 +161,9 @@ def update_button_display(
     describe_analog_passthrough: Callable[[AnalogInputDefinition], str | None] | None = None,
     describe_default_output: Callable[
         [ButtonDefinition | AnalogInputDefinition], tuple[str, str] | None
-    ]
-    | None = None,
+    ] | None = None,
+    rollover_group: RolloverGroup | None = None,
+    rollover_color_class: str | None = None,
 ) -> None:
     widget = button_widgets.get(button_id)
     if not widget:
@@ -209,6 +215,7 @@ def update_button_display(
             description = describe_analog_passthrough(analog) or description
         if mapping.action_type == ActionType.PASSTHROUGH and pointer:
             description = "Pointer passthrough"
+        full_text = description
         set_action_label_text(
             action_label,
             description,
@@ -243,6 +250,7 @@ def update_button_display(
         )
         if analog is not None and describe_analog_passthrough is not None:
             passthrough_label = describe_analog_passthrough(analog) or passthrough_label
+        full_text = passthrough_label
         set_action_label_text(
             action_label,
             passthrough_label,
@@ -266,8 +274,53 @@ def update_button_display(
         presentation = describe_default_output(control) if control is not None else None
         if presentation is not None:
             summary, detail = presentation
+            full_text = summary
             set_action_label_text(action_label, summary, max_chars=action_summary_chars)
             action_label.set_tooltip_text(detail)
+
+    _show_rollover_membership(
+        widget,
+        action_label,
+        rollover_group,
+        rollover_color_class,
+        full_text,
+    )
+
+
+_ROLLOVER_COLOR_CLASSES = tuple(f"rollover-group-{index}" for index in range(ROLLOVER_GROUP_COLORS))
+
+
+def _show_rollover_membership(
+    widget: Gtk.Button,
+    action_label: Gtk.Label,
+    group: RolloverGroup | None,
+    color_class: str | None,
+    description: str,
+) -> None:
+    """Mark a member with its group's pill and color stripe.
+
+    A member without a mapping still does something, so it is not faded like
+    other passthrough keys.
+    """
+    widget.remove_css_class("rollover-member")
+    for cls in _ROLLOVER_COLOR_CLASSES:
+        widget.remove_css_class(cls)
+    pill = cast(Gtk.Label | None, getattr(widget, "_rollover_pill", None))
+    if group is None:
+        if pill is not None:
+            pill.set_visible(False)
+        return
+    widget.add_css_class("rollover-member")
+    if color_class is not None:
+        widget.add_css_class(color_class)
+    if widget.has_css_class("button-card-passthrough"):
+        action_label.remove_css_class("dim-label")
+    tooltip = rollover_member_tooltip(group, description)
+    action_label.set_tooltip_text(tooltip)
+    if pill is not None:
+        pill.set_text(group.name)
+        pill.set_tooltip_text(tooltip)
+        pill.set_visible(True)
 
 
 def _passthrough_label(

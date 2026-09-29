@@ -38,6 +38,7 @@ class MappingMixin:
             on_name_label_right_clicked=self._on_name_label_right_clicked,
             on_action_label_right_clicked=self._on_action_label_right_clicked,
             on_analog_name_right_clicked=self._on_analog_name_right_clicked,
+            on_rollover_group_clicked=self._on_rollover_group_clicked,
         )
 
     def _grid_builder(self: Any) -> DeviceGridBuilder:
@@ -72,6 +73,8 @@ class MappingMixin:
         _button_widget: Gtk.Button,
         sensor: MotionSensorDefinition,
     ) -> None:
+        if self._rollover_selection is not None:
+            return
         if self._selected_profile is None:
             self._show_no_profile_dialog()
             return
@@ -138,12 +141,16 @@ class MappingMixin:
         if self._selected_profile is None:
             self._show_no_profile_dialog()
             return
+        if self._handle_rollover_cell_activation(button):
+            return
         if protected:
             self._show_protected_remap_warning_dialog(button)
             return
         self._show_function_editor(button)
 
     def _activate_analog_mapping(self: Any, analog: AnalogInputDefinition) -> None:
+        if self._rollover_selection is not None:
+            return
         if self._selected_profile is None:
             self._show_no_profile_dialog()
             return
@@ -258,6 +265,7 @@ class MappingMixin:
                     self._update_button_display(button.id)
                     self._update_header_caption()
                 self._save_specific_profile(current_profile)
+                self._refresh_rollover_presentation()
 
             defer_commit(commit_selection)
 
@@ -424,4 +432,9 @@ class MappingMixin:
             action_summary_chars=self._mapping_action_summary_chars(),
             describe_analog_passthrough=self._default_output_description,
             describe_default_output=self._default_output_presentation,
+            rollover_group=(group := self._rollover_group_for_button(button_id)),
+            rollover_color_class=(
+                self._rollover_group_color_class(group) if group is not None else None
+            ),
         )
+        self._update_rollover_cell_state(button_id)

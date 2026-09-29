@@ -70,10 +70,7 @@ def test_all_integration_checks_are_rebuilt_without_streaming_build_logs(
     assert "nix progress" not in result.stdout
     assert result.stderr.count("nix progress") == len(EXPECTED_CHECKS)
     assert len(calls) == len(EXPECTED_CHECKS)
-    assert {
-        call.rsplit(".", 1)[-1]
-        for call in calls
-    } == EXPECTED_CHECKS
+    assert {call.rsplit(".", 1)[-1] for call in calls} == EXPECTED_CHECKS
     assert all("build --no-link --rebuild" in call for call in calls)
     assert all("--print-build-logs" not in call for call in calls)
 
@@ -107,7 +104,7 @@ from runner import _scenario_key, selected_scenarios
 from scenarios import SCENARIOS
 
 keys = [_scenario_key(scenario.name) for scenario in SCENARIOS]
-assert len(SCENARIOS) == 59
+assert len(SCENARIOS) == 60
 assert len(keys) == len(set(keys))
 assert all(key and key.replace('-', '').isalnum() for key in keys)
 assert _scenario_key('simple 1->1 remap') == 'simple-1-1-remap'
@@ -148,20 +145,17 @@ def test_runner_lists_all_registered_scenarios_without_starting_context() -> Non
 
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 59
+    assert len(lines) == 60
     assert "superkey-profile-handoff\tsuperkey profile handoff" in lines
     assert "source-hiding\tsource hiding" in lines
+    assert "rollover-groups\trollover groups" in lines
     assert "native-hidraw-access\tnative hidraw access" in lines
     assert "analog-touchpad-mouse\tanalog touchpad mouse" in lines
     assert "macro-paused-parent-child-failure\tmacro paused parent child failure" in lines
     assert "macro-pause-resume\tmacro pause resume" in lines
     assert "macro-child-pause-expiry\tmacro child pause expiry" in lines
-    assert (
-        "combo-cross-device-transition-order\t"
-        "combo cross-device transition order"
-    ) in lines
+    assert ("combo-cross-device-transition-order\tcombo cross-device transition order") in lines
     assert "simple-1-1-remap\tsimple 1->1 remap" in lines
     assert (
-        "superkey-overload-multi-action-press-release\t"
-        "superkey overload multi-action press/release"
+        "superkey-overload-multi-action-press-release\tsuperkey overload multi-action press/release"
     ) in lines

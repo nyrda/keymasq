@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
-from keymasq.common.model.profiles import ProfileConfig
+from keymasq.common.model.profiles import ProfileConfig, RolloverMember
+from keymasq.common.rollover import remove_rollover_device, remove_rollover_member
 
 from .types import ProfileInfo
 
@@ -159,10 +160,16 @@ def rename_superkey(config: ProfileConfig, old_name: str, new_name: str) -> Rewr
 
 
 def remove_device_layer(config: ProfileConfig, hardware_id: str) -> Rewrite:
-    if hardware_id not in config.device_layers:
+    in_group = any(
+        member.hardware_id == hardware_id
+        for group in config.rollover_groups
+        for member in group.members
+    )
+    if hardware_id not in config.device_layers and not in_group:
         return Rewrite(None)
     updated = copy.deepcopy(config)
     updated.device_layers.pop(hardware_id, None)
+    updated.rollover_groups = remove_rollover_device(updated.rollover_groups, hardware_id)
     return Rewrite(updated, 1)
 
 
@@ -172,10 +179,13 @@ def remove_button_mapping(
     button_id: str,
 ) -> Rewrite:
     layer = config.get_layer(hardware_id)
-    if layer is None or button_id not in layer.mappings:
+    member = RolloverMember(hardware_id=hardware_id, button=button_id)
+    in_group = any(member in group.members for group in config.rollover_groups)
+    if (layer is None or button_id not in layer.mappings) and not in_group:
         return Rewrite(None)
     updated = copy.deepcopy(config)
     updated_layer = updated.get_layer(hardware_id)
     if updated_layer is not None:
         updated_layer.mappings.pop(button_id, None)
+    updated.rollover_groups = remove_rollover_member(updated.rollover_groups, member)
     return Rewrite(updated, 1)

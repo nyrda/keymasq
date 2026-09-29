@@ -38,6 +38,14 @@ that the core runtime classes still work together:
   carry-over, plus velocity and position (drag, keep, recenter, minimum output) translation
   of mouse reports into virtual gamepad axes
 - gamepad button and analog axis output
+- rollover groups: axis members that follow the newest held key without
+  centering, keyboard handover and restore, neutral groups, unmapped members
+  passed through, an overload superkey member, members on two devices, a
+  device unplugged after or during its member's turn, a higher-priority
+  profile replacing a group, held keys kept while their own or another group
+  changes, a member recalled by a combo and released before, or still held
+  while, another member takes over, and members held while their profile is
+  disabled, including autorepeat of a held-back member
 - controller touchpad strokes, sparse reports, profile changes, held-touch restart,
   near-center release with kernel fuzz, fuzz restoration, landing/lift filtering,
   and drag button ordering during rest and continuous movement

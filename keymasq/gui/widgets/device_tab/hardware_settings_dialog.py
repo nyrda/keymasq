@@ -264,7 +264,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         device_details = Adw.ExpanderRow(title="Device details", visible=False)
         identity_group.add(device_details)
         self._masking = DeviceMaskingPanel(
-            self._parent, remember=self._remember_mask, details_group=device_details
+            remember=self._remember_mask, details_group=device_details
         )
         self._masking.set_sources(
             hardware_masking_sources(self._hardware_config),

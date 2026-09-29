@@ -246,9 +246,25 @@ def update_device_display_name(window, hardware_id: str, name: str) -> None:
 def remove_device_tab(window, hardware_id: str) -> None:
     page = window._device_pages.pop(hardware_id, None)
     tab_layout._close_tab_page(window, page)
+    _forget_removed_rollover_members(window)
     chrome._update_motion_controls_menu_visibility(window, window.list_device_tab_configs())
     tab_layout._save_tab_layout(window)
     _check_empty_state(window)
+
+
+def _forget_removed_rollover_members(window) -> None:
+    """Drop a removed device's keys from a rollover selection in progress."""
+    state = window.rollover_state
+    if state.selection is None:
+        return
+    tab = next(
+        (child for child in tab_layout._iter_profile_tabs(window) if isinstance(child, DeviceTab)),
+        None,
+    )
+    if tab is None:
+        state.selection = None
+        return
+    tab._on_rollover_device_removed()
 
 
 def _on_add_device(window, button: _runtime.Gtk.Button) -> None:

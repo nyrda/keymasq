@@ -43,9 +43,8 @@ def wait_state(ctx, identity, phase, *, timeout=35):
 
 
 @contextlib.contextmanager
-def unlocked():
+def gui_client():
     with contextlib.closing(GuiClient()) as ctx:
-        ctx.request({"command": "claim_recording_unlock_refresh"})
         yield ctx
 
 
@@ -113,7 +112,7 @@ def assert_off():
 
 
 def trial_expiry(*, disconnect=False):
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         state = trial(ctx)
         identity = state["id"]
         started = time.monotonic()
@@ -130,25 +129,20 @@ def trial_expiry(*, disconnect=False):
 
 
 def undo():
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         trial(ctx)
         off(ctx)
         assert not mask_state(ctx, devices()[NAMES[0]].identity)["has_saved_mask"]
     restored()
 
 
-def rejected_locked():
-    ctx = ScenarioContext()
-    status = ctx.request({"command": "get_status"})
-    assert status["recording_unlock_required"] and not status["recording_unlocked"], status
-    target = devices()[NAMES[0]]
-    result = ctx.request(
-        {"command": "mask_hardware", "id": target.identity, "generation": target.generation},
-        ok=False,
-    )
-    assert result.get("status") == "error", result
-    assert result.get("error_code") == "sensitive_command_denied", result
-    assert_off()
+def masks_while_locked():
+    with gui_client() as ctx:
+        status = ctx.request({"command": "get_status"})
+        assert status["recording_unlock_required"] and not status["recording_unlocked"], status
+        trial(ctx)
+        off(ctx)
+    restored()
 
 
 def snapshot(ctx):
@@ -175,7 +169,7 @@ def reject_unchanged(ctx, payload, expected_message):
 
 
 def rejected_tokens():
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         first = trial(ctx)
         second = trial(ctx, NAMES[1])
         for command, message in (
@@ -208,19 +202,6 @@ def rejected_tokens():
         keep(ctx, current)
         for name in NAMES:
             assert_masked(name, forwarding=True, check_bystander=False)
-        # A second GUI connection cannot use the first client's unlock lease.
-        before = snapshot(ctx)
-        result = ScenarioContext().request(
-            {
-                "command": "set_hardware_mask_persistence",
-                "id": current["id"],
-                "token": current["token"],
-                "persist": True,
-            },
-            ok=False,
-        )
-        assert result.get("error_code") == "sensitive_command_denied", result
-        assert snapshot(ctx) == before
         ctx.request({"command": "restore_hardware", "persist": False})
     restored()
 
@@ -235,7 +216,7 @@ def virtual_paths(name):
 
 
 def reconnect():
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         first = keep(ctx, trial(ctx), persist=True)
         second = keep(ctx, trial(ctx, NAMES[1]), persist=True)
         old = devices()[NAMES[0]]
@@ -356,7 +337,7 @@ def multiple_masks():
     normal = ScenarioContext()
     path = virtual_paths(fixture.KEYBOARD_NAME)
     assert len(path) == 1, path
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         files = write_mapping(
             normal,
             hardware_id="cafe:0004",
@@ -396,7 +377,7 @@ def multiple_masks():
 
 def remapping():
     normal = ScenarioContext()
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         keep(ctx, trial(ctx))
         fixture.request("button", value=0)
         target = devices()[NAMES[0]]
@@ -469,7 +450,7 @@ def remapping():
 
 
 def saved_on():
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         state = keep(ctx, trial(ctx), persist=True)
         assert state["enabled"] and state["persist"], state
     # Closing the GUI after confirmation must leave the mask usable.
@@ -484,13 +465,12 @@ def saved_after_boot():
 
 
 def saved_off():
-    # Restoring access is available even when capture is locked.
     off(ScenarioContext())
     restored()
 
 
 COMMANDS = {
-    "locked": rejected_locked,
+    "locked": masks_while_locked,
     "trial-expiry": trial_expiry,
     "trial-close": lambda: trial_expiry(disconnect=True),
     "undo": undo,

@@ -59,7 +59,7 @@ def test_changes_and_followup_inventory_outwait_the_session(dialog, monkeypatch,
 def test_switches_control_only_their_device_and_countdowns_preserve_controls(dialog, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        dialog, "_authorized_change", lambda command, data: calls.append((command, data))
+        dialog, "_request_change", lambda command, data: calls.append((command, data))
     )
     state = response(
         {"id": "first", "state": "masked", "token": "one", "enabled": True},
@@ -69,7 +69,6 @@ def test_switches_control_only_their_device_and_countdowns_preserve_controls(dia
     first, second, third = (dialog._rows[name] for name in ("first", "second", "third"))
     third.switch.set_active(True)
     assert calls.pop() == ("mask_hardware", {"id": "third", "generation": "gen", "persist": True})
-    # Pending authentication cannot leave an unmasked device's switch on.
     assert not third.switch.get_active()
     second.expand.emit("clicked")
     assert not calls
@@ -87,7 +86,7 @@ def test_switches_control_only_their_device_and_countdowns_preserve_controls(dia
 def test_saved_disconnected_device_stays_on_and_can_be_turned_off(dialog, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        dialog, "_authorized_change", lambda command, data: calls.append((command, data))
+        dialog, "_request_change", lambda command, data: calls.append((command, data))
     )
     state = response(
         {
@@ -155,7 +154,7 @@ def test_blocked_app_has_readable_error_and_diagnostics_in_details(
 ):
     calls = []
     monkeypatch.setattr(
-        dialog, "_authorized_change", lambda command, data: calls.append((command, data))
+        dialog, "_request_change", lambda command, data: calls.append((command, data))
     )
     detail = (
         "Process 1234 has a direct USB or auxiliary HID connection. "
@@ -212,39 +211,6 @@ def test_confirmation_waits_for_manual_trial(dialog, automatic, phase):
         assert row.status.get_text() == "Reconnecting device…"
 
 
-def test_cancelled_unlock_does_not_change_switch_or_send_mask_request(dialog, monkeypatch):
-    prompts = []
-    changes = []
-    dialog._parent = SimpleNamespace(
-        _recording_unlocked=False, present_unlock_dialog=lambda **kwargs: prompts.append(kwargs)
-    )
-    monkeypatch.setattr(dialog, "_change", lambda *args: changes.append(args))
-    dialog._render(response())
-    dialog._rows["first"].switch.set_active(True)
-    assert len(prompts) == 1
-    assert not changes
-    assert not dialog._rows["first"].switch.get_active()
-
-
-@pytest.mark.parametrize("block", ["same_device", "all_devices", "closed"])
-def test_unlock_callback_rechecks_pending_operations(dialog, monkeypatch, block):
-    prompts = []
-    requests = []
-    dialog._parent = SimpleNamespace(
-        _recording_unlocked=False, present_unlock_dialog=lambda **kwargs: prompts.append(kwargs)
-    )
-    monkeypatch.setattr(module, "session_request_async", lambda *a, **kw: requests.append(a))
-    dialog._render(response())
-    dialog._authorized_change("mask_hardware", {"id": "first"})
-    assert len(prompts) == 1
-    if block == "closed":
-        dialog.close()
-    else:
-        dialog._pending.add("first" if block == "same_device" else "all")
-    prompts[0]["on_success"]()
-    assert not requests
-
-
 def test_incomplete_saved_mask_waits_without_a_failure_box(dialog):
     state = response(
         {
@@ -274,7 +240,7 @@ def test_incomplete_saved_mask_waits_without_a_failure_box(dialog):
 def test_retrying_saved_mask_shows_countdown_and_allows_offline_retry(dialog, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        dialog, "_authorized_change", lambda command, data: calls.append((command, data))
+        dialog, "_request_change", lambda command, data: calls.append((command, data))
     )
     state = response(
         {
@@ -301,3 +267,31 @@ def test_retrying_saved_mask_shows_countdown_and_allows_offline_retry(dialog, mo
     state["devices"][0]["supported"] = True
     dialog._render(state)
     assert row.status.get_text() == "Couldn’t mask · retrying in 7s"
+
+
+@pytest.mark.parametrize(
+    ("mask", "supported", "visible"),
+    [
+        ({}, True, True),
+        ({"state": "restored", "enabled": False, "error": "failed"}, True, True),
+        ({}, False, False),
+        ({"state": "trial", "enabled": True}, True, False),
+        ({"state": "masked", "enabled": True}, True, False),
+    ],
+)
+def test_shared_steam_mode_warning_shows_only_before_masking(dialog, mask, supported, visible):
+    result = response({"id": "first", **mask})
+    result["devices"][0]["warning"] = "Other Steam controllers are affected"
+    result["devices"][0]["supported"] = supported
+    dialog._render(result)
+    row = dialog._rows["first"]
+    assert row.warning.get_visible() is visible
+    assert not dialog._rows["second"].warning.get_visible()
+
+
+def test_generic_failure_shows_the_reason_in_details(dialog):
+    reason = "Another Steam Deck controller is already masked"
+    dialog._render(response({"id": "first", "state": "restored", "error": reason}))
+    row = dialog._rows["first"]
+    assert row.error.get_text().startswith("Masking could not be started")
+    assert reason in row.technical.get_text()

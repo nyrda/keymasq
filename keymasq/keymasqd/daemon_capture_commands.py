@@ -10,6 +10,7 @@ from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
 from keymasq.common.native_sources import is_native_backend
 from keymasq.common.types import JsonObject, JsonObjectList
+from keymasq.keymasqd.input_sources.registry import supplies_motion
 from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import cleanup_runtime_failure
@@ -130,7 +131,7 @@ async def handle_capture_command(
         native_interfaces = [
             item
             for item in evdev_interfaces
-            if is_native_backend(item.get("backend")) and item.get("type") == "motion"
+            if is_native_backend(item.get("backend")) and supplies_motion(item.get("driver"))
         ]
         if mode == "motion" and native_interfaces:
             return await daemon.capture_manager.begin_native(

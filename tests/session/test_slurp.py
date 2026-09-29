@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from collections.abc import Awaitable
+import socket
+from collections.abc import Awaitable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,17 @@ def test_slurp_mode_values() -> None:
     assert SlurpMode.POINT_IMMEDIATE.value == "point_immediate"
 
 
+@pytest.fixture
+def wayland_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+        server.bind(str(tmp_path / "wayland-1"))
+        server.listen()
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+        yield
+
+
+@pytest.mark.usefixtures("wayland_session")
 def test_slurp_available_caches_success_result() -> None:
     capture = SlurpCapture()
     capture._slurp_path = "/usr/bin/slurp"
@@ -84,22 +96,36 @@ def test_slurp_available_caches_success_result() -> None:
     assert capture.available is True
 
 
-def test_slurp_capture_available_with_niri_is_enabled() -> None:
+@pytest.mark.usefixtures("wayland_session")
+@pytest.mark.parametrize("compositor", ["niri", "wayland-layer-shell", "kde"])
+def test_slurp_capture_available_on_wayland_session(compositor: str) -> None:
     capture = SlurpCapture()
     capture._slurp_path = "/usr/bin/slurp"
     capture._available = None
-    capture.set_compositor("niri")
+    capture.set_compositor(compositor)
 
     assert capture.available is True
 
 
-def test_slurp_capture_available_with_layer_shell_fallback_is_enabled() -> None:
+@pytest.mark.parametrize("wayland_display", [None, "gamescope-0", "stale-0"])
+def test_slurp_capture_unavailable_on_kde_without_wayland_display(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    wayland_display: str | None,
+) -> None:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stale:
+        stale.bind(str(tmp_path / "stale-0"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    if wayland_display is None:
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    else:
+        monkeypatch.setenv("WAYLAND_DISPLAY", wayland_display)
     capture = SlurpCapture()
     capture._slurp_path = "/usr/bin/slurp"
     capture._available = None
-    capture.set_compositor("wayland-layer-shell")
+    capture.set_compositor("kde")
 
-    assert capture.available is True
+    assert capture.available is False
 
 
 def test_capture_point_unavailable_calls_callback_none() -> None:

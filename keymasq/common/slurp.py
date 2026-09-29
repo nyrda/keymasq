@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import socket
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from enum import Enum
@@ -84,6 +85,8 @@ class SlurpCapture:
                 f"compositor '{self._compositor_id or 'unknown'}' does not support slurp "
                 "(requires wlr-layer-shell)"
             )
+        if not _wayland_display_present():
+            return "no Wayland display in this session"
         return None
 
     async def capture_point_async(
@@ -245,6 +248,24 @@ class SlurpCapture:
         except RuntimeError:
             ensure_uvloop()
             asyncio.run(cast(Coroutine[Any, Any, object], coro))
+
+
+def _wayland_display_present() -> bool:
+    display = os.environ.get("WAYLAND_DISPLAY") or "wayland-0"
+    if not os.path.isabs(display):
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime_dir:
+            return False
+        display = os.path.join(runtime_dir, display)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+        probe.setblocking(False)
+        try:
+            probe.connect(display)
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+    return True
 
 
 def get_slurp_capture() -> SlurpCapture:

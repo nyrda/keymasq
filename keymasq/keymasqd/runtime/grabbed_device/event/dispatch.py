@@ -68,7 +68,7 @@ async def process_wheel_event(
         high_res_wheel_action is not None
         and high_res_wheel_action.action_type != ActionType.PASSTHROUGH
     ):
-        if not _is_recording_control_action(high_res_wheel_action):
+        if not is_recording_control_action(high_res_wheel_action):
             _record_grabbed_event_if_allowed(
                 device_runtime,
                 event,
@@ -96,6 +96,7 @@ async def apply_mapped_action_or_passthrough(
     combo_consumed: bool,
     combo_passthrough_requested: bool,
     deps: EventProcessingDeps,
+    record_input: bool = True,
 ) -> str:
     evdev_mod = deps.evdev_mod
     action = find_action_for_code(
@@ -116,7 +117,7 @@ async def apply_mapped_action_or_passthrough(
         elif int(event.value) in (0, 2) and event_name in device_runtime.state.held_source_actions:
             action = held_action
 
-    if not _is_recording_control_action(action):
+    if record_input and not is_recording_control_action(action):
         _record_grabbed_event_if_allowed(
             device_runtime,
             event,
@@ -276,7 +277,7 @@ def _record_profile_action_if_countable(
         )
 
 
-def _is_recording_control_action(action: MappingAction | None) -> bool:
+def is_recording_control_action(action: MappingAction | None) -> bool:
     return bool(
         action
         and action.action_type
@@ -288,6 +289,16 @@ def _is_recording_control_action(action: MappingAction | None) -> bool:
             ActionType.EMERGENCY_RESET,
         )
     )
+
+
+def record_source_event(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    deps: EventProcessingDeps,
+) -> None:
+    """Record a physical input event that no mapped dispatch will record."""
+    _record_grabbed_event_if_allowed(device_runtime, event, deps=deps)
 
 
 def _record_grabbed_event_if_allowed(
@@ -354,7 +365,7 @@ async def _process_wheel_pulse_event(
     if action is None:
         return None
 
-    if not _is_recording_control_action(action):
+    if not is_recording_control_action(action):
         _record_grabbed_event_if_allowed(
             device_runtime,
             event,

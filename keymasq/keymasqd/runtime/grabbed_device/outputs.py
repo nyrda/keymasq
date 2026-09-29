@@ -16,6 +16,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     EvdevModule,
     InputEventLike,
 )
+from keymasq.keymasqd.runtime.rollover import forget_runtime_rollover
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -551,7 +552,8 @@ def release_all_keys(
             )
             continue
         try:
-            axes = held_abs or {evdev_mod.ecodes.ABS_Z, evdev_mod.ecodes.ABS_RZ}
+            handed_over = device_runtime.state.rollover_abs_handed_over.get(bucket, set())
+            axes = held_abs or ({evdev_mod.ecodes.ABS_Z, evdev_mod.ecodes.ABS_RZ} - handed_over)
             for axis_code in sorted(axes):
                 writer.write(
                     evdev_mod.ecodes.EV_ABS,
@@ -589,6 +591,9 @@ def release_all_keys(
     device_runtime.state.rapidfire_active.clear()
     device_runtime.state.tap_active.clear()
     device_runtime.state.held_source_keys.clear()
+    device_runtime.state.held_source_press_order.clear()
+    device_runtime.state.rollover_abs_handed_over.clear()
     device_runtime.state.combo_passthrough_held.clear()
     device_runtime.state.combo_recalled_bindings.clear()
     device_runtime.state.held_source_actions.clear()
+    forget_runtime_rollover(device_runtime)

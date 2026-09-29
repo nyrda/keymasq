@@ -31,6 +31,7 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 
 - [Superkeys](superkeys.md) — one key fires multiple actions, or different actions for tap, hold, and double-tap.
 - [Combos](combos.md) — trigger actions or superkeys from any input combination, even across devices.
+- [Rollover groups](rollover.md) — let only one of several held keys drive its mapping, for example two keys on one stick axis.
 - [Macros](macros.md) — creation, recording, triggers, and playback settings.
 - [Macro timeline editor](macro-editor.md) — add actions, select and reuse sections, and adjust timing.
 - [Gamepad](gamepad.md) — controller remapping, analog controls, and virtual gamepads.

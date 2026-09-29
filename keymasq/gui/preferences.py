@@ -124,3 +124,13 @@ def save_tab_layout(tab_order: list[str], hidden_tabs: set[str]) -> None:
     data["tab_order"] = cleaned_order
     data["hidden_tabs"] = hidden_tabs_ordered
     _save_settings(data)
+
+
+def load_rollover_anti_cheat_warning_dismissed() -> bool:
+    return _load_settings().get("rollover_anti_cheat_warning_dismissed") is True
+
+
+def save_rollover_anti_cheat_warning_dismissed() -> None:
+    data = _load_settings()
+    data["rollover_anti_cheat_warning_dismissed"] = True
+    _save_settings(data)

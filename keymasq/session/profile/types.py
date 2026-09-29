@@ -5,6 +5,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.profiles import (
     ComboStep,
     ProfileConfig,
+    RolloverGroup,
 )
 
 type TomlDict = dict[str, object]
@@ -29,6 +30,9 @@ class ResolvedDeviceProfile:
     notify_profiles: list[str] = field(default_factory=list)
     combo_event_count: int = 0
     combo_sources: set[str] = field(default_factory=set)
+    # Buttons of this device in an active rollover group. Unmapped members pass
+    # through, but the device still has to be grabbed so the group sees them.
+    rollover_buttons: set[str] = field(default_factory=set)
 
     @property
     def mapping_count(self) -> int:
@@ -36,7 +40,12 @@ class ResolvedDeviceProfile:
 
     @property
     def has_effective_mapping(self) -> bool:
-        return self.always_grab_all or bool(self.mappings) or self.combo_event_count > 0
+        return (
+            self.always_grab_all
+            or bool(self.mappings)
+            or self.combo_event_count > 0
+            or bool(self.rollover_buttons)
+        )
 
 
 @dataclass
@@ -56,3 +65,4 @@ class ResolvedProfiles:
     active_profiles: list[ProfileConfig] = field(default_factory=list)
     devices: dict[str, ResolvedDeviceProfile] = field(default_factory=dict)
     combos: list[ResolvedCombo] = field(default_factory=list)
+    rollover_groups: list[RolloverGroup] = field(default_factory=list)

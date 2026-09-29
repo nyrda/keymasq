@@ -668,6 +668,38 @@ def _seed_profiles(config_dir: Path) -> None:
     }
     _write_toml(profiles_dir / "navigation.toml", navigation)
 
+    gaming = {
+        "profile": {
+            "name": "Gaming",
+            "enabled": False,
+            "is_permanent": True,
+            "priority": 103,
+            "notify_on_activation": False,
+            "created_at": CREATED_AT,
+        },
+        "devices": {
+            "35ef:0021": {
+                "always_grab_all": False,
+                "mapping": {
+                    "key_a": _action("gamepad_axis", target="abs_x", value=-32768),
+                    "key_d": _action("gamepad_axis", target="abs_x", value=32767),
+                },
+            }
+        },
+        "rollover_groups": [
+            {
+                "name": "A / D",
+                "members": [
+                    {"hardware_id": "35ef:0021", "button": "key_a"},
+                    {"hardware_id": "35ef:0021", "button": "key_d"},
+                ],
+                "winner": "newest",
+                "restore": True,
+            }
+        ],
+    }
+    _write_toml(profiles_dir / "Gaming.toml", gaming)
+
     _write_toml(
         profiles_dir / "Default.toml",
         {

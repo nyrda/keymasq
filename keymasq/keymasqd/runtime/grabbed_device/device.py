@@ -38,6 +38,10 @@ from keymasq.keymasqd.runtime.default_controller_route import (
 from keymasq.keymasqd.runtime.feedback_device import EvdevFeedbackDevice, EvdevFeedbackSource
 from keymasq.keymasqd.runtime.grabbed_device import grab, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.event.rollover import (
+    recall_rollover_member,
+    restore_rollover_member,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     BroadcastCallback,
     CursorPositionSetter,
@@ -54,6 +58,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     ManagedInputDevice,
     MappingGetter,
     NaturalMouseMover,
+    RolloverGetter,
     RuntimeDisconnectCallback,
 )
 from keymasq.keymasqd.runtime.input_capture import InputCaptureStream
@@ -288,6 +293,7 @@ class GrabbedDevice:
         button_map: dict[str, str],
         mapping_getter: MappingGetter,
         event_callback: DeviceEventCallback,
+        rollover_getter: RolloverGetter | None = None,
         device_type: DeviceType = DeviceType.OTHER,
         device_types: list[str] | None = None,
         verbosity: int = 0,
@@ -353,6 +359,7 @@ class GrabbedDevice:
         ] = {}
         self.update_motion_sensors(motion_sensors or {})
         self.mapping_getter = mapping_getter
+        self.rollover_getter = rollover_getter
         self.event_callback = event_callback
         self.capture_stream = InputCaptureStream()
         self.device_type = device_type
@@ -913,6 +920,7 @@ class GrabbedDevice:
         except Exception:
             log.exception("Release cleanup failed while releasing held keys for %s", self.path)
         self.state.held_source_keys.clear()
+        self.state.held_source_press_order.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()
         self.state.combo_recalled_bindings.clear()
@@ -1085,6 +1093,9 @@ class GrabbedDevice:
         )
 
     def emit_combo_press(self, evdev_name: str) -> None:
+        if restore_rollover_member(self, evdev_name):
+            # Its rollover group presses it again only if it still wins.
+            return
         output = self._combo_binding_output(evdev_name)
         if output is None:
             return
@@ -1119,9 +1130,11 @@ class GrabbedDevice:
 
     def mark_combo_recalled_binding(self, evdev_name: str) -> None:
         self.state.combo_recalled_bindings.add(normalize_combo_evdev(evdev_name))
+        recall_rollover_member(self, evdev_name)
 
     def clear_combo_recalled_binding(self, evdev_name: str) -> None:
         self.state.combo_recalled_bindings.discard(normalize_combo_evdev(evdev_name))
+        restore_rollover_member(self, evdev_name)
 
     def has_held_source_inputs(self) -> bool:
         from keymasq.keymasqd.superkey_state import SuperkeyState

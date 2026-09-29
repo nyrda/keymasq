@@ -478,3 +478,71 @@ button.actions-docs-button {
 .macro-selection-tabs button {
   min-width: 48px;
 }
+
+/* Rollover group selection mode in device tabs */
+button.rollover-selected {
+  box-shadow: inset 0 0 0 2px @accent_color;
+  background: alpha(@accent_color, 0.18);
+  opacity: 1;
+}
+
+button.rollover-unavailable {
+  opacity: 0.35;
+}
+
+/* Rollover group members: a stripe and a pill in the group's color. The
+   mapping state keeps the left stripe. */
+button.rollover-member {
+  border-right: 4px solid transparent;
+}
+
+/* A member without a mapping still does something, so it is not faded. */
+button.rollover-member.button-card-passthrough,
+button.rollover-member.button-card-passthrough:hover {
+  opacity: 1;
+}
+
+.rollover-pill {
+  padding: 0 6px;
+  border-radius: 9px;
+  color: #fff;
+  font-weight: bold;
+}
+
+button.rollover-member.rollover-group-0 {
+  border-right-color: #3584e4;
+}
+
+.rollover-group-0 .rollover-pill {
+  background: #3584e4;
+}
+
+button.rollover-member.rollover-group-1 {
+  border-right-color: #9141ac;
+}
+
+.rollover-group-1 .rollover-pill {
+  background: #9141ac;
+}
+
+button.rollover-member.rollover-group-2 {
+  border-right-color: #1a8a8f;
+}
+
+.rollover-group-2 .rollover-pill {
+  background: #1a8a8f;
+}
+
+button.rollover-member.rollover-group-3 {
+  border-right-color: #c2407e;
+}
+
+.rollover-group-3 .rollover-pill {
+  background: #c2407e;
+}
+
+.rollover-bar {
+  border-radius: 8px;
+  background: alpha(@accent_color, 0.1);
+  padding: 6px 12px;
+}

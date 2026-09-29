@@ -208,8 +208,7 @@ class MaskDeviceRow(Adw.PreferencesRow):
         desired = self.switch.get_active()
         if desired == self.enabled:
             return
-        # Until authentication and the helper accept the request, retain the
-        # observed state. Cancelling the unlock dialog must not leave a false ON.
+        # Retain the observed state until the daemon reports the change.
         self._set_switch_active(self.enabled)
         if desired:
             self.turn_on()
@@ -382,7 +381,6 @@ class MaskDeviceRow(Adw.PreferencesRow):
 class HardwareMaskingPanel(Gtk.Box):
     def __init__(
         self,
-        parent: Gtk.Window | None = None,
         *,
         identities: set[str] | None = None,
         deferred: bool = False,
@@ -395,7 +393,6 @@ class HardwareMaskingPanel(Gtk.Box):
         self.choices: dict[str, bool] = {}
         self._remember = remember
         self._details_group = details_group
-        self._parent = parent
         self._closed = False
         self._loading = False
         self._pending: set[str] = set()
@@ -412,7 +409,7 @@ class HardwareMaskingPanel(Gtk.Box):
         recovery_row = Adw.ActionRow(title="Enable remapping")
         recovery_row.set_subtitle("An administrative recovery stopped the input daemon")
         enable = Gtk.Button(label="Enable", valign=Gtk.Align.CENTER)
-        connect_button(enable, lambda: self._authorized_change("resume_hardware", {}))
+        connect_button(enable, lambda: self._change("resume_hardware", {}))
         recovery_row.add_suffix(enable)
         self._recovery.add(recovery_row)
         self._recovery.set_visible(False)
@@ -431,8 +428,7 @@ class HardwareMaskingPanel(Gtk.Box):
         footer.append(self._status)
         self._unmask_all = Gtk.Button(label="Unmask all devices", halign=Gtk.Align.END)
         connect_button(
-            self._unmask_all,
-            lambda: self._authorized_change("restore_hardware", {"persist": False}),
+            self._unmask_all, lambda: self._change("restore_hardware", {"persist": False})
         )
         footer.append(self._unmask_all)
         self._unmask_all.set_visible(identities is None)
@@ -503,7 +499,7 @@ class HardwareMaskingPanel(Gtk.Box):
             identity = str(device["id"])
             if identity not in self._rows:
                 self._rows[identity] = row = MaskDeviceRow(
-                    self._authorized_change, self._details_group
+                    self._request_change, self._details_group
                 )
                 self._devices.add(row)
             self._rows[identity].update(
@@ -532,27 +528,13 @@ class HardwareMaskingPanel(Gtk.Box):
         choices, self.choices = self.choices, {}
         self.deferred = False
         self._render(self._state)
-
-        def apply() -> None:
-            if self._closed:
-                return
-            for identity, enabled in choices.items():
-                row = self._rows.get(identity)
-                if row is not None and row.enabled != enabled:
-                    if enabled:
-                        row.turn_on()
-                    else:
-                        row.turn_off()
-
-        unlock = getattr(self._parent, "present_unlock_dialog", None)
-        if any(choices.values()) and not getattr(self._parent, "_recording_unlocked", False):
-            if callable(unlock):
-                unlock(on_success=apply)
-            else:
-                self._errors["all"] = "Unlock Keymasq from the main window to mask this device."
-                self._render(self._state)
-        else:
-            apply()
+        for identity, enabled in choices.items():
+            row = self._rows.get(identity)
+            if row is not None and row.enabled != enabled:
+                if enabled:
+                    row.turn_on()
+                else:
+                    row.turn_off()
         return bool(choices)
 
     def _change_blocked(self, identity: str) -> bool:
@@ -563,31 +545,15 @@ class HardwareMaskingPanel(Gtk.Box):
             or (identity == "all" and self._pending)
         )
 
-    def _authorized_change(self, command: str, data: dict) -> None:
+    def _request_change(self, command: str, data: dict) -> None:
         if self.deferred and command in {"mask_hardware", "restore_hardware"}:
             self.choices[str(data["id"])] = command == "mask_hardware"
             self._render(self._state)
             return
-        identity = str(data.get("id", "all"))
-        if self._change_blocked(identity):
-            return
-        if command == "restore_hardware" or bool(
-            getattr(self._parent, "_recording_unlocked", False)
-        ):
-            self._change(command, data)
-            return
-        unlock = getattr(self._parent, "present_unlock_dialog", None)
-        if callable(unlock):
-            unlock(on_success=lambda: self._change(command, data))
-        else:
-            self._errors[str(data.get("id", "all"))] = (
-                "Unlock Keymasq from the main window to mask this device."
-            )
-            self._render(self._state)
+        self._change(command, data)
 
     def _change(self, command: str, data: dict) -> None:
         identity = str(data.get("id", "all"))
-        # Unlock callbacks can arrive after another operation starts or we close.
         if self._change_blocked(identity):
             return
         self._pending.add(identity)
@@ -623,9 +589,9 @@ class HardwareMaskingPanel(Gtk.Box):
 
 
 class HardwareMaskingDialog(Adw.Dialog):
-    def __init__(self, parent: Gtk.Window | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__(title="Device masking", content_width=660, content_height=620)
-        self.panel = HardwareMaskingPanel(parent)
+        self.panel = HardwareMaskingPanel()
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
         scrolled = Gtk.ScrolledWindow(vexpand=True)

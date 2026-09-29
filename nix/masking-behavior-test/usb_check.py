@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import control
-from behavior import off, unlocked, virtual_paths, wait_for, wait_state
+from behavior import gui_client, off, virtual_paths, wait_for, wait_state
 from support import ScenarioContext
 
 STATE = Path.home() / "masking-usb-state.json"
@@ -69,7 +69,7 @@ def unmasked_attachment(*, moved=False):
 
 def disable_absent():
     identity = json.loads(STATE.read_text())["id"]
-    with unlocked() as ctx:
+    with gui_client() as ctx:
         state = control.mask_state(ctx, identity)
         ctx.request(
             {
@@ -174,7 +174,7 @@ def run(command):
         case "hold-physical":
             hold_physical()
         case "off":
-            with unlocked() as ctx:
+            with gui_client() as ctx:
                 off(ctx)
         case _:
             raise ValueError(command)

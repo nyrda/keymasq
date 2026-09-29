@@ -1,4 +1,4 @@
-{ keymasqPackage, testPython }:
+{ testPython }:
 {
   exporter = { config, ... }: {
     virtualisation = { graphics = false; memorySize = 1024; cores = 2; };
@@ -42,9 +42,7 @@
             "${testPython}/bin/python ${./usb_check.py} " + command
         )
 
-    def usb_check(command, unlock=False):
-        if unlock:
-            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
+    def usb_check(command):
         return machine.succeed(usb_command(command), timeout=120)
 
     def usb_import(index):
@@ -89,7 +87,7 @@
             usb_attach(0)
             usb_check("baseline")
         with subtest("USB masking denies physical access, revokes HID handles, and forwards input"):
-            usb_check("mask", unlock=True)
+            usb_check("mask")
         with subtest("USB disconnect and repeated reconnect reapply the saved mask"):
             for iteration in range(3):
                 machine.succeed(usb_command("hold-output") + " > /tmp/usb-output-holder.log 2>&1 &")
@@ -115,7 +113,7 @@
         with subtest("disabling a saved USB mask while absent restores access on return"):
             usb_detach()
             usb_check("disconnected")
-            usb_check("disable-absent", unlock=True)
+            usb_check("disable-absent")
             usb_attach(0)
             usb_check("restored")
         usb_detach()
@@ -126,7 +124,6 @@
                     "${testPython}/bin/python ${./shared_outputs.py} " + command
                 )
             usb_import(3)
-            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("setup"), timeout=120)
             machine.succeed(shared("hold") + " > /tmp/usb-shared-output.log 2>&1 &")
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-held", timeout=45)
@@ -134,7 +131,6 @@
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-absent-ok", timeout=40)
             usb_import(3)
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-returned-ok", timeout=40)
-            machine.succeed("${keymasqPackage}/bin/keymasq-helper unlock-runtime --uid 1000 --ttl 120")
             machine.succeed(shared("cleanup"), timeout=120)
             usb_detach()
             usb_detach(1)

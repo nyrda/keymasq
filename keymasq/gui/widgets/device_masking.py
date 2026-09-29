@@ -95,14 +95,12 @@ def resolve_masking_devices(
 class DeviceMaskingPanel(HardwareMaskingPanel):
     def __init__(
         self,
-        parent=None,
         *,
         deferred: bool = False,
         remember: Callable[[str, Callable[[], None]], None] | None = None,
         details_group=None,
     ) -> None:
         super().__init__(
-            parent,
             identities=set(),
             deferred=deferred,
             remember=remember,

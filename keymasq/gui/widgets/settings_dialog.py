@@ -210,7 +210,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_hardware_masking_clicked(self, _row: Gtk.Widget) -> None:
         from keymasq.gui.widgets.hardware_masking_dialog import HardwareMaskingDialog
 
-        HardwareMaskingDialog(self._parent).present(self)
+        HardwareMaskingDialog().present(self)
 
     def _on_loaded(self, response: dict[str, object] | None) -> bool:
         if self._save_inflight or self._save_applied:

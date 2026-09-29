@@ -111,26 +111,16 @@ def test_settings_mask_target_rejects_reused_path_with_different_model(
         }
 
 
-def test_setup_defers_changes_until_save_and_authenticates_once(monkeypatch):
+def test_setup_defers_changes_until_save(monkeypatch):
     requests = []
-    unlocks = []
-    parent = SimpleNamespace(
-        _recording_unlocked=False,
-        present_unlock_dialog=lambda **kwargs: unlocks.append(kwargs["on_success"]),
-    )
-    panel = HardwareMaskingPanel(parent, identities={"first", "second"}, deferred=True)
+    panel = HardwareMaskingPanel(identities={"first", "second"}, deferred=True)
     monkeypatch.setattr(panel, "_change", lambda *args: requests.append(args))
     panel._render(response())
     assert set(panel._rows) == {"first", "second"}
     for row in panel._rows.values():
         row.switch.set_active(True)
     assert not requests
-    assert not unlocks
     assert panel.apply_choices()
-    assert len(unlocks) == 1
-    assert not requests
-    parent._recording_unlocked = True
-    unlocks[0]()
     assert {data["id"] for _, data in requests} == {"first", "second"}
 
 
@@ -153,7 +143,6 @@ def test_setup_saves_hardware_before_masking_and_stays_open_for_confirmation(mon
     events = []
     monkeypatch.setattr(HardwareSetupDialog, "_detect_devices", lambda self: None)
     parent = Gtk.Window()
-    parent._recording_unlocked = True
     manager = SimpleNamespace(save_hardware=lambda config: events.append(("save", config)))
     wizard = HardwareSetupDialog(parent, manager)
     wizard.connect("device-created", lambda _wizard, config: events.append(("created", config)))
@@ -176,7 +165,6 @@ def test_closed_settings_does_not_apply_after_association_save(monkeypatch):
     requests = []
     callbacks = []
     panel = HardwareMaskingPanel(
-        SimpleNamespace(_recording_unlocked=True),
         identities={"first"},
         remember=lambda _identity, proceed: callbacks.append(proceed),
     )

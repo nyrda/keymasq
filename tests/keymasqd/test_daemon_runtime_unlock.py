@@ -18,18 +18,18 @@ from tests.keymasqd.daemon_support import client_context
         CommandType.KEEP_HARDWARE_MASK,
         CommandType.RESUME_HARDWARE,
         CommandType.SET_HARDWARE_MASK_PERSISTENCE,
+        CommandType.RESTORE_HARDWARE,
     ],
 )
 @pytest.mark.asyncio
-async def test_hardware_masking_uses_existing_unlock(daemon_testbed, monkeypatch, command):
+async def test_hardware_masking_does_not_require_capture_unlock(
+    daemon_testbed, monkeypatch, command
+):
     daemon, *_rest = daemon_testbed
     daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
     monkeypatch.setattr(daemon, "_recording_unlocked_for_uid", lambda _uid: (False, 0, "none"))
-    with pytest.raises(PermissionError, match="recording_locked"):
-        await daemon._ensure_sensitive_command_allowed(command, client_context())
-    await daemon._ensure_sensitive_command_allowed(CommandType.RESTORE_HARDWARE, client_context())
-    daemon.security_policy.recording_unlock_required = False
     await daemon._ensure_sensitive_command_allowed(command, client_context())
+    assert not daemon._recording_refresh_owners
 
 
 @pytest.mark.asyncio

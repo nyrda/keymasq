@@ -10,6 +10,7 @@ from keymasq.common.devices import (
     normalize_wheel_value,
     wheel_button_id,
 )
+from keymasq.common.native_sources import native_button_name
 from keymasq.keymasqd.combo_engine import ComboDecision, RuntimeComboBinding
 from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.combo.actions import apply_combo_action_transition
@@ -100,10 +101,9 @@ def build_combo_event_payload(
     if event_type == evdev_mod.ecodes.EV_KEY:
         if payload_value not in {0, 1, 2}:
             return None
-        raw_code_name: object = evdev_mod.ecodes.bytype.get(event_type, {}).get(
-            event_code,
-            str(event_code),
-        )
+        raw_code_name: object = native_button_name(event_code) or evdev_mod.ecodes.bytype.get(
+            event_type, {}
+        ).get(event_code, str(event_code))
         evdev_name = _evdev_code_name(raw_code_name, event_code)
         if not evdev_name.startswith(("key_", "btn_")):
             return None

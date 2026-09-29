@@ -8,7 +8,9 @@ from typing import Protocol, TypedDict, cast
 from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int
 from keymasq.common.combos import is_combo_pulse_evdev
 from keymasq.common.ipc import CommandType
+from keymasq.common.native_sources import is_native_backend
 from keymasq.common.types import JsonObject, JsonObjectList
+from keymasq.keymasqd.input_sources.registry import supplies_motion
 from keymasq.keymasqd.masking_registry import MaskRegistry
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import cleanup_runtime_failure
@@ -82,6 +84,8 @@ class _CaptureCommandCaptureManager(Protocol):
         self, token: str, loop: asyncio.AbstractEventLoop, notify_event: asyncio.Event
     ) -> None: ...
 
+    async def start_native_combo(self, token: str) -> None: ...
+
     def read_combo_nowait(self, token: str) -> JsonObject: ...
 
     def end(self, token: str) -> JsonObject: ...
@@ -124,7 +128,11 @@ async def handle_capture_command(
             for code in cast(list[object], data.get("motion_axis_codes", []))
             if isinstance(code, int) and not isinstance(code, bool) and code >= 0
         ]
-        native_interfaces = [item for item in evdev_interfaces if item.get("backend") == "hidraw"]
+        native_interfaces = [
+            item
+            for item in evdev_interfaces
+            if is_native_backend(item.get("backend")) and supplies_motion(item.get("driver"))
+        ]
         if mode == "motion" and native_interfaces:
             return await daemon.capture_manager.begin_native(
                 hardware_id, native_interfaces, motion_axis_codes
@@ -250,6 +258,7 @@ async def capture_combo(
         )
         capture_started = True
         daemon.capture_manager.register_combo_notifier(token, loop, notify_event)
+        await daemon.capture_manager.start_native_combo(token)
         warnings = cast(list[str], capture_result.get("warnings", []))
         capture_timeout_s = min(
             max(MIN_CAPTURE_TIMEOUT_S, float(timeout_s)),

@@ -36,6 +36,7 @@ KEYMASQ_GROUP = "keymasq"
 
 RUN_DIR = Path("/run/keymasq")
 SOCKET_PATH = RUN_DIR / "socket"
+HANDOFF_SOCKET_PATH = RUN_DIR / "handoff"
 STATE_DIR = Path("/var/lib/keymasq")
 SECURITY_POLICY_PATH = Path("/etc/keymasq/security.toml")
 RECORDING_UNLOCK_RUNTIME_DIR = RUN_DIR

@@ -219,6 +219,18 @@ daemon. The startup hook reapplies native ACLs to connected controllers.
 Reconnecting also applies the rule. A manual ACL is temporary and disappears
 when the device is recreated.
 
+### Steam Deck touch inputs do nothing
+
+Steam Deck touch loads a small program into the kernel through a
+`keymasq-hardware@<request-id>.service` job. When it fails, the daemon log
+shows `Device read error on /dev/keymasq-sources/steam-deck-touch/...` with the
+reason. Check that the kernel is Linux 6.11 or later with `CONFIG_HID_BPF`
+(Debian 13's stable kernel and Ubuntu 24.04's GA kernel lack it), and that
+`systemctl cat keymasq-hardware@.service` lists `CAP_BPF CAP_PERFMON` in
+`CapabilityBoundingSet`. `journalctl -u 'keymasq-hardware@*'` shows the job.
+If Steam holds the controller, the kernel driver removes its input devices and
+the touch source cannot pair with it; use hardware masking for the Steam Deck.
+
 ### Source hiding jobs fail
 
 Hiding or restoring a grabbed gamepad source runs `udevadm trigger` as a

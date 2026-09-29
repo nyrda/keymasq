@@ -15,6 +15,7 @@ class Endpoint:
     descriptor: bytes
     name: str = ""
     phys: str = ""
+    group: int = 0
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class InputDriver(Protocol):
     label: str
     channels: tuple[Channel, ...]
     association: Literal["same_hid", "same_usb"]
+    transport: Literal["hidraw", "hid-bpf"]
+    models: frozenset[tuple[int, int]]
 
     def matches(self, endpoint: Endpoint) -> bool: ...
 
@@ -58,5 +61,9 @@ class Binding:
     def path(self) -> str:
         # A connection-local source address, never a node opened by the kernel.
         hid_name = self.endpoint.hid_parent.rsplit("/", 1)[-1]
-        node = self.endpoint.path.rsplit("/", 1)[-1]
+        node = (
+            self.driver.transport
+            if self.driver.transport != "hidraw"
+            else self.endpoint.path.rsplit("/", 1)[-1]
+        )
         return f"/dev/keymasq-sources/{self.driver.id}/{hid_name}/{node}"

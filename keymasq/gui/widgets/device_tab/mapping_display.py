@@ -13,6 +13,7 @@ from keymasq.common.model.core import ActionType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
 from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.common.model.profiles import RolloverGroup
+from keymasq.common.native_sources import is_native_button
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.gui.widgets.device_tab.rollover_state import (
     ROLLOVER_GROUP_COLORS,
@@ -127,6 +128,8 @@ def describe_passthrough_output(
     *,
     label_from_evdev: Callable[[str], str],
 ) -> str:
+    if is_native_button(button.evdev):
+        return "No output"
     if button.evdev in {"rel_wheel", "rel_hwheel"} and button.evdev_value is not None:
         if button.evdev == "rel_wheel":
             return "↑ Scroll Up" if button.evdev_value > 0 else "↓ Scroll Down"

@@ -15,6 +15,8 @@ class Ultimate2Driver:
     id = "8bitdo-ultimate2"
     label = "Ultimate 2 motion"
     association: Literal["same_hid", "same_usb"] = "same_hid"
+    transport: Literal["hidraw", "hid-bpf"] = "hidraw"
+    models = frozenset({(0x2DC8, 0x6012)})
     channels = (
         Channel("accel_x", "accelerometer", "y", 9.80665 / 4096),
         Channel("accel_y", "accelerometer", "x", 9.80665 / 4096, True),

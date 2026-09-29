@@ -9,6 +9,7 @@ from keymasq.common.model.analog import SAME_DEVICE_OUTPUT_ID, analog_control_pr
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
+from keymasq.common.native_sources import is_native_backend
 from keymasq.session.profile.types import ResolvedDeviceProfile
 
 from ..common import JsonObject, json_list
@@ -202,8 +203,11 @@ def configured_interface_descriptors(
         anchors = {
             str(item["id"]): item
             for item in configured_interface_descriptors(hardware_config, None)
-            if item.get("backend") != "hidraw"
+            if not is_native_backend(item.get("backend"))
         }
+    motion_sources = {
+        sensor.source for sensor in getattr(hardware_config, "motion_sensors", []) or []
+    }
     for source in getattr(hardware_config, "input_sources", []):
         if not source.enabled:
             continue
@@ -213,8 +217,8 @@ def configured_interface_descriptors(
             {
                 "id": source.id,
                 "path": source.path,
-                "type": "motion",
-                "backend": "hidraw",
+                "type": "motion" if source.id in motion_sources else "other",
+                "backend": source.backend,
                 "driver": source.driver,
                 "phys": source.phys or "",
                 "anchor": anchors.get(source.companion_of or ""),

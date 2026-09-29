@@ -9,6 +9,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.model.core import ActionType
+from keymasq.common.native_sources import is_native_button
 from keymasq.gui.widgets.action_labels import describe_mapping_action_compact
 from keymasq.gui.widgets.action_payloads import mapping_action_from_payload
 from keymasq.gui.widgets.device_control_layout import group_pointer_controls, label_sort_key
@@ -294,6 +295,8 @@ class MappingMixin:
                 return "Axis passthrough"
             return "Analog passthrough"
         evdev = text(control.get("evdev"))
+        if is_native_button(evdev):
+            return "No output"
         evdev_value = int_or_none(control.get("evdev_value"))
         if evdev == "rel_wheel" and evdev_value is not None:
             return "Scroll Up" if evdev_value > 0 else "Scroll Down"

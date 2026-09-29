@@ -126,6 +126,10 @@ async def execute(message: JsonObject, root: LinuxMaskBackend) -> JsonObject:
     operation = message.get("operation")
     if operation == "trigger":
         return await trigger_input(message, root)
+    if operation == "hid-bpf-attach":
+        from keymasq.keymasqd.input_sources.hid_bpf_attach import attach_request
+
+        return await finish_io(attach_request, message)
     if operation not in {"activate", "arm", "refresh", "recover"}:
         raise ValueError("Unknown privileged hardware operation")
     identity = str(message.get("id", ""))

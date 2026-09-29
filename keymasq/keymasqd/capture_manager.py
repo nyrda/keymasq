@@ -22,7 +22,10 @@ from keymasq.common.devices import (
     resolve_stable_path,
     wheel_button_id,
 )
+from keymasq.common.native_sources import native_button_name
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX, binding_for_path
+from keymasq.keymasqd.input_sources.types import Binding
 from keymasq.keymasqd.permission_hints import (
     input_device_permission_message,
     is_permission_error,
@@ -100,6 +103,8 @@ class CaptureSession:
     motion_discontinuities: int = 0
     motion_reader_error: str = ""
     native_task: asyncio.Task[None] | None = None
+    native_paths: list[str] = field(default_factory=list)
+    native_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     motion_stats_lock: threading.Lock = field(default_factory=threading.Lock)
     mode: str = "button"
 
@@ -419,6 +424,11 @@ class CaptureManager:
             stop_event=threading.Event(),
             path_hardware_ids=path_hardware_ids,
             path_sources=path_sources,
+            native_paths=sorted(
+                path
+                for path in path_hardware_ids
+                if path.startswith(SOURCE_PREFIX) and path not in (exclude_paths or set())
+            ),
         )
         self._sessions[token] = session
         self._start_combo_reader(session)
@@ -435,6 +445,60 @@ class CaptureManager:
             "token": token,
             "warnings": warnings,
         }
+
+    async def start_native_combo(self, token: str) -> None:
+        """Read idle native button sources, which have no node for the combo reader thread."""
+        session = self._sessions.get(token)
+        if session is None:
+            raise ValueError("Invalid capture token")
+        for path in session.native_paths:
+            try:
+                binding = await asyncio.to_thread(binding_for_path, path)
+            except OSError as exc:
+                log.debug("Native combo source %s unavailable: %s", path, exc)
+                continue
+            session.native_tasks.append(
+                asyncio.create_task(self._read_native_combo(session, binding, path))
+            )
+
+    async def _read_native_combo(
+        self, session: CaptureSession, binding: Binding, path: str
+    ) -> None:
+        from keymasq.keymasqd.input_sources.evdev_adapter import button_codes
+        from keymasq.keymasqd.input_sources.manager import source_manager
+
+        codes = button_codes(binding)
+        pressed: dict[str, int] = {}
+        try:
+            async with source_manager().subscribe(binding) as subscriber:
+                while True:
+                    frame = await subscriber.read()
+                    for name, value in frame.values.items():
+                        code = codes.get(name)
+                        if code is None or pressed.get(name, 0) == value:
+                            continue
+                        pressed[name] = value
+                        self._publish_combo_event(
+                            session,
+                            {
+                                "evdev": native_button_name(code) or str(code),
+                                "code": code,
+                                "value": value,
+                                "hardware_id": session.path_hardware_ids.get(path, ""),
+                                "source": session.path_sources.get(path, ""),
+                                "stable_path": path,
+                                "device_path": path,
+                            },
+                        )
+        except OSError as exc:
+            log.debug("Native combo source %s stopped: %s", path, exc)
+
+    def _publish_combo_event(self, session: CaptureSession, event: JsonObject) -> None:
+        if session.event_queue is None:
+            return
+        session.event_queue.put(event)
+        if session.notify_loop is not None and session.notify_event is not None:
+            session.notify_loop.call_soon_threadsafe(session.notify_event.set)
 
     def authorize_combo_capture(self) -> _ComboCaptureAuthorization:
         token = str(uuid.uuid4())
@@ -486,8 +550,9 @@ class CaptureManager:
         if session is None:
             return {"status": "ok", "ended": False}
 
-        if session.native_task is not None and not session.native_task.done():
-            session.native_task.get_loop().call_soon_threadsafe(session.native_task.cancel)
+        for task in (session.native_task, *session.native_tasks):
+            if task is not None and not task.done():
+                task.get_loop().call_soon_threadsafe(task.cancel)
         for stream, consumer in session.borrowed_streams:
             stream.detach(consumer)
 
@@ -697,9 +762,7 @@ class CaptureManager:
                         )
                         if parsed is None:
                             continue
-                        session.event_queue.put(parsed)
-                        if session.notify_loop is not None and session.notify_event is not None:
-                            session.notify_loop.call_soon_threadsafe(session.notify_event.set)
+                        self._publish_combo_event(session, parsed)
                         log.debug(
                             "Combo capture token=%s event=%s value=%s source=%s",
                             session.token,

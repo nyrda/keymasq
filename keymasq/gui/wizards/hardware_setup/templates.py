@@ -36,6 +36,11 @@ from keymasq.common.model.motion import (
     MotionSensorDefinition,
     canonical_motion_axis,
 )
+from keymasq.common.native_sources import (
+    NATIVE_BUTTON_LABELS,
+    is_native_backend,
+    native_button_code,
+)
 
 InterfaceInfo = Mapping[str, Any]
 
@@ -97,7 +102,7 @@ def interfaces_have_capability(
 def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice]:
     evdev_devices = []
     for iface in interfaces:
-        if iface.get("backend") == "hidraw":
+        if is_native_backend(iface.get("backend")):
             continue
         stable_path = str(iface.get("stable_path", "") or "")
         config_path = str(iface.get("config_path", "") or "")
@@ -121,20 +126,48 @@ def build_evdev_devices(interfaces: Sequence[InterfaceInfo]) -> list[EvdevDevice
 
 
 def build_input_sources(interfaces: Sequence[InterfaceInfo]) -> list[NativeInputSource]:
-    by_path = {str(iface.get("path", "")): str(iface.get("id", "")) for iface in interfaces}
+    by_path = {str(iface.get("path", "")): iface for iface in interfaces}
+
+    def companion(iface: InterfaceInfo) -> str | None:
+        candidates = [by_path[path] for path in iface.get("companion_paths", []) if path in by_path]
+        candidates.sort(key=lambda item: not interface_has_role(item, "gamepad"))
+        return str(candidates[0].get("id", "")) or None if candidates else None
+
     return [
         NativeInputSource(
             id=str(iface["id"]),
             driver=str(iface["driver"]),
-            companion_of=next(
-                (by_path[path] for path in iface.get("companion_paths", []) if path in by_path),
-                None,
-            ),
+            companion_of=companion(iface),
             phys=str(iface.get("phys", "")) or None,
+            backend=str(iface["backend"]),
         )
         for iface in interfaces
-        if iface.get("backend") == "hidraw" and iface.get("id")
+        if is_native_backend(iface.get("backend")) and iface.get("id")
     ]
+
+
+def build_native_buttons(interfaces: Sequence[InterfaceInfo]) -> list[ButtonDefinition]:
+    buttons: list[ButtonDefinition] = []
+    for iface in interfaces:
+        source = str(iface.get("id", "") or "")
+        if not source or not is_native_backend(iface.get("backend")):
+            continue
+        for item in iface.get("native_buttons", []) or []:
+            name = str(item.get("evdev", "") or "")
+            code = native_button_code(name)
+            if code is None:
+                continue
+            buttons.append(
+                ButtonDefinition(
+                    id=name,
+                    label=NATIVE_BUTTON_LABELS.get(name, name),
+                    evdev=name,
+                    evdev_code=code,
+                    source=source,
+                    type="gamepad",
+                )
+            )
+    return buttons
 
 
 def build_standard_mouse_buttons(
@@ -266,7 +299,7 @@ def build_gamepad_buttons(interfaces: Sequence[InterfaceInfo]) -> list[ButtonDef
     buttons: list[ButtonDefinition] = []
     used: set[str] = set()
     for iface in interfaces:
-        if interface_has_role(iface, "motion"):
+        if interface_has_role(iface, "motion") or is_native_backend(iface.get("backend")):
             continue
         source = str(iface.get("id", "") or "") or None
         names = ordered_gamepad_button_names(_controller_names(iface))
@@ -413,7 +446,7 @@ def build_motion_sensors(interfaces: Sequence[InterfaceInfo]) -> list[MotionSens
         if not source_id:
             continue
         native_axes = iface.get("native_motion_axes")
-        if iface.get("backend") == "hidraw" and isinstance(native_axes, dict):
+        if is_native_backend(iface.get("backend")) and isinstance(native_axes, dict):
             sensors.append(
                 MotionSensorDefinition(
                     id=f"motion_{len(sensors) + 1}",

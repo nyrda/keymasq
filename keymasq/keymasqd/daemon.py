@@ -15,6 +15,7 @@ from keymasq.common.asyncio_runtime import ensure_uvloop
 from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import CommandType
 from keymasq.common.paths import (
+    HANDOFF_SOCKET_PATH,
     RECORDING_UNLOCK_RUNTIME_DIR,
     RUN_DIR,
     SECURITY_POLICY_PATH,
@@ -43,6 +44,7 @@ from keymasq.keymasqd import (
 )
 from keymasq.keymasqd.capture_manager import CaptureManager
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.fd_handoff import FdHandoffServer
 from keymasq.keymasqd.hardware_masking import MASK_COMMANDS, HardwareMasking
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
@@ -89,6 +91,7 @@ class Daemon:
             resume_hardware=self.hardware_masking.resume,
         )
         self.socket_server: SocketServer | None = None
+        self.fd_handoff: FdHandoffServer | None = None
         self.running = False
         self._shutdown_event = asyncio.Event()
         self._watchdog_task: asyncio.Task[None] | None = None
@@ -147,6 +150,8 @@ class Daemon:
         self.running = True
         try:
             self.device_manager.initialize_output_devices()
+            self.fd_handoff = FdHandoffServer(HANDOFF_SOCKET_PATH)
+            await self.fd_handoff.start()
             await self.socket_server.start()
             await self.device_manager.start_topology_watcher()
             await self.sleep_coordinator.start()
@@ -205,6 +210,8 @@ class Daemon:
             "release all devices",
             self.device_manager.release_all_devices,
         )
+        if self.fd_handoff is not None:
+            await self._run_async_cleanup("stop privileged handoffs", self.fd_handoff.stop)
         await self._run_async_cleanup(
             "clear runtime unlocks",
             lambda: self._clear_all_runtime_unlocks_async(reason="daemon_stop"),

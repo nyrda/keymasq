@@ -20,6 +20,7 @@ from keymasq.common.devices import (
     resolve_stable_path,
 )
 from keymasq.common.model.core import DeviceType
+from keymasq.common.native_sources import is_native_backend
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.input_sources import discovery as native_discovery
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
@@ -249,7 +250,7 @@ def resolve_evdev_interfaces(
     # claims before resolving any interface, including evdev-only requests.
     bindings = (
         native_discovery.discover_bindings()
-        if any(item.get("backend") == "hidraw" for item in interfaces)
+        if any(is_native_backend(item.get("backend")) for item in interfaces)
         or any(
             path.startswith(SOURCE_PREFIX)
             for path in normalized_excluded_paths | normalized_preferred_paths
@@ -268,7 +269,7 @@ def resolve_evdev_interfaces(
     normalized_preferred_paths |= {os.path.realpath(path) for path in normalized_preferred_paths}
 
     for descriptor in interfaces:
-        if descriptor.get("backend") == "hidraw":
+        if is_native_backend(descriptor.get("backend")):
             continue
         configured_path = str(descriptor.get("path", "") or "").strip()
         if not configured_path:
@@ -355,7 +356,7 @@ def _resolve_native_interfaces(
 ) -> list[ResolvedInterface]:
     from keymasq.keymasqd.input_sources.discovery import companion_binding
 
-    native = [item for item in interfaces if item.get("backend") == "hidraw"]
+    native = [item for item in interfaces if is_native_backend(item.get("backend"))]
     if not native:
         return []
     result: list[ResolvedInterface] = []
@@ -364,7 +365,7 @@ def _resolve_native_interfaces(
         raw_anchor = descriptor.get("anchor")
         anchor = cast(JsonObject, raw_anchor) if isinstance(raw_anchor, dict) else None
         binding = None
-        if anchor is not None and anchor.get("backend") != "hidraw":
+        if anchor is not None and not is_native_backend(anchor.get("backend")):
             anchor_id = str(anchor.get("id", ""))
             matches = [item for item in resolved if item.interface_id == anchor_id]
             if not matches:

@@ -576,6 +576,7 @@ class HardwareManager:
                     **({"enabled": False} if not source.enabled else {}),
                     **({"companion_of": source.companion_of} if source.companion_of else {}),
                     **({"phys": source.phys} if source.phys else {}),
+                    **({"backend": source.backend} if source.backend != "hidraw" else {}),
                 }
                 for source in config.input_sources
             ]

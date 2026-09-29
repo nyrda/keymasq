@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -22,6 +23,15 @@ from keymasq.masking.paths import (
     validate_identity,
 )
 
+log = logging.getLogger("keymasq.masking")
+_detached_jobs: set[asyncio.Task[JsonObject]] = set()
+
+
+def _finish_detached(task: asyncio.Task[JsonObject]) -> None:
+    _detached_jobs.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        log.debug("Abandoned hardware job failed: %s", task.exception())
+
 
 async def request(
     operation: str,
@@ -29,6 +39,28 @@ async def request(
     *,
     timeout: float = HARDWARE_JOB_TIMEOUT,
     **data: object,
+) -> JsonObject:
+    return await _request(operation, identity, data, timeout, wait_on_cancel=True)
+
+
+async def request_without_rollback(
+    operation: str,
+    identity: str,
+    *,
+    timeout: float = HARDWARE_JOB_TIMEOUT,
+    **data: object,
+) -> JsonObject:
+    """Stop waiting when cancelled; only for jobs that leave nothing to roll back."""
+    return await _request(operation, identity, data, timeout, wait_on_cancel=False)
+
+
+async def _request(
+    operation: str,
+    identity: str,
+    data: dict[str, object],
+    timeout: float,
+    *,
+    wait_on_cancel: bool,
 ) -> JsonObject:
     token = uuid.uuid4().hex
     path = REQUESTS / token
@@ -70,6 +102,10 @@ async def request(
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
+        if not wait_on_cancel:
+            _detached_jobs.add(task)
+            task.add_done_callback(_finish_detached)
+            raise
         # systemctl exiting does not stop its job. Await the bounded job before
         # allowing rollback to race its sysfs writes.
         try:

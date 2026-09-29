@@ -136,6 +136,35 @@ produce trigger output. Use axis mappings instead.
 
 ![Gamepad action selector with buttons, triggers, and sticks](assets/screenshots/key_selector_gamepad.png)
 
+### Steam Deck touch inputs
+
+The Steam Deck's sticks have capacitive touch sensors, and its trackpads report
+whether a finger rests on them. The kernel driver reports neither, so Keymasq
+reads them through a small bundled in-kernel program. **LS Touch** and
+**RS Touch** appear in the Sticks section next to the stick clicks, and
+**LP Touch** and **RP Touch** in the Trackpads section. A touch behaves like a
+held button: it presses while a thumb rests on the stick or pad and releases
+when the thumb lifts. The controller never reports a stick and the trackpad on
+the same side as touched at the same time: touching the stick releases that
+side's pad touch, so a combo that holds both never triggers.
+
+New Steam Deck setups include all four touch inputs. For an existing Steam Deck
+configuration, open Hardware Settings, choose **Add Event Device**, and add
+**Steam Deck touch**. It pairs with the controller and adds the touch inputs it
+does not have yet. Touch inputs can be renamed but not deleted. Learn Buttons
+ignores them, because a thumb touches a stick or pad before it clicks or moves.
+
+Touch inputs accept the same actions as other buttons. A common use is gyro
+aiming only while a thumb rests on the right stick or right pad; see
+[Gyro while touching a stick](motion-controls.md#gyro-while-touching-a-stick).
+
+Touch inputs need Linux 6.11 or later with `CONFIG_HID_BPF`, which SteamOS 3.7
+and later provide. Debian 13 needs a trixie-backports kernel and Ubuntu 24.04
+the HWE kernel. When Steam takes over the controller, the kernel driver removes the
+controller's input devices; use [hardware masking](hardware-masking.md) to keep
+the Steam Deck with Keymasq. See [Native input drivers](input-driver-design.md)
+for details.
+
 ## Analog Controls
 
 Analog Controls let you map sticks, triggers, and other analog axes to

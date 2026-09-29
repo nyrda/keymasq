@@ -96,6 +96,9 @@ def append_evdev_device_selection(
                     for device in hardware_config.evdev_devices
                     if device.id and source.phys and device.phys == source.phys
                 ]
+                controllers = [device for device in candidates if is_controller_interface(device)]
+                if len(candidates) > 1 and len(controllers) == 1:
+                    candidates = controllers
                 if not candidates and len(hardware_config.evdev_devices) == 1:
                     candidates = hardware_config.evdev_devices
                 if len(candidates) == 1:
@@ -119,6 +122,15 @@ def append_evdev_device_selection(
             hardware_config.input_sources.append(appended_source)
             source_ids[source.id] = appended_source.id
             added += 1
+        button_ids = {button.id for button in hardware_config.buttons}
+        for button in evdev_devices.buttons:
+            target_source = source_ids.get(str(button.source or ""))
+            if not target_source or button.id in button_ids:
+                continue
+            appended_button = deepcopy(button)
+            appended_button.source = target_source
+            hardware_config.buttons.append(appended_button)
+            button_ids.add(button.id)
 
     selected_motion_sensors = (
         evdev_devices.motion_sensors if isinstance(evdev_devices, EvdevDeviceSelection) else []
@@ -531,7 +543,10 @@ class HardwareSettingsDialog(Adw.Dialog):
         selection: list[EvdevDevice] | EvdevDeviceSelection = devices
         if isinstance(raw_devices, EvdevDeviceSelection):
             selection = EvdevDeviceSelection(
-                devices, raw_devices.motion_sensors, raw_devices.input_sources
+                devices,
+                raw_devices.motion_sensors,
+                raw_devices.input_sources,
+                raw_devices.buttons,
             )
         _added, message, error = self._on_add_devices(selection)
         self._refresh_interface_rows()

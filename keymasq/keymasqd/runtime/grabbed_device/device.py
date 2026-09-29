@@ -700,6 +700,10 @@ class GrabbedDevice:
     async def _configure_default_output(self) -> None:
         assert self.device is not None
         is_gamepad_passthrough = _is_gamepad_passthrough(self.device_type, self.device_types)
+        if isinstance(self.device, NativeInputDevice):
+            # Nothing else receives native inputs, so unmapped ones have no destination.
+            self.default_route = None
+            return
         if self.default_output is not None:
             self.default_route = DefaultControllerRoute(
                 self.default_output, source_axis_ranges(self.device.capabilities())

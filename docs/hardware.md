@@ -224,7 +224,7 @@ already has that ID, it keeps its mappings and the hardware has no Pointer Movem
 - `evdev`: evdev name such as `btn_side`, `key_f13`, or `rel_wheel`
 - `evdev_code`: optional numeric evdev code
 - `evdev_value`: optional value, used for wheel direction
-- `source`: optional event device `id`
+- `source`: optional event device or native source `id`
 - `zone`, `row`, `col`, `type`: optional UI/layout metadata
 
 `[[hardware.layout.analogs]]`
@@ -235,6 +235,19 @@ already has that ID, it keeps its mappings and the hardware has no Pointer Movem
 - `source`: optional event device `id`
 - `axes`: axis definitions with `role`, `evdev`, optional `evdev_code`, and
   optional calibration fields
+
+`[[hardware.input_sources]]`
+
+- `id`: source ID used by controls, like an event device `id`
+- `driver`: bundled native driver, `8bitdo-ultimate2` or `steam-deck-touch`
+- `companion_of`: optional event device `id` that selects the physical controller
+- `phys`: optional kernel physical/topology hint
+- `backend`: `hidraw` (default) or `hid-bpf`
+- `enabled`: `false` turns the source off without removing its controls
+
+Steam Deck touch buttons use `evdev = "btn_touch_ls"`, `"btn_touch_rs"`,
+`"btn_touch_lp"`, or `"btn_touch_rp"` with the native source as `source`. See
+[Native input drivers](input-driver-design.md).
 
 ## Profile interaction
 

@@ -68,7 +68,7 @@ def present_button_relabel_dialog(
     *,
     parent,
     button: ButtonDefinition,
-    on_delete_clicked: Callable[[Gtk.Button, Adw.Dialog, ButtonDefinition], None],
+    on_delete_clicked: Callable[[Gtk.Button, Adw.Dialog, ButtonDefinition], None] | None,
     on_save: Callable[[ButtonDefinition, str], bool],
     on_close_clicked: Callable[[Gtk.Button, Adw.Dialog], None],
 ) -> None:
@@ -167,7 +167,7 @@ def _present_input_relabel_dialog(
     label: str,
     current_label: str,
     subject: Any,
-    on_delete_clicked: Callable[..., None],
+    on_delete_clicked: Callable[..., None] | None,
     on_save: Callable[..., bool],
     on_close_clicked: Callable[[Gtk.Button, Adw.Dialog], None],
 ) -> None:
@@ -186,10 +186,11 @@ def _present_input_relabel_dialog(
     btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     btn_row.set_halign(Gtk.Align.FILL)
 
-    delete_btn = Gtk.Button(label="Delete")
-    delete_btn.add_css_class("destructive-action")
-    delete_btn.connect("clicked", on_delete_clicked, dialog, subject)
-    btn_row.append(delete_btn)
+    if on_delete_clicked is not None:
+        delete_btn = Gtk.Button(label="Delete")
+        delete_btn.add_css_class("destructive-action")
+        delete_btn.connect("clicked", on_delete_clicked, dialog, subject)
+        btn_row.append(delete_btn)
 
     spacer = Gtk.Box()
     spacer.set_hexpand(True)

@@ -10,6 +10,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.gamepad_axes import gamepad_axis_range
 from keymasq.common.model.hardware import HardwareConfig
+from keymasq.common.native_sources import is_native_button
 from keymasq.common.output_axes import OutputAxis, learned_output_axes
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
@@ -98,6 +99,8 @@ def hardware_controller_template(config: HardwareConfig) -> VirtualDeviceTemplat
     flight = is_flight_stick(names)
     buttons: dict[int, VirtualButton] = {}
     for button in config.buttons:
+        if is_native_button(button.evdev):
+            continue
         code = resolve_evdev_code(button.evdev)
         if code is not None and button.evdev_value is None:
             buttons.setdefault(code, VirtualButton(button.id, button.label, button.evdev.lower()))

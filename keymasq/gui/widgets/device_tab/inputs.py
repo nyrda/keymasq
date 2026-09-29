@@ -44,10 +44,14 @@ class InputInventoryMixin:
     def _show_relabel_dialog(self: Any, button: ButtonDefinition) -> None:
         if self.hardware_manager is None:
             return
+        native_sources = {source.id for source in self.device.input_sources}
         rename_dialogs.present_button_relabel_dialog(
             parent=self.get_root(),
             button=button,
-            on_delete_clicked=self._on_delete_button_clicked,
+            # Driver-provided inputs always exist on the hardware; only labels change.
+            on_delete_clicked=(
+                None if button.source in native_sources else self._on_delete_button_clicked
+            ),
             on_save=self._rename_button_label,
             on_close_clicked=self._on_close_dialog_clicked,
         )

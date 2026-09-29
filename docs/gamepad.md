@@ -144,7 +144,9 @@ reads them through a small bundled in-kernel program. **LS Touch** and
 **RS Touch** appear in the Sticks section next to the stick clicks, and
 **LP Touch** and **RP Touch** in the Trackpads section. A touch behaves like a
 held button: it presses while a thumb rests on the stick or pad and releases
-when the thumb lifts.
+when the thumb lifts. The controller never reports a stick and the trackpad on
+the same side as touched at the same time: touching the stick releases that
+side's pad touch, so a combo that holds both never triggers.
 
 New Steam Deck setups include all four touch inputs. For an existing Steam Deck
 configuration, open Hardware Settings, choose **Add Event Device**, and add

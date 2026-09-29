@@ -11,6 +11,7 @@ from keymasq.common.model.actions import is_protected_button
 from keymasq.common.model.core import DeviceType
 from keymasq.common.model.hardware import AnalogInputDefinition, ButtonDefinition, HardwareConfig
 from keymasq.common.model.motion import MotionSensorDefinition
+from keymasq.common.model.pointer import POINTER_SOURCE_ID, pointer_interface_ids
 from keymasq.gui.widgets.device_control_layout import (
     group_pointer_controls,
     label_sort_key,
@@ -40,6 +41,7 @@ class DeviceGridCallbacks:
     on_analog_mapping_clicked: Callable[..., None]
     on_motion_mapping_clicked: Callable[..., None]
     on_motion_action_right_clicked: Callable[..., None]
+    on_pointer_mapping_clicked: Callable[..., None]
     on_name_label_right_clicked: Callable[..., None]
     on_action_label_right_clicked: Callable[..., None]
     on_analog_name_right_clicked: Callable[..., None]
@@ -284,6 +286,7 @@ class DeviceGridBuilder:
                     prepend=True,
                 )
 
+            self._append_pointer_section(content)
             self._append_analog_controls_section(content)
             self._append_motion_controls_section(content)
             self._append_learn_tile(content)
@@ -358,6 +361,7 @@ class DeviceGridBuilder:
                     prepend=True,
                 )
 
+            self._append_pointer_section(content)
             self._append_analog_controls_section(content)
             self._append_motion_controls_section(content)
             self._append_learn_tile(content)
@@ -381,6 +385,7 @@ class DeviceGridBuilder:
         add_section("Scroll", scroll_buttons, content)
         add_section("Side Buttons", other_buttons, content)
 
+        self._append_pointer_section(content)
         self._append_analog_controls_section(content)
         self._append_motion_controls_section(content)
         self._append_learn_tile(content)
@@ -727,6 +732,49 @@ class DeviceGridBuilder:
         btn.set_child(box)
         btn.connect("clicked", self.callbacks.on_analog_mapping_clicked, analog)
         return btn
+
+    def _append_pointer_section(self, parent: Gtk.Box) -> None:
+        if not pointer_interface_ids(self.device):
+            return
+        label = Gtk.Label(label="Pointer")
+        label.add_css_class("button-section-title")
+        label.set_halign(Gtk.Align.START)
+        parent.append(label)
+        button = Gtk.Button()
+        button.add_css_class("card")
+        button.add_css_class("button-card-passthrough")
+        for side in ("top", "bottom", "start", "end"):
+            getattr(button, f"set_margin_{side}")(2)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        content.set_margin_top(6)
+        content.set_margin_bottom(7)
+        content.set_margin_start(8)
+        content.set_margin_end(8)
+        name = Gtk.Label(label="Pointer Movement")
+        name.add_css_class("heading")
+        name.set_xalign(0.0)
+        content.append(name)
+        action = Gtk.Label(label="Pointer passthrough")
+        action.add_css_class("caption")
+        action.add_css_class("button-card-action-label")
+        action.set_halign(Gtk.Align.FILL)
+        action.set_xalign(0.0)
+        action.set_hexpand(True)
+        action.set_single_line_mode(True)
+        action.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        action.set_width_chars(1)
+        action.set_max_width_chars(self._mapping_action_summary_chars())
+        content.append(action)
+        button._action_label = action
+        button._name_label = name
+        button._button_id = POINTER_SOURCE_ID
+        button._protected = False
+        button.set_size_request(self._button_card_width(), -1)
+        button.set_halign(Gtk.Align.START)
+        button.set_child(content)
+        button.connect("clicked", self.callbacks.on_pointer_mapping_clicked)
+        self.button_widgets[POINTER_SOURCE_ID] = button
+        parent.append(button)
 
     def _append_motion_controls_section(self, parent: Gtk.Box) -> None:
         if not self.device.motion_sensors:

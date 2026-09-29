@@ -543,6 +543,9 @@ def _seed_profiles(config_dir: Path) -> None:
                     "extra_9": _action("start_macro_recording"),
                     "extra_10": _action("exec", cmd="grimblast --freeze copy area"),
                     "extra_11": _action("superkey", superkey_name="wpctl_volume_rocker"),
+                    "pointer": _action(
+                        "pointer_movement", mode="mouse", factor_x=1.0, factor_y=2.0
+                    ),
                     "extra_12": _hyprland_dispatch("hl.dsp.window.center()"),
                     "extra_13": _action("superkey", superkey_name="paste"),
                     "extra_14": _action("superkey", superkey_name="copy"),

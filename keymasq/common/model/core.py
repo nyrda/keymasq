@@ -11,6 +11,7 @@ class ActionType(Enum):
     GAMEPAD_AXIS = "gamepad_axis"
     ANALOG_CONTROL = "analog_control"
     MOTION_CONTROL = "motion_control"
+    POINTER_MOVEMENT = "pointer_movement"
     EXEC = "exec"
     COMPOSITOR_DISPATCH = "compositor_dispatch"
     SUPPRESS = "suppress"

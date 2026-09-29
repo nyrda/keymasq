@@ -21,6 +21,7 @@ import evdev
 HARDWARE_ID = "cafe:0001"
 SECOND_HARDWARE_ID = "cafe:0002"
 GAMEPAD_HARDWARE_ID = "cafe:0003"
+MOUSE_HARDWARE_ID = "cafe:0004"
 # Source devices stand in for physical hardware, so none is named "keymasq-*"
 # or keeps the python-evdev phys. The daemon treats those as its own virtual
 # outputs: it never resolves a keymasq:<vendor>:<product> path to them, and its
@@ -29,6 +30,15 @@ SOURCE_NAME = "integration-source-keyboard"
 SECOND_SOURCE_NAME = "integration-secondary-keyboard"
 GAMEPAD_SOURCE_NAME = "integration-source-gamepad"
 GAMEPAD_SOURCE_PHYS = "integration-gamepad/input0"
+MOUSE_SOURCE_NAME = "integration-source-mouse"
+POINTER_PROFILES = {
+    "Integration Pointer Factors": "pointer-factors.toml",
+    "Integration Pointer Swap": "pointer-swap.toml",
+    "Integration Pointer Stick Velocity": "pointer-stick-velocity.toml",
+    "Integration Pointer Axis Position": "pointer-axis-position.toml",
+    "Integration Pointer Axis Keep": "pointer-axis-keep.toml",
+    "Integration Pointer Axis Recenter": "pointer-axis-recenter.toml",
+}
 SOURCE_HIDING_PROFILE_NAME = "Integration Source Hiding"
 HIDDEN_FLAG_DIR = Path("/run/keymasq/hidden")
 PROFILE_NAME = "Integration Core Smoke"
@@ -139,6 +149,7 @@ class ScenarioContext:
                 MACRO_SLOT_PROFILE_NAME,
                 REPEAT_PROFILE_NAME,
                 EXTENDED_KEYBOARD_OUTPUT_PROFILE_NAME,
+                *POINTER_PROFILES,
                 ROLLOVER_COMBO_PROFILE_NAME,
                 ROLLOVER_OVERRIDE_PROFILE_NAME,
                 ROLLOVER_PROFILE_NAME,
@@ -309,6 +320,52 @@ class ScenarioContext:
         device.device = source_device
         time.sleep(0.5)
         return device
+
+    def create_source_mouse(self) -> evdev.UInput:
+        device = evdev.UInput(
+            events={
+                evdev.ecodes.EV_KEY: [
+                    evdev.ecodes.BTN_LEFT,
+                    evdev.ecodes.BTN_RIGHT,
+                    evdev.ecodes.BTN_MIDDLE,
+                ],
+                evdev.ecodes.EV_REL: [
+                    evdev.ecodes.REL_X,
+                    evdev.ecodes.REL_Y,
+                    evdev.ecodes.REL_WHEEL,
+                ],
+            },
+            name=MOUSE_SOURCE_NAME,
+            vendor=0xCAFE,
+            product=0x0004,
+            phys=f"{MOUSE_SOURCE_NAME}/input0",
+        )
+        self.settle_udev()
+        source_device = self.wait_for_source_device(
+            MOUSE_SOURCE_NAME, vendor=0xCAFE, product=0x0004
+        )
+        existing_device = getattr(device, "device", None)
+        if existing_device is not None and existing_device is not source_device:
+            with contextlib.suppress(OSError, RuntimeError):
+                existing_device.close()
+        device.device = source_device
+        time.sleep(0.5)
+        return device
+
+    def write_mouse_configs(self, source_path: str) -> None:
+        hardware_dir = self.config_dir / "hardware"
+        profiles_dir = self.config_dir / "profiles"
+        hardware_dir.mkdir(parents=True, exist_ok=True)
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        values = {"MOUSE_HARDWARE_ID": MOUSE_HARDWARE_ID, "MOUSE_SOURCE_PATH": source_path}
+        self.write_fixture(hardware_dir / "cafe_0004.toml", "hardware/mouse.toml", values)
+        for fixture_name in POINTER_PROFILES.values():
+            self.write_fixture(profiles_dir / fixture_name, f"profiles/{fixture_name}", values)
+
+    def remove_mouse_configs(self) -> None:
+        (self.config_dir / "hardware" / "cafe_0004.toml").unlink(missing_ok=True)
+        for fixture_name in POINTER_PROFILES.values():
+            (self.config_dir / "profiles" / fixture_name).unlink(missing_ok=True)
 
     def write_gamepad_hardware_config(self) -> None:
         """Hardware plus a mapped profile: the session only grabs mapped hardware."""

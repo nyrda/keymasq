@@ -104,6 +104,7 @@ nav:
       - Actions: actions.md
       - Analog Controls: analog-controls.md
       - Motion Controls: motion-controls.md
+      - Pointer Movement: pointer-movement.md
       - Superkeys: superkeys.md
       - Combos: combos.md
       - Rollover Groups: rollover.md

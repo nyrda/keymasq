@@ -1,0 +1,26 @@
+[hardware]
+name = "Keymasq Integration Source Mouse"
+vendor_id = "cafe"
+product_id = "0004"
+
+[[hardware.evdev.devices]]
+path = "$MOUSE_SOURCE_PATH"
+type = "mouse"
+id = "mouse"
+
+[hardware.layout]
+type = "mouse"
+
+[[hardware.layout.buttons]]
+id = "btn_left"
+label = "Left Click"
+evdev = "btn_left"
+source = "mouse"
+type = "button"
+
+[[hardware.layout.buttons]]
+id = "btn_right"
+label = "Right Click"
+evdev = "btn_right"
+source = "mouse"
+type = "button"

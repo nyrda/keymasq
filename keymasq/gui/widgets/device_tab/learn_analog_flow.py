@@ -15,6 +15,7 @@ from keymasq.common.model.hardware import (
     AnalogInputDefinition,
     HardwareConfig,
 )
+from keymasq.common.model.pointer import POINTER_SOURCE_ID
 from keymasq.gui.session_client import JsonDict
 from keymasq.gui.widgets.device_tab.capture_helpers import (
     _make_capture_status_row,
@@ -773,6 +774,8 @@ class LearnAnalogFlow:
         return normalized or self._next_analog_id("stick" if analog_type == "stick" else "axis")
 
     def _input_id_exists(self, input_id: str) -> bool:
+        if input_id == POINTER_SOURCE_ID:
+            return True
         return any(button.id == input_id for button in self.hardware_config.buttons) or any(
             analog.id == input_id for analog in self.hardware_config.analog_inputs
         )

@@ -1,0 +1,16 @@
+[profile]
+name = "Integration Pointer Factors"
+enabled = false
+is_permanent = true
+priority = 150
+notify_on_activation = false
+created_at = "2026-09-27T00:00:01"
+
+[devices."$MOUSE_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$MOUSE_HARDWARE_ID".mapping.pointer]
+action = "pointer_movement"
+mode = "mouse"
+factor_x = 0.5
+factor_y = 2.0

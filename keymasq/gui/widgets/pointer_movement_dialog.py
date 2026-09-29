@@ -64,8 +64,12 @@ def _selected(row: Adw.ComboRow, options: tuple[tuple[str, str], ...]) -> str:
     return options[index][0] if 0 <= index < len(options) else options[0][0]
 
 
-def _fraction(percent_row: Adw.SpinRow) -> float:
-    return round(percent_row.get_value() / 100.0, 9)
+def _kept(row: Adw.SpinRow, loaded: float, scale: float = 1.0) -> float:
+    """Keep a loaded value the field still shows; GTK rounds it to the display on focus loss."""
+    value = row.get_value()
+    if abs(value - loaded * scale) <= 0.5 / 10 ** row.get_digits():
+        return loaded
+    return value / scale
 
 
 class PointerMovementDialog(Adw.Dialog):
@@ -94,6 +98,7 @@ class PointerMovementDialog(Adw.Dialog):
             and current_action.pointer_movement is not None
             else PointerMovementConfig()
         )
+        self._loaded = config
         self._saved_axes = (config.x_axis, config.y_axis)
         mode = next(
             (
@@ -280,7 +285,6 @@ class PointerMovementDialog(Adw.Dialog):
             (self.response_curve_row, 0.25),
         ):
             add_spin_secondary_step_controller(row, page_step=step, snap_to_step=True)
-        self._loaded_spin_state = [(row.get_value(), row.get_text()) for row in self._spin_rows]
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.set_vexpand(True)
         content.append(page)
@@ -298,31 +302,30 @@ class PointerMovementDialog(Adw.Dialog):
         )
 
     def config(self, mode: str) -> PointerMovementConfig:
-        # update() reparses the rounded display text, so only rows the user touched.
-        for row, loaded in zip(self._spin_rows, self._loaded_spin_state, strict=True):
-            if (row.get_value(), row.get_text()) != loaded:
-                row.update()
+        for row in self._spin_rows:
+            row.update()
+        loaded = self._loaded
         return PointerMovementConfig(
             mode=mode,
-            factor_x=self.factor_x_row.get_value(),
-            factor_y=self.factor_y_row.get_value(),
+            factor_x=_kept(self.factor_x_row, loaded.factor_x),
+            factor_y=_kept(self.factor_y_row, loaded.factor_y),
             invert_x=self.invert_x_row.get_active(),
             invert_y=self.invert_y_row.get_active(),
             swap_axes=self.swap_row.get_active(),
             output_id=self._selected_output_id,
             behavior=_selected(self.behavior_row, _BEHAVIORS),
-            full_speed=self.full_speed_row.get_value(),
+            full_speed=_kept(self.full_speed_row, loaded.full_speed),
             window_ms=int(self.window_row.get_value()),
-            radius=self.radius_row.get_value(),
+            radius=_kept(self.radius_row, loaded.radius),
             overshoot=_selected(self.overshoot_row, _OVERSHOOT),
             recenter_ms=int(self.recenter_row.get_value()),
             x_axis=self._selected_axis(self.x_axis_row),
             y_axis=self._selected_axis(self.y_axis_row),
             x_direction=_selected(self.x_direction_row, _DIRECTIONS),
             y_direction=_selected(self.y_direction_row, _DIRECTIONS),
-            deadzone=_fraction(self.deadzone_row),
-            minimum_output=_fraction(self.minimum_output_row),
-            response_curve=self.response_curve_row.get_value(),
+            deadzone=_kept(self.deadzone_row, loaded.deadzone, 100.0),
+            minimum_output=_kept(self.minimum_output_row, loaded.minimum_output, 100.0),
+            response_curve=_kept(self.response_curve_row, loaded.response_curve),
         )
 
     def _sync_visibility(self, *_args: object) -> None:

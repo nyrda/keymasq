@@ -154,6 +154,7 @@ async def cleanup_runtime_failure(
     device_runtime: GrabbedDeviceRuntime, *, log: logging.Logger
 ) -> None:
     device_runtime.state.analog_deferred_keys.clear()
+    release_pointer_movement(device_runtime, deps=build_action_execution_deps())
     if device_runtime.runtime_cleanup_callback is not None:
         try:
             await device_runtime.runtime_cleanup_callback(
@@ -165,7 +166,6 @@ async def cleanup_runtime_failure(
                 "Failed to clear combo runtime after device error on %s",
                 device_runtime.path,
             )
-    release_pointer_movement(device_runtime, deps=build_action_execution_deps())
     try:
         await device_runtime.reset_analog_controls()
     except Exception:

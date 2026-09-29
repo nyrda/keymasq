@@ -3,7 +3,8 @@
 import logging
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping
+from contextlib import contextmanager
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig, AnalogGamepadOutputConfig
@@ -166,12 +167,26 @@ def release_pointer_movement(
     if task is not None:
         task.cancel()
     device_runtime.state.pointer_movement = PointerMovementState()
+    recorded = next(
+        (
+            output
+            for key in POINTER_STATE_KEYS
+            if (output := device_runtime.state.analog_gamepad_outputs.get(key)) is not None
+        ),
+        None,
+    )
     try:
-        reset_recorded_gamepad_outputs(
-            device_runtime,
-            deps=deps,
-            state_key_prefix=POINTER_STATE_PREFIX,
+        target = (
+            device_runtime.resolve_gamepad_output(recorded.output_id, "pointer output reset")
+            if recorded is not None
+            else None
         )
+        with _one_report(device_runtime, getattr(target, "uinput", None), deps=deps):
+            reset_recorded_gamepad_outputs(
+                device_runtime,
+                deps=deps,
+                state_key_prefix=POINTER_STATE_PREFIX,
+            )
     except OSError:
         log.exception("Failed to return pointer axes to rest for %s", device_runtime.path)
     for state_key in POINTER_STATE_KEYS:
@@ -310,13 +325,7 @@ def _emit_axes(
     if not outputs:
         return
     target = resolve_gamepad_output_target(device_runtime, POINTER_SOURCE_ID, outputs[0][1])
-    uinput = getattr(target, "uinput", None)
-    previous_frame = device_runtime.state.passthrough_frame_output
-    # One SYN for both axes, so a diagonal move is never observed half applied.
-    batched = uinput is not None and previous_frame is not uinput
-    if batched:
-        device_runtime.state.passthrough_frame_output = uinput
-    try:
+    with _one_report(device_runtime, getattr(target, "uinput", None), deps=deps):
         for state_key, axis_config, value, direction in outputs:
             shaped = _shaped(value, config, one_sided=direction != "both")
             device_runtime.state.analog_axis_values[state_key] = {
@@ -326,12 +335,28 @@ def _emit_axes(
             emit_gamepad_output(
                 device_runtime, state_key, POINTER_SOURCE_ID, axis_config, deps=deps
             )
+
+
+@contextmanager
+def _one_report(
+    device_runtime: GrabbedDeviceRuntime,
+    uinput: object | None,
+    *,
+    deps: ActionExecutionDeps,
+) -> Generator[None]:
+    """Write both pointer axes under one SYN, so a diagonal is never observed half applied."""
+    previous_frame = device_runtime.state.passthrough_frame_output
+    if uinput is None or previous_frame is uinput:
+        yield
+        return
+    device_runtime.state.passthrough_frame_output = uinput
+    try:
+        yield
     finally:
-        if batched:
-            device_runtime.state.passthrough_frame_output = previous_frame
-            writer = deps.uinput_writer(uinput)
-            if writer is not None:
-                writer.syn()
+        device_runtime.state.passthrough_frame_output = previous_frame
+        writer = deps.uinput_writer(uinput)
+        if writer is not None:
+            writer.syn()
 
 
 def _ensure_settle_task(

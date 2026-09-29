@@ -141,6 +141,8 @@ def test_untouched_fields_keep_precision_the_display_rounds_and_typed_text_still
     )
 
     dialog.apply_button.emit("clicked")
+    for row in (dialog.factor_x_row, dialog.minimum_output_row, dialog.response_curve_row):
+        row.update()
     dialog.factor_y_row.set_text("3")
     dialog.save_button.emit("clicked")
 

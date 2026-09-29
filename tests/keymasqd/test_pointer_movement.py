@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 import evdev
@@ -7,7 +8,12 @@ import pytest
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.common.model.pointer import PointerMovementConfig
-from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import process_event
+from keymasq.keymasqd.runtime.grabbed_device.event.pipeline import (
+    build_action_execution_deps,
+    cleanup_runtime_failure,
+    process_event,
+)
+from keymasq.keymasqd.runtime.pointer_movement import release_pointer_movement
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     grabbed_event_processing_deps,
@@ -354,3 +360,53 @@ async def test_button_named_pointer_does_not_take_over_mouse_movement(monkeypatc
     await _send(device, (ec.EV_REL, ec.REL_X, 5), (ec.EV_SYN, ec.SYN_REPORT, 0))
 
     assert (ec.EV_REL, ec.REL_X, 5) in passthrough.writes
+
+
+@pytest.mark.asyncio
+async def test_runtime_failure_releases_pointer_before_awaiting_other_cleanup(monkeypatch):
+    gamepad = FakeUInput()
+    tasks_during_cleanup: list[object] = []
+
+    async def cleanup(_hardware_id: str, _interface_id: str | None) -> None:
+        tasks_during_cleanup.append(device.state.pointer_movement.task)
+        await asyncio.sleep(0.05)
+
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": _axes_action(full_speed=1000, window_ms=20)},
+        gamepad_uinput=gamepad,
+        passthrough_uinput=FakeUInput(),
+        runtime_cleanup_callback=cleanup,
+    )
+    await _send_at(device, time.monotonic_ns(), 10)
+
+    await cleanup_runtime_failure(device, log=logging.getLogger("test"))
+
+    assert tasks_during_cleanup == [None]
+    assert _abs_x(gamepad) == [16384, 0]
+
+
+@pytest.mark.asyncio
+async def test_released_diagonal_returns_both_axes_to_rest_in_one_report(monkeypatch):
+    gamepad = _SynRecordingUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        mapping={"pointer": _axes_action(behavior="position", radius=1000, y_axis="abs_y")},
+        gamepad_uinput=gamepad,
+        passthrough_uinput=FakeUInput(),
+    )
+    await _send(
+        device,
+        (ec.EV_REL, ec.REL_X, 500),
+        (ec.EV_REL, ec.REL_Y, -500),
+        (ec.EV_SYN, ec.SYN_REPORT, 0),
+    )
+    gamepad.writes.clear()
+
+    release_pointer_movement(device, deps=build_action_execution_deps())
+
+    assert gamepad.writes == [
+        (ec.EV_ABS, ec.ABS_X, 0),
+        (ec.EV_ABS, ec.ABS_Y, 0),
+        (ec.EV_SYN, ec.SYN_REPORT, 0),
+    ]

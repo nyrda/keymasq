@@ -80,11 +80,15 @@ def is_pointer_interface(device: "EvdevDevice") -> bool:
     }
 
 
+def pointer_id_claimed(hardware: "HardwareConfig") -> bool:
+    """Whether a configured control, possibly older than the pointer source, owns its ID."""
+    controls = (*hardware.buttons, *hardware.analog_inputs, *hardware.motion_sensors)
+    return any(control.id == POINTER_SOURCE_ID for control in controls)
+
+
 def pointer_interface_ids(hardware: "HardwareConfig") -> list[str]:
     """Return configured interfaces that report relative pointer movement."""
-    controls = (*hardware.buttons, *hardware.analog_inputs, *hardware.motion_sensors)
-    # A control configured before the pointer source existed keeps the ID and its mappings.
-    if any(control.id == POINTER_SOURCE_ID for control in controls):
+    if pointer_id_claimed(hardware):
         return []
     return [
         device.id for device in hardware.evdev_devices if device.id and is_pointer_interface(device)

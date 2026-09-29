@@ -159,15 +159,18 @@ def run_stick_velocity(ctx: ScenarioContext) -> None:
         _expect_axes(ctx, (ABS_RY, -8192), (ABS_RY, 0))
 
         _move(source, 25)
-        time.sleep(0.1)
+        first_move = time.monotonic()
+        _expect_axes(ctx, (ABS_RX, 8192))
+        time.sleep(max(0.0, 0.1 - (time.monotonic() - first_move)))
         _move(source, 25)
-        _expect_axes(ctx, (ABS_RX, 8192), (ABS_RX, 16384), (ABS_RX, 8192), (ABS_RX, 0))
+        _expect_axes(ctx, (ABS_RX, 16384), (ABS_RX, 8192), (ABS_RX, 0))
 
         _move(source, 500, 500)
         _expect_axes(
             ctx, (ABS_RX, 32767), (ABS_RY, 32767), (ABS_RX, 0), (ABS_RY, 0), reports=(2, 2)
         )
         _expect_rel(ctx, passthrough, [])
+        ctx.expect_no_gamepad_events()
 
 
 def run_axis_position(ctx: ScenarioContext) -> None:
@@ -214,3 +217,4 @@ def run_axis_position(ctx: ScenarioContext) -> None:
         _expect_axes(ctx, (ABS_X, 16384))
         ctx.set_profile_enabled(POSITION, enabled=False)
         _expect_axes(ctx, (ABS_X, 0))
+        ctx.expect_no_gamepad_events()

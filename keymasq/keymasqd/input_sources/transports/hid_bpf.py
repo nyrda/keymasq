@@ -109,12 +109,13 @@ async def reports(
                     seen, progress_at = count, now
                 elif now - progress_at > STALL_S:
                     raise OSError(errno.ENODEV, "HID-BPF source stopped receiving reports")
-                changes = [item for item in _drain(consumer, producer) if item[0] > delivered]
-                # The state map may be ahead of records not yet submitted or lost to a full ring.
+                # The program stores the state before submitting its record, so read it first.
                 sequence = struct.unpack_from("<Q", state, SEQUENCE_OFFSET)[0]
                 current = bytes(
                     state[DRIVER_STATE_OFFSET : DRIVER_STATE_OFFSET + DRIVER_STATE_SIZE]
                 )
+                changes = [item for item in _drain(consumer, producer) if item[0] > delivered]
+                # The state is ahead for a record not yet submitted or lost to a full ring.
                 if sequence > max((item[0] for item in changes), default=delivered):
                     changes.append((sequence, current))
                 if not changes:

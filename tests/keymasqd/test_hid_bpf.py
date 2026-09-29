@@ -324,6 +324,25 @@ async def test_hid_bpf_reports_deliver_buffered_transitions_in_order(monkeypatch
     maps.close()
 
 
+async def test_hid_bpf_reports_keep_transitions_committed_after_a_drain(monkeypatch):
+    maps = HidBpfMaps(monkeypatch)
+    maps.report(1, 0x01, (1, 0x01))
+    drain = hid_bpf._drain
+    commits = [lambda: maps.report(3, 0x01, (2, 0x81), (3, 0x01))]
+
+    def drain_before_commits(consumer, producer):
+        records = drain(consumer, producer)
+        while commits:
+            commits.pop()()
+        return records
+
+    monkeypatch.setattr(hid_bpf, "_drain", drain_before_commits)
+    stream = hid_bpf.reports(deck_binding(), attach=maps.attach)
+    assert [right_stick(await anext(stream)) for _ in range(3)] == [0, 1, 0]
+    await stream.aclose()
+    maps.close()
+
+
 async def test_hid_bpf_reports_recover_the_state_of_lost_records(monkeypatch):
     maps = HidBpfMaps(monkeypatch)
     maps.report(4, 0x89)

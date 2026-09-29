@@ -74,11 +74,11 @@ def test_slurp_mode_values() -> None:
 
 
 @pytest.fixture
-def wayland_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+def wayland_session(monkeypatch: pytest.MonkeyPatch, temp_socket_dir: Path) -> Iterator[None]:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-        server.bind(str(tmp_path / "wayland-1"))
+        server.bind(str(temp_socket_dir / "wayland-1"))
         server.listen()
-        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(temp_socket_dir))
         monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
         yield
 
@@ -110,12 +110,12 @@ def test_slurp_capture_available_on_wayland_session(compositor: str) -> None:
 @pytest.mark.parametrize("wayland_display", [None, "gamescope-0", "stale-0"])
 def test_slurp_capture_unavailable_on_kde_without_wayland_display(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    temp_socket_dir: Path,
     wayland_display: str | None,
 ) -> None:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stale:
-        stale.bind(str(tmp_path / "stale-0"))
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        stale.bind(str(temp_socket_dir / "stale-0"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(temp_socket_dir))
     if wayland_display is None:
         monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     else:
